@@ -1,0 +1,33 @@
+Third-Party Asset Notices
+=========================
+
+The following assets are licensed under Creative Commons Attribution 4.0
+International (CC-BY 4.0). You must give appropriate credit when
+redistributing these files.
+
+Full license text: https://creativecommons.org/licenses/by/4.0/
+
+------------------------------------------------------------------------
+
+models/antique_camera.glb
+  Original: AntiqueCamera
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   UX3D
+  License:  CC-BY 4.0
+
+models/box_textured.glb
+  Original: BoxTextured
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   Cesium
+  License:  CC-BY 4.0
+
+models/fox.glb
+  Original: Fox (mesh CC-0, rigging/animation CC-BY 4.0)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   PixelMannen (mesh, CC-0), tomkranis (rigging/animation, CC-BY 4.0)
+  License:  CC-BY 4.0
+
+------------------------------------------------------------------------
+
+All other assets in this directory are CC-0 (public domain) and require
+no attribution.

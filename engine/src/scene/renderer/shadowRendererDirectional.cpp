@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 18.10.2025.
+//
+#include "shadowRendererDirectional.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <numbers>
+
+#include "renderPassShadowDirectional.h"
+#include "renderer.h"
+#include "shadowRenderer.h"
+#include "scene/graphNode.h"
+
+namespace visutwin::canvas
+{
+    ShadowRendererDirectional::ShadowRendererDirectional(const std::shared_ptr<GraphicsDevice>& device,
+        Renderer* renderer, ShadowRenderer* shadowRenderer)
+        : _renderer(renderer), _shadowRenderer(shadowRenderer), _device(device)
+    {
+    }
+
+    // lines 204-216.
+    void ShadowRendererDirectional::generateSplitDistances(Light* light, const float nearDist, const float farDist)
+    {
+        float* distances = light->shadowCascadeDistancesData();
+        const int numCascades = light->numCascades();
+        const float distribution = light->cascadeDistribution();
+
+        // Fill all 4 with farDist as default
+        for (int i = 0; i < 4; ++i) {
+            distances[i] = farDist;
+        }
+
+        for (int i = 1; i < numCascades; ++i) {
+            const float fraction = static_cast<float>(i) / static_cast<float>(numCascades);
+            const float linearDist = nearDist + (farDist - nearDist) * fraction;
+            const float logDist = nearDist * std::pow(farDist / std::max(nearDist, 0.001f), fraction);
+            distances[i - 1] = linearDist + (logDist - linearDist) * distribution;
+        }
+        distances[numCascades - 1] = farDist;
+    }
+
+    void ShadowRendererDirectional::cull(Light* light, Camera* camera)
+    {
+        if (!light || !camera || !_shadowRenderer || light->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
+            return;
+        }
+
+        // lines 72-201.
+        // Compute split distances for all cascades.
+        const float nearDist = camera->nearClip();
+        const float farDist = std::min(camera->farClip(), light->shadowDistance());
+        generateSplitDistances(light, nearDist, farDist);
+
+        // Get light direction from the light's node. Directional lights emit along -Y.
+        GraphNode* lightNode = light->node();
+        Vector3 lightDir(0.0f, -1.0f, 0.0f);
+        Quaternion lightRotation;
+        if (lightNode) {
+            const auto& lightWorld = lightNode->worldTransform();
+            lightDir = Vector3(lightWorld.getColumn(1)) * -1.0f;
+            if (lightDir.lengthSquared() < 1e-8f) {
+                lightDir = Vector3(0.0f, -1.0f, 0.0f);
+            } else {
+                lightDir = lightDir.normalized();
+            }
+            lightRotation = lightNode->rotation();
+        }
+
+        // Shadow camera rotation: align -Z with lightDir.
+        // upstream applies the light rotation then rotates -90° on X to map -Y → -Z.
+        const Quaternion pitchDown = Quaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f);
+        const Quaternion shadowRotation = lightRotation * pitchDown;
+
+        // Build shadow-camera rotation matrix for pixel alignment calculations.
+        const Matrix4 shadowRotMat = Matrix4::trs(Vector3(0.0f), shadowRotation, Vector3(1.0f));
+
+        // Camera world transform for transforming frustum corners to world space.
+        const Matrix4 cameraWorldMat = camera->node()
+            ? camera->node()->worldTransform() : Matrix4::identity();
+
+        const int numCascades = light->numCascades();
+        const float* distances = light->shadowCascadeDistances().data();
+        const int resolution = light->shadowResolution();
+
+        for (int cascade = 0; cascade < numCascades; ++cascade) {
+            LightRenderData* lightRenderData = _shadowRenderer->getLightRenderData(light, camera, cascade);
+            if (!lightRenderData || !lightRenderData->shadowCamera) {
+                continue;
+            }
+
+            Camera* shadowCam = lightRenderData->shadowCamera;
+            auto& shadowCamNode = shadowCam->node();
+            if (!shadowCamNode) {
+                continue;
+            }
+
+            // Set cascade viewport/scissor from the light's cascade layout.
+            lightRenderData->shadowViewport = light->cascadeViewports()[cascade];
+            lightRenderData->shadowScissor = light->cascadeViewports()[cascade];
+
+            // Get frustum corners for this cascade's depth slice.
+            const float frustumNear = (cascade == 0) ? nearDist : distances[cascade - 1];
+            const float frustumFar = distances[cascade];
+            auto frustumPoints = camera->getFrustumCorners(frustumNear, frustumFar);
+
+            // Transform corners to world space and compute bounding sphere center.
+            Vector3 center(0.0f);
+            for (int i = 0; i < 8; ++i) {
+                frustumPoints[i] = cameraWorldMat.transformPoint(frustumPoints[i]);
+                center = center + frustumPoints[i];
+            }
+            center = center * (1.0f / 8.0f);
+
+            // Compute bounding sphere radius (max distance from center to any corner).
+            float radius = 0.0f;
+            for (int i = 0; i < 8; ++i) {
+                const float dist = (frustumPoints[i] - center).length();
+                if (dist > radius) {
+                    radius = dist;
+                }
+            }
+
+            // Pixel-align shadow camera position to avoid shadow swimming.
+            //lines 136-151.
+            if (resolution > 0 && radius > 0.0f) {
+                // Use per-cascade pixel count for the snap grid. With multi-cascade,
+                // each cascade viewport is a fraction of the full texture (e.g. 0.5×0.5
+                // for 4 cascades in a 2×2 grid). Snapping to the full resolution would
+                // produce a grid 2× too coarse.
+                const float vpSize = light->cascadeViewports()[cascade].getZ();  // normalized width
+                const float cascadeRes = static_cast<float>(resolution) * vpSize;
+                const float sizeRatio = 0.25f * cascadeRes / radius;
+
+                // Extract shadow camera axes from rotation matrix.
+                const Vector3 right = Vector3(shadowRotMat.getColumn(0));
+                const Vector3 up = Vector3(shadowRotMat.getColumn(1));
+                const Vector3 forward = Vector3(shadowRotMat.getColumn(2));
+
+                // Project center onto shadow camera axes, snap, reconstruct.
+                const float x = std::ceil(center.dot(up) * sizeRatio) / sizeRatio;
+                const float y = std::ceil(center.dot(right) * sizeRatio) / sizeRatio;
+                const float z = center.dot(forward);
+
+                center = up * x + right * y + forward * z;
+            }
+
+            // Position shadow camera far behind the center, looking along lightDir.
+            // upstream positions at center + forward * 1,000,000 initially for culling,
+            // then tightens near/far to the actual caster depth range (lines 190-197).
+            shadowCamNode->setRotation(shadowRotation);
+            shadowCamNode->setPosition(center);
+            shadowCamNode->translateLocal(0.0f, 0.0f, 1000000.0f);
+
+            // Set orthographic projection to encompass the cascade's bounding sphere.
+            shadowCam->setProjection(ProjectionType::Orthographic);
+            shadowCam->setOrthoHeight(radius);
+            shadowCam->setNearClip(0.01f);
+            shadowCam->setFarClip(2000000.0f);
+            shadowCam->setAspectRatio(1.0f);
+
+            // tighten shadow camera near/far to the depth range of
+            // the frustum slice for maximum depth precision in the shadow map.
+            //lines 190-197.
+            // Without per-cascade caster culling, we approximate using the frustum points'
+            // depth range (which bounds the receivers). A generous margin is added for
+            // shadow casters that may be outside the camera frustum.
+            {
+                const Matrix4 shadowCamView = shadowCamNode->worldTransform().inverse();
+                float depthMin = 1e30f;
+                float depthMax = -1e30f;
+                for (int i = 0; i < 8; ++i) {
+                    const float z = shadowCamView.transformPoint(frustumPoints[i]).getZ();
+                    if (z < depthMin) depthMin = z;
+                    if (z > depthMax) depthMax = z;
+                }
+
+                // Reposition: translate forward so near plane is just behind closest point.
+                // Upstream: shadowCamNode.translateLocal(0, 0, depthRange.max + 0.1)
+                shadowCamNode->translateLocal(0.0f, 0.0f, depthMax + 0.1f);
+
+                // Set tight far clip covering the frustum depth range.
+                // Upstream: shadowCam.farClip = depthRange.max - depthRange.min + 0.2
+                shadowCam->setFarClip(depthMax - depthMin + 0.2f);
+            }
+
+            // Build the viewport-scaled shadow matrix for this cascade:
+            // shadowMatrix = viewportMatrix × shadowCamProj × shadowCamView
+            // The viewport matrix maps NDC to the cascade's sub-region of the atlas.
+            const Matrix4 shadowView = shadowCamNode->worldTransform().inverse();
+            const Matrix4 shadowVP = shadowCam->projectionMatrix() * shadowView;
+
+            const Vector4& vp = light->cascadeViewports()[cascade];
+            // upstream Mat4.setViewport: maps clip coords to viewport sub-region.
+            // Metal texture origin is top-left (vs OpenGL bottom-left), which flips the
+            // Y axis. This is handled by negating the Y scale; the Y translate stays the
+            // same as upstream because the viewport coordinates already correspond to
+            // Metal's top-left-origin coordinate system. Remaps NDC [-1,1] → [0,1] for Z.
+            Matrix4 viewportMatrix = Matrix4::identity();
+            viewportMatrix.setElement(0, 0, vp.getZ() * 0.5f);                         // X: scale by width/2
+            viewportMatrix.setElement(3, 0, vp.getX() + vp.getZ() * 0.5f);              // X: translate to region center
+            // Metal: negative Y scale maps NDC Y to top-down texture V; the translate
+            // is the same as upstream (no extra 1-y flip needed) because Metal viewport
+            // and texture coordinates share the same top-left origin.
+            viewportMatrix.setElement(1, 1, -vp.getW() * 0.5f);                         // Y: scale by -height/2 (Metal Y flip)
+            viewportMatrix.setElement(3, 1, vp.getY() + vp.getW() * 0.5f);              // Y: translate to region center
+            // Z: map from OpenGL NDC [-1,1] to Metal [0,1]
+            // Note: shadow-vertex.metal applies clip.z = 0.5*(clip.z+clip.w), so depth
+            // is already in [0,1] after vertex shader. The projection matrix produces
+            // OpenGL NDC z in [-1,1], but we bake the [0,1] mapping here since the
+            // shader reads the final shadow depth directly.
+            viewportMatrix.setElement(2, 2, 0.5f);                                      // Z: scale by 0.5
+            viewportMatrix.setElement(3, 2, 0.5f);                                      // Z: bias by 0.5
+
+            const Matrix4 shadowMatrix = viewportMatrix * shadowVP;
+
+            // Store in the light's matrix palette (column-major, 16 floats per cascade).
+            //_shadowMatrixPalette.set(data, face * 16).
+            // Matrix4 is 64 bytes on all SIMD backends — memcpy directly (same H1 fix
+            // as SkinBatchInstance::updateMatrices).
+            float* palette = light->shadowMatrixPaletteData();
+            std::memcpy(&palette[cascade * 16], &shadowMatrix, 64);
+        }
+    }
+
+    std::shared_ptr<RenderPass> ShadowRendererDirectional::getLightRenderPass(Light* light, Camera* camera,
+        const int face, const bool clearRenderTarget, const bool allCascadesRendering)
+    {
+        if (!_shadowRenderer || !_device || !light || !camera || light->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
+            return nullptr;
+        }
+
+        // Prepare all cascade faces (each gets its render target assigned).
+        const int faceCount = light->numShadowFaces();
+        Camera* shadowCamera = nullptr;
+        for (int f = 0; f < faceCount; ++f) {
+            shadowCamera = _shadowRenderer->prepareFace(light, camera, f);
+        }
+        if (!shadowCamera) {
+            return nullptr;
+        }
+
+        auto renderPass = std::make_shared<RenderPassShadowDirectional>(_device, _shadowRenderer, light, camera, shadowCamera, face,
+            allCascadesRendering);
+        _shadowRenderer->setupRenderPass(renderPass.get(), shadowCamera, clearRenderTarget);
+        return renderPass;
+    }
+
+    void ShadowRendererDirectional::buildNonClusteredRenderPasses(FrameGraph* frameGraph,
+        const std::unordered_map<Camera*, std::vector<Light*>>& cameraDirShadowLights)
+    {
+        if (!frameGraph || !_shadowRenderer || !_device) {
+            return;
+        }
+
+        for (const auto& [camera, lights] : cameraDirShadowLights) {
+            if (!camera) {
+                continue;
+            }
+            for (auto* light : lights) {
+                if (!light || light->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
+                    continue;
+                }
+                if (!_shadowRenderer->needsShadowRendering(light)) {
+                    continue;
+                }
+
+                // Single render pass per light — the pass internally loops over all cascades
+                // with per-cascade viewport/scissor.
+                auto renderPass = getLightRenderPass(light, camera, 0, true, true);
+                if (renderPass) {
+                    frameGraph->addRenderPass(renderPass);
+                }
+            }
+        }
+    }
+}

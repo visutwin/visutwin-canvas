@@ -1,0 +1,31 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "default",
+      "binaryDir": "${sourceDir}/build",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "23",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "vulkan",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-vulkan",
+      "cacheVariables": {
+        "VISUTWIN_BACKEND_VULKAN": "ON",
+        "VCPKG_MANIFEST_FEATURES": "vulkan"
+      }
+    }
+  ]
+}

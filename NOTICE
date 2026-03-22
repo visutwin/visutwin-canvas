@@ -1,0 +1,67 @@
+VisuTwin Canvas
+Copyright 2025-2026 Arnis Lektauers
+
+This product is licensed under the Apache License, Version 2.0.
+
+================================================================================
+
+This project contains code derived from the PlayCanvas engine
+(https://github.com/playcanvas/engine), a JavaScript/TypeScript 3D engine.
+The C++ implementation preserves the original architecture, class structure,
+and algorithms while targeting Apple Metal as the graphics backend.
+
+PlayCanvas is licensed under the MIT License:
+
+  Copyright (c) 2011-2026 PlayCanvas Ltd.
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  THE SOFTWARE.
+
+================================================================================
+
+This project includes the following third-party libraries:
+
+metal-cpp
+  Copyright 2024 Apple Inc.
+  Licensed under the Apache License, Version 2.0
+  https://developer.apple.com/metal/cpp/
+
+stb_image (stb)
+  Copyright (c) 2017 Sean Barrett
+  Licensed under the MIT License / Public Domain
+  https://github.com/nothings/stb
+
+================================================================================
+
+Test Assets (assets-private/ directory)
+
+The assets-private/ directory contains test assets used for internal development and
+parity testing with the PlayCanvas engine. These assets are NOT included in
+public releases and must not be redistributed.
+
+Sources and licenses:
+
+  Models from Sketchfab (CC-BY-4.0):
+    See individual .txt files alongside each model for attribution.
+
+  Cubemap environment atlases, textures, HDRIs:
+    Sourced from PlayCanvas engine examples for internal testing only.
+    Original provenance and licenses may vary per asset.
+
+For public/open-source distribution, substitute these with original assets
+or confirmed CC-0/public domain alternatives.

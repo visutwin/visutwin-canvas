@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "visutwin-canvas",
+  "version-string": "0.1.0",
+  "description": "C++ 3D engine targeting Apple Metal, derived from the PlayCanvas engine",
+  "license": "Apache-2.0",
+  "builtin-baseline": "1e199d32ad53aab1defda61ce41c380302e3f95c",
+  "dependencies": [
+    { "name": "spdlog",         "version>=": "1.17.0", "default-features": false, "features": ["tz-offset"] },
+    { "name": "sdl3",           "version>=": "3.4.0" },
+    { "name": "tinyobjloader"                         },
+    { "name": "tinygltf"                              },
+    { "name": "draco"                                 },
+    { "name": "assimp"                                },
+    { "name": "boost-core"                            },
+    { "name": "imgui",          "features": ["sdl3-binding", "metal-binding", "docking-experimental"] },
+    { "name": "implot"                               }
+  ],
+  "features": {
+    "vulkan": {
+      "description": "Vulkan rendering backend",
+      "dependencies": [
+        { "name": "vulkan-headers"           },
+        { "name": "vulkan-memory-allocator"  },
+        { "name": "vk-bootstrap"             }
+      ]
+    }
+  }
+}

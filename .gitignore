@@ -1,0 +1,31 @@
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+build
+cmake-build-debug
+cmake-build-release
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+/.cache
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+CMakeUserPresets.json
+
+# Private test assets (not for public distribution)
+/assets-private/
+/_assets-private/
+
+# Claude Code
+.claude/
