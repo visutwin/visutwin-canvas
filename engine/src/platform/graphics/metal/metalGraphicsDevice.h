@@ -65,6 +65,7 @@ namespace visutwin::canvas
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) override;
+        void setAtmosphereUniforms(const void* data, size_t size) override;
 
         [[nodiscard]] MTL::Device* raw() const { return _device; }
         [[nodiscard]] MTL::CommandQueue* commandQueue() const { return _commandQueue; }

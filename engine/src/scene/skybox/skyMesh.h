@@ -31,6 +31,10 @@ namespace visutwin::canvas
 
         MeshInstance* meshInstance() const { return _meshInstance.get(); }
 
+        /// Create a full UV sphere mesh (no flattening). Used for atmosphere sky.
+        static std::shared_ptr<Mesh> createSphereMesh(const std::shared_ptr<GraphicsDevice>& device,
+            int latBands = 64, int lonBands = 64);
+
     private:
         std::shared_ptr<Mesh> createInfiniteMesh(const std::shared_ptr<GraphicsDevice>& device) const;
         std::shared_ptr<Mesh> createBoxMesh(const std::shared_ptr<GraphicsDevice>& device) const;

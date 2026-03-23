@@ -333,6 +333,59 @@ namespace visutwin::canvas
         return createMesh(device, vertices, indices);
     }
 
+    std::shared_ptr<Mesh> SkyMesh::createSphereMesh(const std::shared_ptr<GraphicsDevice>& device,
+        const int latBands, const int lonBands)
+    {
+        constexpr float pi = 3.14159265358979323846f;
+        // Large radius ensures the sphere extends well beyond the near clip plane.
+        // At globe scale, near clip can be 20+ km; radius must exceed that.
+        // clip.z is overridden to far plane in the vertex shader, so the actual
+        // radius only affects near-plane clipping, not perceived depth.
+        // viewDir = normalize(v.position) is scale-invariant.
+        constexpr float radius = 500000.0f;  // 500 km
+
+        std::vector<float> vertices;
+        vertices.reserve((latBands + 1) * (lonBands + 1) * 14);
+
+        for (int lat = 0; lat <= latBands; ++lat) {
+            const float theta = static_cast<float>(lat) * pi / static_cast<float>(latBands);
+            const float sinTheta = std::sin(theta);
+            const float cosTheta = std::cos(theta);
+
+            for (int lon = 0; lon <= lonBands; ++lon) {
+                const float phi = static_cast<float>(lon) * 2.0f * pi / static_cast<float>(lonBands);
+                const float sinPhi = std::sin(phi);
+                const float cosPhi = std::cos(phi);
+
+                const float x = cosPhi * sinTheta * radius;
+                const float y = cosTheta * radius;
+                const float z = sinPhi * sinTheta * radius;
+
+                const auto packed = appendVertex(x, y, z);
+                vertices.insert(vertices.end(), packed.begin(), packed.end());
+            }
+        }
+
+        std::vector<uint32_t> indices;
+        indices.reserve(latBands * lonBands * 6);
+
+        for (int lat = 0; lat < latBands; ++lat) {
+            for (int lon = 0; lon < lonBands; ++lon) {
+                const uint32_t first = static_cast<uint32_t>(lat * (lonBands + 1) + lon);
+                const uint32_t second = first + static_cast<uint32_t>(lonBands + 1);
+
+                indices.push_back(first + 1);
+                indices.push_back(second);
+                indices.push_back(first);
+                indices.push_back(first + 1);
+                indices.push_back(second + 1);
+                indices.push_back(second);
+            }
+        }
+
+        return createMesh(device, vertices, indices);
+    }
+
     std::shared_ptr<Mesh> SkyMesh::createMeshByType(const std::shared_ptr<GraphicsDevice>& device, const int type) const
     {
         switch (type) {
@@ -340,6 +393,8 @@ namespace visutwin::canvas
             return createBoxMesh(device);
         case SKYTYPE_DOME:
             return createDomeMesh(device);
+        case SKYTYPE_ATMOSPHERE:
+            return createSphereMesh(device);
         case SKYTYPE_INFINITE:
         default:
             return createInfiniteMesh(device);

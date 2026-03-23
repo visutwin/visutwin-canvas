@@ -67,6 +67,10 @@ namespace visutwin::canvas
         // the SSAO texture during PBR lighting and modulate ambient occlusion.
         void setSsaoEnabled(bool value) { _ssaoEnabled = value; }
 
+        // Set when atmosphere scattering is enabled on the scene.
+        // When true, skybox shaders compile with VT_FEATURE_ATMOSPHERE.
+        void setAtmosphereEnabled(bool value) { _atmosphereEnabled = value; }
+
     private:
         struct ShaderVariantOptions
         {
@@ -138,6 +142,7 @@ namespace visutwin::canvas
         bool _clusteredLightingEnabled = false;
         bool _areaLightsEnabled = false;
         bool _ssaoEnabled = false;
+        bool _atmosphereEnabled = false;
     };
 
     // Assigns the program library to the device cache.

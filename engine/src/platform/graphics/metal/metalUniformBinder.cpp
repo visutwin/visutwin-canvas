@@ -341,6 +341,17 @@ namespace visutwin::canvas
     }
 
     // -----------------------------------------------------------------------
+    // Atmosphere uniforms
+    // -----------------------------------------------------------------------
+
+    void MetalUniformBinder::setAtmosphereUniforms(const void* data, const size_t size)
+    {
+        if (data && size <= sizeof(_atmosphereUniforms)) {
+            std::memcpy(&_atmosphereUniforms, data, size);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Per-draw uniform submission with deduplication
     // -----------------------------------------------------------------------
 

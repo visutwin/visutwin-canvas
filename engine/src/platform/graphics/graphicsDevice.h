@@ -210,6 +210,14 @@ namespace visutwin::canvas
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) {}
 
+        /// Set atmosphere uniforms for Nishita sky scattering.
+        /// data must point to an AtmosphereUniforms-compatible struct (96 bytes).
+        virtual void setAtmosphereUniforms(const void* data, size_t size) { (void)data; (void)size; }
+
+        /// Enable/disable atmosphere scattering for the current frame.
+        void setAtmosphereEnabled(bool value) { _atmosphereEnabled = value; }
+        bool atmosphereEnabled() const { return _atmosphereEnabled; }
+
         /// Create a backend-specific shader from a definition and optional source code.
         /// Backends override this to return their own Shader subclass (e.g., MetalShader).
         virtual std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
@@ -480,6 +488,7 @@ namespace visutwin::canvas
         std::array<Texture*, 8> _quadTextureBindings{};
         bool _quadRenderActive = false;
         bool _hdrPass = false;
+        bool _atmosphereEnabled = false;
         float _vx = 0.0f;
         float _vy = 0.0f;
         float _vw = 0.0f;

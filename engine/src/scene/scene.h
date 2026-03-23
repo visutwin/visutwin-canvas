@@ -85,6 +85,18 @@ namespace visutwin::canvas
          */
         void setPrefilteredCubemaps(const std::vector<Texture*>& cubemaps);
 
+        // Atmosphere scattering (Nishita).
+        void setAtmosphereEnabled(bool value) { _atmosphereEnabled = value; }
+        bool atmosphereEnabled() const { return _atmosphereEnabled; }
+
+        /// Set atmosphere uniforms from bridge data.
+        /// data must be a 96-byte AtmosphereUniforms-compatible struct.
+        void setAtmosphereUniforms(const void* data, size_t size);
+
+        /// Access raw atmosphere uniform data for the device.
+        const void* atmosphereUniformData() const { return &_atmosphereUniforms; }
+        size_t atmosphereUniformSize() const { return sizeof(_atmosphereUniforms); }
+
     private:
         void resetSkyMesh();
 
@@ -121,6 +133,12 @@ namespace visutwin::canvas
         Texture* _skyboxCubeMap = nullptr;
         int _toneMapping = TONEMAP_LINEAR;
         bool _debugNormalMapsEnabled = false;
+        bool _atmosphereEnabled = false;
+
+        // Packed atmosphere uniforms (96 bytes). Layout matches GPU AtmosphereData.
+        struct alignas(16) AtmosphereUniformsStorage {
+            float data[24] = {};
+        } _atmosphereUniforms;
 
         std::vector<Texture*> _prefilteredCubemaps;
         Texture* _internalEnvAtlas = nullptr;

@@ -107,7 +107,16 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
 
     rd.position = clip;
     rd.worldPos = world.xyz;
+
+#if VT_FEATURE_SKYBOX
+    // Repurpose worldNormal to carry the pre-transform vertex position for
+    // skybox view direction. world.xyz has cameraPosition baked in (~10M meters
+    // at globe scale); subtracting it in the fragment shader causes catastrophic
+    // float32 cancellation. Using the raw vertex position avoids this.
+    rd.worldNormal = v.position;
+#else
     rd.worldNormal = normalize((model.normalMatrix * float4(v.normal, 0.0)).xyz) * model.normalSign;
+#endif
     const float3 tangentWorld = normalize((model.normalMatrix * float4(v.tangent.xyz, 0.0)).xyz) * model.normalSign;
     rd.worldTangent = float4(tangentWorld, v.tangent.w);
     rd.uv0 = v.uv0;

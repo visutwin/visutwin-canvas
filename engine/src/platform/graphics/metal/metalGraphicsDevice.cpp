@@ -523,6 +523,11 @@ namespace visutwin::canvas
             skyDomeCenter, isDome, skyboxCubeMap);
     }
 
+    void MetalGraphicsDevice::setAtmosphereUniforms(const void* data, const size_t size)
+    {
+        _uniformBinder.setAtmosphereUniforms(data, size);
+    }
+
     void MetalGraphicsDevice::draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
                 int numInstances, const int indirectSlot, const bool first, const bool last)
     {
@@ -681,6 +686,12 @@ namespace visutwin::canvas
 
         _uniformBinder.submitPerDrawUniforms(passEncoder, _uniformRing.get(),
             boundMaterial, uniformData, uniformSize, hdrPass());
+
+        // Bind atmosphere uniforms at fragment slot 9 for skybox draws when atmosphere is enabled.
+        if (atmosphereEnabled() && boundMaterial && boundMaterial->isSkybox()) {
+            const auto& atmoUniforms = _uniformBinder.atmosphereUniforms();
+            passEncoder->setFragmentBytes(&atmoUniforms, sizeof(atmoUniforms), 9);
+        }
 
         _textureBinder.bindSamplerCached(passEncoder, _defaultSampler);
 

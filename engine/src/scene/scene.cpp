@@ -5,6 +5,8 @@
 //
 #include "scene.h"
 
+#include <cstring>
+
 #include "scene/graphics/envLighting.h"
 
 namespace visutwin::canvas
@@ -89,6 +91,13 @@ namespace visutwin::canvas
         if (value != _skyboxCubeMap) {
             _skyboxCubeMap = value;
             resetSkyMesh();
+        }
+    }
+
+    void Scene::setAtmosphereUniforms(const void* data, const size_t size)
+    {
+        if (data && size <= sizeof(_atmosphereUniforms)) {
+            std::memcpy(&_atmosphereUniforms, data, size);
         }
     }
 

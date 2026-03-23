@@ -54,6 +54,10 @@ namespace visutwin::canvas
 
         GraphNode* node() { return &_node; }
 
+        /// Returns the 1×1 dummy texture used when atmosphere is enabled without envAtlas.
+        /// Used by the renderer to bind a valid texture at fragment slot 2.
+        Texture* atmosphereDummyTexture() const { return _atmosphereDummyTexture.get(); }
+
     private:
         std::shared_ptr<GraphicsDevice> _device;
         Scene* _scene = nullptr;
@@ -62,5 +66,6 @@ namespace visutwin::canvas
         Vector3 _center = Vector3(0.0f, 1.0f, 0.0f);
         GraphNode _node = GraphNode("SkyMeshNode");
         std::unique_ptr<SkyMesh> _skyMesh;
+        std::shared_ptr<Texture> _atmosphereDummyTexture; // 1×1 placeholder for atmosphere-only sky
     };
 }

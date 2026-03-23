@@ -284,6 +284,15 @@ namespace visutwin::canvas
         // ambient occlusion by sampling the SSAO texture at screen-space UV.
         programLibrary->setSsaoEnabled(_device->ssaoForwardTexture() != nullptr);
 
+        // Atmosphere scattering: when enabled on the scene, compile skybox shaders
+        // with VT_FEATURE_ATMOSPHERE and push atmosphere uniforms to the device.
+        const bool atmosphereEnabled = _scene && _scene->atmosphereEnabled();
+        programLibrary->setAtmosphereEnabled(atmosphereEnabled);
+        _device->setAtmosphereEnabled(atmosphereEnabled);
+        if (atmosphereEnabled) {
+            _device->setAtmosphereUniforms(_scene->atmosphereUniformData(), _scene->atmosphereUniformSize());
+        }
+
         // Lazily create WorldClusters when clustering is first enabled.
         if (clusteredEnabled && !_worldClusters) {
             _worldClusters = std::make_unique<WorldClusters>();
@@ -654,7 +663,7 @@ namespace visutwin::canvas
         {
             Vector3 skyDomeCenter(0, 0, 0);
             bool isDome = false;
-            if (_scene && _scene->sky() && _scene->sky()->type() != SKYTYPE_INFINITE) {
+            if (_scene && _scene->sky() && _scene->sky()->type() != SKYTYPE_INFINITE && _scene->sky()->type() != SKYTYPE_ATMOSPHERE) {
                 skyDomeCenter = _scene->sky()->centerWorldPos();
                 isDome = true;
             }
@@ -821,7 +830,7 @@ namespace visutwin::canvas
 
                 Matrix4 modelMatrix;
                 if (boundMaterial && boundMaterial->isSkybox()) {
-                    if (_scene && _scene->sky() && _scene->sky()->type() != SKYTYPE_INFINITE) {
+                    if (_scene && _scene->sky() && _scene->sky()->type() != SKYTYPE_INFINITE && _scene->sky()->type() != SKYTYPE_ATMOSPHERE) {
                         modelMatrix = entry->meshInstance && entry->meshInstance->node()
                             ? entry->meshInstance->node()->worldTransform()
                             : Matrix4::identity();
@@ -848,7 +857,7 @@ namespace visutwin::canvas
                 // Non-instanced draw.
                 Matrix4 modelMatrix;
                 if (boundMaterial && boundMaterial->isSkybox()) {
-                    if (_scene && _scene->sky() && _scene->sky()->type() != SKYTYPE_INFINITE) {
+                    if (_scene && _scene->sky() && _scene->sky()->type() != SKYTYPE_INFINITE && _scene->sky()->type() != SKYTYPE_ATMOSPHERE) {
                         modelMatrix = entry->meshInstance && entry->meshInstance->node()
                             ? entry->meshInstance->node()->worldTransform()
                             : Matrix4::identity();

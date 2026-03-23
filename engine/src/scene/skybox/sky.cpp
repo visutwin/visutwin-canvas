@@ -7,6 +7,7 @@
 #include "sky.h"
 
 #include "spdlog/spdlog.h"
+#include "platform/graphics/constants.h"
 #include "platform/graphics/texture.h"
 #include "scene/scene.h"
 
@@ -35,8 +36,46 @@ namespace visutwin::canvas
 
     void Sky::updateSkyMesh()
     {
+        if (!_scene) {
+            resetSkyMesh();
+            return;
+        }
+
+        // When atmosphere scattering is enabled, the sky mesh is needed even
+        // without a cubemap/envAtlas — the fragment shader computes sky color
+        // procedurally via nishitaScatter(). Create a 1×1 dummy texture and
+        // use it as the sky texture. Also install it as the scene's envAtlas
+        // so the texture binder properly binds it at fragment slot 2 (Metal
+        // requires valid textures at all declared slots even when not sampled).
+        if (_scene->atmosphereEnabled() && !_scene->skybox() && !_scene->envAtlas()) {
+            if (!_atmosphereDummyTexture) {
+                TextureOptions dummyOpts;
+                dummyOpts.width = 1;
+                dummyOpts.height = 1;
+                dummyOpts.mipmaps = false;
+                dummyOpts.minFilter = FilterMode::FILTER_NEAREST;
+                dummyOpts.magFilter = FilterMode::FILTER_NEAREST;
+                dummyOpts.name = "atmosphere-dummy";
+                _atmosphereDummyTexture = std::make_shared<Texture>(_device.get(), dummyOpts);
+                // Initialize with black pixels so the GPU texture is not reading uninitialized memory.
+                const uint8_t black[4] = {0, 0, 0, 255};
+                _atmosphereDummyTexture->setLevelData(0, black, sizeof(black));
+                _atmosphereDummyTexture->upload();
+            }
+            if (_atmosphereDummyTexture) {
+                // Use SKYTYPE_ATMOSPHERE (sphere mesh + infinite behavior).
+                // The box mesh creates visible seams at face edges; a sphere has
+                // continuous topology so view directions interpolate smoothly.
+                spdlog::debug("Sky::updateSkyMesh: creating SkyMesh for atmosphere (sphere, layers={})",
+                    _scene->layers() ? "yes" : "no");
+                resetSkyMesh();
+                _skyMesh = std::make_unique<SkyMesh>(_device, _scene, &_node, _atmosphereDummyTexture.get(), SKYTYPE_ATMOSPHERE);
+                return;
+            }
+        }
+
         // need either skybox cubemap or envAtlas to create the sky mesh
-        if (!_scene || (!_scene->skybox() && !_scene->envAtlas())) {
+        if (!_scene->skybox() && !_scene->envAtlas()) {
             spdlog::debug("Sky::updateSkyMesh: no scene or skybox/envAtlas — resetting");
             resetSkyMesh();
             return;

@@ -101,10 +101,26 @@ namespace visutwin::canvas
         [[nodiscard]] virtual Texture* omniShadowCube0() const = 0;
         [[nodiscard]] virtual Texture* omniShadowCube1() const = 0;
 
+        /// GPU-side atmosphere uniform struct (Nishita single-scattering parameters).
+        /// 96 bytes (6 × float4), bound at Metal buffer slot 9 when VT_FEATURE_ATMOSPHERE is active.
+        struct alignas(16) AtmosphereUniforms
+        {
+            float planetCenterAndRadius[4] = {0.0f, 0.0f, 0.0f, 6371000.0f};
+            float atmosphereRadiusAndSunIntensity[4] = {6471000.0f, 22.0f, 0.9998f, 0.0f};
+            float rayleighCoeffAndScaleHeight[4] = {5.5e-6f, 13.0e-6f, 22.4e-6f, 8500.0f};
+            float mieCoeffAndScaleHeight[4] = {21.0e-6f, 1200.0f, 0.758f, 0.0f};
+            float sunDirection[4] = {0.0f, 1.0f, 0.0f, 0.0f};
+            float cameraAltitudeAndParams[4] = {0.0f, 32.0f, 8.0f, 0.0f};
+        };
+
         /// Access the packed LightingUniforms struct (for backends to submit to GPU).
         [[nodiscard]] const LightingUniforms& lightingUniforms() const { return _lightingUniforms; }
 
+        /// Access the packed AtmosphereUniforms struct.
+        [[nodiscard]] const AtmosphereUniforms& atmosphereUniforms() const { return _atmosphereUniforms; }
+
     protected:
         LightingUniforms _lightingUniforms;
+        AtmosphereUniforms _atmosphereUniforms;
     };
 }

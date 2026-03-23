@@ -369,7 +369,7 @@ namespace visutwin::canvas
         } else {
             options.displacement = (variantBits & (1ull << 27)) != 0ull;
         }
-        options.atmosphere = (variantBits & (1ull << 28)) != 0ull;
+        options.atmosphere = (_atmosphereEnabled && options.skybox) || (variantBits & (1ull << 28)) != 0ull;
         options.pointSpotAttenuation = !options.skybox || ((variantBits & (1ull << 29)) != 0ull);
         options.multiLight = !options.skybox || ((variantBits & (1ull << 30)) != 0ull);
         options.instancing = (variantBits & (1ull << 33)) != 0ull;
@@ -626,7 +626,7 @@ namespace visutwin::canvas
         warnFeature("orenNayar", options.orenNayar);
         warnFeature("detailNormals", options.detailNormals);
         warnFeature("displacement", options.displacement);
-        warnFeature("atmosphere", options.atmosphere);
+        // atmosphere: fully implemented — no warning needed.
 
         auto shader = buildForwardShaderVariant(programName, options, key);
         if (!shader) {

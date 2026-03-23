@@ -41,7 +41,8 @@ namespace visutwin::canvas
     {
         SKYTYPE_INFINITE,
         SKYTYPE_BOX,
-        SKYTYPE_DOME
+        SKYTYPE_DOME,
+        SKYTYPE_ATMOSPHERE   // Sphere mesh + infinite behavior (camera-following)
     };
 
     enum class LightType

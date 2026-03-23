@@ -57,6 +57,9 @@ namespace visutwin::canvas
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter, bool isDome, Texture* skyboxCubeMap);
 
+        /// Pack atmosphere uniforms (Nishita scattering) into AtmosphereUniforms.
+        void setAtmosphereUniforms(const void* data, size_t size);
+
         /// Pack screen resolution for planar reflection screen-space UV.
         void setScreenResolution(float width, float height)
         {
