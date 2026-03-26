@@ -64,6 +64,11 @@ namespace visutwin::canvas
             options.bloomEnabled = rendering.bloomIntensity > 0.0f;
             options.bloomIntensity = rendering.bloomIntensity;
             options.sharpness = rendering.sharpness;
+            options.vignetteEnabled = rendering.vignetteEnabled;
+            options.vignetteInner = rendering.vignetteInner;
+            options.vignetteOuter = rendering.vignetteOuter;
+            options.vignetteCurvature = rendering.vignetteCurvature;
+            options.vignetteIntensity = rendering.vignetteIntensity;
         }
 
         _options = sanitizeOptions(options);
@@ -207,6 +212,11 @@ namespace visutwin::canvas
             options.bloomEnabled = rendering.bloomIntensity > 0.0f;
             options.bloomIntensity = rendering.bloomIntensity;
             options.sharpness = rendering.sharpness;
+            options.vignetteEnabled = rendering.vignetteEnabled;
+            options.vignetteInner = rendering.vignetteInner;
+            options.vignetteOuter = rendering.vignetteOuter;
+            options.vignetteCurvature = rendering.vignetteCurvature;
+            options.vignetteIntensity = rendering.vignetteIntensity;
             auto sanitized = sanitizeOptions(options);
 
             if (needsReset(sanitized)) {
@@ -615,6 +625,14 @@ namespace visutwin::canvas
         _composePass->sharpness = options.sharpness;
         _composePass->toneMapping = _scene ? _scene->toneMapping() : TONEMAP_LINEAR;
         _composePass->exposure = _scene ? _scene->exposure() : 1.0f;
+
+        // Vignette
+        _composePass->vignetteEnabled = options.vignetteEnabled;
+        _composePass->vignetteInner = options.vignetteInner;
+        _composePass->vignetteOuter = options.vignetteOuter;
+        _composePass->vignetteCurvature = options.vignetteCurvature;
+        _composePass->vignetteIntensity = options.vignetteIntensity;
+
         _composePass->init(_targetRenderTarget);
     }
 

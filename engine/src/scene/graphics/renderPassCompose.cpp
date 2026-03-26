@@ -29,6 +29,11 @@ namespace visutwin::canvas
         params.sharpness = sharpness;
         params.toneMapping = toneMapping;
         params.exposure = exposure;
+        params.vignetteEnabled = vignetteEnabled;
+        params.vignetteInner = vignetteInner;
+        params.vignetteOuter = vignetteOuter;
+        params.vignetteCurvature = vignetteCurvature;
+        params.vignetteIntensity = vignetteIntensity;
         gd->executeComposePass(params);
     }
 }

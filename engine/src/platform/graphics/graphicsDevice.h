@@ -120,6 +120,14 @@ namespace visutwin::canvas
         bool dofEnabled = false;
         bool taaEnabled = false;
         bool blurTextureUpscale = false;
+
+        // Vignette
+        bool vignetteEnabled = false;
+        float vignetteInner = 0.5f;       // inner radius — fully clear inside this
+        float vignetteOuter = 1.0f;       // outer radius — darkest at this edge
+        float vignetteCurvature = 0.5f;   // edge curvature (higher = more rounded)
+        float vignetteIntensity = 0.3f;   // max darkness
+        float vignetteColor[3] = {0.0f, 0.0f, 0.0f};  // darkening color (black)
     };
 
     struct SsaoPassParams

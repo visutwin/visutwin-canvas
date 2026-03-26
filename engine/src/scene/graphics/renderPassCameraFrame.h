@@ -50,6 +50,13 @@ namespace visutwin::canvas
         bool dofEnabled = false;
         bool dofNearBlur = false;
         bool dofHighQuality = true;
+
+        // Vignette
+        bool vignetteEnabled = false;
+        float vignetteInner = 0.5f;
+        float vignetteOuter = 1.0f;
+        float vignetteCurvature = 0.5f;
+        float vignetteIntensity = 0.3f;
     };
 
     class RenderPassCameraFrame : public RenderPass

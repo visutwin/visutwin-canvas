@@ -68,6 +68,13 @@ namespace visutwin::canvas
         float sharpness = 0.0f;
         float bloomIntensity = 0.0f;  // 0 = disabled
         int toneMapping = TONEMAP_LINEAR;
+
+        // Vignette
+        bool vignetteEnabled = false;
+        float vignetteInner = 0.5f;
+        float vignetteOuter = 1.0f;
+        float vignetteCurvature = 0.5f;
+        float vignetteIntensity = 0.3f;
     };
 
     /*
@@ -103,7 +110,7 @@ namespace visutwin::canvas
 
         void* onPostprocessing() const
         {
-            return (_dof.enabled || _taa.enabled || _ssao.enabled || _rendering.bloomIntensity > 0.0f)
+            return (_dof.enabled || _taa.enabled || _ssao.enabled || _rendering.bloomIntensity > 0.0f || _rendering.vignetteEnabled)
                 ? const_cast<CameraComponent*>(this) : nullptr;
         }
 

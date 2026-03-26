@@ -28,6 +28,13 @@ namespace visutwin::canvas
         int toneMapping = 0;
         float exposure = 1.0f;
 
+        // Vignette
+        bool vignetteEnabled = false;
+        float vignetteInner = 0.5f;
+        float vignetteOuter = 1.0f;
+        float vignetteCurvature = 0.5f;
+        float vignetteIntensity = 0.3f;
+
         void execute() override;
     };
 }

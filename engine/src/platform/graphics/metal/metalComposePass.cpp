@@ -53,6 +53,15 @@ struct ComposeUniforms {
     uint tonemapMode;
     float exposure;
     float2 sceneTextureInvRes;
+    // Vignette (use float4 for color to match C++ alignment)
+    uint vignetteEnabled;
+    float vignetteInner;
+    float vignetteOuter;
+    float vignetteCurvature;
+    float vignetteIntensity;
+    float vignetteColorR;
+    float vignetteColorG;
+    float vignetteColorB;
 };
 
 float3 toneMapLinear(float3 color, float exposure) {
@@ -119,7 +128,16 @@ vertex ComposeVarying composeVertex(ComposeVertexIn in [[stage_in]])
     return out;
 }
 
-// Compose pass order: CAS -> SSAO -> DOF -> Bloom -> ToneMap
+// Vignette: darken edges with configurable curvature and inner/outer radii
+float3 applyVignette(float3 color, float2 uv, float inner, float outer,
+                     float curvature, float intensity, float3 vigColor) {
+    float2 curve = pow(abs(uv * 2.0 - 1.0), float2(1.0 / curvature));
+    float edge = pow(length(curve), curvature);
+    float vignette = 1.0 - intensity * smoothstep(inner, outer, edge);
+    return mix(vigColor, color, vignette);
+}
+
+// Compose pass order: CAS -> SSAO -> DOF -> Bloom -> ToneMap -> Vignette
 fragment float4 composeFragment(
     ComposeVarying in [[stage_in]],
     texture2d<float> sceneTexture [[texture(0)]],
@@ -170,8 +188,15 @@ fragment float4 composeFragment(
         result = toneMapLinear(result, uniforms.exposure);
     }
 
-    // 6. Gamma correction (gammaCorrectOutput)
-    // Upstream: pow(color + 0.0000001, vec3(1.0 / 2.2))
+    // 6. Vignette (applied in tonemapped linear space, before gamma)
+    if (uniforms.vignetteEnabled != 0u) {
+        float3 vigColor = float3(uniforms.vignetteColorR, uniforms.vignetteColorG, uniforms.vignetteColorB);
+        result = applyVignette(result, uv, uniforms.vignetteInner, uniforms.vignetteOuter,
+                               uniforms.vignetteCurvature, uniforms.vignetteIntensity,
+                               vigColor);
+    }
+
+    // 7. Gamma correction (gammaCorrectOutput)
     // The back buffer is BGRA8Unorm (not sRGB), so we must apply gamma in the shader.
     result = pow(max(result, float3(0.0)) + 0.0000001, float3(1.0 / 2.2));
 
@@ -308,6 +333,15 @@ fragment float4 composeFragment(
             uint32_t tonemapMode = 0u;
             float exposure = 1.0f;
             float sceneTextureInvRes[2] = {0.0f, 0.0f};
+            // Vignette
+            uint32_t vignetteEnabled = 0u;
+            float vignetteInner = 0.5f;
+            float vignetteOuter = 1.0f;
+            float vignetteCurvature = 0.5f;
+            float vignetteIntensity = 0.3f;
+            float vignetteColorR = 0.0f;
+            float vignetteColorG = 0.0f;
+            float vignetteColorB = 0.0f;
         } uniforms;
         uniforms.dofEnabled = params.dofEnabled ? 1u : 0u;
         uniforms.taaEnabled = params.taaEnabled ? 1u : 0u;
@@ -323,6 +357,16 @@ fragment float4 composeFragment(
             uniforms.sceneTextureInvRes[0] = 1.0f / static_cast<float>(params.sceneTexture->width());
             uniforms.sceneTextureInvRes[1] = 1.0f / static_cast<float>(params.sceneTexture->height());
         }
+        // Vignette
+        uniforms.vignetteEnabled = params.vignetteEnabled ? 1u : 0u;
+        uniforms.vignetteInner = params.vignetteInner;
+        uniforms.vignetteOuter = params.vignetteOuter;
+        uniforms.vignetteCurvature = params.vignetteCurvature;
+        uniforms.vignetteIntensity = params.vignetteIntensity;
+        uniforms.vignetteColorR = params.vignetteColor[0];
+        uniforms.vignetteColorG = params.vignetteColor[1];
+        uniforms.vignetteColorB = params.vignetteColor[2];
+
         encoder->setFragmentBytes(&uniforms, sizeof(ComposeUniforms), 5);
         encoder->drawPrimitives(MTL::PrimitiveTypeTriangle, static_cast<NS::UInteger>(0), static_cast<NS::UInteger>(3));
         _device->recordDrawCall();
