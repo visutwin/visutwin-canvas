@@ -121,6 +121,14 @@ namespace visutwin::canvas
         bool taaEnabled = false;
         bool blurTextureUpscale = false;
 
+        // Single-pass DOF (computed in compose shader from depth buffer)
+        Texture* depthTexture = nullptr;  // scene depth buffer
+        float dofFocusDistance = 1.0f;    // linear depth at perfect focus
+        float dofFocusRange = 0.5f;       // transition zone width
+        float dofBlurRadius = 3.0f;       // max blur in pixels
+        float dofCameraNear = 0.01f;
+        float dofCameraFar = 100.0f;
+
         // Vignette
         bool vignetteEnabled = false;
         float vignetteInner = 0.5f;       // inner radius — fully clear inside this
@@ -150,6 +158,29 @@ namespace visutwin::canvas
         float randomize = 0.0f;
         float cameraNear = 0.1f;
         float cameraFar = 1000.0f;
+    };
+
+    struct CoCPassParams
+    {
+        Texture* depthTexture = nullptr;
+        float focusDistance = 100.0f;
+        float focusRange = 10.0f;
+        float cameraNear = 0.1f;
+        float cameraFar = 1000.0f;
+        bool nearBlur = false;
+    };
+
+    struct DofBlurPassParams
+    {
+        Texture* nearTexture = nullptr;   // half-res scene (for near blur)
+        Texture* farTexture = nullptr;    // far-field pre-multiplied texture
+        Texture* cocTexture = nullptr;    // CoC texture from the CoC pass
+        float blurRadiusNear = 3.0f;
+        float blurRadiusFar = 3.0f;
+        int blurRings = 4;
+        int blurRingPoints = 5;
+        float invResolutionX = 0.0f;
+        float invResolutionY = 0.0f;
     };
 
     struct DepthAwareBlurPassParams
@@ -428,6 +459,8 @@ namespace visutwin::canvas
             const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
             bool highQuality, bool historyValid) {}
         virtual void executeSsaoPass(const SsaoPassParams& params) {}
+        virtual void executeCoCPass(const CoCPassParams& params) {}
+        virtual void executeDofBlurPass(const DofBlurPassParams& params) {}
         virtual void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) {}
         virtual bool supportsCompute() const { return false; }
         virtual void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") {}

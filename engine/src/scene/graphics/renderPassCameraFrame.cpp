@@ -590,24 +590,14 @@ namespace visutwin::canvas
     void RenderPassCameraFrame::setupDofPass(const CameraFrameOptions& options, Texture* inputTexture,
         Texture* inputTextureHalf)
     {
-        if (options.dofEnabled && inputTexture) {
-            // Reuse existing DOF pass to avoid per-frame Metal texture allocation.
-            // The pass creates 3 Textures + 3 RenderTargets in its constructor.
-            if (!_dofPass) {
-                _dofPass = std::make_shared<RenderPassDof>(device(), _cameraComponent, inputTexture, inputTextureHalf,
-                    options.dofHighQuality, options.dofNearBlur);
-            }
-            const auto& dof = _cameraComponent->dof();
-            _dofPass->focusDistance = dof.focusDistance;
-            _dofPass->focusRange = dof.focusRange;
-            _dofPass->blurRadius = dof.blurRadius;
-            _dofPass->blurRings = dof.blurRings;
-            _dofPass->blurRingPoints = dof.blurRingPoints;
-            _dofPass->highQuality = dof.highQuality;
-            _dofPass->nearBlur = dof.nearBlur;
-        } else {
-            _dofPass.reset();
-        }
+        // Single-pass DOF: the compose shader reads the depth buffer directly and applies
+        // a Poisson-disc blur. The multi-pass DOF pipeline (CoC → Downsample → Blur) is
+        // NOT used — creating the _dofPass with its three sub-passes causes a black screen
+        // because the parent RenderPassDof has no render target, which corrupts the Metal
+        // render encoder state. DOF parameters are passed to the compose pass instead.
+        (void)inputTexture;
+        (void)inputTextureHalf;
+        _dofPass.reset();
     }
 
     void RenderPassCameraFrame::setupComposePass(const CameraFrameOptions& options)
@@ -617,14 +607,27 @@ namespace visutwin::canvas
         _composePass->bloomTexture = _bloomPass ? _bloomPass->bloomTexture() : nullptr;
         _composePass->bloomIntensity = options.bloomIntensity;
         _composePass->taaEnabled = options.taaEnabled;
-        _composePass->cocTexture = _dofPass ? _dofPass->cocTexture() : nullptr;
-        _composePass->blurTexture = _dofPass ? _dofPass->blurTexture() : nullptr;
-        _composePass->blurTextureUpscale = _dofPass ? !_dofPass->highQuality : false;
+        _composePass->cocTexture = nullptr;   // multi-pass DOF disabled; single-pass uses depth directly
+        _composePass->blurTexture = nullptr;
+        _composePass->blurTextureUpscale = false;
         _composePass->dofEnabled = options.dofEnabled;
         _composePass->ssaoTexture = options.ssaoType == SSAOTYPE_COMBINE && _ssaoPass ? _ssaoPass->ssaoTexture() : nullptr;
         _composePass->sharpness = options.sharpness;
         _composePass->toneMapping = _scene ? _scene->toneMapping() : TONEMAP_LINEAR;
         _composePass->exposure = _scene ? _scene->exposure() : 1.0f;
+
+        // Single-pass DOF: pass depth texture and DOF settings to compose
+        if (options.dofEnabled && _cameraComponent) {
+            const auto& dof = _cameraComponent->dof();
+            _composePass->depthTexture = _sceneDepthTexture.get();
+            _composePass->dofFocusDistance = dof.focusDistance;
+            _composePass->dofFocusRange = dof.focusRange;
+            _composePass->dofBlurRadius = dof.blurRadius;
+            if (auto* camera = _cameraComponent->camera()) {
+                _composePass->dofCameraNear = camera->nearClip();
+                _composePass->dofCameraFar = camera->farClip();
+            }
+        }
 
         // Vignette
         _composePass->vignetteEnabled = options.vignetteEnabled;

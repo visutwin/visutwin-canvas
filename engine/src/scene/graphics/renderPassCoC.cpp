@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "scene/camera.h"
+#include "platform/graphics/graphicsDevice.h"
 
 namespace visutwin::canvas
 {
@@ -22,14 +23,34 @@ namespace visutwin::canvas
         _params[1] = std::max(focusRange, 0.001f);
         _params[2] = 1.0f / _params[1];
 
-        if (const auto* camera = _cameraComponent ? _cameraComponent->camera() : nullptr) {
-            _cameraParams[0] = camera->nearClip();
-            _cameraParams[1] = camera->farClip();
-            _cameraParams[2] = camera->projection() == ProjectionType::Perspective ? 1.0f : 0.0f;
-            _cameraParams[3] = _nearBlur ? 1.0f : 0.0f;
+        const auto* camera = _cameraComponent ? _cameraComponent->camera() : nullptr;
+        if (!camera) return;
+
+        const auto gd = device();
+        if (!gd) return;
+
+        // Get depth texture from the graphics device (same mechanism as SSAO)
+        Texture* depthTexture = gd->sceneDepthMap();
+        if (!depthTexture) {
+            // Fall back to shader quad path if no depth texture available
+            if (camera) {
+                _cameraParams[0] = camera->nearClip();
+                _cameraParams[1] = camera->farClip();
+                _cameraParams[2] = camera->projection() == ProjectionType::Perspective ? 1.0f : 0.0f;
+                _cameraParams[3] = _nearBlur ? 1.0f : 0.0f;
+            }
+            RenderPassShaderQuad::execute();
+            return;
         }
 
-        RenderPassShaderQuad::execute();
+        CoCPassParams params;
+        params.depthTexture = depthTexture;
+        params.focusDistance = focusDistance;
+        params.focusRange = std::max(focusRange, 0.001f);
+        params.cameraNear = camera->nearClip();
+        params.cameraFar = camera->farClip();
+        params.nearBlur = _nearBlur;
+        gd->executeCoCPass(params);
     }
 }
 

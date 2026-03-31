@@ -28,6 +28,14 @@ namespace visutwin::canvas
         int toneMapping = 0;
         float exposure = 1.0f;
 
+        // Single-pass DOF
+        Texture* depthTexture = nullptr;
+        float dofFocusDistance = 1.0f;
+        float dofFocusRange = 0.5f;
+        float dofBlurRadius = 3.0f;
+        float dofCameraNear = 0.01f;
+        float dofCameraFar = 100.0f;
+
         // Vignette
         bool vignetteEnabled = false;
         float vignetteInner = 0.5f;

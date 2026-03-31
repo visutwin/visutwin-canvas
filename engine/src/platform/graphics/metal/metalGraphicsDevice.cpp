@@ -7,8 +7,10 @@
 
 #include <algorithm>
 #include <cstring>
+#include "metalCoCPass.h"
 #include "metalComposePass.h"
 #include "metalDepthAwareBlurPass.h"
+#include "metalDofBlurPass.h"
 #include "metalSsaoPass.h"
 #include "metalTaaPass.h"
 #include "metalTexture.h"
@@ -344,6 +346,24 @@ namespace visutwin::canvas
         if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
         if (!_ssaoPass) _ssaoPass = std::make_unique<MetalSsaoPass>(this, _composePass.get());
         _ssaoPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
+            _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
+    }
+
+    void MetalGraphicsDevice::executeCoCPass(const CoCPassParams& params)
+    {
+        if (!_renderPassEncoder) return;
+        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
+        if (!_cocPass) _cocPass = std::make_unique<MetalCoCPass>(this, _composePass.get());
+        _cocPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
+            _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
+    }
+
+    void MetalGraphicsDevice::executeDofBlurPass(const DofBlurPassParams& params)
+    {
+        if (!_renderPassEncoder) return;
+        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
+        if (!_dofBlurPass) _dofBlurPass = std::make_unique<MetalDofBlurPass>(this, _composePass.get());
+        _dofBlurPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
             _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
     }
 

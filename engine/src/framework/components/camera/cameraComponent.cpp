@@ -87,16 +87,15 @@ namespace visutwin::canvas
         }
 
         _dof.enabled = enabled;
-        requestSceneDepthMap(enabled);
-        requestSceneColorMap(enabled);
+        // Upstream camera-frame parity: DOF uses camera-frame owned scene/depth targets,
+        // not legacy scene grab passes. Do NOT call requestSceneDepthMap() here — it would
+        // cause the DEPTH layer to be treated as a grab pass, splitting the render block and
+        // preventing WORLD actions from reaching the CameraFrame. See comment in setSsaoEnabled().
 
         if (_cameraFrame) {
             _cameraFrame->destroy();
             _cameraFrame.reset();
         }
-
-        // DEVIATION: Do NOT call ensureDofRenderTarget() or updatePostprocessRenderTargetBinding()
-        // here. CameraFrame owns its offscreen targets. See comment in setSsaoEnabled().
     }
 
     void CameraComponent::setTaaEnabled(const bool enabled)

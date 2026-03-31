@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <cmath>
 
+#include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/renderTarget.h"
+#include "platform/graphics/texture.h"
+
 namespace visutwin::canvas
 {
     namespace
@@ -64,7 +68,37 @@ namespace visutwin::canvas
         if (_kernel.empty()) {
             rebuildKernel();
         }
-        RenderPassShaderQuad::execute();
+
+        const auto gd = device();
+        if (!gd) {
+            RenderPassShaderQuad::execute();
+            return;
+        }
+
+        const auto rt = renderTarget();
+        if (!rt || !rt->colorBuffer()) {
+            RenderPassShaderQuad::execute();
+            return;
+        }
+
+        const auto width = static_cast<float>(rt->colorBuffer()->width());
+        const auto height = static_cast<float>(rt->colorBuffer()->height());
+        if (width <= 0.0f || height <= 0.0f) {
+            RenderPassShaderQuad::execute();
+            return;
+        }
+
+        DofBlurPassParams params;
+        params.nearTexture = _nearTexture;
+        params.farTexture = _farTexture;
+        params.cocTexture = _cocTexture;
+        params.blurRadiusNear = blurRadiusNear;
+        params.blurRadiusFar = blurRadiusFar;
+        params.blurRings = _blurRings;
+        params.blurRingPoints = _blurRingPoints;
+        params.invResolutionX = 1.0f / width;
+        params.invResolutionY = 1.0f / height;
+        gd->executeDofBlurPass(params);
     }
 
     void RenderPassDofBlur::rebuildKernel()

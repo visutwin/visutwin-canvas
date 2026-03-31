@@ -53,6 +53,13 @@ struct ComposeUniforms {
     uint tonemapMode;
     float exposure;
     float2 sceneTextureInvRes;
+    // Single-pass DOF parameters
+    float dofFocusDistance;
+    float dofFocusRange;
+    float dofBlurRadius;
+    float dofCameraNear;
+    float dofCameraFar;
+    float _pad0;  // padding to maintain 8-byte alignment for next field
     // Vignette (use float4 for color to match C++ alignment)
     uint vignetteEnabled;
     float vignetteInner;
@@ -137,6 +144,53 @@ float3 applyVignette(float3 color, float2 uv, float inner, float outer,
     return mix(vigColor, color, vignette);
 }
 
+// Single-pass DOF using depth buffer
+float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
+    texture2d<float> sceneTexture, depth2d<float> depthTexture, sampler s,
+    float focusDistance, float focusRange, float blurRadius,
+    float cameraNear, float cameraFar)
+{
+    float rawDepth = depthTexture.sample(s, uv);
+    float linearDepth = (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
+
+    // PlayCanvas-style CoC: far range starts at focusDistance + focusRange/2
+    float farRange = focusDistance + focusRange * 0.5;
+    float invRange = 1.0 / max(focusRange, 0.001);
+    float cocFar = clamp((linearDepth - farRange) * invRange, 0.0, 1.0);
+
+    if (cocFar < 0.005) return sharpColor;  // early out for in-focus pixels
+
+    // Disc blur with 12 taps (Poisson-like distribution)
+    const float2 offsets[12] = {
+        float2(-0.326, -0.406), float2(-0.840, -0.074), float2(-0.696,  0.457),
+        float2(-0.203,  0.621), float2( 0.962, -0.195), float2( 0.473, -0.480),
+        float2( 0.519,  0.767), float2( 0.185, -0.893), float2( 0.507,  0.064),
+        float2(-0.321, -0.882), float2(-0.860,  0.370), float2( 0.871,  0.414)
+    };
+
+    float2 step = cocFar * blurRadius * invRes;
+    float3 sum = float3(0.0);
+    float totalWeight = 0.0;
+
+    for (int i = 0; i < 12; i++) {
+        float2 sampleUV = clamp(uv + offsets[i] * step, float2(0.0), float2(1.0));
+
+        // Read depth at sample position to compute its CoC
+        float sampleRawDepth = depthTexture.sample(s, sampleUV);
+        float sampleLinearDepth = (cameraNear * cameraFar) / (cameraFar - sampleRawDepth * (cameraFar - cameraNear));
+        float sampleCoc = clamp((sampleLinearDepth - farRange) * invRange, 0.0, 1.0);
+
+        // Weight: only blur samples that are also out of focus (prevents sharp foreground leaking)
+        float w = sampleCoc;
+        float3 tap = sceneTexture.sample(s, sampleUV).rgb;
+        sum += tap * w;
+        totalWeight += w;
+    }
+
+    float3 blurColor = (totalWeight > 0.0) ? sum / totalWeight : sharpColor;
+    return mix(sharpColor, blurColor, cocFar);
+}
+
 // Compose pass order: CAS -> SSAO -> DOF -> Bloom -> ToneMap -> Vignette
 fragment float4 composeFragment(
     ComposeVarying in [[stage_in]],
@@ -145,6 +199,7 @@ fragment float4 composeFragment(
     texture2d<float> cocTexture [[texture(2)]],
     texture2d<float> blurTexture [[texture(3)]],
     texture2d<float> ssaoTexture [[texture(4)]],
+    depth2d<float> depthTexture [[texture(5)]],
     sampler linearSampler [[sampler(0)]],
     constant ComposeUniforms& uniforms [[buffer(5)]])
 {
@@ -162,13 +217,20 @@ fragment float4 composeFragment(
         result *= ssao;
     }
 
-    // 3. DOF
-    if (uniforms.dofEnabled != 0u && cocTexture.get_width() > 0 && blurTexture.get_width() > 0) {
-        const float2 coc = cocTexture.sample(linearSampler, uv).rg;
-        const float cocAmount = clamp(max(coc.r, coc.g), 0.0, 1.0);
-        const float3 blurColor = blurTexture.sample(linearSampler, uv).rgb;
-        result = mix(result, blurColor, cocAmount * clamp(uniforms.dofIntensity, 0.0, 1.0));
+    // 3. DOF (single-pass from depth buffer)
+    if (uniforms.dofEnabled != 0u) {
+        result = applyDofSinglePass(result, uv, uniforms.sceneTextureInvRes,
+            sceneTexture, depthTexture, linearSampler,
+            uniforms.dofFocusDistance, uniforms.dofFocusRange, uniforms.dofBlurRadius,
+            uniforms.dofCameraNear, uniforms.dofCameraFar);
     }
+    // Legacy multi-pass DOF (kept as dead code for future use):
+    // if (uniforms.dofEnabled != 0u && cocTexture.get_width() > 0 && blurTexture.get_width() > 0) {
+    //     const float2 coc = cocTexture.sample(linearSampler, uv).rg;
+    //     const float cocAmount = clamp(max(coc.r, coc.g), 0.0, 1.0);
+    //     const float3 blurColor = blurTexture.sample(linearSampler, uv).rgb;
+    //     result = mix(result, blurColor, cocAmount * clamp(uniforms.dofIntensity, 0.0, 1.0));
+    // }
 
     // 4. Bloom
     if (uniforms.bloomEnabled != 0u && bloomTexture.get_width() > 0) {
@@ -311,11 +373,14 @@ fragment float4 composeFragment(
         auto* blurHw = params.blurTexture ? dynamic_cast<gpu::MetalTexture*>(params.blurTexture->impl()) : nullptr;
         auto* ssaoHw = params.ssaoTexture ? dynamic_cast<gpu::MetalTexture*>(params.ssaoTexture->impl()) : nullptr;
 
+        auto* depthHw = params.depthTexture ? dynamic_cast<gpu::MetalTexture*>(params.depthTexture->impl()) : nullptr;
+
         encoder->setFragmentTexture(sceneHw ? sceneHw->raw() : nullptr, 0);
         encoder->setFragmentTexture(bloomHw ? bloomHw->raw() : nullptr, 1);
         encoder->setFragmentTexture(cocHw ? cocHw->raw() : nullptr, 2);
         encoder->setFragmentTexture(blurHw ? blurHw->raw() : nullptr, 3);
         encoder->setFragmentTexture(ssaoHw ? ssaoHw->raw() : nullptr, 4);
+        encoder->setFragmentTexture(depthHw ? depthHw->raw() : nullptr, 5);
         if (defaultSampler) {
             encoder->setFragmentSamplerState(defaultSampler, 0);
         }
@@ -333,6 +398,13 @@ fragment float4 composeFragment(
             uint32_t tonemapMode = 0u;
             float exposure = 1.0f;
             float sceneTextureInvRes[2] = {0.0f, 0.0f};
+            // Single-pass DOF parameters
+            float dofFocusDistance = 1.0f;
+            float dofFocusRange = 0.5f;
+            float dofBlurRadius = 3.0f;
+            float dofCameraNear = 0.01f;
+            float dofCameraFar = 100.0f;
+            float _pad0 = 0.0f;  // padding to maintain alignment
             // Vignette
             uint32_t vignetteEnabled = 0u;
             float vignetteInner = 0.5f;
@@ -357,6 +429,13 @@ fragment float4 composeFragment(
             uniforms.sceneTextureInvRes[0] = 1.0f / static_cast<float>(params.sceneTexture->width());
             uniforms.sceneTextureInvRes[1] = 1.0f / static_cast<float>(params.sceneTexture->height());
         }
+        // Single-pass DOF
+        uniforms.dofFocusDistance = params.dofFocusDistance;
+        uniforms.dofFocusRange = params.dofFocusRange;
+        uniforms.dofBlurRadius = params.dofBlurRadius;
+        uniforms.dofCameraNear = params.dofCameraNear;
+        uniforms.dofCameraFar = params.dofCameraFar;
+
         // Vignette
         uniforms.vignetteEnabled = params.vignetteEnabled ? 1u : 0u;
         uniforms.vignetteInner = params.vignetteInner;

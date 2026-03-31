@@ -24,8 +24,10 @@
 namespace visutwin::canvas
 {
     class Compute;
+    class MetalCoCPass;
     class MetalComposePass;
     class MetalDepthAwareBlurPass;
+    class MetalDofBlurPass;
     class MetalLICPass;
     class MetalMarchingCubesPass;
     class MetalParticleComputePass;
@@ -42,8 +44,10 @@ namespace visutwin::canvas
      */
     class MetalGraphicsDevice : public GraphicsDevice
     {
+        friend class MetalCoCPass;
         friend class MetalComposePass;
         friend class MetalDepthAwareBlurPass;
+        friend class MetalDofBlurPass;
         friend class MetalLICPass;
         friend class MetalMarchingCubesPass;
         friend class MetalParticleComputePass;
@@ -98,6 +102,8 @@ namespace visutwin::canvas
             const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
             bool highQuality, bool historyValid) override;
         void executeSsaoPass(const SsaoPassParams& params) override;
+        void executeCoCPass(const CoCPassParams& params) override;
+        void executeDofBlurPass(const DofBlurPassParams& params) override;
         void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) override;
         bool supportsCompute() const override { return true; }
         void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") override;
@@ -183,7 +189,9 @@ namespace visutwin::canvas
         std::unique_ptr<MetalComputePipeline> _computePipeline;
 
         std::vector<std::shared_ptr<MetalBindGroupFormat>> _bindGroupFormats;
+        std::unique_ptr<MetalCoCPass> _cocPass;
         std::unique_ptr<MetalComposePass> _composePass;
+        std::unique_ptr<MetalDofBlurPass> _dofBlurPass;
         std::unique_ptr<MetalSsaoPass> _ssaoPass;
         std::unique_ptr<MetalDepthAwareBlurPass> _blurPassH;
         std::unique_ptr<MetalDepthAwareBlurPass> _blurPassV;

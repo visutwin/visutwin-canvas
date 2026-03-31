@@ -29,6 +29,14 @@ namespace visutwin::canvas
         params.sharpness = sharpness;
         params.toneMapping = toneMapping;
         params.exposure = exposure;
+        // Single-pass DOF
+        params.depthTexture = depthTexture;
+        params.dofFocusDistance = dofFocusDistance;
+        params.dofFocusRange = dofFocusRange;
+        params.dofBlurRadius = dofBlurRadius;
+        params.dofCameraNear = dofCameraNear;
+        params.dofCameraFar = dofCameraFar;
+
         params.vignetteEnabled = vignetteEnabled;
         params.vignetteInner = vignetteInner;
         params.vignetteOuter = vignetteOuter;
