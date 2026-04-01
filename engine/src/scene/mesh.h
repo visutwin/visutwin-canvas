@@ -94,38 +94,38 @@ namespace visutwin::canvas
 
         void setVertexBuffer(const std::shared_ptr<VertexBuffer>& vb)
         {
-            vertexBuffer = vb;
+            _vertexBuffer = vb;
             _aabbVer++;
         }
 
         void setIndexBuffer(const std::shared_ptr<IndexBuffer>& ib, const size_t style = 0)
         {
-            if (indexBuffer.size() <= style) {
-                indexBuffer.resize(style + 1);
+            if (_indexBuffer.size() <= style) {
+                _indexBuffer.resize(style + 1);
             }
-            indexBuffer[style] = ib;
+            _indexBuffer[style] = ib;
             _aabbVer++;
         }
 
         void setPrimitive(const Primitive& p, const size_t style = 0)
         {
-            if (primitive.size() <= style) {
-                primitive.resize(style + 1);
+            if (_primitive.size() <= style) {
+                _primitive.resize(style + 1);
             }
-            primitive[style] = p;
+            _primitive[style] = p;
             _aabbVer++;
         }
 
-        std::shared_ptr<VertexBuffer> getVertexBuffer() const { return vertexBuffer; }
+        std::shared_ptr<VertexBuffer> getVertexBuffer() const { return _vertexBuffer; }
 
         std::shared_ptr<IndexBuffer> getIndexBuffer(const size_t style = 0) const
         {
-            return style < indexBuffer.size() ? indexBuffer[style] : nullptr;
+            return style < _indexBuffer.size() ? _indexBuffer[style] : nullptr;
         }
 
         Primitive getPrimitive(const size_t style = 0) const
         {
-            return style < primitive.size() ? primitive[style] : Primitive{};
+            return style < _primitive.size() ? _primitive[style] : Primitive{};
         }
 
     private:
@@ -141,12 +141,12 @@ namespace visutwin::canvas
         std::unique_ptr<GeometryData> _geometryData;
 
         // Array of index buffers for different render styles
-        std::vector<std::shared_ptr<IndexBuffer>> indexBuffer;
+        std::vector<std::shared_ptr<IndexBuffer>> _indexBuffer;
 
         // The vertex buffer holding vertex data
-        std::shared_ptr<VertexBuffer> vertexBuffer;
+        std::shared_ptr<VertexBuffer> _vertexBuffer;
 
         // Array of primitive objects defining how to interpret vertex/index data
-        std::vector<Primitive> primitive;
+        std::vector<Primitive> _primitive;
     };
 }

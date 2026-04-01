@@ -66,9 +66,14 @@ namespace visutwin::canvas
         void setBlendCurve(const Curve& curve);
         void clearBlendCurve();
 
-        bool activate = true;
-        float speed = 1.0f;
-        bool playing = false;
+        void setActivate(bool value) { _activate = value; }
+        bool activate() const { return _activate; }
+
+        void setSpeed(float value) { _speed = value; }
+        float speed() const { return _speed; }
+
+        void setPlaying(bool value) { _playing = value; }
+        bool playing() const { return _playing; }
 
     private:
         void resetAnimationController();
@@ -77,6 +82,10 @@ namespace visutwin::canvas
 
         std::shared_ptr<Animation> getCurrentAnimation() const;
         std::shared_ptr<AnimTrack> getCurrentAnimTrack() const;
+
+        bool _activate = true;
+        float _speed = 1.0f;
+        bool _playing = false;
 
         inline static std::vector<AnimationComponent*> _instances;
 

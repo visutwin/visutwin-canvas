@@ -97,14 +97,14 @@ namespace visutwin::canvas
 
         void setScissorRectClear(bool value) { _scissorRectClear = value; }
 
-        void setClearDepthBuffer(bool value) { clearDepthBuffer = value; }
+        void setClearDepthBuffer(bool value) { _clearDepthBuffer = value; }
 
-        void setClearStencilBuffer(bool value) { clearStencilBuffer = value; }
+        void setClearStencilBuffer(bool value) { _clearStencilBuffer = value; }
 
-        void setClearColorBuffer(bool value) { clearColorBuffer = value; }
-        bool clearColorBufferEnabled() const { return clearColorBuffer; }
-        bool clearDepthBufferEnabled() const { return clearDepthBuffer; }
-        bool clearStencilBufferEnabled() const { return clearStencilBuffer; }
+        void setClearColorBuffer(bool value) { _clearColorBuffer = value; }
+        bool clearColorBufferEnabled() const { return _clearColorBuffer; }
+        bool clearDepthBufferEnabled() const { return _clearDepthBuffer; }
+        bool clearStencilBufferEnabled() const { return _clearStencilBuffer; }
 
         const std::shared_ptr<RenderPassColorGrab>& renderPassColorGrab() const { return _renderPassColorGrab; }
 
@@ -194,11 +194,11 @@ namespace visutwin::canvas
 
         bool _scissorRectClear = false;
 
-        bool clearDepthBuffer = true;
+        bool _clearDepthBuffer = true;
 
-        bool clearStencilBuffer = true;
+        bool _clearStencilBuffer = true;
 
-        bool clearColorBuffer = true;
+        bool _clearColorBuffer = true;
 
         std::shared_ptr<RenderPassColorGrab> _renderPassColorGrab;
 

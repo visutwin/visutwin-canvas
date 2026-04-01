@@ -80,7 +80,7 @@ namespace visutwin::canvas
         }
 
         if (const auto animation = getCurrentAnimation()) {
-            return animation->duration;
+            return animation->duration();
         }
 
         if (const auto track = getCurrentAnimTrack()) {
@@ -95,7 +95,7 @@ namespace visutwin::canvas
         _loop = value;
 
         if (_skeleton) {
-            _skeleton->looping = value;
+            _skeleton->setLooping(value);
         }
 
         if (_animEvaluator) {
@@ -218,7 +218,7 @@ namespace visutwin::canvas
             }
         }
 
-        playing = true;
+        _playing = true;
     }
 
     void AnimationComponent::onSetAnimations()
@@ -229,7 +229,7 @@ namespace visutwin::canvas
             setModel(_entity);
         }
 
-        if (_currAnim.empty() && activate && enabled() && _entity && _entity->enabled()) {
+        if (_currAnim.empty() && _activate && enabled() && _entity && _entity->enabled()) {
             if (!_animations.empty()) {
                 play(_animations.begin()->first);
             }
@@ -262,7 +262,7 @@ namespace visutwin::canvas
             _fromSkel = std::make_unique<Skeleton>(_model);
             _toSkel = std::make_unique<Skeleton>(_model);
             _skeleton = std::make_unique<Skeleton>(_model);
-            _skeleton->looping = _loop;
+            _skeleton->setLooping(_loop);
             _skeleton->setGraph(_model);
         } else if (hasGlb) {
             _animEvaluator = std::make_unique<AnimEvaluator>(std::make_unique<DefaultAnimBinder>(_entity));
@@ -273,7 +273,7 @@ namespace visutwin::canvas
     {
         _currAnim.clear();
 
-        playing = false;
+        _playing = false;
         if (_skeleton) {
             _skeleton->setCurrentTime(0.0f);
             _skeleton->setAnimation(nullptr);
@@ -293,7 +293,7 @@ namespace visutwin::canvas
     {
         Component::onEnable();
 
-        if (activate && _currAnim.empty() && !_animations.empty()) {
+        if (_activate && _currAnim.empty() && !_animations.empty()) {
             play(_animations.begin()->first);
         }
     }
@@ -324,17 +324,17 @@ namespace visutwin::canvas
             }
         }
 
-        if (playing) {
+        if (_playing) {
             if (_skeleton && _model) {
                 if (_blending) {
                     _skeleton->blend(_fromSkel.get(), _toSkel.get(), blendAlpha);
                 } else {
-                    const float delta = dt * speed;
+                    const float delta = dt * _speed;
                     _skeleton->addTime(delta);
-                    if (speed > 0.0f && (_skeleton->currentTime() == duration()) && !_loop) {
-                        playing = false;
-                    } else if (speed < 0.0f && _skeleton->currentTime() == 0.0f && !_loop) {
-                        playing = false;
+                    if (_speed > 0.0f && (_skeleton->currentTime() == duration()) && !_loop) {
+                        _playing = false;
+                    } else if (_speed < 0.0f && _skeleton->currentTime() == 0.0f && !_loop) {
+                        _playing = false;
                     }
                 }
 
@@ -352,8 +352,8 @@ namespace visutwin::canvas
                     continue;
                 }
 
-                clip->setSpeed(speed);
-                if (!playing) {
+                clip->setSpeed(_speed);
+                if (!_playing) {
                     clip->pause();
                 } else {
                     clip->resume();

@@ -45,9 +45,12 @@ namespace visutwin::canvas
         void setGraph(GraphNode* graph);
         void updateGraph();
 
-        bool looping = true;
+        void setLooping(bool value) { _looping = value; }
+        bool looping() const { return _looping; }
 
     private:
+        bool _looping = true;
+
         Animation* _animation = nullptr;
         float _time = 0.0f;
 

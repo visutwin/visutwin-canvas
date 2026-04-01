@@ -107,21 +107,21 @@ namespace visutwin::canvas
         }
 
         const auto& nodes = _animation->nodes();
-        const float duration = _animation->duration;
+        const float duration = _animation->duration();
 
-        if ((_time == duration) && !looping) {
+        if ((_time == duration) && !_looping) {
             return;
         }
 
         _time += delta;
 
         if (_time > duration) {
-            _time = looping ? 0.0f : duration;
+            _time = _looping ? 0.0f : duration;
             for (const auto& node : nodes) {
                 _currKeyIndices[node.name()] = 0;
             }
         } else if (_time < 0.0f) {
-            _time = looping ? duration : 0.0f;
+            _time = _looping ? duration : 0.0f;
             for (const auto& node : nodes) {
                 _currKeyIndices[node.name()] = static_cast<int>(node.keys().size()) - 2;
             }
@@ -164,7 +164,7 @@ namespace visutwin::canvas
                 }
             }
 
-            if (keys.size() == 1 || (!foundKey && _time == 0.0f && looping)) {
+            if (keys.size() == 1 || (!foundKey && _time == 0.0f && _looping)) {
                 interpKey.pos = keys[0].position;
                 interpKey.quat = keys[0].rotation;
                 interpKey.scale = keys[0].scale;

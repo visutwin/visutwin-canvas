@@ -43,8 +43,11 @@ namespace visutwin::canvas
     class Animation
     {
     public:
-        std::string name;
-        float duration = 0.0f;
+        void setName(const std::string& value) { _name = value; }
+        const std::string& name() const { return _name; }
+
+        void setDuration(float value) { _duration = value; }
+        float duration() const { return _duration; }
 
         AnimationNode* getNode(const std::string& nodeName);
         const AnimationNode* getNode(const std::string& nodeName) const;
@@ -55,6 +58,9 @@ namespace visutwin::canvas
         const std::vector<AnimationNode>& nodes() const { return _nodes; }
 
     private:
+        std::string _name;
+        float _duration = 0.0f;
+
         std::vector<AnimationNode> _nodes;
         std::unordered_map<std::string, size_t> _nodeDict;
     };

@@ -13,14 +13,14 @@ namespace visutwin::canvas
             _geometryData = std::make_unique<GeometryData>();
 
             // Store existing sizes if buffers exist
-            if (vertexBuffer) {
-                _geometryData->vertexCount = vertexBuffer->numVertices();
-                _geometryData->maxVertices = vertexBuffer->numVertices();
+            if (_vertexBuffer) {
+                _geometryData->vertexCount = _vertexBuffer->numVertices();
+                _geometryData->maxVertices = _vertexBuffer->numVertices();
             }
 
-            if (!indexBuffer.empty() && indexBuffer[0]) {
-                _geometryData->indexCount = indexBuffer[0]->numIndices();
-                _geometryData->maxIndices = indexBuffer[0]->numIndices();
+            if (!_indexBuffer.empty() && _indexBuffer[0]) {
+                _geometryData->indexCount = _indexBuffer[0]->numIndices();
+                _geometryData->maxIndices = _indexBuffer[0]->numIndices();
             }
         }
     }
