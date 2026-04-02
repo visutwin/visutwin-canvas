@@ -7,6 +7,10 @@
 
 namespace visutwin::canvas
 {
+    /**
+     * @brief Bounding sphere defined by center and radius for intersection and containment tests.
+     * @ingroup group_core_shape
+     */
     class BoundingSphere
     {
     public:

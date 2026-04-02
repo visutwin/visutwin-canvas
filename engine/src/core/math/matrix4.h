@@ -19,6 +19,14 @@ namespace visutwin::canvas
     struct Vector4;
     struct Quaternion;
 
+    /**
+     * @brief 4x4 column-major transformation matrix with SIMD acceleration.
+     * @ingroup group_core_math
+     *
+     * Matrix4 stores 16 floats in column-major order for direct GPU upload.
+     * Supports model, view, projection, and MVP composition. SIMD backends
+     * accelerate multiply and inverse operations.
+     */
     struct alignas(16) Matrix4
     {
         // Column-major layout: m[col][row]

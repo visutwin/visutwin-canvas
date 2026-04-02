@@ -45,9 +45,14 @@ namespace visutwin::canvas
     };
 
     /**
-     * Represents a texture, which is typically an image composed of pixels (texels).
-     * Textures are fundamental resources for rendering graphical objects.
-     **/
+     * @brief GPU texture resource supporting 2D, cubemap, volume, and array formats with mipmap management.
+     * @ingroup group_platform_graphics
+     *
+     * Texture wraps a GPU texture object. It supports multiple formats (LDR, HDR, depth),
+     * filtering modes, and addressing modes. Pixel data is uploaded via upload() after
+     * setting level data. Used by materials for surface maps and by render targets for
+     * off-screen rendering.
+     */
     class Texture : public std::enable_shared_from_this<Texture>
     {
     public:

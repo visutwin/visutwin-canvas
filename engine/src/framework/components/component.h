@@ -27,9 +27,14 @@ namespace visutwin::canvas
         return id;
     }
 
-    /*
-     * Components are used to attach functionality on an Entity.
-     * Matches upstream Component base class behavior.
+    /**
+     * @brief Base class for ECS components that attach functionality to entities.
+     * @ingroup group_framework_ecs
+     *
+     * Components are created and managed by their owning ComponentSystem<T>.
+     * Each component has lifecycle hooks (onEnable, onDisable, onPostStateChange)
+     * and can be cloned when an Entity is duplicated. Component lookup on Entity
+     * is O(1) via a type-ID map.
      */
     class Component : public EventHandler
     {

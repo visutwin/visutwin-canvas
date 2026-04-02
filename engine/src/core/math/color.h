@@ -9,11 +9,11 @@
 namespace visutwin::canvas
 {
     /**
-     * An RGBA color.
-     * Each color component is a floating point value in the range 0 to 1.
-     * The r (red), g (green) and b (blue) components define a color in the RGB color space.
-     * The (alpha) component defines transparency.
-     * An alpha of 1 is fully opaque. An alpha of 0 is fully transparent.
+     * @brief RGBA color with floating-point components in [0, 1].
+     * @ingroup group_core_math
+     *
+     * The r, g, b components define a color in RGB space. The a (alpha) component
+     * defines transparency (1 = fully opaque, 0 = fully transparent).
      */
     struct Color {
         float r;

@@ -27,5 +27,11 @@ CMakeUserPresets.json
 /assets-private/
 /_assets-private/
 
+# Documentation
+docs/
+tools/build-docs.sh
+tools/deploy-docs.sh
+
 # Claude Code
 .claude/
+CLAUDE.md

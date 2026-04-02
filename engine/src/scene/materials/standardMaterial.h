@@ -11,14 +11,14 @@ namespace visutwin::canvas
     class Texture;
 
     /**
-     * A standard material is the main, general purpose material that is most often used for rendering.
-     * It can approximate a wide variety of surface types and can simulate dynamic reflected light.
-     * Most maps can use 3 types of input values in any combination: constant (Color or number),
-     * mesh vertex colors and a Texture. All enabled inputs are multiplied together.
+     * @brief Full PBR material with metalness/roughness workflow and advanced surface features.
+     * @ingroup group_scene_materials
      *
-     * StandardMaterial. Properties cover the full PBR surface model
-     * including sheen, iridescence, spec-gloss, detail normals, and displacement.
-     * Shader chunk implementations are ported incrementally.
+     * StandardMaterial is the main, general-purpose material for physically-based rendering.
+     * It supports diffuse, specular, metalness, gloss/roughness, emissive, normal, AO, and
+     * height maps. Advanced features include clearcoat, anisotropy, sheen, iridescence,
+     * transmission, and displacement. Each map input is multiplied with its constant value
+     * and optional vertex colors.
      */
     class StandardMaterial : public Material
     {

@@ -6,6 +6,10 @@
 
 namespace visutwin::canvas
 {
+    /**
+     * @brief Infinite ray defined by origin and direction for raycasting and picking.
+     * @ingroup group_core_shape
+     */
     class Ray
     {
     public:

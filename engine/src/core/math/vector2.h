@@ -10,6 +10,10 @@
 
 namespace visutwin::canvas
 {
+    /**
+     * @brief 2D vector for UV coordinates, screen positions, and 2D math.
+     * @ingroup group_core_math
+     */
     struct Vector2
     {
         float x, y;

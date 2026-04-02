@@ -11,8 +11,14 @@
 
 namespace visutwin::canvas
 {
-    /*
-     * The forward renderer renders Scenes.
+    /**
+     * @brief Forward PBR renderer that builds a FrameGraph from the scene's layer composition.
+     * @ingroup group_scene_renderer
+     *
+     * ForwardRenderer is the main rendering path. It constructs a FrameGraph containing
+     * shadow passes, the main forward pass (multi-light PBR), clustered-lighting updates,
+     * and post-processing (SSAO, TAA, DOF, compose). The frame graph is rebuilt each frame
+     * via buildFrameGraph() and then compiled and executed.
      */
     class ForwardRenderer : public Renderer
     {

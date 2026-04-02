@@ -12,6 +12,10 @@ namespace visutwin::canvas
     struct  Vector3;
     struct  Matrix4;
 
+    /**
+     * @brief Unit quaternion for rotation representation with SIMD-accelerated slerp and multiply.
+     * @ingroup group_core_math
+     */
     struct alignas(16) Quaternion
     {
         union

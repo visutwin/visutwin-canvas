@@ -16,17 +16,13 @@
 namespace visutwin::canvas
 {
     /**
-     * The GraphNode class represents a node within a hierarchical scene graph. Each GraphNode can
-     * reference an array of children. This creates a tree-like structure that is fundamental
-     * for organizing and managing the spatial relationships between objects in a 3D scene. This class
-     * provides a comprehensive API for manipulating the position, rotation, and scale of nodes both
-     * locally (relative to the parent) and in world space (relative to the Scene origin).
+     * @brief Hierarchical scene graph node with local/world transforms and parent-child relationships.
+     * @ingroup group_scene_renderer
      *
-     * During the application's main update loop, the engine automatically synchronizes the entire
-     * GraphNode hierarchy each frame. This process ensures that the world transformation matrices
-     * for all nodes are up to date. A node's world transformation matrix is calculated by combining
-     * its local transformation matrix (derived from its local position, rotation, and scale) with
-     * the world transformation matrix of its parent node.
+     * GraphNode is the base class for all objects in the scene hierarchy. Each node maintains
+     * a local position, rotation, and scale that are composed with its parent's world transform
+     * to produce a world transformation matrix. The engine synchronizes the entire hierarchy
+     * each frame. Entity extends GraphNode to add component hosting.
      */
     class GraphNode : public EventHandler
     {

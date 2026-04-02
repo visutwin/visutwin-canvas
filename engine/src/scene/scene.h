@@ -17,9 +17,13 @@
 
 namespace visutwin::canvas
 {
-    /*
-     * A scene is a graphical representation of an environment. It manages the scene hierarchy, all
-     * graphical objects, lights, and scene-wide properties.
+    /**
+     * @brief Container for the scene graph, lighting environment, fog, skybox, and layer composition.
+     * @ingroup group_scene_renderer
+     *
+     * A Scene holds all graphical objects, lights, and environment settings that the
+     * ForwardRenderer draws each frame. It owns the LayerComposition that controls
+     * render order and the LightingParams consumed by the shader system.
      */
     class Scene : public EventHandler
     {

@@ -26,8 +26,13 @@ namespace visutwin::canvas
 {
     class ComponentSystemRegistry;
 
-    /*
-     * Engine represents the base functionality for all VisuTwin Canvas applications.
+    /**
+     * @brief Central application orchestrator managing scenes, rendering, input, and resource loading.
+     * @ingroup group_framework_ecs
+     *
+     * Engine is the entry point for a VisuTwin Canvas application. It owns the GraphicsDevice,
+     * Scene, ForwardRenderer, component systems, and the async ResourceLoader. A typical frame
+     * calls update() -> fixedUpdate() (zero or more substeps) -> render().
      */
     class Engine : public EventHandler, public std::enable_shared_from_this<Engine>
     {

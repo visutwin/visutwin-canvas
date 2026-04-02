@@ -28,6 +28,7 @@ namespace visutwin::canvas
     class Texture;
 
     /**
+     * @ingroup group_scene_materials
      * Per-texture UV transform: tiling (scale), offset, and rotation.
      * matches StandardMaterial's per-map tiling/offset/rotation properties.
      * On the GPU side this is pre-computed into a 3×2 affine matrix (two vec3 rows).
@@ -54,6 +55,7 @@ namespace visutwin::canvas
     };
 
     /**
+     * @ingroup group_scene_materials
      * GPU-side material uniform buffer layout. Must match MaterialData in common.metal exactly.
      */
     struct MaterialUniforms
@@ -129,12 +131,13 @@ namespace visutwin::canvas
     };
 
     /**
-     * A material determines how a particular MeshInstance is rendered and specifies a
-     * render state including uniforms, textures, defines, and other properties.
+     * @brief Base class for GPU materials — owns uniform data, texture bindings, blend/depth state, and shader compilation.
+     * @ingroup group_scene_materials
      *
-     * This is a base class and cannot be instantiated and used directly. Only subclasses such
-     * as ShaderMaterial and StandardMaterial can be used to define materials
-     * for rendering.
+     * A Material determines how a particular MeshInstance is rendered. It specifies
+     * a render state including uniforms (MaterialUniforms), textures, shader defines,
+     * blend mode, and depth/stencil configuration. This is a base class; use
+     * StandardMaterial for PBR surfaces or ShaderMaterial for custom Metal shaders.
      */
     class Material
     {

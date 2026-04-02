@@ -21,7 +21,12 @@ namespace visutwin::canvas
     class ScriptComponent;
 
     /**
-     * The Entity is a core primitive of a VisuTwin application.
+     * @brief ECS entity — a GraphNode that hosts components defining its behavior.
+     * @ingroup group_framework_ecs
+     *
+     * Entities form the leaves of the scene graph. Functionality is added by attaching
+     * Component instances (Camera, Render, Light, Script, etc.) via addComponent<T>().
+     * Component lookup is O(1) through an internal type-ID map.
      */
     class Entity : public GraphNode
     {

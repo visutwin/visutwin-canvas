@@ -12,6 +12,10 @@ namespace visutwin::canvas
 {
     struct Vector3;
 
+    /**
+     * @brief 4D vector for homogeneous coordinates, color values, and SIMD operations.
+     * @ingroup group_core_math
+     */
     struct alignas(16) Vector4
     {
         union

@@ -29,6 +29,13 @@ namespace visutwin::canvas
 
     class GraphNode;
 
+    /**
+     * @brief Perspective or orthographic camera with projection matrix, jitter (TAA), and render target binding.
+     * @ingroup group_scene_renderer
+     *
+     * Camera manages the view-to-clip transformation and owns the list of RenderPass
+     * instances that define how the camera's view is rendered (forward, shadow, post-process).
+     */
     class Camera
     {
     public:

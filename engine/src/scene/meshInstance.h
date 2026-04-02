@@ -20,11 +20,12 @@ namespace visutwin::canvas { class SkinBatchInstance; }
 namespace visutwin::canvas
 {
     /**
-     * An instance of a Mesh. A single mesh can be referenced by many mesh instances that can
-     * have different transforms and materials.
+     * @brief Renderable instance of a Mesh with its own material, transform node, and optional GPU instancing.
+     * @ingroup group_scene_renderer
      *
-     * Hardware instancing lets the GPU draw many copies of the same geometry with a single draw call.
-     * GPU-driven indirect rendering (WebGPU only) and multi-draw are also supported.
+     * A single Mesh can be referenced by many MeshInstance objects, each with a different
+     * material and transform (GraphNode). Hardware instancing and GPU-driven indirect
+     * rendering are supported for drawing many copies with a single draw call.
      */
     class MeshInstance
     {

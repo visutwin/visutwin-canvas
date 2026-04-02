@@ -17,6 +17,14 @@ namespace visutwin::canvas
 
     typedef std::array<float, 3> PackedVector3f;
 
+    /**
+     * @brief 3D vector for positions, directions, and normals with multi-backend SIMD acceleration.
+     * @ingroup group_core_math
+     *
+     * Vector3 uses a 16-byte aligned union supporting scalar, SSE, Apple SIMD, and NEON
+     * backends. The active backend is controlled by USE_SIMD_MATH / USE_SIMD_PREFER_NEON
+     * defines (currently scalar fallback is active).
+     */
     struct alignas(16) Vector3
     {
         union

@@ -14,6 +14,13 @@ namespace visutwin::canvas
 {
     class GraphicsDevice;
 
+    /**
+     * @brief Custom material with user-defined Metal vertex and fragment shader entry points.
+     * @ingroup group_scene_materials
+     *
+     * ShaderMaterial allows injecting arbitrary Metal shader source code with named
+     * entry points, bypassing the standard PBR chunk composition pipeline.
+     */
     class ShaderMaterial : public Material
     {
     public:

@@ -18,7 +18,8 @@ namespace visutwin::canvas
     class Light;
 
     /**
-     * Class storing shadow rendering related private information
+     * @brief Per-face shadow rendering data: shadow camera, viewport, and scissor.
+     * @ingroup group_scene_lighting
      */
     class LightRenderData
     {
@@ -41,6 +42,14 @@ namespace visutwin::canvas
         Vector4 shadowScissor;
     };
 
+    /**
+     * @brief Directional, point, spot, or area light with shadow mapping and cookie projection.
+     * @ingroup group_scene_lighting
+     *
+     * Light defines the type, color, intensity, range, and shadow parameters for a light source.
+     * Shadow-casting lights own LightRenderData instances (one per face for omni shadows) that
+     * hold the shadow camera, viewport, and scissor used during shadow pass rendering.
+     */
     class Light
     {
     public:

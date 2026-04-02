@@ -44,6 +44,8 @@ namespace visutwin::canvas
         AreaRect = 3u
     };
 
+    /** @brief Per-light GPU data uploaded to the lighting uniform buffer.
+     *  @ingroup group_scene_lighting */
     struct GpuLightData
     {
         GpuLightType type = GpuLightType::Directional;
@@ -223,6 +225,15 @@ namespace visutwin::canvas
 
     /*
      * The graphics device manages the underlying graphics context
+     */
+    /**
+     * @brief Abstract GPU interface for resource creation, state management, and draw submission.
+     * @ingroup group_platform_graphics
+     *
+     * GraphicsDevice is the platform-independent abstraction over the GPU. The concrete
+     * implementation (MetalGraphicsDevice) manages triple-buffered ring buffers for uniforms,
+     * pipeline state caching, and per-pass texture/uniform binding deduplication.
+     * Uses reverse-Z depth.
      */
     class GraphicsDevice : public EventHandler
     {

@@ -26,7 +26,8 @@ namespace visutwin::canvas
     };
 
     /**
-     * Primitive object defining how vertex and index data should be interpreted.
+     * @brief Describes how vertex and index data should be interpreted for a draw call.
+     * @ingroup group_scene_renderer
      */
     struct Primitive
     {
@@ -65,19 +66,14 @@ namespace visutwin::canvas
     };
 
     /**
-     * A graphical primitive. The mesh is defined by a VertexBuffer and an optional
-     * IndexBuffer. It also contains a primitive definition which controls the type of the
-     * primitive and the portion of the vertex or index buffer to use.
+     * @brief GPU-resident geometry defined by vertex/index buffers and one or more Primitives.
+     * @ingroup group_scene_renderer
      *
-     * Mesh APIs:
-     * There are two ways a mesh can be generated or updated.
-     *
-     * Simple Mesh API:
-     * Mesh class provides interfaces such as setPositions() and setUvs()
-     * that provide a simple way to provide vertex and index data for the Mesh.
-     *
-     * Update Vertex and Index buffers:
-     * This allows greater flexibility but is more complex to use.
+     * A Mesh holds VertexBuffer and optional IndexBuffer data plus Primitive descriptors
+     * that control draw call parameters (type, base, count). Two APIs are available:
+     * a simple API (setPositions, setUvs, etc.) for convenience, and direct buffer
+     * manipulation for full control. Meshes are reference-counted and shared across
+     * MeshInstance objects.
      */
     class Mesh : public RefCountedObject
     {

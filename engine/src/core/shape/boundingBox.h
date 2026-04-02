@@ -10,11 +10,12 @@
 namespace visutwin::canvas
 {
     /**
-     * Axis-Aligned Bounding Box.
+     * @brief Axis-Aligned Bounding Box defined by center and half-extents.
+     * @ingroup group_core_shape
      *
-     * An AABB is defined by a center point and half-extents (half the distance
-     * across the box in each axis). This representation enables efficient
-     * intersection of testing and transformation operations.
+     * Used for frustum culling, spatial queries, and broad-phase collision detection.
+     * Supports union (add), transform, and intersection tests against rays, spheres,
+     * and other AABBs.
      */
     class BoundingBox
     {

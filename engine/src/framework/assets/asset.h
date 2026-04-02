@@ -59,6 +59,14 @@ namespace visutwin::canvas
 
     using Resource = std::variant<Texture*, ContainerResource*, FontResource*>;
 
+    /**
+     * @brief Loadable resource wrapper supporting textures, containers (GLB), and fonts.
+     * @ingroup group_framework_assets
+     *
+     * Asset wraps a typed Resource (Texture, ContainerResource, or FontResource) and provides
+     * synchronous and asynchronous loading via the ResourceLoader. Assets are registered in
+     * the AssetRegistry and referenced by name or ID.
+     */
     class Asset : public EventHandler
     {
     public:

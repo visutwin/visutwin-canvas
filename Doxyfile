@@ -1,0 +1,111 @@
+# Doxyfile for VisuTwin Canvas
+# Generated for Doxygen 1.16.x
+
+#---------------------------------------------------------------------------
+# Project
+#---------------------------------------------------------------------------
+PROJECT_NAME           = "VisuTwin Canvas"
+PROJECT_BRIEF          = "C++ 3D Engine — Metal Backend"
+PROJECT_NUMBER         =
+PROJECT_LOGO           =
+OUTPUT_DIRECTORY       = docs/api
+
+#---------------------------------------------------------------------------
+# Input
+#---------------------------------------------------------------------------
+INPUT                  = engine/src \
+                         docs/mainpage.md \
+                         docs/modules.dox
+FILE_PATTERNS          = *.h *.cpp *.md *.dox
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */metal-cpp/* */stb/*
+
+# Strip the engine/src/ prefix so namespaces appear cleanly
+STRIP_FROM_PATH        = engine/src
+STRIP_FROM_INC_PATH    = engine/src
+
+#---------------------------------------------------------------------------
+# Extraction
+#---------------------------------------------------------------------------
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_ANON_NSPACES   = NO
+
+# Treat .h as C++ (not C)
+EXTENSION_MAPPING      = h=C++
+
+#---------------------------------------------------------------------------
+# Source browsing
+#---------------------------------------------------------------------------
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+#---------------------------------------------------------------------------
+# HTML output
+#---------------------------------------------------------------------------
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_EXTRA_STYLESHEET  = docs/doxygen-awesome/doxygen-awesome.css \
+                         docs/doxygen-awesome/doxygen-awesome-sidebar-only.css
+HTML_COLORSTYLE        = LIGHT
+HTML_DYNAMIC_SECTIONS  = NO
+DISABLE_INDEX          = NO
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = NO
+HTML_HEADER            =
+HTML_FOOTER            =
+
+#---------------------------------------------------------------------------
+# Main page
+#---------------------------------------------------------------------------
+USE_MDFILE_AS_MAINPAGE = docs/mainpage.md
+
+#---------------------------------------------------------------------------
+# LaTeX / other output — disabled
+#---------------------------------------------------------------------------
+GENERATE_LATEX         = NO
+GENERATE_RTF           = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO
+
+#---------------------------------------------------------------------------
+# Preprocessor
+#---------------------------------------------------------------------------
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = NO
+PREDEFINED             = VT_FEATURE_LIGHTING \
+                         VT_FEATURE_SHADOWS \
+                         VT_FEATURE_SSAO \
+                         VT_FEATURE_TAA \
+                         VT_FEATURE_DOF \
+                         VT_FEATURE_BLOOM \
+                         VT_FEATURE_VIGNETTE
+
+#---------------------------------------------------------------------------
+# Graphs — disabled (no Graphviz dependency)
+#---------------------------------------------------------------------------
+HAVE_DOT               = YES
+DOT_PATH               = /opt/homebrew/bin
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = NO
+INCLUDE_GRAPH          = NO
+INCLUDED_BY_GRAPH      = NO
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+
+#---------------------------------------------------------------------------
+# Misc
+#---------------------------------------------------------------------------
+QUIET                  = NO
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+SORT_MEMBER_DOCS       = YES
+SORT_BRIEF_DOCS        = YES
+ALPHABETICAL_INDEX     = YES
+SHOW_NAMESPACES        = YES

@@ -98,6 +98,9 @@ namespace visutwin::canvas
     // ── Async resource loader ──────────────────────────────────────────────
 
     /**
+     * @brief Async resource loader with background I/O thread, pixel decoding, and main-thread callbacks.
+     * @ingroup group_framework_assets
+     *
      * Asynchronous resource loader with a single background I/O thread.
      *
      * **Thread model**
