@@ -29,12 +29,14 @@ namespace visutwin::canvas
         // Set up constant settings based on a light type
         switch (lightType) {
         case LightType::LIGHTTYPE_OMNI:
+        case LightType::LIGHTTYPE_POINT:
             camera->node()->setRotation(pointLightRotations[face]);
             camera->setFov(90.0f);
             camera->setProjection(ProjectionType::Perspective);
             break;
 
         case LightType::LIGHTTYPE_SPOT:
+        case LightType::LIGHTTYPE_AREA_RECT:
             camera->setProjection(ProjectionType::Perspective);
             break;
 

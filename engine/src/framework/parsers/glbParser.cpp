@@ -882,6 +882,130 @@ namespace visutwin::canvas
         }
     }
 
+    /**
+     * Apply KHR_materials_pbrSpecularGlossiness extension to a StandardMaterial.
+     * Maps diffuseTexture → baseColorTexture and specular/glossiness factors.
+     */
+    static void applySpecularGlossiness(
+        const tinygltf::Material& srcMaterial,
+        StandardMaterial* material,
+        const std::function<std::shared_ptr<Texture>(int)>& getOrCreateTexture)
+    {
+        auto sgIt = srcMaterial.extensions.find("KHR_materials_pbrSpecularGlossiness");
+        if (sgIt == srcMaterial.extensions.end() || !sgIt->second.IsObject()) return;
+
+        const auto& sg = sgIt->second;
+
+        // diffuseFactor → baseColorFactor (4th component is alpha/opacity)
+        if (sg.Has("diffuseFactor")) {
+            auto df = sg.Get("diffuseFactor");
+            if (df.IsArray() && df.ArrayLen() >= 3) {
+                float alpha = df.ArrayLen() >= 4 ? static_cast<float>(df.Get(3).GetNumberAsDouble()) : 1.0f;
+                Color diffColor(
+                    static_cast<float>(df.Get(0).IsNumber() ? df.Get(0).GetNumberAsDouble() : 1.0),
+                    static_cast<float>(df.Get(1).IsNumber() ? df.Get(1).GetNumberAsDouble() : 1.0),
+                    static_cast<float>(df.Get(2).IsNumber() ? df.Get(2).GetNumberAsDouble() : 1.0),
+                    alpha);
+                material->setBaseColorFactor(diffColor);
+                Color gammaColor(diffColor);
+                gammaColor.gamma();
+                material->setDiffuse(gammaColor);
+                material->setOpacity(alpha);
+                // Enable transparency if alpha < 1
+                if (alpha < 1.0f) {
+                    material->setAlphaMode(AlphaMode::BLEND);
+                    material->setTransparent(true);
+                }
+            }
+        }
+
+        // diffuseTexture → baseColorTexture
+        if (sg.Has("diffuseTexture")) {
+            auto dt = sg.Get("diffuseTexture");
+            if (dt.IsObject() && dt.Has("index")) {
+                int texIdx = dt.Get("index").GetNumberAsInt();
+                if (auto tex = getOrCreateTexture(texIdx)) {
+                    // Set on BOTH base Material and StandardMaterial paths
+                    material->setBaseColorTexture(tex.get());
+                    material->setHasBaseColorTexture(true);
+                    material->setDiffuseMap(tex.get());
+                    if (dt.Has("texCoord"))
+                        material->setBaseColorUvSet(dt.Get("texCoord").GetNumberAsInt());
+                    // Check pixel data
+                    {
+                        auto* px = static_cast<const uint8_t*>(tex->getLevel(0));
+                        if (px) {
+                            uint32_t w = tex->width(), h = tex->height();
+                            size_t mid = (static_cast<size_t>(h/2) * w + w/2) * 4;
+                            size_t q1 = (static_cast<size_t>(h/4) * w + w/4) * 4;
+                            spdlog::info("    specGloss diffuseTex OK: texIdx={}, {}x{}, center=({},{},{},{}), q1=({},{},{},{})",
+                                texIdx, w, h, px[mid],px[mid+1],px[mid+2],px[mid+3], px[q1],px[q1+1],px[q1+2],px[q1+3]);
+                        } else {
+                            spdlog::warn("    specGloss diffuseTex OK but NO pixel data on CPU: texIdx={}, {}x{}", texIdx, tex->width(), tex->height());
+                        }
+                    }
+                } else {
+                    spdlog::warn("    specGloss diffuseTex FAILED: texIdx={}", texIdx);
+                }
+            }
+        } else {
+            spdlog::info("    specGloss: no diffuseTexture field");
+        }
+
+        // specularGlossinessTexture
+        if (sg.Has("specularGlossinessTexture")) {
+            auto sgt = sg.Get("specularGlossinessTexture");
+            if (sgt.IsObject() && sgt.Has("index")) {
+                int texIdx = sgt.Get("index").GetNumberAsInt();
+                if (auto tex = getOrCreateTexture(texIdx)) {
+                    material->setMetallicRoughnessTexture(tex.get());
+                    material->setHasMetallicRoughnessTexture(true);
+                }
+            }
+        }
+
+        // specularFactor
+        if (sg.Has("specularFactor")) {
+            auto sf = sg.Get("specularFactor");
+            if (sf.IsArray() && sf.ArrayLen() >= 3) {
+                material->setSpecular(Color(
+                    static_cast<float>(sf.Get(0).GetNumberAsDouble()),
+                    static_cast<float>(sf.Get(1).GetNumberAsDouble()),
+                    static_cast<float>(sf.Get(2).GetNumberAsDouble()), 1.0f));
+            }
+        }
+
+        // glossinessFactor → roughness (roughness = 1 - glossiness)
+        float roughness = 0.5f;
+        if (sg.Has("glossinessFactor")) {
+            auto gf = sg.Get("glossinessFactor");
+            if (gf.IsNumber()) {
+                float gloss = static_cast<float>(gf.GetNumberAsDouble());
+                material->setGloss(gloss);
+                roughness = 1.0f - gloss;
+            }
+        }
+
+        // Specular-glossiness materials are non-metallic; PBR defaults (metallic=1.0)
+        // would kill all diffuse color and show only environment reflections (white).
+        material->setUseMetalness(false);
+        material->setMetalness(0.0f);
+        material->setMetallicFactor(0.0f);
+        material->setRoughnessFactor(roughness);
+
+        // If material is BLEND but opacity is still 1.0, set a reasonable glass opacity.
+        // This handles glass materials that rely on BLEND mode for transparency
+        // but don't have an explicit low alpha in diffuseFactor.
+        if (material->alphaMode() == AlphaMode::BLEND && material->opacity() >= 1.0f) {
+            material->setOpacity(0.15f);
+            material->setBaseColorFactor(Color(
+                material->baseColorFactor().r,
+                material->baseColorFactor().g,
+                material->baseColorFactor().b,
+                0.15f));
+        }
+    }
+
     std::unique_ptr<GlbContainerResource> GlbParser::parse(const std::string& path,
         const std::shared_ptr<GraphicsDevice>& device)
     {
@@ -947,16 +1071,22 @@ namespace visutwin::canvas
 
             const auto& srcTexture = model.textures[static_cast<size_t>(textureIndex)];
 
-            // Resolve image source index — check KHR_texture_basisu extension first,
+            // Resolve image source index — check texture extensions first,
             // then fall back to the standard source field
             int imageSource = srcTexture.source;
             if (imageSource < 0) {
-                // KTX2/Basis Universal textures store the image index in the extension
-                auto it = srcTexture.extensions.find("KHR_texture_basisu");
-                if (it != srcTexture.extensions.end() && it->second.IsObject()) {
-                    auto sourceVal = it->second.Get("source");
-                    if (sourceVal.IsInt()) {
-                        imageSource = sourceVal.GetNumberAsInt();
+                static const char* textureExtensions[] = {
+                    "KHR_texture_basisu", "EXT_texture_webp",
+                    "EXT_texture_avif", "MSFT_texture_dds"
+                };
+                for (const auto* extName : textureExtensions) {
+                    auto it = srcTexture.extensions.find(extName);
+                    if (it != srcTexture.extensions.end() && it->second.IsObject()) {
+                        auto sourceVal = it->second.Get("source");
+                        if (sourceVal.IsInt()) {
+                            imageSource = sourceVal.GetNumberAsInt();
+                            break;
+                        }
                     }
                 }
             }
@@ -1063,6 +1193,9 @@ namespace visutwin::canvas
                 }
                 material->setCullMode(srcMaterial.doubleSided ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK);
                 material->setAlphaCutoff(static_cast<float>(srcMaterial.alphaCutoff));
+
+                // Handle KHR_materials_pbrSpecularGlossiness extension
+                applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto baseColorTexture = getOrCreateTexture(pbr.baseColorTexture.index)) {
@@ -1889,10 +2022,19 @@ namespace visutwin::canvas
             const auto& srcTexture = model.textures[static_cast<size_t>(textureIndex)];
             int imageSource = srcTexture.source;
             if (imageSource < 0) {
-                auto it = srcTexture.extensions.find("KHR_texture_basisu");
-                if (it != srcTexture.extensions.end() && it->second.IsObject()) {
-                    auto sourceVal = it->second.Get("source");
-                    if (sourceVal.IsInt()) imageSource = sourceVal.GetNumberAsInt();
+                static const char* textureExtensions[] = {
+                    "KHR_texture_basisu", "EXT_texture_webp",
+                    "EXT_texture_avif", "MSFT_texture_dds"
+                };
+                for (const auto* extName : textureExtensions) {
+                    auto it = srcTexture.extensions.find(extName);
+                    if (it != srcTexture.extensions.end() && it->second.IsObject()) {
+                        auto sourceVal = it->second.Get("source");
+                        if (sourceVal.IsInt()) {
+                            imageSource = sourceVal.GetNumberAsInt();
+                            break;
+                        }
+                    }
                 }
             }
             if (imageSource < 0 || imageSource >= static_cast<int>(model.images.size())) return nullptr;
@@ -1975,6 +2117,9 @@ namespace visutwin::canvas
                 }
                 material->setCullMode(srcMaterial.doubleSided ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK);
                 material->setAlphaCutoff(static_cast<float>(srcMaterial.alphaCutoff));
+
+                // Handle KHR_materials_pbrSpecularGlossiness extension
+                applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {
@@ -2314,16 +2459,44 @@ namespace visutwin::canvas
             const auto& srcTexture = model.textures[static_cast<size_t>(textureIndex)];
             int imageSource = srcTexture.source;
             if (imageSource < 0) {
-                auto it = srcTexture.extensions.find("KHR_texture_basisu");
-                if (it != srcTexture.extensions.end() && it->second.IsObject()) {
-                    auto sourceVal = it->second.Get("source");
-                    if (sourceVal.IsInt()) imageSource = sourceVal.GetNumberAsInt();
+                // Try texture extensions that store the image index in a "source" field
+                static const char* textureExtensions[] = {
+                    "KHR_texture_basisu",
+                    "EXT_texture_webp",
+                    "EXT_texture_avif",
+                    "MSFT_texture_dds"
+                };
+                for (const auto* extName : textureExtensions) {
+                    auto it = srcTexture.extensions.find(extName);
+                    if (it != srcTexture.extensions.end() && it->second.IsObject()) {
+                        auto sourceVal = it->second.Get("source");
+                        if (sourceVal.IsInt()) {
+                            imageSource = sourceVal.GetNumberAsInt();
+                            break;
+                        }
+                    }
                 }
             }
-            if (imageSource < 0 || imageSource >= static_cast<int>(prepared.images.size())) return nullptr;
+            if (imageSource < 0 || imageSource >= static_cast<int>(prepared.images.size())) {
+                spdlog::warn("    getOrCreateTexture({}): invalid imageSource={} (extensions: {})",
+                    textureIndex, imageSource,
+                    [&]() {
+                        std::string exts;
+                        for (const auto& [k, v] : srcTexture.extensions) {
+                            if (!exts.empty()) exts += ", ";
+                            exts += k;
+                        }
+                        return exts.empty() ? "none" : exts;
+                    }());
+                return nullptr;
+            }
 
             const auto& prepImg = prepared.images[static_cast<size_t>(imageSource)];
-            if (!prepImg.valid || prepImg.rgbaPixels.empty()) return nullptr;
+            if (!prepImg.valid || prepImg.rgbaPixels.empty()) {
+                spdlog::warn("    getOrCreateTexture({}): image {} not valid (valid={}, pixels={})",
+                    textureIndex, imageSource, prepImg.valid, prepImg.rgbaPixels.size());
+                return nullptr;
+            }
 
             TextureOptions options;
             options.width  = static_cast<uint32_t>(prepImg.width);
@@ -2364,6 +2537,7 @@ namespace visutwin::canvas
         };
 
         // ── Create materials ─────────────────────────────────────────
+        size_t actualTextureCount = 0;
         if (model.materials.empty()) {
             gltfMaterials.push_back(makeDefaultMaterial());
         } else {
@@ -2403,11 +2577,34 @@ namespace visutwin::canvas
                 material->setCullMode(srcMaterial.doubleSided ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK);
                 material->setAlphaCutoff(static_cast<float>(srcMaterial.alphaCutoff));
 
+                // Diagnostic: log texture indices and extensions for each material
+                {
+                    std::string exts;
+                    for (const auto& [k, v] : srcMaterial.extensions) {
+                        if (!exts.empty()) exts += ", ";
+                        exts += k;
+                    }
+                    spdlog::info("  GLB mat[{}] '{}': baseColorTex.idx={}, normalTex.idx={}, mrTex.idx={}, alpha={}, extensions=[{}]",
+                        materialIndex, material->name(),
+                        pbr.baseColorTexture.index,
+                        srcMaterial.normalTexture.index,
+                        pbr.metallicRoughnessTexture.index,
+                        srcMaterial.alphaMode.empty() ? "OPAQUE" : srcMaterial.alphaMode,
+                        exts.empty() ? "none" : exts);
+                }
+
+                // Handle KHR_materials_pbrSpecularGlossiness extension
+                applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
+
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {
                         material->setBaseColorTexture(tex.get());
                         material->setHasBaseColorTexture(true);
                         material->setBaseColorUvSet(pbr.baseColorTexture.texCoord);
+                        spdlog::info("    -> baseColor texture OK ({}x{})", tex->width(), tex->height());
+                        actualTextureCount++;
+                    } else {
+                        spdlog::warn("    -> baseColor texture FAILED for texIdx={}", pbr.baseColorTexture.index);
                     }
                 }
                 if (srcMaterial.normalTexture.index >= 0) {
@@ -2415,6 +2612,9 @@ namespace visutwin::canvas
                         material->setNormalTexture(tex.get());
                         material->setHasNormalTexture(true);
                         material->setNormalUvSet(srcMaterial.normalTexture.texCoord);
+                        actualTextureCount++;
+                    } else {
+                        spdlog::warn("    -> normal texture FAILED for texIdx={}", srcMaterial.normalTexture.index);
                     }
                     material->setNormalScale(static_cast<float>(srcMaterial.normalTexture.scale));
                 }
@@ -2422,6 +2622,9 @@ namespace visutwin::canvas
                     if (auto tex = getOrCreateTexture(pbr.metallicRoughnessTexture.index)) {
                         material->setMetallicRoughnessTexture(tex.get());
                         material->setHasMetallicRoughnessTexture(true);
+                        actualTextureCount++;
+                    } else {
+                        spdlog::warn("    -> metallicRoughness texture FAILED for texIdx={}", pbr.metallicRoughnessTexture.index);
                     }
                 }
                 if (srcMaterial.emissiveFactor.size() == 3) {
@@ -2523,8 +2726,8 @@ namespace visutwin::canvas
                 debugName, prepared.dracoPrimitiveCount, prepared.dracoDecodeSuccessCount, prepared.dracoDecodeFailureCount);
         }
 
-        spdlog::info("GLB createFromPrepared [{}]: GPU resources created (textures={}, meshes={}, nodes={})",
-            debugName, gltfTextures.size(), nextPayloadIndex, model.nodes.size());
+        spdlog::info("GLB createFromPrepared [{}]: GPU resources created (texSlots={}, texActual={}, meshes={}, nodes={})",
+            debugName, gltfTextures.size(), actualTextureCount, nextPayloadIndex, model.nodes.size());
 
         return container;
     }
