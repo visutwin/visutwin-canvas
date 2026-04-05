@@ -52,7 +52,6 @@ namespace visutwin::canvas
         _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);
         _emissiveIntensity = 1.0f;
         _emissiveMap = nullptr;
-        _emissiveSet = false;
         _normalMap = nullptr;
         _bumpiness = 1.0f;
         _heightMap = nullptr;
@@ -158,26 +157,19 @@ namespace visutwin::canvas
             uniforms.normalScale = _bumpiness;
         }
 
-        // Emissive override is independent of the diffuseMap/baseColorTexture gate above: a
-        // glTF material that sets baseColorTexture would otherwise fall through to the base
-        // Material path and linearize _emissiveFactor — but users driving the StandardMaterial
-        // API with setEmissive()+setEmissiveIntensity() expect THAT value to win. Without this
-        // independent branch, `mat->setEmissiveIntensity(200)` gets silently ignored and the
-        // GPU receives `pow(emissiveFactor.r, 2.2)` with HDR-scaled input, overflowing fp16.
-        // Uses the _emissiveSet dirty flag rather than comparing values against defaults, so
-        // parsers that init emissive to the same value as the GLB's base _emissiveFactor (Assimp,
-        // OBJ) don't double-apply the override. Only explicit user calls to setEmissive/Intensity
-        // flip the flag.
-        if (_emissiveSet) {
-            // Linearize the sRGB-authored color FIRST, then scale by HDR intensity. Scaling in
-            // sRGB and relying on the shader's srgbToLinear would apply pow() to the intensity-
-            // scaled value (e.g. pow(200, 2.2) ≈ 1.7e5), blowing past fp16 range. The shader
-            // consumes emissiveColor as already-linear HDR (no srgbToLinear on the emissive path).
-            uniforms.emissiveColor[0] = std::pow(std::max(_emissive.r, 0.0f), 2.2f) * _emissiveIntensity;
-            uniforms.emissiveColor[1] = std::pow(std::max(_emissive.g, 0.0f), 2.2f) * _emissiveIntensity;
-            uniforms.emissiveColor[2] = std::pow(std::max(_emissive.b, 0.0f), 2.2f) * _emissiveIntensity;
-            uniforms.emissiveColor[3] = 1.0f;
-        }
+        // StandardMaterial always owns the emissive contribution: write _emissive * _emissiveIntensity
+        // (linearized) directly, overriding whatever base Material::updateUniforms wrote from
+        // _emissiveFactor. This matches PlayCanvas semantics (StandardMaterial.emissive is the
+        // authoritative emissive color) and prevents common authoring glitches — e.g. specular-
+        // glossiness GLB exporters that write emissiveFactor=(1,1,1) as a sentinel when no
+        // emissive texture is present, which would otherwise produce fully-white glowing surfaces.
+        // Users who want emission must call setEmissive()/setEmissiveIntensity(); when they do,
+        // the linearize-first-then-scale order keeps HDR intensities (e.g. 200 × neon) in range
+        // (pow(1, 2.2) * 200 = 200 linear, vs pow(200, 2.2) ≈ 1.7e5 which overflows fp16).
+        uniforms.emissiveColor[0] = std::pow(std::max(_emissive.r, 0.0f), 2.2f) * _emissiveIntensity;
+        uniforms.emissiveColor[1] = std::pow(std::max(_emissive.g, 0.0f), 2.2f) * _emissiveIntensity;
+        uniforms.emissiveColor[2] = std::pow(std::max(_emissive.b, 0.0f), 2.2f) * _emissiveIntensity;
+        uniforms.emissiveColor[3] = 1.0f;
 
         // StandardMaterial adds twoSidedLighting support to the doubleSided flag.
         if (_twoSidedLighting) {
