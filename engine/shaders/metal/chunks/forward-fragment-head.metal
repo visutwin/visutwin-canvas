@@ -52,7 +52,12 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     // carried in worldNormal (repurposed — skybox doesn't need surface normals).
     // Using worldPos - cameraPosition would suffer catastrophic float32 cancellation
     // at globe scale (both values ~10M meters, difference ~1 meter).
-    const float3 viewDir = normalize(rd.worldNormal);
+    // For SKY_DOME, subtract the dome center so the flattened bottom hemisphere
+    // projects as a ground plane (tripod projection).
+    const bool isDome = (lighting.skyDomeCenter.w > 0.5);
+    const float3 viewDir = isDome
+        ? normalize(rd.worldPos - lighting.skyDomeCenter.xyz)
+        : normalize(rd.worldNormal);
 
 #if VT_FEATURE_ATMOSPHERE
     // Nishita atmospheric scattering — replaces cubemap/atlas for sky visual.
