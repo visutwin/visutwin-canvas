@@ -1109,9 +1109,13 @@ namespace visutwin::canvas
             options.width = static_cast<uint32_t>(srcImage.width);
             options.height = static_cast<uint32_t>(srcImage.height);
             options.format = PixelFormat::PIXELFORMAT_RGBA8;
-            options.mipmaps = false;
-            options.numLevels = 1;
-            options.minFilter = FilterMode::FILTER_LINEAR;
+            // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
+            // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
+            // sampling can't minify ground/wall textures at glancing angles and we get radial
+            // streak aliasing from the viewer's nadir point.
+            options.mipmaps = true;
+            options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
+            options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
             options.magFilter = FilterMode::FILTER_LINEAR;
             options.name = srcImage.name.empty() ? srcTexture.name : srcImage.name;
 
@@ -2047,9 +2051,13 @@ namespace visutwin::canvas
             options.width = static_cast<uint32_t>(srcImage.width);
             options.height = static_cast<uint32_t>(srcImage.height);
             options.format = PixelFormat::PIXELFORMAT_RGBA8;
-            options.mipmaps = false;
-            options.numLevels = 1;
-            options.minFilter = FilterMode::FILTER_LINEAR;
+            // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
+            // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
+            // sampling can't minify ground/wall textures at glancing angles and we get radial
+            // streak aliasing from the viewer's nadir point.
+            options.mipmaps = true;
+            options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
+            options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
             options.magFilter = FilterMode::FILTER_LINEAR;
             options.name = srcImage.name.empty() ? srcTexture.name : srcImage.name;
 
@@ -2502,9 +2510,13 @@ namespace visutwin::canvas
             options.width  = static_cast<uint32_t>(prepImg.width);
             options.height = static_cast<uint32_t>(prepImg.height);
             options.format = PixelFormat::PIXELFORMAT_RGBA8;
-            options.mipmaps = false;
-            options.numLevels = 1;
-            options.minFilter = FilterMode::FILTER_LINEAR;
+            // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
+            // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
+            // sampling can't minify ground/wall textures at glancing angles and we get radial
+            // streak aliasing from the viewer's nadir point.
+            options.mipmaps = true;
+            options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
+            options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
             options.magFilter = FilterMode::FILTER_LINEAR;
 
             const auto& srcImage = model.images[static_cast<size_t>(imageSource)];

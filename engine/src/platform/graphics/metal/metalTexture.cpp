@@ -147,7 +147,6 @@ namespace visutwin::canvas::gpu
 
     void MetalTexture::uploadData(GraphicsDevice* device)
     {
-        (void)device;
         if (!_descriptor || !_metalTexture) {
             spdlog::warn("Texture upload skipped: Metal texture is not initialized");
             return;
@@ -215,6 +214,32 @@ namespace visutwin::canvas::gpu
             else
             {
                 anyLevelMissing = true;
+            }
+        }
+
+        // GPU-side mipmap generation: when the texture descriptor has more than one mip level
+        // but only level 0 was supplied with CPU data (typical for GLB/static image textures
+        // where the source PNG/JPEG has only the full-resolution image), run a blit pass to
+        // fill the remaining levels via box filter. Without this, sampling the texture at
+        // glancing view angles (e.g. a ground plane from low camera height) only ever reads
+        // the uninitialized or level-0-only data, producing strong radial aliasing streaks.
+        const uint32_t descriptorMipLevels = std::max(1u, static_cast<uint32_t>(_descriptor->mipmapLevelCount()));
+        const bool onlyLevel0Present = anyUploads && anyLevelMissing && _texture->getLevel(0) != nullptr;
+        const bool mipChainAllocated = descriptorMipLevels > 1;
+        if (mipChainAllocated && onlyLevel0Present) {
+            auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(device);
+            if (metalDevice) {
+                auto* queue = metalDevice->commandQueue();
+                if (queue) {
+                    auto* cmdBuffer = queue->commandBuffer();
+                    auto* blitEncoder = cmdBuffer->blitCommandEncoder();
+                    blitEncoder->generateMipmaps(_metalTexture);
+                    blitEncoder->endEncoding();
+                    cmdBuffer->commit();
+                    // Block until mipmap generation finishes so subsequent sampling reads
+                    // valid mip data. This runs once at texture load time, not per frame.
+                    cmdBuffer->waitUntilCompleted();
+                }
             }
         }
     }

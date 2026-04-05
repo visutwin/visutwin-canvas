@@ -152,6 +152,23 @@ namespace visutwin::canvas
         _depthState = std::make_shared<DepthState>();
     }
 
+    void Material::setAlphaMode(const AlphaMode mode)
+    {
+        _alphaMode = mode;
+        if (mode == AlphaMode::BLEND) {
+            // Standard glTF "BLEND": src*srcAlpha + dst*(1-srcAlpha), with depth-write off so
+            // overlapping transparent surfaces don't punch holes in each other.
+            _blendState = std::make_shared<BlendState>(BlendState::alphaBlend());
+            _depthState = std::make_shared<DepthState>(DepthState::noWrite());
+            _transparent = true;
+        } else {
+            // OPAQUE or MASK: no blending, normal depth-write. Reset to defaults.
+            _blendState = std::make_shared<BlendState>();
+            _depthState = std::make_shared<DepthState>();
+            _transparent = false;
+        }
+    }
+
     void Material::setParameter(const std::string& name, const ParameterValue& value)
     {
         if (name.empty()) {
@@ -186,9 +203,15 @@ namespace visutwin::canvas
         uniforms.baseColor[1] = _baseColorFactor.g;
         uniforms.baseColor[2] = _baseColorFactor.b;
         uniforms.baseColor[3] = _baseColorFactor.a;
-        uniforms.emissiveColor[0] = _emissiveFactor.r;
-        uniforms.emissiveColor[1] = _emissiveFactor.g;
-        uniforms.emissiveColor[2] = _emissiveFactor.b;
+        // Emissive is authored in sRGB (convention matches PlayCanvas material.emissive and the
+        // .gamma() conversion the glTF parser applies to glTF's linear emissiveFactor). The GPU
+        // wants linear HDR, and a StandardMaterial subclass may multiply by emissiveIntensity > 1.
+        // Linearize FIRST here so the intensity scaling (applied by StandardMaterial::updateUniforms
+        // below) happens in linear space — applying pow() to intensity-scaled sRGB blows up to
+        // +Inf for bright neon (e.g. 200 * 1.0 → pow(200, 2.2) ≈ 1.7e5, overflowing fp16 targets).
+        uniforms.emissiveColor[0] = std::pow(std::max(_emissiveFactor.r, 0.0f), 2.2f);
+        uniforms.emissiveColor[1] = std::pow(std::max(_emissiveFactor.g, 0.0f), 2.2f);
+        uniforms.emissiveColor[2] = std::pow(std::max(_emissiveFactor.b, 0.0f), 2.2f);
         uniforms.emissiveColor[3] = _emissiveFactor.a;
         uniforms.alphaCutoff = _alphaCutoff;
         uniforms.metallicFactor = _metallicFactor;
@@ -201,7 +224,16 @@ namespace visutwin::canvas
 
         // Allow custom parameter overrides (same alias chains as the original inline code).
         readColor4(getParam(this, {"material_baseColor", "baseColorFactor"}), uniforms.baseColor);
-        readColor4(getParam(this, {"material_emissive", "emissiveFactor"}), uniforms.emissiveColor);
+        {
+            // Parameter override convention is sRGB input — linearize to match the typed path above.
+            float emissiveOverride[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            if (readColor4(getParam(this, {"material_emissive", "emissiveFactor"}), emissiveOverride)) {
+                uniforms.emissiveColor[0] = std::pow(std::max(emissiveOverride[0], 0.0f), 2.2f);
+                uniforms.emissiveColor[1] = std::pow(std::max(emissiveOverride[1], 0.0f), 2.2f);
+                uniforms.emissiveColor[2] = std::pow(std::max(emissiveOverride[2], 0.0f), 2.2f);
+                uniforms.emissiveColor[3] = emissiveOverride[3];
+            }
+        }
         readFloat(getParam(this, {"material_alphaCutoff", "alphaCutoff"}), uniforms.alphaCutoff);
         readFloat(getParam(this, {"material_metallic", "metallicFactor"}), uniforms.metallicFactor);
         readFloat(getParam(this, {"material_roughness", "roughnessFactor"}), uniforms.roughnessFactor);

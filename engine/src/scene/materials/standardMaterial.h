@@ -58,11 +58,19 @@ namespace visutwin::canvas
 
         // --- Emissive ---
         const Color& emissive() const { return _emissive; }
-        void setEmissive(const Color& value) { _emissive = value; }
+        // Setting any of the three emissive controls (color/intensity/map) flips _emissiveSet so
+        // that updateUniforms() knows the caller is driving emission via the StandardMaterial API
+        // and should override whatever base Material::_emissiveFactor the parser wrote. Without
+        // this opt-in, the decoupled override would fire on parsers that set _emissive as part of
+        // material init (e.g. Assimp/OBJ parsers) and silently re-write emissive for materials
+        // the caller never meant to touch.
+        void setEmissive(const Color& value) { _emissive = value; _emissiveSet = true; }
         float emissiveIntensity() const { return _emissiveIntensity; }
-        void setEmissiveIntensity(const float value) { _emissiveIntensity = value; }
+        void setEmissiveIntensity(const float value) { _emissiveIntensity = value; _emissiveSet = true; }
         Texture* emissiveMap() const { return _emissiveMap; }
-        void setEmissiveMap(Texture* texture) { _emissiveMap = texture; _dirtyShader = true; }
+        void setEmissiveMap(Texture* texture) { _emissiveMap = texture; _emissiveSet = true; _dirtyShader = true; }
+        bool emissiveSet() const { return _emissiveSet; }
+        void clearEmissiveOverride() { _emissiveSet = false; }
 
         // --- Normal ---
         Texture* normalMap() const { return _normalMap; }
@@ -249,6 +257,10 @@ namespace visutwin::canvas
         Color _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);
         float _emissiveIntensity = 1.0f;
         Texture* _emissiveMap = nullptr;
+        // True when a caller used the StandardMaterial emissive API (setEmissive/Intensity/Map)
+        // after construction. Used by updateUniforms() to decide whether to override the base
+        // Material::_emissiveFactor written by the GLB parser.
+        bool _emissiveSet = false;
 
         Texture* _normalMap = nullptr;
         float _bumpiness = 1.0f;

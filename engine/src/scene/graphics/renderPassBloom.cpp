@@ -111,6 +111,13 @@ namespace visutwin::canvas
         for (int i = numPasses - 2; i >= 0; --i) {
             auto pass = std::make_shared<RenderPassUpsample>(device(), passSourceTexture);
             pass->init(_renderTargets[i]);
+            // Additive blending during progressive upscale accumulates every mip level into
+            // bloom_rt[0]. Without this we only see the result of the last (finest) upsample,
+            // losing the wide halo from coarser mips — matching PlayCanvas FramePassBloom
+            // (render-passes/frame-pass-bloom.js uses BlendState.ADDBLEND on upsample passes).
+            // Source alpha = 1.0 from the upsample shader, so SRC_ALPHA == ONE, giving a pure
+            // additive accumulation src + dst.
+            pass->blendState = std::make_shared<BlendState>(BlendState::additiveBlend());
             addBeforePass(pass);
             passSourceTexture = _renderTargets[i]->colorBuffer();
         }

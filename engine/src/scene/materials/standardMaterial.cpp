@@ -52,6 +52,7 @@ namespace visutwin::canvas
         _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);
         _emissiveIntensity = 1.0f;
         _emissiveMap = nullptr;
+        _emissiveSet = false;
         _normalMap = nullptr;
         _bumpiness = 1.0f;
         _heightMap = nullptr;
@@ -155,11 +156,26 @@ namespace visutwin::canvas
             uniforms.roughnessFactor = _glossInvert ? _gloss : (1.0f - _gloss);
 
             uniforms.normalScale = _bumpiness;
+        }
 
-            // Emissive: emissive color * intensity, sRGB space (shader converts to linear).
-            uniforms.emissiveColor[0] = _emissive.r * _emissiveIntensity;
-            uniforms.emissiveColor[1] = _emissive.g * _emissiveIntensity;
-            uniforms.emissiveColor[2] = _emissive.b * _emissiveIntensity;
+        // Emissive override is independent of the diffuseMap/baseColorTexture gate above: a
+        // glTF material that sets baseColorTexture would otherwise fall through to the base
+        // Material path and linearize _emissiveFactor — but users driving the StandardMaterial
+        // API with setEmissive()+setEmissiveIntensity() expect THAT value to win. Without this
+        // independent branch, `mat->setEmissiveIntensity(200)` gets silently ignored and the
+        // GPU receives `pow(emissiveFactor.r, 2.2)` with HDR-scaled input, overflowing fp16.
+        // Uses the _emissiveSet dirty flag rather than comparing values against defaults, so
+        // parsers that init emissive to the same value as the GLB's base _emissiveFactor (Assimp,
+        // OBJ) don't double-apply the override. Only explicit user calls to setEmissive/Intensity
+        // flip the flag.
+        if (_emissiveSet) {
+            // Linearize the sRGB-authored color FIRST, then scale by HDR intensity. Scaling in
+            // sRGB and relying on the shader's srgbToLinear would apply pow() to the intensity-
+            // scaled value (e.g. pow(200, 2.2) ≈ 1.7e5), blowing past fp16 range. The shader
+            // consumes emissiveColor as already-linear HDR (no srgbToLinear on the emissive path).
+            uniforms.emissiveColor[0] = std::pow(std::max(_emissive.r, 0.0f), 2.2f) * _emissiveIntensity;
+            uniforms.emissiveColor[1] = std::pow(std::max(_emissive.g, 0.0f), 2.2f) * _emissiveIntensity;
+            uniforms.emissiveColor[2] = std::pow(std::max(_emissive.b, 0.0f), 2.2f) * _emissiveIntensity;
             uniforms.emissiveColor[3] = 1.0f;
         }
 

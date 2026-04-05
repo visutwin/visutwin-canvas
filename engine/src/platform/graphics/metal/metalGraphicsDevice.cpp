@@ -83,6 +83,15 @@ namespace visutwin::canvas
         auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init();
         samplerDesc->setMinFilter(MTL::SamplerMinMagFilterLinear);
         samplerDesc->setMagFilter(MTL::SamplerMinMagFilterLinear);
+        // Enable trilinear mipmap filtering so textures with multiple mip levels get proper
+        // minification; without it Metal only ever samples mip 0 → aliasing + radial streaks
+        // at glancing view angles (e.g. ground planes viewed from low camera height).
+        samplerDesc->setMipFilter(MTL::SamplerMipFilterLinear);
+        // 16x anisotropic filtering preserves detail on textures viewed at oblique angles —
+        // essential for ground/floor textures that otherwise smear into radial lines from the
+        // viewer's nadir point. Metal supports 1..16; higher costs more bandwidth but the
+        // quality improvement is large for ground/terrain scenes.
+        samplerDesc->setMaxAnisotropy(16);
         samplerDesc->setSAddressMode(MTL::SamplerAddressModeRepeat);
         samplerDesc->setTAddressMode(MTL::SamplerAddressModeRepeat);
         _defaultSampler = _device->newSamplerState(samplerDesc);

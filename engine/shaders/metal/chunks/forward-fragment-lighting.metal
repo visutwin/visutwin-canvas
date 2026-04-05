@@ -640,7 +640,10 @@
 #endif
     }
 
-    float3 emissiveLinear = srgbToLinear(material.emissiveColor.rgb);
+    // DEVIATION: material.emissiveColor is supplied as already-linear HDR (intensity pre-applied
+    // in linear space by StandardMaterial::updateUniforms). Applying srgbToLinear here would
+    // overflow fp16 for bright emissives. Only the texture sample (authored in sRGB) is decoded.
+    float3 emissiveLinear = max(material.emissiveColor.rgb, float3(0.0));
 #if VT_FEATURE_EMISSIVE_MAP
     if (emissiveTexture.get_width() > 0 && emissiveTexture.get_height() > 0) {
         emissiveLinear *= srgbToLinear(emissiveTexture.sample(defaultSampler, uvEmissive).rgb);
