@@ -25,8 +25,19 @@ endif()
 find_package(spdlog        CONFIG REQUIRED)
 find_package(SDL3          CONFIG REQUIRED)
 find_package(tinyobjloader CONFIG REQUIRED)
-find_package(draco         CONFIG QUIET)
+find_package(draco         CONFIG REQUIRED)
 find_package(Boost         REQUIRED COMPONENTS core)
+
+foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
+    if(EXISTS "${_prefix}/share/stb/FindStb.cmake")
+        list(PREPEND CMAKE_MODULE_PATH "${_prefix}/share/stb")
+        break()
+    endif()
+endforeach()
+
+find_package(Stb MODULE REQUIRED)
+set(STB_INCLUDE_DIR "${Stb_INCLUDE_DIR}" CACHE INTERNAL "Path to the vcpkg stb headers")
+
 find_package(assimp        CONFIG REQUIRED)
 
 find_package(imgui          CONFIG REQUIRED)
@@ -88,7 +99,7 @@ add_library(visutwin::canvas ALIAS visutwin-canvas)
 target_include_directories(visutwin-canvas
     PUBLIC
         ${VISUTWIN_ROOT_DIR}/engine/src
-        ${VISUTWIN_ROOT_DIR}/engine/lib/stb
+        ${STB_INCLUDE_DIR}
         ${TINYGLTF_INCLUDE_DIRS}
         ${NLOHMANN_JSON_INCLUDE_DIRS}
     PRIVATE

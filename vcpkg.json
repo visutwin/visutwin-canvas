@@ -8,6 +8,7 @@
   "dependencies": [
     { "name": "spdlog",         "version>=": "1.17.0", "default-features": false, "features": ["tz-offset"] },
     { "name": "sdl3",           "version>=": "3.4.0" },
+    { "name": "stb"                                    },
     { "name": "tinyobjloader"                         },
     { "name": "tinygltf"                              },
     { "name": "draco"                                 },
