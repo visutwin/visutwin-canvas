@@ -93,7 +93,7 @@ namespace visutwin::canvas
                 continue;
             }
 
-            Camera* shadowCam = lightRenderData->shadowCamera;
+            Camera* shadowCam = lightRenderData->shadowCamera.get();
             auto& shadowCamNode = shadowCam->node();
             if (!shadowCamNode) {
                 continue;

@@ -92,7 +92,7 @@ namespace visutwin::canvas
                     continue;
                 }
 
-                Camera* shadowCam = rd->shadowCamera;
+                Camera* shadowCam = rd->shadowCamera.get();
                 GraphNode* lightNode = light->node();
                 if (!lightNode) {
                     continue;

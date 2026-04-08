@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <memory>
+
 #include "../camera.h"
 #include "../light.h"
 
@@ -27,7 +29,7 @@ namespace visutwin::canvas
         void setupRenderPass(RenderPass* renderPass, Camera* shadowCamera, bool clearRenderTarget);
 
         // Creates a shadow camera for a light and sets up its constant properties
-        static Camera* createShadowCamera(ShadowType shadowType, LightType type, int face);
+        static std::unique_ptr<Camera> createShadowCamera(ShadowType shadowType, LightType type, int face);
 
     private:
         Renderer* _renderer;

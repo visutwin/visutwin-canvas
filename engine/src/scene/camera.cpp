@@ -9,6 +9,8 @@
 
 namespace visutwin::canvas
 {
+    Camera::~Camera() = default;
+
     void Camera::setNode(GraphNode* value)
     {
         _node = std::unique_ptr<GraphNode>(value);

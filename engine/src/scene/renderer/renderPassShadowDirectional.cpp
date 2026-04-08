@@ -80,7 +80,7 @@ namespace visutwin::canvas
                 continue;
             }
 
-            Camera* shadowCam = rd->shadowCamera;
+            Camera* shadowCam = rd->shadowCamera.get();
 
             // Map normalized viewport rect to pixel coordinates.
             const Vector4& vpRect = rd->shadowViewport;

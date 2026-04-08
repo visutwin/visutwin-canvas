@@ -39,6 +39,8 @@ namespace visutwin::canvas
     class Camera
     {
     public:
+        ~Camera();
+
         float fov() const { return _fov; }
         void setFov(float value) { _fov = value; }
 

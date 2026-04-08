@@ -6,6 +6,7 @@
 #pragma once
 
 #include <array>
+#include <memory>
 
 #include "camera.h"
 #include "constants.h"
@@ -29,7 +30,7 @@ namespace visutwin::canvas
         Light* light;
 
         // Camera used to cull/render the shadow map
-        Camera* shadowCamera;
+        std::unique_ptr<Camera> shadowCamera;
 
         Camera* camera;
 
@@ -183,7 +184,7 @@ namespace visutwin::canvas
 
         ShadowMap* _shadowMap = nullptr;
 
-        std::vector<LightRenderData*> _renderData;
+        std::vector<std::unique_ptr<LightRenderData>> _renderData;
 
         ShadowType _shadowType = SHADOW_PCF3_32F;
 

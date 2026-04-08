@@ -13,8 +13,13 @@
 namespace visutwin::canvas
 {
     LightRenderData::LightRenderData(Camera* camera, int face, Light* light)
-        : light(light), camera(camera), face(face), shadowViewport(0, 0, 1, 1), shadowScissor(0, 0, 1, 1) {
-        shadowCamera = ShadowRenderer::createShadowCamera(light->shadowType(), light->type(), face);
+        : light(light),
+          shadowCamera(ShadowRenderer::createShadowCamera(light->shadowType(), light->type(), face)),
+          camera(camera),
+          face(face),
+          shadowViewport(0, 0, 1, 1),
+          shadowScissor(0, 0, 1, 1)
+    {
     }
 
     Light::Light(GraphicsDevice* graphicsDevice, bool clusteredLighting)
@@ -77,15 +82,16 @@ namespace visutwin::canvas
     LightRenderData* Light::getRenderData(Camera* camera, int face)
     {
         // Return existing
-        for (auto* rd : _renderData) {
+        for (const auto& rd : _renderData) {
             if (rd->camera == camera && rd->face == face) {
-                return rd;
+                return rd.get();
             }
         }
 
         // Create new one
-        LightRenderData* rd = new LightRenderData(camera, face, this);
-        _renderData.push_back(rd);
-        return rd;
+        auto rd = std::make_unique<LightRenderData>(camera, face, this);
+        auto* rdPtr = rd.get();
+        _renderData.push_back(std::move(rd));
+        return rdPtr;
     }
 }

@@ -28,7 +28,7 @@ namespace visutwin::canvas
     Camera* ShadowRenderer::prepareFace(Light* light, Camera* camera, int face) {
         LightType type = light->type();
         LightRenderData* lightRenderData = getLightRenderData(light, camera, face);
-        Camera* shadowCam = lightRenderData->shadowCamera;
+        Camera* shadowCam = lightRenderData->shadowCamera.get();
 
         // Assign a render target for the face
         int renderTargetIndex = type == LightType::LIGHTTYPE_DIRECTIONAL ? 0 : face;
@@ -64,9 +64,9 @@ namespace visutwin::canvas
         return light->getRenderData(light->type() == LightType::LIGHTTYPE_DIRECTIONAL ? camera : nullptr, face);
     }
 
-    Camera* ShadowRenderer::createShadowCamera(ShadowType shadowType, LightType type, int face)
+    std::unique_ptr<Camera> ShadowRenderer::createShadowCamera(ShadowType shadowType, LightType type, int face)
     {
-        Camera* shadowCam = LightCamera::create("ShadowCamera", type, face);
+        auto shadowCam = std::unique_ptr<Camera>(LightCamera::create("ShadowCamera", type, face));
 
         const ShadowTypeInfo* shadowInfo = &shadowTypeInfo.at(shadowType);
         assert(shadowInfo != nullptr);
