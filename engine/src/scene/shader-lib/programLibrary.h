@@ -25,7 +25,7 @@ namespace visutwin::canvas
     class ProgramLibrary
     {
     public:
-        ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device, StandardMaterial* standardMaterial);
+        explicit ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device);
 
         void registerProgram(const std::string& name, const std::vector<std::string>& chunkOrder);
         bool hasProgram(const std::string& name) const;

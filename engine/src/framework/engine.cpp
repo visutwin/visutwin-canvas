@@ -301,7 +301,7 @@ namespace visutwin::canvas
 
     void Engine::initProgramLibrary()
     {
-        auto library = std::make_shared<ProgramLibrary>(_graphicsDevice, new StandardMaterial());
+        auto library = std::make_shared<ProgramLibrary>(_graphicsDevice);
         setProgramLibrary(_graphicsDevice, library);
     }
 

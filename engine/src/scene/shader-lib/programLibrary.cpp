@@ -187,9 +187,8 @@ namespace visutwin::canvas
         }
     }
 
-    ProgramLibrary::ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device, StandardMaterial* standardMaterial) : _device(device)
+    ProgramLibrary::ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device) : _device(device)
     {
-        (void)standardMaterial;
         // Mirrors upstream program registration model (program -> ordered chunk keys).
         registerProgram("forward", {
             "common",
