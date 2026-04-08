@@ -7,8 +7,6 @@
 
 namespace visutwin::canvas
 {
-    static BoundingBox _tmpAabb;
-
     MeshInstance::MeshInstance(Mesh* mesh, Material* material, GraphNode* node)
         : _material(material), _mesh(mesh), _node(node)
     {
@@ -27,14 +25,22 @@ namespace visutwin::canvas
         }
 
         // Use local space override aabb if specified
+        BoundingBox localAabbStorage;
         BoundingBox* localAabb = _customAabb;
         bool toWorldSpace = (localAabb != nullptr);
 
         // Otherwise evaluate local aabb
         if (!localAabb) {
-            localAabb = &_tmpAabb;
+            localAabb = &localAabbStorage;
 
             if (_skinInstance) {
+                if (_mesh) {
+                    localAabb->setCenter(_mesh->aabb().center());
+                    localAabb->setHalfExtents(_mesh->aabb().halfExtents());
+                } else {
+                    localAabb->setCenter(0, 0, 0);
+                    localAabb->setHalfExtents(0, 0, 0);
+                }
                 // Note: skinned AABB calculation not yet implemented.
                 // Requires accessing bone AABBs and transforming them.
                 toWorldSpace = true;
