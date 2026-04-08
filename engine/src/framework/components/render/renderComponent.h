@@ -35,8 +35,9 @@ namespace visutwin::canvas
 
         void initializeComponentData() override {};
 
-        std::vector<MeshInstance*>& meshInstances() { return _meshInstances; }
-        const std::vector<MeshInstance*>& meshInstances() const { return _meshInstances; }
+        const std::vector<MeshInstance*>& meshInstances() const;
+        MeshInstance* addMeshInstance(std::unique_ptr<MeshInstance> meshInstance);
+        void clearMeshInstances();
 
         const std::vector<int>& layers() const { return _layers; }
         void setLayers(const std::vector<int>& layers) { _layers = layers; }
@@ -66,7 +67,7 @@ namespace visutwin::canvas
         int batchGroupId() const { return _batchGroupId; }
         void setBatchGroupId(int id) {
             _batchGroupId = id;
-            for (auto* mi : _meshInstances) {
+            for (const auto& mi : _meshInstances) {
                 mi->setBatchGroupId(id);
             }
         }
@@ -75,10 +76,13 @@ namespace visutwin::canvas
 
     private:
         void rebuildPrimitiveMesh();
+        void rebuildMeshInstanceView() const;
 
         inline static std::vector<RenderComponent*> _instances;
 
-        std::vector<MeshInstance*> _meshInstances;
+        std::vector<std::unique_ptr<MeshInstance>> _meshInstances;
+        mutable std::vector<MeshInstance*> _meshInstanceView;
+        mutable bool _meshInstanceViewDirty = true;
         std::vector<std::shared_ptr<Mesh>> _ownedMeshes;
         std::string _type;
         Material* _material = nullptr;

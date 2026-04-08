@@ -28,8 +28,8 @@ namespace visutwin::canvas
                     if (!payload.mesh) {
                         continue;
                     }
-                    auto* meshInstance = new MeshInstance(payload.mesh.get(), payload.material.get(), root);
-                    renderComponentRaw->meshInstances().push_back(meshInstance);
+                    auto meshInstance = std::make_unique<MeshInstance>(payload.mesh.get(), payload.material.get(), root);
+                    renderComponentRaw->addMeshInstance(std::move(meshInstance));
                 }
             root->addComponentInstance(std::move(renderComponent), componentTypeID<RenderComponent>());
             return root;
@@ -64,9 +64,9 @@ namespace visutwin::canvas
                     if (!meshPayload.mesh) {
                         continue;
                     }
-                    auto* meshInstance = new MeshInstance(meshPayload.mesh.get(), meshPayload.material.get(), nodeEntity);
+                    auto meshInstance = std::make_unique<MeshInstance>(meshPayload.mesh.get(), meshPayload.material.get(), nodeEntity);
                     meshInstance->setCastShadow(meshPayload.castShadow);
-                    renderComponentRaw->meshInstances().push_back(meshInstance);
+                    renderComponentRaw->addMeshInstance(std::move(meshInstance));
                 }
                 nodeEntity->addComponentInstance(std::move(renderComponent), componentTypeID<RenderComponent>());
             }

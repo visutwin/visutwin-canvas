@@ -448,15 +448,12 @@ namespace visutwin::canvas
             if (needsRebuild) {
                 visual.mesh = buildTextMesh(_engine->graphicsDevice(), element);
                 if (visual.render) {
-                    auto& mi = visual.render->meshInstances();
-                    for (auto* entry : mi) {
-                        delete entry;
-                    }
-                    mi.clear();
+                    visual.render->clearMeshInstances();
                     if (visual.mesh) {
                         visual.material->setDiffuseMap(element->fontResource()->texture);
                         visual.material->setOpacityMap(element->fontResource()->texture);
-                        mi.push_back(new MeshInstance(visual.mesh.get(), visual.material.get(), visual.entity));
+                        auto meshInstance = std::make_unique<MeshInstance>(visual.mesh.get(), visual.material.get(), visual.entity);
+                        visual.render->addMeshInstance(std::move(meshInstance));
                     }
                 }
                 visual.cachedText = element->text();

@@ -481,13 +481,35 @@ namespace visutwin::canvas
 
     RenderComponent::~RenderComponent()
     {
-        for (auto* meshInstance : _meshInstances) {
-            delete meshInstance;
-        }
-        _meshInstances.clear();
+        clearMeshInstances();
         _ownedMeshes.clear();
 
         _instances.erase(std::remove(_instances.begin(), _instances.end(), this), _instances.end());
+    }
+
+    const std::vector<MeshInstance*>& RenderComponent::meshInstances() const
+    {
+        rebuildMeshInstanceView();
+        return _meshInstanceView;
+    }
+
+    MeshInstance* RenderComponent::addMeshInstance(std::unique_ptr<MeshInstance> meshInstance)
+    {
+        if (!meshInstance) {
+            return nullptr;
+        }
+
+        auto* meshInstanceRaw = meshInstance.get();
+        _meshInstances.push_back(std::move(meshInstance));
+        _meshInstanceViewDirty = true;
+        return meshInstanceRaw;
+    }
+
+    void RenderComponent::clearMeshInstances()
+    {
+        _meshInstances.clear();
+        _meshInstanceView.clear();
+        _meshInstanceViewDirty = false;
     }
 
     void RenderComponent::setType(const std::string& type)
@@ -515,7 +537,7 @@ namespace visutwin::canvas
     {
         _receiveShadows = value;
         //set receiveShadows() propagates to all mesh instances.
-        for (auto* mi : _meshInstances) {
+        for (const auto& mi : _meshInstances) {
             if (mi) {
                 mi->setReceiveShadow(value);
             }
@@ -526,7 +548,7 @@ namespace visutwin::canvas
     {
         _castShadows = value;
         //set castShadows() propagates to all mesh instances.
-        for (auto* mi : _meshInstances) {
+        for (const auto& mi : _meshInstances) {
             if (mi) {
                 mi->setCastShadow(value);
             }
@@ -551,30 +573,24 @@ namespace visutwin::canvas
 
         // Clone mesh instances: create new MeshInstance per source, sharing mesh and material,
         // but pointing to this component's entity (the cloned node).
-        for (auto* mi : _meshInstances) {
-            delete mi;
-        }
-        _meshInstances.clear();
+        clearMeshInstances();
 
-        for (const auto* srcMi : src->_meshInstances) {
+        for (const auto& srcMi : src->_meshInstances) {
             if (!srcMi) {
                 continue;
             }
-            auto* clonedMi = new MeshInstance(srcMi->mesh(), srcMi->material(), _entity);
+            auto clonedMi = std::make_unique<MeshInstance>(srcMi->mesh(), srcMi->material(), _entity);
             clonedMi->setCastShadow(srcMi->castShadow());
             clonedMi->setReceiveShadow(srcMi->receiveShadow());
             clonedMi->setCull(srcMi->cull());
             clonedMi->setMask(srcMi->mask());
-            _meshInstances.push_back(clonedMi);
+            addMeshInstance(std::move(clonedMi));
         }
     }
 
     void RenderComponent::rebuildPrimitiveMesh()
     {
-        for (auto* meshInstance : _meshInstances) {
-            delete meshInstance;
-        }
-        _meshInstances.clear();
+        clearMeshInstances();
         _ownedMeshes.clear();
 
         if (_type == "asset") {
@@ -613,6 +629,24 @@ namespace visutwin::canvas
         }
 
         _ownedMeshes.push_back(mesh);
-        _meshInstances.push_back(new MeshInstance(mesh.get(), _material, owner));
+        auto meshInstance = std::make_unique<MeshInstance>(mesh.get(), _material, owner);
+        meshInstance->setReceiveShadow(_receiveShadows);
+        meshInstance->setCastShadow(_castShadows);
+        meshInstance->setBatchGroupId(_batchGroupId);
+        addMeshInstance(std::move(meshInstance));
+    }
+
+    void RenderComponent::rebuildMeshInstanceView() const
+    {
+        if (!_meshInstanceViewDirty) {
+            return;
+        }
+
+        _meshInstanceView.clear();
+        _meshInstanceView.reserve(_meshInstances.size());
+        for (const auto& meshInstance : _meshInstances) {
+            _meshInstanceView.push_back(meshInstance.get());
+        }
+        _meshInstanceViewDirty = false;
     }
 }
