@@ -299,14 +299,14 @@ int main()
         lightComp->setColor(Color(1.0f, 0.95f, 0.85f));
         lightComp->setIntensity(1.2f);
         lightComp->setCastShadows(true);
-        lightComp->setShadowBias(0.2f);
-        lightComp->setShadowNormalBias(0.1f);
+        lightComp->setShadowBias(0.05f);
+        lightComp->setShadowNormalBias(0.5f);
         lightComp->setShadowDistance(800.0f);
 
         lightComp->setNumCascades(4);
         lightComp->setShadowResolution(2048);
         lightComp->setCascadeDistribution(0.5f);
-        lightComp->setCascadeBlend(0.1f);
+        lightComp->setCascadeBlend(5.0f);
     }
     // Low sun angle for long dramatic shadows
     dirLight->setLocalEulerAngles(25.0f, 330.0f, 0.0f);
@@ -350,7 +350,7 @@ int main()
     // Cascade settings state
     int numCascades = 4;
     float cascadeDistribution = 0.5f;
-    float cascadeBlend = 0.1f;
+    float cascadeBlend = 5.0f;
     int shadowResolution = 2048;
 
     auto logCascadeState = [&](const char* reason) {

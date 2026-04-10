@@ -47,16 +47,12 @@
 
             float3 refrSample;
             if (refrILevel == 0.0) {
-                const float3 a = decodeEnvironment(
-                    envAtlasTexture.sample(defaultSampler, mapShinyUv(refrUv, 0.0)), lighting);
-                const float3 b = decodeEnvironment(
-                    envAtlasTexture.sample(defaultSampler, mapShinyUv(refrUv, 1.0)), lighting);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(refrUv, 0.0)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(refrUv, 1.0)), lighting);
                 refrSample = mix(a, b, refrLevel);
             } else {
-                const float3 a = decodeEnvironment(
-                    envAtlasTexture.sample(defaultSampler, mapRoughnessUv(refrUv, refrILevel)), lighting);
-                const float3 b = decodeEnvironment(
-                    envAtlasTexture.sample(defaultSampler, mapRoughnessUv(refrUv, refrILevel + 1.0)), lighting);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(refrUv, refrILevel)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(refrUv, refrILevel + 1.0)), lighting);
                 refrSample = mix(a, b, refrLevel - refrILevel);
             }
 

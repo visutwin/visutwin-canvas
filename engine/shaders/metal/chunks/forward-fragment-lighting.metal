@@ -117,8 +117,11 @@
             const float4x4 shadowMatrix = (shadowIdx == 0u) ? lighting.localShadowMatrix0 : lighting.localShadowMatrix1;
             const float4 shadowParamsLocal = (shadowIdx == 0u) ? lighting.localShadowParams0 : lighting.localShadowParams1;
 
-            // Apply normal bias in world space.
-            const float3 biasedPos = rd.worldPos + N * shadowParamsLocal.y;
+            // Apply normal bias in world space, scaled by sin(angle) between
+            // normal and light direction so grazing surfaces get more offset.
+            const float localNdotL = saturate(dot(N, L));
+            const float localSinAngle = sqrt(1.0 - localNdotL * localNdotL);
+            const float3 biasedPos = rd.worldPos + N * (shadowParamsLocal.y * localSinAngle);
             const float4 shadowClip = shadowMatrix * float4(biasedPos, 1.0);
             const float shadowW = max(shadowClip.w, 1e-6);
             const float3 shadowCoord = shadowClip.xyz / shadowW;
@@ -197,8 +200,13 @@
             const int cascadeIndex = getShadowCascadeIndex(
                 lighting.shadowCascadeDistances, cascadeCount, linearDepth);
 
-            // Apply normal bias in world space.
-            const float3 worldPosBiased = rd.worldPos + N * lighting.shadowBiasNormalStrength.y;
+            // Apply normal bias in world space, scaled by sin(angle) between
+            // normal and light direction so grazing surfaces get more offset
+            // while directly-lit faces get almost none — prevents light leaking
+            // at triangle edges on curved geometry.
+            const float csmNdotL = saturate(dot(N, L));
+            const float csmSinAngle = sqrt(1.0 - csmNdotL * csmNdotL);
+            const float3 worldPosBiased = rd.worldPos + N * (lighting.shadowBiasNormalStrength.y * csmSinAngle);
 
             // Transform world position via the cascade's viewport-scaled shadow matrix.
             // The matrix already bakes in projection, view, NDC-to-atlas-UV, Metal Y-flip,
@@ -210,29 +218,40 @@
             const float2 shadowUv = shadowCoord.xy;
             const float shadowDepth = shadowCoord.z;
 
+            const float resolution = float(shadowTexture.get_width());
             const bool insideShadow = shadowUv.x >= 0.0 && shadowUv.x <= 1.0 &&
                 shadowUv.y >= 0.0 && shadowUv.y <= 1.0 &&
                 shadowDepth >= 0.0 && shadowDepth <= 1.0;
             if (insideShadow) {
                 // PCF3_32F — optimized bilinear 3×3 PCF.
-                //getShadowPCF3x3().
                 const float receiverDepth = shadowDepth - lighting.shadowBiasNormalStrength.x;
-                const float resolution = float(shadowTexture.get_width());
                 const float visible = getShadowPCF3x3(shadowTexture, shadowUv, receiverDepth, resolution);
                 shadowFactor = mix(1.0 - clamp(lighting.shadowBiasNormalStrength.z, 0.0, 1.0), 1.0, visible);
             }
 
-            // CSM: optional cross-cascade dither blending.
-            // When cascadeBlend > 0, fade shadow near each cascade's far boundary
-            // to reduce visible hard transitions between cascades.
-            const float cascadeBlend = lighting.shadowCascadeParams.y;
-            if (cascadeBlend > 0.0 && cascadeIndex < cascadeCount - 1) {
+            // CSM: cross-cascade blending near each cascade boundary.
+            // Sample the next cascade and blend to eliminate the hard transition
+            // that otherwise creates visible bright lines on geometry.
+            const float cascadeBlendWidth = lighting.shadowCascadeParams.y;
+            if (cascadeBlendWidth > 0.0 && cascadeIndex < cascadeCount - 1) {
                 const float cascadeFar = lighting.shadowCascadeDistances[cascadeIndex];
-                const float fadeZone = cascadeBlend;
-                const float fade = saturate((cascadeFar - linearDepth) / fadeZone);
-                // Blend towards 1.0 (no shadow) at cascade boundary — simple fade.
-                // Full cross-cascade sampling can be added later for smoother transitions.
-                shadowFactor = mix(1.0, shadowFactor, fade);
+                const float fade = saturate((cascadeFar - linearDepth) / cascadeBlendWidth);
+                if (fade < 1.0) {
+                    // Sample shadow from the next cascade for cross-fade.
+                    const int nextCascade = cascadeIndex + 1;
+                    const float4 nextShadowClip = lighting.shadowMatrixPalette[nextCascade] * float4(worldPosBiased, 1.0);
+                    const float nextW = max(nextShadowClip.w, 1e-6);
+                    const float3 nextCoord = nextShadowClip.xyz / nextW;
+                    float nextShadowFactor = 1.0;
+                    if (nextCoord.x >= 0.0 && nextCoord.x <= 1.0 &&
+                        nextCoord.y >= 0.0 && nextCoord.y <= 1.0 &&
+                        nextCoord.z >= 0.0 && nextCoord.z <= 1.0) {
+                        const float nextReceiverDepth = nextCoord.z - lighting.shadowBiasNormalStrength.x;
+                        const float nextVisible = getShadowPCF3x3(shadowTexture, nextCoord.xy, nextReceiverDepth, resolution);
+                        nextShadowFactor = mix(1.0 - clamp(lighting.shadowBiasNormalStrength.z, 0.0, 1.0), 1.0, nextVisible);
+                    }
+                    shadowFactor = mix(nextShadowFactor, shadowFactor, fade);
+                }
             }
 
             // Fade shadow at max distance to avoid hard cutoff.
@@ -464,14 +483,19 @@
 #if VT_FEATURE_ENV_ATLAS
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
         // Diffuse IBL: sample from dedicated Lambert irradiance sub-region.
-        //with LIT_AMBIENT_SOURCE == ENVALATLAS.
-        const float2 envUvN = toSphericalUv(normalize(float3(-N.x, N.y, N.z)));
-        const float2 envUvR = mapAmbientUv(envUvN);
-        const float3 envAmbient = processEnvironment(
-            decodeEnvironment(envAtlasTexture.sample(defaultSampler, envUvR), lighting),
-            max(lighting.cameraPositionSkyboxIntensity.w, 0.0)
-        );
-        // Adds envAmbient to dDiffuseLight without (1-F0).
+        const float3 diffDir = float3(-N.x, N.y, N.z);
+        float2 diffSeamUvL, diffSeamUvR; float diffSeamT;
+        float3 envAmbient;
+        if (isAtEnvSeam(diffDir, diffSeamUvL, diffSeamUvR, diffSeamT)) {
+            const float3 aL = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapAmbientUv(diffSeamUvL)), lighting);
+            const float3 aR = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapAmbientUv(diffSeamUvR)), lighting);
+            envAmbient = processEnvironment(mix(aL, aR, diffSeamT), max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
+        } else {
+            const float2 envUvN = toSphericalUv(normalize(diffDir));
+            envAmbient = processEnvironment(
+                decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapAmbientUv(envUvN)), lighting),
+                max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
+        }
         indirectDiffuse = envAmbient;
 
         // Specular IBL: dual-path sampling.
@@ -484,7 +508,8 @@
 #else
         const float3 R = reflect(-V, N);
 #endif
-        const float2 envUvSpec = toSphericalUv(normalize(float3(-R.x, R.y, R.z)));
+        const float3 specDir = float3(-R.x, R.y, R.z);
+        const float2 envUvSpec = toSphericalUv(normalize(specDir));
 
         const float level = saturate(1.0 - gloss) * 5.0;
         const float ilevel = floor(level);
@@ -501,30 +526,52 @@
         const float level2 = clamp(0.5 * log2(maxd) - 1.0, 0.0, 5.0);
         const float ilevel2 = floor(level2);
 
-        float2 uv0, uv1;
-        float weight;
-        if (ilevel == 0.0) {
-            // Shiny path: sample from shiny atlas sub-region with screen-space MIP.
-            uv0 = mapShinyUv(envUvSpec, ilevel2);
-            uv1 = mapShinyUv(envUvSpec, ilevel2 + 1.0);
-            weight = level2 - ilevel2;
+        // Seam-safe specular IBL: at the atan2 wrap, sample both sides with
+        // envSeamSampler (no anisotropy) and blend decoded-linear results.
+        float2 specSeamUvL, specSeamUvR; float specSeamT;
+        const bool specSeam = isAtEnvSeam(specDir, specSeamUvL, specSeamUvR, specSeamT);
+
+        float3 linear0, linear1;
+        if (specSeam) {
+            // L side
+            float3 l0L, l1L;
+            if (ilevel == 0.0) {
+                l0L = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapShinyUv(specSeamUvL, ilevel2)), lighting);
+                l1L = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapShinyUv(specSeamUvL, ilevel2 + 1.0)), lighting);
+                l0L = mix(l0L, l1L, level2 - ilevel2);
+            } else {
+                l0L = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(specSeamUvL, ilevel)), lighting);
+            }
+            l1L = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(specSeamUvL, ilevel + 1.0)), lighting);
+            const float3 resL = mix(l0L, l1L, level - ilevel);
+
+            // R side
+            float3 l0R, l1R;
+            if (ilevel == 0.0) {
+                l0R = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapShinyUv(specSeamUvR, ilevel2)), lighting);
+                l1R = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapShinyUv(specSeamUvR, ilevel2 + 1.0)), lighting);
+                l0R = mix(l0R, l1R, level2 - ilevel2);
+            } else {
+                l0R = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(specSeamUvR, ilevel)), lighting);
+            }
+            l1R = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(specSeamUvR, ilevel + 1.0)), lighting);
+            const float3 resR = mix(l0R, l1R, level - ilevel);
+
+            linear0 = mix(resL, resR, specSeamT);
+            linear1 = linear0;
         } else {
-            // Rough path: sample from roughness MIP level.
-            uv0 = mapRoughnessUv(envUvSpec, ilevel);
-            uv1 = uv0;
-            weight = 0.0;
+            if (ilevel == 0.0) {
+                linear0 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(envUvSpec, ilevel2)), lighting);
+                linear1 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(envUvSpec, ilevel2 + 1.0)), lighting);
+                linear0 = mix(linear0, linear1, level2 - ilevel2);
+            } else {
+                linear0 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(envUvSpec, ilevel)), lighting);
+            }
+            linear1 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(envUvSpec, ilevel + 1.0)), lighting);
         }
 
-        const float3 linearA = decodeEnvironment(envAtlasTexture.sample(defaultSampler, uv0), lighting);
-        const float3 linearB = decodeEnvironment(envAtlasTexture.sample(defaultSampler, uv1), lighting);
-        const float3 linear0 = mix(linearA, linearB, weight);
-        const float3 linear1 = decodeEnvironment(
-            envAtlasTexture.sample(defaultSampler, mapRoughnessUv(envUvSpec, ilevel + 1.0)), lighting);
-
-        const float3 envSpec = processEnvironment(
-            mix(linear0, linear1, level - ilevel),
-            max(lighting.cameraPositionSkyboxIntensity.w, 0.0)
-        );
+        const float3 envSpec = processEnvironment(mix(linear0, linear1, level - ilevel),
+            max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
 
         // gloss-dependent Fresnel on reflections.
         float3 fresnelNV = getFresnel(dot(N, V), gloss, F0);
@@ -545,18 +592,13 @@
 
             float3 ccEnvColor;
             if (ccIlevel == 0.0) {
-                // Shiny path for highly glossy clearcoat
-                const float2 ccUv0 = mapShinyUv(ccEnvUv, 0.0);
-                const float2 ccUv1 = mapShinyUv(ccEnvUv, 1.0);
-                const float3 ccLinA = decodeEnvironment(envAtlasTexture.sample(defaultSampler, ccUv0), lighting);
-                const float3 ccLinB = decodeEnvironment(envAtlasTexture.sample(defaultSampler, ccUv1), lighting);
-                ccEnvColor = mix(ccLinA, ccLinB, ccLevel);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(ccEnvUv, 0.0)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(ccEnvUv, 1.0)), lighting);
+                ccEnvColor = mix(a, b, ccLevel);
             } else {
-                const float3 ccLin0 = decodeEnvironment(
-                    envAtlasTexture.sample(defaultSampler, mapRoughnessUv(ccEnvUv, ccIlevel)), lighting);
-                const float3 ccLin1 = decodeEnvironment(
-                    envAtlasTexture.sample(defaultSampler, mapRoughnessUv(ccEnvUv, ccIlevel + 1.0)), lighting);
-                ccEnvColor = mix(ccLin0, ccLin1, ccLevel - ccIlevel);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(ccEnvUv, ccIlevel)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(ccEnvUv, ccIlevel + 1.0)), lighting);
+                ccEnvColor = mix(a, b, ccLevel - ccIlevel);
             }
 
             const float ccNdotV = max(dot(ccNormalW, V), 0.0);
@@ -576,17 +618,13 @@
 
             float3 sheenEnvColor;
             if (sheenILevel == 0.0) {
-                const float2 shUv0 = mapShinyUv(sheenEnvUv, 0.0);
-                const float2 shUv1 = mapShinyUv(sheenEnvUv, 1.0);
-                const float3 shLinA = decodeEnvironment(envAtlasTexture.sample(defaultSampler, shUv0), lighting);
-                const float3 shLinB = decodeEnvironment(envAtlasTexture.sample(defaultSampler, shUv1), lighting);
-                sheenEnvColor = mix(shLinA, shLinB, sheenLevel);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(sheenEnvUv, 0.0)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(sheenEnvUv, 1.0)), lighting);
+                sheenEnvColor = mix(a, b, sheenLevel);
             } else {
-                const float3 shLin0 = decodeEnvironment(
-                    envAtlasTexture.sample(defaultSampler, mapRoughnessUv(sheenEnvUv, sheenILevel)), lighting);
-                const float3 shLin1 = decodeEnvironment(
-                    envAtlasTexture.sample(defaultSampler, mapRoughnessUv(sheenEnvUv, sheenILevel + 1.0)), lighting);
-                sheenEnvColor = mix(shLin0, shLin1, sheenLevel - sheenILevel);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(sheenEnvUv, sheenILevel)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(sheenEnvUv, sheenILevel + 1.0)), lighting);
+                sheenEnvColor = mix(a, b, sheenLevel - sheenILevel);
             }
 
             // Analytical directional albedo approximation (replaces LUT).

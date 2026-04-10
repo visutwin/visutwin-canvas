@@ -397,7 +397,12 @@ namespace visutwin::canvas
             return createSphereMesh(device);
         case SKYTYPE_INFINITE:
         default:
-            return createInfiniteMesh(device);
+            // Use a sphere mesh instead of a cube for the infinite skybox.
+            // The cube mesh has face edges where the 16× anisotropic filter
+            // sees derivative discontinuities, creating visible vertical lines
+            // in the equirectangular env atlas sampling.  A sphere has no face
+            // edges, so the UV gradient is continuous everywhere.
+            return createSphereMesh(device, 64, 64);
         }
     }
 } // visutwin

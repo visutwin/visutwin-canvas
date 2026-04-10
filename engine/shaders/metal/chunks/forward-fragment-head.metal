@@ -88,10 +88,20 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     // envAtlas path — sample 2D environment atlas
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
         const float3 dir = viewDir * float3(-1.0, 1.0, 1.0);
-        const float2 uv = toSphericalUv(normalize(dir));
-        const float2 atlasUv = mapRoughnessUv(uv, max(lighting.skyboxMipAndPad.x, 0.0));
-        const float4 raw = envAtlasTexture.sample(defaultSampler, atlasUv);
-        const float3 skyLinear = processEnvironment(decodeEnvironment(raw, lighting), max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
+        const float skyMip = max(lighting.skyboxMipAndPad.x, 0.0);
+        const float skyInt = max(lighting.cameraPositionSkyboxIntensity.w, 0.0);
+        float2 seamUvL, seamUvR; float seamT;
+        float3 skyLinear;
+        if (isAtEnvSeam(dir, seamUvL, seamUvR, seamT)) {
+            // Use envSeamSampler (no anisotropy) to avoid gradient artifacts at zone boundary.
+            const float3 cL = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(seamUvL, skyMip)), lighting);
+            const float3 cR = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(seamUvR, skyMip)), lighting);
+            skyLinear = processEnvironment(mix(cL, cR, seamT), skyInt);
+        } else {
+            const float2 uv = toSphericalUv(normalize(dir));
+            skyLinear = processEnvironment(decodeEnvironment(
+                envAtlasTexture.sample(defaultSampler, mapRoughnessUv(uv, skyMip)), lighting), skyInt);
+        }
         // when CameraFrame is active (bit 5 of flagsAndPad.x),
         // skybox outputs linear HDR — tonemapping and gamma are deferred to the compose pass.
         if ((lighting.flagsAndPad.x & (1u << 5)) != 0u) {

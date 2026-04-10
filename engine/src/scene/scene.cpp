@@ -86,6 +86,7 @@ namespace visutwin::canvas
         }
     }
 
+
     void Scene::setSkybox(Texture* value)
     {
         if (value != _skyboxCubeMap) {

@@ -238,6 +238,28 @@ static inline float2 toSphericalUv(float3 dir)
     return float2(uv.x, 1.0 - uv.y);
 }
 
+// Non-anisotropic sampler for env atlas seam zone.
+// The default 16× anisotropic sampler creates visible lines at branch boundaries
+// because the UV gradient changes abruptly. This sampler uses plain bilinear
+// filtering, which is gradient-insensitive — no visible transition at zone edges.
+constexpr sampler envSeamSampler(coord::normalized, filter::linear, address::repeat);
+
+// Detect the equirectangular atan2 seam. Returns true when near the wrap.
+static inline bool isAtEnvSeam(float3 dir, thread float2& uvL, thread float2& uvR, thread float& t)
+{
+    const float3 n = normalize(dir);
+    constexpr float W = 0.05;
+    if (n.z < 0.0 && abs(n.x) < W) {
+        float3 dL = n; dL.x = -W;
+        float3 dR = n; dR.x =  W;
+        uvL = toSphericalUv(normalize(dL));
+        uvR = toSphericalUv(normalize(dR));
+        t = (n.x + W) / (2.0 * W);
+        return true;
+    }
+    return false;
+}
+
 static inline float2 mapUv(float2 uv, float4 rect)
 {
     return float2(mix(rect.x + ATLAS_SEAM, rect.x + rect.z - ATLAS_SEAM, uv.x),
