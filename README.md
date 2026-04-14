@@ -133,7 +133,7 @@ Recommended free asset sources:
 
 ```
 visutwin-canvas/
-├── engine/                        # Engine library (~400 source files)
+├── engine/                        # Engine library (409 source files)
 │   ├── src/
 │   │   ├── core/                  # Math, events, tags, shapes, utilities
 │   │   ├── platform/
@@ -144,7 +144,7 @@ visutwin-canvas/
 │   │   ├── scene/                 # Scene graph, renderer, materials, lighting
 │   │   │   ├── composition/       # Layer composition, render actions
 │   │   │   ├── graphics/          # Post-processing passes (TAA, SSAO, bloom, DoF, etc.)
-│   │   │   ├── gsplay-unified/    # Gaussian splatting
+│   │   │   ├── gsplay-unified/    # Gaussian splatting (stub)
 │   │   │   └── immediate/         # Immediate-mode rendering
 │   │   ├── framework/             # Engine, Entity, Components, ECS
 │   │   │   ├── xr/                # XR / ARKit support
@@ -154,7 +154,7 @@ visutwin-canvas/
 │   │   ├── extras/                # Input utilities
 │   │   └── util/                  # General utilities
 │   ├── lib/                       # Vendored: metal-cpp, stb
-│   └── shaders/metal/chunks/      # 7 composable Metal shader chunks
+│   └── shaders/metal/chunks/      # 7 composable Metal shader chunks (41 feature toggles)
 ├── examples/                      # 19 example applications
 ├── tools/                         # Build and utility tools
 └── assets/                        # Example assets (user-provided)
@@ -167,11 +167,11 @@ visutwin-canvas/
 | Core / Math | ~75% | Vector2/3/4, Matrix4, Quaternion, Curve, Color, Random |
 | Core / Events | ~95% | EventHandler, EventHandle |
 | Core / Shapes | ~70% | BoundingBox, BoundingSphere, OrientedBox, Plane, Ray, Tri |
-| Scene / Renderer | ~65% | Forward PBR, frustum culling, layer sorting |
+| Scene / Renderer | ~70% | Forward PBR, frustum culling, layer sorting |
 | Scene / Materials | ~75% | StandardMaterial with 67 properties; clearcoat, sheen, iridescence, transmission, anisotropy, parallax all functional |
 | Scene / Lighting | ~65% | Directional + point + spot + area rect, clustered lighting |
-| Scene / Shadows | ~60% | Directional cascades, spot/point depth maps, omni cubemaps |
-| Scene / Shader-lib | ~75% | 7 Metal chunks (2k+ lines), 35 features implemented, 8 stubbed |
+| Scene / Shadows | ~75% | Full 4-cascade CSM with PSSM splits and cross-cascade blending, spot/point depth maps, omni cubemaps |
+| Scene / Shader-lib | ~75% | 7 Metal chunks (2k+ lines), 34 features implemented, 7 stubbed |
 | Scene / Graphics | ~50% | Environment atlas, HDR cubemap, 14 post-processing passes |
 | Scene / Composition | ~50% | Layer composition, render action scheduling |
 | Graphics / Metal | ~40% | Buffer, texture, pipeline functional |
@@ -179,17 +179,16 @@ visutwin-canvas/
 | Framework / ECS | ~70% | Engine, Entity, ComponentSystem, Script |
 | Framework / Components | ~35% | 11 types: Camera, Render, Light, Script, Animation, Screen, Element, Button, Collision, RigidBody, GSplat |
 | Framework / Gizmo | ~70% | Translate, rotate, scale gizmos |
-| Framework / Assets | ~40% | GLB/glTF loading, texture loading |
+| Framework / Assets | ~50% | GLB/glTF loading, 3 resource handlers (texture, container, font) |
 | Viz / Overlay | New | ImGui-based digital twin HUD with 3D-anchored labels |
 
 ### Known Limitations
 
 - Metal is the primary graphics backend; Vulkan is in early development
 - Skeletal animation GPU path not implemented (SkinInstance/MorphInstance are stubs)
-- 8 shader features stubbed (light probes, skinning, morphs, spec-gloss, Oren-Nayar, detail normals, displacement, atmosphere)
-- Custom uniform binding beyond the fixed MaterialUniforms struct not yet supported
-- ResourceLoader has no handler system for asset loading
-- Single-cascade shadow mapping only (no full CSM, point/spot shadow atlasing)
+- 7 shader features stubbed (light probes, skinning, morphs, spec-gloss, Oren-Nayar, detail normals, displacement)
+- Gaussian splatting component registered but not implemented (empty directory)
+- No texture streaming or progressive mip-level loading
 
 ## Attribution
 
