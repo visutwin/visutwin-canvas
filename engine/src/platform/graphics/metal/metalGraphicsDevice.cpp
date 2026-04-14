@@ -11,6 +11,7 @@
 #include "metalComposePass.h"
 #include "metalDepthAwareBlurPass.h"
 #include "metalDofBlurPass.h"
+#include "metalInstanceCullPass.h"
 #include "metalSsaoPass.h"
 #include "metalTaaPass.h"
 #include "metalTexture.h"
@@ -310,6 +311,11 @@ namespace visutwin::canvas
         int numVertices, void* nativeBuffer)
     {
         return createVertexBufferFromMTLBuffer(format, numVertices, static_cast<MTL::Buffer*>(nativeBuffer));
+    }
+
+    std::unique_ptr<InstanceCuller> MetalGraphicsDevice::createInstanceCuller()
+    {
+        return std::make_unique<MetalInstanceCullPass>(this);
     }
 
     std::shared_ptr<IndexBuffer> MetalGraphicsDevice::createIndexBuffer(const IndexFormat format, const int numIndices,

@@ -11,9 +11,9 @@
 #include "metalInstanceCullPass.h"
 
 #include "metalGraphicsDevice.h"
+#include "metalVertexBuffer.h"
 #include "spdlog/spdlog.h"
 
-#include <cmath>
 #include <cstring>
 
 namespace visutwin::canvas
@@ -240,6 +240,13 @@ kernel void writeIndirectArgs(
 
     void MetalInstanceCullPass::reserve(uint32_t maxInstances)
     {
+        // Make sure pipelines + the fixed-size buffers (counter, uniform,
+        // indirect args) exist — callers that invoke reserve() upfront
+        // (MeshInstance::enableGpuInstanceCulling) rely on all native buffer
+        // pointers being valid before any cull() dispatch.
+        ensureResources();
+        if (!resourcesReady_) return;
+
         if (maxInstances <= maxInstances_ && compactedBuffer_) return;
 
         auto* mtlDevice = device_->raw();
@@ -266,7 +273,15 @@ kernel void writeIndirectArgs(
 
     // ─── GPU Culling ─────────────────────────────────────────────────
 
-    void MetalInstanceCullPass::cull(MTL::Buffer* inputBuffer, const InstanceCullParams& params)
+    void MetalInstanceCullPass::cull(VertexBuffer* input, const InstanceCullParams& params)
+    {
+        if (!input) return;
+        // All VertexBuffers on the Metal backend are MetalVertexBuffer.
+        auto* mv = static_cast<MetalVertexBuffer*>(input);
+        cullRaw(mv->raw(), params);
+    }
+
+    void MetalInstanceCullPass::cullRaw(MTL::Buffer* inputBuffer, const InstanceCullParams& params)
     {
         if (!inputBuffer || params.instanceCount == 0) return;
 
@@ -349,70 +364,23 @@ kernel void writeIndirectArgs(
         commandBuffer->waitUntilCompleted();
     }
 
-    // ─── Frustum Plane Extraction (Gribb/Hartmann Method) ────────────
+    // Note: extractFrustumPlanes lives in instanceCuller.cpp so it can be
+    // reused by future non-Metal backends.
 
-    void MetalInstanceCullPass::extractFrustumPlanes(
-        const float* m, float outPlanes[6][4])
+    uint32_t MetalInstanceCullPass::visibleCountReadback() const
     {
-        // Input: 4x4 view-projection matrix in column-major order.
-        // m[col*4 + row] — standard Metal/OpenGL layout.
-        //
-        // Row access helper: row i of column j = m[j*4 + i]
-        // Row 0: m[0], m[4], m[8],  m[12]
-        // Row 1: m[1], m[5], m[9],  m[13]
-        // Row 2: m[2], m[6], m[10], m[14]
-        // Row 3: m[3], m[7], m[11], m[15]
-
-        // Left:   row3 + row0
-        outPlanes[0][0] = m[3]  + m[0];
-        outPlanes[0][1] = m[7]  + m[4];
-        outPlanes[0][2] = m[11] + m[8];
-        outPlanes[0][3] = m[15] + m[12];
-
-        // Right:  row3 - row0
-        outPlanes[1][0] = m[3]  - m[0];
-        outPlanes[1][1] = m[7]  - m[4];
-        outPlanes[1][2] = m[11] - m[8];
-        outPlanes[1][3] = m[15] - m[12];
-
-        // Bottom: row3 + row1
-        outPlanes[2][0] = m[3]  + m[1];
-        outPlanes[2][1] = m[7]  + m[5];
-        outPlanes[2][2] = m[11] + m[9];
-        outPlanes[2][3] = m[15] + m[13];
-
-        // Top:    row3 - row1
-        outPlanes[3][0] = m[3]  - m[1];
-        outPlanes[3][1] = m[7]  - m[5];
-        outPlanes[3][2] = m[11] - m[9];
-        outPlanes[3][3] = m[15] - m[13];
-
-        // Near:   row3 + row2
-        outPlanes[4][0] = m[3]  + m[2];
-        outPlanes[4][1] = m[7]  + m[6];
-        outPlanes[4][2] = m[11] + m[10];
-        outPlanes[4][3] = m[15] + m[14];
-
-        // Far:    row3 - row2
-        outPlanes[5][0] = m[3]  - m[2];
-        outPlanes[5][1] = m[7]  - m[6];
-        outPlanes[5][2] = m[11] - m[10];
-        outPlanes[5][3] = m[15] - m[14];
-
-        // Normalize each plane
-        for (int i = 0; i < 6; ++i) {
-            const float len = std::sqrt(
-                outPlanes[i][0] * outPlanes[i][0] +
-                outPlanes[i][1] * outPlanes[i][1] +
-                outPlanes[i][2] * outPlanes[i][2]);
-            if (len > 1e-8f) {
-                const float invLen = 1.0f / len;
-                outPlanes[i][0] *= invLen;
-                outPlanes[i][1] *= invLen;
-                outPlanes[i][2] *= invLen;
-                outPlanes[i][3] *= invLen;
-            }
-        }
+        if (!indirectArgsBuffer_) return 0;
+        // Indirect args layout (MTLDrawIndexedPrimitivesIndirectArguments):
+        //   uint indexCount;      // offset 0
+        //   uint instanceCount;   // offset 4   <-- visible instance count
+        //   uint indexStart;      // offset 8
+        //   int  baseVertex;      // offset 12
+        //   uint baseInstance;    // offset 16
+        const auto* bytes = static_cast<const uint8_t*>(indirectArgsBuffer_->contents());
+        if (!bytes) return 0;
+        uint32_t instanceCount = 0;
+        std::memcpy(&instanceCount, bytes + 4, sizeof(uint32_t));
+        return instanceCount;
     }
 
 } // namespace visutwin::canvas

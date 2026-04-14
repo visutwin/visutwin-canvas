@@ -60,6 +60,8 @@ namespace visutwin::canvas
 
         // Cull directional shadow maps for each unique camera in the layer composition.
         // This positions shadow cameras and populates _cameraDirShadowLights.
+        // Also dispatches per-camera GPU instance culling for any MeshInstances
+        // that opted in via enableGpuInstanceCulling().
         {
             const auto& actions = layerComposition->renderActions();
             std::unordered_set<Camera*> culledCameras;
@@ -68,6 +70,7 @@ namespace visutwin::canvas
                     Camera* cam = action->camera->camera();
                     if (cam && culledCameras.insert(cam).second) {
                         cullShadowmaps(cam);
+                        dispatchGpuInstanceCulling(cam);
                     }
                 }
             }

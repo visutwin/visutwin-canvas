@@ -20,7 +20,7 @@ VisuTwin Canvas ports PlayCanvas's architecture, class hierarchy, and algorithms
 - **Skybox rendering** (box, dome, infinite) via cubemap or equirectangular environment atlas
 - **Transform gizmos** (translate, rotate, scale)
 - **Screen-space UI** with anchored elements, buttons, text rendering
-- **GPU instancing** with per-instance color
+- **GPU instancing** with per-instance color and optional per-frame GPU frustum culling (compute-driven indirect draw)
 - **Dynamic batching** with bone-index matrix palette
 - **Planar reflections** with distance-based blur
 - **Shadow catcher** materials (multiplicative ground plane shadows)
@@ -87,7 +87,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 
 ## Examples
 
-19 example applications in `examples/`:
+20 example applications in `examples/`:
 
 | Example | Description |
 |---------|-------------|
@@ -104,6 +104,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | edge-detect | Post-processing edge detection |
 | render-to-texture | Off-screen rendering |
 | instancing-basic | GPU instancing |
+| instancing-culled | 10,000 instances with per-frame GPU frustum culling |
 | reflection-planar-blurred | Planar reflections with blur |
 | texture-stream | Dynamic texture updates |
 | world-to-screen | Screen-space UI with world anchors |

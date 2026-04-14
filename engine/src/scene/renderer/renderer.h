@@ -37,6 +37,14 @@ namespace visutwin::canvas
         // Must be called once per frame before buildFrameGraph().
         void cullShadowmaps(Camera* camera);
 
+        // Per-frame GPU instance culling dispatch: for every visible
+        // MeshInstance that has called enableGpuInstanceCulling(), extract
+        // frustum planes from `camera` and run the Metal compute cull pass.
+        // Overwrites each culler's compacted buffer and indirect args buffer
+        // in-place; the renderer's indirect draw path then consumes them.
+        // Must be called once per frame per camera before buildFrameGraph().
+        void dispatchGpuInstanceCulling(Camera* camera);
+
     protected:
         std::shared_ptr<GraphicsDevice> _device;
 

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <core/shape/boundingBox.h>
 
 #include "graphNode.h"
@@ -15,7 +16,12 @@
 #include "materials/material.h"
 #include "platform/graphics/vertexBuffer.h"
 
-namespace visutwin::canvas { class SkinBatchInstance; }
+namespace visutwin::canvas
+{
+    class GraphicsDevice;
+    class InstanceCuller;
+    class SkinBatchInstance;
+}
 
 namespace visutwin::canvas
 {
@@ -101,6 +107,27 @@ namespace visutwin::canvas
         const InstancingData& instancingData() const { return _instancingData; }
         int instancingCount() const { return _instancingData.count; }
 
+        // --- GPU instance culling ---
+        //
+        // Enable per-frame GPU frustum culling for this hardware-instanced mesh.
+        // Must be called *after* setInstancing(vb, count). Every frame, the
+        // renderer tests each instance's bounding sphere against the camera
+        // frustum via a Metal compute pass and writes only the visible
+        // instances into a compacted buffer; the draw call then uses indirect
+        // instancing (see Renderer::dispatchGpuInstanceCulling).
+        //
+        // boundingSphereRadius is the per-instance bounding sphere radius in
+        // local space — typically the mesh's own bounding sphere radius
+        // multiplied by the largest instance scale, plus a safety margin.
+        //
+        // Re-call this method if the source instance count changes — the
+        // compacted buffer wrapper is sized once at enable time.
+        void enableGpuInstanceCulling(GraphicsDevice* device, float boundingSphereRadius);
+
+        bool gpuCullingEnabled() const { return _gpuCullingEnabled; }
+        float instanceCullRadius() const { return _instanceCullRadius; }
+        InstanceCuller* instanceCuller() const { return _instanceCuller.get(); }
+
         // --- Batching support (batchGroupId, visible) ---
 
         int batchGroupId() const { return _batchGroupId; }
@@ -143,6 +170,15 @@ namespace visutwin::canvas
         SkinInstance* _skinInstance = nullptr;
         SkinBatchInstance* _skinBatchInstance = nullptr;
         InstancingData _instancingData;
+
+        // GPU instance culling: per-instance culler owning compacted output +
+        // indirect args buffers. _cachedCompactedVb wraps the culler's
+        // compacted native buffer as a VertexBuffer so the existing indirect
+        // draw path at renderer.cpp:818 can bind it at slot 5.
+        std::unique_ptr<InstanceCuller> _instanceCuller;
+        std::shared_ptr<VertexBuffer> _cachedCompactedVb;
+        float _instanceCullRadius = 0.0f;
+        bool _gpuCullingEnabled = false;
 
         bool _castShadow = true;
         bool _receiveShadow = true;

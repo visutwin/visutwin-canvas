@@ -22,6 +22,7 @@
 #include "renderTarget.h"
 #include "shader.h"
 #include "stencilParameters.h"
+#include "instanceCuller.h"
 #include "vertexBuffer.h"
 #include "core/math/color.h"
 #include "core/math/matrix4.h"
@@ -462,6 +463,18 @@ namespace visutwin::canvas
         virtual std::shared_ptr<VertexBuffer> createVertexBufferFromNativeBuffer(
             const std::shared_ptr<VertexFormat>& format,
             int numVertices, void* nativeBuffer) { (void)nativeBuffer; return nullptr; }
+
+        /// True when this backend can create an InstanceCuller via createInstanceCuller().
+        /// Used by MeshInstance::enableGpuInstanceCulling() to decide whether to allocate
+        /// the per-instance culler resources or fall back to CPU-only path.
+        virtual bool supportsGpuInstanceCulling() const { return false; }
+
+        /// Create a GPU instance culler for hardware-instanced meshes.
+        /// Each MeshInstance that opts into GPU frustum culling owns a dedicated
+        /// culler (pipelines are cached by the backend shader compiler, so
+        /// duplication across instances is cheap). Returns nullptr on backends
+        /// that do not support GPU culling — the caller must handle that case.
+        virtual std::unique_ptr<InstanceCuller> createInstanceCuller() { return nullptr; }
 
         virtual std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) = 0;
         virtual void executeComposePass(const ComposePassParams& params) {}

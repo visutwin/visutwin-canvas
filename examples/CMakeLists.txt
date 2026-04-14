@@ -104,6 +104,12 @@ add_executable(visutwin-instancing-basic MACOSX_BUNDLE
 target_link_libraries(visutwin-instancing-basic PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-instancing-basic com.visutwin.instancing-basic)
 
+add_executable(visutwin-instancing-culled MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/instancing-culled-example.cpp
+)
+target_link_libraries(visutwin-instancing-culled PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-instancing-culled com.visutwin.instancing-culled)
+
 add_executable(visutwin-assimp-loader MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/assimp-loader-example.cpp
 )

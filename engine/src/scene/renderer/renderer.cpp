@@ -20,6 +20,7 @@
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/light/lightComponent.h"
+#include "platform/graphics/instanceCuller.h"
 #include "scene/frustumUtils.h"
 #include "scene/light.h"
 #include "scene/materials/material.h"
@@ -212,6 +213,58 @@ namespace visutwin::canvas
 
         if (!dirShadowLights.empty()) {
             _cameraDirShadowLights[camera] = std::move(dirShadowLights);
+        }
+    }
+
+    void Renderer::dispatchGpuInstanceCulling(Camera* camera)
+    {
+        if (!camera || !camera->node() || !_device) {
+            return;
+        }
+
+        // Compute view-projection: view = inverse(camera world), proj = camera proj.
+        // The frustum plane extraction expects a column-major float[16] layout,
+        // which matches Matrix4's in-memory representation (64 bytes, SIMD-safe).
+        const Matrix4 view = camera->node()->worldTransform().inverse();
+        const Matrix4 vp = camera->projectionMatrix() * view;
+
+        float planes[6][4];
+        InstanceCuller::extractFrustumPlanes(reinterpret_cast<const float*>(&vp), planes);
+
+        for (auto* rc : RenderComponent::instances()) {
+            if (!rc) {
+                continue;
+            }
+            for (auto* mi : rc->meshInstances()) {
+                if (!mi || !mi->gpuCullingEnabled()) {
+                    continue;
+                }
+                auto* culler = mi->instanceCuller();
+                if (!culler) {
+                    continue;
+                }
+                const auto& srcData = mi->instancingData();
+                if (!srcData.vertexBuffer || srcData.count <= 0) {
+                    continue;
+                }
+                auto* srcMesh = mi->mesh();
+                if (!srcMesh) {
+                    continue;
+                }
+
+                InstanceCullParams params{};
+                std::memcpy(params.frustumPlanes, planes, sizeof(planes));
+                params.boundingSphereRadius = mi->instanceCullRadius();
+                params.instanceCount = static_cast<uint32_t>(srcData.count);
+
+                const auto prim = srcMesh->getPrimitive();
+                params.indexCount  = static_cast<uint32_t>(prim.count);
+                params.indexStart  = static_cast<uint32_t>(prim.base);
+                params.baseVertex  = static_cast<int32_t>(prim.baseVertex);
+                params.baseInstance = 0u;
+
+                culler->cull(srcData.vertexBuffer.get(), params);
+            }
         }
     }
 
