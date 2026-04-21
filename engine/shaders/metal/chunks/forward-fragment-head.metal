@@ -98,9 +98,16 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
             const float3 cR = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(seamUvR, skyMip)), lighting);
             skyLinear = processEnvironment(mix(cL, cR, seamT), skyInt);
         } else {
+            // Use envSeamSampler here too — matching the filter kernel with the
+            // seam branch eliminates the visible filter-mode transition at the
+            // zone boundaries (|n.x| = W), which previously produced two
+            // dashed vertical lines at the ±W longitudes when the anisotropic
+            // defaultSampler was used outside the band. The skybox is heavily
+            // mip-biased (typically skyMip ≥ 2), so losing 16× anisotropy is
+            // imperceptible, while the boundary artifact is eliminated.
             const float2 uv = toSphericalUv(normalize(dir));
             skyLinear = processEnvironment(decodeEnvironment(
-                envAtlasTexture.sample(defaultSampler, mapRoughnessUv(uv, skyMip)), lighting), skyInt);
+                envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(uv, skyMip)), lighting), skyInt);
         }
         // when CameraFrame is active (bit 5 of flagsAndPad.x),
         // skybox outputs linear HDR — tonemapping and gamma are deferred to the compose pass.

@@ -201,6 +201,14 @@ namespace visutwin::canvas
 
     std::pair<int, int> MetalGraphicsDevice::size() const
     {
+        // When constructed without an SDL_Window (e.g. hosted inside an
+        // AppKit/MTKView by an external app), the CAMetalLayer is the
+        // authoritative source of drawable size. SDL_GetWindowSizeInPixels
+        // would UB on a null window.
+        if (!_window) {
+            const CGSize s = _metalLayer->drawableSize();
+            return {static_cast<int>(s.width), static_cast<int>(s.height)};
+        }
         int w, h;
         SDL_GetWindowSizeInPixels(_window, &w, &h);
         return {w, h};
@@ -212,13 +220,14 @@ namespace visutwin::canvas
             return;
         }
 
-        // Drain the previous frame's autorelease pool to release Metal-cpp
-        // autoreleased objects (command buffers, render pass descriptors, etc.)
-        // that accumulated during the last frame.
-        if (_framePool) {
-            _framePool->release();
-            _framePool = nullptr;
-        }
+        // Push a fresh autorelease pool for this frame's metal-cpp
+        // autoreleased objects (command buffers, render pass descriptors,
+        // drawable queries, etc.). Drained in onFrameEnd — same-frame
+        // scope only. Earlier revisions kept the pool alive across frames
+        // and drained at the next frameStart, but that is incompatible
+        // with delegate-driven hosts (e.g. AppKit MTKView) whose outer
+        // autorelease pool pops the nested canvas pool when the delegate
+        // callback returns.
         _framePool = NS::AutoreleasePool::alloc()->init();
 
         // Advance ring buffers to next frame region. This blocks if the GPU
@@ -263,6 +272,15 @@ namespace visutwin::canvas
             }
         }
         // The frame drawable is released at the start of the next frame.
+
+        // Drain this frame's autorelease pool. All command buffers /
+        // render pass descriptors / drawable queries created between
+        // onFrameStart and onFrameEnd are committed by now, so it is
+        // safe to release them as a batch.
+        if (_framePool) {
+            _framePool->release();
+            _framePool = nullptr;
+        }
     }
 
     int MetalGraphicsDevice::submitVertexBuffer(const std::shared_ptr<VertexBuffer>& vertexBuffer, int slot)
