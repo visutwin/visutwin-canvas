@@ -129,3 +129,9 @@ add_executable(visutwin-animation MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-animation PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-animation com.visutwin.animation)
+
+add_executable(visutwin-env-reproject-test
+    ${VISUTWIN_ROOT_DIR}/examples/src/env-reproject-test-example.cpp
+)
+target_link_libraries(visutwin-env-reproject-test PRIVATE visutwin-canvas)
+target_compile_definitions(visutwin-env-reproject-test PRIVATE ASSET_DIR="${VISUTWIN_ASSET_DIR}")

@@ -483,19 +483,14 @@
 #if VT_FEATURE_ENV_ATLAS
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
         // Diffuse IBL: sample from dedicated Lambert irradiance sub-region.
+        // Single-path sampling matching PlayCanvas ambient.js — the atlas
+        // is pre-baked with 1-pixel duplicated seam borders, so the default
+        // sampler produces continuous values across the ±180° wrap.
         const float3 diffDir = float3(-N.x, N.y, N.z);
-        float2 diffSeamUvL, diffSeamUvR; float diffSeamT;
-        float3 envAmbient;
-        if (isAtEnvSeam(diffDir, diffSeamUvL, diffSeamUvR, diffSeamT)) {
-            const float3 aL = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapAmbientUv(diffSeamUvL)), lighting);
-            const float3 aR = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapAmbientUv(diffSeamUvR)), lighting);
-            envAmbient = processEnvironment(mix(aL, aR, diffSeamT), max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
-        } else {
-            const float2 envUvN = toSphericalUv(normalize(diffDir));
-            envAmbient = processEnvironment(
-                decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapAmbientUv(envUvN)), lighting),
-                max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
-        }
+        const float2 envUvN = toSphericalUv(normalize(diffDir));
+        const float3 envAmbient = processEnvironment(
+            decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapAmbientUv(envUvN)), lighting),
+            max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
         indirectDiffuse = envAmbient;
 
         // Specular IBL: dual-path sampling.
@@ -526,49 +521,22 @@
         const float level2 = clamp(0.5 * log2(maxd) - 1.0, 0.0, 5.0);
         const float ilevel2 = floor(level2);
 
-        // Seam-safe specular IBL: at the atan2 wrap, sample both sides with
-        // envSeamSampler (no anisotropy) and blend decoded-linear results.
-        float2 specSeamUvL, specSeamUvR; float specSeamT;
-        const bool specSeam = isAtEnvSeam(specDir, specSeamUvL, specSeamUvR, specSeamT);
-
+        // Single-path specular IBL matching PlayCanvas reflectionEnv.js.
+        // Atlas is baked with duplicated seam pixels (see envLighting.cpp),
+        // so the default anisotropic sampler handles the ±180° wrap
+        // correctly without runtime branching. The PlayCanvas
+        // `shinyMipLevel` uses a second-derivative trick (dFdx/dFdy on
+        // fract(u+0.5)) to avoid the gradient spike at the wrap — already
+        // replicated in the shinyUvFull/uv2/dx2/dy2 computation above.
         float3 linear0, linear1;
-        if (specSeam) {
-            // L side
-            float3 l0L, l1L;
-            if (ilevel == 0.0) {
-                l0L = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapShinyUv(specSeamUvL, ilevel2)), lighting);
-                l1L = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapShinyUv(specSeamUvL, ilevel2 + 1.0)), lighting);
-                l0L = mix(l0L, l1L, level2 - ilevel2);
-            } else {
-                l0L = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(specSeamUvL, ilevel)), lighting);
-            }
-            l1L = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(specSeamUvL, ilevel + 1.0)), lighting);
-            const float3 resL = mix(l0L, l1L, level - ilevel);
-
-            // R side
-            float3 l0R, l1R;
-            if (ilevel == 0.0) {
-                l0R = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapShinyUv(specSeamUvR, ilevel2)), lighting);
-                l1R = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapShinyUv(specSeamUvR, ilevel2 + 1.0)), lighting);
-                l0R = mix(l0R, l1R, level2 - ilevel2);
-            } else {
-                l0R = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(specSeamUvR, ilevel)), lighting);
-            }
-            l1R = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(specSeamUvR, ilevel + 1.0)), lighting);
-            const float3 resR = mix(l0R, l1R, level - ilevel);
-
-            linear0 = mix(resL, resR, specSeamT);
-            linear1 = linear0;
+        if (ilevel == 0.0) {
+            linear0 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(envUvSpec, ilevel2)), lighting);
+            linear1 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(envUvSpec, ilevel2 + 1.0)), lighting);
+            linear0 = mix(linear0, linear1, level2 - ilevel2);
         } else {
-            if (ilevel == 0.0) {
-                linear0 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(envUvSpec, ilevel2)), lighting);
-                linear1 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(envUvSpec, ilevel2 + 1.0)), lighting);
-                linear0 = mix(linear0, linear1, level2 - ilevel2);
-            } else {
-                linear0 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(envUvSpec, ilevel)), lighting);
-            }
-            linear1 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(envUvSpec, ilevel + 1.0)), lighting);
+            linear0 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(envUvSpec, ilevel)), lighting);
         }
+        linear1 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(envUvSpec, ilevel + 1.0)), lighting);
 
         const float3 envSpec = processEnvironment(mix(linear0, linear1, level - ilevel),
             max(lighting.cameraPositionSkyboxIntensity.w, 0.0));

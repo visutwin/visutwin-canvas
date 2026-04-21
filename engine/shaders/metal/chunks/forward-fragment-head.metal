@@ -86,29 +86,22 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     }
 #else
     // envAtlas path — sample 2D environment atlas
+    //
+    // Matches PlayCanvas's skybox.js sampling: one texture fetch, default
+    // sampler, no runtime seam detection. The atlas is baked with a 1-pixel
+    // duplicated border at every rect edge (see envLighting.cpp
+    // `seamPixels = 1.0f`), so bilinear/anisotropic filtering at u≈0 / u≈1
+    // naturally samples continuous values across the ±180° longitudinal
+    // wrap. Runtime `isAtEnvSeam` branching would add a second sampling
+    // mode and introduce filter-kernel-mismatch artifacts at the band
+    // boundaries — don't do it.
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
         const float3 dir = viewDir * float3(-1.0, 1.0, 1.0);
         const float skyMip = max(lighting.skyboxMipAndPad.x, 0.0);
         const float skyInt = max(lighting.cameraPositionSkyboxIntensity.w, 0.0);
-        float2 seamUvL, seamUvR; float seamT;
-        float3 skyLinear;
-        if (isAtEnvSeam(dir, seamUvL, seamUvR, seamT)) {
-            // Use envSeamSampler (no anisotropy) to avoid gradient artifacts at zone boundary.
-            const float3 cL = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(seamUvL, skyMip)), lighting);
-            const float3 cR = decodeEnvironment(envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(seamUvR, skyMip)), lighting);
-            skyLinear = processEnvironment(mix(cL, cR, seamT), skyInt);
-        } else {
-            // Use envSeamSampler here too — matching the filter kernel with the
-            // seam branch eliminates the visible filter-mode transition at the
-            // zone boundaries (|n.x| = W), which previously produced two
-            // dashed vertical lines at the ±W longitudes when the anisotropic
-            // defaultSampler was used outside the band. The skybox is heavily
-            // mip-biased (typically skyMip ≥ 2), so losing 16× anisotropy is
-            // imperceptible, while the boundary artifact is eliminated.
-            const float2 uv = toSphericalUv(normalize(dir));
-            skyLinear = processEnvironment(decodeEnvironment(
-                envAtlasTexture.sample(envSeamSampler, mapRoughnessUv(uv, skyMip)), lighting), skyInt);
-        }
+        const float2 uv = toSphericalUv(normalize(dir));
+        const float3 skyLinear = processEnvironment(decodeEnvironment(
+            envAtlasTexture.sample(defaultSampler, mapRoughnessUv(uv, skyMip)), lighting), skyInt);
         // when CameraFrame is active (bit 5 of flagsAndPad.x),
         // skybox outputs linear HDR — tonemapping and gamma are deferred to the compose pass.
         if ((lighting.flagsAndPad.x & (1u << 5)) != 0u) {

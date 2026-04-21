@@ -197,6 +197,25 @@ namespace visutwin::canvas
         float cameraFar = 1000.0f;
     };
 
+    struct EnvReprojectOp
+    {
+        int rectX = 0;
+        int rectY = 0;
+        int rectW = 0;
+        int rectH = 0;
+        int seamPixels = 1;
+    };
+
+    struct EnvReprojectPassParams
+    {
+        Texture* target = nullptr;
+        Texture* sourceEquirect = nullptr;
+        Texture* sourceCubemap  = nullptr;
+        std::vector<EnvReprojectOp> ops;
+        bool encodeRgbp = true;
+        bool decodeSrgb = false;
+    };
+
     // DEVIATION: blurred planar reflection parameters.
     // Upstream implements these as per-material parameters on the BlurredPlanarReflection script;
     // we promote them to device-level so the forward pass can read them from LightingData.
@@ -486,6 +505,7 @@ namespace visutwin::canvas
         virtual void executeCoCPass(const CoCPassParams& params) {}
         virtual void executeDofBlurPass(const DofBlurPassParams& params) {}
         virtual void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) {}
+        virtual void generateEnvReproject(const EnvReprojectPassParams& params) { (void)params; }
         virtual bool supportsCompute() const { return false; }
         virtual void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") {}
 

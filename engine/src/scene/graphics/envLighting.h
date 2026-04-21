@@ -61,7 +61,8 @@ namespace visutwin::canvas
         static Texture* generateAtlas(GraphicsDevice* device, Texture* source,
                                       int size = 512,
                                       int numReflectionSamples = 1024,
-                                      int numAmbientSamples = 2048);
+                                      int numAmbientSamples = 2048,
+                                      bool useGpu = false);
 
         /**
          * CPU-only atlas generation from raw RGBA32F equirectangular pixel data.

@@ -198,6 +198,11 @@ struct LightingData {
 
 constant float PI = 3.14159265358979323846;
 constant float ATLAS_SIZE = 512.0;
+// Seam inset MUST match the atlas-bake `seamPixels` convention. Both
+// PlayCanvas and visutwin-canvas use 1-pixel duplicated border at every
+// rect edge — pre-baked .png atlases (e.g. helipad-env-atlas.png) also
+// follow this convention, so keep this at 1 pixel regardless of any
+// CPU-bake seamPixels experimentation.
 constant float ATLAS_SEAM = 1.0 / ATLAS_SIZE;
 constant uint SPECOCC_NONE = 0u;
 constant uint SPECOCC_AO = 1u;
@@ -238,27 +243,15 @@ static inline float2 toSphericalUv(float3 dir)
     return float2(uv.x, 1.0 - uv.y);
 }
 
-// Non-anisotropic sampler for env atlas seam zone.
-// The default 16× anisotropic sampler creates visible lines at branch boundaries
-// because the UV gradient changes abruptly. This sampler uses plain bilinear
-// filtering, which is gradient-insensitive — no visible transition at zone edges.
-constexpr sampler envSeamSampler(coord::normalized, filter::linear, address::repeat);
-
-// Detect the equirectangular atan2 seam. Returns true when near the wrap.
-static inline bool isAtEnvSeam(float3 dir, thread float2& uvL, thread float2& uvR, thread float& t)
-{
-    const float3 n = normalize(dir);
-    constexpr float W = 0.05;
-    if (n.z < 0.0 && abs(n.x) < W) {
-        float3 dL = n; dL.x = -W;
-        float3 dR = n; dR.x =  W;
-        uvL = toSphericalUv(normalize(dL));
-        uvR = toSphericalUv(normalize(dR));
-        t = (n.x + W) / (2.0 * W);
-        return true;
-    }
-    return false;
-}
+// NOTE: An earlier implementation carried an `envSeamSampler` (bilinear,
+// non-anisotropic) + an `isAtEnvSeam` runtime detector for handling the
+// equirectangular atan2 wrap at ±180°. Both have been removed in favour
+// of the upstream PlayCanvas approach: the env atlas is baked with a
+// 1-pixel duplicated seam border at every rect edge (see envLighting.cpp
+// `seamPixels = 1.0f`), which lets the default anisotropic sampler
+// produce continuous values across the wrap without any runtime
+// branching. This eliminates the filter-mode-discontinuity artifact
+// that appeared as two dashed vertical lines on the skybox at |n.x|=W.
 
 static inline float2 mapUv(float2 uv, float4 rect)
 {

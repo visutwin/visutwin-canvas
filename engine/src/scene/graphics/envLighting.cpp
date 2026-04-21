@@ -8,12 +8,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <numbers>
 #include <unordered_map>
 
 #include <spdlog/spdlog.h>
 
 #include "core/math/random.h"
+#include "envReproject.h"
 #include "platform/graphics/texture.h"
 #include "platform/graphics/graphicsDevice.h"
 
@@ -406,7 +408,7 @@ namespace visutwin::canvas
                                           int rx, int ry, int rw, int rh,
                                           const HdrCubemap& cubemap, float mipLevel)
     {
-        const float seamPixels = 1.0f;
+        const float seamPixels = 2.0f;
         const float invRw = 1.0f / static_cast<float>(rw);
         const float invRh = 1.0f / static_cast<float>(rh);
 
@@ -451,7 +453,7 @@ namespace visutwin::canvas
                                               int rx, int ry, int rw, int rh,
                                               const float* srcData, int srcW, int srcH)
     {
-        const float seamPixels = 1.0f;
+        const float seamPixels = 2.0f;
         const float invRw = 1.0f / static_cast<float>(rw);
         const float invRh = 1.0f / static_cast<float>(rh);
 
@@ -568,7 +570,7 @@ namespace visutwin::canvas
             samples.push_back({0, 0, 0, 0});
         }
 
-        const float seamPixels = 1.0f;
+        const float seamPixels = 2.0f;
         const float invRw = 1.0f / static_cast<float>(rw);
         const float invRh = 1.0f / static_cast<float>(rh);
 
@@ -669,7 +671,7 @@ namespace visutwin::canvas
             samples.push_back({hx, hy, hz, mip});
         }
 
-        const float seamPixels = 1.0f;
+        const float seamPixels = 2.0f;
         const float invRw = 1.0f / static_cast<float>(rw);
         const float invRh = 1.0f / static_cast<float>(rh);
 
@@ -740,15 +742,17 @@ namespace visutwin::canvas
     // Port of EnvLighting.generateAtlas() from upstream
     // ----------------------------------------------------------------
     Texture* EnvLighting::generateAtlas(GraphicsDevice* device, Texture* source,
-                                        int size, int numReflectionSamples, int numAmbientSamples)
+                                        int size, int numReflectionSamples, int numAmbientSamples,
+                                        bool useGpu)
     {
         if (!device || !source) {
             spdlog::error("EnvLighting::generateAtlas: null device or source");
             return nullptr;
         }
 
-        spdlog::info("EnvLighting: generating {}x{} RGBP atlas from {}x{} equirect source",
-                     size, size, source->width(), source->height());
+        spdlog::info("EnvLighting: generating {}x{} RGBP atlas from {}x{} equirect source ({} mipmap bake)",
+                     size, size, source->width(), source->height(),
+                     useGpu ? "GPU" : "CPU");
 
         // Get source equirect pixel data for direct sampling
         const auto* srcData = static_cast<const float*>(source->getLevel(0));
@@ -770,12 +774,8 @@ namespace visutwin::canvas
         // Step 3: Allocate output atlas buffer (RGBA8)
         std::vector<uint8_t> atlasData(size * size * 4, 0);
 
-        // Step 4: Mipmaps section
-        // reprojectTexture with numSamples=1 samples the source equirect
-        // directly for each atlas pixel. This preserves full source resolution (e.g. 4K HDR)
-        // rather than going through a cubemap intermediate.
-        // Rect starts at (0,0,512,256) then shrinks diagonally.
-        // levels = calcLevels(256) - calcLevels(4) = 9 - 3 = 6 ... total 7 levels (i=0..6)
+        // Step 4: Mipmaps section. When useGpu is set, the GPU reproject pass
+        // below fills these rects directly — skip the CPU writes here.
         {
             const int levels = calcLevels(256) - calcLevels(4);
             int rectX = 0, rectY = 0, rectW = size, rectH = size / 2;
@@ -785,14 +785,14 @@ namespace visutwin::canvas
 
                 spdlog::debug("EnvLighting: mipmap level {} -> rect({}, {}, {}, {})", i, rectX, rectY, rectW, rectH);
 
-                if (srcData && srcW > 0 && srcH > 0) {
-                    // Sample directly from source equirect for maximum quality
-                    writeEquirectFromSource(atlasData.data(), size, rectX, rectY, rectW, rectH,
-                                           srcData, srcW, srcH);
-                } else {
-                    // Fallback: sample from cubemap if source data is unavailable
-                    writeEquirectRegion(atlasData.data(), size, rectX, rectY, rectW, rectH,
-                                       cubemap, static_cast<float>(i));
+                if (!useGpu) {
+                    if (srcData && srcW > 0 && srcH > 0) {
+                        writeEquirectFromSource(atlasData.data(), size, rectX, rectY, rectW, rectH,
+                                               srcData, srcW, srcH);
+                    } else {
+                        writeEquirectRegion(atlasData.data(), size, rectX, rectY, rectW, rectH,
+                                           cubemap, static_cast<float>(i));
+                    }
                 }
 
                 rectX += rectH; // x += height (since width = 2*height, this shifts diagonally)
@@ -850,6 +850,41 @@ namespace visutwin::canvas
         texture->setEncoding(TextureEncoding::RGBP);
         texture->setLevelData(0, atlasData.data(), atlasData.size());
         texture->upload();
+
+        if (useGpu) {
+            // Non-owning shared_ptrs: the underlying objects outlive the
+            // synchronous reprojectTexture call.
+            std::shared_ptr<Texture> sourceShared(source, [](Texture*){});
+            std::shared_ptr<Texture> targetShared(texture, [](Texture*){});
+
+            EnvReprojectOptions opts;
+            opts.source = sourceShared;
+            opts.target = targetShared;
+            opts.sourceIsCubemap = false;
+            opts.encodeRgbp = true;
+            opts.decodeSrgb = false;
+
+            const int levels = calcLevels(256) - calcLevels(4);
+            int rectX = 0, rectY = 0, rectW = size, rectH = size / 2;
+            for (int i = 0; i <= levels; ++i) {
+                if (rectW < 1 || rectH < 1) break;
+
+                EnvReprojectRect r;
+                r.rectX = rectX;
+                r.rectY = rectY;
+                r.rectW = rectW;
+                r.rectH = rectH;
+                r.seamPixels = 1;
+                opts.rects.push_back(r);
+
+                rectX += rectH;
+                rectY += rectH;
+                rectW = std::max(1, rectW / 2);
+                rectH = std::max(1, rectH / 2);
+            }
+
+            reprojectTexture(device, opts);
+        }
 
         spdlog::info("EnvLighting: atlas generated successfully ({}x{}, RGBP)", size, size);
 

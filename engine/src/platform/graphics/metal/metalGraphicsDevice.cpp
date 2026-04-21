@@ -11,6 +11,7 @@
 #include "metalComposePass.h"
 #include "metalDepthAwareBlurPass.h"
 #include "metalDofBlurPass.h"
+#include "metalEnvReprojectPass.h"
 #include "metalInstanceCullPass.h"
 #include "metalSsaoPass.h"
 #include "metalTaaPass.h"
@@ -165,7 +166,8 @@ namespace visutwin::canvas
             _noWriteDepthStencilState->release();
             _noWriteDepthStencilState = nullptr;
         }
-        // _taaPass and _composePass destructors handle their own depth stencil state release.
+        // _envReprojectPass must be destroyed before _composePass (it references it).
+        _envReprojectPass.reset();
         _taaPass.reset();
         _composePass.reset();
 
@@ -489,6 +491,95 @@ namespace visutwin::canvas
 
         encoder->endEncoding();
         commandBuffer->commit();
+    }
+
+    void MetalGraphicsDevice::generateEnvReproject(const EnvReprojectPassParams& params)
+    {
+        if (!_commandQueue || !_device) {
+            spdlog::warn("generateEnvReproject: device/queue unavailable");
+            return;
+        }
+        if (!params.target) {
+            spdlog::warn("generateEnvReproject: target texture is null");
+            return;
+        }
+        if (params.ops.empty()) {
+            spdlog::warn("generateEnvReproject: no ops to bake");
+            return;
+        }
+        if (!params.sourceEquirect && !params.sourceCubemap) {
+            spdlog::warn("generateEnvReproject: no source texture provided");
+            return;
+        }
+        if (_insideRenderPass || _renderPassEncoder || _computePassEncoder) {
+            spdlog::warn("generateEnvReproject: skipped while another encoder is active");
+            return;
+        }
+
+        params.target->upload();
+        if (params.sourceEquirect) params.sourceEquirect->upload();
+        if (params.sourceCubemap)  params.sourceCubemap->upload();
+
+        auto* targetHw = dynamic_cast<gpu::MetalTexture*>(params.target->impl());
+        if (!targetHw || !targetHw->raw()) {
+            spdlog::error("generateEnvReproject: target has no Metal texture");
+            return;
+        }
+
+        RenderTargetOptions rtOptions;
+        rtOptions.graphicsDevice = this;
+        rtOptions.colorBuffer = params.target;
+        rtOptions.depth = false;
+        rtOptions.samples = 1;
+        rtOptions.name = "envReprojectTarget";
+        rtOptions.flipY = false;
+        auto renderTarget = createRenderTarget(rtOptions);
+        auto metalTarget = std::dynamic_pointer_cast<MetalRenderTarget>(renderTarget);
+        if (!metalTarget) {
+            spdlog::error("generateEnvReproject: failed to create MetalRenderTarget");
+            return;
+        }
+        metalTarget->ensureAttachments();
+
+        auto* commandBuffer = _commandQueue->commandBuffer();
+        if (!commandBuffer) {
+            spdlog::warn("generateEnvReproject: failed to allocate command buffer");
+            return;
+        }
+
+        // All ops run in this single render pass: splitting them across passes
+        // with LoadActionLoad does not reliably preserve content outside the
+        // scissor on Apple-Silicon tile-based GPUs.
+        auto* passDesc = MTL::RenderPassDescriptor::alloc()->init();
+        auto* colorAttachment = passDesc->colorAttachments()->object(0);
+        colorAttachment->setTexture(targetHw->raw());
+        colorAttachment->setLoadAction(MTL::LoadActionLoad);
+        colorAttachment->setStoreAction(MTL::StoreActionStore);
+
+        auto* encoder = commandBuffer->renderCommandEncoder(passDesc);
+        passDesc->release();
+        if (!encoder) {
+            spdlog::error("generateEnvReproject: failed to create render encoder");
+            return;
+        }
+
+        if (!_envReprojectPass) {
+            if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
+            _envReprojectPass = std::make_unique<MetalEnvReprojectPass>(this, _composePass.get());
+        }
+
+        _envReprojectPass->beginPass(encoder, params, _renderPipeline.get(), renderTarget,
+            _bindGroupFormats);
+
+        const bool sourceIsCubemap = params.sourceCubemap != nullptr;
+        for (const auto& op : params.ops) {
+            _envReprojectPass->drawRect(encoder, op, sourceIsCubemap,
+                params.encodeRgbp, params.decodeSrgb);
+        }
+
+        encoder->endEncoding();
+        commandBuffer->commit();
+        commandBuffer->waitUntilCompleted();
     }
 
     void MetalGraphicsDevice::setDepthBias(const float depthBias, const float slopeScale, const float clamp)
