@@ -216,6 +216,63 @@ namespace visutwin::canvas
         bool decodeSrgb = false;
     };
 
+    // Importance-sampled convolution. `samples` is an array of numSamples
+    // float4s: (tangentX, tangentY, tangentZ, mipLevel). For Lambert the
+    // tangent vector is the hemisphere sample; for GGX it is the reflected
+    // direction. A sample with tangentZ <= 0 is treated as invalid and
+    // skipped by the shader.
+    struct EnvConvolveOp
+    {
+        int rectX = 0;
+        int rectY = 0;
+        int rectW = 0;
+        int rectH = 0;
+        int seamPixels = 1;
+        const float* samples = nullptr;
+        int numSamples = 0;
+    };
+
+    struct EnvConvolvePassParams
+    {
+        Texture* target = nullptr;
+        Texture* sourceEquirect = nullptr;
+        Texture* sourceCubemap  = nullptr;
+        std::vector<EnvConvolveOp> ops;
+        bool encodeRgbp = true;
+        bool decodeSrgb = false;
+    };
+
+    // Combined bake — reproject ops run first, then convolve ops, all inside
+    // a single render pass. Required on Apple-Silicon tile-based GPUs where
+    // splitting the atlas bake across multiple render passes loses content
+    // outside the last pass's scissor.
+    //
+    // reprojectSource is the source for the reproject ops (straight resample);
+    // convolveSource is the source for the convolve ops (usually a mipmapped
+    // HDR cubemap). They may differ.
+    struct EnvAtlasBakeParams
+    {
+        Texture* target = nullptr;
+        Texture* reprojectSourceEquirect = nullptr;
+        Texture* reprojectSourceCubemap  = nullptr;
+        std::vector<EnvReprojectOp> reprojectOps;
+        Texture* convolveSourceEquirect = nullptr;
+        Texture* convolveSourceCubemap  = nullptr;
+        std::vector<EnvConvolveOp> convolveOps;
+        bool encodeRgbp = true;
+        bool decodeSrgb = false;
+    };
+
+    // Builds a 6-face cubemap from an equirect source and generates its mip
+    // chain. `target` must already be created as a cubemap texture with
+    // mipmaps enabled.
+    struct EquirectToCubeParams
+    {
+        Texture* source = nullptr;
+        Texture* target = nullptr;
+        bool decodeSrgb = false;
+    };
+
     // DEVIATION: blurred planar reflection parameters.
     // Upstream implements these as per-material parameters on the BlurredPlanarReflection script;
     // we promote them to device-level so the forward pass can read them from LightingData.
@@ -506,6 +563,9 @@ namespace visutwin::canvas
         virtual void executeDofBlurPass(const DofBlurPassParams& params) {}
         virtual void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) {}
         virtual void generateEnvReproject(const EnvReprojectPassParams& params) { (void)params; }
+        virtual void generateEnvConvolve(const EnvConvolvePassParams& params) { (void)params; }
+        virtual void generateEnvAtlas(const EnvAtlasBakeParams& params) { (void)params; }
+        virtual void generateEquirectToCubemap(const EquirectToCubeParams& params) { (void)params; }
         virtual bool supportsCompute() const { return false; }
         virtual void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") {}
 

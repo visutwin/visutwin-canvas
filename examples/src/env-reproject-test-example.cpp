@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Equivalence smoke test for GPU vs CPU environment-atlas mipmap bake.
+// Smoke test for the GPU environment-atlas bake. Builds an atlas from a
+// synthetic equirect source and verifies the output is non-zero across the
+// three sections (mipmap, GGX, Lambert).
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -57,27 +59,17 @@ namespace
         return data;
     }
 
-    int calcLevels(int size)
-    {
-        return 1 + static_cast<int>(std::floor(std::log2(std::max(size, 1))));
-    }
+    struct AtlasRect { int x, y, w, h; };
 
-    struct Rect { int x, y, w, h; };
-
-    std::vector<Rect> mipmapRects(int size)
+    bool rectNonZero(const std::vector<uint8_t>& atlas, int size, const AtlasRect& r)
     {
-        std::vector<Rect> rects;
-        const int levels = calcLevels(256) - calcLevels(4);
-        int rectX = 0, rectY = 0, rectW = size, rectH = size / 2;
-        for (int i = 0; i <= levels; ++i) {
-            if (rectW < 1 || rectH < 1) break;
-            rects.push_back({rectX, rectY, rectW, rectH});
-            rectX += rectH;
-            rectY += rectH;
-            rectW = std::max(1, rectW / 2);
-            rectH = std::max(1, rectH / 2);
+        for (int y = 0; y < r.h; ++y) {
+            for (int x = 0; x < r.w; ++x) {
+                const size_t idx = (static_cast<size_t>(r.y + y) * size + (r.x + x)) * 4;
+                if (atlas[idx + 0] || atlas[idx + 1] || atlas[idx + 2]) return true;
+            }
         }
-        return rects;
+        return false;
     }
 
     std::vector<uint8_t> readbackAtlas(Texture* atlas)
@@ -94,37 +86,8 @@ namespace
         MTL::Region region = MTL::Region::Make2D(0, 0,
             static_cast<NS::UInteger>(w), static_cast<NS::UInteger>(h));
         tex->getBytes(data.data(),
-            static_cast<NS::UInteger>(w * 4),
-            region,
-            0);
+            static_cast<NS::UInteger>(w * 4), region, 0);
         return data;
-    }
-
-    struct DiffStats {
-        double meanAbs = 0.0;
-        int maxAbs = 0;
-        size_t pixelCount = 0;
-    };
-
-    DiffStats diffRect(const std::vector<uint8_t>& cpu,
-                       const std::vector<uint8_t>& gpu,
-                       int atlasSize, const Rect& r)
-    {
-        DiffStats s;
-        long long sum = 0;
-        for (int y = 0; y < r.h; ++y) {
-            for (int x = 0; x < r.w; ++x) {
-                const size_t idx = (static_cast<size_t>(r.y + y) * atlasSize + (r.x + x)) * 4;
-                for (int c = 0; c < 4; ++c) {
-                    const int d = std::abs(static_cast<int>(cpu[idx + c]) - static_cast<int>(gpu[idx + c]));
-                    sum += d;
-                    if (d > s.maxAbs) s.maxAbs = d;
-                    ++s.pixelCount;
-                }
-            }
-        }
-        s.meanAbs = s.pixelCount ? static_cast<double>(sum) / static_cast<double>(s.pixelCount) : 0.0;
-        return s;
     }
 }
 
@@ -138,41 +101,12 @@ int main(int argc, char* argv[])
 
     SDL_Window* window = SDL_CreateWindow("env-reproject-test", 64, 64,
         SDL_WINDOW_HIDDEN | SDL_WINDOW_METAL);
-    if (!window) {
-        spdlog::error("SDL_CreateWindow failed: {}", SDL_GetError());
-        SDL_Quit();
-        return 1;
-    }
-
     SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) {
-        spdlog::error("SDL_CreateRenderer failed: {}", SDL_GetError());
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
     auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain) {
-        spdlog::error("SDL_GetRenderMetalLayer returned null");
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
     auto devicePtr = createGraphicsDevice(GraphicsDeviceOptions{.swapChain = swapchain, .window = window});
-    if (!devicePtr) {
-        spdlog::error("createGraphicsDevice failed");
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
     auto device = std::shared_ptr<GraphicsDevice>(std::move(devicePtr));
 
     const auto srcData = makeSyntheticEquirect(kSrcWidth, kSrcHeight);
-
     TextureOptions srcOptions;
     srcOptions.name = "syntheticEquirect";
     srcOptions.width = kSrcWidth;
@@ -181,71 +115,41 @@ int main(int argc, char* argv[])
     srcOptions.mipmaps = false;
     srcOptions.minFilter = FilterMode::FILTER_LINEAR;
     srcOptions.magFilter = FilterMode::FILTER_LINEAR;
-
     auto sourceTex = std::make_unique<Texture>(device.get(), srcOptions);
     sourceTex->setLevelData(0,
         reinterpret_cast<const uint8_t*>(srcData.data()),
         srcData.size() * sizeof(float));
     sourceTex->upload();
 
-    auto* cpuAtlas = EnvLighting::generateAtlas(device.get(), sourceTex.get(),
-        kAtlasSize, 32, 32, /*useGpu=*/false);
-    if (!cpuAtlas) {
-        spdlog::error("CPU generateAtlas returned null");
+    auto* atlas = EnvLighting::generateAtlas(device.get(), sourceTex.get(),
+        kAtlasSize, 32, 32);
+    if (!atlas) {
+        spdlog::error("generateAtlas returned null");
         return 1;
     }
-    const auto cpuSize = cpuAtlas->getLevelDataSize(0);
-    std::vector<uint8_t> cpuBytes(cpuSize);
-    std::memcpy(cpuBytes.data(), cpuAtlas->getLevel(0), cpuSize);
+    const auto bytes = readbackAtlas(atlas);
 
-    auto* gpuAtlas = EnvLighting::generateAtlas(device.get(), sourceTex.get(),
-        kAtlasSize, 32, 32, /*useGpu=*/true);
-    if (!gpuAtlas) {
-        spdlog::error("GPU generateAtlas returned null");
-        return 1;
-    }
-    const auto gpuBytes = readbackAtlas(gpuAtlas);
-    if (gpuBytes.size() != cpuBytes.size()) {
-        spdlog::error("GPU atlas readback size mismatch: cpu={} gpu={}",
-            cpuBytes.size(), gpuBytes.size());
-        return 1;
-    }
-
-    const auto rects = mipmapRects(kAtlasSize);
-
-    // CPU bake uses seamPixels=2, GPU uses seamPixels=1 — they disagree inside
-    // the 1-2 pixel border bands, dominating the mean on small rects.
-    constexpr double kMeanThreshold = 15.0;
-    constexpr int    kMaxThreshold  = 80;
+    std::vector<std::pair<std::string, AtlasRect>> sections = {
+        {"mip[0]",  {0, 0, kAtlasSize, kAtlasSize / 2}},
+        {"ggx[1]",  {0, kAtlasSize / 2, kAtlasSize / 2, kAtlasSize / 4}},
+        {"lambert", {kAtlasSize / 4, kAtlasSize / 2 + kAtlasSize / 4,
+                     kAtlasSize / 8, kAtlasSize / 16}},
+    };
 
     bool allPass = true;
-    int rectIdx = 0;
-    for (const auto& r : rects) {
-        const auto s = diffRect(cpuBytes, gpuBytes, kAtlasSize, r);
-        const bool pass = s.meanAbs < kMeanThreshold && s.maxAbs < kMaxThreshold;
-        std::printf("rect[%d] (%d,%d %dx%d): mean=%.3f max=%d pixels=%zu  %s\n",
-            rectIdx, r.x, r.y, r.w, r.h, s.meanAbs, s.maxAbs, s.pixelCount,
-            pass ? "PASS" : "FAIL");
-        const int cx = r.x + r.w / 2;
-        const int cy = r.y + r.h / 2;
-        const size_t idx = (static_cast<size_t>(cy) * kAtlasSize + cx) * 4;
-        std::printf("   sample[%d,%d] cpu=(%3d %3d %3d %3d) gpu=(%3d %3d %3d %3d)\n",
-            cx, cy,
-            cpuBytes[idx+0], cpuBytes[idx+1], cpuBytes[idx+2], cpuBytes[idx+3],
-            gpuBytes[idx+0], gpuBytes[idx+1], gpuBytes[idx+2], gpuBytes[idx+3]);
-        if (!pass) allPass = false;
-        ++rectIdx;
+    for (const auto& [name, r] : sections) {
+        const bool ok = rectNonZero(bytes, kAtlasSize, r);
+        std::printf("%-8s (%d,%d %dx%d): %s\n",
+            name.c_str(), r.x, r.y, r.w, r.h, ok ? "PASS" : "FAIL (all zeros)");
+        if (!ok) allPass = false;
     }
-
-    delete cpuAtlas;
-    delete gpuAtlas;
 
     std::printf("%s\n", allPass ? "env-reproject-test: PASS" : "env-reproject-test: FAIL");
 
+    delete atlas;
     device.reset();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
-
     return allPass ? 0 : 1;
 }

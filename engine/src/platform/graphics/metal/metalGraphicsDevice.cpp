@@ -11,7 +11,9 @@
 #include "metalComposePass.h"
 #include "metalDepthAwareBlurPass.h"
 #include "metalDofBlurPass.h"
+#include "metalEnvConvolvePass.h"
 #include "metalEnvReprojectPass.h"
+#include "metalEquirectToCubePass.h"
 #include "metalInstanceCullPass.h"
 #include "metalSsaoPass.h"
 #include "metalTaaPass.h"
@@ -166,7 +168,10 @@ namespace visutwin::canvas
             _noWriteDepthStencilState->release();
             _noWriteDepthStencilState = nullptr;
         }
-        // _envReprojectPass must be destroyed before _composePass (it references it).
+        // All envAtlas passes must be destroyed before _composePass — they
+        // reference it.
+        _equirectToCubePass.reset();
+        _envConvolvePass.reset();
         _envReprojectPass.reset();
         _taaPass.reset();
         _composePass.reset();
@@ -568,8 +573,9 @@ namespace visutwin::canvas
             _envReprojectPass = std::make_unique<MetalEnvReprojectPass>(this, _composePass.get());
         }
 
-        _envReprojectPass->beginPass(encoder, params, _renderPipeline.get(), renderTarget,
-            _bindGroupFormats);
+        _envReprojectPass->beginPass(encoder,
+            params.sourceEquirect, params.sourceCubemap,
+            _renderPipeline.get(), renderTarget, _bindGroupFormats);
 
         const bool sourceIsCubemap = params.sourceCubemap != nullptr;
         for (const auto& op : params.ops) {
@@ -578,6 +584,291 @@ namespace visutwin::canvas
         }
 
         encoder->endEncoding();
+        commandBuffer->commit();
+        commandBuffer->waitUntilCompleted();
+    }
+
+    void MetalGraphicsDevice::generateEnvConvolve(const EnvConvolvePassParams& params)
+    {
+        if (!_commandQueue || !_device) {
+            spdlog::warn("generateEnvConvolve: device/queue unavailable");
+            return;
+        }
+        if (!params.target) {
+            spdlog::warn("generateEnvConvolve: target texture is null");
+            return;
+        }
+        if (params.ops.empty()) {
+            spdlog::warn("generateEnvConvolve: no ops to bake");
+            return;
+        }
+        if (!params.sourceEquirect && !params.sourceCubemap) {
+            spdlog::warn("generateEnvConvolve: no source texture provided");
+            return;
+        }
+        if (_insideRenderPass || _renderPassEncoder || _computePassEncoder) {
+            spdlog::warn("generateEnvConvolve: skipped while another encoder is active");
+            return;
+        }
+
+        params.target->upload();
+        if (params.sourceEquirect) params.sourceEquirect->upload();
+        if (params.sourceCubemap)  params.sourceCubemap->upload();
+
+        auto* targetHw = dynamic_cast<gpu::MetalTexture*>(params.target->impl());
+        if (!targetHw || !targetHw->raw()) {
+            spdlog::error("generateEnvConvolve: target has no Metal texture");
+            return;
+        }
+
+        RenderTargetOptions rtOptions;
+        rtOptions.graphicsDevice = this;
+        rtOptions.colorBuffer = params.target;
+        rtOptions.depth = false;
+        rtOptions.samples = 1;
+        rtOptions.name = "envConvolveTarget";
+        rtOptions.flipY = false;
+        auto renderTarget = createRenderTarget(rtOptions);
+        auto metalTarget = std::dynamic_pointer_cast<MetalRenderTarget>(renderTarget);
+        if (!metalTarget) {
+            spdlog::error("generateEnvConvolve: failed to create MetalRenderTarget");
+            return;
+        }
+        metalTarget->ensureAttachments();
+
+        auto* commandBuffer = _commandQueue->commandBuffer();
+        if (!commandBuffer) {
+            spdlog::warn("generateEnvConvolve: failed to allocate command buffer");
+            return;
+        }
+
+        // Single render pass for all ops — LoadActionLoad with partial scissor
+        // across multiple passes does not preserve content outside the scissor
+        // on Apple-Silicon tile-based GPUs.
+        auto* passDesc = MTL::RenderPassDescriptor::alloc()->init();
+        auto* colorAttachment = passDesc->colorAttachments()->object(0);
+        colorAttachment->setTexture(targetHw->raw());
+        colorAttachment->setLoadAction(MTL::LoadActionLoad);
+        colorAttachment->setStoreAction(MTL::StoreActionStore);
+
+        auto* encoder = commandBuffer->renderCommandEncoder(passDesc);
+        passDesc->release();
+        if (!encoder) {
+            spdlog::error("generateEnvConvolve: failed to create render encoder");
+            return;
+        }
+
+        if (!_envConvolvePass) {
+            if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
+            _envConvolvePass = std::make_unique<MetalEnvConvolvePass>(this, _composePass.get());
+        }
+
+        _envConvolvePass->beginPass(encoder,
+            params.sourceEquirect, params.sourceCubemap,
+            _renderPipeline.get(), renderTarget, _bindGroupFormats);
+
+        const bool sourceIsCubemap = params.sourceCubemap != nullptr;
+        for (const auto& op : params.ops) {
+            _envConvolvePass->drawRect(encoder, op, sourceIsCubemap,
+                params.encodeRgbp, params.decodeSrgb);
+        }
+
+        encoder->endEncoding();
+        commandBuffer->commit();
+        commandBuffer->waitUntilCompleted();
+    }
+
+    void MetalGraphicsDevice::generateEnvAtlas(const EnvAtlasBakeParams& params)
+    {
+        if (!_commandQueue || !_device) {
+            spdlog::warn("generateEnvAtlas: device/queue unavailable");
+            return;
+        }
+        if (!params.target) {
+            spdlog::warn("generateEnvAtlas: target texture is null");
+            return;
+        }
+        if (params.reprojectOps.empty() && params.convolveOps.empty()) {
+            spdlog::warn("generateEnvAtlas: no ops to bake");
+            return;
+        }
+        if (_insideRenderPass || _renderPassEncoder || _computePassEncoder) {
+            spdlog::warn("generateEnvAtlas: skipped while another encoder is active");
+            return;
+        }
+
+        params.target->upload();
+        if (params.reprojectSourceEquirect) params.reprojectSourceEquirect->upload();
+        if (params.reprojectSourceCubemap)  params.reprojectSourceCubemap->upload();
+        if (params.convolveSourceEquirect)  params.convolveSourceEquirect->upload();
+        if (params.convolveSourceCubemap)   params.convolveSourceCubemap->upload();
+
+        auto* targetHw = dynamic_cast<gpu::MetalTexture*>(params.target->impl());
+        if (!targetHw || !targetHw->raw()) {
+            spdlog::error("generateEnvAtlas: target has no Metal texture");
+            return;
+        }
+
+        RenderTargetOptions rtOptions;
+        rtOptions.graphicsDevice = this;
+        rtOptions.colorBuffer = params.target;
+        rtOptions.depth = false;
+        rtOptions.samples = 1;
+        rtOptions.name = "envAtlasTarget";
+        rtOptions.flipY = false;
+        auto renderTarget = createRenderTarget(rtOptions);
+        auto metalTarget = std::dynamic_pointer_cast<MetalRenderTarget>(renderTarget);
+        if (!metalTarget) {
+            spdlog::error("generateEnvAtlas: failed to create MetalRenderTarget");
+            return;
+        }
+        metalTarget->ensureAttachments();
+
+        auto* commandBuffer = _commandQueue->commandBuffer();
+        if (!commandBuffer) {
+            spdlog::warn("generateEnvAtlas: failed to allocate command buffer");
+            return;
+        }
+
+        auto* passDesc = MTL::RenderPassDescriptor::alloc()->init();
+        auto* colorAttachment = passDesc->colorAttachments()->object(0);
+        colorAttachment->setTexture(targetHw->raw());
+        colorAttachment->setLoadAction(MTL::LoadActionLoad);
+        colorAttachment->setStoreAction(MTL::StoreActionStore);
+
+        auto* encoder = commandBuffer->renderCommandEncoder(passDesc);
+        passDesc->release();
+        if (!encoder) {
+            spdlog::error("generateEnvAtlas: failed to create render encoder");
+            return;
+        }
+
+        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
+
+        if (!params.reprojectOps.empty()) {
+            if (!_envReprojectPass) {
+                _envReprojectPass = std::make_unique<MetalEnvReprojectPass>(this, _composePass.get());
+            }
+            _envReprojectPass->beginPass(encoder,
+                params.reprojectSourceEquirect, params.reprojectSourceCubemap,
+                _renderPipeline.get(), renderTarget, _bindGroupFormats);
+
+            const bool sourceIsCubemap = params.reprojectSourceCubemap != nullptr;
+            for (const auto& op : params.reprojectOps) {
+                _envReprojectPass->drawRect(encoder, op, sourceIsCubemap,
+                    params.encodeRgbp, params.decodeSrgb);
+            }
+        }
+
+        if (!params.convolveOps.empty()) {
+            if (!_envConvolvePass) {
+                _envConvolvePass = std::make_unique<MetalEnvConvolvePass>(this, _composePass.get());
+            }
+            _envConvolvePass->beginPass(encoder,
+                params.convolveSourceEquirect, params.convolveSourceCubemap,
+                _renderPipeline.get(), renderTarget, _bindGroupFormats);
+
+            const bool sourceIsCubemap = params.convolveSourceCubemap != nullptr;
+            for (const auto& op : params.convolveOps) {
+                _envConvolvePass->drawRect(encoder, op, sourceIsCubemap,
+                    params.encodeRgbp, params.decodeSrgb);
+            }
+        }
+
+        encoder->endEncoding();
+        commandBuffer->commit();
+        commandBuffer->waitUntilCompleted();
+    }
+
+    void MetalGraphicsDevice::generateEquirectToCubemap(const EquirectToCubeParams& params)
+    {
+        if (!_commandQueue || !_device) {
+            spdlog::warn("generateEquirectToCubemap: device/queue unavailable");
+            return;
+        }
+        if (!params.source || !params.target) {
+            spdlog::warn("generateEquirectToCubemap: source or target is null");
+            return;
+        }
+        if (!params.target->isCubemap()) {
+            spdlog::error("generateEquirectToCubemap: target is not a cubemap");
+            return;
+        }
+        if (_insideRenderPass || _renderPassEncoder || _computePassEncoder) {
+            spdlog::warn("generateEquirectToCubemap: skipped while another encoder is active");
+            return;
+        }
+
+        params.source->upload();
+        params.target->upload();
+
+        auto* targetHw = dynamic_cast<gpu::MetalTexture*>(params.target->impl());
+        if (!targetHw || !targetHw->raw()) {
+            spdlog::error("generateEquirectToCubemap: target has no Metal texture");
+            return;
+        }
+
+        const int faceSize = static_cast<int>(params.target->width());
+
+        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
+        if (!_equirectToCubePass) {
+            _equirectToCubePass = std::make_unique<MetalEquirectToCubePass>(this, _composePass.get());
+        }
+
+        auto* commandBuffer = _commandQueue->commandBuffer();
+        if (!commandBuffer) {
+            spdlog::warn("generateEquirectToCubemap: failed to allocate command buffer");
+            return;
+        }
+
+        // One render pass per cube face. Each face is a distinct storage slice,
+        // so the tile-memory preservation issue that forces the atlas bake into
+        // a single pass does not apply here.
+        for (uint32_t face = 0; face < 6u; ++face) {
+            RenderTargetOptions rtOptions;
+            rtOptions.graphicsDevice = this;
+            rtOptions.colorBuffer = params.target;
+            rtOptions.face = static_cast<int>(face);
+            rtOptions.depth = false;
+            rtOptions.samples = 1;
+            rtOptions.name = "equirectToCubeTarget";
+            rtOptions.flipY = false;
+            auto renderTarget = createRenderTarget(rtOptions);
+            auto metalTarget = std::dynamic_pointer_cast<MetalRenderTarget>(renderTarget);
+            if (!metalTarget) {
+                spdlog::error("generateEquirectToCubemap: failed to create MetalRenderTarget");
+                continue;
+            }
+            metalTarget->ensureAttachments();
+
+            auto* passDesc = MTL::RenderPassDescriptor::alloc()->init();
+            auto* colorAttachment = passDesc->colorAttachments()->object(0);
+            colorAttachment->setTexture(targetHw->raw());
+            colorAttachment->setSlice(static_cast<NS::UInteger>(face));
+            colorAttachment->setLoadAction(MTL::LoadActionDontCare);
+            colorAttachment->setStoreAction(MTL::StoreActionStore);
+
+            auto* encoder = commandBuffer->renderCommandEncoder(passDesc);
+            passDesc->release();
+            if (!encoder) {
+                spdlog::error("generateEquirectToCubemap: failed to create render encoder");
+                continue;
+            }
+
+            _equirectToCubePass->beginPass(encoder, params.source,
+                _renderPipeline.get(), renderTarget, _bindGroupFormats);
+            _equirectToCubePass->drawFace(encoder, face, faceSize, params.decodeSrgb);
+            encoder->endEncoding();
+        }
+
+        if (params.target->mipmaps() && params.target->getNumLevels() > 1) {
+            auto* blitEncoder = commandBuffer->blitCommandEncoder();
+            if (blitEncoder) {
+                blitEncoder->generateMipmaps(targetHw->raw());
+                blitEncoder->endEncoding();
+            }
+        }
+
         commandBuffer->commit();
         commandBuffer->waitUntilCompleted();
     }

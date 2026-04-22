@@ -28,7 +28,9 @@ namespace visutwin::canvas
     class MetalComposePass;
     class MetalDepthAwareBlurPass;
     class MetalDofBlurPass;
+    class MetalEnvConvolvePass;
     class MetalEnvReprojectPass;
+    class MetalEquirectToCubePass;
     class MetalLICPass;
     class MetalMarchingCubesPass;
     class MetalParticleComputePass;
@@ -49,7 +51,9 @@ namespace visutwin::canvas
         friend class MetalComposePass;
         friend class MetalDepthAwareBlurPass;
         friend class MetalDofBlurPass;
+        friend class MetalEnvConvolvePass;
         friend class MetalEnvReprojectPass;
+        friend class MetalEquirectToCubePass;
         friend class MetalLICPass;
         friend class MetalMarchingCubesPass;
         friend class MetalParticleComputePass;
@@ -111,6 +115,9 @@ namespace visutwin::canvas
         void executeDofBlurPass(const DofBlurPassParams& params) override;
         void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) override;
         void generateEnvReproject(const EnvReprojectPassParams& params) override;
+        void generateEnvConvolve(const EnvConvolvePassParams& params) override;
+        void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
+        void generateEquirectToCubemap(const EquirectToCubeParams& params) override;
         bool supportsCompute() const override { return true; }
         void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") override;
 
@@ -203,6 +210,8 @@ namespace visutwin::canvas
         std::unique_ptr<MetalDepthAwareBlurPass> _blurPassV;
         std::unique_ptr<MetalTaaPass> _taaPass;
         std::unique_ptr<MetalEnvReprojectPass> _envReprojectPass;
+        std::unique_ptr<MetalEnvConvolvePass> _envConvolvePass;
+        std::unique_ptr<MetalEquirectToCubePass> _equirectToCubePass;
 
         // Triple-buffered ring buffers for per-draw uniform data.
         // Replaces setVertexBytes()/setFragmentBytes() with pre-allocated MTLBuffer

@@ -7,8 +7,6 @@
 #include <vector>
 #include <Metal/Metal.hpp>
 
-#include "platform/graphics/graphicsDevice.h"
-
 namespace visutwin::canvas
 {
     class BlendState;
@@ -21,29 +19,25 @@ namespace visutwin::canvas
     class Shader;
     class Texture;
 
-    struct EnvReprojectPassParams;
-    struct EnvReprojectOp;
-
-    // All rects must be drawn inside ONE render pass: LoadActionLoad with
-    // partial scissor does not reliably preserve content outside the scissor
-    // on Apple-Silicon tile-based GPUs.
-    class MetalEnvReprojectPass
+    class MetalEquirectToCubePass
     {
     public:
-        MetalEnvReprojectPass(MetalGraphicsDevice* device, MetalComposePass* composePass);
-        ~MetalEnvReprojectPass();
+        MetalEquirectToCubePass(MetalGraphicsDevice* device, MetalComposePass* composePass);
+        ~MetalEquirectToCubePass();
 
+        // Binds the pipeline, vertex buffer, source equirect, sampler on the
+        // encoder. Call once per render pass (one per cube face).
         void beginPass(MTL::RenderCommandEncoder* encoder,
             Texture* sourceEquirect,
-            Texture* sourceCubemap,
             MetalRenderPipeline* pipeline,
             const std::shared_ptr<RenderTarget>& renderTarget,
             const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats);
 
-        void drawRect(MTL::RenderCommandEncoder* encoder,
-            const EnvReprojectOp& op,
-            bool sourceIsCubemap,
-            bool encodeRgbp,
+        // Draws the fullscreen triangle into the currently-bound cubemap face
+        // render target. `face` (0..5) selects the face-direction mapping.
+        void drawFace(MTL::RenderCommandEncoder* encoder,
+            uint32_t face,
+            int faceSize,
             bool decodeSrgb);
 
     private:

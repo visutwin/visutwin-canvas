@@ -21,17 +21,17 @@ namespace visutwin::canvas
     class Shader;
     class Texture;
 
-    struct EnvReprojectPassParams;
-    struct EnvReprojectOp;
+    struct EnvConvolvePassParams;
+    struct EnvConvolveOp;
 
-    // All rects must be drawn inside ONE render pass: LoadActionLoad with
-    // partial scissor does not reliably preserve content outside the scissor
-    // on Apple-Silicon tile-based GPUs.
-    class MetalEnvReprojectPass
+    // Importance-sampled environment-atlas convolution (Lambert / GGX). All
+    // rects must be drawn inside ONE render pass — same constraint as
+    // MetalEnvReprojectPass on Apple-Silicon tile-based GPUs.
+    class MetalEnvConvolvePass
     {
     public:
-        MetalEnvReprojectPass(MetalGraphicsDevice* device, MetalComposePass* composePass);
-        ~MetalEnvReprojectPass();
+        MetalEnvConvolvePass(MetalGraphicsDevice* device, MetalComposePass* composePass);
+        ~MetalEnvConvolvePass();
 
         void beginPass(MTL::RenderCommandEncoder* encoder,
             Texture* sourceEquirect,
@@ -40,8 +40,10 @@ namespace visutwin::canvas
             const std::shared_ptr<RenderTarget>& renderTarget,
             const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats);
 
+        // Allocates a transient MTL::Buffer for op.samples, submits the draw.
+        // The buffer is retained via the command buffer until completion.
         void drawRect(MTL::RenderCommandEncoder* encoder,
-            const EnvReprojectOp& op,
+            const EnvConvolveOp& op,
             bool sourceIsCubemap,
             bool encodeRgbp,
             bool decodeSrgb);

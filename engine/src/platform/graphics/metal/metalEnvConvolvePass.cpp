@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-#include "metalEnvReprojectPass.h"
+#include "metalEnvConvolvePass.h"
 
 #include "metalComposePass.h"
 #include "metalGraphicsDevice.h"
@@ -21,13 +21,13 @@ namespace visutwin::canvas
 {
     namespace
     {
-        constexpr const char* REPROJECT_SOURCE = R"(
+        constexpr const char* CONVOLVE_SOURCE = R"(
 #include <metal_stdlib>
 using namespace metal;
 
 constant float PI = 3.141592653589793;
 
-struct ReprojectVertexIn {
+struct ConvolveVertexIn {
     float3 position [[attribute(0)]];
     float3 normal   [[attribute(1)]];
     float2 uv0      [[attribute(2)]];
@@ -35,23 +35,23 @@ struct ReprojectVertexIn {
     float2 uv1      [[attribute(4)]];
 };
 
-struct ReprojectVarying {
+struct ConvolveVarying {
     float4 position [[position]];
     float2 vUv;
 };
 
-struct ReprojectUniforms {
+struct ConvolveUniforms {
     float4 uvMod;
-    uint  sourceIsCubemap;
-    uint  encodeRgbp;
-    uint  decodeSrgb;
-    uint  _pad0;
+    uint sourceIsCubemap;
+    uint encodeRgbp;
+    uint decodeSrgb;
+    uint numSamples;
 };
 
-vertex ReprojectVarying reprojectVertex(ReprojectVertexIn in [[stage_in]],
-                                        constant ReprojectUniforms& u [[buffer(5)]])
+vertex ConvolveVarying convolveVertex(ConvolveVertexIn in [[stage_in]],
+                                      constant ConvolveUniforms& u [[buffer(5)]])
 {
-    ReprojectVarying out;
+    ConvolveVarying out;
     out.position = float4(in.position, 1.0);
     out.vUv = in.uv0 * u.uvMod.xy + u.uvMod.zw;
     return out;
@@ -89,41 +89,63 @@ static float4 packRgbp(float3 color)
     return float4(clamp(float3(sr, sg, sb) / scale, 0.0, 1.0), a);
 }
 
-fragment float4 reprojectFragment(
-    ReprojectVarying in [[stage_in]],
-    texture2d<float>   sourceEquirect  [[texture(0)]],
-    texturecube<float> sourceCubemap   [[texture(1)]],
-    sampler            linearSampler   [[sampler(0)]],
-    constant ReprojectUniforms& u      [[buffer(5)]])
+fragment float4 convolveFragment(
+    ConvolveVarying in [[stage_in]],
+    texture2d<float>   sourceEquirect [[texture(0)]],
+    texturecube<float> sourceCubemap  [[texture(1)]],
+    sampler            linearSampler  [[sampler(0)]],
+    constant ConvolveUniforms& u      [[buffer(5)]],
+    constant float4* samples          [[buffer(6)]])
 {
-    const float3 dir = normalize(uvToDirEquirect(in.vUv));
+    const float3 N = normalize(uvToDirEquirect(in.vUv));
 
-    float3 linearColor = float3(0.0);
-    if (u.sourceIsCubemap != 0u) {
-        float3 cubeDir = dir;
-        cubeDir.x = -cubeDir.x;
-        const float4 raw = sourceCubemap.sample(linearSampler, cubeDir);
-        linearColor = (u.decodeSrgb != 0u) ? decodeGammaSrgb(raw) : raw.rgb;
-    } else {
-        const float2 srcUv = dirToUvEquirect(dir);
-        const float4 raw = sourceEquirect.sample(linearSampler, srcUv);
-        linearColor = (u.decodeSrgb != 0u) ? decodeGammaSrgb(raw) : raw.rgb;
+    float3 up = (abs(N.y) > 0.999) ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
+    float3 T = normalize(cross(up, N));
+    float3 B = cross(N, T);
+
+    float3 sum = float3(0.0);
+    float weight = 0.0;
+
+    for (uint i = 0u; i < u.numSamples; ++i) {
+        const float4 s = samples[i];
+        if (s.z <= 0.0) {
+            continue;
+        }
+        const float3 L = T * s.x + B * s.y + N * s.z;
+        const float mip = s.w;
+
+        float3 color;
+        if (u.sourceIsCubemap != 0u) {
+            float3 cubeDir = L;
+            cubeDir.x = -cubeDir.x;
+            color = sourceCubemap.sample(linearSampler, cubeDir, level(mip)).rgb;
+        } else {
+            const float2 srcUv = dirToUvEquirect(L);
+            color = sourceEquirect.sample(linearSampler, srcUv, level(mip)).rgb;
+        }
+        if (u.decodeSrgb != 0u) {
+            color = decodeGammaSrgb(float4(color, 1.0));
+        }
+        sum += color;
+        weight += 1.0;
     }
+
+    sum /= max(weight, 1.0);
 
     if (u.encodeRgbp != 0u) {
-        return packRgbp(linearColor);
+        return packRgbp(sum);
     }
-    return float4(linearColor, 1.0);
+    return float4(sum, 1.0);
 }
 )";
     }
 
-    MetalEnvReprojectPass::MetalEnvReprojectPass(MetalGraphicsDevice* device, MetalComposePass* composePass)
+    MetalEnvConvolvePass::MetalEnvConvolvePass(MetalGraphicsDevice* device, MetalComposePass* composePass)
         : _device(device), _composePass(composePass)
     {
     }
 
-    MetalEnvReprojectPass::~MetalEnvReprojectPass()
+    MetalEnvConvolvePass::~MetalEnvConvolvePass()
     {
         if (_depthStencilState) {
             _depthStencilState->release();
@@ -135,7 +157,7 @@ fragment float4 reprojectFragment(
         }
     }
 
-    void MetalEnvReprojectPass::ensureResources()
+    void MetalEnvConvolvePass::ensureResources()
     {
         _composePass->ensureResources();
 
@@ -146,10 +168,10 @@ fragment float4 reprojectFragment(
 
         if (!_shader) {
             ShaderDefinition definition;
-            definition.name = "EnvReprojectPass";
-            definition.vshader = "reprojectVertex";
-            definition.fshader = "reprojectFragment";
-            _shader = createShader(_device, definition, REPROJECT_SOURCE);
+            definition.name = "EnvConvolvePass";
+            definition.vshader = "convolveVertex";
+            definition.fshader = "convolveFragment";
+            _shader = createShader(_device, definition, CONVOLVE_SOURCE);
         }
 
         if (!_blendState) {
@@ -165,8 +187,6 @@ fragment float4 reprojectFragment(
             _depthStencilState = _device->raw()->newDepthStencilState(depthDesc);
             depthDesc->release();
         }
-        // Clamp-to-edge on T: the device default sampler repeats, which would
-        // wrap equirect V at the poles and produce incorrect samples there.
         if (!_clampSampler && _device->raw()) {
             auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init();
             samplerDesc->setMinFilter(MTL::SamplerMinMagFilterLinear);
@@ -180,21 +200,21 @@ fragment float4 reprojectFragment(
         }
     }
 
-    void MetalEnvReprojectPass::beginPass(MTL::RenderCommandEncoder* encoder,
+    void MetalEnvConvolvePass::beginPass(MTL::RenderCommandEncoder* encoder,
         Texture* sourceEquirect, Texture* sourceCubemap,
         MetalRenderPipeline* pipeline, const std::shared_ptr<RenderTarget>& renderTarget,
         const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats)
     {
         if (!encoder) return;
         if (!sourceEquirect && !sourceCubemap) {
-            spdlog::warn("[MetalEnvReprojectPass] no source texture provided");
+            spdlog::warn("[MetalEnvConvolvePass] no source texture provided");
             return;
         }
 
         ensureResources();
         if (!_shader || !_composePass->vertexBuffer() || !_composePass->vertexFormat() ||
             !_blendState || !_depthState) {
-            spdlog::warn("[MetalEnvReprojectPass] missing resources");
+            spdlog::warn("[MetalEnvConvolvePass] missing resources");
             return;
         }
 
@@ -208,13 +228,13 @@ fragment float4 reprojectFragment(
             renderTarget, bindGroupFormats, _blendState, _depthState, CullMode::CULLFACE_NONE,
             false, nullptr, nullptr);
         if (!pipelineState) {
-            spdlog::warn("[MetalEnvReprojectPass] failed to get pipeline state");
+            spdlog::warn("[MetalEnvConvolvePass] failed to get pipeline state");
             return;
         }
 
         auto* vb = dynamic_cast<MetalVertexBuffer*>(_composePass->vertexBuffer().get());
         if (!vb || !vb->raw()) {
-            spdlog::warn("[MetalEnvReprojectPass] missing vertex buffer");
+            spdlog::warn("[MetalEnvConvolvePass] missing vertex buffer");
             return;
         }
 
@@ -236,11 +256,15 @@ fragment float4 reprojectFragment(
         }
     }
 
-    void MetalEnvReprojectPass::drawRect(MTL::RenderCommandEncoder* encoder,
-        const EnvReprojectOp& op, bool sourceIsCubemap, bool encodeRgbp, bool decodeSrgb)
+    void MetalEnvConvolvePass::drawRect(MTL::RenderCommandEncoder* encoder,
+        const EnvConvolveOp& op, bool sourceIsCubemap, bool encodeRgbp, bool decodeSrgb)
     {
         if (!encoder) return;
         if (op.rectW <= 0 || op.rectH <= 0) return;
+        if (!op.samples || op.numSamples <= 0) {
+            spdlog::warn("[MetalEnvConvolvePass] op has no samples");
+            return;
+        }
 
         MTL::Viewport viewport;
         viewport.originX = static_cast<double>(op.rectX);
@@ -258,13 +282,25 @@ fragment float4 reprojectFragment(
         scissor.height = static_cast<NS::UInteger>(std::max(1, op.rectH));
         encoder->setScissorRect(scissor);
 
-        struct alignas(16) ReprojectUniforms
+        const size_t samplesBytes = static_cast<size_t>(op.numSamples) * 4 * sizeof(float);
+        auto* samplesBuffer = _device->raw()->newBuffer(
+            op.samples, samplesBytes, MTL::ResourceStorageModeShared);
+        if (!samplesBuffer) {
+            spdlog::error("[MetalEnvConvolvePass] failed to allocate samples buffer");
+            return;
+        }
+        encoder->setFragmentBuffer(samplesBuffer, 0, 6);
+        // Release our reference; the encoder retains the buffer until the
+        // command buffer completes.
+        samplesBuffer->release();
+
+        struct alignas(16) ConvolveUniforms
         {
             float uvMod[4];
             uint32_t sourceIsCubemap;
             uint32_t encodeRgbp;
             uint32_t decodeSrgb;
-            uint32_t _pad0;
+            uint32_t numSamples;
         } uniforms{};
 
         const int seam = std::max(0, op.seamPixels);
@@ -284,9 +320,10 @@ fragment float4 reprojectFragment(
         uniforms.sourceIsCubemap = sourceIsCubemap ? 1u : 0u;
         uniforms.encodeRgbp = encodeRgbp ? 1u : 0u;
         uniforms.decodeSrgb = decodeSrgb ? 1u : 0u;
+        uniforms.numSamples = static_cast<uint32_t>(op.numSamples);
 
-        encoder->setVertexBytes(&uniforms, sizeof(ReprojectUniforms), 5);
-        encoder->setFragmentBytes(&uniforms, sizeof(ReprojectUniforms), 5);
+        encoder->setVertexBytes(&uniforms, sizeof(ConvolveUniforms), 5);
+        encoder->setFragmentBytes(&uniforms, sizeof(ConvolveUniforms), 5);
 
         encoder->drawPrimitives(MTL::PrimitiveTypeTriangle,
             static_cast<NS::UInteger>(0), static_cast<NS::UInteger>(3));

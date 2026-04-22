@@ -91,46 +91,7 @@ namespace visutwin::canvas
         v = 1.0f - (theta / ENV_PI + 0.5f);
     }
 
-    void EnvLighting::equirectUvToDir(float u, float v, float& x, float& y, float& z)
-    {
-        const float phi = (u - 0.5f) * ENV_TWO_PI;         // azimuth
-        const float theta = (0.5f - v) * ENV_PI;          // elevation
-        const float cosTheta = std::cos(theta);
-        x = std::sin(phi) * cosTheta;
-        y = std::sin(theta);
-        z = std::cos(phi) * cosTheta;
-    }
-
-    // ----------------------------------------------------------------
-    // Direction -> cubemap face + UV
-    // Standard cubemap face mapping (OpenGL convention)
-    // ----------------------------------------------------------------
-    void EnvLighting::dirToFaceUv(float x, float y, float z, int& face, float& u, float& v)
-    {
-        const float ax = std::abs(x);
-        const float ay = std::abs(y);
-        const float az = std::abs(z);
-
-        float ma, sc, tc;
-        if (ax >= ay && ax >= az) {
-            ma = ax;
-            if (x > 0) { face = 0; sc = -z; tc = -y; }  // +X
-            else        { face = 1; sc =  z; tc = -y; }  // -X
-        } else if (ay >= ax && ay >= az) {
-            ma = ay;
-            if (y > 0) { face = 2; sc =  x; tc =  z; }  // +Y
-            else        { face = 3; sc =  x; tc = -z; }  // -Y
-        } else {
-            ma = az;
-            if (z > 0) { face = 4; sc =  x; tc = -y; }  // +Z
-            else        { face = 5; sc = -x; tc = -y; }  // -Z
-        }
-
-        u = (sc / ma + 1.0f) * 0.5f;
-        v = (tc / ma + 1.0f) * 0.5f;
-    }
-
-    // Face index + UV -> 3D direction (inverse of dirToFaceUv)
+    // Face index + UV -> 3D direction (used by generateSkyboxCubemap).
     static void faceUvToDir(int face, float u, float v, float& x, float& y, float& z)
     {
         // Convert UV [0,1] to [-1,1]
@@ -157,207 +118,7 @@ namespace visutwin::canvas
     }
 
     // ----------------------------------------------------------------
-    // Bilinear sample from a single cubemap face
-    // ----------------------------------------------------------------
-    EnvLighting::Color3 EnvLighting::sampleFace(const std::vector<float>& faceData, int faceSize, float u, float v)
-    {
-        // Clamp UV to valid range
-        u = std::clamp(u, 0.0f, 1.0f);
-        v = std::clamp(v, 0.0f, 1.0f);
-
-        const float fx = u * static_cast<float>(faceSize - 1);
-        const float fy = v * static_cast<float>(faceSize - 1);
-
-        const int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, faceSize - 1);
-        const int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, faceSize - 1);
-        const int x1 = std::min(x0 + 1, faceSize - 1);
-        const int y1 = std::min(y0 + 1, faceSize - 1);
-
-        const float sx = fx - static_cast<float>(x0);
-        const float sy = fy - static_cast<float>(y0);
-
-        auto pixel = [&](int px, int py) -> const float* {
-            return &faceData[(py * faceSize + px) * 4];
-        };
-
-        const float* p00 = pixel(x0, y0);
-        const float* p10 = pixel(x1, y0);
-        const float* p01 = pixel(x0, y1);
-        const float* p11 = pixel(x1, y1);
-
-        Color3 result;
-        for (int c = 0; c < 3; ++c) {
-            const float top = p00[c] * (1.0f - sx) + p10[c] * sx;
-            const float bot = p01[c] * (1.0f - sx) + p11[c] * sx;
-            (&result.r)[c] = top * (1.0f - sy) + bot * sy;
-        }
-        return result;
-    }
-
-    // ----------------------------------------------------------------
-    // Trilinear cubemap sample
-    // ----------------------------------------------------------------
-    EnvLighting::Color3 EnvLighting::sampleCubemap(const HdrCubemap& cubemap, float dirX, float dirY, float dirZ, float mipLevel)
-    {
-        mipLevel = std::clamp(mipLevel, 0.0f, static_cast<float>(cubemap.numLevels - 1));
-
-        int face;
-        float u, v;
-        dirToFaceUv(dirX, dirY, dirZ, face, u, v);
-
-        const int mip0 = std::clamp(static_cast<int>(std::floor(mipLevel)), 0, cubemap.numLevels - 1);
-        const int mip1 = std::min(mip0 + 1, cubemap.numLevels - 1);
-        const float frac = mipLevel - static_cast<float>(mip0);
-
-        const int size0 = std::max(1, cubemap.size >> mip0);
-        const int size1 = std::max(1, cubemap.size >> mip1);
-
-        Color3 c0 = sampleFace(cubemap.data[mip0][face], size0, u, v);
-
-        if (mip0 == mip1 || frac < 0.001f) {
-            return c0;
-        }
-
-        Color3 c1 = sampleFace(cubemap.data[mip1][face], size1, u, v);
-        return {
-            c0.r * (1.0f - frac) + c1.r * frac,
-            c0.g * (1.0f - frac) + c1.g * frac,
-            c0.b * (1.0f - frac) + c1.b * frac
-        };
-    }
-
-    // ----------------------------------------------------------------
-    // Equirect -> HDR cubemap
-    // ----------------------------------------------------------------
-    EnvLighting::HdrCubemap EnvLighting::equirectToCubemap(Texture* source, int size)
-    {
-        const auto* srcData = static_cast<const float*>(source->getLevel(0));
-        const int srcW = static_cast<int>(source->width());
-        const int srcH = static_cast<int>(source->height());
-        return equirectToCubemap(srcData, srcW, srcH, size);
-    }
-
-    EnvLighting::HdrCubemap EnvLighting::equirectToCubemap(const float* srcData, int srcW, int srcH, int size)
-    {
-        HdrCubemap cubemap;
-        cubemap.size = size;
-        cubemap.numLevels = 1;
-        cubemap.data.resize(1);
-        cubemap.data[0].resize(6);
-
-        if (!srcData || srcW == 0 || srcH == 0) {
-            spdlog::error("EnvLighting: source texture has no pixel data ({}x{})", srcW, srcH);
-            return cubemap;
-        }
-
-        // Bilinear sample from equirect source
-        auto sampleEquirect = [&](float u, float v) -> Color3 {
-            u = u - std::floor(u); // wrap horizontally
-            v = std::clamp(v, 0.0f, 1.0f);
-
-            const float fx = u * static_cast<float>(srcW - 1);
-            const float fy = v * static_cast<float>(srcH - 1);
-
-            const int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, srcW - 1);
-            const int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, srcH - 1);
-            const int x1 = (x0 + 1) % srcW; // wrap horizontally
-            const int y1 = std::min(y0 + 1, srcH - 1);
-
-            const float sx = fx - static_cast<float>(x0);
-            const float sy = fy - static_cast<float>(y0);
-
-            auto pixel = [&](int px, int py) -> const float* {
-                return &srcData[(py * srcW + px) * 4];
-            };
-
-            const float* p00 = pixel(x0, y0);
-            const float* p10 = pixel(x1, y0);
-            const float* p01 = pixel(x0, y1);
-            const float* p11 = pixel(x1, y1);
-
-            Color3 result;
-            for (int c = 0; c < 3; ++c) {
-                const float top = p00[c] * (1.0f - sx) + p10[c] * sx;
-                const float bot = p01[c] * (1.0f - sx) + p11[c] * sx;
-                (&result.r)[c] = top * (1.0f - sy) + bot * sy;
-            }
-            return result;
-        };
-
-        // For each face, compute direction per pixel and sample equirect
-        for (int face = 0; face < 6; ++face) {
-            auto& faceData = cubemap.data[0][face];
-            faceData.resize(size * size * 4);
-
-            for (int py = 0; py < size; ++py) {
-                for (int px = 0; px < size; ++px) {
-                    const float u = (static_cast<float>(px) + 0.5f) / static_cast<float>(size);
-                    const float v = (static_cast<float>(py) + 0.5f) / static_cast<float>(size);
-
-                    float dx, dy, dz;
-                    faceUvToDir(face, u, v, dx, dy, dz);
-
-                    float eu, ev;
-                    dirToEquirectUv(dx, dy, dz, eu, ev);
-
-                    Color3 color = sampleEquirect(eu, ev);
-                    const int idx = (py * size + px) * 4;
-                    faceData[idx + 0] = color.r;
-                    faceData[idx + 1] = color.g;
-                    faceData[idx + 2] = color.b;
-                    faceData[idx + 3] = 1.0f;
-                }
-            }
-        }
-
-        return cubemap;
-    }
-
-    // ----------------------------------------------------------------
-    // Generate box-filter mipmaps
-    // ----------------------------------------------------------------
-    void EnvLighting::generateMipmaps(HdrCubemap& cubemap)
-    {
-        const int maxLevels = calcLevels(cubemap.size);
-        cubemap.numLevels = maxLevels;
-        cubemap.data.resize(maxLevels);
-
-        for (int mip = 1; mip < maxLevels; ++mip) {
-            const int prevSize = std::max(1, cubemap.size >> (mip - 1));
-            const int currSize = std::max(1, cubemap.size >> mip);
-
-            cubemap.data[mip].resize(6);
-
-            for (int face = 0; face < 6; ++face) {
-                auto& prevFace = cubemap.data[mip - 1][face];
-                auto& currFace = cubemap.data[mip][face];
-                currFace.resize(currSize * currSize * 4);
-
-                for (int py = 0; py < currSize; ++py) {
-                    for (int px = 0; px < currSize; ++px) {
-                        const int sx = px * 2;
-                        const int sy = py * 2;
-                        const int sx1 = std::min(sx + 1, prevSize - 1);
-                        const int sy1 = std::min(sy + 1, prevSize - 1);
-
-                        const int dstIdx = (py * currSize + px) * 4;
-
-                        for (int c = 0; c < 4; ++c) {
-                            const float v00 = prevFace[(sy  * prevSize + sx)  * 4 + c];
-                            const float v10 = prevFace[(sy  * prevSize + sx1) * 4 + c];
-                            const float v01 = prevFace[(sy1 * prevSize + sx)  * 4 + c];
-                            const float v11 = prevFace[(sy1 * prevSize + sx1) * 4 + c];
-                            currFace[dstIdx + c] = (v00 + v10 + v01 + v11) * 0.25f;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ----------------------------------------------------------------
     // Hemisphere sampling
-    // Port from upstream reproject-texture.js
     // ----------------------------------------------------------------
     void EnvLighting::hemisphereSampleGGX(float& hx, float& hy, float& hz, float xi1, float xi2, float a)
     {
@@ -400,572 +161,197 @@ namespace visutwin::canvas
         return k * k * (1.0f / ENV_PI);
     }
 
-    // ----------------------------------------------------------------
-    // Write equirectangular region (direct resample, no convolution)
-    // Used for mipmaps section of atlas (lower mip levels from cubemap)
-    // ----------------------------------------------------------------
-    void EnvLighting::writeEquirectRegion(uint8_t* atlas, int atlasSize,
-                                          int rx, int ry, int rw, int rh,
-                                          const HdrCubemap& cubemap, float mipLevel)
-    {
-        const float seamPixels = 2.0f;
-        const float invRw = 1.0f / static_cast<float>(rw);
-        const float invRh = 1.0f / static_cast<float>(rh);
-
-        for (int py = 0; py < rh; ++py) {
-            for (int px = 0; px < rw; ++px) {
-                // UV with seam handling: expand UV range slightly for border pixels
-                float u = (static_cast<float>(px) + 0.5f) * invRw;
-                float v = (static_cast<float>(py) + 0.5f) * invRh;
-
-                // Apply seam correction (inverse of shader's mapUv seam inset)
-                const float innerW = static_cast<float>(rw) - seamPixels * 2.0f;
-                const float innerH = static_cast<float>(rh) - seamPixels * 2.0f;
-                if (innerW > 0.0f && innerH > 0.0f) {
-                    u = (u * static_cast<float>(rw) - seamPixels) / innerW;
-                    v = (v * static_cast<float>(rh) - seamPixels) / innerH;
-                }
-
-                // Convert UV to direction
-                float dx, dy, dz;
-                equirectUvToDir(u, v, dx, dy, dz);
-
-                // Sample cubemap
-                Color3 color = sampleCubemap(cubemap, dx, dy, dz, mipLevel);
-
-                // Encode and write
-                auto encoded = encodeRGBP(color.r, color.g, color.b);
-                const int atlasIdx = ((ry + py) * atlasSize + (rx + px)) * 4;
-                atlas[atlasIdx + 0] = encoded[0];
-                atlas[atlasIdx + 1] = encoded[1];
-                atlas[atlasIdx + 2] = encoded[2];
-                atlas[atlasIdx + 3] = encoded[3];
-            }
-        }
-    }
 
     // ----------------------------------------------------------------
-    // Write equirectangular region directly from source equirect texture.
-    // reprojectTexture with numSamples=1 samples the
-    // source equirect directly, preserving full source resolution.
+    // GGX sample table used by the GPU convolve pass. Mirrors the sample
+    // loop in writeGGXRegion (including requiredSamples / zero-padding for
+    // below-hemisphere rejections).
     // ----------------------------------------------------------------
-    void EnvLighting::writeEquirectFromSource(uint8_t* atlas, int atlasSize,
-                                              int rx, int ry, int rw, int rh,
-                                              const float* srcData, int srcW, int srcH)
-    {
-        const float seamPixels = 2.0f;
-        const float invRw = 1.0f / static_cast<float>(rw);
-        const float invRh = 1.0f / static_cast<float>(rh);
-
-        for (int py = 0; py < rh; ++py) {
-            for (int px = 0; px < rw; ++px) {
-                float u = (static_cast<float>(px) + 0.5f) * invRw;
-                float v = (static_cast<float>(py) + 0.5f) * invRh;
-
-                // Apply seam correction
-                const float innerW = static_cast<float>(rw) - seamPixels * 2.0f;
-                const float innerH = static_cast<float>(rh) - seamPixels * 2.0f;
-                if (innerW > 0.0f && innerH > 0.0f) {
-                    u = (u * static_cast<float>(rw) - seamPixels) / innerW;
-                    v = (v * static_cast<float>(rh) - seamPixels) / innerH;
-                }
-
-                // Convert atlas UV to direction, then back to source equirect UV.
-                // This round-trip (UV→dir→UV) is needed because the atlas rect
-                // is a sub-region, so atlas UV != source equirect UV.
-                float dx, dy, dz;
-                equirectUvToDir(u, v, dx, dy, dz);
-
-                float srcU, srcV;
-                dirToEquirectUv(dx, dy, dz, srcU, srcV);
-
-                // Bilinear sample from source equirect (RGBA32F)
-                srcU = srcU - std::floor(srcU); // wrap horizontally
-                srcV = std::clamp(srcV, 0.0f, 1.0f);
-
-                const float fx = srcU * static_cast<float>(srcW - 1);
-                const float fy = srcV * static_cast<float>(srcH - 1);
-
-                const int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, srcW - 1);
-                const int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, srcH - 1);
-                const int x1 = (x0 + 1) % srcW;
-                const int y1 = std::min(y0 + 1, srcH - 1);
-
-                const float sx = fx - static_cast<float>(x0);
-                const float sy = fy - static_cast<float>(y0);
-
-                auto pixel = [&](int ppx, int ppy) -> const float* {
-                    return &srcData[(ppy * srcW + ppx) * 4];
-                };
-
-                const float* p00 = pixel(x0, y0);
-                const float* p10 = pixel(x1, y0);
-                const float* p01 = pixel(x0, y1);
-                const float* p11 = pixel(x1, y1);
-
-                float r = 0.0f, g = 0.0f, b = 0.0f;
-                for (int c = 0; c < 3; ++c) {
-                    const float top = p00[c] * (1.0f - sx) + p10[c] * sx;
-                    const float bot = p01[c] * (1.0f - sx) + p11[c] * sx;
-                    const float val = top * (1.0f - sy) + bot * sy;
-                    if (c == 0) r = val;
-                    else if (c == 1) g = val;
-                    else b = val;
-                }
-
-                auto encoded = encodeRGBP(r, g, b);
-                const int atlasIdx = ((ry + py) * atlasSize + (rx + px)) * 4;
-                atlas[atlasIdx + 0] = encoded[0];
-                atlas[atlasIdx + 1] = encoded[1];
-                atlas[atlasIdx + 2] = encoded[2];
-                atlas[atlasIdx + 3] = encoded[3];
-            }
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // Write GGX-prefiltered equirectangular region
-    // Port of prefilterSamples from upstream reproject-texture.js
-    // ----------------------------------------------------------------
-    void EnvLighting::writeGGXRegion(uint8_t* atlas, int atlasSize,
-                                     int rx, int ry, int rw, int rh,
-                                     const HdrCubemap& cubemap,
-                                     int specularPower, int numSamples)
+    std::vector<float> EnvLighting::generateGGXSampleTable(int numSamples, int specularPower, int sourceTotalPixels)
     {
         const float roughness = 1.0f - std::log2(static_cast<float>(std::max(specularPower, 1))) / 11.0f;
         const float a = roughness * roughness;
-
-        // Source total pixels for mip level calculation
-        const float sourceTotalPixels = static_cast<float>(cubemap.size * cubemap.size * 6);
-        const float pixelsPerSample = sourceTotalPixels / static_cast<float>(numSamples);
-
-        // Pre-compute GGX samples (like upstream generateGGXSamples)
+        const float pixelsPerSample = static_cast<float>(sourceTotalPixels)
+            / static_cast<float>(std::max(numSamples, 1));
         const int requiredSamples = getRequiredSamplesGGX(numSamples, specularPower);
 
-        struct Sample { float lx, ly, lz, mipLevel; };
-        std::vector<Sample> samples;
-        samples.reserve(numSamples);
-
-        for (int i = 0; i < requiredSamples && static_cast<int>(samples.size()) < numSamples; ++i) {
+        std::vector<float> table;
+        table.reserve(static_cast<size_t>(numSamples) * 4);
+        int valid = 0;
+        for (int i = 0; i < requiredSamples && valid < numSamples; ++i) {
             float hx, hy, hz;
             hemisphereSampleGGX(hx, hy, hz,
-                                static_cast<float>(i) / static_cast<float>(requiredSamples),
-                                Random::radicalInverse(i), a);
+                static_cast<float>(i) / static_cast<float>(requiredSamples),
+                Random::radicalInverse(i), a);
 
-            const float NoH = hz; // N = (0, 0, 1)
-            // L = 2 * (N.H) * H - N
-            float lx = 2.0f * NoH * hx;
-            float ly = 2.0f * NoH * hy;
-            float lz = 2.0f * NoH * hz - 1.0f;
+            const float NoH = hz;
+            const float lx = 2.0f * NoH * hx;
+            const float ly = 2.0f * NoH * hy;
+            const float lz = 2.0f * NoH * hz - 1.0f;
 
             if (lz > 0.0f) {
                 const float pdf = D_GGX(std::min(1.0f, NoH), a) / 4.0f + 0.001f;
                 const float mip = 0.5f * std::log2(pixelsPerSample / pdf);
-                samples.push_back({lx, ly, lz, mip});
+                table.push_back(lx);
+                table.push_back(ly);
+                table.push_back(lz);
+                table.push_back(mip);
+                ++valid;
             }
         }
-
-        // Pad with zeros if needed
-        while (static_cast<int>(samples.size()) < numSamples) {
-            samples.push_back({0, 0, 0, 0});
+        while (valid < numSamples) {
+            table.push_back(0.0f);
+            table.push_back(0.0f);
+            table.push_back(0.0f);
+            table.push_back(0.0f);
+            ++valid;
         }
-
-        const float seamPixels = 2.0f;
-        const float invRw = 1.0f / static_cast<float>(rw);
-        const float invRh = 1.0f / static_cast<float>(rh);
-
-        for (int py = 0; py < rh; ++py) {
-            for (int px = 0; px < rw; ++px) {
-                float u = (static_cast<float>(px) + 0.5f) * invRw;
-                float v = (static_cast<float>(py) + 0.5f) * invRh;
-
-                // Seam correction
-                const float innerW = static_cast<float>(rw) - seamPixels * 2.0f;
-                const float innerH = static_cast<float>(rh) - seamPixels * 2.0f;
-                if (innerW > 0.0f && innerH > 0.0f) {
-                    u = (u * static_cast<float>(rw) - seamPixels) / innerW;
-                    v = (v * static_cast<float>(rh) - seamPixels) / innerH;
-                }
-
-                // Direction for this pixel (N = direction at center of this texel)
-                float nx, ny, nz;
-                equirectUvToDir(u, v, nx, ny, nz);
-
-                // Build TBN frame for this direction
-                // Choose an up vector that's not parallel to N
-                float upX = 0.0f, upY = 1.0f, upZ = 0.0f;
-                if (std::abs(ny) > 0.999f) {
-                    upX = 1.0f; upY = 0.0f; upZ = 0.0f;
-                }
-                // T = normalize(cross(up, N))
-                float tx = upY * nz - upZ * ny;
-                float ty = upZ * nx - upX * nz;
-                float tz = upX * ny - upY * nx;
-                float tlen = std::sqrt(tx * tx + ty * ty + tz * tz);
-                if (tlen > 0.0f) { tx /= tlen; ty /= tlen; tz /= tlen; }
-                // B = cross(N, T)
-                float bx = ny * tz - nz * ty;
-                float by = nz * tx - nx * tz;
-                float bz = nx * ty - ny * tx;
-
-                // Accumulate importance-sampled GGX
-                float sumR = 0.0f, sumG = 0.0f, sumB = 0.0f;
-                float totalWeight = 0.0f;
-
-                for (const auto& s : samples) {
-                    if (s.lz <= 0.0f) continue;
-
-                    // Transform sample direction from tangent space to world space
-                    const float wx = tx * s.lx + bx * s.ly + nx * s.lz;
-                    const float wy = ty * s.lx + by * s.ly + ny * s.lz;
-                    const float wz = tz * s.lx + bz * s.ly + nz * s.lz;
-
-                    Color3 color = sampleCubemap(cubemap, wx, wy, wz, s.mipLevel);
-                    sumR += color.r;
-                    sumG += color.g;
-                    sumB += color.b;
-                    totalWeight += 1.0f;
-                }
-
-                if (totalWeight > 0.0f) {
-                    sumR /= totalWeight;
-                    sumG /= totalWeight;
-                    sumB /= totalWeight;
-                }
-
-                auto encoded = encodeRGBP(sumR, sumG, sumB);
-                const int atlasIdx = ((ry + py) * atlasSize + (rx + px)) * 4;
-                atlas[atlasIdx + 0] = encoded[0];
-                atlas[atlasIdx + 1] = encoded[1];
-                atlas[atlasIdx + 2] = encoded[2];
-                atlas[atlasIdx + 3] = encoded[3];
-            }
-        }
+        return table;
     }
 
     // ----------------------------------------------------------------
-    // Write Lambert-convolved equirectangular region
-    // Port of prefilterSamplesUnweighted from upstream
+    // Lambert sample table used by the GPU convolve pass. Matches the sample
+    // distribution + mip-level math of writeLambertRegion.
     // ----------------------------------------------------------------
-    void EnvLighting::writeLambertRegion(uint8_t* atlas, int atlasSize,
-                                         int rx, int ry, int rw, int rh,
-                                         const HdrCubemap& cubemap, int numSamples)
+    std::vector<float> EnvLighting::generateLambertSampleTable(int numSamples, int sourceTotalPixels)
     {
-        // Source total pixels for mip level calculation
-        const float sourceTotalPixels = static_cast<float>(cubemap.size * cubemap.size * 6);
-        const float pixelsPerSample = sourceTotalPixels / static_cast<float>(numSamples);
+        const float pixelsPerSample = static_cast<float>(sourceTotalPixels)
+            / static_cast<float>(std::max(numSamples, 1));
 
-        // Pre-compute Lambert samples
-        struct Sample { float hx, hy, hz, mipLevel; };
-        std::vector<Sample> samples;
-        samples.reserve(numSamples);
-
+        std::vector<float> table;
+        table.reserve(static_cast<size_t>(numSamples) * 4);
         for (int i = 0; i < numSamples; ++i) {
             float hx, hy, hz;
             hemisphereSampleLambert(hx, hy, hz,
-                                   static_cast<float>(i) / static_cast<float>(numSamples),
-                                   Random::radicalInverse(i));
-
-            const float pdf = hz / ENV_PI; // Lambert PDF = cos(theta) / pi
+                static_cast<float>(i) / static_cast<float>(numSamples),
+                Random::radicalInverse(i));
+            const float pdf = hz / ENV_PI;
             const float mip = 0.5f * std::log2(pixelsPerSample / std::max(pdf, 0.001f));
-            samples.push_back({hx, hy, hz, mip});
+            table.push_back(hx);
+            table.push_back(hy);
+            table.push_back(hz);
+            table.push_back(mip);
         }
-
-        const float seamPixels = 2.0f;
-        const float invRw = 1.0f / static_cast<float>(rw);
-        const float invRh = 1.0f / static_cast<float>(rh);
-
-        for (int py = 0; py < rh; ++py) {
-            for (int px = 0; px < rw; ++px) {
-                float u = (static_cast<float>(px) + 0.5f) * invRw;
-                float v = (static_cast<float>(py) + 0.5f) * invRh;
-
-                // Seam correction
-                const float innerW = static_cast<float>(rw) - seamPixels * 2.0f;
-                const float innerH = static_cast<float>(rh) - seamPixels * 2.0f;
-                if (innerW > 0.0f && innerH > 0.0f) {
-                    u = (u * static_cast<float>(rw) - seamPixels) / innerW;
-                    v = (v * static_cast<float>(rh) - seamPixels) / innerH;
-                }
-
-                float nx, ny, nz;
-                equirectUvToDir(u, v, nx, ny, nz);
-
-                // Build TBN frame
-                float upX = 0.0f, upY = 1.0f, upZ = 0.0f;
-                if (std::abs(ny) > 0.999f) {
-                    upX = 1.0f; upY = 0.0f; upZ = 0.0f;
-                }
-                float tx = upY * nz - upZ * ny;
-                float ty = upZ * nx - upX * nz;
-                float tz = upX * ny - upY * nx;
-                float tlen = std::sqrt(tx * tx + ty * ty + tz * tz);
-                if (tlen > 0.0f) { tx /= tlen; ty /= tlen; tz /= tlen; }
-                float bx = ny * tz - nz * ty;
-                float by = nz * tx - nx * tz;
-                float bz = nx * ty - ny * tx;
-
-                float sumR = 0.0f, sumG = 0.0f, sumB = 0.0f;
-                float totalWeight = 0.0f;
-
-                for (const auto& s : samples) {
-                    // Transform from tangent to world
-                    const float wx = tx * s.hx + bx * s.hy + nx * s.hz;
-                    const float wy = ty * s.hx + by * s.hy + ny * s.hz;
-                    const float wz = tz * s.hx + bz * s.hy + nz * s.hz;
-
-                    Color3 color = sampleCubemap(cubemap, wx, wy, wz, s.mipLevel);
-                    sumR += color.r;
-                    sumG += color.g;
-                    sumB += color.b;
-                    totalWeight += 1.0f;
-                }
-
-                if (totalWeight > 0.0f) {
-                    sumR /= totalWeight;
-                    sumG /= totalWeight;
-                    sumB /= totalWeight;
-                }
-
-                auto encoded = encodeRGBP(sumR, sumG, sumB);
-                const int atlasIdx = ((ry + py) * atlasSize + (rx + px)) * 4;
-                atlas[atlasIdx + 0] = encoded[0];
-                atlas[atlasIdx + 1] = encoded[1];
-                atlas[atlasIdx + 2] = encoded[2];
-                atlas[atlasIdx + 3] = encoded[3];
-            }
-        }
+        return table;
     }
 
+
     // ----------------------------------------------------------------
-    // generateAtlas - main entry point
-    // Port of EnvLighting.generateAtlas() from upstream
+    // generateAtlas - GPU bake entry point.
     // ----------------------------------------------------------------
     Texture* EnvLighting::generateAtlas(GraphicsDevice* device, Texture* source,
-                                        int size, int numReflectionSamples, int numAmbientSamples,
-                                        bool useGpu)
+                                        int size, int numReflectionSamples, int numAmbientSamples)
     {
         if (!device || !source) {
             spdlog::error("EnvLighting::generateAtlas: null device or source");
             return nullptr;
         }
 
-        spdlog::info("EnvLighting: generating {}x{} RGBP atlas from {}x{} equirect source ({} mipmap bake)",
-                     size, size, source->width(), source->height(),
-                     useGpu ? "GPU" : "CPU");
+        spdlog::info("EnvLighting: generating {}x{} RGBP atlas from {}x{} equirect source",
+                     size, size, source->width(), source->height());
 
-        // Get source equirect pixel data for direct sampling
-        const auto* srcData = static_cast<const float*>(source->getLevel(0));
-        const int srcW = static_cast<int>(source->width());
-        const int srcH = static_cast<int>(source->height());
-
-        // Step 1: Convert equirect source to HDR cubemap for GGX/Lambert convolution.
-        // the cubemap is only used for hemisphere-sampled convolution
-        // (GGX reflections + Lambert ambient). The mipmap section samples the source
-        // equirect directly to preserve full resolution.
-        const int cubemapSize = 256;
-        auto cubemap = equirectToCubemap(source, cubemapSize);
-        spdlog::info("EnvLighting: cubemap created ({}x{}, {} faces)", cubemapSize, cubemapSize, 6);
-
-        // Step 2: Generate cubemap mipmaps
-        generateMipmaps(cubemap);
-        spdlog::info("EnvLighting: {} mip levels generated", cubemap.numLevels);
-
-        // Step 3: Allocate output atlas buffer (RGBA8)
-        std::vector<uint8_t> atlasData(size * size * 4, 0);
-
-        // Step 4: Mipmaps section. When useGpu is set, the GPU reproject pass
-        // below fills these rects directly — skip the CPU writes here.
-        {
-            const int levels = calcLevels(256) - calcLevels(4);
-            int rectX = 0, rectY = 0, rectW = size, rectH = size / 2;
-
-            for (int i = 0; i <= levels; ++i) {
-                if (rectW < 1 || rectH < 1) break;
-
-                spdlog::debug("EnvLighting: mipmap level {} -> rect({}, {}, {}, {})", i, rectX, rectY, rectW, rectH);
-
-                if (!useGpu) {
-                    if (srcData && srcW > 0 && srcH > 0) {
-                        writeEquirectFromSource(atlasData.data(), size, rectX, rectY, rectW, rectH,
-                                               srcData, srcW, srcH);
-                    } else {
-                        writeEquirectRegion(atlasData.data(), size, rectX, rectY, rectW, rectH,
-                                           cubemap, static_cast<float>(i));
-                    }
-                }
-
-                rectX += rectH; // x += height (since width = 2*height, this shifts diagonally)
-                rectY += rectH;
-                rectW = std::max(1, rectW / 2);
-                rectH = std::max(1, rectH / 2);
-            }
-        }
-
-        // Step 5: Reflections section (GGX prefiltered)
-        // Matches upstream: rect starts at (0, 256, 256, 128) then shrinks vertically
-        {
-            int rectX = 0, rectY = size / 2, rectW = size / 2, rectH = size / 4;
-
-            for (int i = 1; i <= 6; ++i) {
-                if (rectW < 1 || rectH < 1) break;
-
-                const int specularPower = std::max(1, 2048 >> (i * 2));
-                spdlog::info("EnvLighting: GGX blur level {} (specularPower={}) -> rect({}, {}, {}, {})",
-                            i, specularPower, rectX, rectY, rectW, rectH);
-
-                writeGGXRegion(atlasData.data(), size, rectX, rectY, rectW, rectH,
-                              cubemap, specularPower, numReflectionSamples);
-
-                rectY += rectH;
-                rectW = std::max(1, rectW / 2);
-                rectH = std::max(1, rectH / 2);
-            }
-        }
-
-        // Step 6: Ambient section (Lambert irradiance)
-        // Matches upstream: rect(128, 384, 64, 32) for 512-sized atlas
-        {
-            const int rectX = size / 4;
-            const int rectY = size / 2 + size / 4;
-            const int rectW = size / 8;
-            const int rectH = size / 16;
-
-            spdlog::info("EnvLighting: Lambert ambient -> rect({}, {}, {}, {})", rectX, rectY, rectW, rectH);
-            writeLambertRegion(atlasData.data(), size, rectX, rectY, rectW, rectH,
-                             cubemap, numAmbientSamples);
-        }
-
-        // Step 7: Create GPU texture
-        TextureOptions options;
-        options.name = "envAtlas";
-        options.width = size;
-        options.height = size;
-        options.format = PixelFormat::PIXELFORMAT_RGBA8;
-        options.mipmaps = false;
-        options.minFilter = FilterMode::FILTER_LINEAR;
-        options.magFilter = FilterMode::FILTER_LINEAR;
-
-        auto* texture = new Texture(device, options);
+        // Destination atlas — empty RGBP-encoded texture; the GPU bake fills it.
+        TextureOptions atlasOptions;
+        atlasOptions.name = "envAtlas";
+        atlasOptions.width = size;
+        atlasOptions.height = size;
+        atlasOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+        atlasOptions.mipmaps = false;
+        atlasOptions.minFilter = FilterMode::FILTER_LINEAR;
+        atlasOptions.magFilter = FilterMode::FILTER_LINEAR;
+        auto* texture = new Texture(device, atlasOptions);
         texture->setEncoding(TextureEncoding::RGBP);
-        texture->setLevelData(0, atlasData.data(), atlasData.size());
         texture->upload();
 
-        if (useGpu) {
-            // Non-owning shared_ptrs: the underlying objects outlive the
-            // synchronous reprojectTexture call.
-            std::shared_ptr<Texture> sourceShared(source, [](Texture*){});
-            std::shared_ptr<Texture> targetShared(texture, [](Texture*){});
-
-            EnvReprojectOptions opts;
-            opts.source = sourceShared;
-            opts.target = targetShared;
-            opts.sourceIsCubemap = false;
-            opts.encodeRgbp = true;
-            opts.decodeSrgb = false;
-
-            const int levels = calcLevels(256) - calcLevels(4);
-            int rectX = 0, rectY = 0, rectW = size, rectH = size / 2;
-            for (int i = 0; i <= levels; ++i) {
-                if (rectW < 1 || rectH < 1) break;
-
-                EnvReprojectRect r;
-                r.rectX = rectX;
-                r.rectY = rectY;
-                r.rectW = rectW;
-                r.rectH = rectH;
-                r.seamPixels = 1;
-                opts.rects.push_back(r);
-
-                rectX += rectH;
-                rectY += rectH;
-                rectW = std::max(1, rectW / 2);
-                rectH = std::max(1, rectH / 2);
-            }
-
-            reprojectTexture(device, opts);
-        }
-
-        spdlog::info("EnvLighting: atlas generated successfully ({}x{}, RGBP)", size, size);
-
-        return texture;
-    }
-
-    // ----------------------------------------------------------------
-    // generateAtlasRaw - CPU-only entry point (no GraphicsDevice needed)
-    // ----------------------------------------------------------------
-    std::vector<uint8_t> EnvLighting::generateAtlasRaw(const float* srcData, int srcW, int srcH,
-                                                        int size, int numReflectionSamples, int numAmbientSamples)
-    {
-        if (!srcData || srcW <= 0 || srcH <= 0) {
-            spdlog::error("EnvLighting::generateAtlasRaw: invalid source data ({}x{})", srcW, srcH);
-            return {};
-        }
-
-        spdlog::info("EnvLighting: generating {}x{} RGBP atlas from {}x{} equirect source (CPU-only)",
-                     size, size, srcW, srcH);
-
-        // Step 1: Convert equirect source to HDR cubemap
+        // HDR cubemap intermediate for GGX/Lambert convolution.
         const int cubemapSize = 256;
-        auto cubemap = equirectToCubemap(srcData, srcW, srcH, cubemapSize);
-        spdlog::info("EnvLighting: cubemap created ({}x{}, {} faces)", cubemapSize, cubemapSize, 6);
-
-        // Step 2: Generate cubemap mipmaps
-        generateMipmaps(cubemap);
-        spdlog::info("EnvLighting: {} mip levels generated", cubemap.numLevels);
-
-        // Step 3: Allocate output atlas buffer (RGBA8)
-        std::vector<uint8_t> atlasData(size * size * 4, 0);
-
-        // Step 4: Mipmaps section
-        {
-            const int levels = calcLevels(256) - calcLevels(4);
-            int rectX = 0, rectY = 0, rectW = size, rectH = size / 2;
-
-            for (int i = 0; i <= levels; ++i) {
-                if (rectW < 1 || rectH < 1) break;
-                spdlog::debug("EnvLighting: mipmap level {} -> rect({}, {}, {}, {})", i, rectX, rectY, rectW, rectH);
-
-                writeEquirectFromSource(atlasData.data(), size, rectX, rectY, rectW, rectH,
-                                       srcData, srcW, srcH);
-
-                rectX += rectH;
-                rectY += rectH;
-                rectW = std::max(1, rectW / 2);
-                rectH = std::max(1, rectH / 2);
-            }
+        std::shared_ptr<Texture> sourceShared(source, [](Texture*){});
+        auto cubemap = equirectToCubemap(device, sourceShared, cubemapSize, false);
+        if (!cubemap) {
+            spdlog::error("EnvLighting: failed to build HDR cubemap");
+            return texture;
         }
 
-        // Step 5: Reflections section (GGX prefiltered)
+        // Layout: mipmap section along the top/diagonal, GGX along the left
+        // column of the lower half, Lambert at its fixed sub-rect. Must match
+        // the read-time math in the forward shaders.
+        struct GGXLevel { int x, y, w, h, specularPower; };
+        std::vector<GGXLevel> ggxLevels;
         {
             int rectX = 0, rectY = size / 2, rectW = size / 2, rectH = size / 4;
-
             for (int i = 1; i <= 6; ++i) {
                 if (rectW < 1 || rectH < 1) break;
                 const int specularPower = std::max(1, 2048 >> (i * 2));
-                spdlog::info("EnvLighting: GGX blur level {} (specularPower={}) -> rect({}, {}, {}, {})",
-                            i, specularPower, rectX, rectY, rectW, rectH);
-                writeGGXRegion(atlasData.data(), size, rectX, rectY, rectW, rectH,
-                              cubemap, specularPower, numReflectionSamples);
+                ggxLevels.push_back({rectX, rectY, rectW, rectH, specularPower});
+                rectY += rectH;
+                rectW = std::max(1, rectW / 2);
+                rectH = std::max(1, rectH / 2);
+            }
+        }
+        const int lambertRectX = size / 4;
+        const int lambertRectY = size / 2 + size / 4;
+        const int lambertRectW = size / 8;
+        const int lambertRectH = size / 16;
+
+        // Sample tables must outlive the bakeEnvAtlas call since
+        // EnvConvolveOp references raw float*.
+        const int sourceTotalPixels = cubemapSize * cubemapSize * 6;
+        std::vector<std::vector<float>> ggxSamples(ggxLevels.size());
+        for (size_t i = 0; i < ggxLevels.size(); ++i) {
+            ggxSamples[i] = generateGGXSampleTable(
+                numReflectionSamples, ggxLevels[i].specularPower, sourceTotalPixels);
+        }
+        const auto lambertSamples = generateLambertSampleTable(
+            numAmbientSamples, sourceTotalPixels);
+
+        EnvAtlasBakeOptions opts;
+        opts.target = std::shared_ptr<Texture>(texture, [](Texture*){});
+        opts.encodeRgbp = true;
+        opts.decodeSrgb = false;
+
+        opts.reprojectSource = sourceShared;
+        opts.reprojectSourceIsCubemap = false;
+        {
+            const int levels = calcLevels(256) - calcLevels(4);
+            int rectX = 0, rectY = 0, rectW = size, rectH = size / 2;
+            for (int i = 0; i <= levels; ++i) {
+                if (rectW < 1 || rectH < 1) break;
+                EnvReprojectRect r;
+                r.rectX = rectX; r.rectY = rectY; r.rectW = rectW; r.rectH = rectH;
+                r.seamPixels = 1;
+                opts.reprojectRects.push_back(r);
+                rectX += rectH;
                 rectY += rectH;
                 rectW = std::max(1, rectW / 2);
                 rectH = std::max(1, rectH / 2);
             }
         }
 
-        // Step 6: Ambient section (Lambert irradiance)
+        opts.convolveSource = cubemap;
+        opts.convolveSourceIsCubemap = true;
+        for (size_t i = 0; i < ggxLevels.size(); ++i) {
+            const auto& g = ggxLevels[i];
+            EnvConvolveRect r;
+            r.rectX = g.x; r.rectY = g.y; r.rectW = g.w; r.rectH = g.h;
+            r.seamPixels = 1;
+            r.samples = ggxSamples[i].data();
+            r.numSamples = numReflectionSamples;
+            opts.convolveRects.push_back(r);
+        }
         {
-            const int rectX = size / 4;
-            const int rectY = size / 2 + size / 4;
-            const int rectW = size / 8;
-            const int rectH = size / 16;
-            spdlog::info("EnvLighting: Lambert ambient -> rect({}, {}, {}, {})", rectX, rectY, rectW, rectH);
-            writeLambertRegion(atlasData.data(), size, rectX, rectY, rectW, rectH,
-                             cubemap, numAmbientSamples);
+            EnvConvolveRect r;
+            r.rectX = lambertRectX; r.rectY = lambertRectY;
+            r.rectW = lambertRectW; r.rectH = lambertRectH;
+            r.seamPixels = 1;
+            r.samples = lambertSamples.data();
+            r.numSamples = numAmbientSamples;
+            opts.convolveRects.push_back(r);
         }
 
-        spdlog::info("EnvLighting: atlas generated successfully ({}x{}, RGBP, CPU-only)", size, size);
-        return atlasData;
+        bakeEnvAtlas(device, opts);
+
+        spdlog::info("EnvLighting: atlas generated ({}x{}, RGBP)", size, size);
+        return texture;
     }
 
     // ----------------------------------------------------------------
