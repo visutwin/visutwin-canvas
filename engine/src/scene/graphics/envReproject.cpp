@@ -160,7 +160,7 @@ namespace visutwin::canvas
         options.name = "envCubemapHdr";
         options.width = static_cast<uint32_t>(faceSize);
         options.height = static_cast<uint32_t>(faceSize);
-        options.format = PixelFormat::PIXELFORMAT_RGBA16F;
+        options.format = PixelFormat::PIXELFORMAT_RGBA32F;
         options.cubemap = true;
         options.mipmaps = true;
         options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;

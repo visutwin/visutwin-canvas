@@ -76,7 +76,7 @@ namespace visutwin::canvas
     void bakeEnvAtlas(GraphicsDevice* device, const EnvAtlasBakeOptions& options);
 
     // Builds a mipmapped HDR cubemap from an equirectangular source. Returned
-    // texture is RGBA16F with a full mip chain generated via blit.
+    // texture is RGBA32F with a full mip chain generated via blit.
     std::shared_ptr<Texture> equirectToCubemap(GraphicsDevice* device,
         const std::shared_ptr<Texture>& source, int faceSize, bool decodeSrgb = false);
 }
