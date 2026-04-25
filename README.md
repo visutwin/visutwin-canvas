@@ -12,8 +12,8 @@ VisuTwin Canvas ports PlayCanvas's architecture, class hierarchy, and algorithms
 
 - **PBR rendering** with metalness/roughness workflow, normal maps, environment lighting
 - **Forward renderer** with multi-light support (directional, point, spot, area rect)
-- **Shadow mapping** (directional cascades, spot/point depth maps, omnidirectional cubemap shadows)
-- **Post-processing**: TAA, SSAO, bloom, depth of field, tone mapping, edge detection
+- **Shadow mapping** with PCF and **EVSM_16F** (Exponential Variance Shadow Maps with separable Gaussian blur and Chebyshev sampling) for directional lights, plus spot/point depth maps and omnidirectional cubemap shadows
+- **Post-processing**: TAA, SSAO, bloom, depth of field, tone mapping (Linear, Filmic, ACES, **ACES2**, Neutral, None), edge detection
 - **Clustered lighting** for many-light scenes
 - **Scene graph** with entity-component system (11 component types)
 - **GLB/glTF loading** with Draco mesh decompression
@@ -87,7 +87,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 
 ## Examples
 
-20 example applications in `examples/`:
+21 example applications in `examples/`:
 
 | Example | Description |
 |---------|-------------|
@@ -111,6 +111,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | animation | Skeletal animation playback |
 | assimp-loader | Multi-format model loading via Assimp |
 | area-picker | Area selection / picking |
+| env-reproject-test | Environment-atlas bake / reproject test (mipmap, GGX, Lambert) |
 
 A shared `cameraControls` utility provides orbit, fly, focus, and auto far-clip camera modes across examples.
 
@@ -134,7 +135,7 @@ Recommended free asset sources:
 
 ```
 visutwin-canvas/
-├── engine/                        # Engine library (409 source files)
+├── engine/                        # Engine library (422 source files)
 │   ├── src/
 │   │   ├── core/                  # Math, events, tags, shapes, utilities
 │   │   ├── platform/
@@ -156,7 +157,7 @@ visutwin-canvas/
 │   │   └── util/                  # General utilities
 │   ├── lib/                       # Vendored: metal-cpp, stb
 │   └── shaders/metal/chunks/      # 7 composable Metal shader chunks (41 feature toggles)
-├── examples/                      # 19 example applications
+├── examples/                      # 21 example applications
 ├── tools/                         # Build and utility tools
 └── assets/                        # Example assets (user-provided)
 ```
@@ -171,8 +172,8 @@ visutwin-canvas/
 | Scene / Renderer | ~70% | Forward PBR, frustum culling, layer sorting |
 | Scene / Materials | ~75% | StandardMaterial with 67 properties; clearcoat, sheen, iridescence, transmission, anisotropy, parallax all functional |
 | Scene / Lighting | ~65% | Directional + point + spot + area rect, clustered lighting |
-| Scene / Shadows | ~75% | Full 4-cascade CSM with PSSM splits and cross-cascade blending, spot/point depth maps, omni cubemaps |
-| Scene / Shader-lib | ~75% | 7 Metal chunks (2k+ lines), 34 features implemented, 7 stubbed |
+| Scene / Shadows | ~80% | Full 4-cascade CSM with PSSM splits and cross-cascade blending, **PCF + EVSM_16F (Exponential VSM with separable Gaussian blur, Chebyshev sampling, caster-AABB depth tightening)** for directional, spot/point depth maps, omni cubemaps |
+| Scene / Shader-lib | ~75% | 7 Metal chunks (2k+ lines), 35 features implemented (incl. `VT_FEATURE_VSM_SHADOWS`), 7 stubbed |
 | Scene / Graphics | ~50% | Environment atlas, HDR cubemap, 14 post-processing passes |
 | Scene / Composition | ~50% | Layer composition, render action scheduling |
 | Graphics / Metal | ~40% | Buffer, texture, pipeline functional |
