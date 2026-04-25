@@ -46,6 +46,7 @@ struct ConvolveUniforms {
     uint encodeRgbp;
     uint decodeSrgb;
     uint numSamples;
+    uint weightByNoL;
 };
 
 vertex ConvolveVarying convolveVertex(ConvolveVertexIn in [[stage_in]],
@@ -126,11 +127,12 @@ fragment float4 convolveFragment(
         if (u.decodeSrgb != 0u) {
             color = decodeGammaSrgb(float4(color, 1.0));
         }
-        sum += color;
-        weight += 1.0;
+        const float w = (u.weightByNoL != 0u) ? s.z : 1.0;
+        sum += color * w;
+        weight += w;
     }
 
-    sum /= max(weight, 1.0);
+    sum /= max(weight, 1e-4);
 
     if (u.encodeRgbp != 0u) {
         return packRgbp(sum);
@@ -301,6 +303,8 @@ fragment float4 convolveFragment(
             uint32_t encodeRgbp;
             uint32_t decodeSrgb;
             uint32_t numSamples;
+            uint32_t weightByNoL;
+            uint32_t _pad[3];
         } uniforms{};
 
         const int seam = std::max(0, op.seamPixels);
@@ -321,6 +325,7 @@ fragment float4 convolveFragment(
         uniforms.encodeRgbp = encodeRgbp ? 1u : 0u;
         uniforms.decodeSrgb = decodeSrgb ? 1u : 0u;
         uniforms.numSamples = static_cast<uint32_t>(op.numSamples);
+        uniforms.weightByNoL = op.weightByNoL ? 1u : 0u;
 
         encoder->setVertexBytes(&uniforms, sizeof(ConvolveUniforms), 5);
         encoder->setFragmentBytes(&uniforms, sizeof(ConvolveUniforms), 5);

@@ -310,6 +310,13 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #endif
     const float roughnessSq = max((1.0 - gloss) * (1.0 - gloss), 0.001);
     const float alpha2 = roughnessSq * roughnessSq;
+    // DEVIATION (PlayCanvas parity): the Smith-GGX height-correlated visibility
+    // term in PlayCanvas's lightSpecularGGX.js feeds `alpha2 = alpha * alpha`
+    // into the Heitz lambda formula, which is one squaring beyond Heitz's
+    // textbook form. Mathematically non-standard, but it widens G and makes
+    // direct specular highlights pop more — particularly at grazing angles
+    // (e.g. sunlight glinting off a curved metallic wing). Matching it here.
+    const float alpha4 = alpha2 * alpha2;
     bool shadowApplied = false;
 #if VT_FEATURE_SHADOW_CATCHER
     // shadow catcher accumulates shadow factors multiplicatively.

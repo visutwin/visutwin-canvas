@@ -321,12 +321,47 @@ static inline float3 toneMapAces(float3 color, float exposure)
     return (color * (tA * color + tB)) / (color * (tC * color + tD) + tE);
 }
 
+// ACES approximation by Stephen Hill — TONEMAP_ACES2 (used by PlayCanvas's
+// camera.toneMapping = TONEMAP_ACES2). Two-matrix fit with RRT+ODT polynomial.
+// Higher dynamic range than the simpler Narkowicz fit in toneMapAces — bright
+// HDR values (e.g. specular highlights) roll off smoothly past 1.0 instead of
+// clipping, which is essential for parity with PlayCanvas's published demos.
+static inline float3 RRTAndODTFit(float3 v)
+{
+    const float3 a = v * (v + 0.0245786) - 0.000090537;
+    const float3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+    return a / b;
+}
+
+static inline float3 toneMapAces2(float3 color, float exposure)
+{
+    // sRGB → XYZ → D65_2_D60 → AP1 → RRT_SAT
+    const float3x3 ACESInputMat = float3x3(
+        float3(0.59719, 0.35458, 0.04823),
+        float3(0.07600, 0.90834, 0.01566),
+        float3(0.02840, 0.13383, 0.83777));
+    // ODT_SAT → XYZ → D60_2_D65 → sRGB
+    const float3x3 ACESOutputMat = float3x3(
+        float3( 1.60475, -0.53108, -0.07367),
+        float3(-0.10208,  1.10813, -0.00605),
+        float3(-0.00327, -0.07276,  1.07602));
+
+    color *= exposure / 0.6;
+    color = color * ACESInputMat;
+    color = RRTAndODTFit(color);
+    color = color * ACESOutputMat;
+    return clamp(color, float3(0.0), float3(1.0));
+}
+
 // dispatch tone mapping by mode.
-// Mode is passed via skyboxMipAndPad.z (0=linear, 3=aces, 5=neutral, 6=none).
+// Mode is passed via skyboxMipAndPad.z and matches scene/constants.h:
+//   0=linear, 1=filmic, 3=aces, 4=aces2, 5=neutral, 6=none.
 static inline float3 toneMap(float3 color, float exposure, float mode)
 {
     if (mode > 4.5 && mode < 5.5) {
         return toneMapNeutral(color, exposure);
+    } else if (mode > 3.5 && mode < 4.5) {
+        return toneMapAces2(color, exposure);
     } else if (mode > 2.5 && mode < 3.5) {
         return toneMapAces(color, exposure);
     } else if (mode > 5.5) {

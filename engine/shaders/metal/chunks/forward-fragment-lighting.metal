@@ -302,8 +302,8 @@
 #else
         const float denom = NoH * NoH * (alpha2 - 1.0) + 1.0;
         const float D = alpha2 / (PI * denom * denom);
-        const float lambdaV = nDotL * sqrt(nDotV * nDotV * (1.0 - alpha2) + alpha2);
-        const float lambdaL = nDotV * sqrt(nDotL * nDotL * (1.0 - alpha2) + alpha2);
+        const float lambdaV = nDotL * sqrt(nDotV * nDotV * (1.0 - alpha4) + alpha4);
+        const float lambdaL = nDotV * sqrt(nDotL * nDotL * (1.0 - alpha4) + alpha4);
         const float G = 0.5 / max(lambdaV + lambdaL, 1e-5);
 #endif
         // directional lights use gloss-dependent Fresnel,
@@ -433,8 +433,8 @@
 #else
                 const float clDenom = clNoH * clNoH * (alpha2 - 1.0) + 1.0;
                 const float clD = alpha2 / (PI * clDenom * clDenom);
-                const float clLambdaV = clNdotL * sqrt(clNdotV * clNdotV * (1.0 - alpha2) + alpha2);
-                const float clLambdaL = clNdotV * sqrt(clNdotL * clNdotL * (1.0 - alpha2) + alpha2);
+                const float clLambdaV = clNdotL * sqrt(clNdotV * clNdotV * (1.0 - alpha4) + alpha4);
+                const float clLambdaL = clNdotV * sqrt(clNdotL * clNdotL * (1.0 - alpha4) + alpha4);
                 const float clG = 0.5 / max(clLambdaV + clLambdaL, 1e-5);
 #endif
                 // point/spot lights use plain specularity (no gloss-dependent Fresnel).

@@ -309,8 +309,15 @@ namespace visutwin::canvas
         opts.encodeRgbp = true;
         opts.decodeSrgb = false;
 
-        opts.reprojectSource = sourceShared;
-        opts.reprojectSourceIsCubemap = false;
+        // Sample the atlas mipmap (top half / diagonal) from the mipmapped HDR
+        // cubemap intermediate, not the raw equirect. The cubemap has a full
+        // mip chain so the hardware sampler picks the right LOD per dest rect;
+        // sampling the 4K equirect into tiny rects without mip selection
+        // aliases the smaller mips and dims high-roughness specular reflections
+        // on curved surfaces (matches PlayCanvas EnvLighting.generateAtlas
+        // which is called with the 128-cube `lighting` source).
+        opts.reprojectSource = cubemap;
+        opts.reprojectSourceIsCubemap = true;
         {
             const int levels = calcLevels(256) - calcLevels(4);
             int rectX = 0, rectY = 0, rectW = size, rectH = size / 2;
@@ -336,6 +343,7 @@ namespace visutwin::canvas
             r.seamPixels = 1;
             r.samples = ggxSamples[i].data();
             r.numSamples = numReflectionSamples;
+            r.weightByNoL = true;
             opts.convolveRects.push_back(r);
         }
         {

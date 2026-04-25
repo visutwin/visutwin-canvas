@@ -83,6 +83,7 @@ namespace visutwin::canvas
             op.seamPixels = r.seamPixels;
             op.samples = r.samples;
             op.numSamples = r.numSamples;
+            op.weightByNoL = r.weightByNoL;
             params.ops.push_back(op);
         }
         params.encodeRgbp = options.encodeRgbp;
@@ -141,6 +142,7 @@ namespace visutwin::canvas
                 op.seamPixels = r.seamPixels;
                 op.samples = r.samples;
                 op.numSamples = r.numSamples;
+                op.weightByNoL = r.weightByNoL;
                 params.convolveOps.push_back(op);
             }
         }

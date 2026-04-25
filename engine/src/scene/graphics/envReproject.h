@@ -43,6 +43,10 @@ namespace visutwin::canvas
         int seamPixels = 1;
         const float* samples = nullptr;
         int numSamples = 0;
+        // NoL-weighted accumulation (sum * L.z) / sum(L.z): required for GGX
+        // specular prefilter. Lambert / Phong leave this false for a uniform
+        // average. Mirrors PlayCanvas prefilterSamples vs. prefilterSamplesUnweighted.
+        bool weightByNoL = false;
     };
 
     struct EnvConvolveOptions

@@ -230,6 +230,7 @@ namespace visutwin::canvas
         int seamPixels = 1;
         const float* samples = nullptr;
         int numSamples = 0;
+        bool weightByNoL = false;
     };
 
     struct EnvConvolvePassParams
