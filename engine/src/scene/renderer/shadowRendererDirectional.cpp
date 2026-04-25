@@ -13,9 +13,12 @@
 #include "renderPassShadowDirectional.h"
 #include "renderPassVsmBlur.h"
 #include "renderer.h"
+#include "shadowCasterFiltering.h"
 #include "shadowMap.h"
 #include "shadowRenderer.h"
+#include "framework/components/render/renderComponent.h"
 #include "scene/graphNode.h"
+#include "scene/meshInstance.h"
 
 namespace visutwin::canvas
 {
@@ -128,28 +131,22 @@ namespace visutwin::canvas
             }
 
             // Pixel-align shadow camera position to avoid shadow swimming.
-            //lines 136-151.
+            // Mirrors upstream:
+            //   sizeRatio = 0.25 * shadowResolution / radius
+            // (algebraically equivalent to 0.5 * cascadeRes / radius for the
+            // 4-cascade 2×2 atlas layout, since cascadeRes = 0.5·resolution.)
             if (resolution > 0 && radius > 0.0f) {
-                // Use per-cascade pixel count for the snap grid. With multi-cascade,
-                // each cascade viewport is a fraction of the full texture (e.g. 0.5×0.5
-                // for 4 cascades in a 2×2 grid). Snapping to the full resolution would
-                // produce a grid 2× too coarse.
-                const float vpSize = light->cascadeViewports()[cascade].getZ();  // normalized width
-                const float cascadeRes = static_cast<float>(resolution) * vpSize;
-                // Orthographic extent = 2·radius spans cascadeRes texels, so
-                // texelSize_world = 2·radius / cascadeRes and sizeRatio (= 1/texelSize)
-                // = 0.5 · cascadeRes / radius. The previous 0.25 here snapped to
-                // every second texel, leaving a sub-texel "swing" that produced
-                // visible VSM shimmer at thin geometry (wing tips, fin edges)
-                // during camera rotation.
-                const float sizeRatio = 0.5f * cascadeRes / radius;
+                const float sizeRatio = 0.25f * static_cast<float>(resolution) / radius;
 
                 // Extract shadow camera axes from rotation matrix.
                 const Vector3 right = Vector3(shadowRotMat.getColumn(0));
                 const Vector3 up = Vector3(shadowRotMat.getColumn(1));
                 const Vector3 forward = Vector3(shadowRotMat.getColumn(2));
 
-                // Project center onto shadow camera axes, snap, reconstruct.
+                // Project center onto shadow camera axes, snap right/up to a
+                // texel grid, leave forward unsnapped. Mirrors upstream
+                // shadow-renderer-directional.js: only the lateral position
+                // gets quantised; depth is taken straight from the centroid.
                 const float x = std::ceil(center.dot(up) * sizeRatio) / sizeRatio;
                 const float y = std::ceil(center.dot(right) * sizeRatio) / sizeRatio;
                 const float z = center.dot(forward);
@@ -171,29 +168,80 @@ namespace visutwin::canvas
             shadowCam->setFarClip(2000000.0f);
             shadowCam->setAspectRatio(1.0f);
 
-            // tighten shadow camera near/far to the depth range of
-            // the frustum slice for maximum depth precision in the shadow map.
-            //lines 190-197.
-            // Without per-cascade caster culling, we approximate using the frustum points'
-            // depth range (which bounds the receivers). A generous margin is added for
-            // shadow casters that may be outside the camera frustum.
+            // Tighten shadow camera near/far to the depth range of the visible
+            // CASTER AABB. The caster set is rotation-invariant for static
+            // scenes, so the resulting depth range is identical from frame to
+            // frame and stored EVSM moments don't drift between frames — this
+            // is what eliminates the wing-tip flicker that the old
+            // frustum-corner depth produced. It also catches casters above the
+            // cascade slice (e.g. wing tips that sit higher than the
+            // ground-area the cascade covers but cast shadows into it).
+            //
+            // Algorithm matches upstream shadow-renderer-directional.js:
+            //   1. cull casters against the wide ortho frustum just set up
+            //      (orthoHeight=radius, farClip=2e6 — captures everything
+            //      laterally inside the cascade and at any depth);
+            //   2. union the AABBs of visible casters;
+            //   3. project the resulting world-space AABB's 8 corners onto the
+            //      shadow camera Z axis to get min/max view-space depth;
+            //   4. translate the shadow camera so the near plane sits just
+            //      behind the nearest caster, set farClip to the depth span.
             {
                 const Matrix4 shadowCamView = shadowCamNode->worldTransform().inverse();
-                float depthMin = 1e30f;
-                float depthMax = -1e30f;
-                for (int i = 0; i < 8; ++i) {
-                    const float z = shadowCamView.transformPoint(frustumPoints[i]).getZ();
-                    if (z < depthMin) depthMin = z;
-                    if (z > depthMax) depthMax = z;
+
+                bool haveAabb = false;
+                BoundingBox visibleSceneAabb;
+                visibleSceneAabb.setCenter(0.0f, 0.0f, 0.0f);
+                visibleSceneAabb.setHalfExtents(0.0f, 0.0f, 0.0f);
+
+                for (auto* renderComponent : RenderComponent::instances()) {
+                    if (!shouldRenderShadowRenderComponent(renderComponent, camera)) {
+                        continue;
+                    }
+                    for (auto* meshInstance : renderComponent->meshInstances()) {
+                        if (!meshInstance || !meshInstance->visible()) {
+                            continue;
+                        }
+                        if (!shouldRenderShadowMeshInstance(meshInstance, shadowCam)) {
+                            continue;
+                        }
+                        const auto worldAabb = meshInstance->aabb();
+                        if (!haveAabb) {
+                            visibleSceneAabb = worldAabb;
+                            haveAabb = true;
+                        } else {
+                            visibleSceneAabb.add(worldAabb);
+                        }
+                    }
                 }
 
-                // Reposition: translate forward so near plane is just behind closest point.
-                // Upstream: shadowCamNode.translateLocal(0, 0, depthRange.max + 0.1)
-                shadowCamNode->translateLocal(0.0f, 0.0f, depthMax + 0.1f);
+                // No visible casters: keep the wide camera as-is. The shadow
+                // pass will be a no-op anyway.
+                if (haveAabb) {
+                    const Vector3 c = visibleSceneAabb.center();
+                    const Vector3 h = visibleSceneAabb.halfExtents();
+                    const Vector3 corners[8] = {
+                        c + Vector3(-h.getX(), -h.getY(), -h.getZ()),
+                        c + Vector3(+h.getX(), -h.getY(), -h.getZ()),
+                        c + Vector3(-h.getX(), +h.getY(), -h.getZ()),
+                        c + Vector3(+h.getX(), +h.getY(), -h.getZ()),
+                        c + Vector3(-h.getX(), -h.getY(), +h.getZ()),
+                        c + Vector3(+h.getX(), -h.getY(), +h.getZ()),
+                        c + Vector3(-h.getX(), +h.getY(), +h.getZ()),
+                        c + Vector3(+h.getX(), +h.getY(), +h.getZ()),
+                    };
 
-                // Set tight far clip covering the frustum depth range.
-                // Upstream: shadowCam.farClip = depthRange.max - depthRange.min + 0.2
-                shadowCam->setFarClip(depthMax - depthMin + 0.2f);
+                    float depthMin = 1e30f;
+                    float depthMax = -1e30f;
+                    for (int i = 0; i < 8; ++i) {
+                        const float z = shadowCamView.transformPoint(corners[i]).getZ();
+                        if (z < depthMin) depthMin = z;
+                        if (z > depthMax) depthMax = z;
+                    }
+
+                    shadowCamNode->translateLocal(0.0f, 0.0f, depthMax + 0.1f);
+                    shadowCam->setFarClip(depthMax - depthMin + 0.2f);
+                }
             }
 
             // Build the viewport-scaled shadow matrix for this cascade:

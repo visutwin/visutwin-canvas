@@ -90,6 +90,14 @@ namespace visutwin::canvas
         int vsmBlurSize() const { return _vsmBlurSize; }
         void setVsmBlurSize(const int value) { _vsmBlurSize = value < 3 ? 3 : value; }
 
+        // VSM-only: bias scale for the Chebyshev minVariance floor. Larger
+        // values clamp more variance noise → less flicker at thin edges, but
+        // softer / more detached contact shadows. Default 0.0025 mirrors
+        // upstream SHADOW_VSM_16F. Try 0.005–0.01 if wing-tip flicker
+        // persists with the default.
+        float vsmBias() const { return _vsmBias; }
+        void setVsmBias(const float value) { _vsmBias = value < 0.0f ? 0.0f : value; }
+
         int numCascades() const { return _numCascades; }
         void setNumCascades(const int value) { _numCascades = value; }
 
@@ -150,6 +158,7 @@ namespace visutwin::canvas
         int _shadowResolution = 2048;
         ShadowType _shadowType = SHADOW_PCF3_32F;
         int _vsmBlurSize = 11;
+        float _vsmBias = 0.0025f;
         int _numCascades = 4;
         float _cascadeDistribution = 0.5f;
         float _cascadeBlend = 0.0f;

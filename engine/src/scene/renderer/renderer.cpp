@@ -669,11 +669,20 @@ namespace visutwin::canvas
                         shadowParams.viewProjection = rd->shadowCamera->projectionMatrix()
                             * rd->shadowCamera->node()->worldTransform().inverse();
 
-                        // fixed small shader-side depth bias for directional
-                        // shadow sampling. The real bias work is done by hardware polygon offset
-                        // (depthBias) during the shadow render pass, which is slope-aware.
-                        //"saturate(z) - 0.0001".
-                        shadowParams.bias = 0.0001f;
+                        // For PCF: fixed small shader-side depth bias. The real
+                        // bias work is done by hardware polygon offset
+                        // (depthBias) during the shadow render pass, which is
+                        // slope-aware.
+                        //
+                        // For VSM_16F: use the dedicated vsmBias instead. It
+                        // controls the minVariance floor in chebyshevUpperBound,
+                        // which determines how aggressively low-variance
+                        // (high-noise) samples are clamped to "lit". Too small
+                        // → noisy / flicker; too large → soft / detached
+                        // contact shadows. Upstream default is 0.0025.
+                        shadowParams.bias = (sceneLight->shadowType() == SHADOW_VSM_16F)
+                            ? sceneLight->vsmBias()
+                            : 0.0001f;
                     }
                 }
             }

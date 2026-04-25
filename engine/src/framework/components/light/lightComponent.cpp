@@ -51,6 +51,7 @@ namespace visutwin::canvas
         _light->setShadowResolution(_shadowResolution);
         _light->setShadowType(_shadowType);
         _light->setVsmBlurSize(_vsmBlurSize);
+        _light->setVsmBias(_vsmBias);
         _light->setNumCascades(_numCascades);
         _light->setCascadeDistribution(_cascadeDistribution);
         _light->setCascadeBlend(_cascadeBlend);
@@ -89,6 +90,7 @@ namespace visutwin::canvas
         _shadowResolution = src->_shadowResolution;
         _shadowType = src->_shadowType;
         _vsmBlurSize = src->_vsmBlurSize;
+        _vsmBias = src->_vsmBias;
         _numCascades = src->_numCascades;
         _cascadeDistribution = src->_cascadeDistribution;
         _cascadeBlend = src->_cascadeBlend;

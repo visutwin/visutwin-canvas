@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <memory>
 
@@ -118,6 +119,12 @@ namespace visutwin::canvas
         int vsmBlurSize() const { return _vsmBlurSize; }
         void setVsmBlurSize(const int value) { _vsmBlurSize = value < 3 ? 3 : value; }
 
+        // VSM-only: bias scale used for the minVariance floor in Chebyshev's
+        // inequality (depth ambiguity at thin / silhouette edges). Default
+        // mirrors upstream SHADOW_VSM_16F: 0.01 * 0.25 = 0.0025.
+        float vsmBias() const { return _vsmBias; }
+        void setVsmBias(const float value) { _vsmBias = std::max(value, 0.0f); }
+
         //shadowBias.
         float shadowBias() const { return _shadowBias; }
         void setShadowBias(const float value) { _shadowBias = value; }
@@ -198,6 +205,7 @@ namespace visutwin::canvas
 
         int _shadowResolution = 2048;
         int _vsmBlurSize = 11;
+        float _vsmBias = 0.0025f;
 
         //_shadowBias (-0.0005 default in the upstream engine).
         float _shadowBias = -0.0005f;
