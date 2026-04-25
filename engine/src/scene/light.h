@@ -114,6 +114,10 @@ namespace visutwin::canvas
         int shadowResolution() const { return _shadowResolution; }
         void setShadowResolution(const int value) { _shadowResolution = value; }
 
+        // VSM-only: separable gaussian blur kernel size (total taps; must be odd).
+        int vsmBlurSize() const { return _vsmBlurSize; }
+        void setVsmBlurSize(const int value) { _vsmBlurSize = value < 3 ? 3 : value; }
+
         //shadowBias.
         float shadowBias() const { return _shadowBias; }
         void setShadowBias(const float value) { _shadowBias = value; }
@@ -193,6 +197,7 @@ namespace visutwin::canvas
         float _shadowDistance = 40.0f;
 
         int _shadowResolution = 2048;
+        int _vsmBlurSize = 11;
 
         //_shadowBias (-0.0005 default in the upstream engine).
         float _shadowBias = -0.0005f;

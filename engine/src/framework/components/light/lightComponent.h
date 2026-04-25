@@ -77,6 +77,19 @@ namespace visutwin::canvas
         int shadowResolution() const { return _shadowResolution; }
         void setShadowResolution(const int value) { _shadowResolution = value; }
 
+        // Default = SHADOW_PCF3_32F (depth-comparison 3×3 PCF).
+        // Set to SHADOW_VSM_16F for exponential variance shadow maps with soft
+        // edges (mirrors upstream pc.SHADOW_VSM_16F).
+        ShadowType shadowType() const { return _shadowType; }
+        void setShadowType(const ShadowType value) { _shadowType = value; }
+
+        // VSM-only: total kernel taps for the separable gaussian blur applied
+        // to the moments texture (must be odd, ≥ 3). Larger = softer edges and
+        // less wing-tip / silhouette flicker, at higher GPU cost.
+        // Mirrors upstream vsmBlurSize. Default 11 = filterSize 5.
+        int vsmBlurSize() const { return _vsmBlurSize; }
+        void setVsmBlurSize(const int value) { _vsmBlurSize = value < 3 ? 3 : value; }
+
         int numCascades() const { return _numCascades; }
         void setNumCascades(const int value) { _numCascades = value; }
 
@@ -135,6 +148,8 @@ namespace visutwin::canvas
         float _shadowStrength = 1.0f;
         float _shadowDistance = 40.0f;
         int _shadowResolution = 2048;
+        ShadowType _shadowType = SHADOW_PCF3_32F;
+        int _vsmBlurSize = 11;
         int _numCascades = 4;
         float _cascadeDistribution = 0.5f;
         float _cascadeBlend = 0.0f;

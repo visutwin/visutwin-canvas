@@ -11,6 +11,7 @@
 #include "metalComposePass.h"
 #include "metalDepthAwareBlurPass.h"
 #include "metalDofBlurPass.h"
+#include "metalVsmBlurPass.h"
 #include "metalEnvConvolvePass.h"
 #include "metalEnvReprojectPass.h"
 #include "metalEquirectToCubePass.h"
@@ -419,6 +420,21 @@ namespace visutwin::canvas
             if (!_blurPassV) _blurPassV = std::make_unique<MetalDepthAwareBlurPass>(this, _composePass.get(), false);
             _blurPassV->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
                 _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
+        }
+    }
+
+    void MetalGraphicsDevice::executeVsmBlurPass(const VsmBlurPassParams& params, const bool horizontal)
+    {
+        if (!_renderPassEncoder) return;
+        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
+        if (horizontal) {
+            if (!_vsmBlurPassH) _vsmBlurPassH = std::make_unique<MetalVsmBlurPass>(this, _composePass.get(), true);
+            _vsmBlurPassH->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
+                _bindGroupFormats, _defaultDepthStencilState);
+        } else {
+            if (!_vsmBlurPassV) _vsmBlurPassV = std::make_unique<MetalVsmBlurPass>(this, _composePass.get(), false);
+            _vsmBlurPassV->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
+                _bindGroupFormats, _defaultDepthStencilState);
         }
     }
 

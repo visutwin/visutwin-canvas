@@ -197,6 +197,17 @@ namespace visutwin::canvas
         float cameraFar = 1000.0f;
     };
 
+    // VSM separable gaussian blur (upstream blurVSM equivalent).
+    // Operates on the RGB channels of a 2D RGBA16F moments texture.
+    // Run twice per shadow update — once horizontal, once vertical.
+    struct VsmBlurPassParams
+    {
+        Texture* sourceTexture = nullptr;   // Moments texture sampled per fragment.
+        int filterSize = 5;                 // Half-kernel; total taps = 2 * filterSize + 1.
+        float sourceInvResolutionX = 0.0f;
+        float sourceInvResolutionY = 0.0f;
+    };
+
     struct EnvReprojectOp
     {
         int rectX = 0;
@@ -563,6 +574,7 @@ namespace visutwin::canvas
         virtual void executeCoCPass(const CoCPassParams& params) {}
         virtual void executeDofBlurPass(const DofBlurPassParams& params) {}
         virtual void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) {}
+        virtual void executeVsmBlurPass(const VsmBlurPassParams& params, bool horizontal) {}
         virtual void generateEnvReproject(const EnvReprojectPassParams& params) { (void)params; }
         virtual void generateEnvConvolve(const EnvConvolvePassParams& params) { (void)params; }
         virtual void generateEnvAtlas(const EnvAtlasBakeParams& params) { (void)params; }

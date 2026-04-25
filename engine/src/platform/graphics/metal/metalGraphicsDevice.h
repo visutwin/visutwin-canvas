@@ -37,6 +37,7 @@ namespace visutwin::canvas
     class MetalSsaoPass;
     class MetalTaaPass;
     class MetalInstanceCullPass;
+    class MetalVsmBlurPass;
     class MetalRenderPipeline;
     class MetalComputePipeline;
     class MetalRenderTarget;
@@ -60,6 +61,7 @@ namespace visutwin::canvas
         friend class MetalSsaoPass;
         friend class MetalTaaPass;
         friend class MetalInstanceCullPass;
+        friend class MetalVsmBlurPass;
 
     public:
         MetalGraphicsDevice(const GraphicsDeviceOptions& options);
@@ -114,6 +116,7 @@ namespace visutwin::canvas
         void executeCoCPass(const CoCPassParams& params) override;
         void executeDofBlurPass(const DofBlurPassParams& params) override;
         void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) override;
+        void executeVsmBlurPass(const VsmBlurPassParams& params, bool horizontal) override;
         void generateEnvReproject(const EnvReprojectPassParams& params) override;
         void generateEnvConvolve(const EnvConvolvePassParams& params) override;
         void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
@@ -208,6 +211,8 @@ namespace visutwin::canvas
         std::unique_ptr<MetalSsaoPass> _ssaoPass;
         std::unique_ptr<MetalDepthAwareBlurPass> _blurPassH;
         std::unique_ptr<MetalDepthAwareBlurPass> _blurPassV;
+        std::unique_ptr<MetalVsmBlurPass> _vsmBlurPassH;
+        std::unique_ptr<MetalVsmBlurPass> _vsmBlurPassV;
         std::unique_ptr<MetalTaaPass> _taaPass;
         std::unique_ptr<MetalEnvReprojectPass> _envReprojectPass;
         std::unique_ptr<MetalEnvConvolvePass> _envConvolvePass;

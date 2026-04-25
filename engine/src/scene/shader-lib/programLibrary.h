@@ -54,6 +54,16 @@ namespace visutwin::canvas
         // When true, forward shaders compile with VT_FEATURE_OMNI_SHADOWS.
         void setOmniShadowsEnabled(bool value) { _omniShadowsEnabled = value; }
 
+        // Set when the directional light's shadow type is SHADOW_VSM_16F.
+        // When true:
+        //   - shadow shaders compile with VT_FEATURE_VSM_SHADOWS so the shadow
+        //     fragment writes (exp(c·z), exp(c·z)², 1, 1) into RGBA16F instead
+        //     of relying on hardware depth.
+        //   - forward shaders compile with VT_FEATURE_VSM_SHADOWS so the
+        //     directional shadow texture is sampled as texture2d<float> and
+        //     visibility is reconstructed via Chebyshev's inequality.
+        void setVsmShadowsEnabled(bool value) { _vsmShadowsEnabled = value; }
+
         // Set when clustered lighting is enabled on the scene.
         // When true, forward shaders compile with VT_FEATURE_LIGHT_CLUSTERING.
         void setClusteredLightingEnabled(bool value) { _clusteredLightingEnabled = value; }
@@ -116,6 +126,8 @@ namespace visutwin::canvas
             bool planarReflectionDepthPass = false;  // Depth pass: output distance-from-plane instead of PBR
             bool localShadows = false;      // Local light (spot/point) shadow mapping — 2D depth textures
             bool omniShadows = false;       // Omni light cubemap shadow mapping — depthcube textures
+            bool vsmShadows = false;        // Directional EVSM_16F: moments texture sampled via Chebyshev.
+                                            // Mirrors upstream SHADOW_VSM_16F.
             bool dynamicBatch = false;      // Dynamic batching — per-vertex bone index + matrix palette
             bool pointSize = false;         // Point primitive rendering — [[point_size]] in vertex output
             bool areaLights = false;        // Area rectangular lights — MRP evaluation in main loop
@@ -139,6 +151,7 @@ namespace visutwin::canvas
         bool _planarReflectionDepthPass = false;
         bool _localShadowsEnabled = false;
         bool _omniShadowsEnabled = false;
+        bool _vsmShadowsEnabled = false;
         bool _clusteredLightingEnabled = false;
         bool _areaLightsEnabled = false;
         bool _ssaoEnabled = false;

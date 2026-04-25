@@ -313,6 +313,23 @@ namespace visutwin::canvas
             }
             programLibrary->setLocalShadowsEnabled(hasLocalShadows);
             programLibrary->setOmniShadowsEnabled(hasOmniShadows);
+
+            // Directional EVSM_16F: enable when any shadow-casting directional
+            // light is configured for SHADOW_VSM_16F. Both the shadow program
+            // (writes moments) and the forward program (samples via Chebyshev)
+            // need the matching VT_FEATURE_VSM_SHADOWS variant.
+            bool hasVsmShadows = false;
+            for (const auto* lc : LightComponent::instances()) {
+                if (lc && lc->enabled() && lc->castShadows() &&
+                    lc->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
+                    Light* sceneLight = lc->light();
+                    if (sceneLight && sceneLight->shadowType() == SHADOW_VSM_16F) {
+                        hasVsmShadows = true;
+                        break;
+                    }
+                }
+            }
+            programLibrary->setVsmShadowsEnabled(hasVsmShadows);
         }
 
         // Area lights: enable when any LightComponent has LIGHTTYPE_AREA_RECT.

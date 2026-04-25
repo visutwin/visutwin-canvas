@@ -11,7 +11,9 @@
 #include <numbers>
 
 #include "renderPassShadowDirectional.h"
+#include "renderPassVsmBlur.h"
 #include "renderer.h"
+#include "shadowMap.h"
 #include "shadowRenderer.h"
 #include "scene/graphNode.h"
 
@@ -134,7 +136,13 @@ namespace visutwin::canvas
                 // produce a grid 2× too coarse.
                 const float vpSize = light->cascadeViewports()[cascade].getZ();  // normalized width
                 const float cascadeRes = static_cast<float>(resolution) * vpSize;
-                const float sizeRatio = 0.25f * cascadeRes / radius;
+                // Orthographic extent = 2·radius spans cascadeRes texels, so
+                // texelSize_world = 2·radius / cascadeRes and sizeRatio (= 1/texelSize)
+                // = 0.5 · cascadeRes / radius. The previous 0.25 here snapped to
+                // every second texel, leaving a sub-texel "swing" that produced
+                // visible VSM shimmer at thin geometry (wing tips, fin edges)
+                // during camera rotation.
+                const float sizeRatio = 0.5f * cascadeRes / radius;
 
                 // Extract shadow camera axes from rotation matrix.
                 const Vector3 right = Vector3(shadowRotMat.getColumn(0));
@@ -274,6 +282,31 @@ namespace visutwin::canvas
                 auto renderPass = getLightRenderPass(light, camera, 0, true, true);
                 if (renderPass) {
                     frameGraph->addRenderPass(renderPass);
+                }
+
+                // EVSM_16F: ping-pong gaussian blur on the moments texture so
+                // forward sampling sees a filtered variance and produces stable,
+                // soft shadows (without blur, the per-texel variance shimmers
+                // as receiver geometry moves through sub-texel positions).
+                if (light->shadowType() == SHADOW_VSM_16F && light->shadowMap()) {
+                    ShadowMap* sm = light->shadowMap();
+                    if (sm->blurTempTexture() && sm->blurTempRenderTarget() &&
+                        !sm->renderTargets().empty()) {
+                        const int resolution = light->shadowResolution();
+                        // Convert upstream-style total-tap count to half-kernel size.
+                        // vsmBlurSize is total taps and should be odd; halfSize = (taps - 1) / 2.
+                        const int filterSize = std::max(1, (light->vsmBlurSize() - 1) / 2);
+                        // Pass 1 — horizontal: shadowTexture → blurTemp.
+                        auto blurH = std::make_shared<RenderPassVsmBlur>(_device,
+                            sm->shadowTexture(), sm->blurTempRenderTarget(),
+                            resolution, true, filterSize);
+                        // Pass 2 — vertical: blurTemp → shadowTexture.
+                        auto blurV = std::make_shared<RenderPassVsmBlur>(_device,
+                            sm->blurTempTexture(), sm->renderTargets()[0],
+                            resolution, false, filterSize);
+                        frameGraph->addRenderPass(blurH);
+                        frameGraph->addRenderPass(blurV);
+                    }
                 }
             }
         }

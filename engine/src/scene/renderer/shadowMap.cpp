@@ -65,6 +65,30 @@ namespace visutwin::canvas
             shadowMap->_renderTargets.push_back(device->createRenderTarget(rtOptions));
         }
 
+        // VSM ping-pong intermediate for the separable gaussian blur.
+        // Same size + format as the main shadow map; no depth buffer needed
+        // (blur is a full-screen quad with depth-test disabled).
+        if (info.vsm) {
+            TextureOptions tempOptions;
+            tempOptions.name = "ShadowMapVsmBlurTemp";
+            tempOptions.width = static_cast<uint32_t>(resolution);
+            tempOptions.height = static_cast<uint32_t>(resolution);
+            tempOptions.format = info.format;
+            tempOptions.mipmaps = false;
+            tempOptions.minFilter = FilterMode::FILTER_LINEAR;
+            tempOptions.magFilter = FilterMode::FILTER_LINEAR;
+            shadowMap->_blurTempTexture = std::make_shared<Texture>(device, tempOptions);
+            shadowMap->_blurTempTexture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+            shadowMap->_blurTempTexture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+
+            RenderTargetOptions blurRtOptions;
+            blurRtOptions.graphicsDevice = device;
+            blurRtOptions.name = "ShadowMapVsmBlurTempRT";
+            blurRtOptions.colorBuffer = shadowMap->_blurTempTexture.get();
+            blurRtOptions.depth = false;
+            shadowMap->_blurTempRenderTarget = device->createRenderTarget(blurRtOptions);
+        }
+
         return shadowMap;
     }
 }

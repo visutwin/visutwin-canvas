@@ -223,9 +223,17 @@
                 shadowUv.y >= 0.0 && shadowUv.y <= 1.0 &&
                 shadowDepth >= 0.0 && shadowDepth <= 1.0;
             if (insideShadow) {
+#if VT_FEATURE_VSM_SHADOWS
+                // EVSM_16F — sample exponentially-warped moments and reconstruct
+                // visibility via Chebyshev's inequality. No depth-bias subtraction —
+                // VSM uses a separate vsmBias inside calculateEVSM.
+                const float vsmBias = max(lighting.shadowBiasNormalStrength.x, 1e-4);
+                const float visible = getShadowVSM16(shadowTexture, shadowUv, shadowDepth, vsmBias);
+#else
                 // PCF3_32F — optimized bilinear 3×3 PCF.
                 const float receiverDepth = shadowDepth - lighting.shadowBiasNormalStrength.x;
                 const float visible = getShadowPCF3x3(shadowTexture, shadowUv, receiverDepth, resolution);
+#endif
                 shadowFactor = mix(1.0 - clamp(lighting.shadowBiasNormalStrength.z, 0.0, 1.0), 1.0, visible);
             }
 
@@ -246,8 +254,13 @@
                     if (nextCoord.x >= 0.0 && nextCoord.x <= 1.0 &&
                         nextCoord.y >= 0.0 && nextCoord.y <= 1.0 &&
                         nextCoord.z >= 0.0 && nextCoord.z <= 1.0) {
+#if VT_FEATURE_VSM_SHADOWS
+                        const float nextVsmBias = max(lighting.shadowBiasNormalStrength.x, 1e-4);
+                        const float nextVisible = getShadowVSM16(shadowTexture, nextCoord.xy, nextCoord.z, nextVsmBias);
+#else
                         const float nextReceiverDepth = nextCoord.z - lighting.shadowBiasNormalStrength.x;
                         const float nextVisible = getShadowPCF3x3(shadowTexture, nextCoord.xy, nextReceiverDepth, resolution);
+#endif
                         nextShadowFactor = mix(1.0 - clamp(lighting.shadowBiasNormalStrength.z, 0.0, 1.0), 1.0, nextVisible);
                     }
                     shadowFactor = mix(nextShadowFactor, shadowFactor, fade);
@@ -483,7 +496,7 @@
 #if VT_FEATURE_ENV_ATLAS
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
         // Diffuse IBL: sample from dedicated Lambert irradiance sub-region.
-        // Single-path sampling matching PlayCanvas ambient.js — the atlas
+        // Single-path sampling matching upstream ambient.js — the atlas
         // is pre-baked with 1-pixel duplicated seam borders, so the default
         // sampler produces continuous values across the ±180° wrap.
         const float3 diffDir = float3(-N.x, N.y, N.z);
@@ -521,10 +534,10 @@
         const float level2 = clamp(0.5 * log2(maxd) - 1.0, 0.0, 5.0);
         const float ilevel2 = floor(level2);
 
-        // Single-path specular IBL matching PlayCanvas reflectionEnv.js.
+        // Single-path specular IBL matching upstream reflectionEnv.js.
         // Atlas is baked with duplicated seam pixels (see envLighting.cpp),
         // so the default anisotropic sampler handles the ±180° wrap
-        // correctly without runtime branching. The PlayCanvas
+        // correctly without runtime branching. The upstream
         // `shinyMipLevel` uses a second-derivative trick (dFdx/dFdy on
         // fract(u+0.5)) to avoid the gradient spike at the wrap — already
         // replicated in the shinyUvFull/uv2/dx2/dy2 computation above.

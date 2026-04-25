@@ -9,7 +9,14 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   texture2d<float> metallicRoughnessTexture [[texture(3)]],
                                   texture2d<float> occlusionTexture [[texture(4)]],
                                   texture2d<float> emissiveTexture [[texture(5)]],
+#if VT_FEATURE_VSM_SHADOWS
+                                  // Directional EVSM_16F: shadow map is a 2D moments
+                                  // texture (RGBA16F) sampled with bilinear/Chebyshev,
+                                  // not a hardware-compared depth texture.
+                                  texture2d<float> shadowTexture [[texture(6)]],
+#else
                                   depth2d<float> shadowTexture [[texture(6)]],
+#endif
 #if VT_FEATURE_SKY_CUBEMAP
                                   texturecube<float> skyboxCubeMap [[texture(8)]],
 #endif
@@ -87,7 +94,7 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #else
     // envAtlas path — sample 2D environment atlas
     //
-    // Matches PlayCanvas's skybox.js sampling: one texture fetch, default
+    // Matches upstream skybox.js sampling: one texture fetch, default
     // sampler, no runtime seam detection. The atlas is baked with a 1-pixel
     // duplicated border at every rect edge (see envLighting.cpp
     // `seamPixels = 1.0f`), so bilinear/anisotropic filtering at u≈0 / u≈1
@@ -310,8 +317,8 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #endif
     const float roughnessSq = max((1.0 - gloss) * (1.0 - gloss), 0.001);
     const float alpha2 = roughnessSq * roughnessSq;
-    // DEVIATION (PlayCanvas parity): the Smith-GGX height-correlated visibility
-    // term in PlayCanvas's lightSpecularGGX.js feeds `alpha2 = alpha * alpha`
+    // DEVIATION (upstream parity): the Smith-GGX height-correlated visibility
+    // term in upstream lightSpecularGGX.js feeds `alpha2 = alpha * alpha`
     // into the Heitz lambda formula, which is one squaring beyond Heitz's
     // textbook form. Mathematically non-standard, but it widens G and makes
     // direct specular highlights pop more — particularly at grazing angles

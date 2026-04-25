@@ -403,6 +403,9 @@ namespace visutwin::canvas
         // Omni cubemap shadows: enabled when any omni light has castShadows.
         options.omniShadows = _omniShadowsEnabled && !options.skybox;
 
+        // Directional EVSM_16F: forward shader samples moments texture via Chebyshev.
+        options.vsmShadows = _vsmShadowsEnabled && !options.skybox;
+
         // Area lights: enabled when any area rect light is in the scene.
         // Set by the renderer before the draw loop.
         options.areaLights = _areaLightsEnabled && !options.skybox;
@@ -474,6 +477,7 @@ namespace visutwin::canvas
         key ^= options.pointSize ? (1ull << 38) : 0ull;
         key ^= options.areaLights ? (1ull << 40) : 0ull;
         key ^= options.unlit ? (1ull << 39) : 0ull;
+        key ^= options.vsmShadows ? (1ull << 41) : 0ull;
         return key;
     }
 
@@ -535,6 +539,7 @@ namespace visutwin::canvas
         appendFeatureDefine(source, "VT_FEATURE_PLANAR_REFLECTION_DEPTH_PASS", options.planarReflectionDepthPass);
         appendFeatureDefine(source, "VT_FEATURE_LOCAL_SHADOWS", options.localShadows);
         appendFeatureDefine(source, "VT_FEATURE_OMNI_SHADOWS", options.omniShadows);
+        appendFeatureDefine(source, "VT_FEATURE_VSM_SHADOWS", options.vsmShadows);
         appendFeatureDefine(source, "VT_FEATURE_DYNAMIC_BATCH", options.dynamicBatch);
         appendFeatureDefine(source, "VT_FEATURE_POINT_SIZE", options.pointSize);
         appendFeatureDefine(source, "VT_FEATURE_UNLIT", options.unlit);
@@ -651,6 +656,10 @@ namespace visutwin::canvas
         options.fog = false;
         options.multiLight = false;
         options.dynamicBatch = dynamicBatch;
+        // The shadow fragment shader needs to know whether to write moments
+        // (RGBA16F EVSM) or just rely on hardware depth (PCF). Both shadow
+        // shader variants are cached separately by the variant key.
+        options.vsmShadows = _vsmShadowsEnabled;
 
         const uint64_t key = makeVariantKey("shadow", options, nullptr);
         const auto cached = _forwardShaderCache.find(key);
