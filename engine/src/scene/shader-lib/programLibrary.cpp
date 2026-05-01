@@ -373,7 +373,10 @@ namespace visutwin::canvas
         options.multiLight = !options.skybox || ((variantBits & (1ull << 30)) != 0ull);
         options.instancing = (variantBits & (1ull << 33)) != 0ull;
         options.pointSize = (variantBits & (1ull << 31)) != 0ull;
-        options.unlit = (variantBits & (1ull << 32)) != 0ull;
+        // unlit: shaderVariantKey bit 32 (used by glb-parser for KHR_materials_unlit assets) OR
+        // a StandardMaterial with lighting disabled (decals, debug visualizers, holograms).
+        options.unlit = (variantBits & (1ull << 32)) != 0ull ||
+                        (stdMat && !stdMat->useLighting());
 
         // shadow catcher flag from StandardMaterial
         if (stdMat) {
@@ -695,6 +698,10 @@ namespace visutwin::canvas
         }
         if (depthState) {
             device->setDepthState(depthState);
+            // Polygon offset (decals, coplanar overlays). Reset to zero on every
+            // material that does not request bias — otherwise a prior decal draw's
+            // offset would leak onto the next opaque draw on the same encoder.
+            device->setDepthBias(depthState->depthBias(), depthState->slopeDepthBias(), 0.0f);
         }
         device->setMaterial(material);
     }

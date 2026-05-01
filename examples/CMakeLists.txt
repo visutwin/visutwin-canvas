@@ -98,6 +98,12 @@ add_executable(visutwin-shadow-cascades MACOSX_BUNDLE
 target_link_libraries(visutwin-shadow-cascades PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-shadow-cascades com.visutwin.shadow-cascades)
 
+add_executable(visutwin-mesh-decals MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/mesh-decals-example.cpp
+)
+target_link_libraries(visutwin-mesh-decals PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-mesh-decals com.visutwin.mesh-decals)
+
 add_executable(visutwin-instancing-basic MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/instancing-basic-example.cpp
 )
