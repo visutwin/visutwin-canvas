@@ -243,15 +243,21 @@ static inline float2 toSphericalUv(float3 dir)
     return float2(uv.x, 1.0 - uv.y);
 }
 
-// NOTE: An earlier implementation carried an `envSeamSampler` (bilinear,
-// non-anisotropic) + an `isAtEnvSeam` runtime detector for handling the
-// equirectangular atan2 wrap at ±180°. Both have been removed in favour
-// of the upstream upstream approach: the env atlas is baked with a
-// 1-pixel duplicated seam border at every rect edge (see envLighting.cpp
-// `seamPixels = 1.0f`), which lets the default anisotropic sampler
-// produce continuous values across the wrap without any runtime
-// branching. This eliminates the filter-mode-discontinuity artifact
-// that appeared as two dashed vertical lines on the skybox at |n.x|=W.
+// Non-anisotropic sampler for env-atlas reads (skybox + all IBL paths).
+// The default sampler runs at 16× anisotropy, which reads dfdx(U) at the
+// equirectangular atan2 wrap (n.z<0, n.x≈0) — where U jumps ~1.0 inside a
+// single quad — as a giant footprint and filters across unrelated atlas
+// regions, producing a vertical dashed line anchored to world −Z. The
+// pre-baked 1-pixel seam border (envLighting.cpp `seamPixels = 1`) only
+// covers bilinear; it cannot compensate for an anisotropic kernel that may
+// be tens of pixels wide. Anisotropy gives nothing useful here anyway —
+// each atlas pixel maps to a unique world direction, so there is no
+// oblique-angle minification to recover. Use plain trilinear instead.
+constexpr sampler envAtlasSampler(
+    coord::normalized,
+    filter::linear,
+    mip_filter::linear,
+    address::clamp_to_edge);
 
 static inline float2 mapUv(float2 uv, float4 rect)
 {

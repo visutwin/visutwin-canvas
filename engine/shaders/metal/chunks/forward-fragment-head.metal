@@ -92,23 +92,19 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
         return float4(linearToSrgb(toneMap(max(skyLinear, float3(0.0)), exposure, tonemapMode)), 1.0);
     }
 #else
-    // envAtlas path — sample 2D environment atlas
-    //
-    // Matches upstream skybox.js sampling: one texture fetch, default
-    // sampler, no runtime seam detection. The atlas is baked with a 1-pixel
-    // duplicated border at every rect edge (see envLighting.cpp
-    // `seamPixels = 1.0f`), so bilinear/anisotropic filtering at u≈0 / u≈1
-    // naturally samples continuous values across the ±180° longitudinal
-    // wrap. Runtime `isAtEnvSeam` branching would add a second sampling
-    // mode and introduce filter-kernel-mismatch artifacts at the band
-    // boundaries — don't do it.
+    // envAtlas path — sample 2D environment atlas with the inline
+    // `envAtlasSampler` (non-anisotropic trilinear, see common.metal). The
+    // default 16× anisotropic sampler reads dfdx(U) at the atan2 wrap
+    // (n.z<0, n.x≈0) as a giant footprint and produces a vertical line
+    // anchored to world −Z. The pre-baked 1-pixel seam border covers
+    // bilinear, but not anisotropic kernels — so we drop anisotropy here.
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
         const float3 dir = viewDir * float3(-1.0, 1.0, 1.0);
         const float skyMip = max(lighting.skyboxMipAndPad.x, 0.0);
         const float skyInt = max(lighting.cameraPositionSkyboxIntensity.w, 0.0);
         const float2 uv = toSphericalUv(normalize(dir));
         const float3 skyLinear = processEnvironment(decodeEnvironment(
-            envAtlasTexture.sample(defaultSampler, mapRoughnessUv(uv, skyMip)), lighting), skyInt);
+            envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(uv, skyMip)), lighting), skyInt);
         // when CameraFrame is active (bit 5 of flagsAndPad.x),
         // skybox outputs linear HDR — tonemapping and gamma are deferred to the compose pass.
         if ((lighting.flagsAndPad.x & (1u << 5)) != 0u) {

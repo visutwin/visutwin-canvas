@@ -495,14 +495,12 @@
     float3 indirectSpecular = float3(0.0);
 #if VT_FEATURE_ENV_ATLAS
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
-        // Diffuse IBL: sample from dedicated Lambert irradiance sub-region.
-        // Single-path sampling matching upstream ambient.js — the atlas
-        // is pre-baked with 1-pixel duplicated seam borders, so the default
-        // sampler produces continuous values across the ±180° wrap.
+        // Diffuse IBL: sample from dedicated Lambert irradiance sub-region
+        // through `envAtlasSampler` (non-anisotropic, see common.metal).
         const float3 diffDir = float3(-N.x, N.y, N.z);
         const float2 envUvN = toSphericalUv(normalize(diffDir));
         const float3 envAmbient = processEnvironment(
-            decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapAmbientUv(envUvN)), lighting),
+            decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapAmbientUv(envUvN)), lighting),
             max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
         indirectDiffuse = envAmbient;
 
@@ -534,22 +532,19 @@
         const float level2 = clamp(0.5 * log2(maxd) - 1.0, 0.0, 5.0);
         const float ilevel2 = floor(level2);
 
-        // Single-path specular IBL matching upstream reflectionEnv.js.
-        // Atlas is baked with duplicated seam pixels (see envLighting.cpp),
-        // so the default anisotropic sampler handles the ±180° wrap
-        // correctly without runtime branching. The upstream
-        // `shinyMipLevel` uses a second-derivative trick (dFdx/dFdy on
-        // fract(u+0.5)) to avoid the gradient spike at the wrap — already
-        // replicated in the shinyUvFull/uv2/dx2/dy2 computation above.
+        // Specular IBL: sampled through `envAtlasSampler` (non-anisotropic,
+        // see common.metal). The upstream `shinyMipLevel` uses a
+        // second-derivative trick (dFdx/dFdy on fract(u+0.5)) above to pick
+        // the correct screen-space MIP across the wrap.
         float3 linear0, linear1;
         if (ilevel == 0.0) {
-            linear0 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(envUvSpec, ilevel2)), lighting);
-            linear1 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(envUvSpec, ilevel2 + 1.0)), lighting);
+            linear0 = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(envUvSpec, ilevel2)), lighting);
+            linear1 = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(envUvSpec, ilevel2 + 1.0)), lighting);
             linear0 = mix(linear0, linear1, level2 - ilevel2);
         } else {
-            linear0 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(envUvSpec, ilevel)), lighting);
+            linear0 = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(envUvSpec, ilevel)), lighting);
         }
-        linear1 = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(envUvSpec, ilevel + 1.0)), lighting);
+        linear1 = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(envUvSpec, ilevel + 1.0)), lighting);
 
         const float3 envSpec = processEnvironment(mix(linear0, linear1, level - ilevel),
             max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
@@ -573,12 +568,12 @@
 
             float3 ccEnvColor;
             if (ccIlevel == 0.0) {
-                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(ccEnvUv, 0.0)), lighting);
-                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(ccEnvUv, 1.0)), lighting);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(ccEnvUv, 0.0)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(ccEnvUv, 1.0)), lighting);
                 ccEnvColor = mix(a, b, ccLevel);
             } else {
-                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(ccEnvUv, ccIlevel)), lighting);
-                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(ccEnvUv, ccIlevel + 1.0)), lighting);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(ccEnvUv, ccIlevel)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(ccEnvUv, ccIlevel + 1.0)), lighting);
                 ccEnvColor = mix(a, b, ccLevel - ccIlevel);
             }
 
@@ -599,12 +594,12 @@
 
             float3 sheenEnvColor;
             if (sheenILevel == 0.0) {
-                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(sheenEnvUv, 0.0)), lighting);
-                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapShinyUv(sheenEnvUv, 1.0)), lighting);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(sheenEnvUv, 0.0)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(sheenEnvUv, 1.0)), lighting);
                 sheenEnvColor = mix(a, b, sheenLevel);
             } else {
-                const float3 a = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(sheenEnvUv, sheenILevel)), lighting);
-                const float3 b = decodeEnvironment(envAtlasTexture.sample(defaultSampler, mapRoughnessUv(sheenEnvUv, sheenILevel + 1.0)), lighting);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(sheenEnvUv, sheenILevel)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(sheenEnvUv, sheenILevel + 1.0)), lighting);
                 sheenEnvColor = mix(a, b, sheenLevel - sheenILevel);
             }
 
