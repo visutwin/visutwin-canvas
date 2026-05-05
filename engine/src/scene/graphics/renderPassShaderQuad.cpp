@@ -30,17 +30,17 @@ namespace visutwin::canvas
         }
 
         // render state
-        gd->setBlendState(blendState);
-        gd->setCullMode(cullMode);
-        gd->setDepthState(depthState);
-        gd->setStencilState(stencilFront, stencilBack);
+        gd->setBlendState(_blendState);
+        gd->setCullMode(_cullMode);
+        gd->setDepthState(_depthState);
+        gd->setStencilState(_stencilFront, _stencilBack);
         gd->clearQuadTextureBindings();
         for (size_t i = 0; i < _quadTextureBindings.size(); ++i) {
             gd->setQuadTextureBinding(i, _quadTextureBindings[i]);
         }
 
-        const Vector4* viewportPtr = viewport ? &(*viewport) : nullptr;
-        const Vector4* scissorPtr = scissor ? &(*scissor) : nullptr;
+        const Vector4* viewportPtr = _viewport ? &(*_viewport) : nullptr;
+        const Vector4* scissorPtr = _scissor ? &(*_scissor) : nullptr;
         if (_quadRender) {
             _quadRender->render(viewportPtr, scissorPtr);
         }

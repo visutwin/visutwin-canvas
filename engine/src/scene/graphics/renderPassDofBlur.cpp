@@ -92,8 +92,8 @@ namespace visutwin::canvas
         params.nearTexture = _nearTexture;
         params.farTexture = _farTexture;
         params.cocTexture = _cocTexture;
-        params.blurRadiusNear = blurRadiusNear;
-        params.blurRadiusFar = blurRadiusFar;
+        params.blurRadiusNear = _blurRadiusNear;
+        params.blurRadiusFar = _blurRadiusFar;
         params.blurRings = _blurRings;
         params.blurRingPoints = _blurRingPoints;
         params.invResolutionX = 1.0f / width;

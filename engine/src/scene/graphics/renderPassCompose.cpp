@@ -16,32 +16,32 @@ namespace visutwin::canvas
         }
 
         ComposePassParams params;
-        params.sceneTexture = sceneTexture;
-        params.bloomTexture = bloomTexture;
-        params.cocTexture = cocTexture;
-        params.blurTexture = blurTexture;
-        params.ssaoTexture = ssaoTexture;
-        params.bloomIntensity = bloomIntensity;
-        params.dofIntensity = dofIntensity;
-        params.dofEnabled = dofEnabled;
-        params.taaEnabled = taaEnabled;
-        params.blurTextureUpscale = blurTextureUpscale;
-        params.sharpness = sharpness;
-        params.toneMapping = toneMapping;
-        params.exposure = exposure;
+        params.sceneTexture = _sceneTexture;
+        params.bloomTexture = _bloomTexture;
+        params.cocTexture = _cocTexture;
+        params.blurTexture = _blurTexture;
+        params.ssaoTexture = _ssaoTexture;
+        params.bloomIntensity = _bloomIntensity;
+        params.dofIntensity = _dofIntensity;
+        params.dofEnabled = _dofEnabled;
+        params.taaEnabled = _taaEnabled;
+        params.blurTextureUpscale = _blurTextureUpscale;
+        params.sharpness = _sharpness;
+        params.toneMapping = _toneMapping;
+        params.exposure = _exposure;
         // Single-pass DOF
-        params.depthTexture = depthTexture;
-        params.dofFocusDistance = dofFocusDistance;
-        params.dofFocusRange = dofFocusRange;
-        params.dofBlurRadius = dofBlurRadius;
-        params.dofCameraNear = dofCameraNear;
-        params.dofCameraFar = dofCameraFar;
+        params.depthTexture = _depthTexture;
+        params.dofFocusDistance = _dofFocusDistance;
+        params.dofFocusRange = _dofFocusRange;
+        params.dofBlurRadius = _dofBlurRadius;
+        params.dofCameraNear = _dofCameraNear;
+        params.dofCameraFar = _dofCameraFar;
 
-        params.vignetteEnabled = vignetteEnabled;
-        params.vignetteInner = vignetteInner;
-        params.vignetteOuter = vignetteOuter;
-        params.vignetteCurvature = vignetteCurvature;
-        params.vignetteIntensity = vignetteIntensity;
+        params.vignetteEnabled = _vignetteEnabled;
+        params.vignetteInner = _vignetteInner;
+        params.vignetteOuter = _vignetteOuter;
+        params.vignetteCurvature = _vignetteCurvature;
+        params.vignetteIntensity = _vignetteIntensity;
         gd->executeComposePass(params);
     }
 }

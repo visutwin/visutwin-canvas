@@ -19,13 +19,26 @@ namespace visutwin::canvas
 
         void frameUpdate() const override;
 
-        float focusDistance = 100.0f;
-        float focusRange = 10.0f;
-        float blurRadius = 3.0f;
-        int blurRings = 4;
-        int blurRingPoints = 5;
-        bool highQuality = true;
-        bool nearBlur = false;
+        float focusDistance() const { return _focusDistance; }
+        void setFocusDistance(const float value) { _focusDistance = value; }
+
+        float focusRange() const { return _focusRange; }
+        void setFocusRange(const float value) { _focusRange = value; }
+
+        float blurRadius() const { return _blurRadius; }
+        void setBlurRadius(const float value) { _blurRadius = value; }
+
+        int blurRings() const { return _blurRings; }
+        void setBlurRings(const int value) { _blurRings = value; }
+
+        int blurRingPoints() const { return _blurRingPoints; }
+        void setBlurRingPoints(const int value) { _blurRingPoints = value; }
+
+        bool highQuality() const { return _highQuality; }
+        void setHighQuality(const bool value) { _highQuality = value; }
+
+        bool nearBlur() const { return _nearBlur; }
+        void setNearBlur(const bool value) { _nearBlur = value; }
 
         Texture* cocTexture() const { return _cocTexture.get(); }
         Texture* blurTexture() const { return _blurTexture.get(); }
@@ -38,6 +51,14 @@ namespace visutwin::canvas
         CameraComponent* _cameraComponent = nullptr;
         Texture* _sceneTexture = nullptr;
         Texture* _sceneTextureHalf = nullptr;
+
+        float _focusDistance = 100.0f;
+        float _focusRange = 10.0f;
+        float _blurRadius = 3.0f;
+        int _blurRings = 4;
+        int _blurRingPoints = 5;
+        bool _highQuality = true;
+        bool _nearBlur = false;
 
         std::shared_ptr<RenderPassCoC> _cocPass;
         std::shared_ptr<RenderPassDownsample> _farPass;

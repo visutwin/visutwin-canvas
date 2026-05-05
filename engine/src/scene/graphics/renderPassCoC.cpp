@@ -19,8 +19,8 @@ namespace visutwin::canvas
 
     void RenderPassCoC::execute()
     {
-        _params[0] = focusDistance + 0.001f;
-        _params[1] = std::max(focusRange, 0.001f);
+        _params[0] = _focusDistance + 0.001f;
+        _params[1] = std::max(_focusRange, 0.001f);
         _params[2] = 1.0f / _params[1];
 
         const auto* camera = _cameraComponent ? _cameraComponent->camera() : nullptr;
@@ -45,8 +45,8 @@ namespace visutwin::canvas
 
         CoCPassParams params;
         params.depthTexture = depthTexture;
-        params.focusDistance = focusDistance;
-        params.focusRange = std::max(focusRange, 0.001f);
+        params.focusDistance = _focusDistance;
+        params.focusRange = std::max(_focusRange, 0.001f);
         params.cameraNear = camera->nearClip();
         params.cameraFar = camera->farClip();
         params.nearBlur = _nearBlur;

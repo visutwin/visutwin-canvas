@@ -117,7 +117,7 @@ namespace visutwin::canvas
             // (render-passes/frame-pass-bloom.js uses BlendState.ADDBLEND on upsample passes).
             // Source alpha = 1.0 from the upsample shader, so SRC_ALPHA == ONE, giving a pure
             // additive accumulation src + dst.
-            pass->blendState = std::make_shared<BlendState>(BlendState::additiveBlend());
+            pass->setBlendState(std::make_shared<BlendState>(BlendState::additiveBlend()));
             addBeforePass(pass);
             passSourceTexture = _renderTargets[i]->colorBuffer();
         }

@@ -115,18 +115,18 @@ namespace visutwin::canvas
         // Compute derived SSAO parameters (matching upstream RenderPassSsao.execute())
         const float aspect = width / height;
         const float spiralTurns = 10.0f;
-        const float step = (1.0f / (static_cast<float>(sampleCount) - 0.5f)) * spiralTurns * 2.0f * PI;
-        const float effectiveRadius = radius / scale();
+        const float step = (1.0f / (static_cast<float>(_sampleCount) - 0.5f)) * spiralTurns * 2.0f * PI;
+        const float effectiveRadius = _radius / scale();
 
         const float bias = 0.001f;
         const float peak = 0.1f * effectiveRadius;
-        const float computedIntensity = 2.0f * (peak * 2.0f * PI) * intensity / static_cast<float>(sampleCount);
+        const float computedIntensity = 2.0f * (peak * 2.0f * PI) * _intensity / static_cast<float>(_sampleCount);
         const float projectionScale = 0.5f * (_sourceTexture ? static_cast<float>(_sourceTexture->height()) : height);
 
-        const float minAngleSin = std::sin(minAngle * DEG_TO_RAD);
+        const float minAngleSin = std::sin(_minAngle * DEG_TO_RAD);
 
         // Blue noise for randomization (simple PRNG matching upstream BlueNoise behavior)
-        if (randomize) {
+        if (_randomize) {
             _blueNoiseValue = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
         } else {
             _blueNoiseValue = 0.0f;
@@ -137,7 +137,7 @@ namespace visutwin::canvas
         params.aspect = aspect;
         params.invResolutionX = 1.0f / width;
         params.invResolutionY = 1.0f / height;
-        params.sampleCount = sampleCount;
+        params.sampleCount = _sampleCount;
         params.spiralTurns = spiralTurns;
         params.angleIncCos = std::cos(step);
         params.angleIncSin = std::sin(step);
@@ -146,7 +146,7 @@ namespace visutwin::canvas
         params.bias = bias;
         params.peak2 = peak * peak;
         params.intensity = computedIntensity;
-        params.power = power;
+        params.power = _power;
         params.projectionScaleRadius = projectionScale * effectiveRadius;
         params.randomize = _blueNoiseValue;
         params.cameraNear = camera->nearClip();

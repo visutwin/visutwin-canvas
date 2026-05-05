@@ -9,19 +9,19 @@
 namespace visutwin::canvas
 {
     RenderPassDof::RenderPassDof(const std::shared_ptr<GraphicsDevice>& device, CameraComponent* cameraComponent,
-        Texture* sceneTexture, Texture* sceneTextureHalf, const bool highQualityValue, const bool nearBlurValue)
+        Texture* sceneTexture, Texture* sceneTextureHalf, const bool highQuality, const bool nearBlur)
         : RenderPass(device), _cameraComponent(cameraComponent), _sceneTexture(sceneTexture), _sceneTextureHalf(sceneTextureHalf),
-          highQuality(highQualityValue), nearBlur(nearBlurValue)
+          _highQuality(highQuality), _nearBlur(nearBlur)
     {
         const PixelFormat sourceFormat = sceneTexture ? sceneTexture->format() : PixelFormat::PIXELFORMAT_RGBA8;
         Texture* halfSource = sceneTextureHalf ? sceneTextureHalf : sceneTexture;
 
-        const auto cocFormat = nearBlur ? PixelFormat::PIXELFORMAT_RG8 : PixelFormat::PIXELFORMAT_R8;
+        const auto cocFormat = _nearBlur ? PixelFormat::PIXELFORMAT_RG8 : PixelFormat::PIXELFORMAT_R8;
         _cocTarget = createRenderTarget("CoCTexture", cocFormat, _cocTexture);
 
         Texture* sourceTexture = sceneTexture;
         if (_cocTarget && sourceTexture) {
-            _cocPass = std::make_shared<RenderPassCoC>(device, cameraComponent, nearBlur);
+            _cocPass = std::make_shared<RenderPassCoC>(device, cameraComponent, _nearBlur);
             auto options = std::make_shared<RenderPassOptions>();
             options->resizeSource = std::shared_ptr<Texture>(sourceTexture, [](Texture*) {});
             _cocPass->init(_cocTarget, options);
@@ -30,7 +30,7 @@ namespace visutwin::canvas
             addBeforePass(_cocPass);
         }
 
-        Texture* farSource = highQuality ? sceneTexture : halfSource;
+        Texture* farSource = _highQuality ? sceneTexture : halfSource;
         if (farSource) {
             _farTarget = createRenderTarget("FarDofTexture", farSource->format(), _farTexture);
             if (_farTarget) {
@@ -54,11 +54,11 @@ namespace visutwin::canvas
             _blurTarget = createRenderTarget("DofBlurTexture", sourceFormat, _blurTexture);
             if (_blurTarget && _farTarget) {
                 Texture* farTexture = _farTarget->colorBuffer();
-                _blurPass = std::make_shared<RenderPassDofBlur>(device, nearBlur ? halfSource : nullptr, farTexture, _cocTexture.get());
+                _blurPass = std::make_shared<RenderPassDofBlur>(device, _nearBlur ? halfSource : nullptr, farTexture, _cocTexture.get());
                 auto options = std::make_shared<RenderPassOptions>();
                 options->resizeSource = std::shared_ptr<Texture>(halfSource, [](Texture*) {});
-                options->scaleX = highQuality ? 2.0f : 0.5f;
-                options->scaleY = highQuality ? 2.0f : 0.5f;
+                options->scaleX = _highQuality ? 2.0f : 0.5f;
+                options->scaleY = _highQuality ? 2.0f : 0.5f;
                 _blurPass->init(_blurTarget, options);
                 const Color clearBlack(0.0f, 0.0f, 0.0f, 1.0f);
                 _blurPass->setClearColor(&clearBlack);
@@ -72,15 +72,15 @@ namespace visutwin::canvas
         RenderPass::frameUpdate();
 
         if (_cocPass) {
-            _cocPass->focusDistance = focusDistance;
-            _cocPass->focusRange = focusRange;
+            _cocPass->setFocusDistance(_focusDistance);
+            _cocPass->setFocusRange(_focusRange);
         }
 
         if (_blurPass) {
-            _blurPass->blurRadiusNear = blurRadius;
-            _blurPass->blurRadiusFar = blurRadius * (highQuality ? 1.0f : 0.5f);
-            _blurPass->setBlurRings(blurRings);
-            _blurPass->setBlurRingPoints(blurRingPoints);
+            _blurPass->setBlurRadiusNear(_blurRadius);
+            _blurPass->setBlurRadiusFar(_blurRadius * (_highQuality ? 1.0f : 0.5f));
+            _blurPass->setBlurRings(_blurRings);
+            _blurPass->setBlurRingPoints(_blurRingPoints);
         }
     }
 

@@ -520,12 +520,12 @@ namespace visutwin::canvas
 
             // Update SSAO pass parameters from CameraComponent settings each frame
             const auto& ssao = _cameraComponent->ssao();
-            _ssaoPass->radius = ssao.radius;
-            _ssaoPass->intensity = ssao.intensity;
-            _ssaoPass->power = ssao.power;
-            _ssaoPass->sampleCount = ssao.samples;
-            _ssaoPass->minAngle = ssao.minAngle;
-            _ssaoPass->randomize = ssao.randomize;
+            _ssaoPass->setRadius(ssao.radius);
+            _ssaoPass->setIntensity(ssao.intensity);
+            _ssaoPass->setPower(ssao.power);
+            _ssaoPass->setSampleCount(ssao.samples);
+            _ssaoPass->setMinAngle(ssao.minAngle);
+            _ssaoPass->setRandomize(ssao.randomize);
             if (ssao.scale != _ssaoPass->scale()) {
                 _ssaoPass->setScale(ssao.scale);
             }
@@ -603,38 +603,38 @@ namespace visutwin::canvas
     void RenderPassCameraFrame::setupComposePass(const CameraFrameOptions& options)
     {
         _composePass = std::make_shared<RenderPassCompose>(device());
-        _composePass->sceneTexture = _sceneTextureResolved;
-        _composePass->bloomTexture = _bloomPass ? _bloomPass->bloomTexture() : nullptr;
-        _composePass->bloomIntensity = options.bloomIntensity;
-        _composePass->taaEnabled = options.taaEnabled;
-        _composePass->cocTexture = nullptr;   // multi-pass DOF disabled; single-pass uses depth directly
-        _composePass->blurTexture = nullptr;
-        _composePass->blurTextureUpscale = false;
-        _composePass->dofEnabled = options.dofEnabled;
-        _composePass->ssaoTexture = options.ssaoType == SSAOTYPE_COMBINE && _ssaoPass ? _ssaoPass->ssaoTexture() : nullptr;
-        _composePass->sharpness = options.sharpness;
-        _composePass->toneMapping = _scene ? _scene->toneMapping() : TONEMAP_LINEAR;
-        _composePass->exposure = _scene ? _scene->exposure() : 1.0f;
+        _composePass->setSceneTexture(_sceneTextureResolved);
+        _composePass->setBloomTexture(_bloomPass ? _bloomPass->bloomTexture() : nullptr);
+        _composePass->setBloomIntensity(options.bloomIntensity);
+        _composePass->setTaaEnabled(options.taaEnabled);
+        _composePass->setCocTexture(nullptr);   // multi-pass DOF disabled; single-pass uses depth directly
+        _composePass->setBlurTexture(nullptr);
+        _composePass->setBlurTextureUpscale(false);
+        _composePass->setDofEnabled(options.dofEnabled);
+        _composePass->setSsaoTexture(options.ssaoType == SSAOTYPE_COMBINE && _ssaoPass ? _ssaoPass->ssaoTexture() : nullptr);
+        _composePass->setSharpness(options.sharpness);
+        _composePass->setToneMapping(_scene ? _scene->toneMapping() : TONEMAP_LINEAR);
+        _composePass->setExposure(_scene ? _scene->exposure() : 1.0f);
 
         // Single-pass DOF: pass depth texture and DOF settings to compose
         if (options.dofEnabled && _cameraComponent) {
             const auto& dof = _cameraComponent->dof();
-            _composePass->depthTexture = _sceneDepthTexture.get();
-            _composePass->dofFocusDistance = dof.focusDistance;
-            _composePass->dofFocusRange = dof.focusRange;
-            _composePass->dofBlurRadius = dof.blurRadius;
+            _composePass->setDepthTexture(_sceneDepthTexture.get());
+            _composePass->setDofFocusDistance(dof.focusDistance);
+            _composePass->setDofFocusRange(dof.focusRange);
+            _composePass->setDofBlurRadius(dof.blurRadius);
             if (auto* camera = _cameraComponent->camera()) {
-                _composePass->dofCameraNear = camera->nearClip();
-                _composePass->dofCameraFar = camera->farClip();
+                _composePass->setDofCameraNear(camera->nearClip());
+                _composePass->setDofCameraFar(camera->farClip());
             }
         }
 
         // Vignette
-        _composePass->vignetteEnabled = options.vignetteEnabled;
-        _composePass->vignetteInner = options.vignetteInner;
-        _composePass->vignetteOuter = options.vignetteOuter;
-        _composePass->vignetteCurvature = options.vignetteCurvature;
-        _composePass->vignetteIntensity = options.vignetteIntensity;
+        _composePass->setVignetteEnabled(options.vignetteEnabled);
+        _composePass->setVignetteInner(options.vignetteInner);
+        _composePass->setVignetteOuter(options.vignetteOuter);
+        _composePass->setVignetteCurvature(options.vignetteCurvature);
+        _composePass->setVignetteIntensity(options.vignetteIntensity);
 
         _composePass->init(_targetRenderTarget);
     }
@@ -716,7 +716,7 @@ namespace visutwin::canvas
             }
 
             _sceneTextureResolved = resolvedTexture;
-            _composePass->sceneTexture = resolvedTexture;
+            _composePass->setSceneTexture(resolvedTexture);
             if (_scenePassHalf) {
                 _scenePassHalf->setSourceTexture(resolvedTexture);
             }

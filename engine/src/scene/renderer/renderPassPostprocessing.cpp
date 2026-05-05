@@ -48,41 +48,41 @@ namespace visutwin::canvas
         if (ssao.enabled && sceneTexture) {
             _ssaoPass = std::make_shared<RenderPassSsao>(
                 device, sceneTexture, _renderAction->camera, ssao.blurEnabled);
-            _ssaoPass->radius = ssao.radius;
-            _ssaoPass->intensity = ssao.intensity;
-            _ssaoPass->power = ssao.power;
-            _ssaoPass->sampleCount = ssao.samples;
-            _ssaoPass->minAngle = ssao.minAngle;
-            _ssaoPass->randomize = ssao.randomize;
+            _ssaoPass->setRadius(ssao.radius);
+            _ssaoPass->setIntensity(ssao.intensity);
+            _ssaoPass->setPower(ssao.power);
+            _ssaoPass->setSampleCount(ssao.samples);
+            _ssaoPass->setMinAngle(ssao.minAngle);
+            _ssaoPass->setRandomize(ssao.randomize);
             if (ssao.scale != 1.0f) {
                 _ssaoPass->setScale(ssao.scale);
             }
             addBeforePass(_ssaoPass);
         }
 
-        _composePass->sceneTexture = sceneTexture;
-        _composePass->ssaoTexture = _ssaoPass ? _ssaoPass->ssaoTexture() : nullptr;
-        _composePass->dofEnabled = dof.enabled;
+        _composePass->setSceneTexture(sceneTexture);
+        _composePass->setSsaoTexture(_ssaoPass ? _ssaoPass->ssaoTexture() : nullptr);
+        _composePass->setDofEnabled(dof.enabled);
 
         if (dof.enabled && sceneTexture) {
             _dofPass = std::make_shared<RenderPassDof>(device, _renderAction->camera, sceneTexture, sceneTexture,
                 dof.highQuality, dof.nearBlur);
-            _dofPass->focusDistance = dof.focusDistance;
-            _dofPass->focusRange = dof.focusRange;
-            _dofPass->blurRadius = dof.blurRadius;
-            _dofPass->blurRings = dof.blurRings;
-            _dofPass->blurRingPoints = dof.blurRingPoints;
-            _dofPass->highQuality = dof.highQuality;
-            _dofPass->nearBlur = dof.nearBlur;
-            _composePass->cocTexture = _dofPass->cocTexture();
-            _composePass->blurTexture = _dofPass->blurTexture();
-            _composePass->dofEnabled = true;
+            _dofPass->setFocusDistance(dof.focusDistance);
+            _dofPass->setFocusRange(dof.focusRange);
+            _dofPass->setBlurRadius(dof.blurRadius);
+            _dofPass->setBlurRings(dof.blurRings);
+            _dofPass->setBlurRingPoints(dof.blurRingPoints);
+            _dofPass->setHighQuality(dof.highQuality);
+            _dofPass->setNearBlur(dof.nearBlur);
+            _composePass->setCocTexture(_dofPass->cocTexture());
+            _composePass->setBlurTexture(_dofPass->blurTexture());
+            _composePass->setDofEnabled(true);
             addBeforePass(_dofPass);
             _passesBuilt = true;
         }
 
         if (_composePass) {
-            _composePass->dofIntensity = 1.0f;
+            _composePass->setDofIntensity(1.0f);
         }
     }
 

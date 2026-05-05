@@ -27,12 +27,23 @@ namespace visutwin::canvas
         ~RenderPassSsao();
 
         // SSAO parameters (matching upstream RenderPassSsao)
-        float radius = 30.0f;
-        float intensity = 0.5f;
-        float power = 6.0f;
-        int sampleCount = 12;
-        float minAngle = 10.0f;
-        bool randomize = false;
+        float radius() const { return _radius; }
+        void setRadius(const float value) { _radius = value; }
+
+        float intensity() const { return _intensity; }
+        void setIntensity(const float value) { _intensity = value; }
+
+        float power() const { return _power; }
+        void setPower(const float value) { _power = value; }
+
+        int sampleCount() const { return _sampleCount; }
+        void setSampleCount(const int value) { _sampleCount = value; }
+
+        float minAngle() const { return _minAngle; }
+        void setMinAngle(const float value) { _minAngle = value; }
+
+        bool randomize() const { return _randomize; }
+        void setRandomize(const bool value) { _randomize = value; }
 
         /// The output SSAO texture (R8, single channel occlusion).
         Texture* ssaoTexture() const { return _ssaoTexture.get(); }
@@ -51,6 +62,13 @@ namespace visutwin::canvas
         CameraComponent* _cameraComponent = nullptr;
         bool _blurEnabled = true;
         float _scale = 1.0f;
+
+        float _radius = 30.0f;
+        float _intensity = 0.5f;
+        float _power = 6.0f;
+        int _sampleCount = 12;
+        float _minAngle = 10.0f;
+        bool _randomize = false;
 
         std::shared_ptr<Texture> _ssaoTexture;
         std::shared_ptr<RenderTarget> _ssaoRenderTarget;

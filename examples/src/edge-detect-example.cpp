@@ -488,10 +488,10 @@ int main()
         const int topY = static_cast<int>(std::round(0.5f * gap * static_cast<float>(screenH)));
         const int bottomY = static_cast<int>(std::round((0.5f + 0.5f * gap) * static_cast<float>(screenH)));
 
-        displayOriginalPass->viewport = Vector4(static_cast<float>(vx), static_cast<float>(topY), static_cast<float>(vw), static_cast<float>(vh));
-        displayOriginalPass->scissor = displayOriginalPass->viewport;
-        displayEdgePass->viewport = Vector4(static_cast<float>(vx), static_cast<float>(bottomY), static_cast<float>(vw), static_cast<float>(vh));
-        displayEdgePass->scissor = displayEdgePass->viewport;
+        displayOriginalPass->setViewport(Vector4(static_cast<float>(vx), static_cast<float>(topY), static_cast<float>(vw), static_cast<float>(vh)));
+        displayOriginalPass->setScissor(displayOriginalPass->viewport());
+        displayEdgePass->setViewport(Vector4(static_cast<float>(vx), static_cast<float>(bottomY), static_cast<float>(vw), static_cast<float>(vh)));
+        displayEdgePass->setScissor(displayEdgePass->viewport());
 
         displayOriginalPass->render();
         displayEdgePass->render();
