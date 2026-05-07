@@ -108,14 +108,19 @@ namespace visutwin::canvas
         void resize(uint32_t width, uint32_t height, uint32_t depth = 1);
 
         void setMinFilter(FilterMode filter);
+        FilterMode minFilter() const { return _minFilter; }
 
         void setMagFilter(FilterMode filter);
+        FilterMode magFilter() const { return _magFilter; }
 
         void setAddressU(AddressMode address);
+        AddressMode addressU() const { return _addressU; }
 
         void setAddressV(AddressMode address);
+        AddressMode addressV() const { return _addressV; }
 
         void setAddressW(AddressMode address);
+        AddressMode addressW() const { return _addressW; }
 
     protected:
         virtual void propertyChanged(TextureProperty flag);

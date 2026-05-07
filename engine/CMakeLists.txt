@@ -64,6 +64,7 @@ endif()
 
 # ── Vulkan backend setup ─────────────────────────────────────────────
 if(VISUTWIN_BACKEND_VULKAN)
+    find_package(VulkanHeaders CONFIG REQUIRED)
     find_package(Vulkan REQUIRED)
     find_package(VulkanMemoryAllocator CONFIG REQUIRED)
     find_package(vk-bootstrap CONFIG REQUIRED)
@@ -105,6 +106,31 @@ target_include_directories(visutwin-canvas
     PRIVATE
         ${VISUTWIN_ROOT_DIR}
 )
+
+# Vulkan-headers shadowing fix.
+#
+# When a system-wide Vulkan SDK is installed under /usr/local (LunarG SDK on
+# macOS, some Linux setups), AppleClang's default-system search list places
+# /usr/local/include *before* any -isystem path.  The system vulkan.h may be
+# stale relative to vcpkg's version, breaking vk-bootstrap's PFN typedefs.
+# We can't reorder default-system paths, but a unique `-I <user>` path is
+# searched *before* the system list — so we mirror vcpkg's vulkan headers
+# into a build-private directory and add that as a `-I` include.
+if(VISUTWIN_BACKEND_VULKAN AND TARGET Vulkan::Headers)
+    get_target_property(_VK_HEADERS_DIR Vulkan::Headers INTERFACE_INCLUDE_DIRECTORIES)
+    if(_VK_HEADERS_DIR AND EXISTS "${_VK_HEADERS_DIR}/vulkan")
+        set(_VK_SHIM_DIR "${CMAKE_BINARY_DIR}/_vulkan_shim")
+        file(MAKE_DIRECTORY "${_VK_SHIM_DIR}/vulkan")
+        file(GLOB _VK_SHIM_HEADERS
+            "${_VK_HEADERS_DIR}/vulkan/*.h"
+            "${_VK_HEADERS_DIR}/vulkan/*.hpp")
+        file(COPY ${_VK_SHIM_HEADERS} DESTINATION "${_VK_SHIM_DIR}/vulkan")
+        # `BEFORE PRIVATE` puts this in the user-include section (-I), which
+        # clang searches before its built-in default-system list.  Using a
+        # *unique* path avoids being deduplicated against vcpkg's -isystem.
+        target_include_directories(visutwin-canvas BEFORE PRIVATE "${_VK_SHIM_DIR}")
+    endif()
+endif()
 
 target_link_libraries(visutwin-canvas
     PUBLIC

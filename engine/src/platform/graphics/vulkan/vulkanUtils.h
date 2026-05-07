@@ -22,9 +22,18 @@ namespace visutwin::canvas
         const std::function<void(VkCommandBuffer)>& func);
 
     // Insert an image layout transition barrier.
+    //
+    // Source/destination access masks and pipeline stages are derived from the
+    // old/new layouts using a generic table.  This handles the common cases
+    // (UNDEFINED→*, transfer/shader-read↔attachment, attachment↔shader-read,
+    // *→present-src) without each call site having to spell out every
+    // permutation.  For unusual layouts the helper falls back to ALL_COMMANDS
+    // barriers, which is correct but conservative.
     void vulkanTransitionImageLayout(VkCommandBuffer cmd, VkImage image,
         VkImageLayout oldLayout, VkImageLayout newLayout,
-        VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+        VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
+        uint32_t baseMipLevel = 0, uint32_t levelCount = 1,
+        uint32_t baseArrayLayer = 0, uint32_t layerCount = 1);
 
     // Enum mapping functions.
     VkFormat vulkanMapPixelFormat(PixelFormat format);

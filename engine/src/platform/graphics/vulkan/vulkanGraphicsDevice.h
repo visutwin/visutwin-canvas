@@ -18,6 +18,7 @@
 namespace visutwin::canvas
 {
     class VulkanRenderPipeline;
+    class VulkanRenderTarget;
 
     class VulkanGraphicsDevice : public GraphicsDevice
     {
@@ -134,6 +135,12 @@ namespace visutwin::canvas
         std::unique_ptr<VulkanRenderPipeline> _renderPipeline;
         VkPipeline _currentPipeline = VK_NULL_HANDLE;
         bool _dynamicRenderingActive = false;
+
+        // Set in startRenderPass when the active RenderPass targets an
+        // offscreen RT.  Cleared in endRenderPass.  Used to drive layout
+        // transitions back to SHADER_READ_ONLY so subsequent passes can
+        // sample the attachments.
+        VulkanRenderTarget* _activeOffscreenTarget = nullptr;
 
         // ── Descriptor pool ──────────────────────────────────────────────
         VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;

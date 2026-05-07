@@ -15,6 +15,7 @@
 
 #include "vulkanIndexBuffer.h"
 #include "vulkanRenderPipeline.h"
+#include "vulkanRenderTarget.h"
 #include "vulkanShader.h"
 #include "vulkanTexture.h"
 #include "vulkanUtils.h"
@@ -226,7 +227,12 @@ namespace visutwin::canvas
         features13.dynamicRendering = VK_TRUE;
         features13.synchronization2 = VK_TRUE;
 
-        vkb::PhysicalDeviceSelector selector{vkb::Instance{_instance, _debugMessenger}};
+        // vkb::Instance is an aggregate; construct it field-by-field rather
+        // than via a 2-arg ctor (which it doesn't have).
+        vkb::Instance vkbInst{};
+        vkbInst.instance = _instance;
+        vkbInst.debug_messenger = _debugMessenger;
+        vkb::PhysicalDeviceSelector selector{vkbInst};
         selector.set_surface(_surface)
                 .set_minimum_version(1, 3)
                 .set_required_features_13(features13);
@@ -440,83 +446,149 @@ namespace visutwin::canvas
         auto& frame = _frames[_frameIndex];
         VkCommandBuffer cmd = frame.commandBuffer;
 
-        // Transition swapchain image → color attachment
-        vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        auto* offscreen = renderPass
+            ? dynamic_cast<VulkanRenderTarget*>(renderPass->renderTarget().get())
+            : nullptr;
 
-        // Transition depth → depth attachment
-        VkImageMemoryBarrier depthBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-        depthBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        depthBarrier.srcAccessMask = 0;
-        depthBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        depthBarrier.image = _depthImage;
-        depthBarrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-        vkCmdPipelineBarrier(cmd,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &depthBarrier);
-
-        // Read clear values from RenderPass
+        // ── Resolve attachment views, formats, extents, and clear ops ──
         auto colorOps = renderPass ? renderPass->colorOps() : nullptr;
-
-        VkRenderingAttachmentInfo colorAttachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        colorAttachment.imageView = _swapchainImageViews[_swapchainImageIndex];
-        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        if (colorOps && colorOps->clear) {
-            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-            colorAttachment.clearValue.color = {{
-                colorOps->clearValue.r, colorOps->clearValue.g,
-                colorOps->clearValue.b, colorOps->clearValue.a}};
-        } else {
-            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        }
-
-        VkRenderingAttachmentInfo depthAttachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        depthAttachment.imageView = _depthImageView;
-        depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depthAttachment.clearValue.depthStencil = {1.0f, 0};
-
         auto dsOps = renderPass ? renderPass->depthStencilOps() : nullptr;
-        if (dsOps) {
-            depthAttachment.loadOp = dsOps->clearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-            depthAttachment.storeOp = dsOps->storeDepth ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            depthAttachment.clearValue.depthStencil = {dsOps->clearDepthValue, 0};
+
+        std::vector<VkRenderingAttachmentInfo> colorInfos;
+        VkRenderingAttachmentInfo depthInfo{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        bool hasDepth = false;
+        VkExtent2D extent{};
+
+        if (offscreen) {
+            // Offscreen: transition each attachment from its current layout
+            // (typically SHADER_READ_ONLY from a previous pass, or UNDEFINED
+            // on first use) into the appropriate attachment-optimal layout.
+            extent = offscreen->extent();
+
+            for (const auto& att : offscreen->colorAttachments()) {
+                if (!att.texture) continue;
+                const VkImageLayout from = att.texture->currentLayout();
+                if (from != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+                    vulkanTransitionImageLayout(cmd, att.texture->image(),
+                        from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        0, 1,
+                        // For cubemap face attachments target only that face.
+                        att.texture->arrayLayers() > 1
+                            ? static_cast<uint32_t>(offscreen->face()) : 0u,
+                        att.texture->arrayLayers() > 1
+                            ? 1u : att.texture->arrayLayers());
+                    att.texture->setCurrentLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                }
+
+                VkRenderingAttachmentInfo info{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+                info.imageView = att.view;
+                info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                if (colorOps && colorOps->clear) {
+                    info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    info.clearValue.color = {{colorOps->clearValue.r, colorOps->clearValue.g,
+                                              colorOps->clearValue.b, colorOps->clearValue.a}};
+                } else {
+                    info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                }
+                colorInfos.push_back(info);
+            }
+
+            if (offscreen->hasDepthAttachment()) {
+                hasDepth = true;
+                const auto& da = offscreen->depthAttachment();
+                const VkImageAspectFlags depthAspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+                // Source image + source layout differ between texture-backed
+                // and internally-owned depth.
+                VkImage depthImg = da.texture ? da.texture->image() : da.internalImage;
+                VkImageLayout fromLayout = da.texture
+                    ? da.texture->currentLayout()
+                    : da.currentLayout;
+                if (depthImg != VK_NULL_HANDLE &&
+                    fromLayout != VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+                    vulkanTransitionImageLayout(cmd, depthImg,
+                        fromLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                        depthAspect);
+                    if (da.texture) {
+                        da.texture->setCurrentLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+                    } else {
+                        // Internal depth — track via the RT itself.
+                        const_cast<VulkanDepthAttachment&>(da).currentLayout =
+                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    }
+                }
+
+                depthInfo.imageView = da.view;
+                depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                depthInfo.loadOp = (dsOps && dsOps->clearDepth)
+                    ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+                depthInfo.storeOp = (dsOps && dsOps->storeDepth)
+                    ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                depthInfo.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
+            }
+        } else {
+            // Swapchain (back-buffer) path — preserved from the original.
+            extent = _swapchainExtent;
+
+            vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            vulkanTransitionImageLayout(cmd, _depthImage,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                VK_IMAGE_ASPECT_DEPTH_BIT);
+
+            VkRenderingAttachmentInfo info{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            info.imageView = _swapchainImageViews[_swapchainImageIndex];
+            info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            if (colorOps && colorOps->clear) {
+                info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                info.clearValue.color = {{colorOps->clearValue.r, colorOps->clearValue.g,
+                                          colorOps->clearValue.b, colorOps->clearValue.a}};
+            } else {
+                info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            }
+            colorInfos.push_back(info);
+
+            hasDepth = true;
+            depthInfo.imageView = _depthImageView;
+            depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            depthInfo.loadOp = (dsOps && !dsOps->clearDepth)
+                ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthInfo.storeOp = (dsOps && dsOps->storeDepth)
+                ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            depthInfo.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
         }
 
         VkRenderingInfo renderingInfo{VK_STRUCTURE_TYPE_RENDERING_INFO};
-        renderingInfo.renderArea = {{0, 0}, _swapchainExtent};
+        renderingInfo.renderArea = {{0, 0}, extent};
         renderingInfo.layerCount = 1;
-        renderingInfo.colorAttachmentCount = 1;
-        renderingInfo.pColorAttachments = &colorAttachment;
-        renderingInfo.pDepthAttachment = &depthAttachment;
+        renderingInfo.colorAttachmentCount = static_cast<uint32_t>(colorInfos.size());
+        renderingInfo.pColorAttachments = colorInfos.empty() ? nullptr : colorInfos.data();
+        renderingInfo.pDepthAttachment = hasDepth ? &depthInfo : nullptr;
 
         vkCmdBeginRendering(cmd, &renderingInfo);
 
-        // Negative viewport height for Y-flip (match Metal/OpenGL convention)
+        // Negative viewport height for Y-flip (match Metal/OpenGL convention).
         VkViewport viewport{};
-        viewport.x = _vx;
-        viewport.y = static_cast<float>(_swapchainExtent.height) - _vy;
-        viewport.width = _vw > 0 ? _vw : static_cast<float>(_swapchainExtent.width);
-        viewport.height = -(_vh > 0 ? _vh : static_cast<float>(_swapchainExtent.height));
+        viewport.x = vx();
+        viewport.y = static_cast<float>(extent.height) - vy();
+        viewport.width = vw() > 0 ? vw() : static_cast<float>(extent.width);
+        viewport.height = -(vh() > 0 ? vh() : static_cast<float>(extent.height));
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
         vkCmdSetViewport(cmd, 0, 1, &viewport);
 
         VkRect2D scissor{};
-        scissor.offset = {_sx, _sy};
+        scissor.offset = {sx(), sy()};
         scissor.extent = {
-            _sw > 0 ? static_cast<uint32_t>(_sw) : _swapchainExtent.width,
-            _sh > 0 ? static_cast<uint32_t>(_sh) : _swapchainExtent.height
+            sw() > 0 ? static_cast<uint32_t>(sw()) : extent.width,
+            sh() > 0 ? static_cast<uint32_t>(sh()) : extent.height
         };
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+        _activeOffscreenTarget = offscreen;
         _dynamicRenderingActive = true;
         _insideRenderPass = true;
         _currentPipeline = VK_NULL_HANDLE;
@@ -526,11 +598,53 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::endRenderPass(RenderPass* renderPass)
     {
         (void)renderPass;
-        if (_dynamicRenderingActive) {
-            auto& frame = _frames[_frameIndex];
-            vkCmdEndRendering(frame.commandBuffer);
-            _dynamicRenderingActive = false;
+        if (!_dynamicRenderingActive) {
+            _insideRenderPass = false;
+            return;
         }
+
+        auto& frame = _frames[_frameIndex];
+        VkCommandBuffer cmd = frame.commandBuffer;
+        vkCmdEndRendering(cmd);
+        _dynamicRenderingActive = false;
+
+        // Offscreen attachments are usually sampled by a later pass — transition
+        // each one back to SHADER_READ_ONLY so the descriptor binding that the
+        // next pass writes is valid.  Layout tracking on the texture (or on the
+        // RT for internal depth) makes future transitions cheap.
+        if (_activeOffscreenTarget) {
+            for (const auto& att : _activeOffscreenTarget->colorAttachments()) {
+                if (!att.texture) continue;
+                vulkanTransitionImageLayout(cmd, att.texture->image(),
+                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_ASPECT_COLOR_BIT,
+                    0, 1,
+                    att.texture->arrayLayers() > 1
+                        ? static_cast<uint32_t>(_activeOffscreenTarget->face()) : 0u,
+                    att.texture->arrayLayers() > 1
+                        ? 1u : att.texture->arrayLayers());
+                att.texture->setCurrentLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
+            if (_activeOffscreenTarget->hasDepthAttachment()) {
+                const auto& da = _activeOffscreenTarget->depthAttachment();
+                VkImage depthImg = da.texture ? da.texture->image() : da.internalImage;
+                if (depthImg != VK_NULL_HANDLE) {
+                    vulkanTransitionImageLayout(cmd, depthImg,
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        VK_IMAGE_ASPECT_DEPTH_BIT);
+                    if (da.texture) {
+                        da.texture->setCurrentLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    } else {
+                        const_cast<VulkanDepthAttachment&>(da).currentLayout =
+                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    }
+                }
+            }
+            _activeOffscreenTarget = nullptr;
+        }
+
         _insideRenderPass = false;
     }
 
@@ -672,8 +786,13 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::setTransformUniforms(
         const Matrix4& viewProjection, const Matrix4& model)
     {
-        memcpy(_pushConstants.viewProjection, viewProjection.c, 64);
-        memcpy(_pushConstants.model, model.c, 64);
+        // Matrix4 is alignas(16) and its union always occupies exactly 64
+        // bytes of column-major float matrix data — regardless of whether the
+        // build uses SSE / NEON / Apple SIMD / scalar storage.  Copy the whole
+        // struct as raw bytes; it lands as 16 floats column-major.
+        static_assert(sizeof(Matrix4) == 64, "Matrix4 must be 64 bytes");
+        memcpy(_pushConstants.viewProjection, &viewProjection, sizeof(Matrix4));
+        memcpy(_pushConstants.model, &model, sizeof(Matrix4));
         _pushConstantsDirty = true;
     }
 
@@ -733,9 +852,14 @@ namespace visutwin::canvas
     std::shared_ptr<RenderTarget> VulkanGraphicsDevice::createRenderTarget(
         const RenderTargetOptions& options)
     {
-        (void)options;
-        // TODO: offscreen render targets
-        return nullptr;
+        // Caller may pass colorBuffer/depthBuffer textures that have not yet
+        // had their device assigned; ensure we backfill it before
+        // RenderTarget's constructor runs (it asserts on a non-null device).
+        RenderTargetOptions opts = options;
+        if (!opts.graphicsDevice) {
+            opts.graphicsDevice = this;
+        }
+        return std::make_shared<VulkanRenderTarget>(opts);
     }
 
     // ─────────────────────────────────────────────────────────────────────

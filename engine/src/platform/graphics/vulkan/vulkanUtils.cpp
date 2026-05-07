@@ -46,7 +46,9 @@ namespace visutwin::canvas
     }
 
     void vulkanTransitionImageLayout(VkCommandBuffer cmd, VkImage image,
-        VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspect)
+        VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspect,
+        uint32_t baseMipLevel, uint32_t levelCount,
+        uint32_t baseArrayLayer, uint32_t layerCount)
     {
         VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
         barrier.oldLayout = oldLayout;
@@ -55,44 +57,92 @@ namespace visutwin::canvas
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = image;
         barrier.subresourceRange.aspectMask = aspect;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
+        barrier.subresourceRange.baseMipLevel = baseMipLevel;
+        barrier.subresourceRange.levelCount = levelCount;
+        barrier.subresourceRange.baseArrayLayer = baseArrayLayer;
+        barrier.subresourceRange.layerCount = layerCount;
 
-        VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        VkPipelineStageFlags dstStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        // Sensible default — full-pipeline barrier. Specialized below.
+        VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        VkPipelineStageFlags dstStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = 0;
 
-        if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-            newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        // Source side: derive masks from oldLayout.
+        switch (oldLayout) {
+        case VK_IMAGE_LAYOUT_UNDEFINED:
+        case VK_IMAGE_LAYOUT_PREINITIALIZED:
             barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-                   newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
             srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-            dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-                   newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-            barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        } else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL &&
-                   newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
+            break;
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+            barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            srcStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
             barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            barrier.dstAccessMask = 0;
             srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dstStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-                   newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+            break;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:
+            barrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            srcStage = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
             barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-            srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            srcStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+            break;
+        default:
+            break;
+        }
+
+        // Destination side: derive masks from newLayout.
+        switch (newLayout) {
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+            barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                    VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+            dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
+            barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
             dstStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:
+            barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                    VK_ACCESS_SHADER_READ_BIT;
+            dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+            barrier.dstAccessMask = 0;
+            dstStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+            break;
+        default:
+            break;
         }
 
         vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0,
@@ -102,25 +152,26 @@ namespace visutwin::canvas
     VkFormat vulkanMapPixelFormat(PixelFormat format)
     {
         switch (format) {
-        case PIXELFORMAT_RGB8:    return VK_FORMAT_R8G8B8_UNORM;
-        case PIXELFORMAT_RGBA8:   return VK_FORMAT_R8G8B8A8_UNORM;
-        case PIXELFORMAT_RGBA16F: return VK_FORMAT_R16G16B16A16_SFLOAT;
-        case PIXELFORMAT_RGBA32F: return VK_FORMAT_R32G32B32A32_SFLOAT;
-        case PIXELFORMAT_R32F:    return VK_FORMAT_R32_SFLOAT;
-        case PIXELFORMAT_DEPTH:   return VK_FORMAT_D32_SFLOAT;
-        case PIXELFORMAT_DEPTHSTENCIL: return VK_FORMAT_D24_UNORM_S8_UINT;
-        case PIXELFORMAT_R8:      return VK_FORMAT_R8_UNORM;
-        case PIXELFORMAT_RG8:     return VK_FORMAT_R8G8_UNORM;
-        default:                  return VK_FORMAT_R8G8B8A8_UNORM;
+        case PixelFormat::PIXELFORMAT_RGB8:         return VK_FORMAT_R8G8B8_UNORM;
+        case PixelFormat::PIXELFORMAT_RGBA8:        return VK_FORMAT_R8G8B8A8_UNORM;
+        case PixelFormat::PIXELFORMAT_RGBA16F:      return VK_FORMAT_R16G16B16A16_SFLOAT;
+        case PixelFormat::PIXELFORMAT_RGBA32F:      return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case PixelFormat::PIXELFORMAT_R32F:         return VK_FORMAT_R32_SFLOAT;
+        case PixelFormat::PIXELFORMAT_DEPTH:        return VK_FORMAT_D32_SFLOAT;
+        case PixelFormat::PIXELFORMAT_DEPTH16:      return VK_FORMAT_D16_UNORM;
+        case PixelFormat::PIXELFORMAT_DEPTHSTENCIL: return VK_FORMAT_D24_UNORM_S8_UINT;
+        case PixelFormat::PIXELFORMAT_R8:           return VK_FORMAT_R8_UNORM;
+        case PixelFormat::PIXELFORMAT_RG8:          return VK_FORMAT_R8G8_UNORM;
+        default:                                    return VK_FORMAT_R8G8B8A8_UNORM;
         }
     }
 
     VkFilter vulkanMapFilterMode(FilterMode mode)
     {
         switch (mode) {
-        case FILTER_NEAREST:
-        case FILTER_NEAREST_MIPMAP_NEAREST:
-        case FILTER_NEAREST_MIPMAP_LINEAR:
+        case FilterMode::FILTER_NEAREST:
+        case FilterMode::FILTER_NEAREST_MIPMAP_NEAREST:
+        case FilterMode::FILTER_NEAREST_MIPMAP_LINEAR:
             return VK_FILTER_NEAREST;
         default:
             return VK_FILTER_LINEAR;
