@@ -223,9 +223,18 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::initDevice()
     {
-        VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-        features13.dynamicRendering = VK_TRUE;
-        features13.synchronization2 = VK_TRUE;
+        // We require dynamic rendering + synchronization2.  These are core in
+        // Vulkan 1.3 but also available as KHR extensions on 1.2 devices,
+        // which is what MoltenVK currently exposes (api 1.2.x).  Request them
+        // as extensions so MoltenVK satisfies us; the call sites use the same
+        // function names regardless of whether the feature is core or KHR.
+        VkPhysicalDeviceDynamicRenderingFeatures drFeatures{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES};
+        drFeatures.dynamicRendering = VK_TRUE;
+
+        VkPhysicalDeviceSynchronization2Features sync2Features{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+        sync2Features.synchronization2 = VK_TRUE;
 
         // vkb::Instance is an aggregate; construct it field-by-field rather
         // than via a 2-arg ctor (which it doesn't have).
@@ -234,8 +243,11 @@ namespace visutwin::canvas
         vkbInst.debug_messenger = _debugMessenger;
         vkb::PhysicalDeviceSelector selector{vkbInst};
         selector.set_surface(_surface)
-                .set_minimum_version(1, 3)
-                .set_required_features_13(features13);
+                .set_minimum_version(1, 2)
+                .add_required_extension(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME)
+                .add_required_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME)
+                .add_required_extension_features(drFeatures)
+                .add_required_extension_features(sync2Features);
 
         auto physResult = selector.select();
         if (!physResult) {

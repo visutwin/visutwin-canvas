@@ -13,13 +13,38 @@
 #include "vulkan/vulkanGraphicsDevice.h"
 #endif
 
+#include <cstdlib>
+#include <cstring>
 #include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // VISUTWIN_BACKEND env var overrides the caller-supplied backend.
+        // Useful for switching between Metal and Vulkan on macOS without
+        // having to recompile every example.  Recognised values
+        // (case-sensitive): "metal", "vulkan".
+        Backend applyEnvOverride(Backend requested)
+        {
+            const char* env = std::getenv("VISUTWIN_BACKEND");
+            if (!env || env[0] == '\0') return requested;
+            if (std::strcmp(env, "metal") == 0)   return Backend::Metal;
+            if (std::strcmp(env, "vulkan") == 0)  return Backend::Vulkan;
+            spdlog::warn("VISUTWIN_BACKEND='{}' not recognised — using requested backend", env);
+            return requested;
+        }
+    }
+
     std::unique_ptr<GraphicsDevice> createGraphicsDevice(const GraphicsDeviceOptions& options)
     {
-        switch (options.backend)
+        const Backend backend = applyEnvOverride(options.backend);
+        if (backend != options.backend) {
+            spdlog::info("Backend overridden by VISUTWIN_BACKEND env var: {} → {}",
+                static_cast<int>(options.backend), static_cast<int>(backend));
+        }
+
+        switch (backend)
         {
         case Backend::Metal:
 #ifdef VISUTWIN_HAS_METAL
@@ -36,7 +61,7 @@ namespace visutwin::canvas
             return nullptr;
 #endif
         default:
-            spdlog::error("Unknown backend: {}", static_cast<int>(options.backend));
+            spdlog::error("Unknown backend: {}", static_cast<int>(backend));
             return nullptr;
         }
     }

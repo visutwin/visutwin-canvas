@@ -12,6 +12,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <string>
 
@@ -132,33 +134,56 @@ int main()
         SDL_Quit();
     };
 
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
-    SDL_Init(SDL_INIT_VIDEO);
+    // Backend selection — same VISUTWIN_BACKEND env var as the engine factory
+    // honours.  Examples must create the SDL window with the matching flag and
+    // skip the SDL renderer (which is Metal-only) on Vulkan.
+    const char* backendEnv = std::getenv("VISUTWIN_BACKEND");
+    const bool useVulkan = backendEnv && std::strcmp(backendEnv, "vulkan") == 0;
+
+    if (!useVulkan) {
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+    }
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        spdlog::error("SDL_Init failed: {}", SDL_GetError());
+        return -1;
+    }
+
+    SDL_WindowFlags windowFlags =
+        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE;
+    windowFlags |= useVulkan ? SDL_WINDOW_VULKAN : SDL_WINDOW_METAL;
 
     window = SDL_CreateWindow(
         "VisuTwin GLB Loader Reference",
         WINDOW_WIDTH, WINDOW_HEIGHT,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+        windowFlags
     );
     if (!window) {
+        spdlog::error("SDL_CreateWindow failed: {}", SDL_GetError());
         shutdown();
         return -1;
     }
 
-    renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) {
-        shutdown();
-        return -1;
-    }
-    SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
+    void* swapchain = nullptr;
+    if (!useVulkan) {
+        renderer = SDL_CreateRenderer(window, nullptr);
+        if (!renderer) {
+            shutdown();
+            return -1;
+        }
+        SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
 
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain) {
-        shutdown();
-        return -1;
+        swapchain = SDL_GetRenderMetalLayer(renderer);
+        if (!swapchain) {
+            shutdown();
+            return -1;
+        }
     }
 
-    auto device = createGraphicsDevice(GraphicsDeviceOptions{.swapChain = swapchain, .window = window});
+    GraphicsDeviceOptions deviceOptions{};
+    deviceOptions.backend = useVulkan ? Backend::Vulkan : Backend::Metal;
+    deviceOptions.swapChain = swapchain;
+    deviceOptions.window = window;
+    auto device = createGraphicsDevice(deviceOptions);
     if (!device) {
         shutdown();
         return -1;
