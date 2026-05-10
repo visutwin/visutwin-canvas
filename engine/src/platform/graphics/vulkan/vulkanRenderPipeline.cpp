@@ -142,54 +142,26 @@ namespace visutwin::canvas
         }
 
         // --- Vertex input ---
-        // Standard layout: pos(3f) + normal(3f) + uv0(2f) + tangent(4f) + uv1(2f) = 56 bytes
-        int stride = vertexFormat ? vertexFormat->size() : 56;
+        // The codebase currently uses a single fixed interleaved layout:
+        //   pos(3f) + normal(3f) + uv0(2f) + tangent(4f) + uv1(2f) = 56 bytes
+        // VertexFormat does not yet expose its elements (the Metal layout
+        // builder also stubs the dynamic path), so we hardcode the standard
+        // attribute set here.  When VertexFormat grows an element-iteration
+        // API, replace the body below with a generated descriptor list.
+        const int stride = vertexFormat ? vertexFormat->size() : 56;
 
         VkVertexInputBindingDescription binding{};
         binding.binding = 0;
         binding.stride = static_cast<uint32_t>(stride);
         binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        // Derive attribute descriptions from vertex format elements
-        std::vector<VkVertexInputAttributeDescription> attributes;
-        if (vertexFormat) {
-            for (int i = 0; i < vertexFormat->elementCount(); i++) {
-                auto& elem = vertexFormat->element(i);
-                VkVertexInputAttributeDescription attr{};
-                attr.location = static_cast<uint32_t>(i);
-                attr.binding = 0;
-                attr.offset = static_cast<uint32_t>(elem.offset);
-
-                // Map element type + component count to VkFormat
-                switch (elem.numComponents) {
-                case 1:
-                    attr.format = (elem.dataType == TYPE_FLOAT32) ? VK_FORMAT_R32_SFLOAT : VK_FORMAT_R32_UINT;
-                    break;
-                case 2:
-                    attr.format = VK_FORMAT_R32G32_SFLOAT;
-                    break;
-                case 3:
-                    attr.format = VK_FORMAT_R32G32B32_SFLOAT;
-                    break;
-                case 4:
-                    attr.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-                    break;
-                default:
-                    attr.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-                    break;
-                }
-                attributes.push_back(attr);
-            }
-        } else {
-            // Fallback: hardcoded standard vertex layout
-            attributes = {
-                {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},       // position
-                {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12},      // normal
-                {2, 0, VK_FORMAT_R32G32_SFLOAT, 24},         // uv0
-                {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 32},   // tangent
-                {4, 0, VK_FORMAT_R32G32_SFLOAT, 48},         // uv1
-            };
-        }
+        std::vector<VkVertexInputAttributeDescription> attributes = {
+            {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},       // position
+            {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12},      // normal
+            {2, 0, VK_FORMAT_R32G32_SFLOAT, 24},         // uv0
+            {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 32},   // tangent
+            {4, 0, VK_FORMAT_R32G32_SFLOAT, 48},         // uv1
+        };
 
         VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
         vertexInput.vertexBindingDescriptionCount = 1;
