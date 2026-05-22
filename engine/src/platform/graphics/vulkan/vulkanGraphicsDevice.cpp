@@ -68,18 +68,6 @@ namespace visutwin::canvas
         VkFenceCreateInfo uploadFenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         vkCreateFence(_device, &uploadFenceInfo, nullptr, &_uploadFence);
 
-        // Descriptor pool
-        std::array<VkDescriptorPoolSize, 2> poolSizes{};
-        poolSizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256};
-        poolSizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024};
-
-        VkDescriptorPoolCreateInfo dpInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        dpInfo.maxSets = 512;
-        dpInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-        dpInfo.pPoolSizes = poolSizes.data();
-        dpInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        vkCreateDescriptorPool(_device, &dpInfo, nullptr, &_descriptorPool);
-
         // Render pipeline
         _renderPipeline = std::make_unique<VulkanRenderPipeline>(this);
 
@@ -147,6 +135,35 @@ namespace visutwin::canvas
             vmaDestroyBuffer(_vmaAllocator, stagingBuf, stagingAlloc);
         }
 
+        // Default material UBO (white baseColor, identity defaults) — bound
+        // at set 0 on every draw until a real material binding path lands.
+        {
+            VkBufferCreateInfo bufInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            bufInfo.size = 64;
+            bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            VmaAllocationCreateInfo aInfo{};
+            aInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            aInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+            VmaAllocationInfo allocInfo{};
+            vmaCreateBuffer(_vmaAllocator, &bufInfo, &aInfo,
+                &_defaultMaterialUbo, &_defaultMaterialUboAlloc, &allocInfo);
+
+            struct MiniMaterial {
+                float baseColor[4]      = {1.0f, 1.0f, 1.0f, 1.0f};
+                float emissiveColor[4]  = {0.0f, 0.0f, 0.0f, 0.0f};
+                uint32_t flags          = 0;
+                uint32_t occludeSpecMode = 0;
+                float alphaCutoff       = 0.0f;
+                float metallicFactor    = 0.0f;
+                float roughnessFactor   = 1.0f;
+                float normalScale       = 1.0f;
+                float occlusionStrength = 1.0f;
+                float occludeSpecIntensity = 0.0f;
+            } mini;
+            static_assert(sizeof(MiniMaterial) <= 64);
+            memcpy(allocInfo.pMappedData, &mini, sizeof(mini));
+        }
+
         spdlog::info("VulkanGraphicsDevice initialized ({}x{})", _width, _height);
     }
 
@@ -157,15 +174,14 @@ namespace visutwin::canvas
 
         _renderPipeline.reset();
 
+        if (_defaultMaterialUbo != VK_NULL_HANDLE)
+            vmaDestroyBuffer(_vmaAllocator, _defaultMaterialUbo, _defaultMaterialUboAlloc);
         if (_defaultSampler != VK_NULL_HANDLE)
             vkDestroySampler(_device, _defaultSampler, nullptr);
         if (_whiteImageView != VK_NULL_HANDLE)
             vkDestroyImageView(_device, _whiteImageView, nullptr);
         if (_whiteImage != VK_NULL_HANDLE)
             vmaDestroyImage(_vmaAllocator, _whiteImage, _whiteAllocation);
-
-        if (_descriptorPool != VK_NULL_HANDLE)
-            vkDestroyDescriptorPool(_device, _descriptorPool, nullptr);
 
         destroyPerFrameResources();
 
@@ -223,18 +239,22 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::initDevice()
     {
-        // We require dynamic rendering + synchronization2.  These are core in
-        // Vulkan 1.3 but also available as KHR extensions on 1.2 devices,
-        // which is what MoltenVK currently exposes (api 1.2.x).  Request them
-        // as extensions so MoltenVK satisfies us; the call sites use the same
-        // function names regardless of whether the feature is core or KHR.
-        VkPhysicalDeviceDynamicRenderingFeatures drFeatures{
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES};
-        drFeatures.dynamicRendering = VK_TRUE;
-
-        VkPhysicalDeviceSynchronization2Features sync2Features{
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
-        sync2Features.synchronization2 = VK_TRUE;
+        // Require Vulkan 1.3 — dynamicRendering and synchronization2 are
+        // promoted-to-core there, so we can use the core entry points
+        // directly (vkCmdBeginRendering etc.).  MoltenVK 1.3+ supports this
+        // on Apple Silicon.
+        //
+        // The feature struct is `static` because we hand its address to
+        // DeviceBuilder::add_pNext() which keeps the pointer alive until the
+        // build() call — vkb's set_required_features_13() vets support but
+        // doesn't propagate the struct into VkDeviceCreateInfo::pNext, which
+        // leaves dynamicRendering disabled at the device level (validation:
+        // VUID-vkCmdBeginRendering-dynamicRendering-06446).  add_pNext pins
+        // the feature on so the device creation honours it.
+        static VkPhysicalDeviceVulkan13Features features13{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+        features13.dynamicRendering = VK_TRUE;
+        features13.synchronization2 = VK_TRUE;
 
         // vkb::Instance is an aggregate; construct it field-by-field rather
         // than via a 2-arg ctor (which it doesn't have).
@@ -243,11 +263,7 @@ namespace visutwin::canvas
         vkbInst.debug_messenger = _debugMessenger;
         vkb::PhysicalDeviceSelector selector{vkbInst};
         selector.set_surface(_surface)
-                .set_minimum_version(1, 2)
-                .add_required_extension(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME)
-                .add_required_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME)
-                .add_required_extension_features(drFeatures)
-                .add_required_extension_features(sync2Features);
+                .set_minimum_version(1, 3);
 
         auto physResult = selector.select();
         if (!physResult) {
@@ -259,9 +275,13 @@ namespace visutwin::canvas
 
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(_physicalDevice, &props);
-        spdlog::info("Vulkan device: {}", props.deviceName);
+        spdlog::info("Vulkan device: {}, apiVersion={}.{}.{}", props.deviceName,
+            VK_API_VERSION_MAJOR(props.apiVersion),
+            VK_API_VERSION_MINOR(props.apiVersion),
+            VK_API_VERSION_PATCH(props.apiVersion));
 
         vkb::DeviceBuilder deviceBuilder{vkbPhysical};
+        deviceBuilder.add_pNext(&features13);
         auto devResult = deviceBuilder.build();
         if (!devResult) {
             spdlog::error("Failed to create Vulkan device: {}", devResult.error().message());
@@ -361,21 +381,42 @@ namespace visutwin::canvas
 
             VkSemaphoreCreateInfo semInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
             vkCreateSemaphore(_device, &semInfo, nullptr, &frame.imageAvailable);
-            vkCreateSemaphore(_device, &semInfo, nullptr, &frame.renderFinished);
 
             VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
             vkCreateFence(_device, &fenceInfo, nullptr, &frame.inFlightFence);
+
+            std::array<VkDescriptorPoolSize, 2> poolSizes{};
+            poolSizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256};
+            poolSizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024};
+
+            VkDescriptorPoolCreateInfo dpInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+            dpInfo.maxSets = 512;
+            dpInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+            dpInfo.pPoolSizes = poolSizes.data();
+            vkCreateDescriptorPool(_device, &dpInfo, nullptr, &frame.descriptorPool);
+        }
+
+        // Per-swapchain-image renderFinished semaphores.
+        _renderFinishedSemaphores.resize(_swapchainImages.size(), VK_NULL_HANDLE);
+        VkSemaphoreCreateInfo semInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        for (auto& s : _renderFinishedSemaphores) {
+            vkCreateSemaphore(_device, &semInfo, nullptr, &s);
         }
     }
 
     void VulkanGraphicsDevice::destroyPerFrameResources()
     {
+        for (auto& s : _renderFinishedSemaphores) {
+            if (s != VK_NULL_HANDLE) vkDestroySemaphore(_device, s, nullptr);
+        }
+        _renderFinishedSemaphores.clear();
+
         for (auto& frame : _frames) {
+            if (frame.descriptorPool != VK_NULL_HANDLE)
+                vkDestroyDescriptorPool(_device, frame.descriptorPool, nullptr);
             if (frame.inFlightFence != VK_NULL_HANDLE)
                 vkDestroyFence(_device, frame.inFlightFence, nullptr);
-            if (frame.renderFinished != VK_NULL_HANDLE)
-                vkDestroySemaphore(_device, frame.renderFinished, nullptr);
             if (frame.imageAvailable != VK_NULL_HANDLE)
                 vkDestroySemaphore(_device, frame.imageAvailable, nullptr);
             if (frame.commandPool != VK_NULL_HANDLE)
@@ -402,15 +443,23 @@ namespace visutwin::canvas
             return;
         }
 
+        // A fresh swapchain image is always in an undefined layout — vkAcquire
+        // doesn't promise any particular contents.  Track this so onFrameEnd
+        // can pick the right source layout for the PRESENT transition; and so
+        // startRenderPass can use UNDEFINED as the discard source when first
+        // attaching the image (which is fine because it gets LOAD_OP_CLEAR /
+        // LOAD_OP_DONT_CARE on the colour attachment).
+        _swapchainImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
         vkResetCommandBuffer(frame.commandBuffer, 0);
 
         VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(frame.commandBuffer, &beginInfo);
 
-        // Reset descriptor pool for this frame
-        // (simple approach: reset the whole pool each frame)
-        vkResetDescriptorPool(_device, _descriptorPool, 0);
+        // Reset this frame's descriptor pool — fence wait above guarantees
+        // the previous frame using this pool has completed on the GPU.
+        vkResetDescriptorPool(_device, frame.descriptorPool, 0);
     }
 
     void VulkanGraphicsDevice::onFrameEnd()
@@ -418,12 +467,19 @@ namespace visutwin::canvas
         auto& frame = _frames[_frameIndex];
         VkCommandBuffer cmd = frame.commandBuffer;
 
-        // Transition swapchain image → presentable
+        // Transition swapchain image → presentable, using whatever layout
+        // the image was left in by the last render pass (or UNDEFINED if no
+        // pass touched the swapchain this frame, which is common during
+        // asset-load frames before anything is drawn).
         vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            _swapchainImageLayout,
             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        _swapchainImageLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
         vkEndCommandBuffer(cmd);
+
+        VkSemaphore& renderFinished =
+            _renderFinishedSemaphores[_swapchainImageIndex];
 
         // Submit
         VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -434,13 +490,13 @@ namespace visutwin::canvas
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &cmd;
         submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = &frame.renderFinished;
+        submitInfo.pSignalSemaphores = &renderFinished;
         vkQueueSubmit(_graphicsQueue, 1, &submitInfo, frame.inFlightFence);
 
         // Present
         VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
         presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores = &frame.renderFinished;
+        presentInfo.pWaitSemaphores = &renderFinished;
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = &_swapchain;
         presentInfo.pImageIndices = &_swapchainImageIndex;
@@ -541,11 +597,17 @@ namespace visutwin::canvas
                 depthInfo.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
             }
         } else {
-            // Swapchain (back-buffer) path — preserved from the original.
+            // Swapchain (back-buffer) path.
             extent = _swapchainExtent;
 
-            vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
-                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            if (_swapchainImageLayout != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+                vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
+                    _swapchainImageLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                _swapchainImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            }
+            // The shared depth image lives entirely inside one frame's render
+            // pass; UNDEFINED→DEPTH_ATTACHMENT discards previous contents,
+            // which is what we want before LOAD_OP_CLEAR.
             vulkanTransitionImageLayout(cmd, _depthImage,
                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                 VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -709,12 +771,39 @@ namespace visutwin::canvas
             _pushConstantsDirty = false;
         }
 
+        // Set 0: default material UBO.  The shader's MaterialData block is
+        // statically used, so it MUST be bound — leaving it dangling produces
+        // VUID-vkCmdDrawIndexed-None-08600 ("set N is not bound").
+        {
+            VkDescriptorSet matSet = VK_NULL_HANDLE;
+            VkDescriptorSetAllocateInfo dsAlloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            dsAlloc.descriptorPool = frame.descriptorPool;
+            dsAlloc.descriptorSetCount = 1;
+            auto matLayout = _renderPipeline->materialSetLayout();
+            dsAlloc.pSetLayouts = &matLayout;
+            if (vkAllocateDescriptorSets(_device, &dsAlloc, &matSet) == VK_SUCCESS) {
+                VkDescriptorBufferInfo bufInfo{};
+                bufInfo.buffer = _defaultMaterialUbo;
+                bufInfo.offset = 0;
+                bufInfo.range = VK_WHOLE_SIZE;
+                VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = matSet;
+                write.dstBinding = 0;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                write.descriptorCount = 1;
+                write.pBufferInfo = &bufInfo;
+                vkUpdateDescriptorSets(_device, 1, &write, 0, nullptr);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    _renderPipeline->pipelineLayout(), 0, 1, &matSet, 0, nullptr);
+            }
+        }
+
         // Bind default texture descriptor set (set 1) if no material textures
         // For now: bind the white fallback texture at binding 0
         {
             VkDescriptorSet texSet;
             VkDescriptorSetAllocateInfo dsAlloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-            dsAlloc.descriptorPool = _descriptorPool;
+            dsAlloc.descriptorPool = frame.descriptorPool;
             dsAlloc.descriptorSetCount = 1;
             auto layout = _renderPipeline->textureSetLayout();
             dsAlloc.pSetLayouts = &layout;

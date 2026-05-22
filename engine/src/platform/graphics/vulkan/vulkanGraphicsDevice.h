@@ -67,7 +67,9 @@ namespace visutwin::canvas
         [[nodiscard]] VmaAllocator vmaAllocator() const { return _vmaAllocator; }
         [[nodiscard]] VkFormat swapchainFormat() const { return _swapchainFormat; }
         [[nodiscard]] VkFormat depthFormat() const { return _depthFormat; }
-        [[nodiscard]] VkDescriptorPool descriptorPool() const { return _descriptorPool; }
+        [[nodiscard]] VkDescriptorPool descriptorPool() const {
+            return _frames[_frameIndex].descriptorPool;
+        }
 
         // Upload command pool for immediate staging transfers
         [[nodiscard]] VkCommandPool uploadCommandPool() const { return _uploadCommandPool; }
@@ -120,12 +122,29 @@ namespace visutwin::canvas
             VkCommandPool   commandPool    = VK_NULL_HANDLE;
             VkCommandBuffer commandBuffer  = VK_NULL_HANDLE;
             VkSemaphore     imageAvailable = VK_NULL_HANDLE;
-            VkSemaphore     renderFinished = VK_NULL_HANDLE;
             VkFence         inFlightFence  = VK_NULL_HANDLE;
+            VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
         };
         std::array<PerFrame, kMaxFramesInFlight> _frames{};
         uint32_t _frameIndex = 0;
         uint32_t _swapchainImageIndex = 0;
+
+        // renderFinished semaphore is one per swapchain image (not per frame
+        // in flight): submit signals it, present waits on it, and we can't
+        // know which image the next acquire will hand us — so a per-frame
+        // slot can collide with a still-pending present.  Per-image, the
+        // semaphore's life is tied to the image it gates and validation is
+        // happy (VUID-vkQueueSubmit-pSignalSemaphores-00067).
+        std::vector<VkSemaphore> _renderFinishedSemaphores;
+
+        // Layout that the currently-acquired swapchain image is in.  Set to
+        // UNDEFINED at frame start; flipped to COLOR_ATTACHMENT_OPTIMAL the
+        // first time startRenderPass picks the swapchain target; read by
+        // onFrameEnd to decide what source layout to use when transitioning
+        // to PRESENT_SRC_KHR.  Without this, frames that never reach
+        // startRenderPass (e.g. early UI-only frames during asset loading)
+        // declare a wrong source layout and validation fails.
+        VkImageLayout _swapchainImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
         // ── Upload resources (for immediate staging transfers) ───────────
         VkCommandPool _uploadCommandPool = VK_NULL_HANDLE;
@@ -143,7 +162,9 @@ namespace visutwin::canvas
         VulkanRenderTarget* _activeOffscreenTarget = nullptr;
 
         // ── Descriptor pool ──────────────────────────────────────────────
-        VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
+        // One pool per frame-in-flight; reset at frame start (after fence
+        // wait) so descriptor sets allocated last frame don't get yanked
+        // while still being read by the GPU.
 
         // ── Push constants ───────────────────────────────────────────────
         struct PushConstants {
@@ -158,6 +179,13 @@ namespace visutwin::canvas
         VkImage _whiteImage = VK_NULL_HANDLE;
         VmaAllocation _whiteAllocation = VK_NULL_HANDLE;
         VkImageView _whiteImageView = VK_NULL_HANDLE;
+
+        // Default material UBO — bound at set 0 on every draw.  The shader
+        // expects 304-byte MaterialData but the current basic-forward path
+        // only reads baseColor / emissive / alphaCutoff, so we fill a small
+        // 64-byte block that covers those and leave the rest defaulted.
+        VkBuffer _defaultMaterialUbo = VK_NULL_HANDLE;
+        VmaAllocation _defaultMaterialUboAlloc = VK_NULL_HANDLE;
 
         int _width = 0;
         int _height = 0;

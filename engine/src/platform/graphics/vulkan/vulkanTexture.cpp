@@ -188,11 +188,20 @@ namespace visutwin::canvas::gpu
             vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);
             _currentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         } else {
-            // No host data — leave the image in UNDEFINED so the first
-            // render-target use can cleanly transition it to the appropriate
-            // attachment layout (UNDEFINED→COLOR/DEPTH_ATTACHMENT discards
-            // contents, which is what we want for a fresh RT).
-            _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            // No host data — but the image must still be in a defined layout
+            // before *any* shader can sample it (e.g. as a default-bound slot)
+            // and before any descriptor that references its view is allowed
+            // to be in flight.  Transition to SHADER_READ_ONLY here; the
+            // first render-target use will transition to the appropriate
+            // attachment layout, which is fine because LOAD_OP_CLEAR /
+            // LOAD_OP_DONT_CARE discard the contents anyway.
+            vulkanImmediateSubmit(vkDev, [&](VkCommandBuffer cmd) {
+                vulkanTransitionImageLayout(cmd, _image,
+                    VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    _aspect, 0, 1, 0, _arrayLayers);
+            });
+            _currentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
     }
 
