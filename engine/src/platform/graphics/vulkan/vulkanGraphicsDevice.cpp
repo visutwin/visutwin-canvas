@@ -298,9 +298,15 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::initSwapchain(int width, int height)
     {
+        // Use a linear (UNORM) swapchain — the shaders apply manual
+        // pow(1/2.2) for display gamma encoding, matching the Metal path
+        // which renders into a non-sRGB BGRA8Unorm drawable.  Choosing
+        // VK_FORMAT_B8G8R8A8_SRGB instead would make the hardware apply a
+        // second sRGB encode on store, doubling the gamma and washing out
+        // the rendered scene.
         vkb::SwapchainBuilder swapBuilder{_physicalDevice, _device, _surface};
         swapBuilder.set_desired_extent(static_cast<uint32_t>(width), static_cast<uint32_t>(height))
-                   .set_desired_format({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+                   .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
                    .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
                    .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
@@ -702,18 +708,19 @@ namespace visutwin::canvas
             }
             if (_activeOffscreenTarget->hasDepthAttachment()) {
                 const auto& da = _activeOffscreenTarget->depthAttachment();
-                VkImage depthImg = da.texture ? da.texture->image() : da.internalImage;
-                if (depthImg != VK_NULL_HANDLE) {
-                    vulkanTransitionImageLayout(cmd, depthImg,
+                // Only texture-backed depth can be sampled later — it was
+                // created with SAMPLED_BIT.  Internal depth lives only inside
+                // the render pass and stays in DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                // until the next pass that uses it (which will start with that
+                // same layout).  Transitioning internal depth to
+                // SHADER_READ_ONLY is illegal because its image lacks
+                // SAMPLED_BIT (VUID-VkImageMemoryBarrier-oldLayout-01211).
+                if (da.texture && da.texture->image() != VK_NULL_HANDLE) {
+                    vulkanTransitionImageLayout(cmd, da.texture->image(),
                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         VK_IMAGE_ASPECT_DEPTH_BIT);
-                    if (da.texture) {
-                        da.texture->setCurrentLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                    } else {
-                        const_cast<VulkanDepthAttachment&>(da).currentLayout =
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    }
+                    da.texture->setCurrentLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 }
             }
             _activeOffscreenTarget = nullptr;
@@ -742,10 +749,24 @@ namespace visutwin::canvas
         if (first) {
             auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
 
+            // Resolve attachment formats for pipeline creation.  The pipeline
+            // is keyed on these — a mismatch with the actual VkRenderingInfo
+            // attachments at draw-time is rejected by validation as
+            // VUID-vkCmdDrawIndexed-dynamicRenderingUnusedAttachments-08910.
+            VkFormat colorFmt = _swapchainFormat;
+            VkFormat depthFmt = _depthFormat;
+            if (_activeOffscreenTarget) {
+                const auto& colors = _activeOffscreenTarget->colorAttachments();
+                colorFmt = colors.empty() ? VK_FORMAT_UNDEFINED : colors[0].format;
+                depthFmt = _activeOffscreenTarget->hasDepthAttachment()
+                    ? _activeOffscreenTarget->depthAttachment().format
+                    : VK_FORMAT_UNDEFINED;
+            }
+
             VkPipeline pipeline = _renderPipeline->get(primitive,
                 vf ? vf->format() : nullptr,
                 vulkanShader, _blendState, _depthState, _cullMode,
-                _swapchainFormat, _depthFormat);
+                colorFmt, depthFmt);
 
             if (pipeline != _currentPipeline) {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);

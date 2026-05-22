@@ -207,6 +207,10 @@ namespace visutwin::canvas
         depthStencil.stencilTestEnable = VK_FALSE;
 
         // --- Color blend ---
+        // colorFormat == UNDEFINED means depth-only (e.g. shadow map pass).
+        // The pipeline must have zero colour attachments to match the render
+        // pass attached at draw time (VUID-vkCmdDrawIndexed-colorAttachmentCount-06179).
+        const bool hasColor = colorFormat != VK_FORMAT_UNDEFINED;
         VkPipelineColorBlendAttachmentState blendAttachment{};
         if (blendState && blendState->enabled()) {
             blendAttachment.blendEnable = VK_TRUE;
@@ -221,8 +225,8 @@ namespace visutwin::canvas
             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
         VkPipelineColorBlendStateCreateInfo colorBlend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-        colorBlend.attachmentCount = 1;
-        colorBlend.pAttachments = &blendAttachment;
+        colorBlend.attachmentCount = hasColor ? 1 : 0;
+        colorBlend.pAttachments = hasColor ? &blendAttachment : nullptr;
 
         // --- Dynamic state ---
         VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
@@ -232,8 +236,8 @@ namespace visutwin::canvas
 
         // --- Dynamic rendering (Vulkan 1.3) ---
         VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-        renderingInfo.colorAttachmentCount = 1;
-        renderingInfo.pColorAttachmentFormats = &colorFormat;
+        renderingInfo.colorAttachmentCount = hasColor ? 1 : 0;
+        renderingInfo.pColorAttachmentFormats = hasColor ? &colorFormat : nullptr;
         renderingInfo.depthAttachmentFormat = depthFormat;
 
         // --- Create pipeline ---
