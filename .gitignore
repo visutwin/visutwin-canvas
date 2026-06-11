@@ -24,6 +24,9 @@ build-vulkan
 
 CMakeUserPresets.json
 
+# Runtime artifacts from running examples
+imgui.ini
+
 # Private test assets (not for public distribution)
 /assets-private/
 /_assets-private/
