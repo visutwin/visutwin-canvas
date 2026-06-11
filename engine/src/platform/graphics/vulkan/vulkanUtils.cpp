@@ -152,7 +152,11 @@ namespace visutwin::canvas
     VkFormat vulkanMapPixelFormat(PixelFormat format)
     {
         switch (format) {
-        case PixelFormat::PIXELFORMAT_RGB8:         return VK_FORMAT_R8G8B8_UNORM;
+        // RGB8 is widened to RGBA8: the engine already treats RGB8 as 4
+        // bytes/pixel (constants.cpp) and the Metal backend maps it the same
+        // way.  A true 3-byte R8G8B8 image would misread that data and is
+        // barely supported by desktop drivers anyway.
+        case PixelFormat::PIXELFORMAT_RGB8:         return VK_FORMAT_R8G8B8A8_UNORM;
         case PixelFormat::PIXELFORMAT_RGBA8:        return VK_FORMAT_R8G8B8A8_UNORM;
         case PixelFormat::PIXELFORMAT_RGBA16F:      return VK_FORMAT_R16G16B16A16_SFLOAT;
         case PixelFormat::PIXELFORMAT_RGBA32F:      return VK_FORMAT_R32G32B32A32_SFLOAT;

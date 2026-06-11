@@ -55,6 +55,14 @@ namespace visutwin::canvas
         void startRenderPass(RenderPass* renderPass) override;
         void endRenderPass(RenderPass* renderPass) override;
 
+        // ── Dynamic state ────────────────────────────────────────────────
+        // Applied immediately to the live command buffer when a render pass
+        // is active (mirrors the Metal encoder behaviour); otherwise only the
+        // engine-side state is updated and picked up at the next pass start.
+        void setViewport(float x, float y, float w, float h) override;
+        void setScissor(int x, int y, int w, int h) override;
+        void setDepthBias(float depthBias, float slopeScale, float clamp) override;
+
         // ── Display management ───────────────────────────────────────────
         void setResolution(int width, int height) override;
         std::pair<int, int> size() const override;
@@ -87,6 +95,14 @@ namespace visutwin::canvas
         void destroyDepthResources();
         void createPerFrameResources();
         void destroyPerFrameResources();
+        void createSwapchainSemaphores();
+        void destroySwapchainSemaphores();
+
+        // Record current viewport/scissor/depth-bias state into the live
+        // command buffer.  Only valid while a render pass is active.
+        void applyViewport();
+        void applyScissor();
+        void applyDepthBias();
 
         SDL_Window* _window = nullptr;
 
@@ -160,6 +176,17 @@ namespace visutwin::canvas
         // transitions back to SHADER_READ_ONLY so subsequent passes can
         // sample the attachments.
         VulkanRenderTarget* _activeOffscreenTarget = nullptr;
+
+        // Extent of the render pass currently being recorded — viewport and
+        // scissor fall back to this when the engine state has zero size.
+        VkExtent2D _activeExtent{0, 0};
+
+        // Depth bias state (decals / coplanar overlays).  Pipelines enable
+        // depth bias with VK_DYNAMIC_STATE_DEPTH_BIAS, so these are recorded
+        // via vkCmdSetDepthBias at pass start and on every setDepthBias call.
+        float _depthBiasConstant = 0.0f;
+        float _depthBiasSlope = 0.0f;
+        float _depthBiasClamp = 0.0f;
 
         // ── Descriptor pool ──────────────────────────────────────────────
         // One pool per frame-in-flight; reset at frame start (after fence

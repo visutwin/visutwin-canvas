@@ -29,6 +29,9 @@ namespace visutwin::canvas
         explicit VulkanRenderPipeline(VulkanGraphicsDevice* device);
         ~VulkanRenderPipeline() override;
 
+        // instanceStride > 0 selects the shader's instanced vertex stage and
+        // adds a per-instance vertex binding (binding 1) carrying a
+        // column-major mat4 at locations 5-8.
         VkPipeline get(const Primitive& primitive,
             const std::shared_ptr<VertexFormat>& vertexFormat,
             const std::shared_ptr<VulkanShader>& shader,
@@ -36,7 +39,8 @@ namespace visutwin::canvas
             const std::shared_ptr<DepthState>& depthState,
             CullMode cullMode,
             VkFormat colorFormat,
-            VkFormat depthFormat);
+            VkFormat depthFormat,
+            uint32_t instanceStride = 0);
 
         [[nodiscard]] VkPipelineLayout pipelineLayout() const { return _pipelineLayout; }
         [[nodiscard]] VkDescriptorSetLayout materialSetLayout() const { return _materialSetLayout; }
@@ -50,7 +54,8 @@ namespace visutwin::canvas
             const std::shared_ptr<DepthState>& depthState,
             CullMode cullMode,
             VkFormat colorFormat,
-            VkFormat depthFormat);
+            VkFormat depthFormat,
+            uint32_t instanceStride);
 
         void createLayouts();
 

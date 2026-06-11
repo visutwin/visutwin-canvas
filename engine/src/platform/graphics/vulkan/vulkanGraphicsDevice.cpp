@@ -9,6 +9,7 @@
 #define VMA_IMPLEMENTATION
 #include "vulkanGraphicsDevice.h"
 
+#include <algorithm>
 #include <cstring>
 #include <VkBootstrap.h>
 #include <SDL3/SDL_vulkan.h>
@@ -403,7 +404,14 @@ namespace visutwin::canvas
             vkCreateDescriptorPool(_device, &dpInfo, nullptr, &frame.descriptorPool);
         }
 
-        // Per-swapchain-image renderFinished semaphores.
+        createSwapchainSemaphores();
+    }
+
+    void VulkanGraphicsDevice::createSwapchainSemaphores()
+    {
+        // One renderFinished semaphore per swapchain image — recreated
+        // alongside the swapchain because the image count can change on
+        // resize.
         _renderFinishedSemaphores.resize(_swapchainImages.size(), VK_NULL_HANDLE);
         VkSemaphoreCreateInfo semInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         for (auto& s : _renderFinishedSemaphores) {
@@ -411,12 +419,17 @@ namespace visutwin::canvas
         }
     }
 
-    void VulkanGraphicsDevice::destroyPerFrameResources()
+    void VulkanGraphicsDevice::destroySwapchainSemaphores()
     {
         for (auto& s : _renderFinishedSemaphores) {
             if (s != VK_NULL_HANDLE) vkDestroySemaphore(_device, s, nullptr);
         }
         _renderFinishedSemaphores.clear();
+    }
+
+    void VulkanGraphicsDevice::destroyPerFrameResources()
+    {
+        destroySwapchainSemaphores();
 
         for (auto& frame : _frames) {
             if (frame.descriptorPool != VK_NULL_HANDLE)
@@ -650,29 +663,24 @@ namespace visutwin::canvas
 
         vkCmdBeginRendering(cmd, &renderingInfo);
 
-        // Negative viewport height for Y-flip (match Metal/OpenGL convention).
-        VkViewport viewport{};
-        viewport.x = vx();
-        viewport.y = static_cast<float>(extent.height) - vy();
-        viewport.width = vw() > 0 ? vw() : static_cast<float>(extent.width);
-        viewport.height = -(vh() > 0 ? vh() : static_cast<float>(extent.height));
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-        VkRect2D scissor{};
-        scissor.offset = {sx(), sy()};
-        scissor.extent = {
-            sw() > 0 ? static_cast<uint32_t>(sw()) : extent.width,
-            sh() > 0 ? static_cast<uint32_t>(sh()) : extent.height
-        };
-        vkCmdSetScissor(cmd, 0, 1, &scissor);
-
         _activeOffscreenTarget = offscreen;
+        _activeExtent = extent;
         _dynamicRenderingActive = true;
         _insideRenderPass = true;
         _currentPipeline = VK_NULL_HANDLE;
         _pushConstantsDirty = true;
+
+        // Every pass starts with a full-target viewport/scissor — same
+        // contract as the Metal backend, which resets both at encoder
+        // creation.  Camera rects / gizmo viewports are applied afterwards
+        // through the setViewport/setScissor overrides.
+        GraphicsDevice::setViewport(0.0f, 0.0f,
+            static_cast<float>(extent.width), static_cast<float>(extent.height));
+        GraphicsDevice::setScissor(0, 0,
+            static_cast<int>(extent.width), static_cast<int>(extent.height));
+        applyViewport();
+        applyScissor();
+        applyDepthBias();
     }
 
     void VulkanGraphicsDevice::endRenderPass(RenderPass* renderPass)
@@ -730,6 +738,76 @@ namespace visutwin::canvas
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // Dynamic state (viewport / scissor / depth bias)
+    // ─────────────────────────────────────────────────────────────────────
+
+    void VulkanGraphicsDevice::setViewport(const float x, const float y, const float w, const float h)
+    {
+        GraphicsDevice::setViewport(x, y, w, h);
+        if (_dynamicRenderingActive) {
+            applyViewport();
+        }
+    }
+
+    void VulkanGraphicsDevice::setScissor(const int x, const int y, const int w, const int h)
+    {
+        GraphicsDevice::setScissor(x, y, w, h);
+        if (_dynamicRenderingActive) {
+            applyScissor();
+        }
+    }
+
+    void VulkanGraphicsDevice::setDepthBias(const float depthBias, const float slopeScale, const float clamp)
+    {
+        _depthBiasConstant = depthBias;
+        _depthBiasSlope = slopeScale;
+        _depthBiasClamp = clamp;
+        if (_dynamicRenderingActive) {
+            applyDepthBias();
+        }
+    }
+
+    void VulkanGraphicsDevice::applyViewport()
+    {
+        VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
+
+        const float w = vw() > 0.0f ? vw() : static_cast<float>(_activeExtent.width);
+        const float h = vh() > 0.0f ? vh() : static_cast<float>(_activeExtent.height);
+
+        // The engine uses a top-left-origin viewport (Metal convention).
+        // Vulkan's normal viewport maps NDC +Y downwards; placing the origin
+        // on the bottom edge of the rect and negating the height flips it so
+        // projection matrices written for Metal/GL work unchanged.
+        VkViewport viewport{};
+        viewport.x = vx();
+        viewport.y = vy() + h;
+        viewport.width = w;
+        viewport.height = -h;
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+    }
+
+    void VulkanGraphicsDevice::applyScissor()
+    {
+        VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
+
+        VkRect2D scissor{};
+        scissor.offset = {std::max(sx(), 0), std::max(sy(), 0)};
+        scissor.extent = {
+            sw() > 0 ? static_cast<uint32_t>(sw()) : _activeExtent.width,
+            sh() > 0 ? static_cast<uint32_t>(sh()) : _activeExtent.height
+        };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+    }
+
+    void VulkanGraphicsDevice::applyDepthBias()
+    {
+        VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
+        vkCmdSetDepthBias(cmd, _depthBiasConstant, _depthBiasClamp, _depthBiasSlope);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // Core rendering
     // ─────────────────────────────────────────────────────────────────────
 
@@ -749,6 +827,20 @@ namespace visutwin::canvas
         if (first) {
             auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
 
+            // Hardware instancing: the renderer binds the per-instance buffer
+            // at engine slot 5 with an isInstancing() format (same contract
+            // as the Metal backend).  Scan the upper slots for it.
+            const VulkanVertexBuffer* instancingVB = nullptr;
+            for (size_t i = 1; i < _vertexBuffers.size(); ++i) {
+                if (_vertexBuffers[i] && _vertexBuffers[i]->format() &&
+                    _vertexBuffers[i]->format()->isInstancing()) {
+                    instancingVB = static_cast<VulkanVertexBuffer*>(_vertexBuffers[i].get());
+                    break;
+                }
+            }
+            const uint32_t instanceStride = instancingVB && instancingVB->format()
+                ? static_cast<uint32_t>(instancingVB->format()->size()) : 0u;
+
             // Resolve attachment formats for pipeline creation.  The pipeline
             // is keyed on these — a mismatch with the actual VkRenderingInfo
             // attachments at draw-time is rejected by validation as
@@ -766,7 +858,7 @@ namespace visutwin::canvas
             VkPipeline pipeline = _renderPipeline->get(primitive,
                 vf ? vf->format() : nullptr,
                 vulkanShader, _blendState, _depthState, _cullMode,
-                colorFmt, depthFmt);
+                colorFmt, depthFmt, instanceStride);
 
             if (pipeline != _currentPipeline) {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -782,6 +874,14 @@ namespace visutwin::canvas
                     VkDeviceSize offset = 0;
                     vkCmdBindVertexBuffers(cmd, 0, 1, &buf, &offset);
                 }
+            }
+
+            // Bind per-instance buffer at binding 1 (matches the pipeline's
+            // VK_VERTEX_INPUT_RATE_INSTANCE binding).
+            if (instancingVB && instancingVB->buffer() != VK_NULL_HANDLE) {
+                VkBuffer instBuf = instancingVB->buffer();
+                VkDeviceSize offset = 0;
+                vkCmdBindVertexBuffers(cmd, 1, 1, &instBuf, &offset);
             }
         }
 
@@ -948,7 +1048,8 @@ namespace visutwin::canvas
         // Use embedded SPIR-V for the basic forward shader
         return std::make_shared<VulkanShader>(this, definition,
             vulkan_spirv::kForwardBasicVert, vulkan_spirv::kForwardBasicVertSize,
-            vulkan_spirv::kForwardBasicFrag, vulkan_spirv::kForwardBasicFragSize);
+            vulkan_spirv::kForwardBasicFrag, vulkan_spirv::kForwardBasicFragSize,
+            vulkan_spirv::kForwardBasicInstancedVert, vulkan_spirv::kForwardBasicInstancedVertSize);
     }
 
     std::unique_ptr<gpu::HardwareTexture> VulkanGraphicsDevice::createGPUTexture(Texture* texture)
@@ -997,9 +1098,13 @@ namespace visutwin::canvas
         if (_device != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(_device);
             destroyDepthResources();
+            destroySwapchainSemaphores();
             cleanupSwapchain();
             initSwapchain(_width, _height);
             createDepthResources();
+            // Image count may differ in the new swapchain — per-image
+            // semaphores must match it.
+            createSwapchainSemaphores();
         }
     }
 

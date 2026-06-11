@@ -20,14 +20,18 @@ namespace visutwin::canvas
         VulkanShader(GraphicsDevice* device, const ShaderDefinition& definition,
             const std::string& sourceCode = "");
 
-        // Construct from precompiled SPIR-V arrays.
+        // Construct from precompiled SPIR-V arrays.  The instanced vertex
+        // stage is optional — when present, the pipeline selects it for
+        // draws that carry a per-instance vertex buffer.
         VulkanShader(GraphicsDevice* device, const ShaderDefinition& definition,
             const uint32_t* vertSpirv, size_t vertWordCount,
-            const uint32_t* fragSpirv, size_t fragWordCount);
+            const uint32_t* fragSpirv, size_t fragWordCount,
+            const uint32_t* instancedVertSpirv = nullptr, size_t instancedVertWordCount = 0);
 
         ~VulkanShader() override;
 
         [[nodiscard]] VkShaderModule vertexModule() const { return _vertexModule; }
+        [[nodiscard]] VkShaderModule instancedVertexModule() const { return _instancedVertexModule; }
         [[nodiscard]] VkShaderModule fragmentModule() const { return _fragmentModule; }
         [[nodiscard]] VkShaderModule computeModule() const { return _computeModule; }
 
@@ -36,6 +40,7 @@ namespace visutwin::canvas
 
         VkDevice _vkDevice = VK_NULL_HANDLE;
         VkShaderModule _vertexModule = VK_NULL_HANDLE;
+        VkShaderModule _instancedVertexModule = VK_NULL_HANDLE;
         VkShaderModule _fragmentModule = VK_NULL_HANDLE;
         VkShaderModule _computeModule = VK_NULL_HANDLE;
     };

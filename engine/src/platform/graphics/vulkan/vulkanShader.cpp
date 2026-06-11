@@ -23,7 +23,8 @@ namespace visutwin::canvas
 
     VulkanShader::VulkanShader(GraphicsDevice* device, const ShaderDefinition& definition,
         const uint32_t* vertSpirv, size_t vertWordCount,
-        const uint32_t* fragSpirv, size_t fragWordCount)
+        const uint32_t* fragSpirv, size_t fragWordCount,
+        const uint32_t* instancedVertSpirv, size_t instancedVertWordCount)
         : Shader(device, definition)
     {
         auto* vkDevice = static_cast<VulkanGraphicsDevice*>(device);
@@ -33,11 +34,14 @@ namespace visutwin::canvas
             _vertexModule = createModule(vertSpirv, vertWordCount);
         if (fragSpirv && fragWordCount > 0)
             _fragmentModule = createModule(fragSpirv, fragWordCount);
+        if (instancedVertSpirv && instancedVertWordCount > 0)
+            _instancedVertexModule = createModule(instancedVertSpirv, instancedVertWordCount);
 
-        spdlog::debug("VulkanShader created: {} (vert={} frag={})",
+        spdlog::debug("VulkanShader created: {} (vert={} frag={} instanced={})",
             definition.name,
             _vertexModule != VK_NULL_HANDLE ? "ok" : "none",
-            _fragmentModule != VK_NULL_HANDLE ? "ok" : "none");
+            _fragmentModule != VK_NULL_HANDLE ? "ok" : "none",
+            _instancedVertexModule != VK_NULL_HANDLE ? "ok" : "none");
     }
 
     VulkanShader::~VulkanShader()
@@ -45,6 +49,8 @@ namespace visutwin::canvas
         if (_vkDevice != VK_NULL_HANDLE) {
             if (_vertexModule != VK_NULL_HANDLE)
                 vkDestroyShaderModule(_vkDevice, _vertexModule, nullptr);
+            if (_instancedVertexModule != VK_NULL_HANDLE)
+                vkDestroyShaderModule(_vkDevice, _instancedVertexModule, nullptr);
             if (_fragmentModule != VK_NULL_HANDLE)
                 vkDestroyShaderModule(_vkDevice, _fragmentModule, nullptr);
             if (_computeModule != VK_NULL_HANDLE)

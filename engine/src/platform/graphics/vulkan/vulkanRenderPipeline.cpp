@@ -90,7 +90,8 @@ namespace visutwin::canvas
         const std::shared_ptr<DepthState>& depthState,
         CullMode cullMode,
         VkFormat colorFormat,
-        VkFormat depthFormat)
+        VkFormat depthFormat,
+        uint32_t instanceStride)
     {
         // FNV-1a hash of pipeline state
         uint64_t hash = 14695981039346656037ULL;
@@ -103,12 +104,13 @@ namespace visutwin::canvas
         mix(static_cast<uint64_t>(cullMode));
         mix(static_cast<uint64_t>(colorFormat));
         mix(static_cast<uint64_t>(depthFormat));
+        mix(static_cast<uint64_t>(instanceStride));
 
         auto it = _cache.find(hash);
         if (it != _cache.end()) return it->second;
 
         VkPipeline pipeline = create(primitive, vertexFormat, shader,
-            blendState, depthState, cullMode, colorFormat, depthFormat);
+            blendState, depthState, cullMode, colorFormat, depthFormat, instanceStride);
         _cache[hash] = pipeline;
         return pipeline;
     }
@@ -120,16 +122,24 @@ namespace visutwin::canvas
         const std::shared_ptr<DepthState>& depthState,
         CullMode cullMode,
         VkFormat colorFormat,
-        VkFormat depthFormat)
+        VkFormat depthFormat,
+        uint32_t instanceStride)
     {
         VkDevice vk = _device->device();
 
+        // Use the instanced vertex stage only when the draw carries a
+        // per-instance buffer AND the shader provides that variant.
+        const bool instanced = instanceStride > 0 &&
+            shader->instancedVertexModule() != VK_NULL_HANDLE;
+
         // --- Shader stages ---
         std::vector<VkPipelineShaderStageCreateInfo> stages;
-        if (shader->vertexModule() != VK_NULL_HANDLE) {
+        VkShaderModule vertModule = instanced
+            ? shader->instancedVertexModule() : shader->vertexModule();
+        if (vertModule != VK_NULL_HANDLE) {
             VkPipelineShaderStageCreateInfo vert{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
             vert.stage = VK_SHADER_STAGE_VERTEX_BIT;
-            vert.module = shader->vertexModule();
+            vert.module = vertModule;
             vert.pName = "main";
             stages.push_back(vert);
         }
@@ -150,10 +160,8 @@ namespace visutwin::canvas
         // API, replace the body below with a generated descriptor list.
         const int stride = vertexFormat ? vertexFormat->size() : 56;
 
-        VkVertexInputBindingDescription binding{};
-        binding.binding = 0;
-        binding.stride = static_cast<uint32_t>(stride);
-        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        std::vector<VkVertexInputBindingDescription> bindings;
+        bindings.push_back({0, static_cast<uint32_t>(stride), VK_VERTEX_INPUT_RATE_VERTEX});
 
         std::vector<VkVertexInputAttributeDescription> attributes = {
             {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},       // position
@@ -163,9 +171,21 @@ namespace visutwin::canvas
             {4, 0, VK_FORMAT_R32G32_SFLOAT, 48},         // uv1
         };
 
+        if (instanced) {
+            // Binding 1: per-instance data — column-major mat4 occupies the
+            // first 64 bytes (4 × vec4 at locations 5-8).  Any trailing data
+            // in the instance stride (e.g. a 16-byte RGBA color) is skipped
+            // by the attribute layout until the shader consumes it.
+            bindings.push_back({1, instanceStride, VK_VERTEX_INPUT_RATE_INSTANCE});
+            attributes.push_back({5, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 0});
+            attributes.push_back({6, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 16});
+            attributes.push_back({7, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 32});
+            attributes.push_back({8, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 48});
+        }
+
         VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-        vertexInput.vertexBindingDescriptionCount = 1;
-        vertexInput.pVertexBindingDescriptions = &binding;
+        vertexInput.vertexBindingDescriptionCount = static_cast<uint32_t>(bindings.size());
+        vertexInput.pVertexBindingDescriptions = bindings.data();
         vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
         vertexInput.pVertexAttributeDescriptions = attributes.data();
 
@@ -186,7 +206,10 @@ namespace visutwin::canvas
         rasterization.polygonMode = VK_POLYGON_MODE_FILL;
         rasterization.cullMode = vulkanMapCullMode(cullMode);
         rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-        rasterization.depthBiasEnable = VK_FALSE;
+        // Depth bias values come from dynamic state (vkCmdSetDepthBias) so
+        // decals can toggle bias per draw without a pipeline permutation.
+        // Bias of (0, 0, 0) — the device default — is a no-op.
+        rasterization.depthBiasEnable = VK_TRUE;
         rasterization.lineWidth = 1.0f;
 
         // --- Multisample ---
@@ -229,9 +252,13 @@ namespace visutwin::canvas
         colorBlend.pAttachments = hasColor ? &blendAttachment : nullptr;
 
         // --- Dynamic state ---
-        VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkDynamicState dynamicStates[] = {
+            VK_DYNAMIC_STATE_VIEWPORT,
+            VK_DYNAMIC_STATE_SCISSOR,
+            VK_DYNAMIC_STATE_DEPTH_BIAS,
+        };
         VkPipelineDynamicStateCreateInfo dynamicState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-        dynamicState.dynamicStateCount = 2;
+        dynamicState.dynamicStateCount = 3;
         dynamicState.pDynamicStates = dynamicStates;
 
         // --- Dynamic rendering (Vulkan 1.3) ---
