@@ -26,10 +26,12 @@ layout(set = 0, binding = 0) uniform MaterialData {
     vec4 baseColorTransform1;
 } material;
 
-// Set 1: material texture slots. Only baseColor (0) and emissive (5) are
-// sampled by this basic shader; the rest are bound to a white fallback.
-layout(set = 1, binding = 0) uniform sampler2D baseColorMap;
-layout(set = 1, binding = 5) uniform sampler2D emissiveMap;
+// Set 1: material texture slots (engine slot numbering).
+layout(set = 1, binding = 0) uniform sampler2D baseColorMap;     // 0
+layout(set = 1, binding = 1) uniform sampler2D normalMap;        // 1
+layout(set = 1, binding = 3) uniform sampler2D metalRoughMap;    // 3 (glTF: G=rough, B=metal)
+layout(set = 1, binding = 4) uniform sampler2D occlusionMap;     // 4 (R = AO)
+layout(set = 1, binding = 5) uniform sampler2D emissiveMap;      // 5
 
 // Set 2 (dynamic UBO): per-pass lighting. Matches VulkanLightingUBO.
 struct Light {
@@ -49,14 +51,21 @@ layout(set = 2, binding = 0) uniform LightingData {
 } lighting;
 
 // Material flag bits (subset of the engine MaterialUniforms flags).
-const uint FLAG_ALPHA_TEST = 1u << 0;
+const uint FLAG_ALPHA_TEST   = 1u << 1;
+const uint FLAG_HAS_NORMAL   = 1u << 2;
+const uint FLAG_DOUBLE_SIDED = 1u << 3;
+const uint FLAG_HAS_METALROUGH = 1u << 6;
+const uint FLAG_HAS_OCCLUSION  = 1u << 9;
+const uint FLAG_HAS_EMISSIVE   = 1u << 11;
+
+const float PI = 3.14159265359;
 
 vec2 applyUvTransform(vec2 uv, vec4 row0, vec4 row1) {
     vec3 h = vec3(uv, 1.0);
     return vec2(dot(h, row0.xyz), dot(h, row1.xyz));
 }
 
-// Distance attenuation: inverse-square with a smooth range cutoff, or linear
+// Distance attenuation: inverse-square with a smooth range window, or linear
 // falloff when coneParams.z != 0 (matches the engine's falloffModeLinear).
 float distanceAttenuation(float dist, float range, float linearFalloff) {
     if (range <= 0.0) {
@@ -71,25 +80,80 @@ float distanceAttenuation(float dist, float range, float linearFalloff) {
     return invSq * window * window;
 }
 
+// GGX normal distribution.
+float distributionGGX(float NdotH, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float d = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    return a2 / max(PI * d * d, 1e-7);
+}
+
+// Smith geometry term (Schlick-GGX, direct lighting k).
+float geometrySmith(float NdotV, float NdotL, float roughness) {
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    float gv = NdotV / (NdotV * (1.0 - k) + k);
+    float gl = NdotL / (NdotL * (1.0 - k) + k);
+    return gv * gl;
+}
+
+vec3 fresnelSchlick(float cosTheta, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
 void main() {
     vec2 uv = applyUvTransform(fragUV0, material.baseColorTransform0, material.baseColorTransform1);
-    vec4 texColor = texture(baseColorMap, uv);
 
-    vec4 albedo = material.baseColor * texColor;
+    vec4 baseSample = texture(baseColorMap, uv);
+    vec4 albedo = material.baseColor * baseSample;
 
     if ((material.flags & FLAG_ALPHA_TEST) != 0u && albedo.a < material.alphaCutoff) {
         discard;
     }
 
+    // Metallic-roughness (glTF packs roughness in G, metallic in B).
+    float metallic = material.metallicFactor;
+    float roughness = material.roughnessFactor;
+    if ((material.flags & FLAG_HAS_METALROUGH) != 0u) {
+        vec4 mr = texture(metalRoughMap, uv);
+        roughness *= mr.g;
+        metallic *= mr.b;
+    }
+    roughness = clamp(roughness, 0.04, 1.0);
+    metallic = clamp(metallic, 0.0, 1.0);
+
+    // Ambient occlusion.
+    float ao = 1.0;
+    if ((material.flags & FLAG_HAS_OCCLUSION) != 0u) {
+        float occ = texture(occlusionMap, uv).r;
+        ao = mix(1.0, occ, material.occlusionStrength);
+    }
+
+    // Geometric normal, flipped for back faces on double-sided materials.
     vec3 N = normalize(fragWorldNormal);
+    if ((material.flags & FLAG_DOUBLE_SIDED) != 0u && !gl_FrontFacing) {
+        N = -N;
+    }
+
+    // Tangent-space normal mapping.
+    if ((material.flags & FLAG_HAS_NORMAL) != 0u) {
+        vec3 T = normalize(fragWorldTangent.xyz);
+        // Re-orthonormalize (Gram-Schmidt) and build the bitangent with the
+        // handedness sign carried in tangent.w.
+        T = normalize(T - N * dot(N, T));
+        vec3 B = cross(N, T) * fragWorldTangent.w;
+        vec3 tn = texture(normalMap, uv).xyz * 2.0 - 1.0;
+        tn.xy *= material.normalScale;
+        N = normalize(mat3(T, B, N) * tn);
+    }
+
     vec3 V = normalize(lighting.cameraPosExposure.xyz - fragWorldPos);
+    float NdotV = max(dot(N, V), 1e-4);
 
-    // Ambient term.
-    vec3 color = lighting.ambient.rgb * albedo.rgb;
+    vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
+    vec3 diffuseAlbedo = albedo.rgb * (1.0 - metallic);
 
-    // A cheap specular lobe whose tightness scales with (1 - roughness).
-    float shininess = mix(8.0, 128.0, 1.0 - clamp(material.roughnessFactor, 0.0, 1.0));
-    float specScale = 1.0 - clamp(material.roughnessFactor, 0.0, 1.0);
+    vec3 color = vec3(0.0);
 
     uint count = min(lighting.lightCount.x, 8u);
     for (uint i = 0u; i < count; ++i) {
@@ -99,16 +163,13 @@ void main() {
         vec3 L;
         float atten = 1.0;
         if (type == 0u) {
-            // Directional: direction points along light travel; L points to light.
             L = normalize(-light.directionType.xyz);
         } else {
             vec3 toLight = light.positionRange.xyz - fragWorldPos;
             float dist = length(toLight);
             L = (dist > 1e-4) ? toLight / dist : vec3(0.0, 1.0, 0.0);
             atten = distanceAttenuation(dist, light.positionRange.w, light.coneParams.z);
-
             if (type == 2u) {
-                // Spot cone falloff between inner and outer cosines.
                 float cd = dot(normalize(-light.directionType.xyz), L);
                 float spot = clamp((cd - light.coneParams.y) /
                                    max(light.coneParams.x - light.coneParams.y, 1e-4), 0.0, 1.0);
@@ -121,20 +182,33 @@ void main() {
             continue;
         }
 
-        vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.w * atten;
-
-        // Lambert diffuse.
-        vec3 diffuse = albedo.rgb * NdotL;
-
-        // Blinn-Phong specular, suppressed as roughness rises.
         vec3 H = normalize(L + V);
-        float spec = pow(max(dot(N, H), 0.0), shininess) * specScale;
+        float NdotH = max(dot(N, H), 0.0);
+        float VdotH = max(dot(V, H), 0.0);
 
-        color += radiance * (diffuse + vec3(spec));
+        float D = distributionGGX(NdotH, roughness);
+        float G = geometrySmith(NdotV, NdotL, roughness);
+        vec3 F = fresnelSchlick(VdotH, F0);
+
+        vec3 specular = (D * G) * F / max(4.0 * NdotV * NdotL, 1e-4);
+        vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+
+        vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.w * atten;
+        color += (kD * diffuseAlbedo / PI + specular) * radiance * NdotL;
     }
 
-    // Emissive (color × map; map defaults to white, color defaults to black).
-    color += material.emissiveColor.rgb * texture(emissiveMap, uv).rgb;
+    // Ambient (cheap pre-IBL approximation): diffuse + a Fresnel-weighted
+    // specular floor so metals are not pitch black without an environment.
+    vec3 ambientDiffuse = lighting.ambient.rgb * diffuseAlbedo;
+    vec3 ambientSpecular = lighting.ambient.rgb * F0;
+    color += (ambientDiffuse + ambientSpecular) * ao;
+
+    // Emissive.
+    vec3 emissive = material.emissiveColor.rgb;
+    if ((material.flags & FLAG_HAS_EMISSIVE) != 0u) {
+        emissive *= texture(emissiveMap, uv).rgb;
+    }
+    color += emissive;
 
     // Fog (linear or exponential) toward the fog color.
     float fogType = lighting.fogStartEndType.z;
