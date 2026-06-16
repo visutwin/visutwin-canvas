@@ -35,16 +35,19 @@ namespace visutwin::canvas
             vkDestroyDescriptorSetLayout(vk, _materialSetLayout, nullptr);
         if (_textureSetLayout != VK_NULL_HANDLE)
             vkDestroyDescriptorSetLayout(vk, _textureSetLayout, nullptr);
+        if (_lightingSetLayout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(vk, _lightingSetLayout, nullptr);
     }
 
     void VulkanRenderPipeline::createLayouts()
     {
         VkDevice vk = _device->device();
 
-        // Set 0: Material UBO
+        // Set 0: per-draw Material UBO (dynamic — one descriptor set, the ring
+        // buffer offset varies per draw).
         VkDescriptorSetLayoutBinding materialBinding{};
         materialBinding.binding = 0;
-        materialBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        materialBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         materialBinding.descriptorCount = 1;
         materialBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
@@ -67,16 +70,28 @@ namespace visutwin::canvas
         textureLayoutInfo.pBindings = texBindings.data();
         vkCreateDescriptorSetLayout(vk, &textureLayoutInfo, nullptr, &_textureSetLayout);
 
+        // Set 2: per-pass lighting/environment UBO (dynamic).
+        VkDescriptorSetLayoutBinding lightingBinding{};
+        lightingBinding.binding = 0;
+        lightingBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        lightingBinding.descriptorCount = 1;
+        lightingBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo lightingLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        lightingLayoutInfo.bindingCount = 1;
+        lightingLayoutInfo.pBindings = &lightingBinding;
+        vkCreateDescriptorSetLayout(vk, &lightingLayoutInfo, nullptr, &_lightingSetLayout);
+
         // Push constants: 2 × mat4 = 128 bytes
         VkPushConstantRange pushRange{};
         pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         pushRange.offset = 0;
         pushRange.size = 128;
 
-        VkDescriptorSetLayout setLayouts[] = {_materialSetLayout, _textureSetLayout};
+        VkDescriptorSetLayout setLayouts[] = {_materialSetLayout, _textureSetLayout, _lightingSetLayout};
 
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutInfo.setLayoutCount = 2;
+        layoutInfo.setLayoutCount = 3;
         layoutInfo.pSetLayouts = setLayouts;
         layoutInfo.pushConstantRangeCount = 1;
         layoutInfo.pPushConstantRanges = &pushRange;

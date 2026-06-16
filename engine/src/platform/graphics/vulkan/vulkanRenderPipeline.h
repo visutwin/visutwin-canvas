@@ -45,6 +45,7 @@ namespace visutwin::canvas
         [[nodiscard]] VkPipelineLayout pipelineLayout() const { return _pipelineLayout; }
         [[nodiscard]] VkDescriptorSetLayout materialSetLayout() const { return _materialSetLayout; }
         [[nodiscard]] VkDescriptorSetLayout textureSetLayout() const { return _textureSetLayout; }
+        [[nodiscard]] VkDescriptorSetLayout lightingSetLayout() const { return _lightingSetLayout; }
 
     private:
         VkPipeline create(const Primitive& primitive,
@@ -63,6 +64,7 @@ namespace visutwin::canvas
         VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout _materialSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout _textureSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSetLayout _lightingSetLayout = VK_NULL_HANDLE;
 
         std::unordered_map<uint64_t, VkPipeline> _cache;
     };

@@ -19,9 +19,12 @@
 #include "vulkanRenderTarget.h"
 #include "vulkanShader.h"
 #include "vulkanTexture.h"
+#include "vulkanUniformRingBuffer.h"
 #include "vulkanUtils.h"
 #include "vulkanVertexBuffer.h"
 
+#include "core/math/color.h"
+#include "core/math/vector3.h"
 #include "platform/graphics/renderPass.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/material.h"
@@ -136,33 +139,52 @@ namespace visutwin::canvas
             vmaDestroyBuffer(_vmaAllocator, stagingBuf, stagingAlloc);
         }
 
-        // Default material UBO (white baseColor, identity defaults) — bound
-        // at set 0 on every draw until a real material binding path lands.
+        // Per-draw / per-pass uniform ring buffer.  Sized for a generous draw
+        // count per frame: each region holds material + lighting slots for the
+        // whole frame.  Slot sizes are aligned up to the device's dynamic-UBO
+        // offset granularity inside the ring allocator.
         {
-            VkBufferCreateInfo bufInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-            bufInfo.size = 64;
-            bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-            VmaAllocationCreateInfo aInfo{};
-            aInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-            aInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-            VmaAllocationInfo allocInfo{};
-            vmaCreateBuffer(_vmaAllocator, &bufInfo, &aInfo,
-                &_defaultMaterialUbo, &_defaultMaterialUboAlloc, &allocInfo);
+            constexpr VkDeviceSize kRegionBytes = 8u * 1024u * 1024u;  // 8 MB / frame
+            _uniformRing = std::make_unique<VulkanUniformRingBuffer>(
+                _vmaAllocator, kMaxFramesInFlight, kRegionBytes, _uboOffsetAlignment);
 
-            struct MiniMaterial {
-                float baseColor[4]      = {1.0f, 1.0f, 1.0f, 1.0f};
-                float emissiveColor[4]  = {0.0f, 0.0f, 0.0f, 0.0f};
-                uint32_t flags          = 0;
-                uint32_t occludeSpecMode = 0;
-                float alphaCutoff       = 0.0f;
-                float metallicFactor    = 0.0f;
-                float roughnessFactor   = 1.0f;
-                float normalScale       = 1.0f;
-                float occlusionStrength = 1.0f;
-                float occludeSpecIntensity = 0.0f;
-            } mini;
-            static_assert(sizeof(MiniMaterial) <= 64);
-            memcpy(allocInfo.pMappedData, &mini, sizeof(mini));
+            // Persistent pool for the two dynamic-UBO descriptor sets.  Never
+            // reset — the sets reference the stable ring buffer and only their
+            // dynamic offsets change per draw.
+            std::array<VkDescriptorPoolSize, 1> sizes{};
+            sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2};
+            VkDescriptorPoolCreateInfo dpInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+            dpInfo.maxSets = 2;
+            dpInfo.poolSizeCount = static_cast<uint32_t>(sizes.size());
+            dpInfo.pPoolSizes = sizes.data();
+            vkCreateDescriptorPool(_device, &dpInfo, nullptr, &_persistentDescriptorPool);
+
+            auto allocSet = [&](VkDescriptorSetLayout layout, VkDeviceSize range) {
+                VkDescriptorSet set = VK_NULL_HANDLE;
+                VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+                ai.descriptorPool = _persistentDescriptorPool;
+                ai.descriptorSetCount = 1;
+                ai.pSetLayouts = &layout;
+                vkAllocateDescriptorSets(_device, &ai, &set);
+
+                VkDescriptorBufferInfo bi{};
+                bi.buffer = _uniformRing->buffer();
+                bi.offset = 0;            // base; per-draw dynamic offset supplies the slot
+                bi.range = range;         // size of one struct, not the whole buffer
+                VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                w.dstSet = set;
+                w.dstBinding = 0;
+                w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+                w.descriptorCount = 1;
+                w.pBufferInfo = &bi;
+                vkUpdateDescriptorSets(_device, 1, &w, 0, nullptr);
+                return set;
+            };
+
+            _materialDescriptorSet = allocSet(_renderPipeline->materialSetLayout(),
+                sizeof(MaterialUniforms));
+            _lightingDescriptorSet = allocSet(_renderPipeline->lightingSetLayout(),
+                sizeof(VulkanLightingUBO));
         }
 
         spdlog::info("VulkanGraphicsDevice initialized ({}x{})", _width, _height);
@@ -175,8 +197,10 @@ namespace visutwin::canvas
 
         _renderPipeline.reset();
 
-        if (_defaultMaterialUbo != VK_NULL_HANDLE)
-            vmaDestroyBuffer(_vmaAllocator, _defaultMaterialUbo, _defaultMaterialUboAlloc);
+        if (_persistentDescriptorPool != VK_NULL_HANDLE)
+            vkDestroyDescriptorPool(_device, _persistentDescriptorPool, nullptr);
+        _uniformRing.reset();
+
         if (_defaultSampler != VK_NULL_HANDLE)
             vkDestroySampler(_device, _defaultSampler, nullptr);
         if (_whiteImageView != VK_NULL_HANDLE)
@@ -280,6 +304,10 @@ namespace visutwin::canvas
             VK_API_VERSION_MAJOR(props.apiVersion),
             VK_API_VERSION_MINOR(props.apiVersion),
             VK_API_VERSION_PATCH(props.apiVersion));
+
+        // Dynamic UBO offsets must be a multiple of this (256 on MoltenVK).
+        _uboOffsetAlignment = props.limits.minUniformBufferOffsetAlignment;
+        if (_uboOffsetAlignment == 0) _uboOffsetAlignment = 256;
 
         vkb::DeviceBuilder deviceBuilder{vkbPhysical};
         deviceBuilder.add_pNext(&features13);
@@ -475,6 +503,15 @@ namespace visutwin::canvas
         VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(frame.commandBuffer, &beginInfo);
+
+        // Advance the uniform ring to this frame's region.  The fence wait
+        // above guarantees the GPU has finished reading it, so it is safe to
+        // overwrite.  Lighting is re-packed into the fresh region on the next
+        // draw (the prior frame's slot offset is now stale).
+        if (_uniformRing) {
+            _uniformRing->beginFrame(_frameIndex);
+        }
+        _lightingNeedsUpload = true;
 
         // Reset this frame's descriptor pool — fence wait above guarantees
         // the previous frame using this pool has completed on the GPU.
@@ -892,31 +929,39 @@ namespace visutwin::canvas
             _pushConstantsDirty = false;
         }
 
-        // Set 0: default material UBO.  The shader's MaterialData block is
-        // statically used, so it MUST be bound — leaving it dangling produces
-        // VUID-vkCmdDrawIndexed-None-08600 ("set N is not bound").
+        // Set 2: per-pass lighting UBO.  Packed once per frame (or whenever
+        // setLightingUniforms changed it) into the ring; every draw binds the
+        // same descriptor set with the cached dynamic offset.
+        if (_lightingNeedsUpload) {
+            _lightingSlotOffset = _uniformRing->allocate(&_lightingUbo, sizeof(VulkanLightingUBO));
+            _lightingNeedsUpload = false;
+        }
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _renderPipeline->pipelineLayout(), 2, 1, &_lightingDescriptorSet,
+            1, &_lightingSlotOffset);
+
+        // Set 0: per-draw material UBO.  Pack MaterialUniforms (or the
+        // material's custom uniform block) into the ring and bind via the
+        // dynamic offset.  The shader's MaterialData block is statically used,
+        // so it MUST be bound (VUID-vkCmdDrawIndexed-None-08600).
         {
-            VkDescriptorSet matSet = VK_NULL_HANDLE;
-            VkDescriptorSetAllocateInfo dsAlloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-            dsAlloc.descriptorPool = frame.descriptorPool;
-            dsAlloc.descriptorSetCount = 1;
-            auto matLayout = _renderPipeline->materialSetLayout();
-            dsAlloc.pSetLayouts = &matLayout;
-            if (vkAllocateDescriptorSets(_device, &dsAlloc, &matSet) == VK_SUCCESS) {
-                VkDescriptorBufferInfo bufInfo{};
-                bufInfo.buffer = _defaultMaterialUbo;
-                bufInfo.offset = 0;
-                bufInfo.range = VK_WHOLE_SIZE;
-                VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                write.dstSet = matSet;
-                write.dstBinding = 0;
-                write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                write.descriptorCount = 1;
-                write.pBufferInfo = &bufInfo;
-                vkUpdateDescriptorSets(_device, 1, &write, 0, nullptr);
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    _renderPipeline->pipelineLayout(), 0, 1, &matSet, 0, nullptr);
+            MaterialUniforms materialUniforms;
+            const void* uniformData = &materialUniforms;
+            size_t uniformSize = sizeof(MaterialUniforms);
+            if (_material) {
+                size_t customSize = 0;
+                const void* customData = _material->customUniformData(customSize);
+                if (customData && customSize > 0) {
+                    uniformData = customData;
+                    uniformSize = customSize;
+                } else {
+                    _material->updateUniforms(materialUniforms);
+                }
             }
+            const uint32_t matOffset = _uniformRing->allocate(uniformData, uniformSize);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                _renderPipeline->pipelineLayout(), 0, 1, &_materialDescriptorSet,
+                1, &matOffset);
         }
 
         // Bind default texture descriptor set (set 1) if no material textures
@@ -930,31 +975,11 @@ namespace visutwin::canvas
             dsAlloc.pSetLayouts = &layout;
 
             if (vkAllocateDescriptorSets(_device, &dsAlloc, &texSet) == VK_SUCCESS) {
-                // Determine texture to bind
-                VkImageView texView = _whiteImageView;
-                VkSampler texSampler = _defaultSampler;
-
-                // Check if material has a diffuse map (slot 0 = baseColorMap)
-                if (_material) {
-                    std::vector<TextureSlot> texSlots;
-                    _material->getTextureSlots(texSlots);
-                    for (auto& ts : texSlots) {
-                        if (ts.slot == 0 && ts.texture != nullptr) {
-                            auto* impl = ts.texture->impl();
-                            if (impl) {
-                                auto* vkTex = static_cast<gpu::VulkanTexture*>(impl);
-                                if (vkTex->imageView() != VK_NULL_HANDLE) {
-                                    texView = vkTex->imageView();
-                                    if (vkTex->sampler() != VK_NULL_HANDLE)
-                                        texSampler = vkTex->sampler();
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-
-                // Write all 6 texture bindings (use white fallback for unbound slots)
+                // Start every binding on the white fallback, then override the
+                // ones the material actually provides.  Material texture slots
+                // share the same numbering as the descriptor bindings
+                // (0=baseColor, 1=normal, 3=metalRough, 4=ao, 5=emissive), so
+                // slots in [0,5] map straight to binding == slot.
                 std::array<VkDescriptorImageInfo, 6> imageInfos{};
                 std::array<VkWriteDescriptorSet, 6> writes{};
                 for (uint32_t i = 0; i < 6; i++) {
@@ -969,9 +994,23 @@ namespace visutwin::canvas
                     writes[i].descriptorCount = 1;
                     writes[i].pImageInfo = &imageInfos[i];
                 }
-                // Override binding 0 with actual texture
-                imageInfos[0].sampler = texSampler;
-                imageInfos[0].imageView = texView;
+
+                if (_material) {
+                    std::vector<TextureSlot> texSlots;
+                    _material->getTextureSlots(texSlots);
+                    for (const auto& ts : texSlots) {
+                        if (ts.slot < 0 || ts.slot >= 6 || ts.texture == nullptr) {
+                            continue;
+                        }
+                        auto* vkTex = static_cast<gpu::VulkanTexture*>(ts.texture->impl());
+                        if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                            imageInfos[ts.slot].imageView = vkTex->imageView();
+                            if (vkTex->sampler() != VK_NULL_HANDLE) {
+                                imageInfos[ts.slot].sampler = vkTex->sampler();
+                            }
+                        }
+                    }
+                }
 
                 vkUpdateDescriptorSets(_device, 6, writes.data(), 0, nullptr);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -1023,16 +1062,82 @@ namespace visutwin::canvas
         bool enableNormalMaps, float exposure, const FogParams& fogParams,
         const ShadowParams& shadowParams, int toneMapping)
     {
-        (void)ambientColor; (void)lights; (void)cameraPosition;
-        (void)enableNormalMaps; (void)exposure; (void)fogParams;
-        (void)shadowParams; (void)toneMapping;
-        // TODO: pack into LightingUniforms UBO when full lighting is implemented
+        (void)enableNormalMaps; (void)shadowParams; (void)toneMapping;
+
+        // Ambient is authored in sRGB; shade in linear space like the Metal path.
+        Color ambientLinear;
+        ambientLinear.linear(&ambientColor);
+        _lightingUbo.ambient[0] = ambientLinear.r;
+        _lightingUbo.ambient[1] = ambientLinear.g;
+        _lightingUbo.ambient[2] = ambientLinear.b;
+        _lightingUbo.ambient[3] = 0.0f;
+
+        _lightingUbo.cameraPosExposure[0] = cameraPosition.getX();
+        _lightingUbo.cameraPosExposure[1] = cameraPosition.getY();
+        _lightingUbo.cameraPosExposure[2] = cameraPosition.getZ();
+        _lightingUbo.cameraPosExposure[3] = exposure;
+
+        constexpr uint32_t kMaxLights = 8;
+        const uint32_t count = std::min<uint32_t>(static_cast<uint32_t>(lights.size()), kMaxLights);
+        _lightingUbo.lightCount[0] = count;
+
+        for (uint32_t i = 0; i < kMaxLights; ++i) {
+            VulkanGpuLight& dst = _lightingUbo.lights[i];
+            if (i >= count) {
+                dst = VulkanGpuLight{};
+                dst.colorIntensity[3] = 0.0f;  // zero intensity → contributes nothing
+                continue;
+            }
+            const GpuLightData& src = lights[i];
+            Color lightLinear;
+            lightLinear.linear(&src.color);
+
+            dst.positionRange[0] = src.position.getX();
+            dst.positionRange[1] = src.position.getY();
+            dst.positionRange[2] = src.position.getZ();
+            dst.positionRange[3] = src.range;
+
+            dst.directionType[0] = src.direction.getX();
+            dst.directionType[1] = src.direction.getY();
+            dst.directionType[2] = src.direction.getZ();
+            // AreaRect (3) has no dedicated path yet — fall back to point shading.
+            dst.directionType[3] = (src.type == GpuLightType::AreaRect)
+                ? static_cast<float>(VulkanLightTypeTag::Point)
+                : static_cast<float>(static_cast<uint32_t>(src.type));
+
+            dst.colorIntensity[0] = lightLinear.r;
+            dst.colorIntensity[1] = lightLinear.g;
+            dst.colorIntensity[2] = lightLinear.b;
+            dst.colorIntensity[3] = src.intensity;
+
+            dst.coneParams[0] = src.innerConeCos;
+            dst.coneParams[1] = src.outerConeCos;
+            dst.coneParams[2] = src.falloffModeLinear ? 1.0f : 0.0f;
+            dst.coneParams[3] = 0.0f;
+        }
+
+        Color fogLinear;
+        fogLinear.linear(&fogParams.color);
+        _lightingUbo.fogColorDensity[0] = fogLinear.r;
+        _lightingUbo.fogColorDensity[1] = fogLinear.g;
+        _lightingUbo.fogColorDensity[2] = fogLinear.b;
+        _lightingUbo.fogColorDensity[3] = fogParams.density;
+        _lightingUbo.fogStartEndType[0] = fogParams.start;
+        _lightingUbo.fogStartEndType[1] = fogParams.end;
+        _lightingUbo.fogStartEndType[2] = fogParams.enabled ? 1.0f : 0.0f;
+        _lightingUbo.fogStartEndType[3] = 0.0f;
+
+        // Re-upload into the ring on the next draw.
+        _lightingNeedsUpload = true;
     }
 
     void VulkanGraphicsDevice::setEnvironmentUniforms(
         Texture* envAtlas, float skyboxIntensity, float skyboxMip,
         const Vector3& skyDomeCenter, bool isDome, Texture* skyboxCubeMap)
     {
+        // IBL / skybox sampling is not yet wired into the basic shader; the
+        // environment contributes only ambient today.  Kept as a no-op until
+        // the chunk-based shader port (Phase 3) consumes the env atlas.
         (void)envAtlas; (void)skyboxIntensity; (void)skyboxMip;
         (void)skyDomeCenter; (void)isDome; (void)skyboxCubeMap;
     }

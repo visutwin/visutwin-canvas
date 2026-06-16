@@ -12,13 +12,17 @@
 #include <vk_mem_alloc.h>
 #include <SDL3/SDL.h>
 
+#include <memory>
+
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
+#include "vulkanUniformLayouts.h"
 
 namespace visutwin::canvas
 {
     class VulkanRenderPipeline;
     class VulkanRenderTarget;
+    class VulkanUniformRingBuffer;
 
     class VulkanGraphicsDevice : public GraphicsDevice
     {
@@ -207,12 +211,21 @@ namespace visutwin::canvas
         VmaAllocation _whiteAllocation = VK_NULL_HANDLE;
         VkImageView _whiteImageView = VK_NULL_HANDLE;
 
-        // Default material UBO — bound at set 0 on every draw.  The shader
-        // expects 304-byte MaterialData but the current basic-forward path
-        // only reads baseColor / emissive / alphaCutoff, so we fill a small
-        // 64-byte block that covers those and leave the rest defaulted.
-        VkBuffer _defaultMaterialUbo = VK_NULL_HANDLE;
-        VmaAllocation _defaultMaterialUboAlloc = VK_NULL_HANDLE;
+        // ── Per-draw / per-pass uniform plumbing ─────────────────────────
+        // Host-visible ring buffer feeding the dynamic material (set 0) and
+        // lighting (set 2) descriptors.  Two persistent descriptor sets point
+        // at the ring; only the dynamic offset changes per draw/pass.
+        std::unique_ptr<VulkanUniformRingBuffer> _uniformRing;
+        VkDescriptorPool _persistentDescriptorPool = VK_NULL_HANDLE;
+        VkDescriptorSet _materialDescriptorSet = VK_NULL_HANDLE;
+        VkDescriptorSet _lightingDescriptorSet = VK_NULL_HANDLE;
+        VkDeviceSize _uboOffsetAlignment = 256;
+
+        // Packed lighting block; re-uploaded into the ring once per frame (or
+        // when setLightingUniforms changes it) and shared by every draw.
+        VulkanLightingUBO _lightingUbo{};
+        bool _lightingNeedsUpload = true;
+        uint32_t _lightingSlotOffset = 0;
 
         int _width = 0;
         int _height = 0;
