@@ -26,7 +26,7 @@ namespace visutwin::canvas
         float coneParams[4]     = {1.0f, 1.0f, 1.0f, 0.0f};   // innerCos, outerCos, falloffLinear, pad
     };
 
-    // Per-pass lighting block bound at set 2, binding 0.  592 bytes.
+    // Per-pass lighting block bound at set 2, binding 0.  608 bytes.
     struct VulkanLightingUBO
     {
         float ambient[4]            = {0.0f, 0.0f, 0.0f, 0.0f};  // rgb ambient
@@ -35,6 +35,16 @@ namespace visutwin::canvas
         VulkanGpuLight lights[8];
         float fogColorDensity[4]    = {0.0f, 0.0f, 0.0f, 0.0f};  // rgb fog color, w density
         float fogStartEndType[4]    = {10.0f, 100.0f, 0.0f, 0.0f}; // start, end, type(0/1/2), pad
+        // x=skyboxIntensity, y=hasEnvAtlas(0/1), z=encoding(0 srgb,1 rgbp,2 rgbm), w=skyboxMip
+        float envParams[4]          = {1.0f, 0.0f, 0.0f, 0.0f};
+    };
+
+    // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].
+    enum class VulkanEnvEncoding : uint32_t
+    {
+        Srgb = 0u,
+        Rgbp = 1u,
+        Rgbm = 2u,
     };
 
     // Light type encoding stored in VulkanGpuLight::directionType[3].

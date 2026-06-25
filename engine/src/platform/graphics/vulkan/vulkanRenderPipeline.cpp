@@ -37,6 +37,8 @@ namespace visutwin::canvas
             vkDestroyDescriptorSetLayout(vk, _textureSetLayout, nullptr);
         if (_lightingSetLayout != VK_NULL_HANDLE)
             vkDestroyDescriptorSetLayout(vk, _lightingSetLayout, nullptr);
+        if (_sceneSetLayout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(vk, _sceneSetLayout, nullptr);
     }
 
     void VulkanRenderPipeline::createLayouts()
@@ -82,16 +84,31 @@ namespace visutwin::canvas
         lightingLayoutInfo.pBindings = &lightingBinding;
         vkCreateDescriptorSetLayout(vk, &lightingLayoutInfo, nullptr, &_lightingSetLayout);
 
+        // Set 3: per-pass scene textures.  Binding 0 = environment atlas
+        // (equirectangular IBL + skybox source).  More scene textures
+        // (shadow maps, etc.) will extend this set in later increments.
+        VkDescriptorSetLayoutBinding sceneBinding{};
+        sceneBinding.binding = 0;
+        sceneBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        sceneBinding.descriptorCount = 1;
+        sceneBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo sceneLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        sceneLayoutInfo.bindingCount = 1;
+        sceneLayoutInfo.pBindings = &sceneBinding;
+        vkCreateDescriptorSetLayout(vk, &sceneLayoutInfo, nullptr, &_sceneSetLayout);
+
         // Push constants: 2 × mat4 = 128 bytes
         VkPushConstantRange pushRange{};
         pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         pushRange.offset = 0;
         pushRange.size = 128;
 
-        VkDescriptorSetLayout setLayouts[] = {_materialSetLayout, _textureSetLayout, _lightingSetLayout};
+        VkDescriptorSetLayout setLayouts[] = {
+            _materialSetLayout, _textureSetLayout, _lightingSetLayout, _sceneSetLayout};
 
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutInfo.setLayoutCount = 3;
+        layoutInfo.setLayoutCount = 4;
         layoutInfo.pSetLayouts = setLayouts;
         layoutInfo.pushConstantRangeCount = 1;
         layoutInfo.pPushConstantRanges = &pushRange;
@@ -106,7 +123,8 @@ namespace visutwin::canvas
         CullMode cullMode,
         VkFormat colorFormat,
         VkFormat depthFormat,
-        uint32_t instanceStride)
+        uint32_t instanceStride,
+        bool isSkybox)
     {
         // FNV-1a hash of pipeline state
         uint64_t hash = 14695981039346656037ULL;
@@ -120,12 +138,13 @@ namespace visutwin::canvas
         mix(static_cast<uint64_t>(colorFormat));
         mix(static_cast<uint64_t>(depthFormat));
         mix(static_cast<uint64_t>(instanceStride));
+        mix(isSkybox ? 1ull : 0ull);
 
         auto it = _cache.find(hash);
         if (it != _cache.end()) return it->second;
 
         VkPipeline pipeline = create(primitive, vertexFormat, shader,
-            blendState, depthState, cullMode, colorFormat, depthFormat, instanceStride);
+            blendState, depthState, cullMode, colorFormat, depthFormat, instanceStride, isSkybox);
         _cache[hash] = pipeline;
         return pipeline;
     }
@@ -138,7 +157,8 @@ namespace visutwin::canvas
         CullMode cullMode,
         VkFormat colorFormat,
         VkFormat depthFormat,
-        uint32_t instanceStride)
+        uint32_t instanceStride,
+        bool isSkybox)
     {
         VkDevice vk = _device->device();
 
@@ -146,11 +166,13 @@ namespace visutwin::canvas
         // per-instance buffer AND the shader provides that variant.
         const bool instanced = instanceStride > 0 &&
             shader->instancedVertexModule() != VK_NULL_HANDLE;
+        const bool useSky = isSkybox && shader->skyVertexModule() != VK_NULL_HANDLE;
 
         // --- Shader stages ---
         std::vector<VkPipelineShaderStageCreateInfo> stages;
-        VkShaderModule vertModule = instanced
-            ? shader->instancedVertexModule() : shader->vertexModule();
+        VkShaderModule vertModule = useSky
+            ? shader->skyVertexModule()
+            : (instanced ? shader->instancedVertexModule() : shader->vertexModule());
         if (vertModule != VK_NULL_HANDLE) {
             VkPipelineShaderStageCreateInfo vert{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
             vert.stage = VK_SHADER_STAGE_VERTEX_BIT;

@@ -86,6 +86,20 @@ namespace visutwin::canvas
         samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
         vkCreateSampler(_device, &samplerInfo, nullptr, &_defaultSampler);
 
+        // Environment-atlas sampler: clamp-to-edge so the equirectangular seam
+        // and the packed sub-rects (irradiance, roughness mips) never wrap
+        // into each other.  Trilinear; no anisotropy (matches the Metal
+        // envAtlasSampler rationale — anisotropy smears the atan2 wrap).
+        VkSamplerCreateInfo envSamplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        envSamplerInfo.magFilter = VK_FILTER_LINEAR;
+        envSamplerInfo.minFilter = VK_FILTER_LINEAR;
+        envSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        envSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        envSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        envSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        envSamplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+        vkCreateSampler(_device, &envSamplerInfo, nullptr, &_envSampler);
+
         // 1×1 white texture (fallback for unbound texture slots)
         {
             VkImageCreateInfo imgInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -201,6 +215,8 @@ namespace visutwin::canvas
             vkDestroyDescriptorPool(_device, _persistentDescriptorPool, nullptr);
         _uniformRing.reset();
 
+        if (_envSampler != VK_NULL_HANDLE)
+            vkDestroySampler(_device, _envSampler, nullptr);
         if (_defaultSampler != VK_NULL_HANDLE)
             vkDestroySampler(_device, _defaultSampler, nullptr);
         if (_whiteImageView != VK_NULL_HANDLE)
@@ -350,6 +366,15 @@ namespace visutwin::canvas
         _swapchainExtent = vkbSwap.extent;
         _swapchainImages = vkbSwap.get_images().value();
         _swapchainImageViews = vkbSwap.get_image_views().value();
+
+        // Adopt the actual swapchain extent as the device size.  The requested
+        // width/height can be stale or zero — SDL_GetWindowSize may report 0×0
+        // before the window is first shown — but the surface clamps the
+        // swapchain to its real size.  size() (and therefore the renderer's
+        // viewport/scissor) must reflect that, or every draw collapses to a
+        // 1×1 viewport.
+        _width = static_cast<int>(_swapchainExtent.width);
+        _height = static_cast<int>(_swapchainExtent.height);
     }
 
     void VulkanGraphicsDevice::cleanupSwapchain()
@@ -421,12 +446,14 @@ namespace visutwin::canvas
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
             vkCreateFence(_device, &fenceInfo, nullptr, &frame.inFlightFence);
 
-            std::array<VkDescriptorPoolSize, 2> poolSizes{};
-            poolSizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256};
-            poolSizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024};
+            // Per-frame pool serves the per-draw combined-image-sampler sets:
+            // set 1 (6 material textures) + set 3 (1 env atlas) = 7 samplers
+            // and 2 sets per draw.  Sized for a generous draw count per frame.
+            std::array<VkDescriptorPoolSize, 1> poolSizes{};
+            poolSizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8192};
 
             VkDescriptorPoolCreateInfo dpInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-            dpInfo.maxSets = 512;
+            dpInfo.maxSets = 2048;
             dpInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
             dpInfo.pPoolSizes = poolSizes.data();
             vkCreateDescriptorPool(_device, &dpInfo, nullptr, &frame.descriptorPool);
@@ -577,6 +604,7 @@ namespace visutwin::canvas
         // ── Resolve attachment views, formats, extents, and clear ops ──
         auto colorOps = renderPass ? renderPass->colorOps() : nullptr;
         auto dsOps = renderPass ? renderPass->depthStencilOps() : nullptr;
+
 
         std::vector<VkRenderingAttachmentInfo> colorInfos;
         VkRenderingAttachmentInfo depthInfo{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -892,10 +920,18 @@ namespace visutwin::canvas
                     : VK_FORMAT_UNDEFINED;
             }
 
+            // The skybox is an inward-facing shell whose authored winding,
+            // combined with our negative-height (Y-flipped) viewport, makes
+            // its CULLFACE_FRONT cull the visible inner faces.  Render it with
+            // no culling so the environment shell is always drawn, and select
+            // the depth-pin skybox vertex stage.
+            const bool isSkybox = _material && _material->isSkybox();
+            CullMode cullMode = isSkybox ? CullMode::CULLFACE_NONE : _cullMode;
+
             VkPipeline pipeline = _renderPipeline->get(primitive,
                 vf ? vf->format() : nullptr,
-                vulkanShader, _blendState, _depthState, _cullMode,
-                colorFmt, depthFmt, instanceStride);
+                vulkanShader, _blendState, _depthState, cullMode,
+                colorFmt, depthFmt, instanceStride, isSkybox);
 
             if (pipeline != _currentPipeline) {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -1018,6 +1054,43 @@ namespace visutwin::canvas
             }
         }
 
+        // Set 3: scene textures.  Binding 0 = environment atlas (or white
+        // fallback) read through the dedicated clamp-to-edge env sampler.
+        {
+            VkDescriptorSet sceneSet = VK_NULL_HANDLE;
+            VkDescriptorSetAllocateInfo dsAlloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            dsAlloc.descriptorPool = frame.descriptorPool;
+            dsAlloc.descriptorSetCount = 1;
+            auto layout = _renderPipeline->sceneSetLayout();
+            dsAlloc.pSetLayouts = &layout;
+
+            if (vkAllocateDescriptorSets(_device, &dsAlloc, &sceneSet) == VK_SUCCESS) {
+                VkImageView envView = _whiteImageView;
+                if (_envAtlasTexture) {
+                    auto* vkTex = static_cast<gpu::VulkanTexture*>(_envAtlasTexture->impl());
+                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                        envView = vkTex->imageView();
+                    }
+                }
+
+                VkDescriptorImageInfo envInfo{};
+                envInfo.sampler = _envSampler;
+                envInfo.imageView = envView;
+                envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = sceneSet;
+                write.dstBinding = 0;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write.descriptorCount = 1;
+                write.pImageInfo = &envInfo;
+
+                vkUpdateDescriptorSets(_device, 1, &write, 0, nullptr);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
+            }
+        }
+
         // Draw
         if (indexBuffer) {
             auto* ib = static_cast<VulkanIndexBuffer*>(indexBuffer.get());
@@ -1135,11 +1208,30 @@ namespace visutwin::canvas
         Texture* envAtlas, float skyboxIntensity, float skyboxMip,
         const Vector3& skyDomeCenter, bool isDome, Texture* skyboxCubeMap)
     {
-        // IBL / skybox sampling is not yet wired into the basic shader; the
-        // environment contributes only ambient today.  Kept as a no-op until
-        // the chunk-based shader port (Phase 3) consumes the env atlas.
-        (void)envAtlas; (void)skyboxIntensity; (void)skyboxMip;
+        // skyboxCubeMap / dome center are not consumed yet — the equirect
+        // atlas drives both IBL and the skybox in this increment.
         (void)skyDomeCenter; (void)isDome; (void)skyboxCubeMap;
+
+        _envAtlasTexture = envAtlas;
+
+        _lightingUbo.envParams[0] = skyboxIntensity;
+        _lightingUbo.envParams[1] = envAtlas ? 1.0f : 0.0f;
+        if (envAtlas) {
+            switch (envAtlas->encoding()) {
+            case TextureEncoding::RGBP:
+                _lightingUbo.envParams[2] = static_cast<float>(VulkanEnvEncoding::Rgbp);
+                break;
+            case TextureEncoding::RGBM:
+                _lightingUbo.envParams[2] = static_cast<float>(VulkanEnvEncoding::Rgbm);
+                break;
+            default:
+                _lightingUbo.envParams[2] = static_cast<float>(VulkanEnvEncoding::Srgb);
+                break;
+            }
+        }
+        _lightingUbo.envParams[3] = skyboxMip;
+
+        _lightingNeedsUpload = true;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1154,7 +1246,8 @@ namespace visutwin::canvas
         return std::make_shared<VulkanShader>(this, definition,
             vulkan_spirv::kForwardBasicVert, vulkan_spirv::kForwardBasicVertSize,
             vulkan_spirv::kForwardBasicFrag, vulkan_spirv::kForwardBasicFragSize,
-            vulkan_spirv::kForwardBasicInstancedVert, vulkan_spirv::kForwardBasicInstancedVertSize);
+            vulkan_spirv::kForwardBasicInstancedVert, vulkan_spirv::kForwardBasicInstancedVertSize,
+            vulkan_spirv::kForwardBasicSkyVert, vulkan_spirv::kForwardBasicSkyVertSize);
     }
 
     std::unique_ptr<gpu::HardwareTexture> VulkanGraphicsDevice::createGPUTexture(Texture* texture)

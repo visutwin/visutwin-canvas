@@ -31,7 +31,8 @@ namespace visutwin::canvas
 
         // instanceStride > 0 selects the shader's instanced vertex stage and
         // adds a per-instance vertex binding (binding 1) carrying a
-        // column-major mat4 at locations 5-8.
+        // column-major mat4 at locations 5-8.  isSkybox selects the depth-pin
+        // skybox vertex stage instead.
         VkPipeline get(const Primitive& primitive,
             const std::shared_ptr<VertexFormat>& vertexFormat,
             const std::shared_ptr<VulkanShader>& shader,
@@ -40,12 +41,14 @@ namespace visutwin::canvas
             CullMode cullMode,
             VkFormat colorFormat,
             VkFormat depthFormat,
-            uint32_t instanceStride = 0);
+            uint32_t instanceStride = 0,
+            bool isSkybox = false);
 
         [[nodiscard]] VkPipelineLayout pipelineLayout() const { return _pipelineLayout; }
         [[nodiscard]] VkDescriptorSetLayout materialSetLayout() const { return _materialSetLayout; }
         [[nodiscard]] VkDescriptorSetLayout textureSetLayout() const { return _textureSetLayout; }
         [[nodiscard]] VkDescriptorSetLayout lightingSetLayout() const { return _lightingSetLayout; }
+        [[nodiscard]] VkDescriptorSetLayout sceneSetLayout() const { return _sceneSetLayout; }
 
     private:
         VkPipeline create(const Primitive& primitive,
@@ -56,7 +59,8 @@ namespace visutwin::canvas
             CullMode cullMode,
             VkFormat colorFormat,
             VkFormat depthFormat,
-            uint32_t instanceStride);
+            uint32_t instanceStride,
+            bool isSkybox);
 
         void createLayouts();
 
@@ -65,6 +69,7 @@ namespace visutwin::canvas
         VkDescriptorSetLayout _materialSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout _textureSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout _lightingSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSetLayout _sceneSetLayout = VK_NULL_HANDLE;
 
         std::unordered_map<uint64_t, VkPipeline> _cache;
     };

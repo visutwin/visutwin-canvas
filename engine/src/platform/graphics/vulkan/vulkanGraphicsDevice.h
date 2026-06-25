@@ -227,6 +227,13 @@ namespace visutwin::canvas
         bool _lightingNeedsUpload = true;
         uint32_t _lightingSlotOffset = 0;
 
+        // Scene-global environment atlas (equirectangular IBL + skybox source),
+        // bound at set 3.  Non-owning — owned by the scene/asset system.  Read
+        // through a dedicated clamp-to-edge sampler so the atlas seam doesn't
+        // wrap (the per-texture sampler may use REPEAT).
+        Texture* _envAtlasTexture = nullptr;
+        VkSampler _envSampler = VK_NULL_HANDLE;
+
         int _width = 0;
         int _height = 0;
     };

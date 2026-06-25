@@ -48,13 +48,60 @@ layout(set = 2, binding = 0) uniform LightingData {
     Light lights[8];
     vec4 fogColorDensity;     // rgb fog color, w density
     vec4 fogStartEndType;     // start, end, type (0=off,1=linear,2=exp), pad
+    vec4 envParams;           // skyboxIntensity, hasEnvAtlas, encoding, skyboxMip
 } lighting;
+
+// Set 3: scene textures. Binding 0 = equirectangular environment atlas
+// (IBL irradiance + roughness mips + skybox source). Sampled via the device's
+// clamp-to-edge env sampler.
+layout(set = 3, binding = 0) uniform sampler2D envAtlas;
+
+// ── Environment atlas layout (matches engine bake / Metal common.metal) ──
+const float ATLAS_SIZE = 512.0;
+const float ATLAS_SEAM = 1.0 / 512.0;
+
+// Equirectangular direction → atlas UV (atan2 azimuth, asin elevation).
+vec2 dirToEquirect(vec3 dir) {
+    vec2 sph = vec2(atan(dir.x, dir.z), asin(clamp(dir.y, -1.0, 1.0)));
+    vec2 uv = sph / vec2(6.28318530718, 3.14159265359) + 0.5;
+    return vec2(uv.x, 1.0 - uv.y);
+}
+
+// Map a [0,1] uv into a packed sub-rect (x,y,w,h), insetting by the 1px seam.
+vec2 mapRect(vec2 uv, vec4 rect) {
+    return vec2(mix(rect.x + ATLAS_SEAM, rect.x + rect.z - ATLAS_SEAM, uv.x),
+                mix(rect.y + ATLAS_SEAM, rect.y + rect.w - ATLAS_SEAM, uv.y));
+}
+
+// Lambert irradiance sub-rect: 64×32 region at (128,384).
+vec2 mapAmbientUv(vec2 uv) {
+    return mapRect(uv, vec4(128.0 / ATLAS_SIZE, 384.0 / ATLAS_SIZE,
+                            64.0 / ATLAS_SIZE, 32.0 / ATLAS_SIZE));
+}
+
+// Prefiltered roughness mip `level` down the left edge: rect (0, 1-t, t, t/2).
+vec2 mapRoughnessUv(vec2 uv, float level) {
+    float t = 1.0 / exp2(level);
+    return mapRect(uv, vec4(0.0, 1.0 - t, t, t * 0.5));
+}
+
+vec3 decodeRGBP(vec4 raw) { vec3 c = raw.rgb * (-raw.a * 7.0 + 8.0); return c * c; }
+vec3 decodeRGBM(vec4 raw) { vec3 c = (8.0 * raw.a) * raw.rgb; return c * c; }
+vec3 srgbToLinear(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }
+
+vec3 decodeEnv(vec4 raw) {
+    uint enc = uint(lighting.envParams.z + 0.5);
+    if (enc == 1u) return decodeRGBP(raw);
+    if (enc == 2u) return decodeRGBM(raw);
+    return srgbToLinear(raw.rgb);
+}
 
 // Material flag bits (subset of the engine MaterialUniforms flags).
 const uint FLAG_ALPHA_TEST   = 1u << 1;
 const uint FLAG_HAS_NORMAL   = 1u << 2;
 const uint FLAG_DOUBLE_SIDED = 1u << 3;
 const uint FLAG_HAS_METALROUGH = 1u << 6;
+const uint FLAG_SKYBOX         = 1u << 8;
 const uint FLAG_HAS_OCCLUSION  = 1u << 9;
 const uint FLAG_HAS_EMISSIVE   = 1u << 11;
 
@@ -102,6 +149,24 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
 }
 
 void main() {
+    // Skybox: sample the environment along the view direction and output it
+    // directly — no surface lighting.  The sky mesh is centered on the camera,
+    // so the world-space position relative to the camera is the view ray.
+    if ((material.flags & FLAG_SKYBOX) != 0u) {
+        vec3 dir = normalize(fragWorldPos - lighting.cameraPosExposure.xyz);
+        vec3 sky;
+        if (lighting.envParams.y > 0.5) {
+            float intensity = max(lighting.envParams.x, 0.0);
+            sky = decodeEnv(texture(envAtlas, mapRoughnessUv(dirToEquirect(dir),
+                                    max(lighting.envParams.w, 0.0)))) * intensity;
+        } else {
+            sky = material.baseColor.rgb;
+        }
+        sky *= lighting.cameraPosExposure.w;            // exposure
+        outColor = vec4(pow(sky, vec3(1.0 / 2.2)), 1.0); // display-gamma encode
+        return;
+    }
+
     vec2 uv = applyUvTransform(fragUV0, material.baseColorTransform0, material.baseColorTransform1);
 
     vec4 baseSample = texture(baseColorMap, uv);
@@ -197,11 +262,38 @@ void main() {
         color += (kD * diffuseAlbedo / PI + specular) * radiance * NdotL;
     }
 
-    // Ambient (cheap pre-IBL approximation): diffuse + a Fresnel-weighted
-    // specular floor so metals are not pitch black without an environment.
-    vec3 ambientDiffuse = lighting.ambient.rgb * diffuseAlbedo;
-    vec3 ambientSpecular = lighting.ambient.rgb * F0;
-    color += (ambientDiffuse + ambientSpecular) * ao;
+    // Indirect lighting.  With an environment atlas: image-based diffuse
+    // irradiance + roughness-prefiltered specular reflection.  Without one:
+    // a flat ambient term plus a Fresnel-weighted specular floor so metals
+    // aren't pitch black.
+    vec3 indirect;
+    if (lighting.envParams.y > 0.5) {
+        float intensity = max(lighting.envParams.x, 0.0);
+
+        // Diffuse irradiance (the negate-X matches the engine's atlas lookup
+        // handedness).
+        vec3 diffDir = vec3(-N.x, N.y, N.z);
+        vec3 irradiance = decodeEnv(texture(envAtlas, mapAmbientUv(dirToEquirect(diffDir)))) * intensity;
+
+        // Specular: reflect, pick a roughness mip, trilinear between levels.
+        vec3 R = reflect(-V, N);
+        vec3 specDir = vec3(-R.x, R.y, R.z);
+        vec2 envUv = dirToEquirect(specDir);
+        float level = clamp(roughness * 5.0, 0.0, 5.0);
+        float l0 = floor(level);
+        vec3 envA = decodeEnv(texture(envAtlas, mapRoughnessUv(envUv, l0)));
+        vec3 envB = decodeEnv(texture(envAtlas, mapRoughnessUv(envUv, l0 + 1.0)));
+        vec3 prefiltered = mix(envA, envB, level - l0) * intensity;
+
+        // Schlick-roughness Fresnel for the environment term.
+        vec3 Fr = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
+        vec3 kD = (vec3(1.0) - Fr) * (1.0 - metallic);
+
+        indirect = kD * irradiance * diffuseAlbedo + prefiltered * Fr;
+    } else {
+        indirect = lighting.ambient.rgb * diffuseAlbedo + lighting.ambient.rgb * F0;
+    }
+    color += indirect * ao;
 
     // Emissive.
     vec3 emissive = material.emissiveColor.rgb;
