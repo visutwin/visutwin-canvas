@@ -23,10 +23,11 @@ namespace visutwin::canvas
         float positionRange[4]  = {0.0f, 0.0f, 0.0f, 0.0f};   // xyz position, w range
         float directionType[4]  = {0.0f, -1.0f, 0.0f, 0.0f};  // xyz direction, w type
         float colorIntensity[4] = {1.0f, 1.0f, 1.0f, 0.0f};   // rgb color, w intensity
-        float coneParams[4]     = {1.0f, 1.0f, 1.0f, 0.0f};   // innerCos, outerCos, falloffLinear, pad
+        // innerCos, outerCos, falloffLinear, localShadowIndex (-1 = none, 0/1 = local slot)
+        float coneParams[4]     = {1.0f, 1.0f, 1.0f, -1.0f};
     };
 
-    // Per-pass lighting block bound at set 2, binding 0.  912 bytes.
+    // Per-pass lighting block bound at set 2, binding 0.  1136 bytes.
     struct VulkanLightingUBO
     {
         float ambient[4]            = {0.0f, 0.0f, 0.0f, 0.0f};  // rgb ambient
@@ -47,6 +48,18 @@ namespace visutwin::canvas
         float shadowParams[4]          = {0.0f, 1.0f, 0.0001f, 1.0f};
         // x=normalBias, y=cascadeBlend, z/w pad
         float shadowParams2[4]         = {0.0f, 0.0f, 0.0f, 0.0f};
+
+        // Local light shadows (spot 2D + omni cubemap), up to 2 casters.
+        // Spot slots use a per-light VP matrix (world → shadow UV + depth);
+        // omni slots use a distance compare against the cubemap (no matrix).
+        float localShadowMatrix0[16]   = {};   // spot slot 0 world → atlas UV+depth
+        float localShadowMatrix1[16]   = {};   // spot slot 1
+        // x=depthBias, y=normalBias, z=intensity, w=isOmni(0/1)
+        float localShadowParams0[4]    = {0.0001f, 0.0f, 1.0f, 0.0f};
+        float localShadowParams1[4]    = {0.0001f, 0.0f, 1.0f, 0.0f};
+        // Omni cubemap params.  x=near, y=far, z=depthBias, w=intensity
+        float omniShadowParams0[4]     = {0.01f, 100.0f, 0.0001f, 1.0f};
+        float omniShadowParams1[4]     = {0.01f, 100.0f, 0.0001f, 1.0f};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

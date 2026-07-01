@@ -39,7 +39,7 @@ struct Light {
     vec4 positionRange;   // xyz position, w range
     vec4 directionType;   // xyz direction, w type (0=dir, 1=point, 2=spot)
     vec4 colorIntensity;  // rgb color, w intensity
-    vec4 coneParams;      // innerCos, outerCos, falloffLinear, pad
+    vec4 coneParams;      // innerCos, outerCos, falloffLinear, localShadowIndex(-1/0/1)
 };
 
 layout(set = 2, binding = 0) uniform LightingData {
@@ -54,13 +54,40 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 shadowCascadeDistances; // per-cascade far split (view-space depth)
     vec4 shadowParams;        // enabled, numCascades, depthBias, strength
     vec4 shadowParams2;       // normalBias, cascadeBlend, pad, pad
+    mat4 localShadowMatrix0;  // spot slot 0: world → shadow UV + depth
+    mat4 localShadowMatrix1;  // spot slot 1
+    vec4 localShadowParams0;  // depthBias, normalBias, intensity, isOmni
+    vec4 localShadowParams1;
+    vec4 omniShadowParams0;   // near, far, depthBias, intensity
+    vec4 omniShadowParams1;
 } lighting;
 
 // Set 3: scene textures. Binding 0 = equirectangular environment atlas
 // (IBL irradiance + roughness mips + skybox source). Binding 1 = directional
-// cascaded shadow-map depth atlas (sampled via a NEAREST clamp sampler).
+// cascaded shadow-map depth atlas. Bindings 2-3 = local spot-light 2D depth
+// maps; bindings 4-5 = omni point-light cubemap depth maps. All shadow maps
+// are sampled through a NEAREST clamp sampler with manual depth comparison.
 layout(set = 3, binding = 0) uniform sampler2D envAtlas;
 layout(set = 3, binding = 1) uniform sampler2D shadowMap;
+layout(set = 3, binding = 2) uniform sampler2D localShadowMap0;
+layout(set = 3, binding = 3) uniform sampler2D localShadowMap1;
+layout(set = 3, binding = 4) uniform samplerCube omniShadowCube0;
+layout(set = 3, binding = 5) uniform samplerCube omniShadowCube1;
+
+// 3×3 percentage-closer filter: average binary depth comparisons over the
+// texel neighbourhood.  `receiver` is the (biased) light-space depth of the
+// shaded point; a texel is lit when its stored occluder depth is no nearer.
+float pcf3x3(sampler2D tex, vec2 uv, float receiver) {
+    vec2 texel = 1.0 / vec2(textureSize(tex, 0));
+    float sum = 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            float occluder = texture(tex, uv + vec2(x, y) * texel).r;
+            sum += (receiver <= occluder) ? 1.0 : 0.0;
+        }
+    }
+    return sum / 9.0;
+}
 
 // Directional cascaded-shadow visibility (1 = lit, 0 = shadowed) for a world
 // position, using view-space depth to pick the cascade.  Returns 1.0 when
@@ -101,20 +128,60 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
         return 1.0;
     }
 
-    // Manual 3×3 PCF: average binary depth comparisons over the neighbourhood.
+    // Manual 3×3 PCF, then scale by shadow strength (0 = no shadow, 1 = full).
     float receiver = coord.z - lighting.shadowParams.z;
-    vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
-    float sum = 0.0;
-    for (int y = -1; y <= 1; ++y) {
-        for (int x = -1; x <= 1; ++x) {
-            float occluder = texture(shadowMap, coord.xy + vec2(x, y) * texel).r;
-            sum += (receiver <= occluder) ? 1.0 : 0.0;
-        }
-    }
-    float visible = sum / 9.0;
-
-    // Scale by shadow strength (0 = no shadow, 1 = full).
+    float visible = pcf3x3(shadowMap, coord.xy, receiver);
     return mix(1.0, visible, lighting.shadowParams.w);
+}
+
+// Spot-light 2D shadow visibility (1 = lit, 0 = shadowed).  Mirrors the
+// directional path but with a single per-light matrix, bias, and intensity.
+float sampleSpotShadow(int slot, vec3 worldPos, vec3 N, vec3 L) {
+    mat4 m  = (slot == 0) ? lighting.localShadowMatrix0 : lighting.localShadowMatrix1;
+    vec4 sp = (slot == 0) ? lighting.localShadowParams0 : lighting.localShadowParams1;
+
+    // World-space normal bias, scaled by grazing angle (matches Metal).
+    float ndl = clamp(dot(N, L), 0.0, 1.0);
+    float sinAngle = sqrt(max(1.0 - ndl * ndl, 0.0));
+    vec3 biased = worldPos + N * (sp.y * sinAngle);
+
+    vec4 sc = m * vec4(biased, 1.0);
+    if (sc.w <= 0.0) {
+        return 1.0;
+    }
+    vec3 coord = sc.xyz / sc.w;
+    // Non-flipped (positive-height) shadow render — flip V like the CSM path.
+    coord.y = 1.0 - coord.y;
+    if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0 ||
+        coord.z < 0.0 || coord.z > 1.0) {
+        return 1.0;
+    }
+
+    float receiver = coord.z - sp.x;
+    float visible = (slot == 0)
+        ? pcf3x3(localShadowMap0, coord.xy, receiver)
+        : pcf3x3(localShadowMap1, coord.xy, receiver);
+    // Local shadows blend toward (1 - intensity) when occluded.
+    return mix(1.0 - clamp(sp.z, 0.0, 1.0), 1.0, visible);
+}
+
+// Omni (point) light cubemap shadow visibility.  The light→fragment direction
+// selects the cubemap face; the stored depth is the perspective-projected
+// distance along the dominant axis, reconstructed here from the linear
+// distance to match the shadow render's projection.
+float sampleOmniShadow(int slot, vec3 worldPos, vec3 lightPos) {
+    vec4 op = (slot == 0) ? lighting.omniShadowParams0 : lighting.omniShadowParams1;
+    float nearV = op.x, farV = op.y, bias = op.z, intensity = op.w;
+
+    vec3 dir = worldPos - lightPos;
+    float d = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
+    float denom = (farV - nearV) * d;
+    float compareValue = farV * (d - nearV) / max(denom, 1e-6) - bias;
+
+    float occluder = (slot == 0) ? texture(omniShadowCube0, dir).r
+                                 : texture(omniShadowCube1, dir).r;
+    float visible = (compareValue <= occluder) ? 1.0 : 0.0;
+    return mix(1.0 - clamp(intensity, 0.0, 1.0), 1.0, visible);
 }
 
 // ── Environment atlas layout (matches engine bake / Metal common.metal) ──
@@ -302,6 +369,19 @@ void main() {
                 float spot = clamp((cd - light.coneParams.y) /
                                    max(light.coneParams.x - light.coneParams.y, 1e-4), 0.0, 1.0);
                 atten *= spot * spot;
+            }
+
+            // Local light shadows: coneParams.w carries the shadow slot
+            // (-1 = no shadow, 0/1 = local caster).  Point lights use the
+            // cubemap path, spot lights the projected 2D path.
+            float shadowIndex = light.coneParams.w;
+            if (shadowIndex >= 0.0) {
+                int slot = int(shadowIndex + 0.5);
+                if (type == 1u) {
+                    atten *= sampleOmniShadow(slot, fragWorldPos, light.positionRange.xyz);
+                } else if (type == 2u) {
+                    atten *= sampleSpotShadow(slot, fragWorldPos, N, L);
+                }
             }
         }
 
