@@ -244,6 +244,20 @@ namespace visutwin::canvas
         Texture* _shadowMapTexture = nullptr;
         VkSampler _shadowSampler = VK_NULL_HANDLE;
 
+        // Local light shadows (set 3): up to 2 spot-light 2D depth maps and 2
+        // omni point-light cubemap depth maps.  Non-owning — owned by the
+        // per-light ShadowMap in the renderer.
+        Texture* _localShadowTexture0 = nullptr;
+        Texture* _localShadowTexture1 = nullptr;
+        Texture* _omniShadowCube0 = nullptr;
+        Texture* _omniShadowCube1 = nullptr;
+
+        // 1×1 white cubemap: fallback for unbound omni shadow slots (a 2D white
+        // view cannot back a samplerCube descriptor).
+        VkImage _whiteCubeImage = VK_NULL_HANDLE;
+        VmaAllocation _whiteCubeAllocation = VK_NULL_HANDLE;
+        VkImageView _whiteCubeImageView = VK_NULL_HANDLE;
+
         int _width = 0;
         int _height = 0;
     };

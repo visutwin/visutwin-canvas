@@ -168,6 +168,68 @@ namespace visutwin::canvas
             vmaDestroyBuffer(_vmaAllocator, stagingBuf, stagingAlloc);
         }
 
+        // 1×1 white cubemap (fallback for unbound omni shadow slots).  Six
+        // layers + cube-compatible so it can back a samplerCube descriptor;
+        // every face is white so an unshadowed omni light reads fully lit.
+        {
+            VkImageCreateInfo imgInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+            imgInfo.imageType = VK_IMAGE_TYPE_2D;
+            imgInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+            imgInfo.extent = {1, 1, 1};
+            imgInfo.mipLevels = 1;
+            imgInfo.arrayLayers = 6;
+            imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            imgInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            imgInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+
+            VmaAllocationCreateInfo aInfo{};
+            aInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+            vmaCreateImage(_vmaAllocator, &imgInfo, &aInfo, &_whiteCubeImage, &_whiteCubeAllocation, nullptr);
+
+            VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            viewInfo.image = _whiteCubeImage;
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+            viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+            viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
+            vkCreateImageView(_device, &viewInfo, nullptr, &_whiteCubeImageView);
+
+            uint32_t whitePixels[6] = {0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu,
+                                       0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu};
+            VkBuffer stagingBuf;
+            VmaAllocation stagingAlloc;
+            VkBufferCreateInfo sInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            sInfo.size = sizeof(whitePixels);
+            sInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            VmaAllocationCreateInfo saInfo{};
+            saInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+            vmaCreateBuffer(_vmaAllocator, &sInfo, &saInfo, &stagingBuf, &stagingAlloc, nullptr);
+            void* mapped;
+            vmaMapMemory(_vmaAllocator, stagingAlloc, &mapped);
+            memcpy(mapped, whitePixels, sizeof(whitePixels));
+            vmaUnmapMemory(_vmaAllocator, stagingAlloc);
+
+            vulkanImmediateSubmit(this, [&](VkCommandBuffer cmd) {
+                vulkanTransitionImageLayout(cmd, _whiteCubeImage,
+                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6);
+                // One copy per face (each face is a distinct array layer).
+                VkBufferImageCopy regions[6]{};
+                for (uint32_t f = 0; f < 6; ++f) {
+                    regions[f].bufferOffset = f * sizeof(uint32_t);
+                    regions[f].imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, f, 1};
+                    regions[f].imageExtent = {1, 1, 1};
+                }
+                vkCmdCopyBufferToImage(cmd, stagingBuf, _whiteCubeImage,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6, regions);
+                vulkanTransitionImageLayout(cmd, _whiteCubeImage,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6);
+            });
+            vmaDestroyBuffer(_vmaAllocator, stagingBuf, stagingAlloc);
+        }
+
         // Per-draw / per-pass uniform ring buffer.  Sized for a generous draw
         // count per frame: each region holds material + lighting slots for the
         // whole frame.  Slot sizes are aligned up to the device's dynamic-UBO
@@ -240,6 +302,10 @@ namespace visutwin::canvas
             vkDestroyImageView(_device, _whiteImageView, nullptr);
         if (_whiteImage != VK_NULL_HANDLE)
             vmaDestroyImage(_vmaAllocator, _whiteImage, _whiteAllocation);
+        if (_whiteCubeImageView != VK_NULL_HANDLE)
+            vkDestroyImageView(_device, _whiteCubeImageView, nullptr);
+        if (_whiteCubeImage != VK_NULL_HANDLE)
+            vmaDestroyImage(_vmaAllocator, _whiteCubeImage, _whiteCubeAllocation);
 
         destroyPerFrameResources();
 
@@ -1103,24 +1169,48 @@ namespace visutwin::canvas
                     return _whiteImageView;
                 };
 
-                std::array<VkDescriptorImageInfo, 2> sceneInfos{};
+                // Resolve a cube view, falling back to the white cubemap so an
+                // unbound omni slot reads fully lit (and never mixes a 2D view
+                // into a samplerCube descriptor, which is invalid).
+                auto resolveCubeView = [this](Texture* tex) -> VkImageView {
+                    if (tex) {
+                        auto* vkTex = static_cast<gpu::VulkanTexture*>(tex->impl());
+                        if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                            return vkTex->imageView();
+                        }
+                    }
+                    return _whiteCubeImageView;
+                };
+
+                // During a depth-only shadow render the shadow maps are the
+                // attachments being written, so binding them for sampling would
+                // be a read-write feedback loop — bind white fallbacks instead.
+                std::array<VkDescriptorImageInfo, 6> sceneInfos{};
                 // Binding 0: environment atlas.
                 sceneInfos[0].sampler = _envSampler;
                 sceneInfos[0].imageView = resolveView(_envAtlasTexture);
-                sceneInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                // Binding 1: directional shadow-map depth atlas (white fallback
-                // when no shadow-casting directional light is active).  During
-                // the shadow render pass itself the atlas is the depth
-                // attachment being written, so binding it here would be a
-                // read-write feedback loop on the same image — bind white
-                // instead for depth-only passes.
+                // Binding 1: directional cascaded shadow-map depth atlas.
                 sceneInfos[1].sampler = _shadowSampler;
                 sceneInfos[1].imageView = _depthOnlyPass ? _whiteImageView
                                                          : resolveView(_shadowMapTexture);
-                sceneInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                // Bindings 2-3: local spot-light 2D depth maps.
+                sceneInfos[2].sampler = _shadowSampler;
+                sceneInfos[2].imageView = _depthOnlyPass ? _whiteImageView
+                                                         : resolveView(_localShadowTexture0);
+                sceneInfos[3].sampler = _shadowSampler;
+                sceneInfos[3].imageView = _depthOnlyPass ? _whiteImageView
+                                                         : resolveView(_localShadowTexture1);
+                // Bindings 4-5: omni point-light cubemap depth maps.
+                sceneInfos[4].sampler = _shadowSampler;
+                sceneInfos[4].imageView = _depthOnlyPass ? _whiteCubeImageView
+                                                         : resolveCubeView(_omniShadowCube0);
+                sceneInfos[5].sampler = _shadowSampler;
+                sceneInfos[5].imageView = _depthOnlyPass ? _whiteCubeImageView
+                                                         : resolveCubeView(_omniShadowCube1);
 
-                std::array<VkWriteDescriptorSet, 2> writes{};
-                for (uint32_t i = 0; i < 2; ++i) {
+                std::array<VkWriteDescriptorSet, 6> writes{};
+                for (uint32_t i = 0; i < sceneInfos.size(); ++i) {
+                    sceneInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                     writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                     writes[i].dstSet = sceneSet;
                     writes[i].dstBinding = i;
@@ -1129,7 +1219,8 @@ namespace visutwin::canvas
                     writes[i].pImageInfo = &sceneInfos[i];
                 }
 
-                vkUpdateDescriptorSets(_device, 2, writes.data(), 0, nullptr);
+                vkUpdateDescriptorSets(_device, static_cast<uint32_t>(writes.size()),
+                    writes.data(), 0, nullptr);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
             }
@@ -1200,6 +1291,54 @@ namespace visutwin::canvas
         _lightingUbo.shadowParams2[0] = shadowParams.normalBias;
         _lightingUbo.shadowParams2[1] = shadowParams.cascadeBlend;
 
+        // Local light shadows (spot 2D + omni cubemap), up to 2 casters.  Each
+        // light's coneParams[3] carries its slot index (set in the light loop
+        // below).  Reset the texture pointers every frame; only active slots
+        // rebind them.  Matches MetalUniformBinder::packLocalShadow.
+        _localShadowTexture0 = nullptr;
+        _localShadowTexture1 = nullptr;
+        _omniShadowCube0 = nullptr;
+        _omniShadowCube1 = nullptr;
+        for (int i = 0; i < ShadowParams::kMaxLocalShadows; ++i) {
+            float* matDst    = (i == 0) ? _lightingUbo.localShadowMatrix0 : _lightingUbo.localShadowMatrix1;
+            float* paramsDst = (i == 0) ? _lightingUbo.localShadowParams0 : _lightingUbo.localShadowParams1;
+            float* omniDst   = (i == 0) ? _lightingUbo.omniShadowParams0  : _lightingUbo.omniShadowParams1;
+
+            if (i >= shadowParams.localShadowCount) {
+                std::memset(matDst, 0, 16 * sizeof(float));
+                paramsDst[0] = 0.0001f; paramsDst[1] = 0.0f; paramsDst[2] = 1.0f; paramsDst[3] = 0.0f;
+                continue;
+            }
+
+            const ShadowParams::LocalShadow& ls = shadowParams.localShadows[i];
+            if (ls.isOmni) {
+                // Omni: bind cubemap, pack [near, far, bias, intensity].  Far is
+                // stashed in VP[0][0] by the renderer; the shader bias is a fixed
+                // small secondary guard (polygon offset is the primary defence).
+                Texture*& cube = (i == 0) ? _omniShadowCube0 : _omniShadowCube1;
+                cube = ls.shadowMap;
+                omniDst[0] = 0.01f;
+                omniDst[1] = ls.viewProjection.getElement(0, 0);
+                omniDst[2] = 0.001f;
+                omniDst[3] = ls.intensity;
+                std::memset(matDst, 0, 16 * sizeof(float));
+            } else {
+                // Spot: bind 2D depth map, pack the transposed VP matrix in the
+                // column-major order the GLSL mat4 expects (mirrors Metal).
+                Texture*& tex = (i == 0) ? _localShadowTexture0 : _localShadowTexture1;
+                tex = ls.shadowMap;
+                for (int col = 0; col < 4; ++col) {
+                    for (int row = 0; row < 4; ++row) {
+                        matDst[col * 4 + row] = ls.viewProjection.getElement(row, col);
+                    }
+                }
+            }
+            paramsDst[0] = ls.bias;
+            paramsDst[1] = ls.normalBias;
+            paramsDst[2] = ls.intensity;
+            paramsDst[3] = ls.isOmni ? 1.0f : 0.0f;
+        }
+
         // Ambient is authored in sRGB; shade in linear space like the Metal path.
         Color ambientLinear;
         ambientLinear.linear(&ambientColor);
@@ -1249,7 +1388,11 @@ namespace visutwin::canvas
             dst.coneParams[0] = src.innerConeCos;
             dst.coneParams[1] = src.outerConeCos;
             dst.coneParams[2] = src.falloffModeLinear ? 1.0f : 0.0f;
-            dst.coneParams[3] = 0.0f;
+            // Local shadow slot: -1 = no shadow, 0/1 = local caster (indexes
+            // localShadowMatrix/Params + the spot/omni depth map bindings).
+            dst.coneParams[3] = src.castShadows
+                ? static_cast<float>(src.shadowMapIndex)
+                : -1.0f;
         }
 
         Color fogLinear;
