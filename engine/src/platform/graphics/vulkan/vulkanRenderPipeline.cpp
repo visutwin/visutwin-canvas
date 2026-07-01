@@ -85,17 +85,19 @@ namespace visutwin::canvas
         vkCreateDescriptorSetLayout(vk, &lightingLayoutInfo, nullptr, &_lightingSetLayout);
 
         // Set 3: per-pass scene textures.  Binding 0 = environment atlas
-        // (equirectangular IBL + skybox source).  More scene textures
-        // (shadow maps, etc.) will extend this set in later increments.
-        VkDescriptorSetLayoutBinding sceneBinding{};
-        sceneBinding.binding = 0;
-        sceneBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        sceneBinding.descriptorCount = 1;
-        sceneBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        // (equirectangular IBL + skybox source), binding 1 = directional
+        // cascaded shadow-map depth atlas.
+        std::array<VkDescriptorSetLayoutBinding, 2> sceneBindings{};
+        for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
+            sceneBindings[i].binding = i;
+            sceneBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            sceneBindings[i].descriptorCount = 1;
+            sceneBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
 
         VkDescriptorSetLayoutCreateInfo sceneLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        sceneLayoutInfo.bindingCount = 1;
-        sceneLayoutInfo.pBindings = &sceneBinding;
+        sceneLayoutInfo.bindingCount = static_cast<uint32_t>(sceneBindings.size());
+        sceneLayoutInfo.pBindings = sceneBindings.data();
         vkCreateDescriptorSetLayout(vk, &sceneLayoutInfo, nullptr, &_sceneSetLayout);
 
         // Push constants: 2 × mat4 = 128 bytes
@@ -180,7 +182,12 @@ namespace visutwin::canvas
             vert.pName = "main";
             stages.push_back(vert);
         }
-        if (shader->fragmentModule() != VK_NULL_HANDLE) {
+        // Depth-only passes (shadow maps: colorFormat == UNDEFINED) omit the
+        // fragment stage entirely.  Depth is written from rasterization, and a
+        // fragment shader that declares a colour output with no colour
+        // attachment is a MoltenVK hazard that silently drops depth writes.
+        const bool depthOnly = colorFormat == VK_FORMAT_UNDEFINED;
+        if (!depthOnly && shader->fragmentModule() != VK_NULL_HANDLE) {
             VkPipelineShaderStageCreateInfo frag{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
             frag.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
             frag.module = shader->fragmentModule();
@@ -241,7 +248,10 @@ namespace visutwin::canvas
         rasterization.depthClampEnable = VK_FALSE;
         rasterization.rasterizerDiscardEnable = VK_FALSE;
         rasterization.polygonMode = VK_POLYGON_MODE_FILL;
-        rasterization.cullMode = vulkanMapCullMode(cullMode);
+        // Shadow / depth-only passes render double-sided: for closed meshes the
+        // nearest (light-facing) surface wins the depth test anyway, and this
+        // sidesteps winding ambiguity from the negative-height viewport.
+        rasterization.cullMode = depthOnly ? VK_CULL_MODE_NONE : vulkanMapCullMode(cullMode);
         rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         // Depth bias values come from dynamic state (vkCmdSetDepthBias) so
         // decals can toggle bias per draw without a pipeline permutation.
@@ -255,7 +265,13 @@ namespace visutwin::canvas
 
         // --- Depth/stencil ---
         VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-        if (depthState) {
+        if (depthOnly) {
+            // Shadow / depth-prepass: always test + write.  Vulkan gates depth
+            // writes on depthTestEnable — if it is VK_FALSE, depthWriteEnable is
+            // ignored and nothing is written, leaving the shadow atlas empty.
+            depthStencil.depthTestEnable = VK_TRUE;
+            depthStencil.depthWriteEnable = VK_TRUE;
+        } else if (depthState) {
             depthStencil.depthTestEnable = depthState->depthTest() ? VK_TRUE : VK_FALSE;
             depthStencil.depthWriteEnable = depthState->depthWrite() ? VK_TRUE : VK_FALSE;
         } else {

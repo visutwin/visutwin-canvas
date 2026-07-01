@@ -185,6 +185,11 @@ namespace visutwin::canvas
         // scissor fall back to this when the engine state has zero size.
         VkExtent2D _activeExtent{0, 0};
 
+        // True while recording a depth-only offscreen pass (shadow map).  Such
+        // passes use a positive-height viewport so the atlas orientation
+        // matches the sample matrices (see startRenderPass).
+        bool _depthOnlyPass = false;
+
         // Depth bias state (decals / coplanar overlays).  Pipelines enable
         // depth bias with VK_DYNAMIC_STATE_DEPTH_BIAS, so these are recorded
         // via vkCmdSetDepthBias at pass start and on every setDepthBias call.
@@ -233,6 +238,11 @@ namespace visutwin::canvas
         // wrap (the per-texture sampler may use REPEAT).
         Texture* _envAtlasTexture = nullptr;
         VkSampler _envSampler = VK_NULL_HANDLE;
+
+        // Directional cascaded shadow map (depth atlas), bound at set 3.  Read
+        // through a dedicated clamp sampler.  Non-owning.
+        Texture* _shadowMapTexture = nullptr;
+        VkSampler _shadowSampler = VK_NULL_HANDLE;
 
         int _width = 0;
         int _height = 0;

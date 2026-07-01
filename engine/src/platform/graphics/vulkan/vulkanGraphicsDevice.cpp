@@ -100,6 +100,21 @@ namespace visutwin::canvas
         envSamplerInfo.maxLod = VK_LOD_CLAMP_NONE;
         vkCreateSampler(_device, &envSamplerInfo, nullptr, &_envSampler);
 
+        // Shadow-map sampler: clamp-to-edge, NEAREST filter, no mips.  A plain
+        // (non-comparison) sampler — the shader does the depth compare manually
+        // and averages a 3×3 PCF kernel at discrete texel offsets, so no linear
+        // filtering is needed (and depth formats like D32_SFLOAT often don't
+        // support VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR anyway).
+        VkSamplerCreateInfo shadowSamplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        shadowSamplerInfo.magFilter = VK_FILTER_NEAREST;
+        shadowSamplerInfo.minFilter = VK_FILTER_NEAREST;
+        shadowSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        shadowSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        shadowSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        shadowSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        shadowSamplerInfo.maxLod = 0.0f;
+        vkCreateSampler(_device, &shadowSamplerInfo, nullptr, &_shadowSampler);
+
         // 1×1 white texture (fallback for unbound texture slots)
         {
             VkImageCreateInfo imgInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -215,6 +230,8 @@ namespace visutwin::canvas
             vkDestroyDescriptorPool(_device, _persistentDescriptorPool, nullptr);
         _uniformRing.reset();
 
+        if (_shadowSampler != VK_NULL_HANDLE)
+            vkDestroySampler(_device, _shadowSampler, nullptr);
         if (_envSampler != VK_NULL_HANDLE)
             vkDestroySampler(_device, _envSampler, nullptr);
         if (_defaultSampler != VK_NULL_HANDLE)
@@ -735,6 +752,13 @@ namespace visutwin::canvas
         _currentPipeline = VK_NULL_HANDLE;
         _pushConstantsDirty = true;
 
+        // Depth-only offscreen passes are shadow-map renders.  These must NOT
+        // use the negative-height (Y-flip) viewport the colour passes use: the
+        // shadow sample matrices (shadowMatrixPalette) bake the atlas
+        // orientation that a non-flipped render produces, and the per-cascade
+        // sub-region offsets make a post-projection flip impossible to undo.
+        _depthOnlyPass = offscreen && colorInfos.empty() && hasDepth;
+
         // Every pass starts with a full-target viewport/scissor — same
         // contract as the Metal backend, which resets both at encoder
         // creation.  Camera rects / gizmo viewports are applied afterwards
@@ -843,6 +867,10 @@ namespace visutwin::canvas
         // Vulkan's normal viewport maps NDC +Y downwards; placing the origin
         // on the bottom edge of the rect and negating the height flips it so
         // projection matrices written for Metal/GL work unchanged.
+        //
+        // Depth-only shadow passes are the exception — they render with a
+        // positive-height viewport so the shadow atlas is stored in the
+        // orientation the sample matrices assume (see startRenderPass).
         VkViewport viewport{};
         viewport.x = vx();
         viewport.y = vy() + h;
@@ -1065,27 +1093,43 @@ namespace visutwin::canvas
             dsAlloc.pSetLayouts = &layout;
 
             if (vkAllocateDescriptorSets(_device, &dsAlloc, &sceneSet) == VK_SUCCESS) {
-                VkImageView envView = _whiteImageView;
-                if (_envAtlasTexture) {
-                    auto* vkTex = static_cast<gpu::VulkanTexture*>(_envAtlasTexture->impl());
-                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
-                        envView = vkTex->imageView();
+                auto resolveView = [this](Texture* tex) -> VkImageView {
+                    if (tex) {
+                        auto* vkTex = static_cast<gpu::VulkanTexture*>(tex->impl());
+                        if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                            return vkTex->imageView();
+                        }
                     }
+                    return _whiteImageView;
+                };
+
+                std::array<VkDescriptorImageInfo, 2> sceneInfos{};
+                // Binding 0: environment atlas.
+                sceneInfos[0].sampler = _envSampler;
+                sceneInfos[0].imageView = resolveView(_envAtlasTexture);
+                sceneInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                // Binding 1: directional shadow-map depth atlas (white fallback
+                // when no shadow-casting directional light is active).  During
+                // the shadow render pass itself the atlas is the depth
+                // attachment being written, so binding it here would be a
+                // read-write feedback loop on the same image — bind white
+                // instead for depth-only passes.
+                sceneInfos[1].sampler = _shadowSampler;
+                sceneInfos[1].imageView = _depthOnlyPass ? _whiteImageView
+                                                         : resolveView(_shadowMapTexture);
+                sceneInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                std::array<VkWriteDescriptorSet, 2> writes{};
+                for (uint32_t i = 0; i < 2; ++i) {
+                    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    writes[i].dstSet = sceneSet;
+                    writes[i].dstBinding = i;
+                    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    writes[i].descriptorCount = 1;
+                    writes[i].pImageInfo = &sceneInfos[i];
                 }
 
-                VkDescriptorImageInfo envInfo{};
-                envInfo.sampler = _envSampler;
-                envInfo.imageView = envView;
-                envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                write.dstSet = sceneSet;
-                write.dstBinding = 0;
-                write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write.descriptorCount = 1;
-                write.pImageInfo = &envInfo;
-
-                vkUpdateDescriptorSets(_device, 1, &write, 0, nullptr);
+                vkUpdateDescriptorSets(_device, 2, writes.data(), 0, nullptr);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
             }
@@ -1135,7 +1179,26 @@ namespace visutwin::canvas
         bool enableNormalMaps, float exposure, const FogParams& fogParams,
         const ShadowParams& shadowParams, int toneMapping)
     {
-        (void)enableNormalMaps; (void)shadowParams; (void)toneMapping;
+        (void)enableNormalMaps; (void)toneMapping;
+
+        // Directional cascaded shadows.  The cascade matrices, split distances,
+        // and parameters all come straight from the renderer's ShadowParams;
+        // the shadow map texture is bound at set 3 in draw().  Only directional
+        // (CSM) shadows are wired here — local light shadows come later.
+        const bool shadowsOn = shadowParams.enabled && shadowParams.shadowMap != nullptr;
+        _shadowMapTexture = shadowsOn ? shadowParams.shadowMap : nullptr;
+        if (shadowsOn) {
+            std::memcpy(_lightingUbo.shadowMatrices, shadowParams.shadowMatrixPalette,
+                sizeof(_lightingUbo.shadowMatrices));
+            std::memcpy(_lightingUbo.shadowCascadeDistances, shadowParams.shadowCascadeDistances,
+                sizeof(_lightingUbo.shadowCascadeDistances));
+        }
+        _lightingUbo.shadowParams[0]  = shadowsOn ? 1.0f : 0.0f;
+        _lightingUbo.shadowParams[1]  = static_cast<float>(shadowParams.numCascades);
+        _lightingUbo.shadowParams[2]  = shadowParams.bias;
+        _lightingUbo.shadowParams[3]  = shadowParams.strength;
+        _lightingUbo.shadowParams2[0] = shadowParams.normalBias;
+        _lightingUbo.shadowParams2[1] = shadowParams.cascadeBlend;
 
         // Ambient is authored in sRGB; shade in linear space like the Metal path.
         Color ambientLinear;

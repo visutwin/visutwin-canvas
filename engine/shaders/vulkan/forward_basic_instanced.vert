@@ -25,6 +25,7 @@ layout(location = 1) out vec3 fragWorldNormal;
 layout(location = 2) out vec2 fragUV0;
 layout(location = 3) out vec2 fragUV1;
 layout(location = 4) out vec4 fragWorldTangent;
+layout(location = 5) out float fragViewDepth;
 
 void main() {
     mat4 instanceMatrix = mat4(inInstanceCol0, inInstanceCol1, inInstanceCol2, inInstanceCol3);
@@ -32,6 +33,8 @@ void main() {
 
     vec4 worldPos = model * vec4(inPosition, 1.0);
     gl_Position = pc.viewProjection * worldPos;
+
+    fragViewDepth = gl_Position.w;
 
     fragWorldPos = worldPos.xyz;
 

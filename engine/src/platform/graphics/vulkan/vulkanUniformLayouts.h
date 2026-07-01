@@ -26,7 +26,7 @@ namespace visutwin::canvas
         float coneParams[4]     = {1.0f, 1.0f, 1.0f, 0.0f};   // innerCos, outerCos, falloffLinear, pad
     };
 
-    // Per-pass lighting block bound at set 2, binding 0.  608 bytes.
+    // Per-pass lighting block bound at set 2, binding 0.  912 bytes.
     struct VulkanLightingUBO
     {
         float ambient[4]            = {0.0f, 0.0f, 0.0f, 0.0f};  // rgb ambient
@@ -37,6 +37,16 @@ namespace visutwin::canvas
         float fogStartEndType[4]    = {10.0f, 100.0f, 0.0f, 0.0f}; // start, end, type(0/1/2), pad
         // x=skyboxIntensity, y=hasEnvAtlas(0/1), z=encoding(0 srgb,1 rgbp,2 rgbm), w=skyboxMip
         float envParams[4]          = {1.0f, 0.0f, 0.0f, 0.0f};
+
+        // Directional cascaded shadows.  shadowMatrices is 4 column-major mat4
+        // (GLSL `mat4 shadowMatrices[4]`) — each maps world space to a cascade's
+        // shadow-atlas UV + depth.  Matches ShadowParams::shadowMatrixPalette.
+        float shadowMatrices[64]       = {};
+        float shadowCascadeDistances[4]= {0.0f, 0.0f, 0.0f, 0.0f}; // per-cascade far split (view depth)
+        // x=enabled(0/1), y=numCascades, z=depthBias, w=strength
+        float shadowParams[4]          = {0.0f, 1.0f, 0.0001f, 1.0f};
+        // x=normalBias, y=cascadeBlend, z/w pad
+        float shadowParams2[4]         = {0.0f, 0.0f, 0.0f, 0.0f};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

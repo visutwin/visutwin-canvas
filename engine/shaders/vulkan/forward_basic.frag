@@ -5,6 +5,7 @@ layout(location = 1) in vec3 fragWorldNormal;
 layout(location = 2) in vec2 fragUV0;
 layout(location = 3) in vec2 fragUV1;
 layout(location = 4) in vec4 fragWorldTangent;
+layout(location = 5) in float fragViewDepth;
 
 layout(location = 0) out vec4 outColor;
 
@@ -49,12 +50,72 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 fogColorDensity;     // rgb fog color, w density
     vec4 fogStartEndType;     // start, end, type (0=off,1=linear,2=exp), pad
     vec4 envParams;           // skyboxIntensity, hasEnvAtlas, encoding, skyboxMip
+    mat4 shadowMatrices[4];   // per-cascade world → shadow-atlas UV + depth
+    vec4 shadowCascadeDistances; // per-cascade far split (view-space depth)
+    vec4 shadowParams;        // enabled, numCascades, depthBias, strength
+    vec4 shadowParams2;       // normalBias, cascadeBlend, pad, pad
 } lighting;
 
 // Set 3: scene textures. Binding 0 = equirectangular environment atlas
-// (IBL irradiance + roughness mips + skybox source). Sampled via the device's
-// clamp-to-edge env sampler.
+// (IBL irradiance + roughness mips + skybox source). Binding 1 = directional
+// cascaded shadow-map depth atlas (sampled via a NEAREST clamp sampler).
 layout(set = 3, binding = 0) uniform sampler2D envAtlas;
+layout(set = 3, binding = 1) uniform sampler2D shadowMap;
+
+// Directional cascaded-shadow visibility (1 = lit, 0 = shadowed) for a world
+// position, using view-space depth to pick the cascade.  Returns 1.0 when
+// shadows are disabled or the point falls outside every cascade.
+float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
+    if (lighting.shadowParams.x < 0.5) {
+        return 1.0;
+    }
+    int cascadeCount = int(lighting.shadowParams.y);
+
+    // Cascade = number of split distances the fragment is beyond.
+    int cascade = 0;
+    for (int i = 0; i < cascadeCount - 1; ++i) {
+        if (viewDepth > lighting.shadowCascadeDistances[i]) {
+            cascade = i + 1;
+        }
+    }
+
+    // World-space normal bias, scaled by grazing angle to curb peter-panning
+    // on directly-lit faces while offsetting shadow-acne on grazing ones.
+    float ndl = clamp(dot(N, L), 0.0, 1.0);
+    float sinAngle = sqrt(max(1.0 - ndl * ndl, 0.0));
+    vec3 biased = worldPos + N * (lighting.shadowParams2.x * sinAngle);
+
+    // Project into the cascade's atlas: the matrix bakes projection, view,
+    // NDC→UV, and Z[0,1]; a perspective divide yields UV + depth directly.
+    vec4 sc = lighting.shadowMatrices[cascade] * vec4(biased, 1.0);
+    if (sc.w <= 0.0) {
+        return 1.0;
+    }
+    vec3 coord = sc.xyz / sc.w;
+    // The cascade matrix bakes the Metal atlas Y convention; the shadow map is
+    // rendered here through a negative-height (Y-flipped) viewport, so flip the
+    // sample V to match the stored orientation.
+    coord.y = 1.0 - coord.y;
+    if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0 ||
+        coord.z < 0.0 || coord.z > 1.0) {
+        return 1.0;
+    }
+
+    // Manual 3×3 PCF: average binary depth comparisons over the neighbourhood.
+    float receiver = coord.z - lighting.shadowParams.z;
+    vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
+    float sum = 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            float occluder = texture(shadowMap, coord.xy + vec2(x, y) * texel).r;
+            sum += (receiver <= occluder) ? 1.0 : 0.0;
+        }
+    }
+    float visible = sum / 9.0;
+
+    // Scale by shadow strength (0 = no shadow, 1 = full).
+    return mix(1.0, visible, lighting.shadowParams.w);
+}
 
 // ── Environment atlas layout (matches engine bake / Metal common.metal) ──
 const float ATLAS_SIZE = 512.0;
@@ -229,6 +290,8 @@ void main() {
         float atten = 1.0;
         if (type == 0u) {
             L = normalize(-light.directionType.xyz);
+            // Directional light is the CSM shadow caster.
+            atten = sampleDirectionalShadow(fragWorldPos, fragViewDepth, N, L);
         } else {
             vec3 toLight = light.positionRange.xyz - fragWorldPos;
             float dist = length(toLight);
