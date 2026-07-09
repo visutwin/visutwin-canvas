@@ -63,6 +63,10 @@ namespace visutwin::canvas
         // Also dispatches per-camera GPU instance culling for any MeshInstances
         // that opted in via enableGpuInstanceCulling().
         {
+            // Drop last frame's per-camera entries so destroyed cameras don't
+            // linger as stale (dangling) keys.
+            _cameraDirShadowLights.clear();
+
             const auto& actions = layerComposition->renderActions();
             std::unordered_set<Camera*> culledCameras;
             for (const auto* action : actions) {

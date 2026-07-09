@@ -106,6 +106,8 @@ fragment float4 blurFragment(
     float invSigma2 = 1.0 / (2.0 * sigma * sigma);
 
     for (int i = -uniforms.filterSize; i <= uniforms.filterSize; i++) {
+        // The center pixel is pre-seeded above; tapping it again would double-count it.
+        if (i == 0) { continue; }
         float weight = exp(-float(i * i) * invSigma2);
 
         #ifdef HORIZONTAL
@@ -198,6 +200,8 @@ fragment float4 blurFragment(
     float invSigma2 = 1.0 / (2.0 * sigma * sigma);
 
     for (int i = -uniforms.filterSize; i <= uniforms.filterSize; i++) {
+        // The center pixel is pre-seeded above; tapping it again would double-count it.
+        if (i == 0) { continue; }
         float weight = exp(-float(i * i) * invSigma2);
 
         // Vertical: offset along Y axis

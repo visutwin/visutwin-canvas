@@ -102,6 +102,18 @@ namespace visutwin::canvas
         _defaultSampler = _device->newSamplerState(samplerDesc);
         samplerDesc->release();
 
+        // Screen-space post passes (TAA/SSAO/CoC/DOF/blur/compose) must NOT use
+        // the repeat-mode scene sampler: their kernels tap past [0,1] at frame
+        // borders and repeat wraps to the opposite edge (wrong occlusion/color
+        // at screen edges). Single-mip render targets also don't need mip/aniso.
+        auto* postDesc = MTL::SamplerDescriptor::alloc()->init();
+        postDesc->setMinFilter(MTL::SamplerMinMagFilterLinear);
+        postDesc->setMagFilter(MTL::SamplerMinMagFilterLinear);
+        postDesc->setSAddressMode(MTL::SamplerAddressModeClampToEdge);
+        postDesc->setTAddressMode(MTL::SamplerAddressModeClampToEdge);
+        _postSampler = _device->newSamplerState(postDesc);
+        postDesc->release();
+
         auto* depthDesc = MTL::DepthStencilDescriptor::alloc()->init();
         // Default depth function is FUNC_LESSEQUAL.
         // This is critical for the skybox, which renders at depth ≈ 1.0 and needs
@@ -121,9 +133,10 @@ namespace visutwin::canvas
         _computePipeline = std::make_unique<MetalComputePipeline>(this);
 
         // Triple-buffered ring buffers for per-draw uniform data.
-        // ModelData is 136B → aligns to 256B slots.
-        // LightingUniforms is the largest struct at ~544B → aligns to 768B slots.
-        // MaterialUniforms (~48B) also uses the uniform ring (fits within 768B slot).
+        // Slot sizes derive from sizeof() below; for reference: ModelData is 136B
+        // (aligns to 256B slots), LightingUniforms is the largest at 1440B
+        // (aligns to 1536B slots), and MaterialUniforms (352B) shares the
+        // uniform ring, fitting within the LightingUniforms-sized slot.
         //
         // _transformRing: 1 allocation per draw call (ModelData at slot 2).
         // _uniformRing:   2 allocations per draw call (MaterialUniforms at slot 3 +
@@ -159,6 +172,11 @@ namespace visutwin::canvas
         if (_defaultSampler) {
             _defaultSampler->release();
             _defaultSampler = nullptr;
+        }
+
+        if (_postSampler) {
+            _postSampler->release();
+            _postSampler = nullptr;
         }
 
         if (_defaultDepthStencilState) {
@@ -364,7 +382,7 @@ namespace visutwin::canvas
         if (!_renderPassEncoder) return;
         if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
         _composePass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-            _bindGroupFormats, _defaultSampler);
+            _bindGroupFormats, _postSampler);
     }
 
     void MetalGraphicsDevice::executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
@@ -378,7 +396,7 @@ namespace visutwin::canvas
         _taaPass->execute(_renderPassEncoder, sourceTexture, historyTexture, depthTexture,
             viewProjectionPrevious, viewProjectionInverse, jitters, cameraParams,
             highQuality, historyValid, _renderPipeline.get(), renderTarget(),
-            _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
+            _bindGroupFormats, _postSampler, _defaultDepthStencilState);
     }
 
     void MetalGraphicsDevice::executeSsaoPass(const SsaoPassParams& params)
@@ -387,7 +405,7 @@ namespace visutwin::canvas
         if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
         if (!_ssaoPass) _ssaoPass = std::make_unique<MetalSsaoPass>(this, _composePass.get());
         _ssaoPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-            _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
+            _bindGroupFormats, _postSampler, _defaultDepthStencilState);
     }
 
     void MetalGraphicsDevice::executeCoCPass(const CoCPassParams& params)
@@ -396,7 +414,7 @@ namespace visutwin::canvas
         if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
         if (!_cocPass) _cocPass = std::make_unique<MetalCoCPass>(this, _composePass.get());
         _cocPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-            _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
+            _bindGroupFormats, _postSampler, _defaultDepthStencilState);
     }
 
     void MetalGraphicsDevice::executeDofBlurPass(const DofBlurPassParams& params)
@@ -405,7 +423,7 @@ namespace visutwin::canvas
         if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
         if (!_dofBlurPass) _dofBlurPass = std::make_unique<MetalDofBlurPass>(this, _composePass.get());
         _dofBlurPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-            _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
+            _bindGroupFormats, _postSampler, _defaultDepthStencilState);
     }
 
     void MetalGraphicsDevice::executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, const bool horizontal)
@@ -415,11 +433,11 @@ namespace visutwin::canvas
         if (horizontal) {
             if (!_blurPassH) _blurPassH = std::make_unique<MetalDepthAwareBlurPass>(this, _composePass.get(), true);
             _blurPassH->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-                _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
+                _bindGroupFormats, _postSampler, _defaultDepthStencilState);
         } else {
             if (!_blurPassV) _blurPassV = std::make_unique<MetalDepthAwareBlurPass>(this, _composePass.get(), false);
             _blurPassV->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-                _bindGroupFormats, _defaultSampler, _defaultDepthStencilState);
+                _bindGroupFormats, _postSampler, _defaultDepthStencilState);
         }
     }
 

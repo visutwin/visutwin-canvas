@@ -6,9 +6,17 @@
 #include "scriptComponent.h"
 #include <framework/entity.h>
 #include "framework/script/scriptRegistry.h"
+#include "scriptComponentSystem.h"
 
 namespace visutwin::canvas
 {
+    ScriptComponent::~ScriptComponent()
+    {
+        if (auto* scriptSystem = dynamic_cast<ScriptComponentSystem*>(system())) {
+            scriptSystem->removeComponent(this);
+        }
+    }
+
     Script* ScriptComponent::create(const std::string& name, const ScriptCreateOptions& options)
     {
         // 1. Enforce uniqueness (one instance per type)

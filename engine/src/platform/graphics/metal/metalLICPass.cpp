@@ -160,9 +160,9 @@ fragment float4 licFragment(
     // Normalize
     float lic = (weightSum > 0.0) ? (sum / weightSum) : 0.5;
 
-    // Contrast enhancement: remap from [0,1] to [contrastLo, contrastHi]
+    // Contrast enhancement: stretch [contrastLo, contrastHi] to [0,1]
     // (simple linear stretch; full histogram equalization done in CPU pass)
-    lic = uniforms.contrastLo + lic * (uniforms.contrastHi - uniforms.contrastLo);
+    lic = (lic - uniforms.contrastLo) / max(uniforms.contrastHi - uniforms.contrastLo, 1e-5);
     lic = clamp(lic, 0.0, 1.0);
 
     return float4(lic, lic, lic, 1.0);

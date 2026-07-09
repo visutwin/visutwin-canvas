@@ -36,6 +36,13 @@ namespace visutwin::canvas
             return component;
         }
 
+        // Called from ~ScriptComponent so a destroyed component (e.g. its entity was
+        // deleted) is never left dangling in the update list.
+        void removeComponent(ScriptComponent* component)
+        {
+            _components.remove(component);
+        }
+
         void fixedUpdate(float fixedDt)
         {
             for (_components.loopIndex = 0; _components.loopIndex < static_cast<int>(_components.length); _components.loopIndex++) {

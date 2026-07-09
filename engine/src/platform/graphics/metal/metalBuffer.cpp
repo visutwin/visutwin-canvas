@@ -7,6 +7,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+
 namespace visutwin::canvas::gpu
 {
     MetalBuffer::~MetalBuffer()
@@ -62,8 +64,10 @@ namespace visutwin::canvas::gpu
             return;
         }
 
-        // Prepare data for upload - WebGPU requires proper alignment
-        size_t totalSize = _buffer->length();
+        // Copy only what the storage vector holds — the buffer length may be
+        // padded past storage.size() (4-byte alignment) or larger than a shrunk
+        // storage, and reading past the vector is an out-of-bounds read.
+        const size_t totalSize = std::min(storage.size(), static_cast<size_t>(_buffer->length()));
 
         write(0, storage.data(), totalSize);
 

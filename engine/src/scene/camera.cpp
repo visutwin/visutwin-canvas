@@ -13,7 +13,14 @@ namespace visutwin::canvas
 
     void Camera::setNode(GraphNode* value)
     {
-        _node = std::unique_ptr<GraphNode>(value);
+        _node = value;
+        _ownedNode.reset();
+    }
+
+    void Camera::setOwnedNode(std::unique_ptr<GraphNode> value)
+    {
+        _ownedNode = std::move(value);
+        _node = _ownedNode.get();
     }
 
     void Camera::setProjection(ProjectionType value)

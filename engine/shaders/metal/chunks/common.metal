@@ -359,9 +359,42 @@ static inline float3 toneMapAces2(float3 color, float exposure)
     return clamp(color, float3(0.0), float3(1.0));
 }
 
+// Uncharted 2 filmic operator (upstream TONEMAP_FILMIC, tonemappingFilmicPS).
+static inline float3 uncharted2Tonemap(float3 x)
+{
+    const float A = 0.15; // shoulder strength
+    const float B = 0.50; // linear strength
+    const float C = 0.10; // linear angle
+    const float D = 0.20; // toe strength
+    const float E = 0.02; // toe numerator
+    const float F = 0.30; // toe denominator
+    return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
+}
+
+static inline float3 toneMapFilmic(float3 color, float exposure)
+{
+    const float W = 11.2; // linear white point
+    color = uncharted2Tonemap(color * exposure * 2.0);
+    const float3 whiteScale = 1.0 / uncharted2Tonemap(float3(W));
+    return color * whiteScale;
+}
+
+// Hejl/Burgess-Dawson operator (upstream TONEMAP_HEJL, tonemappingHejlPS).
+// Output includes the sRGB curve baked in by construction.
+static inline float3 toneMapHejl(float3 color, float exposure)
+{
+    color *= exposure;
+    const float A = 0.22, B = 0.3, C = 0.1, D = 0.2, E = 0.01, F = 0.3;
+    const float scl = 1.25;
+    const float3 h = max(float3(0.0), color - 0.004);
+    return (h * ((scl * A) * h + scl * (C * B)) + scl * (D * E))
+         / (h * (A * h + B) + (D * F))
+         - scl * (E / F);
+}
+
 // dispatch tone mapping by mode.
 // Mode is passed via skyboxMipAndPad.z and matches scene/constants.h:
-//   0=linear, 1=filmic, 3=aces, 4=aces2, 5=neutral, 6=none.
+//   0=linear, 1=filmic, 2=hejl, 3=aces, 4=aces2, 5=neutral, 6=none.
 static inline float3 toneMap(float3 color, float exposure, float mode)
 {
     if (mode > 4.5 && mode < 5.5) {
@@ -370,6 +403,10 @@ static inline float3 toneMap(float3 color, float exposure, float mode)
         return toneMapAces2(color, exposure);
     } else if (mode > 2.5 && mode < 3.5) {
         return toneMapAces(color, exposure);
+    } else if (mode > 1.5 && mode < 2.5) {
+        return toneMapHejl(color, exposure);
+    } else if (mode > 0.5 && mode < 1.5) {
+        return toneMapFilmic(color, exposure);
     } else if (mode > 5.5) {
         return color; // TONEMAP_NONE
     }

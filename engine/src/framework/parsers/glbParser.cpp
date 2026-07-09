@@ -210,23 +210,6 @@ namespace visutwin::canvas
             return &model.bufferViews[accessor.bufferView];
         }
 
-        const uint8_t* getAccessorBase(const tinygltf::Model& model, const tinygltf::Accessor& accessor)
-        {
-            const auto* view = getBufferView(model, accessor);
-            if (!view) {
-                return nullptr;
-            }
-            if (view->buffer < 0 || view->buffer >= static_cast<int>(model.buffers.size())) {
-                return nullptr;
-            }
-            const auto& buffer = model.buffers[view->buffer];
-            const auto offset = static_cast<size_t>(view->byteOffset + accessor.byteOffset);
-            if (offset > buffer.data.size()) {
-                return nullptr;
-            }
-            return buffer.data.data() + offset;
-        }
-
         int componentBytes(const int componentType)
         {
             switch (componentType) {
@@ -253,6 +236,48 @@ namespace visutwin::canvas
                 return inferred;
             }
             return view->byteStride;
+        }
+
+        // Returns the accessor's data pointer only if the full extent the readers
+        // will touch — offset + (count-1)*stride + elementSize — fits inside the
+        // buffer. A malformed/hostile GLB with an inflated count or byteStride
+        // must fail here rather than read out of bounds.
+        const uint8_t* getAccessorBase(const tinygltf::Model& model, const tinygltf::Accessor& accessor)
+        {
+            const auto* view = getBufferView(model, accessor);
+            if (!view) {
+                return nullptr;
+            }
+            if (view->buffer < 0 || view->buffer >= static_cast<int>(model.buffers.size())) {
+                return nullptr;
+            }
+            const auto& buffer = model.buffers[view->buffer];
+            const size_t bufferSize = buffer.data.size();
+            const auto offset = static_cast<size_t>(view->byteOffset + accessor.byteOffset);
+            if (view->byteOffset > bufferSize || accessor.byteOffset > bufferSize || offset > bufferSize) {
+                return nullptr;
+            }
+
+            const int numComponents = tinygltf::GetNumComponentsInType(accessor.type);
+            const int compBytes = componentBytes(accessor.componentType);
+            if (numComponents <= 0 || compBytes <= 0) {
+                return nullptr;
+            }
+            const auto elementSize = static_cast<size_t>(numComponents) * static_cast<size_t>(compBytes);
+            const auto stride = static_cast<size_t>(accessorStride(model, accessor));
+            const auto count = static_cast<size_t>(accessor.count);
+            if (count > 0) {
+                // Required extent: offset + (count-1)*stride + elementSize <= bufferSize,
+                // rearranged to avoid overflow in the multiplication.
+                if (elementSize > bufferSize || offset > bufferSize - elementSize) {
+                    return nullptr;
+                }
+                if (count > 1 && stride > 0 &&
+                    (count - 1) > (bufferSize - elementSize - offset) / stride) {
+                    return nullptr;
+                }
+            }
+            return buffer.data.data() + offset;
         }
 
         bool readFloatVec3(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, Vector3& out)

@@ -89,7 +89,7 @@ namespace visutwin::canvas
             if (!shadowCamera || !shadowCamera->node()) {
                 return false;
             }
-            if (!isVisibleInCameraFrustum(shadowCamera, shadowCamera->node().get(), meshInstance->aabb())) {
+            if (!isVisibleInCameraFrustum(shadowCamera, shadowCamera->node(), meshInstance->aabb())) {
                 return false;
             }
         }

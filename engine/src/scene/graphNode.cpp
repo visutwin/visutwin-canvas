@@ -5,13 +5,26 @@
 //
 #include "graphNode.h"
 
+#include <algorithm>
+
 #include "core/math/quaternion.h"
 
 namespace visutwin::canvas
 {
     GraphNode::~GraphNode()
     {
-
+        // Detach from the hierarchy without firing events — event dispatch on a
+        // half-destroyed node is unsafe. Children are not owned (raw pointers),
+        // so only sever the links; their lifetime is managed by their owners.
+        if (_parent) {
+            auto& siblings = _parent->_children;
+            std::erase(siblings, this);
+            _parent = nullptr;
+        }
+        for (auto* child : _children) {
+            child->_parent = nullptr;
+        }
+        _children.clear();
     }
 
     void GraphNode::dirtifyLocal()

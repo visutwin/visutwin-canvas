@@ -101,8 +101,12 @@ namespace visutwin::canvas
         const Vector4& scissorRect() const { return _scissorRect; }
         void setScissorRect(const Vector4& value) { _scissorRect = value; }
 
-        const std::unique_ptr<GraphNode>& node() const { return _node; }
+        GraphNode* node() const { return _node; }
+        // Non-owning: the node (typically an Entity) is owned elsewhere.
         void setNode(GraphNode* value);
+        // Ownership variant for private cameras (shadow/light cameras) whose node
+        // exists only for this camera.
+        void setOwnedNode(std::unique_ptr<GraphNode> value);
 
         void setScissorRectClear(bool value) { _scissorRectClear = value; }
 
@@ -199,7 +203,8 @@ namespace visutwin::canvas
         Vector4 _rect = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
         Vector4 _scissorRect = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
 
-        std::unique_ptr<GraphNode> _node;
+        GraphNode* _node = nullptr;
+        std::unique_ptr<GraphNode> _ownedNode;
 
         bool _scissorRectClear = false;
 

@@ -7,6 +7,8 @@
 
 #include <Metal/Metal.hpp>
 #include <dispatch/dispatch.h>
+#include <spdlog/spdlog.h>
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 
@@ -40,7 +42,7 @@ namespace visutwin::canvas
 
         /**
          * @param device           Metal device for buffer allocation
-         * @param maxDrawsPerFrame Maximum draw calls expected per frame (grows if exceeded)
+         * @param maxDrawsPerFrame Maximum draw calls per frame (excess allocations reuse the last slot)
          * @param uniformStructSize Size of the largest uniform struct this ring will hold
          * @param label            Debug label for Metal GPU capture
          */
@@ -99,8 +101,26 @@ namespace visutwin::canvas
             assert(dataSize <= _alignedSlotSize && "Data exceeds aligned slot size");
             assert(_drawCount < _maxDrawsPerFrame && "Ring buffer overflow: too many draws this frame");
 
+            if (!_basePtr) {
+                return 0;
+            }
+            // Overflowing the frame region would memcpy into the next in-flight
+            // frame's data (or past the MTLBuffer). Reuse the last slot instead:
+            // the excess draws render with stale uniforms, but memory stays intact.
+            if (_drawCount >= _maxDrawsPerFrame) [[unlikely]] {
+                if (!_overflowWarned) {
+                    _overflowWarned = true;
+                    spdlog::warn("MetalUniformRingBuffer: exceeded {} allocations this frame; "
+                                 "excess draws reuse the last uniform slot", _maxDrawsPerFrame);
+                }
+                const size_t lastSlot = _maxDrawsPerFrame - 1;
+                const size_t offset = _frameIndex * _regionSize + lastSlot * _alignedSlotSize;
+                std::memcpy(_basePtr + offset, data, std::min(dataSize, _alignedSlotSize));
+                return offset;
+            }
+
             const size_t offset = _frameIndex * _regionSize + _drawCount * _alignedSlotSize;
-            std::memcpy(_basePtr + offset, data, dataSize);
+            std::memcpy(_basePtr + offset, data, std::min(dataSize, _alignedSlotSize));
             ++_drawCount;
             return offset;
         }
@@ -142,5 +162,6 @@ namespace visutwin::canvas
 
         int _frameIndex = -1; // Will become 0 on first beginFrame()
         size_t _drawCount = 0;
+        bool _overflowWarned = false;
     };
 }

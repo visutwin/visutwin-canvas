@@ -21,7 +21,7 @@ namespace visutwin::canvas
     Camera* LightCamera::create(const std::string& name, LightType lightType, int face)
     {
         Camera* camera = new Camera();
-        camera->setNode(new GraphNode(name));
+        camera->setOwnedNode(std::make_unique<GraphNode>(name));
         camera->setAspectRatio(1.0f);
         camera->setAspectRatioMode(AspectRatioMode::ASPECT_MANUAL);
         camera->setScissorRectClear(true);

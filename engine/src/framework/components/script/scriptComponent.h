@@ -29,6 +29,7 @@ namespace visutwin::canvas
     {
     public:
         ScriptComponent(IComponentSystem* system, Entity* entity) : Component(system, entity) {}
+        ~ScriptComponent() override;
 
         Script* create(const std::string& name, const ScriptCreateOptions& options = {});
 

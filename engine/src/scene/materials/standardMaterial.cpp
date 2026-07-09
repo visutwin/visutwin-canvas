@@ -240,6 +240,11 @@ namespace visutwin::canvas
             packTransformSM(_detailNormalTransform, uniforms.detailNormalTransform0, uniforms.detailNormalTransform1);
         }
         if (_displacementMap)  uniforms.flags |= (1u << 24);  // bit 24: hasDisplacementMap
+
+        // Re-apply setParameter() overrides last: the typed writes above
+        // (baseColor/metallic/roughness/normalScale/emissive) would otherwise
+        // silently discard them, breaking the documented dual-binding contract.
+        applyParameterOverrides(uniforms);
     }
 
     void StandardMaterial::getTextureSlots(std::vector<TextureSlot>& slots) const
@@ -270,11 +275,10 @@ namespace visutwin::canvas
         overrideSlot(13, _clearCoatGlossMap);
         overrideSlot(14, _clearCoatNormalMap);
         overrideSlot(17, _heightMap);
-        overrideSlot(18, _sheenMap);
-        overrideSlot(19, _iridescenceMap);
-        overrideSlot(20, _iridescenceThicknessMap);
-        overrideSlot(21, _specGlossMap);
-        overrideSlot(22, _detailNormalMap);
-        overrideSlot(23, _displacementMap);
+        // Sheen/iridescence/spec-gloss/detail-normal/displacement maps are NOT
+        // bound: no shader chunk declares a material texture above slot 17, and
+        // slot 18 is the scene SSAO texture — binding the sheen map there
+        // clobbered SSAO every draw. Re-add slots (>= 19) when the sampling
+        // paths for these stubbed features are ported.
     }
 }

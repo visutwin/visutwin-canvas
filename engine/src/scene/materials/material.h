@@ -266,6 +266,16 @@ namespace visutwin::canvas
         virtual void updateUniforms(MaterialUniforms& uniforms) const;
 
         /**
+         * Re-applies scalar/color setParameter() overrides (material_baseColor,
+         * material_metallic, material_roughness, material_normalScale,
+         * material_emissive, ...) onto an already-packed uniforms struct.
+         * Called at the end of updateUniforms(); subclasses that overwrite those
+         * fields afterwards (StandardMaterial) must call it again so parameter
+         * overrides stay authoritative.
+         */
+        void applyParameterOverrides(MaterialUniforms& uniforms) const;
+
+        /**
          * Override to provide custom uniform data with a size different from MaterialUniforms.
          * Returns nullptr by default, in which case updateUniforms() is used.
          * When non-null, the returned data is copied directly to the GPU uniform ring buffer

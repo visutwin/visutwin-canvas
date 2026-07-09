@@ -36,6 +36,14 @@ namespace visutwin::canvas
     }
 
     void FrameGraph::compile() {
+        // Reset merge flags from previous compiles: passes are persistent objects
+        // reused across frames, and stale skipStart/skipEnd from a frame with
+        // different pass adjacency would skip render-target begin/end incorrectly.
+        for (auto renderPass : _renderPasses) {
+            renderPass->setSkipStart(false);
+            renderPass->setSkipEnd(false);
+        }
+
         for (auto renderPass : _renderPasses) {
             RenderTarget* renderTarget = renderPass->renderTarget().get();
 

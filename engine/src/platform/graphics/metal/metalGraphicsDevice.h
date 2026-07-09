@@ -195,6 +195,9 @@ namespace visutwin::canvas
         // consumed (reset to SIZE_MAX) after draw() → setVertexBufferOffset().
         size_t _pendingPaletteOffset = SIZE_MAX;
         MTL::SamplerState* _defaultSampler = nullptr;
+        // Clamp-to-edge sampler for screen-space post passes (no mips/aniso) —
+        // the repeat-mode default sampler wraps kernel taps at frame borders.
+        MTL::SamplerState* _postSampler = nullptr;
         MTL::DepthStencilState* _defaultDepthStencilState = nullptr;
         MTL::DepthStencilState* _noWriteDepthStencilState = nullptr;
         MTL::Texture* _backBufferDepthTexture = nullptr;

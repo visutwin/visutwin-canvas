@@ -196,6 +196,35 @@ namespace visutwin::canvas
         return it == _parameters.end() ? nullptr : &it->second;
     }
 
+    void Material::applyParameterOverrides(MaterialUniforms& uniforms) const
+    {
+        readColor4(getParam(this, {"material_baseColor", "baseColorFactor"}), uniforms.baseColor);
+        {
+            // Parameter override convention is sRGB input — linearize to match the typed path.
+            float emissiveOverride[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            if (readColor4(getParam(this, {"material_emissive", "emissiveFactor"}), emissiveOverride)) {
+                uniforms.emissiveColor[0] = std::pow(std::max(emissiveOverride[0], 0.0f), 2.2f);
+                uniforms.emissiveColor[1] = std::pow(std::max(emissiveOverride[1], 0.0f), 2.2f);
+                uniforms.emissiveColor[2] = std::pow(std::max(emissiveOverride[2], 0.0f), 2.2f);
+                uniforms.emissiveColor[3] = emissiveOverride[3];
+            }
+        }
+        readFloat(getParam(this, {"material_alphaCutoff", "alphaCutoff"}), uniforms.alphaCutoff);
+        readFloat(getParam(this, {"material_metallic", "metallicFactor"}), uniforms.metallicFactor);
+        readFloat(getParam(this, {"material_roughness", "roughnessFactor"}), uniforms.roughnessFactor);
+        readFloat(getParam(this, {"material_normalScale", "normalScale"}), uniforms.normalScale);
+        readFloat(getParam(this, {"material_occlusionStrength", "occlusionStrength"}), uniforms.occlusionStrength);
+        readFloat(getParam(this, {"material_occludeSpecularIntensity", "occludeSpecularIntensity"}),
+            uniforms.occludeSpecularIntensity);
+        {
+            int occludeSpecularMode = static_cast<int>(uniforms.occludeSpecularMode);
+            readInt(getParam(this, {"material_occludeSpecular", "occludeSpecular"}), occludeSpecularMode);
+            occludeSpecularMode = std::clamp(occludeSpecularMode,
+                static_cast<int>(SPECOCC_NONE), static_cast<int>(SPECOCC_GLOSSDEPENDENT));
+            uniforms.occludeSpecularMode = static_cast<uint32_t>(occludeSpecularMode);
+        }
+    }
+
     void Material::updateUniforms(MaterialUniforms& uniforms) const
     {
         // Pack typed properties into GPU struct.
@@ -223,31 +252,7 @@ namespace visutwin::canvas
         uniforms.flags = 0u;
 
         // Allow custom parameter overrides (same alias chains as the original inline code).
-        readColor4(getParam(this, {"material_baseColor", "baseColorFactor"}), uniforms.baseColor);
-        {
-            // Parameter override convention is sRGB input — linearize to match the typed path above.
-            float emissiveOverride[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-            if (readColor4(getParam(this, {"material_emissive", "emissiveFactor"}), emissiveOverride)) {
-                uniforms.emissiveColor[0] = std::pow(std::max(emissiveOverride[0], 0.0f), 2.2f);
-                uniforms.emissiveColor[1] = std::pow(std::max(emissiveOverride[1], 0.0f), 2.2f);
-                uniforms.emissiveColor[2] = std::pow(std::max(emissiveOverride[2], 0.0f), 2.2f);
-                uniforms.emissiveColor[3] = emissiveOverride[3];
-            }
-        }
-        readFloat(getParam(this, {"material_alphaCutoff", "alphaCutoff"}), uniforms.alphaCutoff);
-        readFloat(getParam(this, {"material_metallic", "metallicFactor"}), uniforms.metallicFactor);
-        readFloat(getParam(this, {"material_roughness", "roughnessFactor"}), uniforms.roughnessFactor);
-        readFloat(getParam(this, {"material_normalScale", "normalScale"}), uniforms.normalScale);
-        readFloat(getParam(this, {"material_occlusionStrength", "occlusionStrength"}), uniforms.occlusionStrength);
-        readFloat(getParam(this, {"material_occludeSpecularIntensity", "occludeSpecularIntensity"}),
-            uniforms.occludeSpecularIntensity);
-        {
-            int occludeSpecularMode = static_cast<int>(uniforms.occludeSpecularMode);
-            readInt(getParam(this, {"material_occludeSpecular", "occludeSpecular"}), occludeSpecularMode);
-            occludeSpecularMode = std::clamp(occludeSpecularMode,
-                static_cast<int>(SPECOCC_NONE), static_cast<int>(SPECOCC_GLOSSDEPENDENT));
-            uniforms.occludeSpecularMode = static_cast<uint32_t>(occludeSpecularMode);
-        }
+        applyParameterOverrides(uniforms);
 
         // Flag bits — matches MaterialData.flags layout in common.metal.
         if (_hasBaseColorTexture) {

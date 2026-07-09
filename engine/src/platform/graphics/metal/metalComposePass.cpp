@@ -107,6 +107,53 @@ float3 toneMapNeutral(float3 color, float exposure) {
     return mix(color, float3(newPeak), g);
 }
 
+// Uncharted 2 filmic operator (upstream TONEMAP_FILMIC).
+float3 uncharted2Tonemap(float3 x) {
+    const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
+    return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
+}
+
+float3 toneMapFilmic(float3 color, float exposure) {
+    const float W = 11.2;
+    color = uncharted2Tonemap(color * exposure * 2.0);
+    float3 whiteScale = 1.0 / uncharted2Tonemap(float3(W));
+    return color * whiteScale;
+}
+
+// Hejl/Burgess-Dawson operator (upstream TONEMAP_HEJL).
+float3 toneMapHejl(float3 color, float exposure) {
+    color *= exposure;
+    const float A = 0.22, B = 0.3, C = 0.1, D = 0.2, E = 0.01, F = 0.3;
+    const float scl = 1.25;
+    float3 h = max(float3(0.0), color - 0.004);
+    return (h * ((scl * A) * h + scl * (C * B)) + scl * (D * E))
+         / (h * (A * h + B) + (D * F))
+         - scl * (E / F);
+}
+
+// ACES fit by Stephen Hill (upstream TONEMAP_ACES2) — RRT+ODT polynomial.
+float3 RRTAndODTFit(float3 v) {
+    float3 a = v * (v + 0.0245786) - 0.000090537;
+    float3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+    return a / b;
+}
+
+float3 toneMapAces2(float3 color, float exposure) {
+    const float3x3 ACESInputMat = float3x3(
+        float3(0.59719, 0.35458, 0.04823),
+        float3(0.07600, 0.90834, 0.01566),
+        float3(0.02840, 0.13383, 0.83777));
+    const float3x3 ACESOutputMat = float3x3(
+        float3( 1.60475, -0.53108, -0.07367),
+        float3(-0.10208,  1.10813, -0.00605),
+        float3(-0.00327, -0.07276,  1.07602));
+    color *= exposure / 0.6;
+    color = color * ACESInputMat;
+    color = RRTAndODTFit(color);
+    color = color * ACESOutputMat;
+    return clamp(color, float3(0.0), float3(1.0));
+}
+
 float maxComp(float x, float y, float z) { return max(x, max(y, z)); }
 float3 toSDR(float3 c) { return c / (1.0 + maxComp(c.r, c.g, c.b)); }
 float3 toHDR(float3 c) { return c / (1.0 - maxComp(c.r, c.g, c.b)); }
@@ -240,8 +287,14 @@ fragment float4 composeFragment(
 
     // 5. Tonemapping (tonemapping dispatch)
     result = max(result, float3(0.0));
-    if (uniforms.tonemapMode == 3u) {           // TONEMAP_ACES
+    if (uniforms.tonemapMode == 1u) {           // TONEMAP_FILMIC
+        result = toneMapFilmic(result, uniforms.exposure);
+    } else if (uniforms.tonemapMode == 2u) {    // TONEMAP_HEJL
+        result = toneMapHejl(result, uniforms.exposure);
+    } else if (uniforms.tonemapMode == 3u) {    // TONEMAP_ACES
         result = toneMapAces(result, uniforms.exposure);
+    } else if (uniforms.tonemapMode == 4u) {    // TONEMAP_ACES2
+        result = toneMapAces2(result, uniforms.exposure);
     } else if (uniforms.tonemapMode == 5u) {    // TONEMAP_NEUTRAL
         result = toneMapNeutral(result, uniforms.exposure);
     } else if (uniforms.tonemapMode == 6u) {    // TONEMAP_NONE

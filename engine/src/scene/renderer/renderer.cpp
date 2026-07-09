@@ -170,7 +170,11 @@ namespace visutwin::canvas
 
     void Renderer::cullShadowmaps(Camera* camera)
     {
-        _cameraDirShadowLights.clear();
+        // Refresh only this camera's entry — buildFrameGraph calls this once per
+        // unique camera, and clearing the whole map here would wipe the entries
+        // of previously culled cameras (breaking directional shadows whenever
+        // more than one camera renders).
+        _cameraDirShadowLights.erase(camera);
 
         if (!camera || !_shadowRendererDirectional) {
             return;
@@ -370,7 +374,7 @@ namespace visutwin::canvas
 
         const auto defaultMaterial = getDefaultMaterial(_device);
 
-        auto* cameraNode = camera->node().get();
+        auto* cameraNode = camera->node();
         const auto cameraPosition = cameraNode ? cameraNode->position() : Vector3{};
         const auto viewMatrix = cameraNode ? cameraNode->worldTransform().inverse() : Matrix4::identity();
         const auto activeTarget = renderTarget ? renderTarget : camera->renderTarget().get();
@@ -805,6 +809,13 @@ namespace visutwin::canvas
                 _device->setClusterGridParams(boundsMinArr, boundsRangeArr, cellsBySizeArr,
                     cfg.cellsX, cfg.cellsY, cfg.cellsZ, cfg.maxLightsPerCell,
                     _worldClusters->lightCount());
+            } else {
+                // No clustered lights this frame: zero the grid params so the
+                // shader's cell bounds check rejects every fragment. Otherwise
+                // the previously bound cluster buffers stay live and deleted
+                // lights keep illuminating the scene.
+                const float zero3[3] = {0.0f, 0.0f, 0.0f};
+                _device->setClusterGridParams(zero3, zero3, zero3, 0, 0, 0, 0, 0);
             }
         }
 
