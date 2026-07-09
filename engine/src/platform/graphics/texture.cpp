@@ -152,6 +152,14 @@ namespace visutwin::canvas
         return _levels[0][mipLevel];
     }
 
+    void* Texture::getLevel(uint32_t mipLevel, uint32_t face) const
+    {
+        if (face >= _levels.size() || mipLevel >= _levels[face].size()) {
+            return nullptr;
+        }
+        return _levels[face][mipLevel];
+    }
+
     size_t Texture::getLevelDataSize(uint32_t mipLevel, uint32_t face) const
     {
         if (face >= _levelDataSizes.size() || mipLevel >= _levelDataSizes[face].size()) {

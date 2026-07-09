@@ -59,9 +59,20 @@ namespace visutwin::canvas
         allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
         vmaCreateAllocator(&allocatorInfo, &_vmaAllocator);
 
+        // Fail loudly instead of limping on: every later frame call would
+        // dereference these (e.g. _swapchainImages[_swapchainImageIndex]).
+        if (_instance == VK_NULL_HANDLE || _device == VK_NULL_HANDLE ||
+            _surface == VK_NULL_HANDLE || _vmaAllocator == VK_NULL_HANDLE) {
+            throw std::runtime_error("VulkanGraphicsDevice: instance/device/surface initialization failed");
+        }
+
         initSwapchain(_width, _height);
         createDepthResources();
         createPerFrameResources();
+
+        if (_swapchain == VK_NULL_HANDLE || _swapchainImages.empty()) {
+            throw std::runtime_error("VulkanGraphicsDevice: swapchain creation failed");
+        }
 
         // Upload command pool + fence (for staging transfers)
         VkCommandPoolCreateInfo uploadPoolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -286,6 +297,8 @@ namespace visutwin::canvas
         if (_device != VK_NULL_HANDLE)
             vkDeviceWaitIdle(_device);
 
+        flushDeferredDestroys(true);
+
         _renderPipeline.reset();
 
         if (_persistentDescriptorPool != VK_NULL_HANDLE)
@@ -505,6 +518,7 @@ namespace visutwin::canvas
             vmaDestroyImage(_vmaAllocator, _depthImage, _depthAllocation);
         _depthImageView = VK_NULL_HANDLE;
         _depthImage = VK_NULL_HANDLE;
+        _depthImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         _depthAllocation = VK_NULL_HANDLE;
     }
 
@@ -588,17 +602,38 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::onFrameStart()
     {
+        _frameActive = false;
         auto& frame = _frames[_frameIndex];
 
         vkWaitForFences(_device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
-        vkResetFences(_device, 1, &frame.inFlightFence);
+
+        // The fence wait proves frame (_frameNumber - kMaxFramesInFlight) has
+        // completed on the GPU — release resources queued up to that frame.
+        flushDeferredDestroys(false);
 
         VkResult result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
             frame.imageAvailable, VK_NULL_HANDLE, &_swapchainImageIndex);
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-            setResolution(_width, _height);
+            // Recreate directly — setResolution(_width, _height) would
+            // early-return on the unchanged size and never rebuild the
+            // swapchain, wedging every subsequent frame.
+            recreateSwapchain();
+            result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
+                frame.imageAvailable, VK_NULL_HANDLE, &_swapchainImageIndex);
+        }
+        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+            // Skip this frame: the fence was deliberately NOT reset, so the
+            // next onFrameStart's wait completes immediately. startRenderPass
+            // and onFrameEnd check _frameActive and no-op.
+            spdlog::warn("VulkanGraphicsDevice: swapchain acquire failed ({}) — skipping frame",
+                static_cast<int>(result));
             return;
         }
+
+        // Reset the fence only once the frame is guaranteed to submit —
+        // resetting before a skipped frame would deadlock the next wait.
+        vkResetFences(_device, 1, &frame.inFlightFence);
+        _frameActive = true;
 
         // A fresh swapchain image is always in an undefined layout — vkAcquire
         // doesn't promise any particular contents.  Track this so onFrameEnd
@@ -626,10 +661,18 @@ namespace visutwin::canvas
         // Reset this frame's descriptor pool — fence wait above guarantees
         // the previous frame using this pool has completed on the GPU.
         vkResetDescriptorPool(_device, frame.descriptorPool, 0);
+        _descriptorOverflowWarned = false;
     }
 
     void VulkanGraphicsDevice::onFrameEnd()
     {
+        if (!_frameActive) {
+            // Frame was skipped at acquire time — nothing was recorded and the
+            // fence was not reset, so there is nothing to submit or present.
+            return;
+        }
+        _frameActive = false;
+
         auto& frame = _frames[_frameIndex];
         VkCommandBuffer cmd = frame.commandBuffer;
 
@@ -666,9 +709,43 @@ namespace visutwin::canvas
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = &_swapchain;
         presentInfo.pImageIndices = &_swapchainImageIndex;
-        vkQueuePresentKHR(_graphicsQueue, &presentInfo);
+        const VkResult presentResult = vkQueuePresentKHR(_graphicsQueue, &presentInfo);
+        if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
+            // Present is the usual place a resize surfaces — rebuild now so the
+            // next acquire starts from a valid swapchain.
+            recreateSwapchain();
+        } else if (presentResult != VK_SUCCESS) {
+            spdlog::warn("VulkanGraphicsDevice: vkQueuePresentKHR failed ({})",
+                static_cast<int>(presentResult));
+        }
 
+        ++_frameNumber;
         _frameIndex = (_frameIndex + 1) % kMaxFramesInFlight;
+    }
+
+    void VulkanGraphicsDevice::deferDestroy(std::function<void()> destroyFn)
+    {
+        if (!destroyFn) {
+            return;
+        }
+        _deferredDestroys.push_back({_frameNumber, std::move(destroyFn)});
+    }
+
+    void VulkanGraphicsDevice::flushDeferredDestroys(const bool force)
+    {
+        while (!_deferredDestroys.empty()) {
+            const auto& front = _deferredDestroys.front();
+            // A resource queued during frame N may be referenced by frame N's
+            // own command buffer and the kMaxFramesInFlight-1 earlier ones;
+            // frame N's fence has provably signaled once _frameNumber reaches
+            // N + kMaxFramesInFlight (single queue, in-order completion).
+            if (!force && front.frame + kMaxFramesInFlight > _frameNumber) {
+                break;
+            }
+            auto fn = std::move(_deferredDestroys.front().fn);
+            _deferredDestroys.pop_front();
+            fn();
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -677,6 +754,10 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::startRenderPass(RenderPass* renderPass)
     {
+        if (!_frameActive) {
+            return; // frame skipped at acquire — command buffer is not recording
+        }
+
         auto& frame = _frames[_frameIndex];
         VkCommandBuffer cmd = frame.commandBuffer;
 
@@ -743,9 +824,16 @@ namespace visutwin::canvas
                     : da.currentLayout;
                 if (depthImg != VK_NULL_HANDLE &&
                     fromLayout != VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+                    // Omni-shadow cubemap depth carves per-face attachment views —
+                    // barrier the face being rendered, not just layer 0 (the
+                    // default), or faces 1-5 render in the wrong layout.
+                    const bool depthLayered = da.texture && da.texture->arrayLayers() > 1;
                     vulkanTransitionImageLayout(cmd, depthImg,
                         fromLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                        depthAspect);
+                        depthAspect,
+                        0, 1,
+                        depthLayered ? static_cast<uint32_t>(offscreen->face()) : 0u,
+                        1u);
                     if (da.texture) {
                         da.texture->setCurrentLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
                     } else {
@@ -772,12 +860,16 @@ namespace visutwin::canvas
                     _swapchainImageLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
                 _swapchainImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             }
-            // The shared depth image lives entirely inside one frame's render
-            // pass; UNDEFINED→DEPTH_ATTACHMENT discards previous contents,
-            // which is what we want before LOAD_OP_CLEAR.
-            vulkanTransitionImageLayout(cmd, _depthImage,
-                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                VK_IMAGE_ASPECT_DEPTH_BIT);
+            // Transition the shared depth image from its tracked layout — a
+            // blanket UNDEFINED source would discard contents even when a
+            // second swapchain pass in the same frame (overlays/gizmos)
+            // requests LOAD_OP_LOAD on depth.
+            if (_depthImageLayout != VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+                vulkanTransitionImageLayout(cmd, _depthImage,
+                    _depthImageLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    VK_IMAGE_ASPECT_DEPTH_BIT);
+                _depthImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            }
 
             VkRenderingAttachmentInfo info{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
             info.imageView = _swapchainImageViews[_swapchainImageIndex];
@@ -818,11 +910,12 @@ namespace visutwin::canvas
         _currentPipeline = VK_NULL_HANDLE;
         _pushConstantsDirty = true;
 
-        // Depth-only offscreen passes are shadow-map renders.  These must NOT
-        // use the negative-height (Y-flip) viewport the colour passes use: the
-        // shadow sample matrices (shadowMatrixPalette) bake the atlas
-        // orientation that a non-flipped render produces, and the per-cascade
-        // sub-region offsets make a post-projection flip impossible to undo.
+        // Depth-only offscreen passes are shadow-map renders. They use the SAME
+        // negative-height viewport as every other pass: the shadow sample
+        // matrices (shadowMatrixPalette) bake the Metal top-left atlas
+        // orientation, and the negative-height viewport stores the map in
+        // exactly that orientation — so the sampling shader needs no V flip.
+        // (_depthOnlyPass only drives the white-texture descriptor fallbacks.)
         _depthOnlyPass = offscreen && colorInfos.empty() && hasDepth;
 
         // Every pass starts with a full-target viewport/scissor — same
@@ -879,10 +972,16 @@ namespace visutwin::canvas
                 // SHADER_READ_ONLY is illegal because its image lacks
                 // SAMPLED_BIT (VUID-VkImageMemoryBarrier-oldLayout-01211).
                 if (da.texture && da.texture->image() != VK_NULL_HANDLE) {
+                    // Mirror the per-face handling in startRenderPass for
+                    // layered (omni cubemap) depth textures.
+                    const bool depthLayered = da.texture->arrayLayers() > 1;
                     vulkanTransitionImageLayout(cmd, da.texture->image(),
                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        VK_IMAGE_ASPECT_DEPTH_BIT);
+                        VK_IMAGE_ASPECT_DEPTH_BIT,
+                        0, 1,
+                        depthLayered ? static_cast<uint32_t>(_activeOffscreenTarget->face()) : 0u,
+                        1u);
                     da.texture->setCurrentLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 }
             }
@@ -932,11 +1031,9 @@ namespace visutwin::canvas
         // The engine uses a top-left-origin viewport (Metal convention).
         // Vulkan's normal viewport maps NDC +Y downwards; placing the origin
         // on the bottom edge of the rect and negating the height flips it so
-        // projection matrices written for Metal/GL work unchanged.
-        //
-        // Depth-only shadow passes are the exception — they render with a
-        // positive-height viewport so the shadow atlas is stored in the
-        // orientation the sample matrices assume (see startRenderPass).
+        // projection matrices written for Metal/GL work unchanged. This applies
+        // to shadow (depth-only) passes too: it stores shadow maps in the Metal
+        // orientation the sample matrices bake (see startRenderPass).
         VkViewport viewport{};
         viewport.x = vx();
         viewport.y = vy() + h;
@@ -1104,7 +1201,14 @@ namespace visutwin::canvas
             auto layout = _renderPipeline->textureSetLayout();
             dsAlloc.pSetLayouts = &layout;
 
-            if (vkAllocateDescriptorSets(_device, &dsAlloc, &texSet) == VK_SUCCESS) {
+            const VkResult texAllocResult = vkAllocateDescriptorSets(_device, &dsAlloc, &texSet);
+            if (texAllocResult != VK_SUCCESS && !_descriptorOverflowWarned) {
+                _descriptorOverflowWarned = true;
+                spdlog::warn("VulkanGraphicsDevice: per-draw descriptor allocation failed ({}) — "
+                             "draws beyond the pool capacity reuse the previous bindings",
+                    static_cast<int>(texAllocResult));
+            }
+            if (texAllocResult == VK_SUCCESS) {
                 // Start every binding on the white fallback, then override the
                 // ones the material actually provides.  Material texture slots
                 // share the same numbering as the descriptor bindings
@@ -1158,7 +1262,13 @@ namespace visutwin::canvas
             auto layout = _renderPipeline->sceneSetLayout();
             dsAlloc.pSetLayouts = &layout;
 
-            if (vkAllocateDescriptorSets(_device, &dsAlloc, &sceneSet) == VK_SUCCESS) {
+            const VkResult sceneAllocResult = vkAllocateDescriptorSets(_device, &dsAlloc, &sceneSet);
+            if (sceneAllocResult != VK_SUCCESS && !_descriptorOverflowWarned) {
+                _descriptorOverflowWarned = true;
+                spdlog::warn("VulkanGraphicsDevice: per-draw scene descriptor allocation failed ({})",
+                    static_cast<int>(sceneAllocResult));
+            }
+            if (sceneAllocResult == VK_SUCCESS) {
                 auto resolveView = [this](Texture* tex) -> VkImageView {
                     if (tex) {
                         auto* vkTex = static_cast<gpu::VulkanTexture*>(tex->impl());
@@ -1498,18 +1608,24 @@ namespace visutwin::canvas
         if (width == _width && height == _height) return;
         _width = width;
         _height = height;
+        recreateSwapchain();
+    }
 
-        if (_device != VK_NULL_HANDLE) {
-            vkDeviceWaitIdle(_device);
-            destroyDepthResources();
-            destroySwapchainSemaphores();
-            cleanupSwapchain();
-            initSwapchain(_width, _height);
-            createDepthResources();
-            // Image count may differ in the new swapchain — per-image
-            // semaphores must match it.
-            createSwapchainSemaphores();
+    void VulkanGraphicsDevice::recreateSwapchain()
+    {
+        if (_device == VK_NULL_HANDLE) {
+            return;
         }
+        vkDeviceWaitIdle(_device);
+        flushDeferredDestroys(true); // idle device — everything is safe to free
+        destroyDepthResources();
+        destroySwapchainSemaphores();
+        cleanupSwapchain();
+        initSwapchain(_width, _height);
+        createDepthResources();
+        // Image count may differ in the new swapchain — per-image
+        // semaphores must match it.
+        createSwapchainSemaphores();
     }
 
     std::pair<int, int> VulkanGraphicsDevice::size() const

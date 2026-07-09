@@ -81,24 +81,34 @@ namespace visutwin::canvas
         VkDevice vk = vkDev ? vkDev->device() : VK_NULL_HANDLE;
         VmaAllocator allocator = vkDev ? vkDev->vmaAllocator() : VK_NULL_HANDLE;
 
+        // Collect handles and defer their destruction: in-flight frames may
+        // still render to / sample these attachments.
+        std::vector<VkImageView> views;
         if (vk != VK_NULL_HANDLE) {
             for (auto& a : _colorAttachments) {
                 if (a.ownView && a.view != VK_NULL_HANDLE) {
-                    vkDestroyImageView(vk, a.view, nullptr);
+                    views.push_back(a.view);
                 }
             }
-        }
-        _colorAttachments.clear();
-
-        if (vk != VK_NULL_HANDLE) {
             if (_depthAttachment.ownView && _depthAttachment.view != VK_NULL_HANDLE) {
-                vkDestroyImageView(vk, _depthAttachment.view, nullptr);
-            }
-            if (allocator != VK_NULL_HANDLE && _depthAttachment.internalImage != VK_NULL_HANDLE) {
-                vmaDestroyImage(allocator, _depthAttachment.internalImage,
-                                _depthAttachment.internalAllocation);
+                views.push_back(_depthAttachment.view);
             }
         }
+        const VkImage internalImage = (vk != VK_NULL_HANDLE) ? _depthAttachment.internalImage : VK_NULL_HANDLE;
+        const VmaAllocation internalAllocation = _depthAttachment.internalAllocation;
+
+        if (vkDev && (!views.empty() || internalImage != VK_NULL_HANDLE)) {
+            vkDev->deferDestroy([vk, allocator, views = std::move(views), internalImage, internalAllocation] {
+                for (VkImageView view : views) {
+                    vkDestroyImageView(vk, view, nullptr);
+                }
+                if (allocator != VK_NULL_HANDLE && internalImage != VK_NULL_HANDLE) {
+                    vmaDestroyImage(allocator, internalImage, internalAllocation);
+                }
+            });
+        }
+
+        _colorAttachments.clear();
         _depthAttachment = VulkanDepthAttachment{};
     }
 
@@ -161,8 +171,10 @@ namespace visutwin::canvas
                 spdlog::warn("VulkanRenderTarget: depthBuffer has no VkImage");
             }
         } else if (hasDepth()) {
+            // D24S8 is not universally supported (MoltenVK on Apple GPUs
+            // lacks it) — probe and fall back to D32S8.
             const VkFormat depthFormat = hasStencil()
-                ? VK_FORMAT_D24_UNORM_S8_UINT
+                ? vulkanSupportedDepthStencilFormat(vkDev->physicalDevice())
                 : VK_FORMAT_D32_SFLOAT;
 
             const uint32_t w = static_cast<uint32_t>(width());

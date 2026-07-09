@@ -119,10 +119,11 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
         return 1.0;
     }
     vec3 coord = sc.xyz / sc.w;
-    // The cascade matrix bakes the Metal atlas Y convention; the shadow map is
-    // rendered here through a negative-height (Y-flipped) viewport, so flip the
-    // sample V to match the stored orientation.
-    coord.y = 1.0 - coord.y;
+    // No V flip: the cascade matrix bakes the Metal top-left atlas convention,
+    // and the negative-height viewport used for every Vulkan pass (including
+    // shadow renders) stores the map in exactly that orientation. A whole-atlas
+    // 1-V flip here would sample the wrong cascade quadrant for any multi-
+    // cascade layout.
     if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0 ||
         coord.z < 0.0 || coord.z > 1.0) {
         return 1.0;
@@ -150,8 +151,8 @@ float sampleSpotShadow(int slot, vec3 worldPos, vec3 N, vec3 L) {
         return 1.0;
     }
     vec3 coord = sc.xyz / sc.w;
-    // Non-flipped (positive-height) shadow render — flip V like the CSM path.
-    coord.y = 1.0 - coord.y;
+    // No V flip — same reasoning as the CSM path: the spot matrix bakes the
+    // Metal orientation and the negative-height viewport reproduces it.
     if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0 ||
         coord.z < 0.0 || coord.z > 1.0) {
         return 1.0;

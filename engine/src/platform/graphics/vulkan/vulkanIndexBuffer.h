@@ -14,6 +14,8 @@
 
 namespace visutwin::canvas
 {
+    class VulkanGraphicsDevice;
+
     class VulkanIndexBuffer : public IndexBuffer
     {
     public:
@@ -31,6 +33,8 @@ namespace visutwin::canvas
         VkBuffer _buffer = VK_NULL_HANDLE;
         VmaAllocation _allocation = VK_NULL_HANDLE;
         VmaAllocator _allocator = VK_NULL_HANDLE;
+        // Deferred-destroy routing (in-flight frames may reference the buffer).
+        VulkanGraphicsDevice* _deviceRef = nullptr;
     };
 }
 

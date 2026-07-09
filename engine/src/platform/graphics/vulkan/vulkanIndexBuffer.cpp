@@ -17,6 +17,7 @@ namespace visutwin::canvas
         : IndexBuffer(device, format, numIndices)
     {
         auto* vkDev = static_cast<VulkanGraphicsDevice*>(device);
+        _deviceRef = vkDev;
         _allocator = vkDev->vmaAllocator();
 
         int bytesPerIndex = (format == INDEXFORMAT_UINT32) ? 4 : (format == INDEXFORMAT_UINT16) ? 2 : 1;
@@ -36,7 +37,15 @@ namespace visutwin::canvas
     VulkanIndexBuffer::~VulkanIndexBuffer()
     {
         if (_allocator != VK_NULL_HANDLE && _buffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(_allocator, _buffer, _allocation);
+            // Defer: an in-flight frame's index binding may still read this.
+            if (_deviceRef) {
+                _deviceRef->deferDestroy(
+                    [allocator = _allocator, buffer = _buffer, allocation = _allocation] {
+                        vmaDestroyBuffer(allocator, buffer, allocation);
+                    });
+            } else {
+                vmaDestroyBuffer(_allocator, _buffer, _allocation);
+            }
         }
     }
 
@@ -71,9 +80,27 @@ namespace visutwin::canvas
         vmaUnmapMemory(_allocator, stagingAlloc);
 
         vulkanImmediateSubmit(vkDev, [&](VkCommandBuffer cmd) {
+            // Queue-wide ordering: prior in-flight frames finish their index
+            // reads before the copy; later reads see the copied data.
+            VkBufferMemoryBarrier pre{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+            pre.srcAccessMask = VK_ACCESS_INDEX_READ_BIT;
+            pre.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            pre.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            pre.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            pre.buffer = _buffer;
+            pre.size = VK_WHOLE_SIZE;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &pre, 0, nullptr);
+
             VkBufferCopy copy{};
             copy.size = size;
             vkCmdCopyBuffer(cmd, stagingBuffer, _buffer, 1, &copy);
+
+            VkBufferMemoryBarrier post = pre;
+            post.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            post.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, nullptr, 1, &post, 0, nullptr);
         });
 
         vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);

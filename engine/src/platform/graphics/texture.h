@@ -79,6 +79,8 @@ namespace visutwin::canvas
         bool hasLevels() const { return !_levels.empty(); }
         uint32_t getNumLevels() const { return _numLevels; }
         void* getLevel(uint32_t mipLevel) const;
+        // Face-aware variant for cubemaps (levels are stored per face).
+        void* getLevel(uint32_t mipLevel, uint32_t face) const;
         size_t getLevelDataSize(uint32_t mipLevel, uint32_t face = 0) const;
         void setLevelData(uint32_t mipLevel, const uint8_t* data, size_t dataSize, uint32_t face = 0);
 

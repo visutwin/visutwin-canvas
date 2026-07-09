@@ -50,6 +50,9 @@ namespace visutwin::canvas::gpu
         void destroySampler();
 
         Texture* _owner = nullptr;
+        // Set in uploadImmediate; used to defer GPU-resource destruction until
+        // in-flight frames that may reference this texture have completed.
+        VulkanGraphicsDevice* _deviceRef = nullptr;
         VkDevice _vkDevice = VK_NULL_HANDLE;
         VmaAllocator _allocator = VK_NULL_HANDLE;
         VkImage _image = VK_NULL_HANDLE;

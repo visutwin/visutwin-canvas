@@ -12,6 +12,8 @@
 #include <vk_mem_alloc.h>
 #include <SDL3/SDL.h>
 
+#include <deque>
+#include <functional>
 #include <memory>
 
 #include "platform/graphics/graphicsDevice.h"
@@ -87,6 +89,12 @@ namespace visutwin::canvas
         [[nodiscard]] VkCommandPool uploadCommandPool() const { return _uploadCommandPool; }
         [[nodiscard]] VkFence uploadFence() const { return _uploadFence; }
 
+        // Queue a GPU-resource destroy to run once every frame that could
+        // reference the resource has completed (fence-gated). Resource
+        // destructors must use this instead of destroying immediately —
+        // an in-flight frame reading a freed image/buffer is a GPU UAF.
+        void deferDestroy(std::function<void()> destroyFn);
+
     private:
         void onFrameStart() override;
         void onFrameEnd() override;
@@ -101,6 +109,15 @@ namespace visutwin::canvas
         void destroyPerFrameResources();
         void createSwapchainSemaphores();
         void destroySwapchainSemaphores();
+
+        // Waits for the device to idle, then rebuilds the swapchain, depth
+        // resources, and per-image semaphores at the current _width/_height.
+        void recreateSwapchain();
+
+        // Runs queued deferred destroys whose owning frames have provably
+        // completed on the GPU (or everything, when force is true — callers
+        // must have idled the device first).
+        void flushDeferredDestroys(bool force);
 
         // Record current viewport/scissor/depth-bias state into the live
         // command buffer.  Only valid while a render pass is active.
@@ -131,6 +148,9 @@ namespace visutwin::canvas
 
         // ── Depth buffer ─────────────────────────────────────────────────
         VkImage _depthImage = VK_NULL_HANDLE;
+        // Tracked layout of the shared backbuffer depth image (like
+        // _swapchainImageLayout) so LOAD_OP_LOAD passes keep their contents.
+        VkImageLayout _depthImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         VmaAllocation _depthAllocation = VK_NULL_HANDLE;
         VkImageView _depthImageView = VK_NULL_HANDLE;
         VkFormat _depthFormat = VK_FORMAT_D32_SFLOAT;
@@ -148,6 +168,25 @@ namespace visutwin::canvas
         std::array<PerFrame, kMaxFramesInFlight> _frames{};
         uint32_t _frameIndex = 0;
         uint32_t _swapchainImageIndex = 0;
+
+        // True between a successful acquire in onFrameStart and the submit in
+        // onFrameEnd. When acquire fails (even after a swapchain rebuild) the
+        // frame is skipped: nothing records, submits, or presents.
+        bool _frameActive = false;
+
+        // Monotonic count of submitted frames — stamps deferred destroys.
+        uint64_t _frameNumber = 0;
+
+        struct DeferredDestroy
+        {
+            uint64_t frame = 0;
+            std::function<void()> fn;
+        };
+        // GPU resources whose owners died while frames may still reference
+        // them. Drained in onFrameStart after the fence wait (see
+        // flushDeferredDestroys) — destroying immediately would be a GPU
+        // use-after-free for any resource used by an in-flight frame.
+        std::deque<DeferredDestroy> _deferredDestroys;
 
         // renderFinished semaphore is one per swapchain image (not per frame
         // in flight): submit signals it, present waits on it, and we can't
@@ -230,6 +269,9 @@ namespace visutwin::canvas
         // when setLightingUniforms changes it) and shared by every draw.
         VulkanLightingUBO _lightingUbo{};
         bool _lightingNeedsUpload = true;
+
+        // Once-per-frame throttle for descriptor-pool exhaustion warnings.
+        bool _descriptorOverflowWarned = false;
         uint32_t _lightingSlotOffset = 0;
 
         // Scene-global environment atlas (equirectangular IBL + skybox source),

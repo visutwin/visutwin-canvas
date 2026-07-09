@@ -170,6 +170,18 @@ namespace visutwin::canvas
         }
     }
 
+    VkFormat vulkanSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice)
+    {
+        for (const VkFormat format : {VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT}) {
+            VkFormatProperties props{};
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+            if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+                return format;
+            }
+        }
+        return VK_FORMAT_D32_SFLOAT_S8_UINT;
+    }
+
     VkFilter vulkanMapFilterMode(FilterMode mode)
     {
         switch (mode) {

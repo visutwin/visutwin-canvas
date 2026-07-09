@@ -67,6 +67,23 @@ namespace visutwin::canvas::gpu
 
     VulkanTexture::~VulkanTexture()
     {
+        // Defer through the device: an in-flight frame's descriptors may still
+        // reference this image/view/sampler.
+        if (_deviceRef) {
+            _deviceRef->deferDestroy(
+                [vkDevice = _vkDevice, allocator = _allocator, image = _image,
+                 allocation = _allocation, view = _imageView, sampler = _sampler] {
+                    if (vkDevice != VK_NULL_HANDLE) {
+                        if (sampler != VK_NULL_HANDLE) vkDestroySampler(vkDevice, sampler, nullptr);
+                        if (view != VK_NULL_HANDLE) vkDestroyImageView(vkDevice, view, nullptr);
+                    }
+                    if (allocator != VK_NULL_HANDLE && image != VK_NULL_HANDLE) {
+                        vmaDestroyImage(allocator, image, allocation);
+                    }
+                });
+            return;
+        }
+
         if (_vkDevice != VK_NULL_HANDLE) {
             destroySampler();
             if (_imageView != VK_NULL_HANDLE) {
@@ -84,12 +101,17 @@ namespace visutwin::canvas::gpu
     void VulkanTexture::uploadImmediate(GraphicsDevice* device)
     {
         auto* vkDev = static_cast<VulkanGraphicsDevice*>(device);
+        _deviceRef = vkDev;
         _vkDevice = vkDev->device();
         _allocator = vkDev->vmaAllocator();
 
         const uint32_t width = _owner->width();
         const uint32_t height = _owner->height();
         _format = vulkanMapPixelFormat(_owner->format());
+        if (_format == VK_FORMAT_D24_UNORM_S8_UINT) {
+            // Not supported by MoltenVK on Apple GPUs — probe for a fallback.
+            _format = vulkanSupportedDepthStencilFormat(vkDev->physicalDevice());
+        }
         _aspect = aspectForFormat(_format);
         const bool isDepth = formatIsDepth(_format);
         const bool isCubemap = _owner->isCubemap();
@@ -146,14 +168,27 @@ namespace visutwin::canvas::gpu
                                    _owner->getLevel(0) != nullptr;
 
         if (haveLevelData) {
-            const size_t dataSize = _owner->getLevelDataSize(0, 0);
-            const void* data = _owner->getLevel(0);
+            // Gather level-0 data for every available layer — cubemaps store
+            // one buffer per face, and a single layer-0 copy would leave
+            // faces 1-5 with undefined contents.
+            struct LayerData { const void* data; size_t size; };
+            std::vector<LayerData> layers;
+            size_t totalSize = 0;
+            for (uint32_t layer = 0; layer < _arrayLayers; ++layer) {
+                const void* layerData = _owner->getLevel(0, layer);
+                const size_t layerSize = _owner->getLevelDataSize(0, layer);
+                if (!layerData || layerSize == 0) {
+                    break; // upload the contiguous prefix of populated faces
+                }
+                layers.push_back({layerData, layerSize});
+                totalSize += layerSize;
+            }
 
             VkBuffer stagingBuffer = VK_NULL_HANDLE;
             VmaAllocation stagingAlloc = VK_NULL_HANDLE;
 
             VkBufferCreateInfo stagingInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-            stagingInfo.size = dataSize;
+            stagingInfo.size = totalSize;
             stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
             VmaAllocationCreateInfo stagingAllocInfo{};
@@ -162,10 +197,25 @@ namespace visutwin::canvas::gpu
             vmaCreateBuffer(_allocator, &stagingInfo, &stagingAllocInfo,
                 &stagingBuffer, &stagingAlloc, nullptr);
 
-            void* mapped = nullptr;
-            vmaMapMemory(_allocator, stagingAlloc, &mapped);
-            memcpy(mapped, data, dataSize);
-            vmaUnmapMemory(_allocator, stagingAlloc);
+            std::vector<VkBufferImageCopy> regions;
+            regions.reserve(layers.size());
+            {
+                void* mapped = nullptr;
+                vmaMapMemory(_allocator, stagingAlloc, &mapped);
+                size_t offset = 0;
+                for (uint32_t layer = 0; layer < layers.size(); ++layer) {
+                    memcpy(static_cast<uint8_t*>(mapped) + offset, layers[layer].data, layers[layer].size);
+
+                    VkBufferImageCopy region{};
+                    region.bufferOffset = offset;
+                    region.imageSubresource = {_aspect, 0, layer, 1};
+                    region.imageExtent = {width, height, 1};
+                    regions.push_back(region);
+
+                    offset += layers[layer].size;
+                }
+                vmaUnmapMemory(_allocator, stagingAlloc);
+            }
 
             vulkanImmediateSubmit(vkDev, [&](VkCommandBuffer cmd) {
                 vulkanTransitionImageLayout(cmd, _image,
@@ -173,11 +223,9 @@ namespace visutwin::canvas::gpu
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     _aspect, 0, 1, 0, _arrayLayers);
 
-                VkBufferImageCopy region{};
-                region.imageSubresource = {_aspect, 0, 0, 1};
-                region.imageExtent = {width, height, 1};
                 vkCmdCopyBufferToImage(cmd, stagingBuffer, _image,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    static_cast<uint32_t>(regions.size()), regions.data());
 
                 vulkanTransitionImageLayout(cmd, _image,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -220,7 +268,14 @@ namespace visutwin::canvas::gpu
         // Texture exposes its GraphicsDevice — cast to the Vulkan flavour.
         auto* dev = dynamic_cast<VulkanGraphicsDevice*>(_owner->device());
         if (!dev) return;
-        destroySampler();
+        // Defer the old sampler's destruction — descriptors already written
+        // this frame (or in-flight frames) may still reference it.
+        if (_sampler != VK_NULL_HANDLE) {
+            dev->deferDestroy([vkDevice = _vkDevice, sampler = _sampler] {
+                vkDestroySampler(vkDevice, sampler, nullptr);
+            });
+            _sampler = VK_NULL_HANDLE;
+        }
         createSampler(dev);
     }
 
