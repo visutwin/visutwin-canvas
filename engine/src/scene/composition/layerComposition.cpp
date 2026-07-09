@@ -58,7 +58,29 @@ namespace visutwin::canvas
     const std::vector<RenderAction*>& LayerComposition::renderActions()
     {
         const auto& cameras = CameraComponent::instances();
-        if (cameras.size() != _lastCameraCount) {
+        // Fingerprint the camera state the render actions bake in: identity,
+        // enabled flag, render target, camera-passes mode, and layer list.
+        // A count-only comparison missed enabled toggles, render-target changes,
+        // and destroy+create at equal count — all of which left stale actions
+        // holding dangling RenderAction::camera pointers.
+        size_t fingerprint = cameras.size();
+        const auto mix = [&fingerprint](size_t v) {
+            fingerprint ^= v + 0x9e3779b97f4a7c15ull + (fingerprint << 6) + (fingerprint >> 2);
+        };
+        for (const auto* cameraComponent : cameras) {
+            mix(reinterpret_cast<size_t>(cameraComponent));
+            if (cameraComponent) {
+                mix(cameraComponent->enabled() ? 1u : 2u);
+                const auto* camera = cameraComponent->camera();
+                mix(reinterpret_cast<size_t>(camera ? camera->renderTarget().get() : nullptr));
+                mix(cameraComponent->renderPasses().size());
+                for (const int layerId : cameraComponent->layers()) {
+                    mix(static_cast<size_t>(layerId));
+                }
+            }
+        }
+        if (fingerprint != _lastCameraFingerprint) {
+            _lastCameraFingerprint = fingerprint;
             _dirty = true;
         }
         if (_renderActions.empty() && !cameras.empty()) {
@@ -154,7 +176,6 @@ namespace visutwin::canvas
 
         const auto& cameras = CameraComponent::instances();
         if (cameras.empty()) {
-            _lastCameraCount = 0;
             _dirty = false;
             return;
         }
@@ -234,7 +255,6 @@ namespace visutwin::canvas
                 layer->setDirtyComposition(false);
             }
         }
-        _lastCameraCount = cameras.size();
         _dirty = false;
     }
 }

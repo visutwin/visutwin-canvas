@@ -195,14 +195,9 @@ namespace visutwin::canvas
                 continue;
             }
 
-            // Allocate shadow map if not yet created.
+            // Allocate shadow map if not yet created; the light owns it.
             if (!sceneLight->shadowMap()) {
-                auto shadowMap = ShadowMap::create(_device.get(), sceneLight);
-                if (shadowMap) {
-                    // Store the owned ShadowMap on the Renderer (keep alive), set raw pointer on Light.
-                    sceneLight->setShadowMap(shadowMap.get());
-                    _ownedShadowMaps.push_back(std::move(shadowMap));
-                }
+                sceneLight->setShadowMap(ShadowMap::create(_device.get(), sceneLight));
             }
 
             if (!sceneLight->shadowMap()) {

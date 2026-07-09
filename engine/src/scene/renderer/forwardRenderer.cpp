@@ -49,7 +49,7 @@ namespace visutwin::canvas
                     }
                 }
                 if (!localShadowLights.empty()) {
-                    _shadowRendererLocal->cullLocalLights(localShadowLights, _device, _ownedShadowMaps);
+                    _shadowRendererLocal->cullLocalLights(localShadowLights, _device);
                 }
             }
 

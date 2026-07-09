@@ -10,6 +10,8 @@
 #include "framework/entity.h"
 #include "framework/engine.h"
 #include "framework/components/componentSystem.h"
+#include "framework/components/light/lightComponent.h"
+#include "scene/light.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/graphics/renderPassCameraFrame.h"
 #include "scene/graphics/renderPassTAA.h"
@@ -37,6 +39,15 @@ namespace visutwin::canvas
         }
 
         if (_camera) {
+            // Lights cache LightRenderData keyed on raw Camera* — purge before
+            // the pointer dies (a future camera at the same address would
+            // otherwise reuse the stale entry).
+            for (auto* lightComponent : LightComponent::instances()) {
+                if (lightComponent && lightComponent->light()) {
+                    lightComponent->light()->invalidateRenderData(_camera);
+                }
+            }
+
             delete _camera;
             _camera = nullptr;
         }

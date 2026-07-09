@@ -98,13 +98,21 @@ namespace visutwin::canvas
         const std::array<float, 4>& shadowCascadeDistances() const { return _shadowCascadeDistances; }
         float* shadowCascadeDistancesData() { return _shadowCascadeDistances.data(); }
 
-        ShadowMap* shadowMap() const { return _shadowMap; }
-        void setShadowMap(ShadowMap* value) { _shadowMap = value; }
+        // The light owns its shadow map: replacing it (setNumCascades,
+        // setShadowType) or destroying the light frees the old GPU textures
+        // instead of orphaning them in a renderer-side list.
+        ShadowMap* shadowMap() const { return _shadowMap.get(); }
+        void setShadowMap(std::shared_ptr<ShadowMap> value) { _shadowMap = std::move(value); }
 
         LightRenderData* getRenderData(Camera* camera, int face);
 
+        // Drops cached render data keyed on this camera. Must be called when a
+        // camera is destroyed — _renderData is keyed on raw Camera*, and a new
+        // camera allocated at the same address would silently reuse stale state.
+        void invalidateRenderData(const Camera* camera);
+
         ShadowType shadowType() const { return _shadowType; }
-        void setShadowType(const ShadowType value) { _shadowType = value; }
+        void setShadowType(ShadowType value);
 
         GraphNode* node() const { return _node; }
         void setNode(GraphNode* value) { _node = value; }
@@ -193,7 +201,7 @@ namespace visutwin::canvas
         //_shadowCascadeDistances.
         std::array<float, 4> _shadowCascadeDistances = {};
 
-        ShadowMap* _shadowMap = nullptr;
+        std::shared_ptr<ShadowMap> _shadowMap;
 
         std::vector<std::unique_ptr<LightRenderData>> _renderData;
 

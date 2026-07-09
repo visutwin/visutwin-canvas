@@ -57,6 +57,12 @@ namespace visutwin::canvas
 
         MeshInstance(Mesh* mesh, Material* material, GraphNode* node = nullptr);
 
+        // Shared-ownership variant: the instance co-owns mesh and material.
+        // Use when the original owner (e.g. a GLB ContainerResource) can be
+        // unloaded while entities instantiated from it still render.
+        MeshInstance(std::shared_ptr<Mesh> mesh, std::shared_ptr<Material> material,
+                     GraphNode* node = nullptr);
+
         BoundingBox aabb();
 
         Mesh* mesh() const { return _mesh; }
@@ -156,6 +162,12 @@ namespace visutwin::canvas
     private:
         Material* _material = nullptr;
         Mesh* _mesh = nullptr;
+
+        // Optional co-ownership backing the raw pointers above (set by the
+        // shared-ownership constructor). Keeps container-created resources
+        // alive after the container itself is unloaded.
+        std::shared_ptr<Mesh> _meshOwned;
+        std::shared_ptr<Material> _materialOwned;
 
         // The graph node defining the transform for this instance.
         GraphNode* _node = nullptr;

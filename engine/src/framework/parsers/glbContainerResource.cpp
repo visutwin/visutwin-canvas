@@ -28,7 +28,9 @@ namespace visutwin::canvas
                     if (!payload.mesh) {
                         continue;
                     }
-                    auto meshInstance = std::make_unique<MeshInstance>(payload.mesh.get(), payload.material.get(), root);
+                    // Shared ownership: instantiated entities must survive Asset::unload()
+                    // deleting this container.
+                    auto meshInstance = std::make_unique<MeshInstance>(payload.mesh, payload.material, root);
                     renderComponentRaw->addMeshInstance(std::move(meshInstance));
                 }
             root->addComponentInstance(std::move(renderComponent), componentTypeID<RenderComponent>());
@@ -64,7 +66,7 @@ namespace visutwin::canvas
                     if (!meshPayload.mesh) {
                         continue;
                     }
-                    auto meshInstance = std::make_unique<MeshInstance>(meshPayload.mesh.get(), meshPayload.material.get(), nodeEntity);
+                    auto meshInstance = std::make_unique<MeshInstance>(meshPayload.mesh, meshPayload.material, nodeEntity);
                     meshInstance->setCastShadow(meshPayload.castShadow);
                     renderComponentRaw->addMeshInstance(std::move(meshInstance));
                 }

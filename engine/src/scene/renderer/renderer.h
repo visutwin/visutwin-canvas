@@ -66,8 +66,6 @@ namespace visutwin::canvas
 
         ShadowRendererDirectional* shadowRendererDirectional() const { return _shadowRendererDirectional.get(); }
 
-        // ShadowMaps owned by the renderer, kept alive for the lifetime of the lights that use them.
-        std::vector<std::unique_ptr<ShadowMap>> _ownedShadowMaps;
 
     private:
         friend class Engine;

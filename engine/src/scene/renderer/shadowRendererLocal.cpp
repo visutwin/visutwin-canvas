@@ -53,8 +53,7 @@ namespace visutwin::canvas
     }
 
     void ShadowRendererLocal::cullLocalLights(const std::vector<Light*>& localLights,
-        const std::shared_ptr<GraphicsDevice>& device,
-        std::vector<std::unique_ptr<ShadowMap>>& ownedShadowMaps)
+        const std::shared_ptr<GraphicsDevice>& device)
     {
         // Cache the device pointer for use in buildNonClusteredRenderPasses().
         // The device is needed to create render pass encoders and draw commands.
@@ -65,13 +64,10 @@ namespace visutwin::canvas
                 continue;
             }
 
-            // Allocate shadow map if not yet created.
+            // Allocate shadow map if not yet created; the light owns it.
             if (!light->shadowMap()) {
-                auto shadowMap = ShadowMap::create(device.get(), light);
-                if (shadowMap) {
-                    light->setShadowMap(shadowMap.get());
-                    ownedShadowMaps.push_back(std::move(shadowMap));
-                } else {
+                light->setShadowMap(ShadowMap::create(device.get(), light));
+                if (!light->shadowMap()) {
                     spdlog::warn("[LocalShadow] shadow map allocation FAILED for light");
                 }
             }

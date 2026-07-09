@@ -30,8 +30,7 @@ namespace visutwin::canvas
         // Position shadow cameras for local (spot/point) lights and allocate shadow maps.
         // Mirrors Renderer::cullShadowmaps() but for local lights.
         void cullLocalLights(const std::vector<Light*>& localLights,
-            const std::shared_ptr<GraphicsDevice>& device,
-            std::vector<std::unique_ptr<ShadowMap>>& ownedShadowMaps);
+            const std::shared_ptr<GraphicsDevice>& device);
 
     private:
         Renderer* _renderer;

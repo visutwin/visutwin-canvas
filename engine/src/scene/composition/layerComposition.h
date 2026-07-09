@@ -61,7 +61,7 @@ namespace visutwin::canvas
         std::vector<bool> _subLayerEnabled;
 
         std::vector<RenderAction*> _renderActions;
-        size_t _lastCameraCount = 0;
+        size_t _lastCameraFingerprint = 0;
 
         // Opaque sublayer order mapping (layer id -> index)
         std::unordered_map<int, int> _opaqueOrder;

@@ -79,6 +79,27 @@ namespace visutwin::canvas
         _shadowMap = nullptr;
     }
 
+    void Light::setShadowType(const ShadowType value)
+    {
+        if (_shadowType == value) {
+            return;
+        }
+        _shadowType = value;
+
+        // Shadow cameras cache type-dependent state (e.g. clear color: PCF
+        // clears to 1.0 depth, VSM to the (0,0,0,0) "unrendered" sentinel) and
+        // the shadow map format differs (depth vs RGBA16F moments) — rebuild both.
+        _renderData.clear();
+        _shadowMap = nullptr;
+    }
+
+    void Light::invalidateRenderData(const Camera* camera)
+    {
+        std::erase_if(_renderData, [camera](const std::unique_ptr<LightRenderData>& rd) {
+            return rd && rd->camera == camera;
+        });
+    }
+
     LightRenderData* Light::getRenderData(Camera* camera, int face)
     {
         // Return existing
