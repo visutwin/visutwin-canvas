@@ -7,8 +7,8 @@
 
 namespace visutwin::canvas
 {
-    void DeviceCache::remove(const std::shared_ptr<GraphicsDevice>& device) {
-        auto it = _cache.find(device.get());
+    void DeviceCache::remove(GraphicsDevice* device) {
+        auto it = _cache.find(device);
         if (it != _cache.end()) {
             // Get the cached resource
             auto resource = it->second;

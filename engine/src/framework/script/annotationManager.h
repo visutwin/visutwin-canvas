@@ -83,6 +83,8 @@ namespace visutwin::canvas
         /// The currently hovered annotation (nearest to mouse within hotspot radius), or nullptr.
         Annotation* hoveredAnnotation() const { return _hoveredAnnotation; }
 
+        ~AnnotationManager() override;
+
         void initialize() override;
         void update(float dt) override;
 
@@ -121,6 +123,11 @@ namespace visutwin::canvas
         // Interaction state
         Annotation* _activeAnnotation = nullptr;
         Annotation* _hoveredAnnotation = nullptr;
+
+        // Engine event subscriptions — detached in the destructor so the engine
+        // never dispatches into a destroyed manager.
+        EventHandlePtr _onAnnotationAdd;
+        EventHandlePtr _onAnnotationRemove;
     };
 }
 

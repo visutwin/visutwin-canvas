@@ -36,11 +36,13 @@ namespace visutwin::canvas
 
     void ResourceLoader::addHandler(const std::string& type, std::unique_ptr<ResourceHandler> handler)
     {
+        std::lock_guard lock(_handlersMutex);
         _handlers[type] = std::move(handler);
     }
 
     void ResourceLoader::removeHandler(const std::string& type)
     {
+        std::lock_guard lock(_handlersMutex);
         _handlers.erase(type);
     }
 
@@ -87,6 +89,7 @@ namespace visutwin::canvas
                     c.onSuccess(std::move(c.data));
                 }
             }
+            _pendingCount.fetch_sub(1, std::memory_order_relaxed);
         }
     }
 
@@ -133,14 +136,23 @@ namespace visutwin::canvas
             completion.onSuccess = std::move(req.onSuccess);
             completion.onError   = std::move(req.onError);
 
-            // Look up the handler for this asset type.
-            auto it = _handlers.find(req.type);
-            if (it == _handlers.end()) {
+            // Look up the handler under the lock, then load outside it — the
+            // shared_ptr copy keeps the handler alive even if the main thread
+            // removes it mid-load.
+            std::shared_ptr<ResourceHandler> handler;
+            {
+                std::lock_guard lock(_handlersMutex);
+                auto it = _handlers.find(req.type);
+                if (it != _handlers.end()) {
+                    handler = it->second;
+                }
+            }
+            if (!handler) {
                 completion.error = "No resource handler registered for type '" + req.type + "'";
                 spdlog::error("ResourceLoader: {}", completion.error);
             } else {
                 try {
-                    auto loaded = it->second->load(req.url);
+                    auto loaded = handler->load(req.url);
                     if (loaded) {
                         completion.data = std::move(loaded);
                     } else {
@@ -156,7 +168,9 @@ namespace visutwin::canvas
                 std::lock_guard lock(_completionMutex);
                 _completions.push_back(std::move(completion));
             }
-            _pendingCount.fetch_sub(1, std::memory_order_relaxed);
+            // _pendingCount is decremented in processCompletions() after the
+            // callback runs, so hasPending() stays true while completions
+            // (and their heavy main-thread parsing) are still queued.
         }
     }
 

@@ -52,17 +52,28 @@ namespace visutwin::canvas
     EventHandle::EventHandle(EventHandler* handler, const std::string& name, HandleEventCallback callback, void* scope,
             bool once): _handler(handler), _name(name), _callback(std::move(callback)), _scope(scope), _once(once), _removed(false) {}
 
-    EventHandle* EventHandler::on(const std::string& name, HandleEventCallback callback, void* scope)
+    EventHandler::~EventHandler()
+    {
+        for (auto& handle : _eventHandles) {
+            if (handle) {
+                handle->setRemoved(true);
+                handle->_handler = nullptr;
+                handle->_callback = HandleEventCallback();
+            }
+        }
+    }
+
+    EventHandlePtr EventHandler::on(const std::string& name, HandleEventCallback callback, void* scope)
     {
         return addCallback(name, callback, scope, false);
     }
 
-    EventHandle* EventHandler::once(const std::string& name, HandleEventCallback callback, void* scope)
+    EventHandlePtr EventHandler::once(const std::string& name, HandleEventCallback callback, void* scope)
     {
         return addCallback(name, callback, scope, true);
     }
 
-    EventHandle* EventHandler::addCallback(const std::string& name, HandleEventCallback callback, void* scope, bool once)
+    EventHandlePtr EventHandler::addCallback(const std::string& name, HandleEventCallback callback, void* scope, bool once)
     {
         if (_callbacks.find(name) == _callbacks.end()) {
             _callbacks[name] = std::vector<EventHandle*>();
@@ -78,12 +89,11 @@ namespace visutwin::canvas
             }
         }
 
-        auto evt = std::make_unique<EventHandle>(this, name, std::move(callback), scope, once);
-        EventHandle* evtRaw = evt.get();
-        _eventHandles.push_back(std::move(evt));
+        auto evt = std::make_shared<EventHandle>(this, name, std::move(callback), scope, once);
+        _eventHandles.push_back(evt);
 
-        _callbacks[name].push_back(evtRaw);
-        return evtRaw;
+        _callbacks[name].push_back(evt.get());
+        return evt;
     }
 
     EventHandler* EventHandler::off(const std::string& name, const HandleEventCallback& callback, void* scope)
@@ -235,13 +245,15 @@ namespace visutwin::canvas
 
     void EventHandler::compactRemovedHandles()
     {
-        // Callback lists can temporarily hold removed handles while dispatch is active.
-        if (!_callbackActive.empty()) {
+        // Callback lists (including clone-path snapshots that never appear in
+        // _callbackActive) can hold removed handles while any fire() is on the
+        // stack — releasing them now would dangle the pointers those loops read.
+        if (_dispatchDepth > 0 || !_callbackActive.empty()) {
             return;
         }
 
         _eventHandles.erase(std::remove_if(_eventHandles.begin(), _eventHandles.end(),
-            [](const std::unique_ptr<EventHandle>& handle) {
+            [](const std::shared_ptr<EventHandle>& handle) {
                 return !handle || handle->removed();
             }), _eventHandles.end());
     }

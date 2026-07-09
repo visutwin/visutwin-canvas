@@ -203,6 +203,17 @@ namespace visutwin::canvas
         return std::nullopt;
     }
 
+    void Asset::finishLoad(const std::optional<Resource>& result)
+    {
+        _loading = false;
+        // Move out first: a callback may call loadAsync() again re-entrantly.
+        auto callbacks = std::move(_pendingCallbacks);
+        _pendingCallbacks.clear();
+        for (auto& cb : callbacks) {
+            if (cb) cb(result);
+        }
+    }
+
     void Asset::loadAsync(ResourceLoader& loader,
                           std::function<void(std::optional<Resource>)> callback)
     {
@@ -220,14 +231,25 @@ namespace visutwin::canvas
             return;
         }
 
+        // Coalesce: one underlying load, all callbacks fire on its completion.
+        // (Two concurrent loads would each push a resource, orphaning one.)
+        if (callback) {
+            _pendingCallbacks.push_back(std::move(callback));
+        }
+        if (_loading) {
+            return;
+        }
+        _loading = true;
+
         // Map asset type → handler type key used by ResourceLoader.
         // (Asset types and handler keys deliberately share the same strings.)
         const std::string& handlerType = _type;
 
-        // Capture fields by value so the closure is self-contained.
-        // `this` is captured for storing the result in _resources.
-        // SAFETY: the Asset must outlive the in-flight request.
+        // Capture fields by value so the closure is self-contained. `self` may
+        // only be dereferenced after `alive.lock()` succeeds — the token dies
+        // with the Asset, making a destroyed-asset completion a safe no-op.
         auto* self   = this;
+        std::weak_ptr<bool> alive = _aliveToken;
         auto  name   = _name;
         auto  type   = _type;
         auto  file   = _file;
@@ -238,7 +260,11 @@ namespace visutwin::canvas
 
         loader.load(_file, handlerType,
             // ── onSuccess (main thread) ────────────────────────────────────
-            [self, name, type, file, data, device, callback](std::unique_ptr<LoadedData> loaded) {
+            [self, alive, name, type, file, data, device](std::unique_ptr<LoadedData> loaded) {
+                if (!alive.lock()) {
+                    spdlog::warn("Asset::loadAsync '{}' completed after the Asset was destroyed — dropping result", name);
+                    return;
+                }
                 if (type == AssetType::TEXTURE && loaded->pixelData) {
                     // GPU upload from pre-decoded pixels.
                     auto& pd = *loaded->pixelData;
@@ -274,7 +300,7 @@ namespace visutwin::canvas
                         name, pd.width, pd.height);
 
                     self->_resources.push_back(texture);
-                    if (callback) callback(texture);
+                    self->finishLoad(Resource(texture));
 
                 } else if (type == AssetType::CONTAINER) {
                     std::unique_ptr<GlbContainerResource> container;
@@ -348,10 +374,10 @@ namespace visutwin::canvas
                         auto* res = static_cast<ContainerResource*>(container.release());
                         self->_resources.push_back(res);
                         spdlog::info("Asset::loadAsync container '{}' parse done", name);
-                        if (callback) callback(res);
+                        self->finishLoad(Resource(res));
                     } else {
                         spdlog::error("Asset::loadAsync container '{}' parse failed", name);
-                        if (callback) callback(std::nullopt);
+                        self->finishLoad(std::nullopt);
                     }
 
                 } else if (type == AssetType::FONT) {
@@ -361,21 +387,24 @@ namespace visutwin::canvas
                     if (font.has_value()) {
                         self->_resources.push_back(*font);
                         spdlog::info("Asset::loadAsync font '{}' parse done", name);
-                        if (callback) callback(*font);
+                        self->finishLoad(Resource(*font));
                     } else {
                         spdlog::error("Asset::loadAsync font '{}' parse failed", name);
-                        if (callback) callback(std::nullopt);
+                        self->finishLoad(std::nullopt);
                     }
 
                 } else {
                     spdlog::warn("Asset::loadAsync '{}' unsupported type '{}'", name, type);
-                    if (callback) callback(std::nullopt);
+                    self->finishLoad(std::nullopt);
                 }
             },
             // ── onError (main thread) ──────────────────────────────────────
-            [name, callback](const std::string& error) {
+            [self, alive, name](const std::string& error) {
                 spdlog::error("Asset::loadAsync '{}' failed: {}", name, error);
-                if (callback) callback(std::nullopt);
+                if (!alive.lock()) {
+                    return;
+                }
+                self->finishLoad(std::nullopt);
             }
         );
     }

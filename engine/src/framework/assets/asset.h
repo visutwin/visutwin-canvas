@@ -95,15 +95,23 @@ namespace visutwin::canvas
          * If the asset is already loaded the callback fires immediately (on
          * the current call, not deferred).
          *
-         * @note The Asset must outlive the in-flight request.
+         * Destroying the Asset while a request is in flight is safe: the
+         * completion detects it via an alive-token and becomes a no-op
+         * (pending callbacks are dropped, no result is stored). Calls made
+         * while a load is already in flight are coalesced — their callbacks
+         * fire when the single underlying load completes.
          */
         void loadAsync(ResourceLoader& loader,
                        std::function<void(std::optional<Resource>)> callback);
 
     private:
+        // Completes an async load: stores nothing itself (the closure already
+        // pushed the resource), flips _loading, and fires all pending callbacks.
+        void finishLoad(const std::optional<Resource>& result);
+
         static std::weak_ptr<GraphicsDevice> _defaultGraphicsDevice;
 
-        bool _preload;
+        bool _preload = false;
 
         std::string _name;
         std::string _type;
@@ -112,5 +120,12 @@ namespace visutwin::canvas
         AssetData _data;
 
         std::vector<Resource> _resources;
+
+        bool _loading = false;
+        std::vector<std::function<void(std::optional<Resource>)>> _pendingCallbacks;
+
+        // Outlives nothing: destroyed with the Asset, which is exactly what the
+        // async completion checks (weak_ptr lock fails → Asset is gone).
+        std::shared_ptr<bool> _aliveToken = std::make_shared<bool>(true);
     };
 }

@@ -199,8 +199,11 @@ namespace visutwin::canvas
 
         std::weak_ptr<Engine> _engine;
 
-        // Handler registry — written from the main thread only, read from worker.
-        std::unordered_map<std::string, std::unique_ptr<ResourceHandler>> _handlers;
+        // Handler registry — mutated from the main thread, read from the worker,
+        // so all access goes through _handlersMutex. Values are shared_ptr so the
+        // worker's in-flight load keeps a handler alive across removeHandler().
+        std::mutex _handlersMutex;
+        std::unordered_map<std::string, std::shared_ptr<ResourceHandler>> _handlers;
 
         // Worker thread.
         std::thread      _worker;

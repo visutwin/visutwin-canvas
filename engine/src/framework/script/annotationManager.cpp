@@ -24,6 +24,18 @@
 
 namespace visutwin::canvas
 {
+    AnnotationManager::~AnnotationManager()
+    {
+        // The engine can outlive this script; leaving the [this] subscriptions
+        // behind would dispatch into freed memory on the next annotation event.
+        if (_onAnnotationAdd) {
+            _onAnnotationAdd->off();
+        }
+        if (_onAnnotationRemove) {
+            _onAnnotationRemove->off();
+        }
+    }
+
     void AnnotationManager::initialize()
     {
         auto* eng = entity()->engine();
@@ -33,10 +45,10 @@ namespace visutwin::canvas
         findCameraEntity();
 
         // Listen for annotation add/remove events on the engine
-        eng->on("annotation:add", [this](Annotation* annotation) {
+        _onAnnotationAdd = eng->on("annotation:add", [this](Annotation* annotation) {
             registerAnnotation(annotation);
         });
-        eng->on("annotation:remove", [this](Annotation* annotation) {
+        _onAnnotationRemove = eng->on("annotation:remove", [this](Annotation* annotation) {
             unregisterAnnotation(annotation);
         });
 

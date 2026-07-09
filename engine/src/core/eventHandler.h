@@ -54,26 +54,34 @@ namespace visutwin::canvas
         bool _removed;
     };
 
+    // Shared ownership: the EventHandler keeps a reference while subscribed;
+    // a caller-retained copy stays valid after removal (off() becomes a no-op),
+    // so storing the handle for later unsubscribe is safe.
+    using EventHandlePtr = std::shared_ptr<EventHandle>;
+
     /**
      * Abstract base class that implements functionality for event handling
      */
     class EventHandler
     {
     public:
-        virtual ~EventHandler() = default;
+        // Marks all outstanding handles removed and detaches them, so an
+        // EventHandlePtr retained by a subscriber stays safe (off() becomes a
+        // no-op) even when the emitter is destroyed first.
+        virtual ~EventHandler();
 
-        EventHandle* on(const std::string& name, HandleEventCallback callback, void* scope = nullptr);
-        EventHandle* once(const std::string& name, HandleEventCallback callback, void* scope = nullptr);
+        EventHandlePtr on(const std::string& name, HandleEventCallback callback, void* scope = nullptr);
+        EventHandlePtr once(const std::string& name, HandleEventCallback callback, void* scope = nullptr);
 
         template<typename Callback>
-        EventHandle* on(const std::string& name, Callback&& callback, void* scope = nullptr)
+        EventHandlePtr on(const std::string& name, Callback&& callback, void* scope = nullptr)
             requires(!std::is_same_v<std::decay_t<Callback>, HandleEventCallback>)
         {
             return on(name, adaptCallback(std::forward<Callback>(callback)), scope);
         }
 
         template<typename Callback>
-        EventHandle* once(const std::string& name, Callback&& callback, void* scope = nullptr)
+        EventHandlePtr once(const std::string& name, Callback&& callback, void* scope = nullptr)
             requires(!std::is_same_v<std::decay_t<Callback>, HandleEventCallback>)
         {
             return once(name, adaptCallback(std::forward<Callback>(callback)), scope);
@@ -99,7 +107,7 @@ namespace visutwin::canvas
         [[nodiscard]] bool hasEvent(const std::string& name) const;
 
     protected:
-        EventHandle* addCallback(const std::string& name, HandleEventCallback callback, void* scope = nullptr, bool once = false);
+        EventHandlePtr addCallback(const std::string& name, HandleEventCallback callback, void* scope = nullptr, bool once = false);
 
     private:
         void compactRemovedHandles();
@@ -206,8 +214,15 @@ namespace visutwin::canvas
         // Map of currently active (executing) callback lists
         std::unordered_map<std::string, std::vector<EventHandle*>> _callbackActive;
 
-        // Owner storage to avoid leaks while preserving stable handles.
-        std::vector<std::unique_ptr<EventHandle>> _eventHandles;
+        // Owner storage; removed handles are only released by compactRemovedHandles()
+        // once no fire() is on the stack (_dispatchDepth == 0). Callers holding an
+        // EventHandlePtr keep the object alive beyond that.
+        std::vector<std::shared_ptr<EventHandle>> _eventHandles;
+
+        // Number of fire() frames currently on the stack (any event name).
+        // Guards handle compaction: freeing removed handles mid-dispatch would
+        // leave dangling pointers in the lists the active loops iterate.
+        int _dispatchDepth = 0;
     };
 
     template<typename... Args>
@@ -223,26 +238,34 @@ namespace visutwin::canvas
         }
 
         std::vector<EventHandle*>* callbacks = nullptr;
+        // Local (not static/shared): a nested fire() taking the clone path must
+        // not clobber the list an outer clone-path frame is still iterating.
+        std::vector<EventHandle*> clonedCallbacks;
         std::vector<EventHandle*>& callbacksInitial = callbacksIt->second;
 
+        bool ownsActiveEntry = false;
         auto activeIt = _callbackActive.find(name);
         if (activeIt == _callbackActive.end()) {
             // when starting callback execution ensure we store a list of initial callbacks
             _callbackActive[name] = callbacksInitial;
+            ownsActiveEntry = true;
         } else if (activeIt->second != callbacksInitial) {
             // if we are trying to execute a callback while there is an active execution right now
             // and the active list has been already modified,
             // then we go to an unoptimized path and clone the callbacks list to ensure execution consistency
-            static thread_local std::vector<EventHandle*> tempCallbacks;
-            tempCallbacks = callbacksInitial;
-            callbacks = &tempCallbacks;
+            clonedCallbacks = callbacksInitial;
+            callbacks = &clonedCallbacks;
         }
+        // else: reentrant fire of the same, unmodified event — share the existing
+        // active entry. Only the frame that created it (ownsActiveEntry) may erase
+        // it below; erasing here would destroy the vector the outer frame iterates.
 
         std::vector<EventHandle*>& activeCallbacks = callbacks ? *callbacks : _callbackActive[name];
         EventArgs eventArgs;
         eventArgs.reserve(sizeof...(Args));
         (eventArgs.emplace_back(std::forward<Args>(args)), ...);
 
+        ++_dispatchDepth;
         for (size_t i = 0; i < activeCallbacks.size(); i++) {
             EventHandle* evt = activeCallbacks[i];
             if (!evt || !evt->_callback || evt->_removed)
@@ -285,10 +308,12 @@ namespace visutwin::canvas
             }
         }
 
-        if (!callbacks) {
+        --_dispatchDepth;
+
+        if (ownsActiveEntry) {
             _callbackActive.erase(name);
-            compactRemovedHandles();
         }
+        compactRemovedHandles(); // no-op unless this was the outermost fire()
 
         return this;
     }

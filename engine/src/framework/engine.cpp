@@ -21,8 +21,11 @@ namespace visutwin::canvas
 {
     std::unordered_map<std::string, std::shared_ptr<Engine>> Engine::_engines;
 
-    MakeTickCallback makeTick(const std::shared_ptr<Engine>& app) {
-        return [app](double timestamp, void* xrFrame) {
+    MakeTickCallback makeTick(const std::shared_ptr<Engine>& engine) {
+        // Weak capture: the tick closure is stored in Engine::_tick, so a strong
+        // capture would be a shared_ptr self-cycle keeping the Engine alive forever.
+        return [weakApp = std::weak_ptr<Engine>(engine)](double timestamp, void* xrFrame) {
+            auto app = weakApp.lock();
             if (!app || !app->_graphicsDevice) {
                 return;
             }
@@ -200,8 +203,11 @@ namespace visutwin::canvas
 
         _tick = nullptr;
 
-        // Remove from the applications registry
-        _engines.clear();
+        // Remove only this engine from the applications registry — clearing the
+        // whole map would drop every other engine's owning reference too.
+        std::erase_if(_engines, [this](const auto& entry) {
+            return entry.second.get() == this;
+        });
     }
 
     void Engine::init(const AppOptions& appOptions)
