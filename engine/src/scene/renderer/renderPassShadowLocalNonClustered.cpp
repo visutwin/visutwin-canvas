@@ -13,6 +13,7 @@
 #include <scene/graphNode.h>
 #include "scene/shader-lib/programLibrary.h"
 #include "shadowCasterFiltering.h"
+#include "scene/frustumUtils.h"
 
 namespace visutwin::canvas
 {
@@ -74,6 +75,11 @@ namespace visutwin::canvas
         }
 
         const Matrix4 viewProjection = _shadowCamera->projectionMatrix() * _shadowCamera->node()->worldTransform().inverse();
+
+        // Build the shadow frustum once for the whole caster sweep.
+        const Frustum shadowFrustum = (_shadowCamera && _shadowCamera->node())
+            ? buildCameraFrustum(_shadowCamera, _shadowCamera->node()) : Frustum{};
+
         for (auto* renderComponent : RenderComponent::instances()) {
             if (!shouldRenderShadowRenderComponent(renderComponent, nullptr)) {
                 continue;
@@ -83,7 +89,7 @@ namespace visutwin::canvas
                 if (!meshInstance->visible()) {
                     continue;
                 }
-                if (!shouldRenderShadowMeshInstance(meshInstance, _shadowCamera)) {
+                if (!shouldRenderShadowMeshInstance(meshInstance, _shadowCamera, shadowFrustum)) {
                     continue;
                 }
 

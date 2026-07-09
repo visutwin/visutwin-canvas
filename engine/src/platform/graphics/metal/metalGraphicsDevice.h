@@ -104,6 +104,13 @@ namespace visutwin::canvas
         bool supportsGpuInstanceCulling() const override { return true; }
         std::unique_ptr<InstanceCuller> createInstanceCuller() override;
 
+        // One command buffer + one waitUntilCompleted for ALL cull dispatches
+        // between begin/end (previously each MeshInstance's cull committed and
+        // waited on its own command buffer — a CPU-GPU round trip per instance).
+        void beginGpuCullBatch() override;
+        void endGpuCullBatch() override;
+        [[nodiscard]] MTL::CommandBuffer* gpuCullBatchCommandBuffer() const { return _gpuCullBatchCommandBuffer; }
+
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) override;
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) override;
@@ -189,6 +196,9 @@ namespace visutwin::canvas
 
         MTL::RenderPipelineState* _pipelineState = nullptr;
         MTL::Buffer* _indirectDrawBuffer = nullptr;  // Set by setIndirectDrawBuffer(), consumed by draw()
+
+        // Live between beginGpuCullBatch/endGpuCullBatch (autoreleased).
+        MTL::CommandBuffer* _gpuCullBatchCommandBuffer = nullptr;
 
         // Dynamic batch palette: ring-buffer offset for slot 6.
         // Set by setDynamicBatchPalette() → allocate from _paletteRing,

@@ -177,12 +177,28 @@ namespace visutwin::canvas
         _lookupHashes[4] = blendState->key();
         _lookupHashes[5] = vertexFormat0 ? vertexFormat0->renderingHash() : 0;
         _lookupHashes[6] = vertexFormat1 ? vertexFormat1->renderingHash() : 0;
-        _lookupHashes[7] = renderTarget ? renderTarget->key() : 0;
+        // Key on what the PSO actually depends on — the attachment pixel
+        // formats — not the render target's per-instance id. Instance-id keys
+        // minted a new PSO for every recreated/transient target (resize, env
+        // bakes) and the cache never evicts, growing without bound.
+        uint32_t rtFormatKey = 0;
+        if (renderTarget) {
+            const auto* metalTarget = static_cast<const MetalRenderTarget*>(renderTarget.get());
+            rtFormatKey = 0x9e3779b9u;
+            for (const auto& att : metalTarget->colorAttachments()) {
+                rtFormatKey = rtFormatKey * 31u + static_cast<uint32_t>(att->pixelFormat);
+            }
+            if (const auto& depthAtt = metalTarget->depthAttachment()) {
+                rtFormatKey = rtFormatKey * 31u + static_cast<uint32_t>(depthAtt->pixelFormat)
+                            + (depthAtt->hasStencil ? 7u : 0u);
+            }
+        }
+        _lookupHashes[7] = static_cast<int>(rtFormatKey);
         _lookupHashes[8] = bindGroupFormats.size() > 0 && bindGroupFormats[0] ? bindGroupFormats[0]->key() : 0;
         _lookupHashes[9] = bindGroupFormats.size() > 1 && bindGroupFormats[1] ? bindGroupFormats[1]->key() : 0;
         _lookupHashes[10] = bindGroupFormats.size() > 2 && bindGroupFormats[2] ? bindGroupFormats[2]->key() : 0;
-        _lookupHashes[11] = stencilEnabled ? stencilFront->key() : 0;
-        _lookupHashes[12] = stencilEnabled ? stencilBack->key() : 0;
+        _lookupHashes[11] = (stencilEnabled && stencilFront) ? stencilFront->key() : 0;
+        _lookupHashes[12] = (stencilEnabled && stencilBack) ? stencilBack->key() : 0;
         _lookupHashes[13] = ibFormat != -1 ? ibFormat : 0;
         _lookupHashes[14] = (instancingFormat && instancingFormat->isInstancing())
             ? instancingFormat->renderingHash() : 0;
@@ -204,9 +220,6 @@ namespace visutwin::canvas
         // No match or hash collision, create a new pipeline
         const MTL::PrimitiveType primTopology = primitiveTopology[primitiveType];
 
-        // Pipeline layout
-        metal::PipelineLayout* pipelineLayout = getPipelineLayout(bindGroupFormats);
-
         // Vertex buffer layout
         auto vbLayout = _vertexBufferLayout->get(vertexFormat0, vertexFormat1);
 
@@ -221,7 +234,7 @@ namespace visutwin::canvas
         auto cacheEntry = std::make_shared<CacheEntry>();
         cacheEntry->hashes = _lookupHashes;
         cacheEntry->pipeline = create(
-            primTopology, ibFormat, shader, renderTarget, pipelineLayout,
+            primTopology, ibFormat, shader, renderTarget,
             blendState, depthState, vbLayout, cullMode,
             stencilEnabled, stencilFront, stencilBack,
             vbStride, instStride
@@ -243,7 +256,7 @@ namespace visutwin::canvas
 
     MTL::RenderPipelineState* MetalRenderPipeline::create(const MTL::PrimitiveType primitiveTopology, int ibFormat,
             const std::shared_ptr<Shader>& shader, const std::shared_ptr<RenderTarget>& renderTarget,
-            metal::PipelineLayout* pipelineLayout, std::shared_ptr<BlendState> blendState,
+            std::shared_ptr<BlendState> blendState,
             std::shared_ptr<DepthState> depthState, const std::vector<void*>& vertexBufferLayout,
             CullMode cullMode, bool stencilEnabled, std::shared_ptr<StencilParameters> stencilFront,
             std::shared_ptr<StencilParameters> stencilBack,

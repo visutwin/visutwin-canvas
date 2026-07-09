@@ -65,6 +65,14 @@ namespace visutwin::canvas
 
     bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera)
     {
+        const Frustum frustum = (shadowCamera && shadowCamera->node())
+            ? buildCameraFrustum(shadowCamera, shadowCamera->node()) : Frustum{};
+        return shouldRenderShadowMeshInstance(meshInstance, shadowCamera, frustum);
+    }
+
+    bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera,
+        const Frustum& shadowFrustum)
+    {
         if (!meshInstance || !meshInstance->mesh()) {
             return false;
         }
@@ -89,7 +97,7 @@ namespace visutwin::canvas
             if (!shadowCamera || !shadowCamera->node()) {
                 return false;
             }
-            if (!isVisibleInCameraFrustum(shadowCamera, shadowCamera->node(), meshInstance->aabb())) {
+            if (!isVisibleInFrustum(shadowFrustum, meshInstance->aabb())) {
                 return false;
             }
         }

@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include "core/math/primitives.h"
+
 namespace visutwin::canvas
 {
     class Camera;
@@ -16,4 +18,9 @@ namespace visutwin::canvas
 
     // Checks mesh-level shadow caster rules (castShadow/material/frustum/cull/node state).
     bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera);
+
+    // Prebuilt-frustum variant: callers looping over many casters should build
+    // the shadow camera's frustum once (buildCameraFrustum) and pass it here.
+    bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera,
+        const Frustum& shadowFrustum);
 }

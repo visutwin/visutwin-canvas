@@ -5,26 +5,28 @@
 //
 #include "frustumUtils.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "camera.h"
 #include "graphNode.h"
-#include "core/math/primitives.h"
 
 namespace visutwin::canvas
 {
-    bool isVisibleInCameraFrustum(Camera* camera, GraphNode* cameraNode, const BoundingBox& bounds)
+    Frustum buildCameraFrustum(Camera* camera, GraphNode* cameraNode)
     {
+        Frustum frustum{};
         if (!camera || !cameraNode) {
-            return true;
+            return frustum;
         }
-
         const auto view = cameraNode->worldTransform().inverse();
         const auto viewProjection = camera->projectionMatrix() * view;
-
-        Frustum frustum;
         frustum.create(viewProjection);
+        return frustum;
+    }
 
+    bool isVisibleInFrustum(const Frustum& frustum, const BoundingBox& bounds)
+    {
         const auto center = bounds.center();
         const auto extents = bounds.halfExtents();
         const float extentLen = extents.length();
@@ -57,5 +59,13 @@ namespace visutwin::canvas
         }
 
         return true;
+    }
+
+    bool isVisibleInCameraFrustum(Camera* camera, GraphNode* cameraNode, const BoundingBox& bounds)
+    {
+        if (!camera || !cameraNode) {
+            return true;
+        }
+        return isVisibleInFrustum(buildCameraFrustum(camera, cameraNode), bounds);
     }
 }

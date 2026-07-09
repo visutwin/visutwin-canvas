@@ -302,7 +302,13 @@ kernel void writeIndirectArgs(
         // Dispatch kernel 1 + kernel 2 in a single command buffer.
         // Metal guarantees sequential execution of compute encoders within
         // the same command buffer — no explicit barrier needed.
-        auto* commandBuffer = device_->_commandQueue->commandBuffer();
+        //
+        // When the device has an open cull batch (Renderer wraps its per-frame
+        // dispatch loop in begin/endGpuCullBatch), encode into the shared
+        // command buffer: the batch commits and waits ONCE for all instances
+        // instead of a CPU-GPU round trip per instance.
+        MTL::CommandBuffer* batchBuffer = device_->gpuCullBatchCommandBuffer();
+        auto* commandBuffer = batchBuffer ? batchBuffer : device_->_commandQueue->commandBuffer();
         if (!commandBuffer) {
             spdlog::warn("[MetalInstanceCullPass] Failed to create command buffer");
             return;
@@ -358,8 +364,13 @@ kernel void writeIndirectArgs(
             encoder->endEncoding();
         }
 
-        // MVP: synchronous wait. For production, this could be replaced with
-        // a shared event or fence to overlap compute with the previous frame's render.
+        // Batched: the device commits and waits once in endGpuCullBatch().
+        if (batchBuffer) {
+            return;
+        }
+
+        // Standalone (no batch open): synchronous commit + wait so callers can
+        // read results (visibleCountReadback) immediately.
         commandBuffer->commit();
         commandBuffer->waitUntilCompleted();
     }

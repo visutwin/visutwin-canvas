@@ -230,6 +230,11 @@ namespace visutwin::canvas
         float planes[6][4];
         InstanceCuller::extractFrustumPlanes(reinterpret_cast<const float*>(&vp), planes);
 
+        // Batch all cull dispatches into one backend command buffer with a
+        // single sync at the end — begun lazily so frames with no GPU-culled
+        // instances create no command buffer at all.
+        bool cullBatchStarted = false;
+
         for (auto* rc : RenderComponent::instances()) {
             if (!rc) {
                 continue;
@@ -262,8 +267,16 @@ namespace visutwin::canvas
                 params.baseVertex  = static_cast<int32_t>(prim.baseVertex);
                 params.baseInstance = 0u;
 
+                if (!cullBatchStarted) {
+                    _device->beginGpuCullBatch();
+                    cullBatchStarted = true;
+                }
                 culler->cull(srcData.vertexBuffer.get(), params);
             }
+        }
+
+        if (cullBatchStarted) {
+            _device->endGpuCullBatch();
         }
     }
 
@@ -461,6 +474,12 @@ namespace visutwin::canvas
         std::vector<ForwardDrawEntry*> drawEntries;
         drawEntries.reserve(256);
 
+        // Build the camera frustum ONCE for this layer — the per-instance test
+        // used to rebuild it (matrix inverse + plane extraction) on every call.
+        const bool hasCameraFrustum = camera && cameraNode;
+        const Frustum cameraFrustum = hasCameraFrustum
+            ? buildCameraFrustum(camera, cameraNode) : Frustum{};
+
         const auto appendMeshInstance = [&](MeshInstance* meshInstance) {
             if (!meshInstance || !meshInstance->visible()) {
                 return;
@@ -488,7 +507,7 @@ namespace visutwin::canvas
 
             const bool isSkyboxMaterial = entry->material->isSkybox();
             const auto worldBounds = meshInstance->aabb();
-            if (!isSkyboxMaterial && !isVisibleInCameraFrustum(camera, cameraNode, worldBounds)) {
+            if (!isSkyboxMaterial && hasCameraFrustum && !isVisibleInFrustum(cameraFrustum, worldBounds)) {
                 _numDrawCallsCulled++;
                 return;
             }
@@ -753,7 +772,19 @@ namespace visutwin::canvas
         }
 
         // --- Clustered lighting: feed local lights into WorldClusters ---
-        if (clusteredEnabled && _worldClusters) {
+        // This runs once per frame per camera position, not per layer/sublayer:
+        // renderForwardLayer is called for every layer × sublayer × camera, but
+        // the cluster inputs (light set, camera-centered bounds) only change
+        // per frame/camera. The flag resets in buildFrameGraph.
+        const bool clusterCameraMoved =
+            cameraPosition.getX() != _lastClusterCameraPosition.getX() ||
+            cameraPosition.getY() != _lastClusterCameraPosition.getY() ||
+            cameraPosition.getZ() != _lastClusterCameraPosition.getZ();
+        if (clusteredEnabled && _worldClusters &&
+            (!_clustersUpdatedThisFrame || clusterCameraMoved)) {
+            _clustersUpdatedThisFrame = true;
+            _lastClusterCameraPosition = cameraPosition;
+
             // Convert local light dispatch entries to WorldClusters input format.
             std::vector<ClusterLightData> clusterLocalLights;
             clusterLocalLights.reserve(localLights.size());
@@ -857,10 +888,22 @@ namespace visutwin::canvas
         const Material* lastCullMaterial = nullptr;
         CullMode cachedCullMode = CullMode::CULLFACE_BACK;
 
+        // bindMaterial cache: variant resolution (dynamic_cast + string-keyed
+        // parameter probes + key hashing) is pure in (material, transparent,
+        // dynamicBatch), and the states it sets are sticky on the encoder for
+        // the duration of this pass — skip it for consecutive same-material
+        // draws, which dominate after sort-key ordering.
+        const Material* lastShaderMaterial = nullptr;
+        bool lastShaderDynBatch = false;
+
         for (const auto* entry : drawEntries) {
             const Material* boundMaterial = entry->material ? entry->material : defaultMaterial.get();
             const bool isDynBatch = entry->meshInstance && entry->meshInstance->isDynamicBatch();
-            programLibrary->bindMaterial(_device, boundMaterial, transparent, isDynBatch);
+            if (boundMaterial != lastShaderMaterial || isDynBatch != lastShaderDynBatch) {
+                programLibrary->bindMaterial(_device, boundMaterial, transparent, isDynBatch);
+                lastShaderMaterial = boundMaterial;
+                lastShaderDynBatch = isDynBatch;
+            }
 
             // Phase 4: reuse cached light list when mask matches (zero allocation per draw).
             const uint32_t drawLightMask = (entry->meshInstance ? entry->meshInstance->mask() : MASK_AFFECT_DYNAMIC);

@@ -14,6 +14,7 @@
 #include "renderPassVsmBlur.h"
 #include "renderer.h"
 #include "shadowCasterFiltering.h"
+#include "scene/frustumUtils.h"
 #include "shadowMap.h"
 #include "shadowRenderer.h"
 #include "framework/components/render/renderComponent.h"
@@ -194,6 +195,10 @@ namespace visutwin::canvas
                 visibleSceneAabb.setCenter(0.0f, 0.0f, 0.0f);
                 visibleSceneAabb.setHalfExtents(0.0f, 0.0f, 0.0f);
 
+                // Build the cascade's frustum once for the whole caster sweep.
+                const Frustum casterFrustum = (shadowCam && shadowCam->node())
+                    ? buildCameraFrustum(shadowCam, shadowCam->node()) : Frustum{};
+
                 for (auto* renderComponent : RenderComponent::instances()) {
                     if (!shouldRenderShadowRenderComponent(renderComponent, camera)) {
                         continue;
@@ -202,7 +207,7 @@ namespace visutwin::canvas
                         if (!meshInstance || !meshInstance->visible()) {
                             continue;
                         }
-                        if (!shouldRenderShadowMeshInstance(meshInstance, shadowCam)) {
+                        if (!shouldRenderShadowMeshInstance(meshInstance, shadowCam, casterFrustum)) {
                             continue;
                         }
                         const auto worldAabb = meshInstance->aabb();

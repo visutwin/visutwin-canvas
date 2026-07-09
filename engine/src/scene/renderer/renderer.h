@@ -64,6 +64,12 @@ namespace visutwin::canvas
         // Generated each frame during light culling.
         std::unordered_map<Camera*, std::vector<Light*>> _cameraDirShadowLights;
 
+        // Clustered-lighting update throttle: the grid rebuild + GPU upload runs
+        // once per frame per camera position instead of per layer/sublayer.
+        // Reset in ForwardRenderer::buildFrameGraph.
+        bool _clustersUpdatedThisFrame = false;
+        Vector3 _lastClusterCameraPosition{0.0f, 0.0f, 0.0f};
+
         ShadowRendererDirectional* shadowRendererDirectional() const { return _shadowRendererDirectional.get(); }
 
 

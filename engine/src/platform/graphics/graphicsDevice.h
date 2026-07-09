@@ -564,6 +564,14 @@ namespace visutwin::canvas
         /// that do not support GPU culling — the caller must handle that case.
         virtual std::unique_ptr<InstanceCuller> createInstanceCuller() { return nullptr; }
 
+        /// GPU instance-cull batching. All InstanceCuller::cull() calls between
+        /// begin/end share one backend command buffer and one CPU/GPU sync at
+        /// endGpuCullBatch() — without a batch each cull() is a full round-trip
+        /// stall (commit + wait) per mesh instance. Backends without batching
+        /// ignore these; cull() then runs standalone as before.
+        virtual void beginGpuCullBatch() {}
+        virtual void endGpuCullBatch() {}
+
         virtual std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) = 0;
         virtual void executeComposePass(const ComposePassParams& params) {}
         virtual void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,

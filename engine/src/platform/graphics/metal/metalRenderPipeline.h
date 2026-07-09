@@ -57,7 +57,7 @@ namespace visutwin::canvas
         // Create a new render pipeline
         MTL::RenderPipelineState* create(
             const MTL::PrimitiveType primitiveTopology, int ibFormat, const std::shared_ptr<Shader>& shader,
-            const std::shared_ptr<RenderTarget>& renderTarget, metal::PipelineLayout* pipelineLayout,
+            const std::shared_ptr<RenderTarget>& renderTarget,
             std::shared_ptr<BlendState> blendState, std::shared_ptr<DepthState> depthState,
             const std::vector<void*>& vertexBufferLayout, CullMode cullMode, bool stencilEnabled,
             std::shared_ptr<StencilParameters> stencilFront, std::shared_ptr<StencilParameters> stencilBack,

@@ -362,6 +362,28 @@ namespace visutwin::canvas
         return std::make_unique<MetalInstanceCullPass>(this);
     }
 
+    void MetalGraphicsDevice::beginGpuCullBatch()
+    {
+        if (_gpuCullBatchCommandBuffer) {
+            return; // already batching
+        }
+        _gpuCullBatchCommandBuffer = _commandQueue ? _commandQueue->commandBuffer() : nullptr;
+    }
+
+    void MetalGraphicsDevice::endGpuCullBatch()
+    {
+        if (!_gpuCullBatchCommandBuffer) {
+            return;
+        }
+        // One commit + one wait for the whole batch. The wait keeps the
+        // existing synchronous contract: cull results (compacted buffers,
+        // indirect args, CPU readbacks) are ready before rendering starts,
+        // and next frame's CPU-side uniform/counter writes can't race the GPU.
+        _gpuCullBatchCommandBuffer->commit();
+        _gpuCullBatchCommandBuffer->waitUntilCompleted();
+        _gpuCullBatchCommandBuffer = nullptr;
+    }
+
     std::shared_ptr<IndexBuffer> MetalGraphicsDevice::createIndexBuffer(const IndexFormat format, const int numIndices,
         const std::vector<uint8_t>& data)
     {
@@ -1109,17 +1131,24 @@ namespace visutwin::canvas
         size_t uniformSize = sizeof(MaterialUniforms);
 
         if (boundMaterial) {
+            // isMaterialChanged mirrors submitPerDrawUniforms' dedup condition:
+            // for an unchanged material the ring offset is reused and the packed
+            // data ignored, so skip the packing too — updateUniforms costs ~35
+            // string-map lookups plus transcendentals per call, which dominated
+            // the draw loop when run for every draw.
+            const bool materialChanged = _uniformBinder.isMaterialChanged(boundMaterial);
+
             size_t customSize = 0;
             const void* customData = boundMaterial->customUniformData(customSize);
             if (customData && customSize > 0) {
                 uniformData = customData;
                 uniformSize = customSize;
-            } else {
+            } else if (materialChanged) {
                 boundMaterial->updateUniforms(materialUniforms);
             }
 
             // Skip texture rebinding when same material is still bound.
-            if (_uniformBinder.isMaterialChanged(boundMaterial)) {
+            if (materialChanged) {
                 std::vector<TextureSlot> textureSlots;
                 boundMaterial->getTextureSlots(textureSlots);
                 _textureBinder.bindMaterialTextures(passEncoder, textureSlots);
