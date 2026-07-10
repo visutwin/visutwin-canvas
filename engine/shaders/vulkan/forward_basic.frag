@@ -25,6 +25,14 @@ layout(set = 0, binding = 0) uniform MaterialData {
     float occludeSpecularIntensity;
     vec4 baseColorTransform0;
     vec4 baseColorTransform1;
+    vec4 normalTransform0;
+    vec4 normalTransform1;
+    vec4 metalRoughTransform0;
+    vec4 metalRoughTransform1;
+    vec4 occlusionTransform0;
+    vec4 occlusionTransform1;
+    vec4 emissiveTransform0;
+    vec4 emissiveTransform1;
 } material;
 
 // Set 1: material texture slots (engine slot numbering).
@@ -308,10 +316,15 @@ vec3 applyToneMap(vec3 color) {
 const uint FLAG_ALPHA_TEST   = 1u << 1;
 const uint FLAG_HAS_NORMAL   = 1u << 2;
 const uint FLAG_DOUBLE_SIDED = 1u << 3;
+const uint FLAG_BASE_UV1     = 1u << 4;   // per-map UV-set selection (uv1 when set)
+const uint FLAG_NORMAL_UV1   = 1u << 5;
 const uint FLAG_HAS_METALROUGH = 1u << 6;
+const uint FLAG_METALROUGH_UV1 = 1u << 7;
 const uint FLAG_SKYBOX         = 1u << 8;
 const uint FLAG_HAS_OCCLUSION  = 1u << 9;
+const uint FLAG_OCCLUSION_UV1  = 1u << 10;
 const uint FLAG_HAS_EMISSIVE   = 1u << 11;
+const uint FLAG_EMISSIVE_UV1   = 1u << 12;
 
 const float PI = 3.14159265359;
 
@@ -376,9 +389,25 @@ void main() {
         return;
     }
 
-    vec2 uv = applyUvTransform(fragUV0, material.baseColorTransform0, material.baseColorTransform1);
+    // Per-map UVs: select the UV set by flag bit, then apply that map's own
+    // transform — previously the base-color transform was applied to every map.
+    vec2 uvBase = applyUvTransform(
+        ((material.flags & FLAG_BASE_UV1) != 0u) ? fragUV1 : fragUV0,
+        material.baseColorTransform0, material.baseColorTransform1);
+    vec2 uvNormal = applyUvTransform(
+        ((material.flags & FLAG_NORMAL_UV1) != 0u) ? fragUV1 : fragUV0,
+        material.normalTransform0, material.normalTransform1);
+    vec2 uvMetalRough = applyUvTransform(
+        ((material.flags & FLAG_METALROUGH_UV1) != 0u) ? fragUV1 : fragUV0,
+        material.metalRoughTransform0, material.metalRoughTransform1);
+    vec2 uvOcclusion = applyUvTransform(
+        ((material.flags & FLAG_OCCLUSION_UV1) != 0u) ? fragUV1 : fragUV0,
+        material.occlusionTransform0, material.occlusionTransform1);
+    vec2 uvEmissive = applyUvTransform(
+        ((material.flags & FLAG_EMISSIVE_UV1) != 0u) ? fragUV1 : fragUV0,
+        material.emissiveTransform0, material.emissiveTransform1);
 
-    vec4 baseSample = texture(baseColorMap, uv);
+    vec4 baseSample = texture(baseColorMap, uvBase);
     vec4 albedo = material.baseColor * baseSample;
 
     if ((material.flags & FLAG_ALPHA_TEST) != 0u && albedo.a < material.alphaCutoff) {
@@ -389,7 +418,7 @@ void main() {
     float metallic = material.metallicFactor;
     float roughness = material.roughnessFactor;
     if ((material.flags & FLAG_HAS_METALROUGH) != 0u) {
-        vec4 mr = texture(metalRoughMap, uv);
+        vec4 mr = texture(metalRoughMap, uvMetalRough);
         roughness *= mr.g;
         metallic *= mr.b;
     }
@@ -399,7 +428,7 @@ void main() {
     // Ambient occlusion.
     float ao = 1.0;
     if ((material.flags & FLAG_HAS_OCCLUSION) != 0u) {
-        float occ = texture(occlusionMap, uv).r;
+        float occ = texture(occlusionMap, uvOcclusion).r;
         ao = mix(1.0, occ, material.occlusionStrength);
     }
 
@@ -416,7 +445,7 @@ void main() {
         // handedness sign carried in tangent.w.
         T = normalize(T - N * dot(N, T));
         vec3 B = cross(N, T) * fragWorldTangent.w;
-        vec3 tn = texture(normalMap, uv).xyz * 2.0 - 1.0;
+        vec3 tn = texture(normalMap, uvNormal).xyz * 2.0 - 1.0;
         tn.xy *= material.normalScale;
         N = normalize(mat3(T, B, N) * tn);
     }
@@ -522,7 +551,7 @@ void main() {
     // Emissive.
     vec3 emissive = material.emissiveColor.rgb;
     if ((material.flags & FLAG_HAS_EMISSIVE) != 0u) {
-        emissive *= texture(emissiveMap, uv).rgb;
+        emissive *= texture(emissiveMap, uvEmissive).rgb;
     }
     color += emissive;
 
