@@ -61,6 +61,10 @@ namespace visutwin::canvas
         // Omni cubemap params.  x=near, y=far, z=depthBias, w=intensity
         float omniShadowParams0[4]     = {0.01f, 100.0f, 0.0001f, 1.0f};
         float omniShadowParams1[4]     = {0.01f, 100.0f, 0.0001f, 1.0f};
+
+        // xyz = sky dome center (world), w = flags: bit0 = has skybox cubemap,
+        // bit1 = dome projection (view dir from dome center, not camera).
+        float skyParams2[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

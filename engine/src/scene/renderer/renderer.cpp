@@ -698,7 +698,8 @@ namespace visutwin::canvas
                         // (high-noise) samples are clamped to "lit". Too small
                         // → noisy / flicker; too large → soft / detached
                         // contact shadows. Upstream default is 0.0025.
-                        shadowParams.bias = (sceneLight->shadowType() == SHADOW_VSM_16F)
+                        shadowParams.vsm = (sceneLight->shadowType() == SHADOW_VSM_16F);
+                        shadowParams.bias = shadowParams.vsm
                             ? sceneLight->vsmBias()
                             : 0.0001f;
                     }

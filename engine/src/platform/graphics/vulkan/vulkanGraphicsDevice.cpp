@@ -299,6 +299,18 @@ namespace visutwin::canvas
 
         flushDeferredDestroys(true);
 
+        for (auto& [key, pipeline] : _vsmBlurPipelines) {
+            vkDestroyPipeline(_device, pipeline, nullptr);
+        }
+        if (_vsmBlurPipelineLayout != VK_NULL_HANDLE)
+            vkDestroyPipelineLayout(_device, _vsmBlurPipelineLayout, nullptr);
+        if (_vsmBlurSetLayout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(_device, _vsmBlurSetLayout, nullptr);
+        if (_vsmBlurVertModule != VK_NULL_HANDLE)
+            vkDestroyShaderModule(_device, _vsmBlurVertModule, nullptr);
+        if (_vsmBlurFragModule != VK_NULL_HANDLE)
+            vkDestroyShaderModule(_device, _vsmBlurFragModule, nullptr);
+
         _renderPipeline.reset();
 
         if (_persistentDescriptorPool != VK_NULL_HANDLE)
@@ -734,6 +746,213 @@ namespace visutwin::canvas
 
         ++_frameNumber;
         _frameIndex = (_frameIndex + 1) % kMaxFramesInFlight;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // VSM separable gaussian blur (fullscreen draw inside the active pass)
+    // ─────────────────────────────────────────────────────────────────────
+
+    void VulkanGraphicsDevice::ensureVsmBlurResources()
+    {
+        if (_vsmBlurPipelineLayout != VK_NULL_HANDLE) {
+            return;
+        }
+
+        VkDescriptorSetLayoutBinding binding{};
+        binding.binding = 0;
+        binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        binding.descriptorCount = 1;
+        binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        setInfo.bindingCount = 1;
+        setInfo.pBindings = &binding;
+        vkCreateDescriptorSetLayout(_device, &setInfo, nullptr, &_vsmBlurSetLayout);
+
+        VkPushConstantRange pushRange{};
+        pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushRange.offset = 0;
+        pushRange.size = 32; // vec4 dirInvRes + vec4 filterParams
+
+        VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &_vsmBlurSetLayout;
+        layoutInfo.pushConstantRangeCount = 1;
+        layoutInfo.pPushConstantRanges = &pushRange;
+        vkCreatePipelineLayout(_device, &layoutInfo, nullptr, &_vsmBlurPipelineLayout);
+
+        auto createModule = [this](const uint32_t* spirv, size_t words) {
+            VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+            info.codeSize = words * sizeof(uint32_t);
+            info.pCode = spirv;
+            VkShaderModule module = VK_NULL_HANDLE;
+            vkCreateShaderModule(_device, &info, nullptr, &module);
+            return module;
+        };
+        _vsmBlurVertModule = createModule(vulkan_spirv::kVsmBlurVert, vulkan_spirv::kVsmBlurVertSize);
+        _vsmBlurFragModule = createModule(vulkan_spirv::kVsmBlurFrag, vulkan_spirv::kVsmBlurFragSize);
+    }
+
+    VkPipeline VulkanGraphicsDevice::getVsmBlurPipeline(const VkFormat colorFormat, const VkFormat depthFormat)
+    {
+        const uint64_t key = (static_cast<uint64_t>(colorFormat) << 32) |
+                             static_cast<uint64_t>(depthFormat);
+        if (const auto it = _vsmBlurPipelines.find(key); it != _vsmBlurPipelines.end()) {
+            return it->second;
+        }
+        if (_vsmBlurVertModule == VK_NULL_HANDLE || _vsmBlurFragModule == VK_NULL_HANDLE) {
+            return VK_NULL_HANDLE;
+        }
+
+        VkPipelineShaderStageCreateInfo stages[2]{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = _vsmBlurVertModule;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = _vsmBlurFragModule;
+        stages[1].pName = "main";
+
+        // Fullscreen triangle: no vertex input.
+        VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+        viewportState.viewportCount = 1;
+        viewportState.scissorCount = 1;
+
+        VkPipelineRasterizationStateCreateInfo rasterization{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+        rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterization.cullMode = VK_CULL_MODE_NONE;
+        rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterization.lineWidth = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        // Fullscreen blit — depth untouched even if the pass carries a depth attachment.
+        VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        depthStencil.depthTestEnable = VK_FALSE;
+        depthStencil.depthWriteEnable = VK_FALSE;
+        depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+
+        VkPipelineColorBlendAttachmentState blendAttachment{};
+        blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+        VkPipelineColorBlendStateCreateInfo colorBlend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+        colorBlend.attachmentCount = 1;
+        colorBlend.pAttachments = &blendAttachment;
+
+        VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamicState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+        dynamicState.dynamicStateCount = 2;
+        dynamicState.pDynamicStates = dynamicStates;
+
+        VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+        renderingInfo.colorAttachmentCount = 1;
+        renderingInfo.pColorAttachmentFormats = &colorFormat;
+        renderingInfo.depthAttachmentFormat = depthFormat;
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+        pipelineInfo.pNext = &renderingInfo;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = stages;
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterization;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = &depthStencil;
+        pipelineInfo.pColorBlendState = &colorBlend;
+        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.layout = _vsmBlurPipelineLayout;
+
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        if (vkCreateGraphicsPipelines(_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
+            spdlog::error("VulkanGraphicsDevice: VSM blur pipeline creation failed");
+        }
+        _vsmBlurPipelines[key] = pipeline;
+        return pipeline;
+    }
+
+    void VulkanGraphicsDevice::executeVsmBlurPass(const VsmBlurPassParams& params, const bool horizontal)
+    {
+        if (!_frameActive || !_dynamicRenderingActive || !params.sourceTexture) {
+            return;
+        }
+        auto* sourceTex = static_cast<gpu::VulkanTexture*>(params.sourceTexture->impl());
+        if (!sourceTex || sourceTex->imageView() == VK_NULL_HANDLE) {
+            return;
+        }
+
+        ensureVsmBlurResources();
+
+        // Formats of the active pass (same derivation as draw()).
+        VkFormat colorFmt = _swapchainFormat;
+        VkFormat depthFmt = _depthFormat;
+        if (_activeOffscreenTarget) {
+            const auto& colors = _activeOffscreenTarget->colorAttachments();
+            colorFmt = colors.empty() ? VK_FORMAT_UNDEFINED : colors[0].format;
+            depthFmt = _activeOffscreenTarget->hasDepthAttachment()
+                ? _activeOffscreenTarget->depthAttachment().format
+                : VK_FORMAT_UNDEFINED;
+        }
+        if (colorFmt == VK_FORMAT_UNDEFINED) {
+            return;
+        }
+
+        VkPipeline pipeline = getVsmBlurPipeline(colorFmt, depthFmt);
+        if (pipeline == VK_NULL_HANDLE) {
+            return;
+        }
+
+        auto& frame = _frames[_frameIndex];
+        VkCommandBuffer cmd = frame.commandBuffer;
+
+        // Transient descriptor for the source texture.
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        allocInfo.descriptorPool = frame.descriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &_vsmBlurSetLayout;
+        if (vkAllocateDescriptorSets(_device, &allocInfo, &set) != VK_SUCCESS) {
+            return;
+        }
+
+        VkDescriptorImageInfo imageInfo{};
+        imageInfo.sampler = sourceTex->sampler() != VK_NULL_HANDLE ? sourceTex->sampler() : _defaultSampler;
+        imageInfo.imageView = sourceTex->imageView();
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = set;
+        write.dstBinding = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo = &imageInfo;
+        vkUpdateDescriptorSets(_device, 1, &write, 0, nullptr);
+
+        struct { float dirInvRes[4]; float filterParams[4]; } push{};
+        push.dirInvRes[0] = horizontal ? 1.0f : 0.0f;
+        push.dirInvRes[1] = horizontal ? 0.0f : 1.0f;
+        push.dirInvRes[2] = params.sourceInvResolutionX;
+        push.dirInvRes[3] = params.sourceInvResolutionY;
+        push.filterParams[0] = static_cast<float>(params.filterSize);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _vsmBlurPipelineLayout, 0, 1, &set, 0, nullptr);
+        vkCmdPushConstants(cmd, _vsmBlurPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,
+            0, sizeof(push), &push);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+
+        // The blur pipeline replaced the material pipeline — force a rebind
+        // (and full descriptor rebind via the incompatible layout) next draw.
+        _currentPipeline = VK_NULL_HANDLE;
     }
 
     void VulkanGraphicsDevice::deferDestroy(std::function<void()> destroyFn)
@@ -1305,16 +1524,37 @@ namespace visutwin::canvas
                     return _whiteCubeImageView;
                 };
 
-                // During a depth-only shadow render the shadow maps are the
-                // attachments being written, so binding them for sampling would
-                // be a read-write feedback loop — bind white fallbacks instead.
-                std::array<VkDescriptorImageInfo, 6> sceneInfos{};
+                // During a shadow render the shadow map is the attachment
+                // being written, so binding it for sampling would be a
+                // read-write feedback loop — bind white fallbacks instead.
+                // PCF passes are depth-only (_depthOnlyPass); VSM passes write
+                // the moments texture as their COLOR attachment, so also check
+                // whether the shadow map is the active color attachment.
+                bool shadowIsActiveAttachment = false;
+                if (_activeOffscreenTarget && _shadowMapTexture &&
+                    !_activeOffscreenTarget->colorAttachments().empty()) {
+                    shadowIsActiveAttachment =
+                        _activeOffscreenTarget->colorAttachments()[0].texture ==
+                        static_cast<gpu::VulkanTexture*>(_shadowMapTexture->impl());
+                }
+                const bool hideShadowMaps = _depthOnlyPass || shadowIsActiveAttachment;
+
+                std::array<VkDescriptorImageInfo, 7> sceneInfos{};
                 // Binding 0: environment atlas.
                 sceneInfos[0].sampler = _envSampler;
                 sceneInfos[0].imageView = resolveView(_envAtlasTexture);
-                // Binding 1: directional cascaded shadow-map depth atlas.
+                // Binding 1: directional cascaded shadow-map atlas (depth or
+                // moments). Prefer the texture's own sampler — VSM moments
+                // need linear filtering (ShadowMap::create sets it); PCF depth
+                // textures are created nearest, matching _shadowSampler.
                 sceneInfos[1].sampler = _shadowSampler;
-                sceneInfos[1].imageView = _depthOnlyPass ? _whiteImageView
+                if (!hideShadowMaps && _shadowMapTexture) {
+                    if (auto* vkShadowTex = static_cast<gpu::VulkanTexture*>(_shadowMapTexture->impl());
+                        vkShadowTex && vkShadowTex->sampler() != VK_NULL_HANDLE) {
+                        sceneInfos[1].sampler = vkShadowTex->sampler();
+                    }
+                }
+                sceneInfos[1].imageView = hideShadowMaps ? _whiteImageView
                                                          : resolveView(_shadowMapTexture);
                 // Bindings 2-3: local spot-light 2D depth maps.
                 sceneInfos[2].sampler = _shadowSampler;
@@ -1330,8 +1570,11 @@ namespace visutwin::canvas
                 sceneInfos[5].sampler = _shadowSampler;
                 sceneInfos[5].imageView = _depthOnlyPass ? _whiteCubeImageView
                                                          : resolveCubeView(_omniShadowCube1);
+                // Binding 6: high-res skybox cubemap.
+                sceneInfos[6].sampler = _envSampler;
+                sceneInfos[6].imageView = resolveCubeView(_skyboxCubeTexture);
 
-                std::array<VkWriteDescriptorSet, 6> writes{};
+                std::array<VkWriteDescriptorSet, 7> writes{};
                 for (uint32_t i = 0; i < sceneInfos.size(); ++i) {
                     sceneInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                     writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1406,7 +1649,8 @@ namespace visutwin::canvas
             std::memcpy(_lightingUbo.shadowCascadeDistances, shadowParams.shadowCascadeDistances,
                 sizeof(_lightingUbo.shadowCascadeDistances));
         }
-        _lightingUbo.shadowParams[0]  = shadowsOn ? 1.0f : 0.0f;
+        // 0 = off, 1 = PCF depth compare, 2 = EVSM moments (Chebyshev).
+        _lightingUbo.shadowParams[0]  = shadowsOn ? (shadowParams.vsm ? 2.0f : 1.0f) : 0.0f;
         _lightingUbo.shadowParams[1]  = static_cast<float>(shadowParams.numCascades);
         _lightingUbo.shadowParams[2]  = shadowParams.bias;
         _lightingUbo.shadowParams[3]  = shadowParams.strength;
@@ -1538,11 +1782,15 @@ namespace visutwin::canvas
         Texture* envAtlas, float skyboxIntensity, float skyboxMip,
         const Vector3& skyDomeCenter, bool isDome, Texture* skyboxCubeMap)
     {
-        // skyboxCubeMap / dome center are not consumed yet — the equirect
-        // atlas drives both IBL and the skybox in this increment.
-        (void)skyDomeCenter; (void)isDome; (void)skyboxCubeMap;
-
         _envAtlasTexture = envAtlas;
+        _skyboxCubeTexture = skyboxCubeMap;
+
+        // skyParams2: xyz = dome center, w = flags (bit0 cubemap, bit1 dome).
+        _lightingUbo.skyParams2[0] = skyDomeCenter.getX();
+        _lightingUbo.skyParams2[1] = skyDomeCenter.getY();
+        _lightingUbo.skyParams2[2] = skyDomeCenter.getZ();
+        _lightingUbo.skyParams2[3] = static_cast<float>(
+            (skyboxCubeMap ? 1u : 0u) | (isDome ? 2u : 0u));
 
         _lightingUbo.envParams[0] = skyboxIntensity;
         _lightingUbo.envParams[1] = envAtlas ? 1.0f : 0.0f;
@@ -1575,19 +1823,30 @@ namespace visutwin::canvas
         // custom source (ShaderMaterial, ProgramLibrary variants) is ignored
         // and everything renders with the embedded forward PBR shader. Warn
         // once per distinct shader name so this doesn't fail silently.
+        const bool isShadowName = definition.name.rfind("program-shadow", 0) == 0;
         if (!sourceCode.empty()) {
             static std::unordered_set<std::string> warnedShaders;
             if (warnedShaders.insert(definition.name).second) {
                 spdlog::warn("VulkanGraphicsDevice::createShader('{}'): custom shader source is "
-                             "not supported on the Vulkan backend yet — using the embedded "
-                             "forward PBR shader instead", definition.name);
+                             "not supported on the Vulkan backend yet — using the embedded {} shader instead",
+                    definition.name, isShadowName ? "shadow (EVSM moments)" : "forward PBR");
             }
         }
+
+        // Shadow programs ("program-shadow-*"): substitute the EVSM moments
+        // fragment. PCF shadow passes are depth-only and omit the fragment
+        // stage; VSM passes carry the RGBA16F moments color attachment, where
+        // running the full PBR fragment would write garbage moments.
+        const bool isShadowProgram = isShadowName;
+        const uint32_t* fragSpirv = isShadowProgram
+            ? vulkan_spirv::kShadowVsmMomentsFrag : vulkan_spirv::kForwardBasicFrag;
+        const size_t fragSpirvSize = isShadowProgram
+            ? vulkan_spirv::kShadowVsmMomentsFragSize : vulkan_spirv::kForwardBasicFragSize;
 
         // Use embedded SPIR-V for the basic forward shader
         return std::make_shared<VulkanShader>(this, definition,
             vulkan_spirv::kForwardBasicVert, vulkan_spirv::kForwardBasicVertSize,
-            vulkan_spirv::kForwardBasicFrag, vulkan_spirv::kForwardBasicFragSize,
+            fragSpirv, fragSpirvSize,
             vulkan_spirv::kForwardBasicInstancedVert, vulkan_spirv::kForwardBasicInstancedVertSize,
             vulkan_spirv::kForwardBasicSkyVert, vulkan_spirv::kForwardBasicSkyVertSize,
             vulkan_spirv::kForwardBasicColorVert, vulkan_spirv::kForwardBasicColorVertSize,

@@ -69,6 +69,7 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 localShadowParams1;
     vec4 omniShadowParams0;   // near, far, depthBias, intensity
     vec4 omniShadowParams1;
+    vec4 skyParams2;          // xyz sky dome center, w flags: bit0 cubemap, bit1 dome
 } lighting;
 
 // Set 3: scene textures. Binding 0 = equirectangular environment atlas
@@ -82,6 +83,7 @@ layout(set = 3, binding = 2) uniform sampler2D localShadowMap0;
 layout(set = 3, binding = 3) uniform sampler2D localShadowMap1;
 layout(set = 3, binding = 4) uniform samplerCube omniShadowCube0;
 layout(set = 3, binding = 5) uniform samplerCube omniShadowCube1;
+layout(set = 3, binding = 6) uniform samplerCube skyboxCube;
 
 // 3×3 percentage-closer filter: average binary depth comparisons over the
 // texel neighbourhood.  `receiver` is the (biased) light-space depth of the
@@ -98,9 +100,32 @@ float pcf3x3(sampler2D tex, vec2 uv, float receiver) {
     return sum / 9.0;
 }
 
+// ── EVSM_16F sampling (parity with common.metal getShadowVSM16) ──
+// One-tailed Chebyshev upper bound with reduceLightBleeding(0.1), fed by
+// exponentially-warped moments (c = 5.54). Cleared pixels (moments.z == 0)
+// synthesize fully-lit moments.
+
+float chebyshevUpperBound(vec2 moments, float mean, float minVariance) {
+    float variance = max(moments.y - moments.x * moments.x, minVariance);
+    float d = mean - moments.x;
+    float pMax = variance / (variance + d * d);
+    pMax = clamp((pMax - 0.1) / 0.9, 0.0, 1.0);   // reduceLightBleeding(0.1)
+    return (mean <= moments.x) ? 1.0 : pMax;
+}
+
+float sampleShadowVSM16(vec2 uv, float receiverZ, float vsmBias) {
+    const float VSM_EXPONENT = 5.54;
+    vec3 moments = texture(shadowMap, uv).xyz;
+    float warped = exp(VSM_EXPONENT * (2.0 * receiverZ - 1.0));
+    vec2 stored = moments.xy + vec2(warped, warped * warped) * (1.0 - moments.z);
+    float depthScale = vsmBias * VSM_EXPONENT * warped;
+    return chebyshevUpperBound(stored, warped, depthScale * depthScale);
+}
+
 // Directional cascaded-shadow visibility (1 = lit, 0 = shadowed) for a world
 // position, using view-space depth to pick the cascade.  Returns 1.0 when
 // shadows are disabled or the point falls outside every cascade.
+// shadowParams.x encodes the mode: 0 = off, 1 = PCF depth, 2 = EVSM moments.
 float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
     if (lighting.shadowParams.x < 0.5) {
         return 1.0;
@@ -138,9 +163,14 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
         return 1.0;
     }
 
-    // Manual 3×3 PCF, then scale by shadow strength (0 = no shadow, 1 = full).
-    float receiver = coord.z - lighting.shadowParams.z;
-    float visible = pcf3x3(shadowMap, coord.xy, receiver);
+    // PCF (mode 1) or EVSM Chebyshev (mode 2), scaled by shadow strength.
+    float visible;
+    if (lighting.shadowParams.x > 1.5) {
+        visible = sampleShadowVSM16(coord.xy, coord.z, max(lighting.shadowParams.z, 1e-4));
+    } else {
+        float receiver = coord.z - lighting.shadowParams.z;
+        visible = pcf3x3(shadowMap, coord.xy, receiver);
+    }
     return mix(1.0, visible, lighting.shadowParams.w);
 }
 
@@ -375,9 +405,20 @@ void main() {
     // directly — no surface lighting.  The sky mesh is centered on the camera,
     // so the world-space position relative to the camera is the view ray.
     if ((material.flags & FLAG_SKYBOX) != 0u) {
-        vec3 dir = normalize(fragWorldPos - lighting.cameraPosExposure.xyz);
+        // Dome projection: view direction from the dome center rather than
+        // the camera so the flattened bottom hemisphere reads as a ground
+        // plane (tripod projection). Mirrors forward-fragment-head.metal.
+        uint skyFlags = uint(lighting.skyParams2.w + 0.5);
+        vec3 dir = ((skyFlags & 2u) != 0u)
+            ? normalize(fragWorldPos - lighting.skyParams2.xyz)
+            : normalize(fragWorldPos - lighting.cameraPosExposure.xyz);
         vec3 sky;
-        if (lighting.envParams.y > 0.5) {
+        if ((skyFlags & 1u) != 0u) {
+            // High-res skybox cubemap (negated X matches the engine's atlas
+            // lookup handedness — same as the Metal SKY_CUBEMAP path).
+            float intensity = max(lighting.envParams.x, 0.0);
+            sky = decodeEnv(texture(skyboxCube, vec3(-dir.x, dir.y, dir.z))) * intensity;
+        } else if (lighting.envParams.y > 0.5) {
             float intensity = max(lighting.envParams.x, 0.0);
             sky = decodeEnv(texture(envAtlas, mapRoughnessUv(dirToEquirect(dir),
                                     max(lighting.envParams.w, 0.0)))) * intensity;

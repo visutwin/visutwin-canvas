@@ -34,8 +34,10 @@ namespace visutwin::canvas
         depthOptions.height = static_cast<uint32_t>(resolution);
         depthOptions.format = info.format;
         depthOptions.mipmaps = false;
-        depthOptions.minFilter = FilterMode::FILTER_NEAREST;
-        depthOptions.magFilter = FilterMode::FILTER_NEAREST;
+        // PCF compares depths manually per tap (nearest); VSM samples filtered
+        // moments — linear filtering is part of the technique.
+        depthOptions.minFilter = info.pcf ? FilterMode::FILTER_NEAREST : FilterMode::FILTER_LINEAR;
+        depthOptions.magFilter = info.pcf ? FilterMode::FILTER_NEAREST : FilterMode::FILTER_LINEAR;
         depthOptions.cubemap = isOmni;
         shadowMap->_shadowTexture = std::make_shared<Texture>(device, depthOptions);
         shadowMap->_shadowTexture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);

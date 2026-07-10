@@ -81,6 +81,11 @@ namespace visutwin::canvas
     struct ShadowParams
     {
         bool enabled = false;
+        // True when the directional light uses SHADOW_VSM_16F: the shadow map
+        // holds EVSM moments (RGBA16F) and `bias` is the vsmBias (minVariance
+        // floor) instead of a depth offset. Metal selects the VSM sampling via
+        // a shader variant; the Vulkan backend branches on this at runtime.
+        bool vsm = false;
         float bias = 0.001f;
         float normalBias = 0.0f;
         float strength = 1.0f;

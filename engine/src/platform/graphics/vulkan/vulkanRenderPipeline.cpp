@@ -87,10 +87,11 @@ namespace visutwin::canvas
         // Set 3: per-pass scene textures.  Binding 0 = environment atlas
         // (equirectangular IBL + skybox source), binding 1 = directional
         // cascaded shadow-map depth atlas, bindings 2-3 = local spot-light 2D
-        // depth maps, bindings 4-5 = omni point-light cubemap depth maps.
-        // All six are combined image samplers; the sampler-cube vs sampler-2D
-        // distinction is a shader-side concern, not a layout one.
-        std::array<VkDescriptorSetLayoutBinding, 6> sceneBindings{};
+        // depth maps, bindings 4-5 = omni point-light cubemap depth maps,
+        // binding 6 = high-res skybox cubemap.  All are combined image
+        // samplers; the sampler-cube vs sampler-2D distinction is a
+        // shader-side concern, not a layout one.
+        std::array<VkDescriptorSetLayoutBinding, 7> sceneBindings{};
         for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
             sceneBindings[i].binding = i;
             sceneBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

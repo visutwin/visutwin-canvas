@@ -15,6 +15,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
@@ -97,6 +98,10 @@ namespace visutwin::canvas
 
         // Anisotropic filtering: 1.0 when the device lacks samplerAnisotropy.
         [[nodiscard]] float maxSamplerAnisotropy() const { return _maxSamplerAnisotropy; }
+
+        // VSM separable gaussian blur — fullscreen draw into the active
+        // RenderPassVsmBlur render pass (H: moments → scratch, V: back).
+        void executeVsmBlurPass(const VsmBlurPassParams& params, bool horizontal) override;
 
     private:
         void onFrameStart() override;
@@ -279,6 +284,18 @@ namespace visutwin::canvas
         // Anisotropic-filtering support, resolved at device creation.
         bool _samplerAnisotropyEnabled = false;
         float _maxSamplerAnisotropy = 1.0f;
+
+        // High-res skybox cubemap bound at set 3 binding 6 (white-cube fallback).
+        Texture* _skyboxCubeTexture = nullptr;
+
+        // ── VSM blur pass (lazy) ─────────────────────────────────────────
+        void ensureVsmBlurResources();
+        VkPipeline getVsmBlurPipeline(VkFormat colorFormat, VkFormat depthFormat);
+        VkDescriptorSetLayout _vsmBlurSetLayout = VK_NULL_HANDLE;
+        VkPipelineLayout _vsmBlurPipelineLayout = VK_NULL_HANDLE;
+        VkShaderModule _vsmBlurVertModule = VK_NULL_HANDLE;
+        VkShaderModule _vsmBlurFragModule = VK_NULL_HANDLE;
+        std::unordered_map<uint64_t, VkPipeline> _vsmBlurPipelines;
         uint32_t _lightingSlotOffset = 0;
 
         // Scene-global environment atlas (equirectangular IBL + skybox source),
