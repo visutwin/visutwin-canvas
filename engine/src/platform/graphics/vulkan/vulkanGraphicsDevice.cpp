@@ -1062,6 +1062,7 @@ namespace visutwin::canvas
         push.dirInvRes[2] = params.sourceInvResolutionX;
         push.dirInvRes[3] = params.sourceInvResolutionY;
         push.filterParams[0] = static_cast<float>(params.filterSize);
+        push.filterParams[1] = params.tileSize;
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,

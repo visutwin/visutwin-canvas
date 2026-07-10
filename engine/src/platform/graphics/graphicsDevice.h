@@ -211,6 +211,10 @@ namespace visutwin::canvas
         int filterSize = 5;                 // Half-kernel; total taps = 2 * filterSize + 1.
         float sourceInvResolutionX = 0.0f;
         float sourceInvResolutionY = 0.0f;
+        // Normalized cascade tile size: 1.0 = single cascade (full atlas),
+        // 0.5 = 2x2 quadrant layouts. Blur taps are clamped to the fragment's
+        // tile so gaussian kernels can't mix moments across cascade seams.
+        float tileSize = 1.0f;
     };
 
     struct EnvReprojectOp

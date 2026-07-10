@@ -51,7 +51,7 @@ struct VsmVarying {
 struct VsmBlurUniforms {
     float2 sourceInvResolution;
     int filterSize;
-    int _pad;
+    float tileSize;   // normalized cascade tile: 1.0 full atlas, 0.5 quadrants
 };
 
 vertex VsmVarying vsmBlurVertex(VsmVertexIn in [[stage_in]])
@@ -72,6 +72,14 @@ fragment float4 vsmBlurFragment(
     const float sigma = max(float(filterSize) / 3.0, 1.0);
     const float invSigma2 = 1.0 / (2.0 * sigma * sigma);
 
+    // Clamp taps to this fragment's cascade tile so the kernel can't mix
+    // moments across cascade seams in multi-cascade (quadrant) atlases.
+    const float tile = clamp(uniforms.tileSize <= 0.0 ? 1.0 : uniforms.tileSize, 0.0, 1.0);
+    const float2 halfTexel = 0.5 * uniforms.sourceInvResolution;
+    const float2 tileMin = (tile < 1.0) ? floor(in.uv / tile) * tile : float2(0.0);
+    const float2 clampMin = tileMin + halfTexel;
+    const float2 clampMax = tileMin + tile - halfTexel;
+
     float3 moments = float3(0.0);
     float totalWeight = 0.0;
     for (int i = -filterSize; i <= filterSize; ++i) {
@@ -81,7 +89,7 @@ fragment float4 vsmBlurFragment(
 #else
         const float2 offset = float2(0.0, float(i)) * uniforms.sourceInvResolution;
 #endif
-        moments += sourceTexture.sample(linearSampler, in.uv + offset).xyz * w;
+        moments += sourceTexture.sample(linearSampler, clamp(in.uv + offset, clampMin, clampMax)).xyz * w;
         totalWeight += w;
     }
     moments /= max(totalWeight, 1e-6);
@@ -113,7 +121,7 @@ struct VsmVarying {
 struct VsmBlurUniforms {
     float2 sourceInvResolution;
     int filterSize;
-    int _pad;
+    float tileSize;   // normalized cascade tile: 1.0 full atlas, 0.5 quadrants
 };
 
 vertex VsmVarying vsmBlurVertex(VsmVertexIn in [[stage_in]])
@@ -134,12 +142,20 @@ fragment float4 vsmBlurFragment(
     const float sigma = max(float(filterSize) / 3.0, 1.0);
     const float invSigma2 = 1.0 / (2.0 * sigma * sigma);
 
+    // Clamp taps to this fragment's cascade tile so the kernel can't mix
+    // moments across cascade seams in multi-cascade (quadrant) atlases.
+    const float tile = clamp(uniforms.tileSize <= 0.0 ? 1.0 : uniforms.tileSize, 0.0, 1.0);
+    const float2 halfTexel = 0.5 * uniforms.sourceInvResolution;
+    const float2 tileMin = (tile < 1.0) ? floor(in.uv / tile) * tile : float2(0.0);
+    const float2 clampMin = tileMin + halfTexel;
+    const float2 clampMax = tileMin + tile - halfTexel;
+
     float3 moments = float3(0.0);
     float totalWeight = 0.0;
     for (int i = -filterSize; i <= filterSize; ++i) {
         const float w = exp(-float(i * i) * invSigma2);
         const float2 offset = float2(0.0, float(i)) * uniforms.sourceInvResolution;
-        moments += sourceTexture.sample(linearSampler, in.uv + offset).xyz * w;
+        moments += sourceTexture.sample(linearSampler, clamp(in.uv + offset, clampMin, clampMax)).xyz * w;
         totalWeight += w;
     }
     moments /= max(totalWeight, 1e-6);
@@ -260,12 +276,12 @@ fragment float4 vsmBlurFragment(
         {
             float sourceInvResolution[2];
             int32_t filterSize;
-            int32_t _pad;
+            float tileSize;
         } uniforms{};
         uniforms.sourceInvResolution[0] = params.sourceInvResolutionX;
         uniforms.sourceInvResolution[1] = params.sourceInvResolutionY;
         uniforms.filterSize = params.filterSize;
-        uniforms._pad = 0;
+        uniforms.tileSize = params.tileSize;
         encoder->setFragmentBytes(&uniforms, sizeof(VsmBlurUniforms), 5);
 
         encoder->drawPrimitives(MTL::PrimitiveTypeTriangle,

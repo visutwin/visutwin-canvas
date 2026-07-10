@@ -13,12 +13,14 @@ namespace visutwin::canvas
         const std::shared_ptr<RenderTarget>& targetRenderTarget,
         const int shadowResolution,
         const bool horizontal,
-        const int filterSize)
+        const int filterSize,
+        const float cascadeTileSize)
         : RenderPass(device),
           _sourceTexture(sourceTexture),
           _shadowResolution(shadowResolution),
           _horizontal(horizontal),
-          _filterSize(filterSize)
+          _filterSize(filterSize),
+          _cascadeTileSize(cascadeTileSize)
     {
         _requiresCubemaps = false;
         _name = horizontal ? "RenderPassVsmBlurH" : "RenderPassVsmBlurV";
@@ -46,6 +48,7 @@ namespace visutwin::canvas
         params.sourceInvResolutionX = 1.0f / static_cast<float>(_shadowResolution);
         params.sourceInvResolutionY = 1.0f / static_cast<float>(_shadowResolution);
         params.filterSize = _filterSize;
+        params.tileSize = _cascadeTileSize;
         dev->executeVsmBlurPass(params, _horizontal);
     }
 }

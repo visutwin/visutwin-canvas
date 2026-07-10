@@ -24,7 +24,8 @@ namespace visutwin::canvas
             const std::shared_ptr<RenderTarget>& targetRenderTarget,
             int shadowResolution,
             bool horizontal,
-            int filterSize = 5);
+            int filterSize = 5,
+            float cascadeTileSize = 1.0f);
 
         void execute() override;
 
@@ -33,5 +34,6 @@ namespace visutwin::canvas
         int _shadowResolution;
         bool _horizontal;
         int _filterSize;
+        float _cascadeTileSize = 1.0f;
     };
 }

@@ -349,14 +349,17 @@ namespace visutwin::canvas
                         // Convert upstream-style total-tap count to half-kernel size.
                         // vsmBlurSize is total taps and should be odd; halfSize = (taps - 1) / 2.
                         const int filterSize = std::max(1, (light->vsmBlurSize() - 1) / 2);
+                        // Multi-cascade atlases pack 0.5x0.5 quadrants — the
+                        // blur must not mix moments across cascade seams.
+                        const float tileSize = light->numCascades() > 1 ? 0.5f : 1.0f;
                         // Pass 1 — horizontal: shadowTexture → blurTemp.
                         auto blurH = std::make_shared<RenderPassVsmBlur>(_device,
                             sm->shadowTexture(), sm->blurTempRenderTarget(),
-                            resolution, true, filterSize);
+                            resolution, true, filterSize, tileSize);
                         // Pass 2 — vertical: blurTemp → shadowTexture.
                         auto blurV = std::make_shared<RenderPassVsmBlur>(_device,
                             sm->blurTempTexture(), sm->renderTargets()[0],
-                            resolution, false, filterSize);
+                            resolution, false, filterSize, tileSize);
                         frameGraph->addRenderPass(blurH);
                         frameGraph->addRenderPass(blurV);
                     }
