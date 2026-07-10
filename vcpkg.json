@@ -23,7 +23,8 @@
       "dependencies": [
         { "name": "vulkan-headers"           },
         { "name": "vulkan-memory-allocator"  },
-        { "name": "vk-bootstrap"             }
+        { "name": "vk-bootstrap"             },
+        { "name": "shaderc"                  }
       ]
     }
   }

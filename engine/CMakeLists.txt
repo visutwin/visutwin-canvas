@@ -68,6 +68,9 @@ if(VISUTWIN_BACKEND_VULKAN)
     find_package(Vulkan REQUIRED)
     find_package(VulkanMemoryAllocator CONFIG REQUIRED)
     find_package(vk-bootstrap CONFIG REQUIRED)
+    # Runtime GLSL -> SPIR-V compilation (optional: the backend falls back to
+    # embedded precompiled SPIR-V when shaderc is unavailable).
+    find_package(unofficial-shaderc CONFIG QUIET)
 endif()
 
 # ── Source collection ─────────────────────────────────────────────────
@@ -169,4 +172,11 @@ if(VISUTWIN_BACKEND_VULKAN)
         GPUOpen::VulkanMemoryAllocator
         vk-bootstrap::vk-bootstrap
     )
+    if(TARGET unofficial::shaderc::shaderc)
+        target_compile_definitions(visutwin-canvas PUBLIC VISUTWIN_HAS_SHADERC)
+        target_link_libraries(visutwin-canvas PUBLIC unofficial::shaderc::shaderc)
+        message(STATUS "Vulkan runtime shader compilation enabled (shaderc)")
+    else()
+        message(STATUS "shaderc not found - Vulkan uses embedded precompiled SPIR-V only")
+    endif()
 endif()
