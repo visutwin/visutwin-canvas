@@ -47,6 +47,7 @@ namespace visutwin::canvas
         // x=enabled(0/1), y=numCascades, z=depthBias, w=strength
         float shadowParams[4]          = {0.0f, 1.0f, 0.0001f, 1.0f};
         // x=normalBias, y=cascadeBlend, z/w pad
+        // x=normalBias, y=cascadeBlend, z=toneMapping mode, w=enableNormalMaps
         float shadowParams2[4]         = {0.0f, 0.0f, 0.0f, 0.0f};
 
         // Local light shadows (spot 2D + omni cubemap), up to 2 casters.

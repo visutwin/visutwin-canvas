@@ -95,6 +95,9 @@ namespace visutwin::canvas
         // an in-flight frame reading a freed image/buffer is a GPU UAF.
         void deferDestroy(std::function<void()> destroyFn);
 
+        // Anisotropic filtering: 1.0 when the device lacks samplerAnisotropy.
+        [[nodiscard]] float maxSamplerAnisotropy() const { return _maxSamplerAnisotropy; }
+
     private:
         void onFrameStart() override;
         void onFrameEnd() override;
@@ -272,6 +275,10 @@ namespace visutwin::canvas
 
         // Once-per-frame throttle for descriptor-pool exhaustion warnings.
         bool _descriptorOverflowWarned = false;
+
+        // Anisotropic-filtering support, resolved at device creation.
+        bool _samplerAnisotropyEnabled = false;
+        float _maxSamplerAnisotropy = 1.0f;
         uint32_t _lightingSlotOffset = 0;
 
         // Scene-global environment atlas (equirectangular IBL + skybox source),

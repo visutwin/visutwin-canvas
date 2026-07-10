@@ -62,6 +62,7 @@ namespace visutwin::canvas::gpu
         VkFormat _format = VK_FORMAT_UNDEFINED;
         VkImageAspectFlags _aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         uint32_t _arrayLayers = 1;
+        uint32_t _mipLevels = 1;
         VkImageLayout _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     };
 }

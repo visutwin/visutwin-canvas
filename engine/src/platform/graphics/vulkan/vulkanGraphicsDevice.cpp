@@ -421,8 +421,21 @@ namespace visutwin::canvas
         _uboOffsetAlignment = props.limits.minUniformBufferOffsetAlignment;
         if (_uboOffsetAlignment == 0) _uboOffsetAlignment = 256;
 
+        // Enable anisotropic filtering when the hardware has it (MoltenVK on
+        // Apple GPUs does). Requested via a Vulkan-1.0 features struct chained
+        // like features13; static for the same pointer-lifetime reason.
+        VkPhysicalDeviceFeatures supported{};
+        vkGetPhysicalDeviceFeatures(_physicalDevice, &supported);
+        _samplerAnisotropyEnabled = supported.samplerAnisotropy == VK_TRUE;
+        _maxSamplerAnisotropy = _samplerAnisotropyEnabled
+            ? std::min(16.0f, props.limits.maxSamplerAnisotropy) : 1.0f;
+        static VkPhysicalDeviceFeatures2 features2{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        features2.features.samplerAnisotropy = _samplerAnisotropyEnabled ? VK_TRUE : VK_FALSE;
+
         vkb::DeviceBuilder deviceBuilder{vkbPhysical};
         deviceBuilder.add_pNext(&features13);
+        deviceBuilder.add_pNext(&features2);
         auto devResult = deviceBuilder.build();
         if (!devResult) {
             spdlog::error("Failed to create Vulkan device: {}", devResult.error().message());
@@ -1380,7 +1393,6 @@ namespace visutwin::canvas
         bool enableNormalMaps, float exposure, const FogParams& fogParams,
         const ShadowParams& shadowParams, int toneMapping)
     {
-        (void)enableNormalMaps; (void)toneMapping;
 
         // Directional cascaded shadows.  The cascade matrices, split distances,
         // and parameters all come straight from the renderer's ShadowParams;
@@ -1400,6 +1412,8 @@ namespace visutwin::canvas
         _lightingUbo.shadowParams[3]  = shadowParams.strength;
         _lightingUbo.shadowParams2[0] = shadowParams.normalBias;
         _lightingUbo.shadowParams2[1] = shadowParams.cascadeBlend;
+        _lightingUbo.shadowParams2[2] = static_cast<float>(toneMapping);
+        _lightingUbo.shadowParams2[3] = enableNormalMaps ? 1.0f : 0.0f;
 
         // Local light shadows (spot 2D + omni cubemap), up to 2 casters.  Each
         // light's coneParams[3] carries its slot index (set in the light loop
@@ -1557,7 +1571,19 @@ namespace visutwin::canvas
     std::shared_ptr<Shader> VulkanGraphicsDevice::createShader(
         const ShaderDefinition& definition, const std::string& sourceCode)
     {
-        (void)sourceCode;
+        // FEATURE GAP: the Vulkan backend has no runtime shader compiler, so
+        // custom source (ShaderMaterial, ProgramLibrary variants) is ignored
+        // and everything renders with the embedded forward PBR shader. Warn
+        // once per distinct shader name so this doesn't fail silently.
+        if (!sourceCode.empty()) {
+            static std::unordered_set<std::string> warnedShaders;
+            if (warnedShaders.insert(definition.name).second) {
+                spdlog::warn("VulkanGraphicsDevice::createShader('{}'): custom shader source is "
+                             "not supported on the Vulkan backend yet — using the embedded "
+                             "forward PBR shader instead", definition.name);
+            }
+        }
+
         // Use embedded SPIR-V for the basic forward shader
         return std::make_shared<VulkanShader>(this, definition,
             vulkan_spirv::kForwardBasicVert, vulkan_spirv::kForwardBasicVertSize,

@@ -8,6 +8,8 @@
 #include "vulkanGraphicsDevice.h"
 #include "vulkanUtils.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include "platform/graphics/texture.h"
 #include "spdlog/spdlog.h"
@@ -117,12 +119,28 @@ namespace visutwin::canvas::gpu
         const bool isCubemap = _owner->isCubemap();
         _arrayLayers = isCubemap ? 6u : 1u;
 
+        // Full mip chain for textures that request mipmaps — Metal has had
+        // this from the start; single-mip sampling caused heavy minification
+        // aliasing on ground/terrain textures. Requires blit + linear-filter
+        // support for the format (probe, fall back to 1 level).
+        _mipLevels = 1;
+        if (_owner->mipmaps() && !isDepth && width > 1 && height > 1) {
+            VkFormatProperties formatProps{};
+            vkGetPhysicalDeviceFormatProperties(vkDev->physicalDevice(), _format, &formatProps);
+            const VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_BLIT_SRC_BIT |
+                VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+            if ((formatProps.optimalTilingFeatures & needed) == needed) {
+                _mipLevels = 1 + static_cast<uint32_t>(
+                    std::floor(std::log2(static_cast<float>(std::max(width, height)))));
+            }
+        }
+
         // Image creation
         VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
         imageInfo.format = _format;
         imageInfo.extent = {width, height, 1};
-        imageInfo.mipLevels = 1;
+        imageInfo.mipLevels = _mipLevels;
         imageInfo.arrayLayers = _arrayLayers;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -154,7 +172,7 @@ namespace visutwin::canvas::gpu
         viewInfo.format = _format;
         viewInfo.subresourceRange.aspectMask = _aspect;
         viewInfo.subresourceRange.baseMipLevel = 0;
-        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.levelCount = _mipLevels;
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = _arrayLayers;
         vkCreateImageView(_vkDevice, &viewInfo, nullptr, &_imageView);
@@ -221,16 +239,52 @@ namespace visutwin::canvas::gpu
                 vulkanTransitionImageLayout(cmd, _image,
                     VK_IMAGE_LAYOUT_UNDEFINED,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    _aspect, 0, 1, 0, _arrayLayers);
+                    _aspect, 0, _mipLevels, 0, _arrayLayers);
 
                 vkCmdCopyBufferToImage(cmd, stagingBuffer, _image,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     static_cast<uint32_t>(regions.size()), regions.data());
 
+                // Generate the mip chain: blit each level from the previous
+                // one (all layers per blit), stepping the source level into
+                // TRANSFER_SRC as we descend.
+                int32_t mipW = static_cast<int32_t>(width);
+                int32_t mipH = static_cast<int32_t>(height);
+                for (uint32_t level = 1; level < _mipLevels; ++level) {
+                    vulkanTransitionImageLayout(cmd, _image,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        _aspect, level - 1, 1, 0, _arrayLayers);
+
+                    const int32_t nextW = std::max(mipW / 2, 1);
+                    const int32_t nextH = std::max(mipH / 2, 1);
+
+                    VkImageBlit blit{};
+                    blit.srcSubresource = {_aspect, level - 1, 0, _arrayLayers};
+                    blit.srcOffsets[1] = {mipW, mipH, 1};
+                    blit.dstSubresource = {_aspect, level, 0, _arrayLayers};
+                    blit.dstOffsets[1] = {nextW, nextH, 1};
+                    vkCmdBlitImage(cmd,
+                        _image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        _image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        1, &blit, VK_FILTER_LINEAR);
+
+                    mipW = nextW;
+                    mipH = nextH;
+                }
+
+                // Finalize: levels [0, N-1) are TRANSFER_SRC, the last level
+                // is still TRANSFER_DST (or level 0 when no mips were made).
+                if (_mipLevels > 1) {
+                    vulkanTransitionImageLayout(cmd, _image,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        _aspect, 0, _mipLevels - 1, 0, _arrayLayers);
+                }
                 vulkanTransitionImageLayout(cmd, _image,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    _aspect, 0, 1, 0, _arrayLayers);
+                    _aspect, _mipLevels - 1, 1, 0, _arrayLayers);
             });
 
             vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);
@@ -247,7 +301,7 @@ namespace visutwin::canvas::gpu
                 vulkanTransitionImageLayout(cmd, _image,
                     VK_IMAGE_LAYOUT_UNDEFINED,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    _aspect, 0, 1, 0, _arrayLayers);
+                    _aspect, 0, _mipLevels, 0, _arrayLayers);
             });
             _currentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
@@ -289,7 +343,11 @@ namespace visutwin::canvas::gpu
         samplerInfo.addressModeV = vulkanMapAddressMode(_owner->addressV());
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-        samplerInfo.maxAnisotropy = 1.0f;
+        // 16x anisotropy (or the device max) — matches the Metal default
+        // sampler; without it oblique ground textures smear into radial lines.
+        const float anisotropy = device->maxSamplerAnisotropy();
+        samplerInfo.anisotropyEnable = anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
+        samplerInfo.maxAnisotropy = std::max(anisotropy, 1.0f);
 
         vkCreateSampler(device->device(), &samplerInfo, nullptr, &_sampler);
     }
