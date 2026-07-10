@@ -69,6 +69,12 @@ namespace visutwin::canvas::gpu
 
     VulkanTexture::~VulkanTexture()
     {
+        // Device already destroyed (static-cache teardown at exit): its child
+        // objects died with it — touching it would crash.
+        if (_deviceRef && _deviceAlive.expired()) {
+            return;
+        }
+
         // Defer through the device: an in-flight frame's descriptors may still
         // reference this image/view/sampler.
         if (_deviceRef) {
@@ -104,6 +110,7 @@ namespace visutwin::canvas::gpu
     {
         auto* vkDev = static_cast<VulkanGraphicsDevice*>(device);
         _deviceRef = vkDev;
+        _deviceAlive = vkDev->aliveToken();
         _vkDevice = vkDev->device();
         _allocator = vkDev->vmaAllocator();
 

@@ -181,9 +181,13 @@ namespace visutwin::canvas
         // formats — not the render target's per-instance id. Instance-id keys
         // minted a new PSO for every recreated/transient target (resize, env
         // bakes) and the cache never evicts, growing without bound.
+        // dynamic_cast, NOT static_cast: the backbuffer render target is a
+        // plain RenderTarget (create() below treats the failed cast as the
+        // backbuffer path with fixed BGRA8+D32F formats) — key 0 mirrors that.
+        // A static_cast here read past the base object and crashed
+        // intermittently in the compose pass.
         uint32_t rtFormatKey = 0;
-        if (renderTarget) {
-            const auto* metalTarget = static_cast<const MetalRenderTarget*>(renderTarget.get());
+        if (const auto* metalTarget = dynamic_cast<const MetalRenderTarget*>(renderTarget.get())) {
             rtFormatKey = 0x9e3779b9u;
             for (const auto& att : metalTarget->colorAttachments()) {
                 rtFormatKey = rtFormatKey * 31u + static_cast<uint32_t>(att->pixelFormat);

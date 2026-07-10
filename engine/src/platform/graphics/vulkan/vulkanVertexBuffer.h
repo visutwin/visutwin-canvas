@@ -7,6 +7,7 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <memory>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
@@ -34,6 +35,7 @@ namespace visutwin::canvas
         VmaAllocator _allocator = VK_NULL_HANDLE;
         // Deferred-destroy routing (in-flight frames may reference the buffer).
         VulkanGraphicsDevice* _deviceRef = nullptr;
+        std::weak_ptr<bool> _deviceAlive;
     };
 }
 

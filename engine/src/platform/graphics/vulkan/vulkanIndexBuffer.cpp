@@ -18,6 +18,7 @@ namespace visutwin::canvas
     {
         auto* vkDev = static_cast<VulkanGraphicsDevice*>(device);
         _deviceRef = vkDev;
+        _deviceAlive = vkDev->aliveToken();
         _allocator = vkDev->vmaAllocator();
 
         int bytesPerIndex = (format == INDEXFORMAT_UINT32) ? 4 : (format == INDEXFORMAT_UINT16) ? 2 : 1;
@@ -36,6 +37,9 @@ namespace visutwin::canvas
 
     VulkanIndexBuffer::~VulkanIndexBuffer()
     {
+        if (_deviceRef && _deviceAlive.expired()) {
+            return; // device gone — VMA allocator and buffers died with it
+        }
         if (_allocator != VK_NULL_HANDLE && _buffer != VK_NULL_HANDLE) {
             // Defer: an in-flight frame's index binding may still read this.
             if (_deviceRef) {

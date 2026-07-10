@@ -20,6 +20,7 @@ namespace visutwin::canvas
     {
         auto* vkDev = static_cast<VulkanGraphicsDevice*>(device);
         _deviceRef = vkDev;
+        _deviceAlive = vkDev->aliveToken();
         _allocator = vkDev->vmaAllocator();
 
         size_t bufferSize = _storage.size();
@@ -41,6 +42,9 @@ namespace visutwin::canvas
 
     VulkanVertexBuffer::~VulkanVertexBuffer()
     {
+        if (_deviceRef && _deviceAlive.expired()) {
+            return; // device gone — VMA allocator and buffers died with it
+        }
         if (_allocator != VK_NULL_HANDLE && _buffer != VK_NULL_HANDLE) {
             // Defer: an in-flight frame's vertex bindings may still read this.
             if (_deviceRef) {

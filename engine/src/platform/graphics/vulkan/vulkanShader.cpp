@@ -17,6 +17,7 @@ namespace visutwin::canvas
     {
         auto* vkDevice = static_cast<VulkanGraphicsDevice*>(device);
         _vkDevice = vkDevice->device();
+        _deviceAlive = vkDevice->aliveToken();
         (void)sourceCode;
         // Runtime GLSL compilation not supported — use the SPIR-V constructor.
     }
@@ -32,6 +33,7 @@ namespace visutwin::canvas
     {
         auto* vkDevice = static_cast<VulkanGraphicsDevice*>(device);
         _vkDevice = vkDevice->device();
+        _deviceAlive = vkDevice->aliveToken();
 
         if (vertSpirv && vertWordCount > 0)
             _vertexModule = createModule(vertSpirv, vertWordCount);
@@ -58,6 +60,13 @@ namespace visutwin::canvas
 
     VulkanShader::~VulkanShader()
     {
+        // Shaders held by static caches (ProgramLibrary, material device
+        // caches) are destroyed after the VkDevice at process exit —
+        // vkDestroyShaderModule on a dead device aborts. The device frees its
+        // child objects itself, so skipping is correct, not a leak.
+        if (_deviceAlive.expired()) {
+            return;
+        }
         if (_vkDevice != VK_NULL_HANDLE) {
             if (_vertexModule != VK_NULL_HANDLE)
                 vkDestroyShaderModule(_vkDevice, _vertexModule, nullptr);

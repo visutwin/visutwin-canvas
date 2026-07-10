@@ -99,6 +99,12 @@ namespace visutwin::canvas
         // Anisotropic filtering: 1.0 when the device lacks samplerAnisotropy.
         [[nodiscard]] float maxSamplerAnisotropy() const { return _maxSamplerAnisotropy; }
 
+        // Expires when the device is destroyed. Resource destructors that can
+        // outlive the device (shaders/textures held by static caches torn down
+        // at process exit) must lock this before touching VkDevice — a dead
+        // device frees its child objects itself, so skipping is correct.
+        [[nodiscard]] std::weak_ptr<bool> aliveToken() const { return _aliveToken; }
+
         // VSM separable gaussian blur — fullscreen draw into the active
         // RenderPassVsmBlur render pass (H: moments → scratch, V: back).
         void executeVsmBlurPass(const VsmBlurPassParams& params, bool horizontal) override;
@@ -284,6 +290,9 @@ namespace visutwin::canvas
         // Anisotropic-filtering support, resolved at device creation.
         bool _samplerAnisotropyEnabled = false;
         float _maxSamplerAnisotropy = 1.0f;
+
+        // Dies with the device — see aliveToken().
+        std::shared_ptr<bool> _aliveToken = std::make_shared<bool>(true);
 
         // High-res skybox cubemap bound at set 3 binding 6 (white-cube fallback).
         Texture* _skyboxCubeTexture = nullptr;

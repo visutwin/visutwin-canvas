@@ -7,6 +7,7 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <memory>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
@@ -53,6 +54,7 @@ namespace visutwin::canvas::gpu
         // Set in uploadImmediate; used to defer GPU-resource destruction until
         // in-flight frames that may reference this texture have completed.
         VulkanGraphicsDevice* _deviceRef = nullptr;
+        std::weak_ptr<bool> _deviceAlive;
         VkDevice _vkDevice = VK_NULL_HANDLE;
         VmaAllocator _allocator = VK_NULL_HANDLE;
         VkImage _image = VK_NULL_HANDLE;

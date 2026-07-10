@@ -7,6 +7,7 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <memory>
 #include <vector>
 #include <vulkan/vulkan.h>
 
@@ -47,6 +48,9 @@ namespace visutwin::canvas
         VkShaderModule createModule(const uint32_t* spirv, size_t wordCount);
 
         VkDevice _vkDevice = VK_NULL_HANDLE;
+        // Expired => the device (and all its child objects) is already gone;
+        // the destructor must not call vkDestroyShaderModule on it.
+        std::weak_ptr<bool> _deviceAlive;
         VkShaderModule _vertexModule = VK_NULL_HANDLE;
         VkShaderModule _instancedVertexModule = VK_NULL_HANDLE;
         VkShaderModule _skyVertexModule = VK_NULL_HANDLE;
