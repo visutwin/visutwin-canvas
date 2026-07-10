@@ -32,6 +32,11 @@ namespace visutwin::canvas
     std::vector<uint32_t> vulkanCompileGlsl(const std::string& source,
         VulkanShaderStage stage, const std::string& name,
         const std::vector<std::pair<std::string, std::string>>& defines = {});
+
+    /// Read a GLSL source file from engine/shaders/vulkan (path resolved from
+    /// the source tree or the working directory, like the Metal chunk
+    /// registry). Returns empty when not found.
+    std::string vulkanReadShaderSourceFile(const std::string& filename);
 }
 
 #endif // VISUTWIN_HAS_VULKAN

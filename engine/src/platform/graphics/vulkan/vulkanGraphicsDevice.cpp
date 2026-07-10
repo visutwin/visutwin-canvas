@@ -413,6 +413,8 @@ namespace visutwin::canvas
 
         flushDeferredDestroys(true);
 
+        destroyPostResources();
+
         for (auto& [key, pipeline] : _vsmBlurPipelines) {
             vkDestroyPipeline(_device, pipeline, nullptr);
         }
@@ -685,8 +687,11 @@ namespace visutwin::canvas
             // Per-frame pool serves the per-draw combined-image-sampler sets:
             // set 1 (6 material textures) + set 3 (1 env atlas) = 7 samplers
             // and 2 sets per draw.  Sized for a generous draw count per frame.
-            std::array<VkDescriptorPoolSize, 1> poolSizes{};
+            std::array<VkDescriptorPoolSize, 2> poolSizes{};
             poolSizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8192};
+            // Post-process passes bind their params as transient plain UBOs
+            // sub-allocated from the uniform ring.
+            poolSizes[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256};
 
             VkDescriptorPoolCreateInfo dpInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
             dpInfo.maxSets = 2048;

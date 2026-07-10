@@ -109,6 +109,16 @@ namespace visutwin::canvas
         // RenderPassVsmBlur render pass (H: moments → scratch, V: back).
         void executeVsmBlurPass(const VsmBlurPassParams& params, bool horizontal) override;
 
+        // ── Post-processing core (fullscreen draws inside the active pass,
+        //    shaders compiled at runtime from engine/shaders/vulkan) ────────
+        void executeComposePass(const ComposePassParams& params) override;
+        void executeSsaoPass(const SsaoPassParams& params) override;
+        void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) override;
+        void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
+            const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
+            const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
+            bool highQuality, bool historyValid) override;
+
     private:
         void onFrameStart() override;
         void onFrameEnd() override;
@@ -305,6 +315,29 @@ namespace visutwin::canvas
         VkShaderModule _vsmBlurVertModule = VK_NULL_HANDLE;
         VkShaderModule _vsmBlurFragModule = VK_NULL_HANDLE;
         std::unordered_map<uint64_t, VkPipeline> _vsmBlurPipelines;
+
+        // ── Post-processing framework (vulkanPostProcess.cpp) ────────────
+        // Shared layout: bindings 0-3 combined samplers + binding 4 params UBO
+        // (sub-allocated from _uniformRing). Pipelines cached per
+        // (pass, colorFormat, depthFormat); shaders are runtime-GLSL only —
+        // without shaderc the passes no-op (pre-port behavior).
+        enum class PostPassKind : uint32_t { Compose = 0, Ssao, DepthBlur, Taa, Count };
+        bool ensurePostResources();
+        VkShaderModule postFragmentModule(PostPassKind kind);
+        VkPipeline getPostPipeline(PostPassKind kind, VkFormat colorFormat, VkFormat depthFormat);
+        // Draws a fullscreen triangle with up to 4 textures + a params blob.
+        void executePostPass(PostPassKind kind, Texture* const textures[4],
+            const void* paramsData, size_t paramsSize);
+        void destroyPostResources();
+
+        VkDescriptorSetLayout _postSetLayout = VK_NULL_HANDLE;
+        VkPipelineLayout _postPipelineLayout = VK_NULL_HANDLE;
+        VkShaderModule _postVertModule = VK_NULL_HANDLE;
+        std::array<VkShaderModule, static_cast<size_t>(PostPassKind::Count)> _postFragModules{};
+        std::array<bool, static_cast<size_t>(PostPassKind::Count)> _postFragCompileAttempted{};
+        VkSampler _postSampler = VK_NULL_HANDLE;   // linear, clamp-to-edge
+        std::unordered_map<uint64_t, VkPipeline> _postPipelines;
+        bool _postResourcesAttempted = false;
         uint32_t _lightingSlotOffset = 0;
 
         // Scene-global environment atlas (equirectangular IBL + skybox source),
