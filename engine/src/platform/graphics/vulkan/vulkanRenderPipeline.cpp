@@ -173,11 +173,24 @@ namespace visutwin::canvas
             shader->instancedVertexModule() != VK_NULL_HANDLE;
         const bool useSky = isSkybox && shader->skyVertexModule() != VK_NULL_HANDLE;
 
+        // Stride-variant vertex layouts (mirrors the Metal scheme):
+        //   <= 28 bytes  → point cloud: pos(vec3)@0 + color(vec4)@12, unlit
+        //   >= 72 bytes  → standard + vertex color (vec4)@56 at location 5
+        //   otherwise    → standard 56/60-byte interleaved layout
+        const int vertexStride = vertexFormat ? vertexFormat->size() : 56;
+        const bool usePoint = !useSky && !instanced && vertexStride <= 28 &&
+            shader->pointVertexModule() != VK_NULL_HANDLE;
+        const bool useColor = !useSky && !instanced && !usePoint && vertexStride >= 72 &&
+            shader->colorVertexModule() != VK_NULL_HANDLE;
+
         // --- Shader stages ---
         std::vector<VkPipelineShaderStageCreateInfo> stages;
         VkShaderModule vertModule = useSky
             ? shader->skyVertexModule()
-            : (instanced ? shader->instancedVertexModule() : shader->vertexModule());
+            : (instanced ? shader->instancedVertexModule()
+                         : (usePoint ? shader->pointVertexModule()
+                                     : (useColor ? shader->colorVertexModule()
+                                                 : shader->vertexModule())));
         if (vertModule != VK_NULL_HANDLE) {
             VkPipelineShaderStageCreateInfo vert{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
             vert.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -199,24 +212,32 @@ namespace visutwin::canvas
         }
 
         // --- Vertex input ---
-        // The codebase currently uses a single fixed interleaved layout:
-        //   pos(3f) + normal(3f) + uv0(2f) + tangent(4f) + uv1(2f) = 56 bytes
-        // VertexFormat does not yet expose its elements (the Metal layout
-        // builder also stubs the dynamic path), so we hardcode the standard
-        // attribute set here.  When VertexFormat grows an element-iteration
-        // API, replace the body below with a generated descriptor list.
-        const int stride = vertexFormat ? vertexFormat->size() : 56;
-
+        // Stride-variant attribute sets, matching the vertex-shader variant
+        // chosen above (VertexFormat does not yet expose its elements — the
+        // Metal layout builder uses the same stride-driven scheme).
         std::vector<VkVertexInputBindingDescription> bindings;
-        bindings.push_back({0, static_cast<uint32_t>(stride), VK_VERTEX_INPUT_RATE_VERTEX});
+        bindings.push_back({0, static_cast<uint32_t>(vertexStride), VK_VERTEX_INPUT_RATE_VERTEX});
 
-        std::vector<VkVertexInputAttributeDescription> attributes = {
-            {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},       // position
-            {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12},      // normal
-            {2, 0, VK_FORMAT_R32G32_SFLOAT, 24},         // uv0
-            {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 32},   // tangent
-            {4, 0, VK_FORMAT_R32G32_SFLOAT, 48},         // uv1
-        };
+        std::vector<VkVertexInputAttributeDescription> attributes;
+        if (usePoint) {
+            // Point cloud: position + color only (the point shader consumes
+            // exactly these two locations).
+            attributes = {
+                {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},       // position
+                {5, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 12},   // color
+            };
+        } else {
+            attributes = {
+                {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},       // position
+                {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12},      // normal
+                {2, 0, VK_FORMAT_R32G32_SFLOAT, 24},         // uv0
+                {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 32},   // tangent
+                {4, 0, VK_FORMAT_R32G32_SFLOAT, 48},         // uv1
+            };
+            if (useColor) {
+                attributes.push_back({5, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 56}); // vertex color
+            }
+        }
 
         if (instanced) {
             // Binding 1: per-instance data — column-major mat4 occupies the

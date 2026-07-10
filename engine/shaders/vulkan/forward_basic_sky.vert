@@ -24,6 +24,7 @@ layout(location = 2) out vec2 fragUV0;
 layout(location = 3) out vec2 fragUV1;
 layout(location = 4) out vec4 fragWorldTangent;
 layout(location = 5) out float fragViewDepth;
+layout(location = 6) out vec4 fragColor;
 
 void main() {
     vec4 worldPos = pc.model * vec4(inPosition, 1.0);
@@ -40,4 +41,5 @@ void main() {
     fragWorldTangent = vec4(normalize(normalMatrix * inTangent.xyz), inTangent.w);
     fragUV0 = inUV0;
     fragUV1 = inUV1;
+    fragColor = vec4(1.0);
 }

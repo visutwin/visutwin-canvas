@@ -1589,7 +1589,9 @@ namespace visutwin::canvas
             vulkan_spirv::kForwardBasicVert, vulkan_spirv::kForwardBasicVertSize,
             vulkan_spirv::kForwardBasicFrag, vulkan_spirv::kForwardBasicFragSize,
             vulkan_spirv::kForwardBasicInstancedVert, vulkan_spirv::kForwardBasicInstancedVertSize,
-            vulkan_spirv::kForwardBasicSkyVert, vulkan_spirv::kForwardBasicSkyVertSize);
+            vulkan_spirv::kForwardBasicSkyVert, vulkan_spirv::kForwardBasicSkyVertSize,
+            vulkan_spirv::kForwardBasicColorVert, vulkan_spirv::kForwardBasicColorVertSize,
+            vulkan_spirv::kForwardBasicPointVert, vulkan_spirv::kForwardBasicPointVertSize);
     }
 
     std::unique_ptr<gpu::HardwareTexture> VulkanGraphicsDevice::createGPUTexture(Texture* texture)

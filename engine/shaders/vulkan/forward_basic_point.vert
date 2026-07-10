@@ -1,10 +1,13 @@
 #version 450
 
+// Point-cloud variant: the 28-byte layout packs position (vec3 @0) and a vec4
+// color (@12). Selected by the pipeline for vertex strides <= 28. Writes a
+// ZERO world normal as the unlit sentinel — the fragment stage detects it and
+// outputs the tinted color without surface lighting (mirrors Metal, where
+// point clouds use the unlit shader path).
+
 layout(location = 0) in vec3 inPosition;
-layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec2 inUV0;
-layout(location = 3) in vec4 inTangent;
-layout(location = 4) in vec2 inUV1;
+layout(location = 5) in vec4 inColor;
 
 layout(push_constant) uniform PushConstants {
     mat4 viewProjection;
@@ -22,17 +25,13 @@ layout(location = 6) out vec4 fragColor;
 void main() {
     vec4 worldPos = pc.model * vec4(inPosition, 1.0);
     gl_Position = pc.viewProjection * worldPos;
+    gl_PointSize = 1.0;
 
-    // clip.w == view-space Z for a standard perspective projection — used for
-    // cascaded-shadow cascade selection in the fragment stage.
     fragViewDepth = gl_Position.w;
-
     fragWorldPos = worldPos.xyz;
-
-    mat3 normalMatrix = mat3(pc.model);
-    fragWorldNormal = normalize(normalMatrix * inNormal);
-    fragWorldTangent = vec4(normalize(normalMatrix * inTangent.xyz), inTangent.w);
-    fragUV0 = inUV0;
-    fragUV1 = inUV1;
-    fragColor = vec4(1.0);
+    fragWorldNormal = vec3(0.0);          // unlit sentinel
+    fragWorldTangent = vec4(1.0, 0.0, 0.0, 1.0);
+    fragUV0 = vec2(0.0);
+    fragUV1 = vec2(0.0);
+    fragColor = inColor;
 }

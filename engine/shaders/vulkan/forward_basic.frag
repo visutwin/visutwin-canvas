@@ -6,6 +6,7 @@ layout(location = 2) in vec2 fragUV0;
 layout(location = 3) in vec2 fragUV1;
 layout(location = 4) in vec4 fragWorldTangent;
 layout(location = 5) in float fragViewDepth;
+layout(location = 6) in vec4 fragColor;
 
 layout(location = 0) out vec4 outColor;
 
@@ -408,10 +409,22 @@ void main() {
         material.emissiveTransform0, material.emissiveTransform1);
 
     vec4 baseSample = texture(baseColorMap, uvBase);
-    vec4 albedo = material.baseColor * baseSample;
+    // fragColor is vec4(1) except for the vertex-color / point-cloud vertex
+    // variants, which feed the mesh's per-vertex color through.
+    vec4 albedo = material.baseColor * baseSample * fragColor;
 
     if ((material.flags & FLAG_ALPHA_TEST) != 0u && albedo.a < material.alphaCutoff) {
         discard;
+    }
+
+    // Point-cloud (unlit) path: the point vertex variant writes a zero world
+    // normal as its sentinel — no surface lighting, just exposure + tonemap +
+    // gamma on the tinted color (mirrors Metal's unlit point shader).
+    if (dot(fragWorldNormal, fragWorldNormal) < 1e-6) {
+        vec3 unlit = albedo.rgb * lighting.cameraPosExposure.w;
+        unlit = applyToneMap(unlit);
+        outColor = vec4(pow(max(unlit, vec3(0.0)), vec3(1.0 / 2.2)), albedo.a);
+        return;
     }
 
     // Metallic-roughness (glTF packs roughness in G, metallic in B).

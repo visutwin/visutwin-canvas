@@ -25,7 +25,9 @@ namespace visutwin::canvas
         const uint32_t* vertSpirv, size_t vertWordCount,
         const uint32_t* fragSpirv, size_t fragWordCount,
         const uint32_t* instancedVertSpirv, size_t instancedVertWordCount,
-        const uint32_t* skyVertSpirv, size_t skyVertWordCount)
+        const uint32_t* skyVertSpirv, size_t skyVertWordCount,
+        const uint32_t* colorVertSpirv, size_t colorVertWordCount,
+        const uint32_t* pointVertSpirv, size_t pointVertWordCount)
         : Shader(device, definition)
     {
         auto* vkDevice = static_cast<VulkanGraphicsDevice*>(device);
@@ -39,13 +41,19 @@ namespace visutwin::canvas
             _instancedVertexModule = createModule(instancedVertSpirv, instancedVertWordCount);
         if (skyVertSpirv && skyVertWordCount > 0)
             _skyVertexModule = createModule(skyVertSpirv, skyVertWordCount);
+        if (colorVertSpirv && colorVertWordCount > 0)
+            _colorVertexModule = createModule(colorVertSpirv, colorVertWordCount);
+        if (pointVertSpirv && pointVertWordCount > 0)
+            _pointVertexModule = createModule(pointVertSpirv, pointVertWordCount);
 
-        spdlog::debug("VulkanShader created: {} (vert={} frag={} instanced={} sky={})",
+        spdlog::debug("VulkanShader created: {} (vert={} frag={} instanced={} sky={} color={} point={})",
             definition.name,
             _vertexModule != VK_NULL_HANDLE ? "ok" : "none",
             _fragmentModule != VK_NULL_HANDLE ? "ok" : "none",
             _instancedVertexModule != VK_NULL_HANDLE ? "ok" : "none",
-            _skyVertexModule != VK_NULL_HANDLE ? "ok" : "none");
+            _skyVertexModule != VK_NULL_HANDLE ? "ok" : "none",
+            _colorVertexModule != VK_NULL_HANDLE ? "ok" : "none",
+            _pointVertexModule != VK_NULL_HANDLE ? "ok" : "none");
     }
 
     VulkanShader::~VulkanShader()
@@ -57,6 +65,10 @@ namespace visutwin::canvas
                 vkDestroyShaderModule(_vkDevice, _instancedVertexModule, nullptr);
             if (_skyVertexModule != VK_NULL_HANDLE)
                 vkDestroyShaderModule(_vkDevice, _skyVertexModule, nullptr);
+            if (_colorVertexModule != VK_NULL_HANDLE)
+                vkDestroyShaderModule(_vkDevice, _colorVertexModule, nullptr);
+            if (_pointVertexModule != VK_NULL_HANDLE)
+                vkDestroyShaderModule(_vkDevice, _pointVertexModule, nullptr);
             if (_fragmentModule != VK_NULL_HANDLE)
                 vkDestroyShaderModule(_vkDevice, _fragmentModule, nullptr);
             if (_computeModule != VK_NULL_HANDLE)
