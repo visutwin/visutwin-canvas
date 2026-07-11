@@ -13,6 +13,7 @@
 #include "mesh.h"
 #include "morphInstance.h"
 #include "skinInstance.h"
+#include "gsplat/gsplatInstance.h"
 #include "scene/constants.h"
 #include "materials/material.h"
 #include "platform/graphics/vertexBuffer.h"
@@ -20,6 +21,7 @@
 namespace visutwin::canvas
 {
     class GraphicsDevice;
+    class GSplatInstance;
     class InstanceCuller;
     class SkinBatchInstance;
 }
@@ -153,6 +155,14 @@ namespace visutwin::canvas
             }
         }
 
+        // --- Gaussian splats ---
+
+        GSplatInstance* gsplatInstance() const { return _gsplatInstance.get(); }
+        void setGSplatInstance(const std::shared_ptr<GSplatInstance>& gsplatInstance)
+        {
+            _gsplatInstance = gsplatInstance;
+        }
+
         // --- Morph targets ---
 
         MorphInstance* morphInstance() const { return _morphInstance.get(); }
@@ -208,6 +218,7 @@ namespace visutwin::canvas
 
         std::shared_ptr<SkinInstance> _skinInstance;
         std::shared_ptr<MorphInstance> _morphInstance;
+        std::shared_ptr<GSplatInstance> _gsplatInstance;
         SkinBatchInstance* _skinBatchInstance = nullptr;
         InstancingData _instancingData;
 

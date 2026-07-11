@@ -156,6 +156,11 @@ namespace visutwin::canvas
         void setMorphState(const std::shared_ptr<VertexBuffer>& deltaBuffer,
             const void* params, size_t paramsSize) override;
 
+        /// Bind Gaussian splat buffers (vertex slots 7/8) + params (vertex slot 11)
+        /// for the next draw call.
+        void setGSplatState(const std::shared_ptr<VertexBuffer>& splats,
+            const std::shared_ptr<VertexBuffer>& order, const void* params, size_t paramsSize) override;
+
         /// Bind clustered lighting data for the current frame.
         /// Allocates/grows internal MTL::Buffers and copies data.
         void setClusterBuffers(const void* lightData, size_t lightSize,
@@ -215,6 +220,13 @@ namespace visutwin::canvas
         MTL::Buffer* _pendingMorphDeltaBuffer = nullptr;
         std::array<uint8_t, 128> _pendingMorphParams{};
         size_t _pendingMorphParamsSize = 0;
+
+        // Gaussian splat state: set by setGSplatState(), consumed by draw().
+        // Splats bind at vertex slot 7, order at 8, params bytes at 11.
+        MTL::Buffer* _pendingGSplatBuffer = nullptr;
+        MTL::Buffer* _pendingGSplatOrderBuffer = nullptr;
+        std::array<uint8_t, 192> _pendingGSplatParams{};
+        size_t _pendingGSplatParamsSize = 0;
         MTL::SamplerState* _defaultSampler = nullptr;
         // Clamp-to-edge sampler for screen-space post passes (no mips/aniso) —
         // the repeat-mode default sampler wraps kernel taps at frame borders.

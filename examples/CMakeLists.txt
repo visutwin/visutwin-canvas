@@ -148,3 +148,10 @@ add_executable(visutwin-env-reproject-test
 )
 target_link_libraries(visutwin-env-reproject-test PRIVATE visutwin-canvas)
 target_compile_definitions(visutwin-env-reproject-test PRIVATE ASSET_DIR="${VISUTWIN_ASSET_DIR}")
+
+add_executable(visutwin-gsplat MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/gsplat-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-gsplat PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-gsplat com.visutwin.gsplat)

@@ -415,6 +415,18 @@ namespace visutwin::canvas
             (void)paramsSize;
         }
 
+        /// Bind Gaussian splat state for the next draw call (consumed by one draw).
+        /// splats: GpuSplat storage (vertex slot 7); order: uint32 draw order, farthest
+        /// first (vertex slot 8); params: GpuGSplatParams (vertex slot 11).
+        virtual void setGSplatState(const std::shared_ptr<VertexBuffer>& splats,
+            const std::shared_ptr<VertexBuffer>& order, const void* params, size_t paramsSize)
+        {
+            (void)splats;
+            (void)order;
+            (void)params;
+            (void)paramsSize;
+        }
+
         /// Bind clustered lighting data for the current frame.
         /// lightData: packed GpuClusteredLight array, lightSize: byte count.
         /// cellData: uint8 cell→light index mapping, cellSize: byte count.

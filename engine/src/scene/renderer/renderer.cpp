@@ -26,6 +26,8 @@
 #include "scene/morph.h"
 #include "scene/morphInstance.h"
 #include "scene/skinInstance.h"
+#include "scene/gsplat/gsplatInstance.h"
+#include "scene/gsplat/gsplatResource.h"
 #include "scene/materials/material.h"
 #include "scene/graphNode.h"
 #include "scene/shader-lib/programLibrary.h"
@@ -1003,6 +1005,26 @@ namespace visutwin::canvas
                 }
                 _device->setTransformUniforms(viewProjection, Matrix4::identity());
                 _device->draw(entry->primitive, entry->indexBuffer, 1, -1, true, true);
+            } else if (auto* gsplat = entry->meshInstance ? entry->meshInstance->gsplatInstance() : nullptr) {
+                // Gaussian splats: one instanced quad per splat, back-to-front via the
+                // per-instance order buffer filled by the background depth sorter.
+                const Matrix4 modelMatrix = entry->meshInstance->node()
+                    ? entry->meshInstance->node()->worldTransform() : Matrix4::identity();
+                Vector3 cameraForward(0.0f, 0.0f, -1.0f);
+                if (cameraNode) {
+                    const Matrix4& cameraWorld = cameraNode->worldTransform();
+                    cameraForward = (cameraWorld.transformPoint(Vector3(0.0f, 0.0f, -1.0f)) -
+                                     cameraWorld.transformPoint(Vector3(0.0f))).normalized();
+                }
+                gsplat->update(cameraPosition, cameraForward, modelMatrix, viewMatrix, projMatrix,
+                    static_cast<float>(viewportW), static_cast<float>(viewportH));
+                if (gsplat->visibleCount() > 0) {
+                    _device->setGSplatState(gsplat->resource()->splatBuffer(), gsplat->orderBuffer(),
+                        &gsplat->gpuParams(), sizeof(GpuGSplatParams));
+                    _device->setTransformUniforms(viewProjection, modelMatrix);
+                    _device->draw(entry->primitive, entry->indexBuffer,
+                        static_cast<int>(gsplat->visibleCount()), -1, true, true);
+                }
             } else {
                 // Non-instanced draw.
                 Matrix4 modelMatrix;
