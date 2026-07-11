@@ -326,11 +326,20 @@ int main()
 
     spdlog::info("Controls: LMB/RMB orbit, Shift/MMB pan, Wheel zoom, F focus, R reset, Esc quit");
 
+    // GPU pass profiler: sample per-pass GPU timestamps, log a breakdown periodically.
+    if (const auto& profiler = graphicsDevice->gpuProfiler()) {
+        profiler->setEnabled(true);
+        spdlog::info("GPU profiler enabled");
+    } else {
+        spdlog::info("GPU profiler unavailable on this device");
+    }
+
     // -----------------------------------------------------------------------
     // Main loop — engine->update(dt) advances the animation, which drives the
     // joint entities; GPU skinning follows the bones each frame.
     // -----------------------------------------------------------------------
     bool running = true;
+    uint64_t frameCount = 0;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
     uint64_t prevCounter = SDL_GetPerformanceCounter();
 
@@ -360,6 +369,17 @@ int main()
 
         engine->update(dt);
         engine->render();
+
+        // Periodic GPU timing breakdown (values lag GPU execution by ~2 frames).
+        if (++frameCount % 300 == 0) {
+            if (const auto& profiler = graphicsDevice->gpuProfiler(); profiler && profiler->enabled()) {
+                spdlog::info("GPU frame: {:.3f} ms across {} passes",
+                    profiler->frameMilliseconds(), profiler->passTimings().size());
+                for (const auto& pass : profiler->passTimings()) {
+                    spdlog::info("  {:>7.3f} ms  {}", pass.milliseconds, pass.name);
+                }
+            }
+        }
     }
 
     shutdown();

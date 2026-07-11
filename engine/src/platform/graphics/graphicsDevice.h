@@ -415,6 +415,10 @@ namespace visutwin::canvas
             (void)paramsSize;
         }
 
+        /// GPU pass profiler (nullptr when the backend/device doesn't support one).
+        /// Disabled by default — call gpuProfiler()->setEnabled(true) to start sampling.
+        const std::shared_ptr<GpuProfiler>& gpuProfiler() const { return _gpuProfiler; }
+
         /// Bind Gaussian splat state for the next draw call (consumed by one draw).
         /// splats: GpuSplat storage (vertex slot 7); order: uint32 draw order, farthest
         /// first (vertex slot 8); params: GpuGSplatParams (vertex slot 11).
@@ -668,6 +672,9 @@ namespace visutwin::canvas
         std::shared_ptr<StencilParameters> _stencilBack;
         const Material* _material = nullptr;
 
+        // GPU pass profiler — assigned by backends that support one.
+        std::shared_ptr<GpuProfiler> _gpuProfiler;
+
     private:
         friend class Engine;
         friend class RenderPass;
@@ -698,8 +705,6 @@ namespace visutwin::canvas
         int _sh = 0;
 
         std::shared_ptr<DynamicBuffers> _dynamicBuffers;
-
-        std::shared_ptr<GpuProfiler> _gpuProfiler;
 
         int _samples = 0;
 

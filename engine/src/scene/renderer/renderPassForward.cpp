@@ -19,6 +19,7 @@ namespace visutwin::canvas
         LayerComposition* layerComposition, Scene* scene, Renderer* renderer)
         : RenderPass(device), _layerComposition(layerComposition), _scene(scene), _renderer(renderer)
     {
+        _name = "RenderPassForward";
     }
 
     void RenderPassForward::addRenderAction(RenderAction* renderAction)

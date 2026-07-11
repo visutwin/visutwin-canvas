@@ -14,6 +14,7 @@
 #include <SDL3/SDL.h>
 
 #include "metalBindGroupFormat.h"
+#include "metalGpuProfiler.h"
 #include "metalPaletteRingBuffer.h"
 #include "metalTextureBinder.h"
 #include "metalUniformBinder.h"
@@ -220,6 +221,10 @@ namespace visutwin::canvas
         MTL::Buffer* _pendingMorphDeltaBuffer = nullptr;
         std::array<uint8_t, 128> _pendingMorphParams{};
         size_t _pendingMorphParamsSize = 0;
+
+        // GPU pass profiler (nullptr when unsupported). Also stored in the base
+        // class _gpuProfiler for the public accessor.
+        std::shared_ptr<gpu::MetalGpuProfiler> _metalGpuProfiler;
 
         // Gaussian splat state: set by setGSplatState(), consumed by draw().
         // Splats bind at vertex slot 7, order at 8, params bytes at 11.

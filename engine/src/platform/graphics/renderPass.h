@@ -76,6 +76,9 @@ namespace visutwin::canvas
 
         void render();
 
+        /** Debug name (set by subclasses) — used by the GPU profiler. */
+        const std::string& name() const { return _name; }
+
         float scaleX() const { return _options ? _options->scaleX : 1.0f; }
 
         float scaleY() const { return _options ? _options->scaleY : 1.0f; }

@@ -151,6 +151,11 @@ namespace visutwin::canvas
         // 256KB per frame region supports up to 4096 total instances across all batches.
         _paletteRing = std::make_unique<MetalPaletteRingBuffer>(_device, "PaletteRing");
 
+        // GPU pass profiler (MTLCounterSampleBuffer timestamps). Created when the
+        // device supports stage-boundary sampling; disabled until setEnabled(true).
+        _metalGpuProfiler = gpu::MetalGpuProfiler::create(_device);
+        _gpuProfiler = _metalGpuProfiler;
+
         RenderTargetOptions backBufferOptions;
         backBufferOptions.graphicsDevice = this;
         backBufferOptions.name = "MetalBackBuffer";
@@ -262,6 +267,11 @@ namespace visutwin::canvas
         _uniformRing->beginFrame();
         _paletteRing->beginFrame();
         _pendingPaletteOffset = SIZE_MAX;
+
+        // GPU profiler: rotate frame slot + resolve the slot from 2 frames ago.
+        if (_metalGpuProfiler) {
+            _metalGpuProfiler->beginFrame();
+        }
 
         // Release the previous frame's cached drawable so the first back-buffer
         // render pass of this frame acquires a fresh one.
@@ -1365,6 +1375,12 @@ namespace visutwin::canvas
         }
 
         auto* passDesc = MTL::RenderPassDescriptor::alloc()->init();
+
+        // GPU profiler: sample timestamps at this pass's stage boundaries.
+        if (_metalGpuProfiler) {
+            _metalGpuProfiler->attachToRenderPass(passDesc,
+                renderPass ? renderPass->name() : std::string("backbuffer"));
+        }
 
         const auto& colorOpsArray = renderPass ? renderPass->colorArrayOps() : std::vector<std::shared_ptr<ColorAttachmentOps>>{};
         const auto depthOps = renderPass ? renderPass->depthStencilOps() : nullptr;
