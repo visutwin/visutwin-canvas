@@ -85,6 +85,10 @@ namespace visutwin::canvas
         // --- Height / Parallax ---
         Texture* heightMap() const { return _heightMap; }
         void setHeightMap(Texture* texture) { _heightMap = texture; _dirtyShader = true; }
+
+        /** Baked lightmap sampled at UV1 and added to indirect diffuse. */
+        Texture* lightMap() const { return _lightMap; }
+        void setLightMap(Texture* texture) { _lightMap = texture; _dirtyShader = true; }
         float heightMapFactor() const { return _heightMapFactor; }
         void setHeightMapFactor(const float value) { _heightMapFactor = value; }
 
@@ -263,6 +267,7 @@ namespace visutwin::canvas
         Texture* _opacityMap = nullptr;
 
         Texture* _heightMap = nullptr;
+        Texture* _lightMap = nullptr;
         float _heightMapFactor = 0.05f;
 
         float _anisotropy = 0.0f;

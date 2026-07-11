@@ -47,6 +47,9 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #if VT_FEATURE_SSAO
                                   texture2d<float> ssaoTexture [[texture(18)]],
 #endif
+#if VT_FEATURE_LIGHTMAP
+                                  texture2d<float> lightMapTexture [[texture(19)]],
+#endif
 #if VT_FEATURE_ATMOSPHERE
                                   constant AtmosphereData &atmosphere [[buffer(9)]],
 #endif

@@ -110,6 +110,7 @@ namespace visutwin::canvas
             bool lightClustering = false;
             bool ssao = false;
             bool lightProbes = false;
+            bool lightmap = false;      // Baked lightmap sampled at UV1, added to indirect diffuse
             bool vertexColors = false;
             bool skinning = false;
             bool morphing = false;

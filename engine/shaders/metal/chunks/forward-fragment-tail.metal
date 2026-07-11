@@ -28,6 +28,14 @@
     // dark values darken the framebuffer where shadows fall.
     return float4(float3(dShadowCatcher), 1.0);
 #else
+#if VT_FEATURE_LIGHTMAP
+    // Baked lightmap adds to indirect diffuse (upstream lightmapAdd.js). Sampled at
+    // UV1 (the GLB parser falls back to UV0 when the mesh has no second UV set);
+    // stored sRGB → decoded to linear like the other LDR material textures.
+    const float3 lightmapSample = lightMapTexture.sample(defaultSampler, rd.uv1).rgb;
+    indirectDiffuse += pow(max(lightmapSample, float3(0.0)) + 0.0000001, float3(2.2));
+#endif
+
     float3 litLinear = diffuseColor * (directDiffuse + indirectDiffuse) + directSpecular + indirectSpecular + emissiveLinear;
 
 #if VT_FEATURE_TRANSMISSION

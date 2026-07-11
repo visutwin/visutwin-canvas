@@ -63,6 +63,14 @@ const auto checkerboard = std::make_unique<Asset>(
     rootPath + "/textures/checkboard.ktx2"
 );
 
+// Baked lightmap (warm/cool light pools) sampled at UV1 on the ground plane.
+const auto lightmapAsset = std::make_unique<Asset>(
+    "lightmap-pools",
+    AssetType::TEXTURE,
+    rootPath + "/textures/lightmap-pools.tga",
+    AssetData{ .mipmaps = false }
+);
+
 void setLookAt(Entity* camera, const Vector3& target)
 {
     if (!camera) {
@@ -164,6 +172,8 @@ int main()
 
     auto scene = engine->scene();
     scene->setSkyboxMip(0);
+    // Lower exposure so the baked lightmap pools stay below clipping and read clearly.
+    scene->setExposure(0.4f);
 
     const auto helipadResource = helipad->resource();
     const auto checkerResource = checkerboard->resource();
@@ -177,6 +187,12 @@ int main()
     auto checkerMaterial = std::make_shared<StandardMaterial>();
     checkerMaterial->setDiffuse(Color(0.8f, 0.8f, 0.8f, 1.0f));
     checkerMaterial->setDiffuseMap(std::get<Texture*>(*checkerResource));
+
+    // Baked lightmap: adds warm/cool light pools to the ground's indirect diffuse.
+    if (const auto lightmapResource = lightmapAsset->resource();
+        lightmapResource && std::holds_alternative<Texture*>(*lightmapResource)) {
+        checkerMaterial->setLightMap(std::get<Texture*>(*lightmapResource));
+    }
 
     auto redMaterial = std::make_shared<StandardMaterial>();
     redMaterial->setDiffuse(Color(1.0f, 0.1f, 0.1f, 1.0f));

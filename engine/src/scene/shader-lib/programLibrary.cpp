@@ -341,6 +341,12 @@ namespace visutwin::canvas
         options.lightClustering = _clusteredLightingEnabled || (variantBits & (1ull << 18)) != 0ull;
         options.ssao = _ssaoEnabled || (variantBits & (1ull << 19)) != 0ull;
         options.lightProbes = (variantBits & (1ull << 20)) != 0ull;
+        // lightmap from StandardMaterial or shaderVariantKey bit 34.
+        if (stdMat) {
+            options.lightmap = (stdMat->lightMap() != nullptr);
+        } else {
+            options.lightmap = (variantBits & (1ull << 34)) != 0ull;
+        }
         options.vertexColors = (variantBits & (1ull << 21)) != 0ull;
         // Skinning/morphing are per-draw flags set by the renderer from
         // MeshInstance::skinInstance()/morphInstance(); the variant-key bits
@@ -484,6 +490,7 @@ namespace visutwin::canvas
         key ^= options.areaLights ? (1ull << 40) : 0ull;
         key ^= options.unlit ? (1ull << 39) : 0ull;
         key ^= options.vsmShadows ? (1ull << 41) : 0ull;
+        key ^= options.lightmap ? (1ull << 42) : 0ull;
         return key;
     }
 
@@ -526,6 +533,7 @@ namespace visutwin::canvas
         appendFeatureDefine(source, "VT_FEATURE_LIGHT_CLUSTERING", options.lightClustering);
         appendFeatureDefine(source, "VT_FEATURE_SSAO", options.ssao);
         appendFeatureDefine(source, "VT_FEATURE_LIGHT_PROBES", options.lightProbes);
+        appendFeatureDefine(source, "VT_FEATURE_LIGHTMAP", options.lightmap);
         appendFeatureDefine(source, "VT_FEATURE_VERTEX_COLORS", options.vertexColors);
         appendFeatureDefine(source, "VT_FEATURE_SKINNING", options.skinning);
         appendFeatureDefine(source, "VT_FEATURE_MORPHS", options.morphing);

@@ -275,10 +275,11 @@ namespace visutwin::canvas
         overrideSlot(13, _clearCoatGlossMap);
         overrideSlot(14, _clearCoatNormalMap);
         overrideSlot(17, _heightMap);
+        overrideSlot(19, _lightMap);
         // Sheen/iridescence/spec-gloss/detail-normal/displacement maps are NOT
-        // bound: no shader chunk declares a material texture above slot 17, and
-        // slot 18 is the scene SSAO texture — binding the sheen map there
-        // clobbered SSAO every draw. Re-add slots (>= 19) when the sampling
-        // paths for these stubbed features are ported.
+        // bound: slot 18 is the scene SSAO texture and 19 is the lightmap —
+        // binding unported maps there clobbered scene textures every draw.
+        // Re-add slots (>= 20) when the sampling paths for these stubbed
+        // features are ported.
     }
 }
