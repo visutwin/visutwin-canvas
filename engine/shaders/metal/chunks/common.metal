@@ -232,6 +232,9 @@ struct LightingData {
     float4 clusterCellsCountByBoundsSize;   // xyz=cells/range (for world→cell conversion), w=unused
     uint4 clusterParams;                    // x=cellsX, y=cellsY, z=cellsZ, w=maxLightsPerCell
     uint4 clusterParams2;                   // x=numClusteredLights, y-w=unused
+
+    // Ambient SH light probes: premultiplied irradiance coefficients (upstream AMBIENTSH).
+    float4 ambientSH[9];
 };
 
 constant float PI = 3.14159265358979323846;

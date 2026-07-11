@@ -83,6 +83,17 @@ namespace visutwin::canvas
         // When true, skybox shaders compile with VT_FEATURE_ATMOSPHERE.
         void setAtmosphereEnabled(bool value) { _atmosphereEnabled = value; }
 
+        // Set when the scene has ambient SH light probe coefficients.
+        // When true, forward shaders compile with VT_FEATURE_LIGHT_PROBES and
+        // evaluate 9-coefficient SH irradiance instead of the flat ambient.
+        void setLightProbesEnabled(bool value) { _lightProbesEnabled = value; }
+
+        // Set per frame from the scene's env atlas. When false, forward shaders
+        // compile without VT_FEATURE_ENV_ATLAS so the flat ambient / SH probes
+        // are not overwritten by a sample of the unbound atlas texture (reading
+        // a null texture binding returns nonzero dimensions on Apple GPUs).
+        void setEnvAtlasEnabled(bool value) { _envAtlasEnabled = value; }
+
     private:
         struct ShaderVariantOptions
         {
@@ -160,6 +171,8 @@ namespace visutwin::canvas
         bool _areaLightsEnabled = false;
         bool _ssaoEnabled = false;
         bool _atmosphereEnabled = false;
+        bool _lightProbesEnabled = false;
+        bool _envAtlasEnabled = true;
     };
 
     // Assigns the program library to the device cache.

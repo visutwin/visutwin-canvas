@@ -1038,10 +1038,11 @@ namespace visutwin::canvas
 
     void MetalGraphicsDevice::setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,
         const Vector3& cameraPosition, const bool enableNormalMaps, const float exposure,
-        const FogParams& fogParams, const ShadowParams& shadowParams, const int toneMapping)
+        const FogParams& fogParams, const ShadowParams& shadowParams, const int toneMapping,
+        const Vector3* ambientSH)
     {
         _uniformBinder.setLightingUniforms(ambientColor, lights, cameraPosition,
-            enableNormalMaps, exposure, fogParams, shadowParams, toneMapping);
+            enableNormalMaps, exposure, fogParams, shadowParams, toneMapping, ambientSH);
     }
 
     void MetalGraphicsDevice::setEnvironmentUniforms(Texture* envAtlas, const float skyboxIntensity,

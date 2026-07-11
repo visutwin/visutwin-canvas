@@ -491,18 +491,38 @@
 #endif
 
     // ambient diffuse (no energy conservation).
+#if VT_FEATURE_LIGHT_PROBES
+    // Ambient SH light probes: 9-coefficient irradiance evaluated in the world
+    // normal direction (upstream AMBIENTSH basis, coefficients premultiplied).
+    const float3 shN = N;
+    float3 indirectDiffuse = max(
+        lighting.ambientSH[0].xyz +
+        lighting.ambientSH[1].xyz * shN.x +
+        lighting.ambientSH[2].xyz * shN.y +
+        lighting.ambientSH[3].xyz * shN.z +
+        lighting.ambientSH[4].xyz * (shN.x * shN.z) +
+        lighting.ambientSH[5].xyz * (shN.z * shN.y) +
+        lighting.ambientSH[6].xyz * (shN.y * shN.x) +
+        lighting.ambientSH[7].xyz * (3.0 * shN.z * shN.z - 1.0) +
+        lighting.ambientSH[8].xyz * (shN.x * shN.x - shN.y * shN.y),
+        float3(0.0));
+#else
     float3 indirectDiffuse = max(lighting.ambientColor.xyz, float3(0.0));
+#endif
     float3 indirectSpecular = float3(0.0);
 #if VT_FEATURE_ENV_ATLAS
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
+#if !VT_FEATURE_LIGHT_PROBES
         // Diffuse IBL: sample from dedicated Lambert irradiance sub-region
         // through `envAtlasSampler` (non-anisotropic, see common.metal).
+        // Skipped when SH probes drive the ambient (probes take priority).
         const float3 diffDir = float3(-N.x, N.y, N.z);
         const float2 envUvN = toSphericalUv(normalize(diffDir));
         const float3 envAmbient = processEnvironment(
             decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapAmbientUv(envUvN)), lighting),
             max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
         indirectDiffuse = envAmbient;
+#endif
 
         // Specular IBL: dual-path sampling.
         // Glossy (level==0): sample from shiny atlas sub-region with screen-space MIP.

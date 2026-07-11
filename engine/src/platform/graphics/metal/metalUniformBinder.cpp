@@ -121,8 +121,21 @@ namespace visutwin::canvas
         const std::vector<GpuLightData>& lights, const Vector3& cameraPosition,
         const bool enableNormalMaps, const float exposure,
         const FogParams& fogParams, const ShadowParams& shadowParams,
-        const int toneMapping)
+        const int toneMapping, const Vector3* ambientSH)
     {
+        // Ambient SH light probes (VT_FEATURE_LIGHT_PROBES): 9 premultiplied
+        // irradiance coefficients, or zeros when disabled.
+        if (ambientSH) {
+            for (int i = 0; i < 9; ++i) {
+                _lightingUniforms.ambientSH[i][0] = ambientSH[i].getX();
+                _lightingUniforms.ambientSH[i][1] = ambientSH[i].getY();
+                _lightingUniforms.ambientSH[i][2] = ambientSH[i].getZ();
+                _lightingUniforms.ambientSH[i][3] = 0.0f;
+            }
+        } else {
+            std::memset(_lightingUniforms.ambientSH, 0, sizeof(_lightingUniforms.ambientSH));
+        }
+
         // scene ambient color is authored in sRGB and converted to linear.
         Color ambientLinear;
         ambientLinear.linear(&ambientColor);

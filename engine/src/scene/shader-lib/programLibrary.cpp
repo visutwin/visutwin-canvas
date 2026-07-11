@@ -338,9 +338,10 @@ namespace visutwin::canvas
         } else {
             options.transmission = (variantBits & (1ull << 17)) != 0ull;
         }
+        options.envAtlas = _envAtlasEnabled;
         options.lightClustering = _clusteredLightingEnabled || (variantBits & (1ull << 18)) != 0ull;
         options.ssao = _ssaoEnabled || (variantBits & (1ull << 19)) != 0ull;
-        options.lightProbes = (variantBits & (1ull << 20)) != 0ull;
+        options.lightProbes = _lightProbesEnabled || (variantBits & (1ull << 20)) != 0ull;
         // lightmap from StandardMaterial or shaderVariantKey bit 34.
         if (stdMat) {
             options.lightmap = (stdMat->lightMap() != nullptr);
@@ -637,7 +638,7 @@ namespace visutwin::canvas
         // transmission: fully implemented — no warning needed.
         // lightClustering: fully implemented — no warning needed.
         // ssao: fully implemented — no warning needed.
-        warnFeature("lightProbes", options.lightProbes);
+        // lightProbes: fully implemented — no warning needed.
         // vertexColors: fully implemented — no warning needed.
         // skinning: fully implemented — no warning needed.
         // morphing: fully implemented — no warning needed.

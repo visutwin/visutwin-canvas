@@ -79,6 +79,10 @@ namespace visutwin::canvas
             float clusterCellsCountByBoundsSize[4] = {};
             uint32_t clusterParams[4] = {};
             uint32_t clusterParams2[4] = {};
+
+            // Ambient SH light probes: 9 premultiplied irradiance coefficients
+            // (VT_FEATURE_LIGHT_PROBES; upstream AMBIENTSH basis).
+            float ambientSH[9][4] = {};
         };
 
         // ---------------------------------------------------------------

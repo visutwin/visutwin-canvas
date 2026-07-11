@@ -155,3 +155,9 @@ add_executable(visutwin-gsplat MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-gsplat PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-gsplat com.visutwin.gsplat)
+
+add_executable(visutwin-light-probes MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/light-probes-example.cpp
+)
+target_link_libraries(visutwin-light-probes PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-light-probes com.visutwin.light-probes)

@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -42,6 +43,18 @@ namespace visutwin::canvas
         const FogParams& fog() const { return _fog; }
 
         void setAmbientLight(float r, float g, float b) { _ambientLight = Color(r, g, b); }
+
+        /** Ambient SH light probes: 9 premultiplied irradiance coefficients
+         *  (upstream AMBIENTSH basis). When set, they replace the flat ambient
+         *  and the env-atlas irradiance in the lit shader. */
+        void setAmbientSH(const std::array<Vector3, 9>& coefficients)
+        {
+            _ambientSH = coefficients;
+            _hasAmbientSH = true;
+        }
+        void clearAmbientSH() { _hasAmbientSH = false; }
+        bool hasAmbientSH() const { return _hasAmbientSH; }
+        const std::array<Vector3, 9>& ambientSH() const { return _ambientSH; }
 
         // Sets the mip level of the skybox to be displayed
         void setSkyboxMip(int value);
@@ -115,6 +128,11 @@ namespace visutwin::canvas
 
         // The color of the scene's ambient light, specified in sRGB color space
         Color _ambientLight = Color(0, 0, 0);
+
+        // Premultiplied SH9 irradiance coefficients replacing flat ambient when set
+        std::array<Vector3, 9> _ambientSH{};
+        bool _hasAmbientSH = false;
+
         FogParams _fog;
 
         int _skyboxMip = 0;

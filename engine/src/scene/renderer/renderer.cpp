@@ -370,6 +370,8 @@ namespace visutwin::canvas
         // forward shaders with VT_FEATURE_SSAO so the fragment shader modulates
         // ambient occlusion by sampling the SSAO texture at screen-space UV.
         programLibrary->setSsaoEnabled(_device->ssaoForwardTexture() != nullptr);
+        programLibrary->setLightProbesEnabled(_scene && _scene->hasAmbientSH());
+        programLibrary->setEnvAtlasEnabled(_scene && _scene->envAtlas() != nullptr);
 
         // Atmosphere scattering: when enabled on the scene, compile skybox shaders
         // with VT_FEATURE_ATMOSPHERE and push atmosphere uniforms to the device.
@@ -939,16 +941,18 @@ namespace visutwin::canvas
             //controls SHADERDEF_NOSHADOW.
             // When a mesh instance has receiveShadow=false, suppress shadow params for this draw.
             const bool drawReceivesShadow = (!entry->meshInstance || entry->meshInstance->receiveShadow());
+            const Vector3* ambientSH = (_scene && _scene->hasAmbientSH())
+                ? _scene->ambientSH().data() : nullptr;
             if (drawReceivesShadow) {
                 _device->setLightingUniforms(ambientColor, cachedGpuLights, cameraPosition, true,
                     (_scene ? _scene->exposure() : 1.0f), fogParams, shadowParams,
-                    (_scene ? _scene->toneMapping() : 0));
+                    (_scene ? _scene->toneMapping() : 0), ambientSH);
             } else {
                 ShadowParams noShadow;
                 noShadow.enabled = false;
                 _device->setLightingUniforms(ambientColor, cachedGpuLights, cameraPosition, true,
                     (_scene ? _scene->exposure() : 1.0f), fogParams, noShadow,
-                    (_scene ? _scene->toneMapping() : 0));
+                    (_scene ? _scene->toneMapping() : 0), ambientSH);
             }
 
             // Phase 4: cache material's base cull mode (skip parameter map lookups),
