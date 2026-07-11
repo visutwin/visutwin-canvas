@@ -239,11 +239,19 @@ int main()
                 spdlog::info("  Animation: '{}'", name);
             }
 
-            // "A Windy Day" uses staggered scale spawning — groups appear/disappear
-            // in sequence along wind trajectories to simulate particle flow.
-            // The animation is designed as a seamless loop.
-            // Note: full visual fidelity requires additive blending + color fading
-            // (not yet supported); the raw scale animation will show pop-in/out.
+            // Play the first animation (fox.glb: Survey / Walk / Run drive the
+            // skeleton; GPU skinning deforms the mesh from the bone palette).
+            if (!animComp->animations().empty()) {
+                std::string playName = animComp->animations().begin()->first;
+                // Prefer "Run" when present — the most visually obvious clip.
+                for (const auto& [name, _] : animComp->animations()) {
+                    (void)_;
+                    if (name == "Run") { playName = name; break; }
+                }
+                animComp->setLoop(true);
+                animComp->play(playName);
+                spdlog::info("Playing animation '{}'", playName);
+            }
         } else {
             spdlog::info("Model has no animations");
         }
@@ -319,7 +327,8 @@ int main()
     spdlog::info("Controls: LMB/RMB orbit, Shift/MMB pan, Wheel zoom, F focus, R reset, Esc quit");
 
     // -----------------------------------------------------------------------
-    // Main loop — static model, no per-frame animation
+    // Main loop — engine->update(dt) advances the animation, which drives the
+    // joint entities; GPU skinning follows the bones each frame.
     // -----------------------------------------------------------------------
     bool running = true;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();

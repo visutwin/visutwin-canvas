@@ -31,11 +31,13 @@ namespace visutwin::canvas
         bool hasProgram(const std::string& name) const;
 
         std::shared_ptr<Shader> getForwardShader(const Material* material, bool transparentPass,
-                                                    bool dynamicBatch = false);
-        std::shared_ptr<Shader> getShadowShader(bool dynamicBatch = false);
+                                                    bool dynamicBatch = false, bool skinning = false,
+                                                    bool morphing = false);
+        std::shared_ptr<Shader> getShadowShader(bool dynamicBatch = false, bool skinning = false,
+                                                bool morphing = false);
 
         void bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material, bool transparentPass,
-                          bool dynamicBatch = false);
+                          bool dynamicBatch = false, bool skinning = false, bool morphing = false);
 
         // set whether a skybox cubemap is available.
         // When true, skybox materials compile with VT_FEATURE_SKY_CUBEMAP.
@@ -135,7 +137,8 @@ namespace visutwin::canvas
         };
 
         ShaderVariantOptions buildForwardVariantOptions(const Material* material, bool transparentPass,
-                                                         bool dynamicBatch = false) const;
+                                                         bool dynamicBatch = false, bool skinning = false,
+                                                         bool morphing = false) const;
         static std::string resolveProgramName(const ShaderVariantOptions& options);
         uint64_t makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;
         std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantKey);

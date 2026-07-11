@@ -86,15 +86,85 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     return rd;
 }
 
+#elif VT_FEATURE_SKINNING
+// GPU skinning path.
+// 4-bone weighted blend against the matrix palette at buffer slot 6. The palette
+// is relative to the mesh instance's node (see SkinInstance), so the model matrix
+// is applied on top — the two cancel and vertices land in world space.
+vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
+                                      constant SceneData &scene [[buffer(1)]],
+                                      constant ModelData &model [[buffer(2)]],
+                                      constant MaterialData &material [[buffer(3)]],
+                                      constant float4x4 *palette [[buffer(6)]]
+#if VT_FEATURE_MORPHS
+                                    , constant float4 *morphDeltas [[buffer(9)]],
+                                      constant MorphParams &morphParams [[buffer(10)]],
+                                      uint vid [[vertex_id]]
+#endif
+                                      )
+{
+    RasterizerData rd;
+
+    float3 localPos = v.position;
+    float3 localNormal = v.normal;
+#if VT_FEATURE_MORPHS
+    // Morph deltas apply in bind space, before skinning (glTF semantics).
+    applyMorph(localPos, localNormal, vid, morphDeltas, morphParams);
+#endif
+
+    // Matches upstream getSkinMatrix(): weighted sum of 4 bone matrices.
+    const float4 w = v.blendWeights;
+    const int4 j = int4(v.blendIndices);
+    const float4x4 skinMatrix = w.x * palette[j.x] + w.y * palette[j.y] +
+                                w.z * palette[j.z] + w.w * palette[j.w];
+
+    float4 world = model.modelMatrix * (skinMatrix * float4(localPos, 1.0));
+    float4 clip = scene.projViewMatrix * world;
+    clip.z = 0.5 * (clip.z + clip.w);
+
+    rd.position = clip;
+    rd.worldPos = world.xyz;
+
+    // Skin the normal/tangent by the palette 3x3 (valid for uniform bone scale,
+    // matching upstream), then apply the node's normal matrix.
+    const float3x3 skinNormalMat = float3x3(skinMatrix[0].xyz,
+                                             skinMatrix[1].xyz,
+                                             skinMatrix[2].xyz);
+    const float3 skinnedNormal = skinNormalMat * localNormal;
+    rd.worldNormal = normalize((model.normalMatrix * float4(skinnedNormal, 0.0)).xyz) * model.normalSign;
+    const float3 skinnedTangent = skinNormalMat * v.tangent.xyz;
+    const float3 tangentWorld = normalize((model.normalMatrix * float4(skinnedTangent, 0.0)).xyz) * model.normalSign;
+    rd.worldTangent = float4(tangentWorld, v.tangent.w);
+    rd.uv0 = v.uv0;
+    rd.uv1 = v.uv1;
+
+#if VT_FEATURE_POINT_SIZE
+    rd.pointSize = 3.0;
+#endif
+
+    return rd;
+}
+
 #else
 
 vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
                                       constant SceneData &scene [[buffer(1)]],
                                       constant ModelData &model [[buffer(2)]],
-                                      constant MaterialData &material [[buffer(3)]])
+                                      constant MaterialData &material [[buffer(3)]]
+#if VT_FEATURE_MORPHS
+                                    , constant float4 *morphDeltas [[buffer(9)]],
+                                      constant MorphParams &morphParams [[buffer(10)]],
+                                      uint vid [[vertex_id]]
+#endif
+                                      )
 {
     RasterizerData rd;
-    float4 world = model.modelMatrix * float4(v.position, 1.0);
+    float3 localPos = v.position;
+    float3 localNormal = v.normal;
+#if VT_FEATURE_MORPHS
+    applyMorph(localPos, localNormal, vid, morphDeltas, morphParams);
+#endif
+    float4 world = model.modelMatrix * float4(localPos, 1.0);
     float4 clip = scene.projViewMatrix * world;
     clip.z = 0.5 * (clip.z + clip.w);
 
@@ -115,7 +185,7 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     // float32 cancellation. Using the raw vertex position avoids this.
     rd.worldNormal = v.position;
 #else
-    rd.worldNormal = normalize((model.normalMatrix * float4(v.normal, 0.0)).xyz) * model.normalSign;
+    rd.worldNormal = normalize((model.normalMatrix * float4(localNormal, 0.0)).xyz) * model.normalSign;
 #endif
     const float3 tangentWorld = normalize((model.normalMatrix * float4(v.tangent.xyz, 0.0)).xyz) * model.normalSign;
     rd.worldTangent = float4(tangentWorld, v.tangent.w);

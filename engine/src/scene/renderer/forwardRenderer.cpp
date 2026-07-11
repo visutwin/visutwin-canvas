@@ -13,12 +13,17 @@
 #include "renderPassForward.h"
 #include "renderPassPostprocessing.h"
 #include "scene/constants.h"
+#include "scene/skinInstance.h"
 
 namespace visutwin::canvas
 {
     void ForwardRenderer::buildFrameGraph(FrameGraph* frameGraph, LayerComposition* layerComposition)
     {
         frameGraph->reset();
+
+        // New frame for GPU skinning: bone palettes recompute lazily at first use
+        // (shadow or forward pass) and are shared for the rest of the frame.
+        SkinInstance::beginFrame();
 
         if (_scene->clusteredLightingEnabled())
         {

@@ -364,6 +364,7 @@ namespace visutwin::canvas
         constexpr int STRIDE_POINT_VERTEX = 7 * static_cast<int>(sizeof(float));   // 28
         constexpr int STRIDE_DYNAMIC_BATCH = 15 * static_cast<int>(sizeof(float)); // 60
         constexpr int STRIDE_WITH_COLOR = 18 * static_cast<int>(sizeof(float));    // 72
+        constexpr int STRIDE_SKINNED = 22 * static_cast<int>(sizeof(float));       // 88
 
         if (vertexStride <= STRIDE_POINT_VERTEX) {
             // Point cloud vertex: position(float3)@0 + color(float4)@12.
@@ -414,10 +415,20 @@ namespace visutwin::canvas
             attributes->object(4)->setOffset(12 * static_cast<NS::UInteger>(sizeof(float)));
             attributes->object(4)->setBufferIndex(0);
 
+            // GPU skinning: attribute(11)=blendWeights(float4)@56 + attribute(12)=blendIndices(float4)@72
+            // when stride is 88 bytes.
             // Dynamic batching: attribute(5) as Float1 (bone index) at offset 56 when stride is 60 bytes.
             // Vertex colors: attribute(5) as Float4 at offset 56 when stride is 72 bytes.
-            // These are mutually exclusive (both use attribute 5).
-            if (vertexStride >= STRIDE_WITH_COLOR) {
+            // These are mutually exclusive (dynamic batch / colors both use attribute 5).
+            if (vertexStride >= STRIDE_SKINNED) {
+                attributes->object(11)->setFormat(MTL::VertexFormatFloat4);
+                attributes->object(11)->setOffset(14 * static_cast<NS::UInteger>(sizeof(float)));
+                attributes->object(11)->setBufferIndex(0);
+
+                attributes->object(12)->setFormat(MTL::VertexFormatFloat4);
+                attributes->object(12)->setOffset(18 * static_cast<NS::UInteger>(sizeof(float)));
+                attributes->object(12)->setBufferIndex(0);
+            } else if (vertexStride >= STRIDE_WITH_COLOR) {
                 attributes->object(5)->setFormat(MTL::VertexFormatFloat4);
                 attributes->object(5)->setOffset(14 * static_cast<NS::UInteger>(sizeof(float)));
                 attributes->object(5)->setBufferIndex(0);

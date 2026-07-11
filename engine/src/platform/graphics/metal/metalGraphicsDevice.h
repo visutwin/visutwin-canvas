@@ -151,6 +151,11 @@ namespace visutwin::canvas
         /// Uses Metal buffer for bone data.
         void setDynamicBatchPalette(const void* data, size_t size) override;
 
+        /// Bind morph target delta buffer (vertex slot 9) + params (vertex slot 10)
+        /// for the next draw call.
+        void setMorphState(const std::shared_ptr<VertexBuffer>& deltaBuffer,
+            const void* params, size_t paramsSize) override;
+
         /// Bind clustered lighting data for the current frame.
         /// Allocates/grows internal MTL::Buffers and copies data.
         void setClusterBuffers(const void* lightData, size_t lightSize,
@@ -204,6 +209,12 @@ namespace visutwin::canvas
         // Set by setDynamicBatchPalette() → allocate from _paletteRing,
         // consumed (reset to SIZE_MAX) after draw() → setVertexBufferOffset().
         size_t _pendingPaletteOffset = SIZE_MAX;
+
+        // Morph state: set by setMorphState(), consumed (buffer reset) by draw().
+        // Delta buffer binds at vertex slot 9, params via setVertexBytes at slot 10.
+        MTL::Buffer* _pendingMorphDeltaBuffer = nullptr;
+        std::array<uint8_t, 128> _pendingMorphParams{};
+        size_t _pendingMorphParamsSize = 0;
         MTL::SamplerState* _defaultSampler = nullptr;
         // Clamp-to-edge sampler for screen-space post passes (no mips/aniso) —
         // the repeat-mode default sampler wraps kernel taps at frame borders.

@@ -948,6 +948,19 @@ namespace visutwin::canvas
         _pendingPaletteOffset = _paletteRing->allocate(data, size);
     }
 
+    void MetalGraphicsDevice::setMorphState(const std::shared_ptr<VertexBuffer>& deltaBuffer,
+        const void* params, const size_t paramsSize)
+    {
+        if (!deltaBuffer || !params || paramsSize == 0 || paramsSize > _pendingMorphParams.size()) {
+            _pendingMorphDeltaBuffer = nullptr;
+            _pendingMorphParamsSize = 0;
+            return;
+        }
+        _pendingMorphDeltaBuffer = static_cast<MTL::Buffer*>(deltaBuffer->nativeBuffer());
+        std::memcpy(_pendingMorphParams.data(), params, paramsSize);
+        _pendingMorphParamsSize = paramsSize;
+    }
+
     void MetalGraphicsDevice::setClusterBuffers(const void* lightData, const size_t lightSize,
         const void* cellData, const size_t cellSize)
     {
@@ -1212,6 +1225,15 @@ namespace visutwin::canvas
         if (_pendingPaletteOffset != SIZE_MAX) {
             passEncoder->setVertexBufferOffset(_pendingPaletteOffset, 6);
             _pendingPaletteOffset = SIZE_MAX;
+        }
+
+        // ── Morph target binding (slots 9/10) ──────────────────────────
+        // Delta buffer is static per Morph; params are small per-draw bytes.
+        if (_pendingMorphDeltaBuffer) {
+            passEncoder->setVertexBuffer(_pendingMorphDeltaBuffer, 0, 9);
+            passEncoder->setVertexBytes(_pendingMorphParams.data(), _pendingMorphParamsSize, 10);
+            _pendingMorphDeltaBuffer = nullptr;
+            _pendingMorphParamsSize = 0;
         }
 
         // ── Draw dispatch (branch: indirect vs direct) ────────────────

@@ -241,7 +241,7 @@ namespace visutwin::canvas
     }
 
     ProgramLibrary::ShaderVariantOptions ProgramLibrary::buildForwardVariantOptions(const Material* material,
-        const bool transparentPass, const bool dynamicBatch) const
+        const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing) const
     {
         ShaderVariantOptions options{};
         options.transparentPass = transparentPass;
@@ -342,8 +342,11 @@ namespace visutwin::canvas
         options.ssao = _ssaoEnabled || (variantBits & (1ull << 19)) != 0ull;
         options.lightProbes = (variantBits & (1ull << 20)) != 0ull;
         options.vertexColors = (variantBits & (1ull << 21)) != 0ull;
-        options.skinning = (variantBits & (1ull << 22)) != 0ull;
-        options.morphing = (variantBits & (1ull << 23)) != 0ull;
+        // Skinning/morphing are per-draw flags set by the renderer from
+        // MeshInstance::skinInstance()/morphInstance(); the variant-key bits
+        // remain as a material-level override.
+        options.skinning = skinning || (variantBits & (1ull << 22)) != 0ull;
+        options.morphing = morphing || (variantBits & (1ull << 23)) != 0ull;
         // spec-gloss from StandardMaterial or shaderVariantKey.
         if (stdMat) {
             options.specGloss = (stdMat->specGlossMap() != nullptr);
@@ -588,13 +591,14 @@ namespace visutwin::canvas
     }
 
     std::shared_ptr<Shader> ProgramLibrary::getForwardShader(const Material* material, const bool transparentPass,
-        const bool dynamicBatch)
+        const bool dynamicBatch, const bool skinning, const bool morphing)
     {
         if (!_device) {
             return nullptr;
         }
 
-        const ShaderVariantOptions options = buildForwardVariantOptions(material, transparentPass, dynamicBatch);
+        const ShaderVariantOptions options = buildForwardVariantOptions(material, transparentPass, dynamicBatch,
+            skinning, morphing);
         const std::string programName = resolveProgramName(options);
         if (!hasProgram(programName)) {
             spdlog::error("ProgramLibrary has no registered program '{}'.", programName);
@@ -627,8 +631,8 @@ namespace visutwin::canvas
         // ssao: fully implemented — no warning needed.
         warnFeature("lightProbes", options.lightProbes);
         // vertexColors: fully implemented — no warning needed.
-        warnFeature("skinning", options.skinning);
-        warnFeature("morphing", options.morphing);
+        // skinning: fully implemented — no warning needed.
+        // morphing: fully implemented — no warning needed.
         warnFeature("specGloss", options.specGloss);
         warnFeature("orenNayar", options.orenNayar);
         warnFeature("detailNormals", options.detailNormals);
@@ -644,7 +648,8 @@ namespace visutwin::canvas
         return shader;
     }
 
-    std::shared_ptr<Shader> ProgramLibrary::getShadowShader(const bool dynamicBatch)
+    std::shared_ptr<Shader> ProgramLibrary::getShadowShader(const bool dynamicBatch, const bool skinning,
+        const bool morphing)
     {
         if (!_device || !hasProgram("shadow")) {
             return nullptr;
@@ -659,6 +664,8 @@ namespace visutwin::canvas
         options.fog = false;
         options.multiLight = false;
         options.dynamicBatch = dynamicBatch;
+        options.skinning = skinning;
+        options.morphing = morphing;
         // The shadow fragment shader needs to know whether to write moments
         // (RGBA16F EVSM) or just rely on hardware depth (PCF). Both shadow
         // shader variants are cached separately by the variant key.
@@ -676,7 +683,7 @@ namespace visutwin::canvas
     }
 
     void ProgramLibrary::bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material,
-        const bool transparentPass, const bool dynamicBatch)
+        const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing)
     {
         if (!device) {
             return;
@@ -684,7 +691,7 @@ namespace visutwin::canvas
 
         auto shader = material ? material->shaderOverride() : nullptr;
         if (!shader) {
-            shader = getForwardShader(material, transparentPass, dynamicBatch);
+            shader = getForwardShader(material, transparentPass, dynamicBatch, skinning, morphing);
         }
 
         auto blendState = material ? material->blendState() : nullptr;

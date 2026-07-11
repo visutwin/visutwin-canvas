@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "framework/parsers/glbContainerResource.h"
+#include "scene/morph.h"
 
 namespace tinygltf { class Model; struct Image; }
 
@@ -43,15 +44,18 @@ namespace visutwin::canvas
         /// Pre-built vertex/index byte buffers for one mesh primitive.
         struct PrimitiveData
         {
-            std::vector<uint8_t> vertexBytes;  ///< PackedVertex data.
+            std::vector<uint8_t> vertexBytes;  ///< PackedVertex data (88-byte skinned layout when skinned).
             std::vector<uint8_t> indexBytes;    ///< uint32_t index data.
             int vertexCount = 0;
             int drawCount   = 0;
             bool indexed    = false;
+            bool skinned    = false;           ///< vertexBytes use the skinned layout (weights+joints).
             int mode        = 4;               ///< glTF primitive mode.
             Vector3 boundsMin;
             Vector3 boundsMax;
             int materialIndex = -1;
+            std::vector<MorphTarget> morphTargets;      ///< CPU morph deltas (GPU buffer built on main thread).
+            std::vector<float> morphInitialWeights;     ///< glTF mesh.weights.
         };
 
         /// Pre-converted images indexed by tinygltf image index.

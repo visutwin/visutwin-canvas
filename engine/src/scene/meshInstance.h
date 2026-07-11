@@ -11,6 +11,7 @@
 
 #include "graphNode.h"
 #include "mesh.h"
+#include "morphInstance.h"
 #include "skinInstance.h"
 #include "scene/constants.h"
 #include "materials/material.h"
@@ -134,6 +135,32 @@ namespace visutwin::canvas
         float instanceCullRadius() const { return _instanceCullRadius; }
         InstanceCuller* instanceCuller() const { return _instanceCuller.get(); }
 
+        // --- GPU skinning ---
+
+        /** Skin instance driving this mesh (shared across submeshes of one skinned node). */
+        SkinInstance* skinInstance() const { return _skinInstance.get(); }
+
+        /**
+         * Attach a skin instance. DEVIATION: also disables frustum culling for this
+         * instance — the bind-pose AABB is not valid under animation and the port has
+         * no bone-based AABB path yet (upstream recomputes the AABB from bones).
+         */
+        void setSkinInstance(const std::shared_ptr<SkinInstance>& skinInstance)
+        {
+            _skinInstance = skinInstance;
+            if (skinInstance) {
+                _cull = false;
+            }
+        }
+
+        // --- Morph targets ---
+
+        MorphInstance* morphInstance() const { return _morphInstance.get(); }
+        void setMorphInstance(const std::shared_ptr<MorphInstance>& morphInstance)
+        {
+            _morphInstance = morphInstance;
+        }
+
         // --- Batching support (batchGroupId, visible) ---
 
         int batchGroupId() const { return _batchGroupId; }
@@ -179,7 +206,8 @@ namespace visutwin::canvas
         int _aabbVer = -1;
         int _aabbMeshVer = -1;
 
-        SkinInstance* _skinInstance = nullptr;
+        std::shared_ptr<SkinInstance> _skinInstance;
+        std::shared_ptr<MorphInstance> _morphInstance;
         SkinBatchInstance* _skinBatchInstance = nullptr;
         InstancingData _instancingData;
 

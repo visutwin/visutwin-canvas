@@ -28,6 +28,15 @@ struct VertexData {
     float4 instance_line4 [[attribute(9)]];   // model matrix column 3
     float4 instanceColor  [[attribute(10)]];  // sRGB diffuse color
 #endif
+#if VT_FEATURE_SKINNING
+    // GPU skinning: 4-bone weighted blend. Interleaved after uv1 in the 88-byte
+    // skinned vertex layout (weights @56, indices @72). Indices are stored as
+    // float4 (glTF joints are u8/u16 — float carries them exactly).
+    // Mutually exclusive with VT_FEATURE_DYNAMIC_BATCH and VT_FEATURE_INSTANCING;
+    // the matrix palette shares buffer slot 6 with dynamic batching.
+    float4 blendWeights [[attribute(11)]];
+    float4 blendIndices [[attribute(12)]];
+#endif
 };
 
 struct RasterizerData {
@@ -120,6 +129,35 @@ struct InstanceData {
 // Each entry is a float4x4 world transform for one mesh instance in the batch.
 // Uses a ring-buffer allocation — no fixed size limit.
 // DEVIATION: uses a Metal buffer instead of an RGBA32F bone texture.
+// GPU skinning (VT_FEATURE_SKINNING) shares the same slot-6 palette: one
+// float4x4 per bone, relative to the mesh instance's node (see SkinInstance).
+
+#if VT_FEATURE_MORPHS
+// Morph targets: packed delta buffer at vertex buffer slot 9 (per target, per
+// vertex: float4 positionDelta + float4 normalDelta) + MorphParams at slot 10.
+// DEVIATION: upstream accumulates active targets into RGBA textures with a
+// render pass each frame; this port sums the active targets directly in the
+// vertex shader from a static buffer — no per-frame GPU pass.
+struct MorphParams {
+    uint activeCount;      // number of active targets (<= 8)
+    uint vertexCount;      // vertices per target in the delta buffer
+    uint2 _pad;
+    uint indices[8];       // target indices into the delta buffer
+    float weights[8];      // matching blend weights
+};
+
+static inline void applyMorph(thread float3 &position, thread float3 &normal,
+                              const uint vid,
+                              constant float4 *morphDeltas,
+                              constant MorphParams &mp)
+{
+    for (uint k = 0; k < mp.activeCount; ++k) {
+        const uint base = (mp.indices[k] * mp.vertexCount + vid) * 2;
+        position += mp.weights[k] * morphDeltas[base].xyz;
+        normal   += mp.weights[k] * morphDeltas[base + 1].xyz;
+    }
+}
+#endif
 
 struct GpuLight {
     float4 positionRange;

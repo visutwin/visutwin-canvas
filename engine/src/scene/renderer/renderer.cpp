@@ -23,6 +23,9 @@
 #include "platform/graphics/instanceCuller.h"
 #include "scene/frustumUtils.h"
 #include "scene/light.h"
+#include "scene/morph.h"
+#include "scene/morphInstance.h"
+#include "scene/skinInstance.h"
 #include "scene/materials/material.h"
 #include "scene/graphNode.h"
 #include "scene/shader-lib/programLibrary.h"
@@ -507,7 +510,10 @@ namespace visutwin::canvas
 
             const bool isSkyboxMaterial = entry->material->isSkybox();
             const auto worldBounds = meshInstance->aabb();
-            if (!isSkyboxMaterial && hasCameraFrustum && !isVisibleInFrustum(cameraFrustum, worldBounds)) {
+            // Respect the per-instance cull flag: skinned instances disable frustum
+            // culling because the bind-pose AABB is invalid under animation.
+            if (!isSkyboxMaterial && hasCameraFrustum && meshInstance->cull() &&
+                !isVisibleInFrustum(cameraFrustum, worldBounds)) {
                 _numDrawCallsCulled++;
                 return;
             }
@@ -904,14 +910,21 @@ namespace visutwin::canvas
         // draws, which dominate after sort-key ordering.
         const Material* lastShaderMaterial = nullptr;
         bool lastShaderDynBatch = false;
+        bool lastShaderSkinned = false;
+        bool lastShaderMorphed = false;
 
         for (const auto* entry : drawEntries) {
             const Material* boundMaterial = entry->material ? entry->material : defaultMaterial.get();
             const bool isDynBatch = entry->meshInstance && entry->meshInstance->isDynamicBatch();
-            if (boundMaterial != lastShaderMaterial || isDynBatch != lastShaderDynBatch) {
-                programLibrary->bindMaterial(_device, boundMaterial, transparent, isDynBatch);
+            const bool isSkinned = entry->meshInstance && entry->meshInstance->skinInstance() != nullptr;
+            const bool isMorphed = entry->meshInstance && entry->meshInstance->morphInstance() != nullptr;
+            if (boundMaterial != lastShaderMaterial || isDynBatch != lastShaderDynBatch ||
+                isSkinned != lastShaderSkinned || isMorphed != lastShaderMorphed) {
+                programLibrary->bindMaterial(_device, boundMaterial, transparent, isDynBatch, isSkinned, isMorphed);
                 lastShaderMaterial = boundMaterial;
                 lastShaderDynBatch = isDynBatch;
+                lastShaderSkinned = isSkinned;
+                lastShaderMorphed = isMorphed;
             }
 
             // Phase 4: reuse cached light list when mask matches (zero allocation per draw).
@@ -1006,6 +1019,25 @@ namespace visutwin::canvas
                         ? entry->meshInstance->node()->worldTransform()
                         : Matrix4::identity();
                 }
+
+                // GPU skinning: refresh the bone palette (no-op if already updated this
+                // frame) and bind it at slot 6. The palette is node-relative; the model
+                // matrix stays the node's world transform (they cancel in the shader).
+                if (isSkinned) {
+                    auto* si = entry->meshInstance->skinInstance();
+                    si->updateMatrixPalette(entry->meshInstance->node());
+                    _device->setDynamicBatchPalette(si->paletteData(), si->paletteSizeBytes());
+                    _skinDrawCalls++;
+                }
+                // Morph targets: bind the shared delta buffer + current weights.
+                if (isMorphed) {
+                    auto* mi = entry->meshInstance->morphInstance();
+                    if (mi->morph() && mi->morph()->deltaBuffer()) {
+                        const auto& params = mi->gpuParams();
+                        _device->setMorphState(mi->morph()->deltaBuffer(), &params, sizeof(params));
+                    }
+                }
+
                 _device->setTransformUniforms(viewProjection, modelMatrix);
                 _device->draw(entry->primitive, entry->indexBuffer, 1, -1, true, true);
             }

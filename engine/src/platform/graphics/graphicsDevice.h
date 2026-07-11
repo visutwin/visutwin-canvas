@@ -397,10 +397,22 @@ namespace visutwin::canvas
 
         /// Bind the dynamic batch matrix palette for the next draw call.
         /// data: float4x4 array (16 floats per bone), size: byte count.
+        /// Also used by GPU skinning (SkinInstance palette) — same slot-6 contract.
         virtual void setDynamicBatchPalette(const void* data, size_t size)
         {
             (void)data;
             (void)size;
+        }
+
+        /// Bind morph target state for the next draw call (consumed by one draw).
+        /// deltaBuffer: packed per-target float4 position/normal deltas (vertex slot 9).
+        /// params: MorphInstance::GpuMorphParams (vertex slot 10), paramsSize: byte count.
+        virtual void setMorphState(const std::shared_ptr<VertexBuffer>& deltaBuffer,
+            const void* params, size_t paramsSize)
+        {
+            (void)deltaBuffer;
+            (void)params;
+            (void)paramsSize;
         }
 
         /// Bind clustered lighting data for the current frame.

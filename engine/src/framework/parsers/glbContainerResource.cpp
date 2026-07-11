@@ -5,8 +5,12 @@
 //
 #include "glbContainerResource.h"
 
+#include <spdlog/spdlog.h>
+
 #include "framework/components/animation/animationComponent.h"
 #include "framework/components/render/renderComponent.h"
+#include "scene/morphInstance.h"
+#include "scene/skinInstance.h"
 
 namespace visutwin::canvas
 {
@@ -38,6 +42,7 @@ namespace visutwin::canvas
         }
 
         std::vector<Entity*> nodeEntities(_nodePayloads.size(), nullptr);
+        std::vector<std::vector<MeshInstance*>> nodeMeshInstances(_nodePayloads.size());
         for (size_t i = 0; i < _nodePayloads.size(); ++i) {
             const auto& nodePayload = _nodePayloads[i];
             if (nodePayload.skip) {
@@ -68,12 +73,59 @@ namespace visutwin::canvas
                     }
                     auto meshInstance = std::make_unique<MeshInstance>(meshPayload.mesh, meshPayload.material, nodeEntity);
                     meshInstance->setCastShadow(meshPayload.castShadow);
+
+                    // Morph targets: each mesh instance gets its own weight set.
+                    if (meshPayload.morph) {
+                        auto morphInstance = std::make_shared<MorphInstance>(meshPayload.morph);
+                        for (size_t w = 0; w < meshPayload.morphInitialWeights.size(); ++w) {
+                            morphInstance->setWeight(static_cast<int>(w), meshPayload.morphInitialWeights[w]);
+                        }
+                        meshInstance->setMorphInstance(morphInstance);
+                    }
+
+                    nodeMeshInstances[i].push_back(meshInstance.get());
                     renderComponentRaw->addMeshInstance(std::move(meshInstance));
                 }
                 nodeEntity->addComponentInstance(std::move(renderComponent), componentTypeID<RenderComponent>());
             }
 
             nodeEntities[i] = nodeEntity;
+        }
+
+        // Resolve skins: one SkinInstance per skin, shared by every mesh instance of
+        // every node that references it. Bones resolve by glTF node index directly
+        // (DEVIATION: upstream resolves by bone name via findByName).
+        std::vector<std::shared_ptr<SkinInstance>> skinInstances(_skinPayloads.size());
+        for (size_t i = 0; i < _nodePayloads.size(); ++i) {
+            const auto& nodePayload = _nodePayloads[i];
+            if (nodePayload.skinIndex < 0 ||
+                nodePayload.skinIndex >= static_cast<int>(_skinPayloads.size()) ||
+                nodeMeshInstances[i].empty()) {
+                continue;
+            }
+            auto& skinInstance = skinInstances[static_cast<size_t>(nodePayload.skinIndex)];
+            if (!skinInstance) {
+                const auto& skinPayload = _skinPayloads[static_cast<size_t>(nodePayload.skinIndex)];
+                skinInstance = std::make_shared<SkinInstance>(skinPayload.skin);
+                std::vector<GraphNode*> bones;
+                bones.reserve(skinPayload.jointNodeIndices.size());
+                for (const int jointNodeIndex : skinPayload.jointNodeIndices) {
+                    Entity* bone = (jointNodeIndex >= 0 &&
+                                    jointNodeIndex < static_cast<int>(nodeEntities.size()))
+                        ? nodeEntities[static_cast<size_t>(jointNodeIndex)] : nullptr;
+                    if (!bone) {
+                        spdlog::error("GLB skin: joint node {} missing in instantiated hierarchy — "
+                            "falling back to root", jointNodeIndex);
+                        bone = root;
+                    }
+                    bones.push_back(bone);
+                }
+                skinInstance->setBones(std::move(bones));
+                skinInstance->setRootBone(root);
+            }
+            for (auto* meshInstance : nodeMeshInstances[i]) {
+                meshInstance->setSkinInstance(skinInstance);
+            }
         }
 
         for (size_t i = 0; i < _nodePayloads.size(); ++i) {

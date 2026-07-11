@@ -14,6 +14,8 @@
 #include <framework/handlers/containerResource.h>
 #include "framework/anim/evaluator/animTrack.h"
 #include "scene/mesh.h"
+#include "scene/morph.h"
+#include "scene/skin.h"
 #include "scene/materials/material.h"
 
 namespace visutwin::canvas
@@ -24,7 +26,17 @@ namespace visutwin::canvas
     {
         std::shared_ptr<Mesh> mesh;
         std::shared_ptr<Material> material;
+        std::shared_ptr<Morph> morph;              // Morph targets (nullptr when none).
+        std::vector<float> morphInitialWeights;    // glTF mesh.weights (may be empty).
         bool castShadow = true;  // Set false for point cloud meshes.
+    };
+
+    struct GlbSkinPayload
+    {
+        std::shared_ptr<Skin> skin;
+        /// glTF joint node indices, resolved to instantiated entities (by index,
+        /// not by name — DEVIATION from upstream's findByName resolution).
+        std::vector<int> jointNodeIndices;
     };
 
     struct GlbNodePayload
@@ -35,6 +47,7 @@ namespace visutwin::canvas
         Vector3 scale = Vector3(1.0f, 1.0f, 1.0f);
         std::vector<size_t> meshPayloadIndices;
         std::vector<int> children;
+        int skinIndex = -1;  // Index into skin payloads (glTF node.skin), -1 = unskinned.
         bool skip = false;  // When true, no Entity is created (e.g., consumed POINTS leaf).
     };
 
@@ -46,6 +59,7 @@ namespace visutwin::canvas
     public:
         void addMeshPayload(const GlbMeshPayload& payload) { _meshPayloads.push_back(payload); }
         void addNodePayload(const GlbNodePayload& payload) { _nodePayloads.push_back(payload); }
+        void addSkinPayload(const GlbSkinPayload& payload) { _skinPayloads.push_back(payload); }
         void addRootNodeIndex(const int index) { _rootNodeIndices.push_back(index); }
         void addOwnedTexture(const std::shared_ptr<Texture>& texture) { _ownedTextures.push_back(texture); }
 
@@ -57,6 +71,7 @@ namespace visutwin::canvas
     private:
         std::vector<GlbMeshPayload> _meshPayloads;
         std::vector<GlbNodePayload> _nodePayloads;
+        std::vector<GlbSkinPayload> _skinPayloads;
         std::vector<int> _rootNodeIndices;
         std::vector<std::shared_ptr<Texture>> _ownedTextures;
         std::unordered_map<std::string, std::shared_ptr<AnimTrack>> _animTracks;

@@ -374,8 +374,193 @@ namespace visutwin::canvas
             return true;
         }
 
+        // ── GPU skinning + morph target extraction ──────────────────────
+
+        /// Skinned vertex layout: PackedVertex (14 floats) + blendWeights (4) +
+        /// blendIndices (4) = 88 bytes. Matches the STRIDE_SKINNED vertex descriptor
+        /// (attributes 11/12) and the VT_FEATURE_SKINNING shader path.
+        constexpr size_t SKINNED_VERTEX_STRIDE = sizeof(PackedVertex) + 8 * sizeof(float);
+
+        /// Per-vertex skin influences read from JOINTS_0/WEIGHTS_0 (4 per vertex each).
+        struct SkinAttributes
+        {
+            std::vector<float> weights;
+            std::vector<float> joints;  // Joint indices carried as float (u8/u16 fit exactly).
+            bool valid = false;
+        };
+
+        SkinAttributes readSkinAttributes(const tinygltf::Model& model,
+            const tinygltf::Primitive& primitive, const size_t vertexCount)
+        {
+            SkinAttributes out;
+            if (!primitive.attributes.contains("JOINTS_0") ||
+                !primitive.attributes.contains("WEIGHTS_0")) {
+                return out;
+            }
+            const auto* jointsAccessor = getAccessor(model, primitive.attributes.at("JOINTS_0"));
+            const auto* weightsAccessor = getAccessor(model, primitive.attributes.at("WEIGHTS_0"));
+            if (!jointsAccessor || !weightsAccessor ||
+                jointsAccessor->type != TINYGLTF_TYPE_VEC4 ||
+                weightsAccessor->type != TINYGLTF_TYPE_VEC4 ||
+                static_cast<size_t>(jointsAccessor->count) < vertexCount ||
+                static_cast<size_t>(weightsAccessor->count) < vertexCount) {
+                spdlog::warn("GLB skin attributes present but malformed — skinning skipped");
+                return out;
+            }
+            const auto* jointsBase = getAccessorBase(model, *jointsAccessor);
+            const auto* weightsBase = getAccessorBase(model, *weightsAccessor);
+            if (!jointsBase || !weightsBase) {
+                return out;
+            }
+            const auto jointsStride = static_cast<size_t>(accessorStride(model, *jointsAccessor));
+            const auto weightsStride = static_cast<size_t>(accessorStride(model, *weightsAccessor));
+
+            out.joints.resize(vertexCount * 4);
+            out.weights.resize(vertexCount * 4);
+            for (size_t i = 0; i < vertexCount; ++i) {
+                const auto* jointsPtr = jointsBase + i * jointsStride;
+                for (int c = 0; c < 4; ++c) {
+                    float joint = 0.0f;
+                    switch (jointsAccessor->componentType) {
+                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+                            joint = static_cast<float>(jointsPtr[c]);
+                            break;
+                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+                            joint = static_cast<float>(reinterpret_cast<const uint16_t*>(jointsPtr)[c]);
+                            break;
+                        default:
+                            return out;  // Spec allows only u8/u16 joints.
+                    }
+                    out.joints[i * 4 + static_cast<size_t>(c)] = joint;
+                }
+
+                const auto* weightsPtr = weightsBase + i * weightsStride;
+                float w[4] = {0, 0, 0, 0};
+                for (int c = 0; c < 4; ++c) {
+                    switch (weightsAccessor->componentType) {
+                        case TINYGLTF_COMPONENT_TYPE_FLOAT:
+                            w[c] = reinterpret_cast<const float*>(weightsPtr)[c];
+                            break;
+                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+                            w[c] = static_cast<float>(weightsPtr[c]) / 255.0f;
+                            break;
+                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+                            w[c] = static_cast<float>(reinterpret_cast<const uint16_t*>(weightsPtr)[c]) / 65535.0f;
+                            break;
+                        default:
+                            return out;
+                    }
+                }
+                // Renormalize (quantized weights rarely sum to exactly 1); a degenerate
+                // all-zero vertex binds fully to its first joint instead of collapsing
+                // to the origin.
+                const float sum = w[0] + w[1] + w[2] + w[3];
+                if (sum > 1e-6f) {
+                    const float inv = 1.0f / sum;
+                    for (float& c : w) c *= inv;
+                } else {
+                    w[0] = 1.0f;
+                }
+                for (int c = 0; c < 4; ++c) {
+                    out.weights[i * 4 + static_cast<size_t>(c)] = w[c];
+                }
+            }
+            out.valid = true;
+            return out;
+        }
+
+        /// Interleave base vertices with skin influences into the 88-byte layout.
+        std::vector<uint8_t> packSkinnedVertices(const std::vector<PackedVertex>& vertices,
+            const SkinAttributes& skin)
+        {
+            std::vector<uint8_t> bytes(vertices.size() * SKINNED_VERTEX_STRIDE);
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                auto* dst = bytes.data() + i * SKINNED_VERTEX_STRIDE;
+                std::memcpy(dst, &vertices[i], sizeof(PackedVertex));
+                std::memcpy(dst + sizeof(PackedVertex), skin.weights.data() + i * 4, 4 * sizeof(float));
+                std::memcpy(dst + sizeof(PackedVertex) + 4 * sizeof(float), skin.joints.data() + i * 4, 4 * sizeof(float));
+            }
+            return bytes;
+        }
+
+        /// Read glTF primitive morph targets (POSITION/NORMAL deltas).
+        std::vector<MorphTarget> readMorphTargets(const tinygltf::Model& model,
+            const tinygltf::Primitive& primitive, const size_t vertexCount)
+        {
+            std::vector<MorphTarget> targets;
+            for (size_t t = 0; t < primitive.targets.size(); ++t) {
+                const auto& target = primitive.targets[t];
+                MorphTarget morphTarget;
+                morphTarget.name = "target_" + std::to_string(t);
+
+                const auto posIt = target.find("POSITION");
+                if (posIt != target.end()) {
+                    if (const auto* accessor = getAccessor(model, posIt->second)) {
+                        readFloatArray(model, *accessor, morphTarget.deltaPositions);
+                    }
+                }
+                if (morphTarget.deltaPositions.size() < vertexCount * 3) {
+                    spdlog::warn("GLB morph target {} has incomplete POSITION deltas — skipped", t);
+                    continue;
+                }
+                const auto nrmIt = target.find("NORMAL");
+                if (nrmIt != target.end()) {
+                    if (const auto* accessor = getAccessor(model, nrmIt->second)) {
+                        readFloatArray(model, *accessor, morphTarget.deltaNormals);
+                    }
+                }
+                targets.push_back(std::move(morphTarget));
+            }
+            return targets;
+        }
+
+        /// Parse glTF skins into container payloads (inverse bind matrices + joint indices).
+        void parseSkins(const tinygltf::Model& model, GlbContainerResource* container)
+        {
+            for (const auto& skin : model.skins) {
+                GlbSkinPayload payload;
+                payload.jointNodeIndices = skin.joints;
+
+                std::vector<Matrix4> inverseBindPose;
+                inverseBindPose.reserve(skin.joints.size());
+                std::vector<float> ibmData;
+                if (skin.inverseBindMatrices >= 0) {
+                    if (const auto* accessor = getAccessor(model, skin.inverseBindMatrices)) {
+                        readFloatArray(model, *accessor, ibmData);
+                    }
+                }
+                for (size_t j = 0; j < skin.joints.size(); ++j) {
+                    if (ibmData.size() >= (j + 1) * 16) {
+                        // glTF matrices are column-major — same as Matrix4.
+                        const float* m = ibmData.data() + j * 16;
+                        inverseBindPose.emplace_back(
+                            Vector4(m[0], m[1], m[2], m[3]),
+                            Vector4(m[4], m[5], m[6], m[7]),
+                            Vector4(m[8], m[9], m[10], m[11]),
+                            Vector4(m[12], m[13], m[14], m[15]));
+                    } else {
+                        inverseBindPose.push_back(Matrix4::identity());
+                    }
+                }
+
+                std::vector<std::string> boneNames;
+                boneNames.reserve(skin.joints.size());
+                for (const int jointNodeIndex : skin.joints) {
+                    boneNames.push_back(
+                        (jointNodeIndex >= 0 && jointNodeIndex < static_cast<int>(model.nodes.size()))
+                            ? model.nodes[static_cast<size_t>(jointNodeIndex)].name : std::string());
+                }
+
+                payload.skin = std::make_shared<Skin>(std::move(inverseBindPose), std::move(boneNames));
+                container->addSkinPayload(payload);
+            }
+            if (!model.skins.empty()) {
+                spdlog::info("  Parsed {} skin(s)", model.skins.size());
+            }
+        }
+
         // Parse glTF animations into AnimTrack objects stored on the container.
-        // 
+        //
         // Overload: output animation tracks to a map (thread-safe — no container needed).
         void parseAnimations(const tinygltf::Model& model,
             std::unordered_map<std::string, std::shared_ptr<AnimTrack>>& outTracks)
@@ -1065,6 +1250,7 @@ namespace visutwin::canvas
 
         auto container = std::make_unique<GlbContainerResource>();
         auto vertexFormat = std::make_shared<VertexFormat>(sizeof(PackedVertex), true, false);
+        auto skinnedVertexFormat = std::make_shared<VertexFormat>(static_cast<int>(SKINNED_VERTEX_STRIDE), true, false);
         size_t dracoPrimitiveCount = 0;
         size_t dracoDecodeSuccessCount = 0;
         size_t dracoDecodeFailureCount = 0;
@@ -1747,11 +1933,22 @@ namespace visutwin::canvas
                     }
                 }
 
-                std::vector<uint8_t> vertexBytes(vertices.size() * sizeof(PackedVertex));
-                std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
+                // GPU skinning: JOINTS_0/WEIGHTS_0 present → interleave the 88-byte
+                // skinned layout (the Draco path never carries skin attributes here).
+                const auto skinAttributes = decodedDraco
+                    ? SkinAttributes{} : readSkinAttributes(model, primitive, vertexCount);
+                std::vector<uint8_t> vertexBytes;
+                if (skinAttributes.valid) {
+                    vertexBytes = packSkinnedVertices(vertices, skinAttributes);
+                } else {
+                    vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
+                    std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
+                }
                 VertexBufferOptions vbOptions;
                 vbOptions.data = std::move(vertexBytes);
-                auto vertexBuffer = device->createVertexBuffer(vertexFormat, static_cast<int>(vertexCount), vbOptions);
+                auto vertexBuffer = device->createVertexBuffer(
+                    skinAttributes.valid ? skinnedVertexFormat : vertexFormat,
+                    static_cast<int>(vertexCount), vbOptions);
                 if (!vertexBuffer) {
                     spdlog::warn("GLB parse: vertex buffer creation failed mesh={} primitive", meshIndex);
                     continue;
@@ -1799,6 +1996,15 @@ namespace visutwin::canvas
                     payload.material = gltfMaterials[static_cast<size_t>(primitive.material)];
                 } else {
                     payload.material = gltfMaterials.front();
+                }
+                // Morph targets (skipped for Draco primitives — vertex order differs).
+                if (!decodedDraco && !primitive.targets.empty()) {
+                    auto morphTargets = readMorphTargets(model, primitive, vertexCount);
+                    if (!morphTargets.empty()) {
+                        payload.morph = std::make_shared<Morph>(std::move(morphTargets),
+                            static_cast<int>(vertexCount), device.get());
+                        payload.morphInitialWeights.assign(mesh.weights.begin(), mesh.weights.end());
+                    }
                 }
                 container->addMeshPayload(payload);
                 meshToPayloadIndices[meshIndex].push_back(nextPayloadIndex++);
@@ -1924,6 +2130,7 @@ namespace visutwin::canvas
                 const auto& mapped = meshToPayloadIndices[static_cast<size_t>(node.mesh)];
                 nodePayload.meshPayloadIndices.insert(nodePayload.meshPayloadIndices.end(), mapped.begin(), mapped.end());
             }
+            nodePayload.skinIndex = node.skin;
 
             // Skip leaf nodes whose mesh was fully consumed by the POINTS merge.
             // Transforms are already baked into the merged vertex buffer, so these
@@ -1969,7 +2176,8 @@ namespace visutwin::canvas
             );
         }
 
-        // Parse glTF animations into AnimTrack objects.
+        // Parse glTF skins + animations.
+        parseSkins(model, container.get());
         parseAnimations(model, container.get());
 
         return container;
@@ -2022,6 +2230,7 @@ namespace visutwin::canvas
 
         auto container = std::make_unique<GlbContainerResource>();
         auto vertexFormat = std::make_shared<VertexFormat>(sizeof(PackedVertex), true, false);
+        auto skinnedVertexFormat = std::make_shared<VertexFormat>(static_cast<int>(SKINNED_VERTEX_STRIDE), true, false);
         size_t dracoPrimitiveCount = 0;
         size_t dracoDecodeSuccessCount = 0;
         size_t dracoDecodeFailureCount = 0;
@@ -2259,11 +2468,21 @@ namespace visutwin::canvas
                     if (const auto* ia = getAccessor(model, primitive.indices)) readIndices(model, *ia, parsedIndices);
                 }
 
-                std::vector<uint8_t> vertexBytes(vertices.size() * sizeof(PackedVertex));
-                std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
+                // GPU skinning: JOINTS_0/WEIGHTS_0 → 88-byte skinned layout.
+                const auto skinAttributes = decodedDraco
+                    ? SkinAttributes{} : readSkinAttributes(model, primitive, vertices.size());
+                std::vector<uint8_t> vertexBytes;
+                if (skinAttributes.valid) {
+                    vertexBytes = packSkinnedVertices(vertices, skinAttributes);
+                } else {
+                    vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
+                    std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
+                }
                 VertexBufferOptions vbOptions;
                 vbOptions.data = std::move(vertexBytes);
-                auto vb = device->createVertexBuffer(vertexFormat, static_cast<int>(vertices.size()), vbOptions);
+                auto vb = device->createVertexBuffer(
+                    skinAttributes.valid ? skinnedVertexFormat : vertexFormat,
+                    static_cast<int>(vertices.size()), vbOptions);
                 if (!vb) continue;
 
                 std::shared_ptr<IndexBuffer> ib;
@@ -2297,6 +2516,15 @@ namespace visutwin::canvas
                 payload.mesh = meshResource;
                 payload.material = (primitive.material >= 0 && primitive.material < static_cast<int>(gltfMaterials.size()))
                     ? gltfMaterials[static_cast<size_t>(primitive.material)] : gltfMaterials.front();
+                // Morph targets (skipped for Draco primitives — vertex order differs).
+                if (!decodedDraco && !primitive.targets.empty()) {
+                    auto morphTargets = readMorphTargets(model, primitive, vertices.size());
+                    if (!morphTargets.empty()) {
+                        payload.morph = std::make_shared<Morph>(std::move(morphTargets),
+                            static_cast<int>(vertices.size()), device.get());
+                        payload.morphInitialWeights.assign(mesh.weights.begin(), mesh.weights.end());
+                    }
+                }
                 container->addMeshPayload(payload);
                 meshToPayloadIndices[meshIndex].push_back(nextPayloadIndex++);
             }
@@ -2313,6 +2541,7 @@ namespace visutwin::canvas
                 const auto& mapped = meshToPayloadIndices[static_cast<size_t>(node.mesh)];
                 nodePayload.meshPayloadIndices.insert(nodePayload.meshPayloadIndices.end(), mapped.begin(), mapped.end());
             }
+            nodePayload.skinIndex = node.skin;
             nodePayload.children = node.children;
             container->addNodePayload(nodePayload);
         }
@@ -2329,7 +2558,8 @@ namespace visutwin::canvas
                 debugName, dracoPrimitiveCount, dracoDecodeSuccessCount, dracoDecodeFailureCount);
         }
 
-        // Parse glTF animations into AnimTrack objects.
+        // Parse glTF skins + animations.
+        parseSkins(model, container.get());
         parseAnimations(model, container.get());
 
         return container;
@@ -2426,10 +2656,23 @@ namespace visutwin::canvas
                     if (const auto* ia = getAccessor(model, primitive.indices)) readIndices(model, *ia, parsedIndices);
                 }
 
-                // Pack into byte arrays.
+                // Pack into byte arrays (88-byte skinned layout when skin attributes exist).
                 pd.vertexCount = static_cast<int>(vertices.size());
-                pd.vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
-                std::memcpy(pd.vertexBytes.data(), vertices.data(), pd.vertexBytes.size());
+                const auto skinAttributes = decodedDraco
+                    ? SkinAttributes{} : readSkinAttributes(model, primitive, vertices.size());
+                if (skinAttributes.valid) {
+                    pd.skinned = true;
+                    pd.vertexBytes = packSkinnedVertices(vertices, skinAttributes);
+                } else {
+                    pd.vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
+                    std::memcpy(pd.vertexBytes.data(), vertices.data(), pd.vertexBytes.size());
+                }
+
+                // Morph targets (skipped for Draco primitives — vertex order differs).
+                if (!decodedDraco && !primitive.targets.empty()) {
+                    pd.morphTargets = readMorphTargets(model, primitive, vertices.size());
+                    pd.morphInitialWeights.assign(mesh.weights.begin(), mesh.weights.end());
+                }
 
                 pd.drawCount = static_cast<int>(vertices.size());
                 pd.indexed = false;
@@ -2467,6 +2710,7 @@ namespace visutwin::canvas
 
         auto container = std::make_unique<GlbContainerResource>();
         auto vertexFormat = std::make_shared<VertexFormat>(sizeof(PackedVertex), true, false);
+        auto skinnedVertexFormat = std::make_shared<VertexFormat>(static_cast<int>(SKINNED_VERTEX_STRIDE), true, false);
 
         auto makeDefaultMaterial = []() {
             auto material = std::make_shared<StandardMaterial>();
@@ -2694,7 +2938,8 @@ namespace visutwin::canvas
 
                 VertexBufferOptions vbOptions;
                 vbOptions.data = std::move(pd.vertexBytes);
-                auto vb = device->createVertexBuffer(vertexFormat, pd.vertexCount, vbOptions);
+                auto vb = device->createVertexBuffer(
+                    pd.skinned ? skinnedVertexFormat : vertexFormat, pd.vertexCount, vbOptions);
                 if (!vb) continue;
 
                 std::shared_ptr<IndexBuffer> ib;
@@ -2724,6 +2969,13 @@ namespace visutwin::canvas
                 payload.mesh = meshResource;
                 payload.material = (pd.materialIndex >= 0 && pd.materialIndex < static_cast<int>(gltfMaterials.size()))
                     ? gltfMaterials[static_cast<size_t>(pd.materialIndex)] : gltfMaterials.front();
+                // Morph targets: deltas were extracted on the background thread;
+                // build the GPU buffer here on the main thread.
+                if (!pd.morphTargets.empty()) {
+                    payload.morph = std::make_shared<Morph>(std::move(pd.morphTargets),
+                        pd.vertexCount, device.get());
+                    payload.morphInitialWeights = std::move(pd.morphInitialWeights);
+                }
                 container->addMeshPayload(payload);
                 meshToPayloadIndices[meshIndex].push_back(nextPayloadIndex++);
             }
@@ -2741,9 +2993,13 @@ namespace visutwin::canvas
                 const auto& mapped = meshToPayloadIndices[static_cast<size_t>(node.mesh)];
                 nodePayload.meshPayloadIndices.insert(nodePayload.meshPayloadIndices.end(), mapped.begin(), mapped.end());
             }
+            nodePayload.skinIndex = node.skin;
             nodePayload.children = node.children;
             container->addNodePayload(nodePayload);
         }
+
+        // ── Parse skins (cheap accessor reads — safe on the main thread) ─
+        parseSkins(model, container.get());
 
         // ── Root scene nodes ─────────────────────────────────────────
         int sceneIndex = model.defaultScene;

@@ -13,6 +13,7 @@
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "scene/graphNode.h"
+#include "scene/morph.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "shadowRenderer.h"
 #include "shadowCasterFiltering.h"
@@ -49,6 +50,11 @@ namespace visutwin::canvas
         if (!shadowShader) {
             return;
         }
+        // Skinned/morphed shadow variants are fetched lazily on first use — most
+        // scenes have no skinned casters and shouldn't compile the variants.
+        std::shared_ptr<Shader> shadowShaderSkinned;
+        std::shared_ptr<Shader> shadowShaderSkinnedMorphed;
+        std::shared_ptr<Shader> shadowShaderMorphed;
 
         _graphicsDevice->setShader(shadowShader);
 
@@ -132,6 +138,36 @@ namespace visutwin::canvas
                         _graphicsDevice->setTransformUniforms(viewProjection, Matrix4::identity());
                         _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), 1, -1, true, true);
                         // Restore standard shadow shader for next non-dynamic-batch mesh.
+                        _graphicsDevice->setShader(shadowShader);
+                    } else if (meshInstance->skinInstance() || meshInstance->morphInstance()) {
+                        // Skinned/morphed caster: switch to the matching shadow variant,
+                        // bind the bone palette (slot 6) and/or morph buffers (slots 9/10).
+                        const bool skinned = meshInstance->skinInstance() != nullptr;
+                        const bool morphed = meshInstance->morphInstance() != nullptr;
+                        auto& variant = skinned
+                            ? (morphed ? shadowShaderSkinnedMorphed : shadowShaderSkinned)
+                            : shadowShaderMorphed;
+                        if (!variant) {
+                            variant = programLibrary->getShadowShader(false, skinned, morphed);
+                        }
+                        if (variant) {
+                            _graphicsDevice->setShader(variant);
+                        }
+                        if (skinned) {
+                            auto* si = meshInstance->skinInstance();
+                            si->updateMatrixPalette(meshInstance->node());
+                            _graphicsDevice->setDynamicBatchPalette(si->paletteData(), si->paletteSizeBytes());
+                        }
+                        if (morphed) {
+                            auto* mi = meshInstance->morphInstance();
+                            if (mi->morph() && mi->morph()->deltaBuffer()) {
+                                const auto& params = mi->gpuParams();
+                                _graphicsDevice->setMorphState(mi->morph()->deltaBuffer(), &params, sizeof(params));
+                            }
+                        }
+                        const auto modelMatrix = (meshInstance->node() ? meshInstance->node()->worldTransform() : Matrix4::identity());
+                        _graphicsDevice->setTransformUniforms(viewProjection, modelMatrix);
+                        _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), 1, -1, true, true);
                         _graphicsDevice->setShader(shadowShader);
                     } else {
                         const auto modelMatrix = (meshInstance->node() ? meshInstance->node()->worldTransform() : Matrix4::identity());
