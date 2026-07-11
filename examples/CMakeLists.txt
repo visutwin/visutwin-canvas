@@ -136,6 +136,13 @@ add_executable(visutwin-animation MACOSX_BUNDLE
 target_link_libraries(visutwin-animation PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-animation com.visutwin.animation)
 
+add_executable(visutwin-anim-stategraph MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/anim-stategraph-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-anim-stategraph PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-anim-stategraph com.visutwin.anim-stategraph)
+
 add_executable(visutwin-env-reproject-test
     ${VISUTWIN_ROOT_DIR}/examples/src/env-reproject-test-example.cpp
 )

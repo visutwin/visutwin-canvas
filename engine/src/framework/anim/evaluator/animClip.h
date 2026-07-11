@@ -18,8 +18,12 @@ namespace visutwin::canvas
         void reset();
         void pause();
         void resume();
+        void play();
         void stop();
         void update(float dt);
+
+        /** Normalized progress the clip reaches at `time` (upstream progressForTime). */
+        float progressForTime(float time) const;
 
         void eval(std::unordered_map<std::string, AnimTransform>& transforms) const;
 
@@ -41,6 +45,7 @@ namespace visutwin::canvas
         void setName(const std::string& value) { _name = value; }
 
         const std::shared_ptr<AnimTrack>& track() const { return _track; }
+        void setTrack(const std::shared_ptr<AnimTrack>& track) { _track = track; }
 
     private:
         std::shared_ptr<AnimTrack> _track;

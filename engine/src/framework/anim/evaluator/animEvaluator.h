@@ -23,6 +23,12 @@ namespace visutwin::canvas
         void removeClip(size_t index);
         void removeClips();
 
+        /** Find a clip by name (nullptr when absent). */
+        AnimClip* findClip(const std::string& name) const;
+
+        /** Replace the track of every clip whose name matches (used by AnimController::assignAnimation). */
+        void updateClipTrack(const std::string& name, const std::shared_ptr<AnimTrack>& track);
+
         void update(float dt);
 
     private:
@@ -31,8 +37,5 @@ namespace visutwin::canvas
 
         std::unique_ptr<AnimBinder> _binder;
         std::vector<std::shared_ptr<AnimClip>> _clips;
-
-        std::unordered_map<std::string, AnimTransform> _tmpA;
-        std::unordered_map<std::string, AnimTransform> _tmpB;
     };
 }

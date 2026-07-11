@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <set>
 
 #include "scene/graphNode.h"
 
@@ -33,6 +32,25 @@ namespace visutwin::canvas
     void AnimEvaluator::removeClips()
     {
         _clips.clear();
+    }
+
+    AnimClip* AnimEvaluator::findClip(const std::string& name) const
+    {
+        for (const auto& clip : _clips) {
+            if (clip && clip->name() == name) {
+                return clip.get();
+            }
+        }
+        return nullptr;
+    }
+
+    void AnimEvaluator::updateClipTrack(const std::string& name, const std::shared_ptr<AnimTrack>& track)
+    {
+        for (const auto& clip : _clips) {
+            if (clip && clip->name().rfind(name, 0) == 0) {
+                clip->setTrack(track);
+            }
+        }
     }
 
     Vector3 AnimEvaluator::lerpVec3(const Vector3& a, const Vector3& b, const float alpha)
@@ -85,83 +103,81 @@ namespace visutwin::canvas
             return;
         }
 
+        // N-clip sequential blend compositing (mirrors upstream anim-evaluator.js):
+        // per node/property, the first contributing clip SETS the value regardless of
+        // its weight; each subsequent clip lerps the accumulated value toward its own
+        // by its blendWeight. Clips added later (the transition's destination state)
+        // therefore composite over earlier ones. A clip with weight >= 1 resets the
+        // accumulation. Only clips with weight > 0 advance their time.
+        struct Accum
+        {
+            AnimTransform value;
+            int posCounter = 0;
+            int rotCounter = 0;
+            int sclCounter = 0;
+        };
+        std::unordered_map<std::string, Accum> blended;
+        std::unordered_map<std::string, AnimTransform> tmp;
+
         for (const auto& clip : _clips) {
-            if (clip) {
+            if (!clip) {
+                continue;
+            }
+            const float weight = std::clamp(clip->blendWeight(), 0.0f, 1.0f);
+            if (weight > 0.0f) {
                 clip->update(dt);
+            } else {
+                continue;
+            }
+
+            tmp.clear();
+            clip->eval(tmp);
+
+            for (const auto& [nodeName, transform] : tmp) {
+                auto& acc = blended[nodeName];
+                if (transform.hasPosition) {
+                    if (acc.posCounter == 0 || weight >= 1.0f) {
+                        acc.value.position = transform.position;
+                    } else {
+                        acc.value.position = lerpVec3(acc.value.position, transform.position, weight);
+                    }
+                    acc.value.hasPosition = true;
+                    acc.posCounter++;
+                }
+                if (transform.hasRotation) {
+                    if (acc.rotCounter == 0 || weight >= 1.0f) {
+                        acc.value.rotation = transform.rotation;
+                    } else {
+                        acc.value.rotation = slerpQuat(acc.value.rotation, transform.rotation, weight);
+                    }
+                    acc.value.hasRotation = true;
+                    acc.rotCounter++;
+                }
+                if (transform.hasScale) {
+                    if (acc.sclCounter == 0 || weight >= 1.0f) {
+                        acc.value.scale = transform.scale;
+                    } else {
+                        acc.value.scale = lerpVec3(acc.value.scale, transform.scale, weight);
+                    }
+                    acc.value.hasScale = true;
+                    acc.sclCounter++;
+                }
             }
         }
 
-        _tmpA.clear();
-        _tmpB.clear();
-
-        if (_clips[0]) {
-            _clips[0]->eval(_tmpA);
-        }
-
-        float blendWeight = 1.0f;
-        if (_clips.size() > 1 && _clips[1]) {
-            _clips[1]->eval(_tmpB);
-            blendWeight = std::clamp(_clips[1]->blendWeight(), 0.0f, 1.0f);
-        }
-
-        std::set<std::string> allNodes;
-        for (const auto& [name, _] : _tmpA) {
-            (void)_;
-            allNodes.insert(name);
-        }
-        for (const auto& [name, _] : _tmpB) {
-            (void)_;
-            allNodes.insert(name);
-        }
-
-        for (const auto& nodeName : allNodes) {
+        for (const auto& [nodeName, acc] : blended) {
             GraphNode* node = _binder->resolve(nodeName);
             if (!node) {
                 continue;
             }
-
-            const auto aIt = _tmpA.find(nodeName);
-            const auto bIt = _tmpB.find(nodeName);
-
-            if (bIt == _tmpB.end()) {
-                const auto& a = aIt->second;
-                if (a.hasPosition) {
-                    node->setLocalPosition(a.position);
-                }
-                if (a.hasRotation) {
-                    node->setLocalRotation(a.rotation);
-                }
-                if (a.hasScale) {
-                    node->setLocalScale(a.scale);
-                }
-                continue;
+            if (acc.value.hasPosition) {
+                node->setLocalPosition(acc.value.position);
             }
-
-            if (aIt == _tmpA.end()) {
-                const auto& b = bIt->second;
-                if (b.hasPosition) {
-                    node->setLocalPosition(b.position);
-                }
-                if (b.hasRotation) {
-                    node->setLocalRotation(b.rotation);
-                }
-                if (b.hasScale) {
-                    node->setLocalScale(b.scale);
-                }
-                continue;
+            if (acc.value.hasRotation) {
+                node->setLocalRotation(acc.value.rotation);
             }
-
-            const auto& a = aIt->second;
-            const auto& b = bIt->second;
-
-            if (a.hasPosition || b.hasPosition) {
-                node->setLocalPosition(lerpVec3(a.position, b.position, blendWeight));
-            }
-            if (a.hasRotation || b.hasRotation) {
-                node->setLocalRotation(slerpQuat(a.rotation, b.rotation, blendWeight));
-            }
-            if (a.hasScale || b.hasScale) {
-                node->setLocalScale(lerpVec3(a.scale, b.scale, blendWeight));
+            if (acc.value.hasScale) {
+                node->setLocalScale(acc.value.scale);
             }
         }
     }
