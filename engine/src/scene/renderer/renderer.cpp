@@ -682,7 +682,15 @@ namespace visutwin::canvas
                                 sizeof(shadowParams.shadowCascadeDistances));
 
                     // Keep single VP matrix for cascade 0 (backward compat).
-                    LightRenderData* rd = sceneLight->getRenderData(camera, 0);
+                    // Cascades are fit for a single designated camera per
+                    // frame (see ForwardRenderer::buildFrameGraph) — use its
+                    // render data regardless of which camera's pass is being
+                    // encoded, so the matrix always matches the atlas.
+                    Camera* fitCamera = camera;
+                    if (!_cameraDirShadowLights.contains(fitCamera) && !_cameraDirShadowLights.empty()) {
+                        fitCamera = _cameraDirShadowLights.begin()->first;
+                    }
+                    LightRenderData* rd = sceneLight->getRenderData(fitCamera, 0);
                     if (rd && rd->shadowCamera && rd->shadowCamera->node()) {
                         shadowParams.viewProjection = rd->shadowCamera->projectionMatrix()
                             * rd->shadowCamera->node()->worldTransform().inverse();

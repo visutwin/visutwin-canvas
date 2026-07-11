@@ -71,12 +71,40 @@ namespace visutwin::canvas
             _cameraDirShadowLights.clear();
 
             const auto& actions = layerComposition->renderActions();
+
+            // Directional cascades are fit for ONE designated camera per frame.
+            // Each light owns a single shadow atlas and matrix palette, so
+            // fitting per camera makes the fits overwrite each other and every
+            // camera except the last-fitted one samples the atlas with
+            // mismatched matrices — shadows swim/flicker as the fits diverge
+            // (planar-reflection cameras are mirrored below the ground and
+            // produce wildly different fits). Designate the presentation
+            // camera: the last unique camera that renders to the backbuffer
+            // (null render target); fall back to the last camera seen.
+            Camera* shadowFitCamera = nullptr;
+            Camera* lastCamera = nullptr;
+            for (const auto* action : actions) {
+                if (action && action->camera) {
+                    if (Camera* cam = action->camera->camera()) {
+                        lastCamera = cam;
+                        if (!cam->renderTarget()) {
+                            shadowFitCamera = cam;
+                        }
+                    }
+                }
+            }
+            if (!shadowFitCamera) {
+                shadowFitCamera = lastCamera;
+            }
+
             std::unordered_set<Camera*> culledCameras;
             for (const auto* action : actions) {
                 if (action && action->camera) {
                     Camera* cam = action->camera->camera();
                     if (cam && culledCameras.insert(cam).second) {
-                        cullShadowmaps(cam);
+                        if (cam == shadowFitCamera) {
+                            cullShadowmaps(cam);
+                        }
                         dispatchGpuInstanceCulling(cam);
                     }
                 }
