@@ -48,6 +48,11 @@ namespace visutwin::canvas
             int  height   = 0;
             int  channels = 0;
             bool isHdr    = false;
+
+            /// Compressed (KTX2-transcoded) path: block data per mip level.
+            bool isCompressed = false;
+            uint32_t compressedFormat = 0;     ///< PixelFormat enum value.
+            std::vector<std::vector<uint8_t>> compressedLevels;
         };
 
         std::optional<PixelData> pixelData;

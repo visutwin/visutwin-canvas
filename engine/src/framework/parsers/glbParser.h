@@ -39,6 +39,12 @@ namespace visutwin::canvas
             int width  = 0;
             int height = 0;
             bool valid = false;                ///< True if conversion succeeded.
+
+            /// KHR_texture_basisu: KTX2 payload transcoded to a block-compressed
+            /// format on the background thread (rgbaPixels stays empty).
+            bool isCompressed = false;
+            uint32_t compressedFormat = 0;     ///< PixelFormat enum value.
+            std::vector<std::vector<uint8_t>> compressedLevels;
         };
 
         /// Pre-built vertex/index byte buffers for one mesh primitive.

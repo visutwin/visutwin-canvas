@@ -14,6 +14,7 @@
 #include <tiny_gltf.h>
 
 #include "framework/parsers/glbParser.h"
+#include "framework/parsers/texture/ktx2Transcoder.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
 
@@ -183,12 +184,46 @@ namespace visutwin::canvas
 
         const bool isHdr = url.size() >= 4 &&
             url.compare(url.size() - 4, 4, ".hdr") == 0;
+        const bool isKtx2 = url.size() >= 5 &&
+            url.compare(url.size() - 5, 5, ".ktx2") == 0;
 
         auto result = std::make_unique<LoadedData>();
         result->url = url;
 
         LoadedData::PixelData pd;
         pd.isHdr = isHdr;
+
+        if (isKtx2) {
+            // ── KTX2 path: transcode Basis Universal to a GPU compressed format
+            //    (ASTC 4x4 on Apple GPUs) on this background thread. ──
+            std::ifstream file(url, std::ios::binary | std::ios::ate);
+            if (!file) {
+                spdlog::error("TextureResourceHandler: cannot open '{}'", url);
+                return nullptr;
+            }
+            const auto size = file.tellg();
+            file.seekg(0);
+            std::vector<uint8_t> bytes(static_cast<size_t>(size));
+            file.read(reinterpret_cast<char*>(bytes.data()), size);
+            if (!file) {
+                spdlog::error("TextureResourceHandler: read error for '{}'", url);
+                return nullptr;
+            }
+
+            auto transcoded = Ktx2Transcoder::transcode(bytes.data(), bytes.size(), url);
+            if (!transcoded.valid) {
+                return nullptr;
+            }
+            pd.isCompressed = true;
+            pd.compressedFormat = static_cast<uint32_t>(transcoded.format);
+            pd.compressedLevels = std::move(transcoded.levels);
+            pd.width = static_cast<int>(transcoded.width);
+            pd.height = static_cast<int>(transcoded.height);
+            pd.channels = transcoded.hasAlpha ? 4 : 3;
+
+            result->pixelData = std::move(pd);
+            return result;
+        }
 
         if (isHdr) {
             // ── HDR path: decode to RGBA32F ──

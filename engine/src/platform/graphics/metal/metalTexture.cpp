@@ -38,6 +38,16 @@ namespace visutwin::canvas::gpu
                 return MTL::PixelFormatDepth32Float;
             case PixelFormat::PIXELFORMAT_DEPTHSTENCIL:
                 return MTL::PixelFormatDepth32Float_Stencil8;
+            // Block-compressed formats. Non-sRGB variants: the engine's shaders
+            // linearize LDR texture samples themselves (matching the RGBA8Unorm path).
+            case PixelFormat::PIXELFORMAT_ASTC_4x4:
+                return MTL::PixelFormatASTC_4x4_LDR;
+            case PixelFormat::PIXELFORMAT_BC7:
+                return MTL::PixelFormatBC7_RGBAUnorm;
+            case PixelFormat::PIXELFORMAT_DXT1:
+                return MTL::PixelFormatBC1_RGBA;
+            case PixelFormat::PIXELFORMAT_DXT5:
+                return MTL::PixelFormatBC3_RGBA;
             default:
                 return MTL::PixelFormatRGBA8Unorm;
             }
@@ -100,9 +110,16 @@ namespace visutwin::canvas::gpu
         _descriptor->setWidth(_texture->width());
         _descriptor->setHeight(_texture->height());
         _descriptor->setMipmapLevelCount(std::max(1u, _texture->getNumLevels()));
-        MTL::TextureUsage usage = MTL::TextureUsageShaderRead | MTL::TextureUsageRenderTarget;
-        if (_texture->storage()) {
-            usage = usage | MTL::TextureUsageShaderWrite;
+        // Compressed formats are sample-only — Metal validation rejects
+        // RenderTarget/ShaderWrite usage on block-compressed pixel formats.
+        MTL::TextureUsage usage;
+        if (isCompressedPixelFormat(_texture->format())) {
+            usage = MTL::TextureUsageShaderRead;
+        } else {
+            usage = MTL::TextureUsageShaderRead | MTL::TextureUsageRenderTarget;
+            if (_texture->storage()) {
+                usage = usage | MTL::TextureUsageShaderWrite;
+            }
         }
         _descriptor->setUsage(usage);
         _descriptor->setStorageMode(MTL::StorageModeShared);
@@ -226,7 +243,8 @@ namespace visutwin::canvas::gpu
         const uint32_t descriptorMipLevels = std::max(1u, static_cast<uint32_t>(_descriptor->mipmapLevelCount()));
         const bool onlyLevel0Present = anyUploads && anyLevelMissing && _texture->getLevel(0) != nullptr;
         const bool mipChainAllocated = descriptorMipLevels > 1;
-        if (mipChainAllocated && onlyLevel0Present) {
+        // Compressed textures can't be blit-filtered — their mips come from the file.
+        if (mipChainAllocated && onlyLevel0Present && !isCompressedPixelFormat(_texture->format())) {
             auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(device);
             if (metalDevice) {
                 auto* queue = metalDevice->commandQueue();
@@ -257,16 +275,33 @@ namespace visutwin::canvas::gpu
 
         const auto mipWidth = std::max(1u, static_cast<uint32_t>(_descriptor->width()) >> mipLevel);
         const auto mipHeight = std::max(1u, static_cast<uint32_t>(_descriptor->height()) >> mipLevel);
+
+        const MTL::Region region = MTL::Region(0, 0, 0, mipWidth, mipHeight, 1);
+        // For cubemaps, 'index' is the face/slice index (0-5)
+        const NS::UInteger slice = _texture->isCubemap() ? index : 0;
+
+        // Block-compressed upload: bytesPerRow spans a row of 4x4 blocks.
+        if (const uint32_t blockSize = compressedPixelFormatBlockSize(_texture->format());
+            blockSize > 0) {
+            const uint32_t blocksWide = (mipWidth + 3u) / 4u;
+            const uint32_t blocksHigh = (mipHeight + 3u) / 4u;
+            const size_t expectedSize = static_cast<size_t>(blocksWide) * blocksHigh * blockSize;
+            if (imageDataSize > 0 && imageDataSize < expectedSize) {
+                spdlog::warn("Compressed texture upload skipped: level data size {} < expected {}",
+                    imageDataSize, expectedSize);
+                return;
+            }
+            const NS::UInteger bytesPerRow = static_cast<NS::UInteger>(blocksWide) * blockSize;
+            _metalTexture->replaceRegion(region, mipLevel, slice, imageData, bytesPerRow, 0);
+            return;
+        }
+
         const auto bpp = bytesPerPixel(_texture->format());
         const auto expectedSize = static_cast<size_t>(mipWidth) * static_cast<size_t>(mipHeight) * bpp;
         if (imageDataSize > 0 && imageDataSize < expectedSize) {
             spdlog::warn("Texture upload skipped: level data size {} smaller than expected {}", imageDataSize, expectedSize);
             return;
         }
-
-        const MTL::Region region = MTL::Region(0, 0, 0, mipWidth, mipHeight, 1);
-        // For cubemaps, 'index' is the face/slice index (0-5)
-        const NS::UInteger slice = _texture->isCubemap() ? index : 0;
 
         if (_texture->format() == PixelFormat::PIXELFORMAT_RGB8) {
             // Metal does not expose a 24-bit RGB8 texture format for sampling.

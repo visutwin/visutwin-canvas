@@ -5,12 +5,15 @@
 //
 #include "asset.h"
 
+#include <fstream>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "framework/handlers/resourceLoader.h"
 #include "framework/parsers/assimpParser.h"
 #include "framework/parsers/glbParser.h"
 #include "framework/parsers/objParser.h"
 #include "framework/parsers/stlParser.h"
+#include "framework/parsers/texture/ktx2Transcoder.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
 
@@ -108,8 +111,47 @@ namespace visutwin::canvas
 
                 const bool isHdr = _file.size() >= 4 &&
                     _file.compare(_file.size() - 4, 4, ".hdr") == 0;
+                const bool isKtx2 = _file.size() >= 5 &&
+                    _file.compare(_file.size() - 5, 5, ".ktx2") == 0;
 
-                if (isHdr) {
+                if (isKtx2) {
+                    // KTX2 path: transcode Basis Universal to a GPU compressed format.
+                    std::ifstream ktxFile(_file, std::ios::binary | std::ios::ate);
+                    if (!ktxFile) {
+                        spdlog::error("Cannot open KTX2 texture asset '{}' from '{}'", _name, _file);
+                        return std::nullopt;
+                    }
+                    const auto fileSize = ktxFile.tellg();
+                    ktxFile.seekg(0);
+                    std::vector<uint8_t> ktxBytes(static_cast<size_t>(fileSize));
+                    ktxFile.read(reinterpret_cast<char*>(ktxBytes.data()), fileSize);
+
+                    auto transcoded = Ktx2Transcoder::transcode(ktxBytes.data(), ktxBytes.size(), _file);
+                    if (!transcoded.valid) {
+                        spdlog::error("Failed to transcode KTX2 texture asset '{}' from '{}'", _name, _file);
+                        return std::nullopt;
+                    }
+
+                    TextureOptions options;
+                    options.width = transcoded.width;
+                    options.height = transcoded.height;
+                    options.format = transcoded.format;
+                    options.mipmaps = transcoded.levels.size() > 1;
+                    options.numLevels = static_cast<uint32_t>(transcoded.levels.size());
+                    options.name = _name;
+
+                    auto* texture = new Texture(graphicsDevice.get(), options);
+                    texture->setEncoding(TextureEncoding::Default);
+                    for (size_t level = 0; level < transcoded.levels.size(); ++level) {
+                        texture->setLevelData(static_cast<uint32_t>(level),
+                            transcoded.levels[level].data(), transcoded.levels[level].size());
+                    }
+                    texture->upload();
+
+                    spdlog::info("Loaded KTX2 texture '{}': {}x{} ({} mips, compressed)",
+                        _name, transcoded.width, transcoded.height, transcoded.levels.size());
+                    _resources.push_back(texture);
+                } else if (isHdr) {
                     // HDR path: load as floating-point data
                     float* hdrPixels = stbi_loadf(_file.c_str(), &width, &height, &channels, 0);
                     if (!hdrPixels || width <= 0 || height <= 0) {
@@ -272,10 +314,18 @@ namespace visutwin::canvas
                     TextureOptions options;
                     options.width    = static_cast<uint32_t>(pd.width);
                     options.height   = static_cast<uint32_t>(pd.height);
-                    options.format   = pd.isHdr ? PixelFormat::PIXELFORMAT_RGBA32F
-                                                : PixelFormat::PIXELFORMAT_RGBA8;
-                    options.mipmaps  = data.mipmaps;
-                    options.numLevels = data.mipmaps ? 0 : 1;
+                    if (pd.isCompressed) {
+                        // KTX2-transcoded block-compressed data: mip chain comes
+                        // from the file — no GPU mip generation.
+                        options.format = static_cast<PixelFormat>(pd.compressedFormat);
+                        options.mipmaps = pd.compressedLevels.size() > 1;
+                        options.numLevels = static_cast<uint32_t>(pd.compressedLevels.size());
+                    } else {
+                        options.format   = pd.isHdr ? PixelFormat::PIXELFORMAT_RGBA32F
+                                                    : PixelFormat::PIXELFORMAT_RGBA8;
+                        options.mipmaps  = data.mipmaps;
+                        options.numLevels = data.mipmaps ? 0 : 1;
+                    }
                     options.name     = name;
 
                     auto* texture = new Texture(device.get(), options);
@@ -287,7 +337,13 @@ namespace visutwin::canvas
                         texture->setEncoding(TextureEncoding::Default);
                     }
 
-                    if (pd.isHdr) {
+                    if (pd.isCompressed) {
+                        for (size_t level = 0; level < pd.compressedLevels.size(); ++level) {
+                            texture->setLevelData(static_cast<uint32_t>(level),
+                                pd.compressedLevels[level].data(),
+                                pd.compressedLevels[level].size());
+                        }
+                    } else if (pd.isHdr) {
                         texture->setLevelData(0,
                             reinterpret_cast<const uint8_t*>(pd.hdrPixels.data()),
                             pd.hdrPixels.size() * sizeof(float));
@@ -296,8 +352,8 @@ namespace visutwin::canvas
                     }
                     texture->upload();
 
-                    spdlog::info("Asset::loadAsync texture '{}' GPU upload done {}x{}",
-                        name, pd.width, pd.height);
+                    spdlog::info("Asset::loadAsync texture '{}' GPU upload done {}x{}{}",
+                        name, pd.width, pd.height, pd.isCompressed ? " (compressed)" : "");
 
                     self->_resources.push_back(texture);
                     self->finishLoad(Resource(texture));

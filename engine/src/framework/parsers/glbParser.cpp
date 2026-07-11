@@ -31,6 +31,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/texture.h"
 #include "platform/graphics/vertexFormat.h"
+#include "framework/parsers/texture/ktx2Transcoder.h"
 #include "scene/materials/standardMaterial.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
@@ -158,6 +159,18 @@ namespace visutwin::canvas
             return false;
         }
 
+        // KTX2 (KHR_texture_basisu): keep the raw supercompressed bytes verbatim —
+        // they are transcoded to a GPU block-compressed format at texture creation.
+        if (Ktx2Transcoder::isKtx2(bytes, static_cast<size_t>(size))) {
+            image->width = 0;
+            image->height = 0;
+            image->component = 0;
+            image->bits = 8;
+            image->pixel_type = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+            image->image.assign(bytes, bytes + size);
+            return true;
+        }
+
         int width = 0;
         int height = 0;
         int components = 0;
@@ -165,7 +178,7 @@ namespace visutwin::canvas
         stbi_set_flip_vertically_on_load_thread(true);
         stbi_uc* decoded = stbi_load_from_memory(bytes, size, &width, &height, &components, 0);
         if (!decoded) {
-            // Unsupported image format (e.g. KTX2, Basis).
+            // Unsupported image format (e.g. Basis .basis payloads).
             // Generate a 1x1 magenta placeholder so the model geometry still loads.
             const char* reason = stbi_failure_reason();
             spdlog::warn("GLB image #{}: stb_image cannot decode ({}), mimeType={} — using placeholder",
@@ -1051,6 +1064,42 @@ namespace visutwin::canvas
             return true;
         }
 
+        /// True when a glTF image holds raw KTX2 bytes (stored verbatim by loadImageData
+        /// for KHR_texture_basisu payloads).
+        bool imageHoldsKtx2(const tinygltf::Image& image)
+        {
+            return Ktx2Transcoder::isKtx2(image.image.data(), image.image.size());
+        }
+
+        /// Create a block-compressed Texture from raw KTX2 bytes (KHR_texture_basisu).
+        /// Returns nullptr on transcode failure. The caller applies sampler state + upload().
+        std::shared_ptr<Texture> createTextureFromKtx2(const std::vector<uint8_t>& ktx2Bytes,
+            const std::string& name, const std::shared_ptr<GraphicsDevice>& device)
+        {
+            auto transcoded = Ktx2Transcoder::transcode(ktx2Bytes.data(), ktx2Bytes.size(), name);
+            if (!transcoded.valid) {
+                return nullptr;
+            }
+
+            TextureOptions options;
+            options.width = transcoded.width;
+            options.height = transcoded.height;
+            options.format = transcoded.format;
+            options.mipmaps = transcoded.levels.size() > 1;
+            options.numLevels = static_cast<uint32_t>(transcoded.levels.size());
+            options.minFilter = options.mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR
+                                                : FilterMode::FILTER_LINEAR;
+            options.magFilter = FilterMode::FILTER_LINEAR;
+            options.name = name;
+
+            auto texture = std::make_shared<Texture>(device.get(), options);
+            for (size_t level = 0; level < transcoded.levels.size(); ++level) {
+                texture->setLevelData(static_cast<uint32_t>(level),
+                    transcoded.levels[level].data(), transcoded.levels[level].size());
+            }
+            return texture;
+        }
+
         void decomposeNodeMatrix(const std::vector<double>& matrix, Vector3& outT, Quaternion& outR, Vector3& outS)
         {
             if (matrix.size() != 16) {
@@ -1309,29 +1358,40 @@ namespace visutwin::canvas
             }
 
             const auto& srcImage = model.images[static_cast<size_t>(imageSource)];
-            std::vector<uint8_t> rgbaPixels;
-            if (!buildRgba8Image(srcImage, rgbaPixels)) {
-                spdlog::warn("glTF image '{}' unsupported format (bits={}, components={}, pixelType={})",
-                    srcImage.name, srcImage.bits, srcImage.component, srcImage.pixel_type);
-                return nullptr;
+            const std::string textureName = srcImage.name.empty() ? srcTexture.name : srcImage.name;
+
+            std::shared_ptr<Texture> texture;
+            if (imageHoldsKtx2(srcImage)) {
+                // KHR_texture_basisu: transcode KTX2 to a GPU compressed format.
+                texture = createTextureFromKtx2(srcImage.image, textureName, device);
+                if (!texture) {
+                    return nullptr;
+                }
+            } else {
+                std::vector<uint8_t> rgbaPixels;
+                if (!buildRgba8Image(srcImage, rgbaPixels)) {
+                    spdlog::warn("glTF image '{}' unsupported format (bits={}, components={}, pixelType={})",
+                        srcImage.name, srcImage.bits, srcImage.component, srcImage.pixel_type);
+                    return nullptr;
+                }
+
+                TextureOptions options;
+                options.width = static_cast<uint32_t>(srcImage.width);
+                options.height = static_cast<uint32_t>(srcImage.height);
+                options.format = PixelFormat::PIXELFORMAT_RGBA8;
+                // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
+                // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
+                // sampling can't minify ground/wall textures at glancing angles and we get radial
+                // streak aliasing from the viewer's nadir point.
+                options.mipmaps = true;
+                options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
+                options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
+                options.magFilter = FilterMode::FILTER_LINEAR;
+                options.name = textureName;
+
+                texture = std::make_shared<Texture>(device.get(), options);
+                texture->setLevelData(0, rgbaPixels.data(), rgbaPixels.size());
             }
-
-            TextureOptions options;
-            options.width = static_cast<uint32_t>(srcImage.width);
-            options.height = static_cast<uint32_t>(srcImage.height);
-            options.format = PixelFormat::PIXELFORMAT_RGBA8;
-            // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
-            // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
-            // sampling can't minify ground/wall textures at glancing angles and we get radial
-            // streak aliasing from the viewer's nadir point.
-            options.mipmaps = true;
-            options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
-            options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
-            options.magFilter = FilterMode::FILTER_LINEAR;
-            options.name = srcImage.name.empty() ? srcTexture.name : srcImage.name;
-
-            auto texture = std::make_shared<Texture>(device.get(), options);
-            texture->setLevelData(0, rgbaPixels.data(), rgbaPixels.size());
 
             if (srcTexture.sampler >= 0 && srcTexture.sampler < static_cast<int>(model.samplers.size())) {
                 const auto& sampler = model.samplers[static_cast<size_t>(srcTexture.sampler)];
@@ -2278,25 +2338,34 @@ namespace visutwin::canvas
             if (imageSource < 0 || imageSource >= static_cast<int>(model.images.size())) return nullptr;
 
             const auto& srcImage = model.images[static_cast<size_t>(imageSource)];
-            std::vector<uint8_t> rgbaPixels;
-            if (!buildRgba8Image(srcImage, rgbaPixels)) return nullptr;
+            const std::string textureName = srcImage.name.empty() ? srcTexture.name : srcImage.name;
 
-            TextureOptions options;
-            options.width = static_cast<uint32_t>(srcImage.width);
-            options.height = static_cast<uint32_t>(srcImage.height);
-            options.format = PixelFormat::PIXELFORMAT_RGBA8;
-            // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
-            // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
-            // sampling can't minify ground/wall textures at glancing angles and we get radial
-            // streak aliasing from the viewer's nadir point.
-            options.mipmaps = true;
-            options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
-            options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
-            options.magFilter = FilterMode::FILTER_LINEAR;
-            options.name = srcImage.name.empty() ? srcTexture.name : srcImage.name;
+            std::shared_ptr<Texture> texture;
+            if (imageHoldsKtx2(srcImage)) {
+                // KHR_texture_basisu: transcode KTX2 to a GPU compressed format.
+                texture = createTextureFromKtx2(srcImage.image, textureName, device);
+                if (!texture) return nullptr;
+            } else {
+                std::vector<uint8_t> rgbaPixels;
+                if (!buildRgba8Image(srcImage, rgbaPixels)) return nullptr;
 
-            auto texture = std::make_shared<Texture>(device.get(), options);
-            texture->setLevelData(0, rgbaPixels.data(), rgbaPixels.size());
+                TextureOptions options;
+                options.width = static_cast<uint32_t>(srcImage.width);
+                options.height = static_cast<uint32_t>(srcImage.height);
+                options.format = PixelFormat::PIXELFORMAT_RGBA8;
+                // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
+                // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
+                // sampling can't minify ground/wall textures at glancing angles and we get radial
+                // streak aliasing from the viewer's nadir point.
+                options.mipmaps = true;
+                options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
+                options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
+                options.magFilter = FilterMode::FILTER_LINEAR;
+                options.name = textureName;
+
+                texture = std::make_shared<Texture>(device.get(), options);
+                texture->setLevelData(0, rgbaPixels.data(), rgbaPixels.size());
+            }
 
             if (srcTexture.sampler >= 0 && srcTexture.sampler < static_cast<int>(model.samplers.size())) {
                 const auto& sampler = model.samplers[static_cast<size_t>(srcTexture.sampler)];
@@ -2576,6 +2645,20 @@ namespace visutwin::canvas
         for (size_t i = 0; i < model.images.size(); ++i) {
             auto& img = result.images[i];
             const auto& srcImage = model.images[i];
+            if (imageHoldsKtx2(srcImage)) {
+                // KHR_texture_basisu: transcode on this background thread.
+                auto transcoded = Ktx2Transcoder::transcode(srcImage.image.data(),
+                    srcImage.image.size(), srcImage.name.empty() ? "ktx2" : srcImage.name);
+                if (transcoded.valid) {
+                    img.isCompressed = true;
+                    img.compressedFormat = static_cast<uint32_t>(transcoded.format);
+                    img.compressedLevels = std::move(transcoded.levels);
+                    img.width = static_cast<int>(transcoded.width);
+                    img.height = static_cast<int>(transcoded.height);
+                    img.valid = true;
+                }
+                continue;
+            }
             img.valid = buildRgba8Image(srcImage, img.rgbaPixels);
             if (img.valid) {
                 img.width  = srcImage.width;
@@ -2769,30 +2852,47 @@ namespace visutwin::canvas
             }
 
             const auto& prepImg = prepared.images[static_cast<size_t>(imageSource)];
-            if (!prepImg.valid || prepImg.rgbaPixels.empty()) {
+            if (!prepImg.valid || (prepImg.rgbaPixels.empty() && !prepImg.isCompressed)) {
                 spdlog::warn("    getOrCreateTexture({}): image {} not valid (valid={}, pixels={})",
                     textureIndex, imageSource, prepImg.valid, prepImg.rgbaPixels.size());
                 return nullptr;
             }
 
+            const auto& srcImage = model.images[static_cast<size_t>(imageSource)];
+
             TextureOptions options;
             options.width  = static_cast<uint32_t>(prepImg.width);
             options.height = static_cast<uint32_t>(prepImg.height);
-            options.format = PixelFormat::PIXELFORMAT_RGBA8;
-            // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
-            // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
-            // sampling can't minify ground/wall textures at glancing angles and we get radial
-            // streak aliasing from the viewer's nadir point.
-            options.mipmaps = true;
-            options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
-            options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
+            if (prepImg.isCompressed) {
+                // KHR_texture_basisu: pre-transcoded block-compressed levels.
+                options.format = static_cast<PixelFormat>(prepImg.compressedFormat);
+                options.mipmaps = prepImg.compressedLevels.size() > 1;
+                options.numLevels = static_cast<uint32_t>(prepImg.compressedLevels.size());
+                options.minFilter = options.mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR
+                                                    : FilterMode::FILTER_LINEAR;
+            } else {
+                options.format = PixelFormat::PIXELFORMAT_RGBA8;
+                // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
+                // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
+                // sampling can't minify ground/wall textures at glancing angles and we get radial
+                // streak aliasing from the viewer's nadir point.
+                options.mipmaps = true;
+                options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
+                options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
+            }
             options.magFilter = FilterMode::FILTER_LINEAR;
-
-            const auto& srcImage = model.images[static_cast<size_t>(imageSource)];
             options.name = srcImage.name.empty() ? srcTexture.name : srcImage.name;
 
             auto texture = std::make_shared<Texture>(device.get(), options);
-            texture->setLevelData(0, prepImg.rgbaPixels.data(), prepImg.rgbaPixels.size());
+            if (prepImg.isCompressed) {
+                for (size_t level = 0; level < prepImg.compressedLevels.size(); ++level) {
+                    texture->setLevelData(static_cast<uint32_t>(level),
+                        prepImg.compressedLevels[level].data(),
+                        prepImg.compressedLevels[level].size());
+                }
+            } else {
+                texture->setLevelData(0, prepImg.rgbaPixels.data(), prepImg.rgbaPixels.size());
+            }
 
             if (srcTexture.sampler >= 0 && srcTexture.sampler < static_cast<int>(model.samplers.size())) {
                 const auto& sampler = model.samplers[static_cast<size_t>(srcTexture.sampler)];

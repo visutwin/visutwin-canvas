@@ -55,10 +55,12 @@ const auto helipad = std::make_unique<Asset>(
     }
 );
 
+// KTX2 (Basis Universal UASTC) — transcoded to ASTC 4x4 at load time, exercising
+// the compressed-texture pipeline (checkboard.png remains as the uncompressed source).
 const auto checkerboard = std::make_unique<Asset>(
     "checkerboard",
     AssetType::TEXTURE,
-    rootPath + "/textures/checkboard.png"
+    rootPath + "/textures/checkboard.ktx2"
 );
 
 void setLookAt(Entity* camera, const Vector3& target)

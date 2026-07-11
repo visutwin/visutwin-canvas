@@ -32,13 +32,17 @@ namespace visutwin::canvas
     enum class PixelFormat : uint32_t {
         PIXELFORMAT_RGB8 = 6,           // 24-bit RGB (8-bits for a red channel, 8 for green and 8 for blue)
         PIXELFORMAT_RGBA8 = 7,          // 32-bit RGBA (8-bits for a red channel, 8 for green, 8 for blue with 8-bit alpha)
+        PIXELFORMAT_DXT1 = 8,           // Block-compressed BC1: 4x4 blocks, 8 bytes/block (RGB + 1-bit alpha)
+        PIXELFORMAT_DXT5 = 10,          // Block-compressed BC3: 4x4 blocks, 16 bytes/block (RGBA)
         PIXELFORMAT_RGBA16F = 12,       // 16-bit floating point RGBA (16-bit float for each red, green, blue and alpha channel)
         PIXELFORMAT_RGBA32F = 14,       // 32-bit floating point RGBA (32-bit float for each red, green, blue and alpha channel)
         PIXELFORMAT_R32F = 15,          // 32-bit floating point single channel format
         PIXELFORMAT_DEPTHSTENCIL = 19,  // A readable depth/stencil buffer format
         PIXELFORMAT_DEPTH = 16,         // A readable depth buffer format
+        PIXELFORMAT_ASTC_4x4 = 28,      // Block-compressed ASTC 4x4: 16 bytes/block (RGBA) — native on Apple GPUs
         PIXELFORMAT_R8 = 52,            // 8-bit per-channel (R) format
         PIXELFORMAT_RG8 = 53,           // 8-bit per-channel (RG) format
+        PIXELFORMAT_BC7 = 67,           // Block-compressed BC7: 4x4 blocks, 16 bytes/block (high-quality RGBA)
         PIXELFORMAT_DEPTH16 = 69        // A 16-bit depth buffer format
     };
 
@@ -84,4 +88,7 @@ namespace visutwin::canvas
     bool isCompressedPixelFormat(PixelFormat format);
 
     bool isIntegerPixelFormat(PixelFormat format);
+
+    /// Bytes per 4x4 block for compressed formats (0 for uncompressed).
+    uint32_t compressedPixelFormatBlockSize(PixelFormat format);
 }

@@ -28,6 +28,11 @@ namespace visutwin::canvas
         { PixelFormat::PIXELFORMAT_DEPTH, { .size = 4 } },
         { PixelFormat::PIXELFORMAT_R8, { .size = 1 } },
         { PixelFormat::PIXELFORMAT_RG8, { .size = 2 } },
+        // Block-compressed formats (4x4 blocks; blockSize = bytes per block).
+        { PixelFormat::PIXELFORMAT_DXT1, { .size = 0, .blockSize = 8 } },
+        { PixelFormat::PIXELFORMAT_DXT5, { .size = 0, .blockSize = 16 } },
+        { PixelFormat::PIXELFORMAT_ASTC_4x4, { .size = 0, .blockSize = 16 } },
+        { PixelFormat::PIXELFORMAT_BC7, { .size = 0, .blockSize = 16 } },
     };
 
     bool isCompressedPixelFormat(const PixelFormat format)
@@ -38,5 +43,10 @@ namespace visutwin::canvas
     bool isIntegerPixelFormat(const PixelFormat format) {
         return pixelFormatInfo[format].isInt == true;
     };
+
+    uint32_t compressedPixelFormatBlockSize(const PixelFormat format)
+    {
+        return pixelFormatInfo[format].blockSize;
+    }
 
 }

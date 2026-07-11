@@ -39,6 +39,7 @@ find_package(Stb MODULE REQUIRED)
 set(STB_INCLUDE_DIR "${Stb_INCLUDE_DIR}" CACHE INTERNAL "Path to the vcpkg stb headers")
 
 find_package(assimp        CONFIG REQUIRED)
+find_package(basisu        CONFIG REQUIRED)
 
 find_package(imgui          CONFIG REQUIRED)
 find_package(implot         CONFIG REQUIRED)
@@ -143,6 +144,7 @@ target_link_libraries(visutwin-canvas
         draco::draco
         Boost::core
         assimp::assimp
+        basisu::basisu_encoder
         imgui::imgui
         implot::implot
 )
