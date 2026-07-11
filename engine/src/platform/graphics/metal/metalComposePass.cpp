@@ -69,6 +69,29 @@ struct ComposeUniforms {
     float vignetteColorR;
     float vignetteColorG;
     float vignetteColorB;
+    // Fringing (chromatic aberration)
+    float fringingIntensity;
+    // Color grading (pre-tonemap)
+    uint gradingEnabled;
+    float gradingBrightness;
+    float gradingContrast;
+    float gradingSaturation;
+    float gradingTintR;
+    float gradingTintG;
+    float gradingTintB;
+    // Color enhance (pre-tonemap)
+    uint colorEnhanceEnabled;
+    float ceShadows;
+    float ceHighlights;
+    float ceVibrance;
+    float ceDehaze;
+    float ceMidtones;
+    // 3D color LUT (post-tonemap)
+    uint lutEnabled;
+    uint lut2Enabled;
+    float lutIntensity1;
+    float lutIntensity2;
+    float lutBlend;
 };
 
 float3 toneMapLinear(float3 color, float exposure) {
@@ -182,6 +205,125 @@ vertex ComposeVarying composeVertex(ComposeVertexIn in [[stage_in]])
     return out;
 }
 
+// Fringing (chromatic aberration): shift red/blue by distance-squared from center
+// (upstream compose-fringing.js).
+float3 applyFringing(float3 color, float2 uv, float intensity,
+                     texture2d<float> sceneTexture, sampler s) {
+    float2 centerDistance = uv - 0.5;
+    float2 offset = intensity * centerDistance * centerDistance;
+    color.r = sceneTexture.sample(s, uv - offset).r;
+    color.b = sceneTexture.sample(s, uv + offset).b;
+    return color;
+}
+
+// HDR color grading (upstream compose-grading.js); 1.0 = no change for all parameters.
+float3 applyGrading(float3 color, float brt, float sat, float con, float3 tint) {
+    color *= tint;
+    color = color * brt;
+    float grey = dot(color, float3(0.3, 0.59, 0.11));
+    grey = grey / max(1.0, max(color.r, max(color.g, color.b)));  // normalize luminance in HDR
+    color = mix(float3(grey), color, sat);
+    return mix(float3(0.5), color, con);
+}
+
+// Color enhance (upstream compose-color-enhance.js): shadows/highlights, midtones,
+// vibrance and dark-channel dehaze — all in HDR before tonemapping.
+float3 applyColorEnhance(float3 color, float shadows, float highlights,
+                         float vibrance, float dehaze, float midtones) {
+    float lum = dot(color, float3(0.2126, 0.7152, 0.0722));
+
+    // Shadows/Highlights: exponential curve, pow(2, param) = ±1 stop at ±1
+    if (shadows != 0.0 || highlights != 0.0) {
+        float logLum = clamp(log2(max(lum, 0.001)) / 10.0 + 0.5, 0.0, 1.0);
+        float shadowWeight = pow(1.0 - logLum, 2.0);
+        float highlightWeight = pow(logLum, 2.0);
+        color *= pow(2.0, shadows * shadowWeight);
+        color *= pow(2.0, highlights * highlightWeight);
+    }
+
+    // Midtones: localized exposure in log-luminance space
+    if (midtones != 0.0) {
+        const float pivot = 0.18;
+        const float widthStops = 1.25;
+        const float maxStops = 2.0;
+        float y = max(dot(color, float3(0.2126, 0.7152, 0.0722)), 1e-6);
+        float d = log2(y / pivot);
+        float w = exp(-(d * d) / (2.0 * widthStops * widthStops));
+        color *= exp2(midtones * maxStops * w);
+    }
+
+    // Vibrance: boost saturation of muted colors only
+    if (vibrance != 0.0) {
+        float minChannel = min(color.r, min(color.g, color.b));
+        float maxChannel = max(color.r, max(color.g, color.b));
+        float sat = (maxChannel - minChannel) / max(maxChannel, 0.001);
+        lum = dot(color, float3(0.2126, 0.7152, 0.0722));
+        float normalizedLum = lum / max(1.0, maxChannel);
+        float3 grey = float3(normalizedLum) * maxChannel;
+        float satBoost = vibrance * (1.0 - sat);
+        color = mix(grey, color, 1.0 + satBoost);
+    }
+
+    // Dehaze: dark channel prior — haze lifts the minimum RGB channel
+    if (dehaze != 0.0) {
+        float maxChannel = max(color.r, max(color.g, color.b));
+        float scale = max(1.0, maxChannel);
+        float3 normalized = color / scale;
+        float darkChannel = min(normalized.r, min(normalized.g, normalized.b));
+        const float atmosphericLight = 0.95;
+        float t = max(1.0 - dehaze * darkChannel / atmosphericLight, 0.1);
+        float3 dehazed = (normalized - atmosphericLight) / t + atmosphericLight;
+        color = dehazed * scale;
+    }
+
+    return max(float3(0.0), color);
+}
+
+// 3D color LUT via a 256x16 "horizontal strip" (unwrapped 16^3, Unreal format) —
+// upstream compose-color-lut.js. Applied post-tonemap: the lookup coordinate is
+// sRGB-encoded; sampled values are sRGB too (DEVIATION: the port loads LUTs as
+// non-sRGB RGBA8, so the sample is decoded to linear here instead of by the sampler).
+float3 sampleColorLUT(texture2d<float> lut, sampler s, float2 uv_l, float2 uv_h, float t) {
+    float3 color_l = lut.sample(s, uv_l, level(0.0)).rgb;
+    float3 color_h = lut.sample(s, uv_h, level(0.0)).rgb;
+    float3 srgb = mix(color_l, color_h, t);
+    return pow(max(srgb, float3(0.0)) + 0.0000001, float3(2.2));
+}
+
+float3 applyColorLUT(float3 color, texture2d<float> lut1, texture2d<float> lut2,
+                     sampler s, uint lut2Enabled, float intensity1, float intensity2,
+                     float blend) {
+    const float LUT_N = 16.0;
+    const float LUT_MAX = LUT_N - 1.0;
+    const float LUT_HALF_PX_X = 0.5 / 256.0;
+    const float LUT_HALF_PX_Y = 0.5 / LUT_N;
+    const float LUT_R_SCALE = LUT_MAX / 256.0;
+    const float LUT_G_SCALE = LUT_MAX / LUT_N;
+    const float LUT_SLICE = 1.0 / LUT_N;
+
+    // Encode linear → sRGB for the lookup coordinate; clamp for HDR inputs.
+    float3 c = clamp(pow(max(color, float3(0.0)) + 0.0000001, float3(1.0 / 2.2)), 0.0, 1.0);
+
+    float cell = c.b * LUT_MAX;
+    float cell_l = floor(cell);
+    float cell_h = ceil(cell);
+    float t = fract(cell);
+
+    float r_offset = LUT_HALF_PX_X + c.r * LUT_R_SCALE;
+    float g_offset = LUT_HALF_PX_Y + c.g * LUT_G_SCALE;
+    float2 uv_l = float2(cell_l * LUT_SLICE + r_offset, g_offset);
+    float2 uv_h = float2(cell_h * LUT_SLICE + r_offset, g_offset);
+
+    float3 lutColor1 = sampleColorLUT(lut1, s, uv_l, uv_h, t);
+    if (lut2Enabled != 0u) {
+        float3 lutColor2 = sampleColorLUT(lut2, s, uv_l, uv_h, t);
+        float w1 = intensity1 * (1.0 - blend);
+        float w2 = intensity2 * blend;
+        return color + (lutColor1 - color) * w1 + (lutColor2 - color) * w2;
+    }
+    return mix(color, lutColor1, intensity1);
+}
+
 // Vignette: darken edges with configurable curvature and inner/outer radii
 float3 applyVignette(float3 color, float2 uv, float inner, float outer,
                      float curvature, float intensity, float3 vigColor) {
@@ -238,7 +380,8 @@ float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
     return mix(sharpColor, blurColor, cocFar);
 }
 
-// Compose pass order: CAS -> SSAO -> DOF -> Bloom -> ToneMap -> Vignette
+// Compose pass order (mirrors upstream compose.js):
+// CAS -> SSAO -> DOF -> Bloom -> Fringing -> ColorEnhance -> Grading -> ToneMap -> ColorLUT -> Vignette
 fragment float4 composeFragment(
     ComposeVarying in [[stage_in]],
     texture2d<float> sceneTexture [[texture(0)]],
@@ -247,6 +390,8 @@ fragment float4 composeFragment(
     texture2d<float> blurTexture [[texture(3)]],
     texture2d<float> ssaoTexture [[texture(4)]],
     depth2d<float> depthTexture [[texture(5)]],
+    texture2d<float> colorLUT [[texture(6)]],
+    texture2d<float> colorLUT2 [[texture(7)]],
     sampler linearSampler [[sampler(0)]],
     constant ComposeUniforms& uniforms [[buffer(5)]])
 {
@@ -285,6 +430,24 @@ fragment float4 composeFragment(
         result += bloomColor * max(uniforms.bloomIntensity, 0.0);
     }
 
+    // 4b. Fringing (chromatic aberration)
+    if (uniforms.fringingIntensity > 0.0) {
+        result = applyFringing(result, uv, uniforms.fringingIntensity, sceneTexture, linearSampler);
+    }
+
+    // 4c. Color enhance (HDR)
+    if (uniforms.colorEnhanceEnabled != 0u) {
+        result = applyColorEnhance(result, uniforms.ceShadows, uniforms.ceHighlights,
+            uniforms.ceVibrance, uniforms.ceDehaze, uniforms.ceMidtones);
+    }
+
+    // 4d. Color grading (HDR)
+    if (uniforms.gradingEnabled != 0u) {
+        result = applyGrading(result, uniforms.gradingBrightness, uniforms.gradingSaturation,
+            uniforms.gradingContrast,
+            float3(uniforms.gradingTintR, uniforms.gradingTintG, uniforms.gradingTintB));
+    }
+
     // 5. Tonemapping (tonemapping dispatch)
     result = max(result, float3(0.0));
     if (uniforms.tonemapMode == 1u) {           // TONEMAP_FILMIC
@@ -301,6 +464,13 @@ fragment float4 composeFragment(
         // no-op
     } else {                                     // TONEMAP_LINEAR (default)
         result = toneMapLinear(result, uniforms.exposure);
+    }
+
+    // 5b. 3D color LUT (post-tonemap)
+    if (uniforms.lutEnabled != 0u && colorLUT.get_width() > 0) {
+        result = applyColorLUT(result, colorLUT, colorLUT2, linearSampler,
+            uniforms.lut2Enabled, uniforms.lutIntensity1, uniforms.lutIntensity2,
+            uniforms.lutBlend);
     }
 
     // 6. Vignette (applied in tonemapped linear space, before gamma)
@@ -434,6 +604,13 @@ fragment float4 composeFragment(
         encoder->setFragmentTexture(blurHw ? blurHw->raw() : nullptr, 3);
         encoder->setFragmentTexture(ssaoHw ? ssaoHw->raw() : nullptr, 4);
         encoder->setFragmentTexture(depthHw ? depthHw->raw() : nullptr, 5);
+
+        // Color LUT strips (LUT2 falls back to LUT1 to keep the slot bound).
+        auto* lutHw = params.colorLUT ? dynamic_cast<gpu::MetalTexture*>(params.colorLUT->impl()) : nullptr;
+        auto* lut2Hw = params.colorLUT2 ? dynamic_cast<gpu::MetalTexture*>(params.colorLUT2->impl()) : lutHw;
+        encoder->setFragmentTexture(lutHw ? lutHw->raw() : nullptr, 6);
+        encoder->setFragmentTexture(lut2Hw ? lut2Hw->raw() : nullptr, 7);
+
         if (defaultSampler) {
             encoder->setFragmentSamplerState(defaultSampler, 0);
         }
@@ -467,6 +644,29 @@ fragment float4 composeFragment(
             float vignetteColorR = 0.0f;
             float vignetteColorG = 0.0f;
             float vignetteColorB = 0.0f;
+            // Fringing
+            float fringingIntensity = 0.0f;
+            // Color grading
+            uint32_t gradingEnabled = 0u;
+            float gradingBrightness = 1.0f;
+            float gradingContrast = 1.0f;
+            float gradingSaturation = 1.0f;
+            float gradingTintR = 1.0f;
+            float gradingTintG = 1.0f;
+            float gradingTintB = 1.0f;
+            // Color enhance
+            uint32_t colorEnhanceEnabled = 0u;
+            float ceShadows = 0.0f;
+            float ceHighlights = 0.0f;
+            float ceVibrance = 0.0f;
+            float ceDehaze = 0.0f;
+            float ceMidtones = 0.0f;
+            // Color LUT
+            uint32_t lutEnabled = 0u;
+            uint32_t lut2Enabled = 0u;
+            float lutIntensity1 = 1.0f;
+            float lutIntensity2 = 1.0f;
+            float lutBlend = 0.0f;
         } uniforms;
         uniforms.dofEnabled = params.dofEnabled ? 1u : 0u;
         uniforms.taaEnabled = params.taaEnabled ? 1u : 0u;
@@ -498,6 +698,27 @@ fragment float4 composeFragment(
         uniforms.vignetteColorR = params.vignetteColor[0];
         uniforms.vignetteColorG = params.vignetteColor[1];
         uniforms.vignetteColorB = params.vignetteColor[2];
+
+        // Fringing / grading / color enhance / color LUT
+        uniforms.fringingIntensity = params.fringingIntensity;
+        uniforms.gradingEnabled = params.gradingEnabled ? 1u : 0u;
+        uniforms.gradingBrightness = params.gradingBrightness;
+        uniforms.gradingContrast = params.gradingContrast;
+        uniforms.gradingSaturation = params.gradingSaturation;
+        uniforms.gradingTintR = params.gradingTint[0];
+        uniforms.gradingTintG = params.gradingTint[1];
+        uniforms.gradingTintB = params.gradingTint[2];
+        uniforms.colorEnhanceEnabled = params.colorEnhanceEnabled ? 1u : 0u;
+        uniforms.ceShadows = params.colorEnhanceShadows;
+        uniforms.ceHighlights = params.colorEnhanceHighlights;
+        uniforms.ceVibrance = params.colorEnhanceVibrance;
+        uniforms.ceDehaze = params.colorEnhanceDehaze;
+        uniforms.ceMidtones = params.colorEnhanceMidtones;
+        uniforms.lutEnabled = params.colorLUT ? 1u : 0u;
+        uniforms.lut2Enabled = params.colorLUT2 ? 1u : 0u;
+        uniforms.lutIntensity1 = params.colorLUTIntensity;
+        uniforms.lutIntensity2 = params.colorLUTIntensity2;
+        uniforms.lutBlend = params.colorLUTBlend;
 
         encoder->setFragmentBytes(&uniforms, sizeof(ComposeUniforms), 5);
         encoder->drawPrimitives(MTL::PrimitiveTypeTriangle, static_cast<NS::UInteger>(0), static_cast<NS::UInteger>(3));

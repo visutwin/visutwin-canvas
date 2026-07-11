@@ -69,6 +69,25 @@ namespace visutwin::canvas
             options.vignetteOuter = rendering.vignetteOuter;
             options.vignetteCurvature = rendering.vignetteCurvature;
             options.vignetteIntensity = rendering.vignetteIntensity;
+
+            options.fringingIntensity = rendering.fringingIntensity;
+            options.gradingEnabled = rendering.gradingEnabled;
+            options.gradingBrightness = rendering.gradingBrightness;
+            options.gradingContrast = rendering.gradingContrast;
+            options.gradingSaturation = rendering.gradingSaturation;
+            options.gradingTint[0] = rendering.gradingTint[0];
+            options.gradingTint[1] = rendering.gradingTint[1];
+            options.gradingTint[2] = rendering.gradingTint[2];
+            options.colorEnhanceShadows = rendering.colorEnhanceShadows;
+            options.colorEnhanceHighlights = rendering.colorEnhanceHighlights;
+            options.colorEnhanceVibrance = rendering.colorEnhanceVibrance;
+            options.colorEnhanceDehaze = rendering.colorEnhanceDehaze;
+            options.colorEnhanceMidtones = rendering.colorEnhanceMidtones;
+            options.colorLUT = rendering.colorLUT;
+            options.colorLUT2 = rendering.colorLUT2;
+            options.colorLUTIntensity = rendering.colorLUTIntensity;
+            options.colorLUTIntensity2 = rendering.colorLUTIntensity2;
+            options.colorLUTBlend = rendering.colorLUTBlend;
         }
 
         _options = sanitizeOptions(options);
@@ -635,6 +654,22 @@ namespace visutwin::canvas
         _composePass->setVignetteOuter(options.vignetteOuter);
         _composePass->setVignetteCurvature(options.vignetteCurvature);
         _composePass->setVignetteIntensity(options.vignetteIntensity);
+
+        // Fringing: user value scaled to shader units (upstream: intensity / 1024).
+        _composePass->setFringingIntensity(options.fringingIntensity / 1024.0f);
+
+        // Color grading + enhance (HDR, pre-tonemap).
+        _composePass->setGradingEnabled(options.gradingEnabled);
+        _composePass->setGradingBrightness(options.gradingBrightness);
+        _composePass->setGradingContrast(options.gradingContrast);
+        _composePass->setGradingSaturation(options.gradingSaturation);
+        _composePass->setGradingTint(options.gradingTint[0], options.gradingTint[1], options.gradingTint[2]);
+        _composePass->setColorEnhance(options.colorEnhanceShadows, options.colorEnhanceHighlights,
+            options.colorEnhanceVibrance, options.colorEnhanceDehaze, options.colorEnhanceMidtones);
+
+        // 3D color LUT (post-tonemap).
+        _composePass->setColorLUT(options.colorLUT, options.colorLUTIntensity);
+        _composePass->setColorLUT2(options.colorLUT2, options.colorLUTIntensity2, options.colorLUTBlend);
 
         _composePass->init(_targetRenderTarget);
     }

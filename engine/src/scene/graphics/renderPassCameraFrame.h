@@ -57,6 +57,30 @@ namespace visutwin::canvas
         float vignetteOuter = 1.0f;
         float vignetteCurvature = 0.5f;
         float vignetteIntensity = 0.3f;
+
+        // Fringing (chromatic aberration): user units 0..~100, 0 = disabled
+        float fringingIntensity = 0.0f;
+
+        // Color grading (HDR, pre-tonemap); 1.0 = no change
+        bool gradingEnabled = false;
+        float gradingBrightness = 1.0f;
+        float gradingContrast = 1.0f;
+        float gradingSaturation = 1.0f;
+        float gradingTint[3] = {1.0f, 1.0f, 1.0f};
+
+        // Color enhance (pre-tonemap); 0 = no change
+        float colorEnhanceShadows = 0.0f;
+        float colorEnhanceHighlights = 0.0f;
+        float colorEnhanceVibrance = 0.0f;
+        float colorEnhanceDehaze = 0.0f;
+        float colorEnhanceMidtones = 0.0f;
+
+        // 3D color LUT (post-tonemap): 256x16 Unreal-format strip textures
+        Texture* colorLUT = nullptr;
+        Texture* colorLUT2 = nullptr;
+        float colorLUTIntensity = 1.0f;
+        float colorLUTIntensity2 = 1.0f;
+        float colorLUTBlend = 0.0f;
     };
 
     class RenderPassCameraFrame : public RenderPass

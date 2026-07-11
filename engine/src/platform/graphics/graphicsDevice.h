@@ -144,6 +144,31 @@ namespace visutwin::canvas
         float vignetteCurvature = 0.5f;   // edge curvature (higher = more rounded)
         float vignetteIntensity = 0.3f;   // max darkness
         float vignetteColor[3] = {0.0f, 0.0f, 0.0f};  // darkening color (black)
+
+        // Fringing (chromatic aberration) — shader units (user value / 1024); 0 = disabled
+        float fringingIntensity = 0.0f;
+
+        // Color grading (HDR, pre-tonemap); 1.0 = no change for every parameter
+        bool gradingEnabled = false;
+        float gradingBrightness = 1.0f;
+        float gradingContrast = 1.0f;
+        float gradingSaturation = 1.0f;
+        float gradingTint[3] = {1.0f, 1.0f, 1.0f};
+
+        // Color enhance (pre-tonemap); 0 = no change for every parameter
+        bool colorEnhanceEnabled = false;
+        float colorEnhanceShadows = 0.0f;     // -1..1 (exponential, ±1 stop)
+        float colorEnhanceHighlights = 0.0f;  // -1..1
+        float colorEnhanceVibrance = 0.0f;    // 0..1 saturation boost for muted colors
+        float colorEnhanceDehaze = 0.0f;      // 0..1 dark-channel dehaze strength
+        float colorEnhanceMidtones = 0.0f;    // -1..1 localized midtone exposure
+
+        // 3D color LUT (post-tonemap): 256x16 Unreal-format strip textures
+        Texture* colorLUT = nullptr;
+        Texture* colorLUT2 = nullptr;
+        float colorLUTIntensity = 1.0f;
+        float colorLUTIntensity2 = 1.0f;
+        float colorLUTBlend = 0.0f;           // 0 = LUT1 only, 1 = LUT2 only
     };
 
     struct SsaoPassParams

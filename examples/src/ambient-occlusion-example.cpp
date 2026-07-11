@@ -66,6 +66,14 @@ const auto leonardoBust = std::make_unique<Asset>(
     rootPath + "/models/leonardo_da_vinci.glb"
 );
 
+// 3D color LUT: 256x16 Unreal-format strip (teal-orange look) — no mipmaps.
+const auto colorLutAsset = std::make_unique<Asset>(
+    "lut-teal-orange",
+    AssetType::TEXTURE,
+    rootPath + "/textures/lut-teal-orange.tga",
+    AssetData{ .mipmaps = false }
+);
+
 BoundingBox calcEntityAABB(Entity* entity)
 {
     BoundingBox bbox;
@@ -449,9 +457,24 @@ int main()
         ssao.randomize = false;
         cameraComp->setSsao(ssao);
 
-        // tone mapping
+        // tone mapping + color finishing (fringing, grading, enhance, 3D LUT)
         auto rendering = cameraComp->rendering();
         rendering.toneMapping = TONEMAP_NEUTRAL;
+        rendering.fringingIntensity = 40.0f;         // visible chromatic aberration at edges
+        rendering.gradingEnabled = true;
+        rendering.gradingBrightness = 1.05f;
+        rendering.gradingContrast = 1.1f;
+        rendering.gradingSaturation = 1.15f;
+        rendering.gradingTint[0] = 1.02f;            // subtle warm tint
+        rendering.gradingTint[1] = 1.0f;
+        rendering.gradingTint[2] = 0.96f;
+        rendering.colorEnhanceVibrance = 0.3f;
+        rendering.colorEnhanceShadows = 0.15f;       // lift shadows slightly
+        if (const auto lutResource = colorLutAsset->resource();
+            lutResource && std::holds_alternative<Texture*>(*lutResource)) {
+            rendering.colorLUT = std::get<Texture*>(*lutResource);
+            rendering.colorLUTIntensity = 0.8f;      // teal-orange look
+        }
         cameraComp->setRendering(rendering);
     }
 

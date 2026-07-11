@@ -88,6 +88,43 @@ namespace visutwin::canvas
         float vignetteIntensity() const { return _vignetteIntensity; }
         void setVignetteIntensity(const float value) { _vignetteIntensity = value; }
 
+        // Fringing (chromatic aberration); shader units (user value / 1024)
+        void setFringingIntensity(const float value) { _fringingIntensity = value; }
+
+        // Color grading (HDR, pre-tonemap)
+        void setGradingEnabled(const bool value) { _gradingEnabled = value; }
+        void setGradingBrightness(const float value) { _gradingBrightness = value; }
+        void setGradingContrast(const float value) { _gradingContrast = value; }
+        void setGradingSaturation(const float value) { _gradingSaturation = value; }
+        void setGradingTint(const float r, const float g, const float b)
+        {
+            _gradingTint[0] = r; _gradingTint[1] = g; _gradingTint[2] = b;
+        }
+
+        // Color enhance (pre-tonemap)
+        void setColorEnhance(const float shadows, const float highlights, const float vibrance,
+                             const float dehaze, const float midtones)
+        {
+            _colorEnhanceShadows = shadows;
+            _colorEnhanceHighlights = highlights;
+            _colorEnhanceVibrance = vibrance;
+            _colorEnhanceDehaze = dehaze;
+            _colorEnhanceMidtones = midtones;
+        }
+
+        // 3D color LUT (post-tonemap): 256x16 Unreal-format strip textures
+        void setColorLUT(Texture* lut, const float intensity = 1.0f)
+        {
+            _colorLUT = lut;
+            _colorLUTIntensity = intensity;
+        }
+        void setColorLUT2(Texture* lut, const float intensity, const float blend)
+        {
+            _colorLUT2 = lut;
+            _colorLUTIntensity2 = intensity;
+            _colorLUTBlend = blend;
+        }
+
         void execute() override;
 
     private:
@@ -117,5 +154,25 @@ namespace visutwin::canvas
         float _vignetteOuter = 1.0f;
         float _vignetteCurvature = 0.5f;
         float _vignetteIntensity = 0.3f;
+
+        float _fringingIntensity = 0.0f;
+
+        bool _gradingEnabled = false;
+        float _gradingBrightness = 1.0f;
+        float _gradingContrast = 1.0f;
+        float _gradingSaturation = 1.0f;
+        float _gradingTint[3] = {1.0f, 1.0f, 1.0f};
+
+        float _colorEnhanceShadows = 0.0f;
+        float _colorEnhanceHighlights = 0.0f;
+        float _colorEnhanceVibrance = 0.0f;
+        float _colorEnhanceDehaze = 0.0f;
+        float _colorEnhanceMidtones = 0.0f;
+
+        Texture* _colorLUT = nullptr;
+        Texture* _colorLUT2 = nullptr;
+        float _colorLUTIntensity = 1.0f;
+        float _colorLUTIntensity2 = 1.0f;
+        float _colorLUTBlend = 0.0f;
     };
 }
