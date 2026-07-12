@@ -5,6 +5,8 @@
 //
 #include "programLibrary.h"
 
+#include "shaderChunks.h"
+
 #include <assert.h>
 #include <array>
 #include <cstdint>
@@ -40,79 +42,6 @@ namespace visutwin::canvas
             output += "#define ";
             output += name;
             output += enabled ? " 1\n" : " 0\n";
-        }
-
-        struct ShaderChunkRegistry
-        {
-            std::unordered_map<std::string, std::string> chunkSources;
-            std::filesystem::path rootPath;
-        };
-
-        std::string readTextFile(const std::filesystem::path& path)
-        {
-            std::ifstream in(path, std::ios::in | std::ios::binary);
-            if (!in.is_open()) {
-                return {};
-            }
-
-            std::ostringstream buffer;
-            buffer << in.rdbuf();
-            return buffer.str();
-        }
-
-        std::filesystem::path projectRootFromThisSource()
-        {
-            auto path = std::filesystem::path(__FILE__).parent_path();
-            for (int i = 0; i < 4; ++i) {
-                path = path.parent_path();
-            }
-            return path;
-        }
-
-        std::optional<ShaderChunkRegistry> loadShaderChunks()
-        {
-            const auto sourceRoot = projectRootFromThisSource();
-            const auto cwd = std::filesystem::current_path();
-            const std::array<std::filesystem::path, 4> chunkRoots = {
-                sourceRoot / "engine/shaders/metal/chunks",
-                cwd / "engine/shaders/metal/chunks",
-                cwd.parent_path() / "engine/shaders/metal/chunks",
-                cwd.parent_path().parent_path() / "engine/shaders/metal/chunks"
-            };
-
-            for (const auto& root : chunkRoots) {
-                ShaderChunkRegistry registry;
-                registry.rootPath = root;
-
-                if (!std::filesystem::exists(root) || !std::filesystem::is_directory(root)) {
-                    continue;
-                }
-
-                for (const auto& entry : std::filesystem::directory_iterator(root)) {
-                    if (!entry.is_regular_file() || entry.path().extension() != ".metal") {
-                        continue;
-                    }
-
-                    const auto chunkName = entry.path().stem().string();
-                    const auto chunkSource = readTextFile(entry.path());
-                    if (!chunkSource.empty()) {
-                        registry.chunkSources[chunkName] = chunkSource;
-                    }
-                }
-
-                if (!registry.chunkSources.empty()) {
-                    spdlog::info("Loaded shader chunks from {}", root.string());
-                    return registry;
-                }
-            }
-
-            return std::nullopt;
-        }
-
-        const ShaderChunkRegistry* getShaderChunks()
-        {
-            static std::optional<ShaderChunkRegistry> chunks = loadShaderChunks();
-            return chunks ? &*chunks : nullptr;
         }
 
         const Material::ParameterValue* getMaterialParameter(const Material* material, std::initializer_list<const char*> names)
@@ -190,22 +119,72 @@ namespace visutwin::canvas
     ProgramLibrary::ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device) : _device(device)
     {
         // Mirrors upstream program registration model (program -> ordered chunk keys).
+        // Chunks are named micro-sections (upstream ShaderChunks granularity adapted
+        // to Metal); any of them can be overridden globally via chunks().set() or
+        // per material via Material::setShaderChunk().
         registerProgram("forward", {
-            "common",
+            "common-structs",
+            "common-utils",
+            "common-tonemap",
+            "common-falloff",
+            "common-dither",
+            "common-ltc",
+            "common-shadow-pcf",
+            "common-shadow-vsm",
+            "common-shadow-pcss",
+            "common-brdf",
+            "common-sheen",
+            "common-iridescence",
+            "common-atmosphere",
+            "common-parallax",
             "forward-vertex",
             "forward-fragment-head",
-            "forward-fragment-lighting",
+            "forward-fragment-surface",
+            "forward-fragment-lights",
+            "forward-fragment-clustered",
+            "forward-fragment-ambient",
+            "forward-fragment-emissive",
             "forward-fragment-tail"
         });
         registerProgram("skybox", {
-            "common",
+            "common-structs",
+            "common-utils",
+            "common-tonemap",
+            "common-falloff",
+            "common-dither",
+            "common-ltc",
+            "common-shadow-pcf",
+            "common-shadow-vsm",
+            "common-shadow-pcss",
+            "common-brdf",
+            "common-sheen",
+            "common-iridescence",
+            "common-atmosphere",
+            "common-parallax",
             "forward-vertex",
             "forward-fragment-head",
-            "forward-fragment-lighting",
+            "forward-fragment-surface",
+            "forward-fragment-lights",
+            "forward-fragment-clustered",
+            "forward-fragment-ambient",
+            "forward-fragment-emissive",
             "forward-fragment-tail"
         });
         registerProgram("shadow", {
-            "common",
+            "common-structs",
+            "common-utils",
+            "common-tonemap",
+            "common-falloff",
+            "common-dither",
+            "common-ltc",
+            "common-shadow-pcf",
+            "common-shadow-vsm",
+            "common-shadow-pcss",
+            "common-brdf",
+            "common-sheen",
+            "common-iridescence",
+            "common-atmosphere",
+            "common-parallax",
             "shadow-vertex",
             "shadow-fragment"
         });
@@ -497,6 +476,14 @@ namespace visutwin::canvas
         key ^= options.unlit ? (1ull << 39) : 0ull;
         key ^= options.vsmShadows ? (1ull << 41) : 0ull;
         key ^= options.lightmap ? (1ull << 42) : 0ull;
+
+        // Shader chunk overrides (registry + per-material) change the composed
+        // source without changing any option bit — fold their content hashes in so
+        // overridden chunks compile fresh programs instead of hitting stale cache.
+        key ^= _chunks.hash();
+        if (material) {
+            key ^= material->shaderChunksHash();
+        }
         key ^= options.dynamicRefraction ? (1ull << 43) : 0ull;
         key ^= options.opacityDither ? (1ull << 44) : 0ull;
         key ^= options.pcssShadows ? (1ull << 45) : 0ull;
@@ -504,10 +491,9 @@ namespace visutwin::canvas
     }
 
     std::string ProgramLibrary::composeProgramVariantMetalSource(const std::string& programName, const ShaderVariantOptions& options,
-        const std::string& vertexEntry, const std::string& fragmentEntry)
+        const std::string& vertexEntry, const std::string& fragmentEntry, const Material* material)
     {
-        const auto* chunks = getShaderChunks();
-        if (!chunks) {
+        if (!_chunks.loaded()) {
             spdlog::error("Failed to load shader chunks from engine/shaders/metal/chunks.");
             return {};
         }
@@ -579,14 +565,25 @@ namespace visutwin::canvas
         source += fragmentEntry;
         source += "\n\n";
 
+        // Chunk resolution order mirrors upstream: per-material override, then the
+        // device registry override, then the default source.
+        const auto* materialChunks = material ? &material->shaderChunkOverrides() : nullptr;
         for (const auto& chunkName : programChunks->second) {
-            const auto chunkIt = chunks->chunkSources.find(chunkName);
-            if (chunkIt == chunks->chunkSources.end()) {
+            const std::string* chunkSource = nullptr;
+            if (materialChunks) {
+                if (const auto it = materialChunks->find(chunkName); it != materialChunks->end()) {
+                    chunkSource = &it->second;
+                }
+            }
+            if (!chunkSource) {
+                chunkSource = _chunks.get(chunkName);
+            }
+            if (!chunkSource) {
                 spdlog::error("ProgramLibrary chunk '{}' is missing in '{}'.",
-                    chunkName, chunks->rootPath.string());
+                    chunkName, _chunks.rootPath().string());
                 return {};
             }
-            source += chunkIt->second;
+            source += *chunkSource;
             source += "\n";
         }
 
@@ -594,7 +591,7 @@ namespace visutwin::canvas
     }
 
     std::shared_ptr<Shader> ProgramLibrary::buildForwardShaderVariant(const std::string& programName,
-        const ShaderVariantOptions& options, const uint64_t variantKey)
+        const ShaderVariantOptions& options, const uint64_t variantKey, const Material* material)
     {
         ShaderDefinition definition;
         definition.name = "program-" + programName;
@@ -603,7 +600,7 @@ namespace visutwin::canvas
         const auto entryPrefix = programName == "shadow" ? "pcShadow" : "pcForward";
         definition.vshader = entryPrefix + std::string("VS_") + std::to_string(variantKey);
         definition.fshader = entryPrefix + std::string("FS_") + std::to_string(variantKey);
-        const std::string sourceCode = composeProgramVariantMetalSource(programName, options, definition.vshader, definition.fshader);
+        const std::string sourceCode = composeProgramVariantMetalSource(programName, options, definition.vshader, definition.fshader, material);
         if (sourceCode.empty()) {
             return nullptr;
         }
@@ -624,6 +621,13 @@ namespace visutwin::canvas
             spdlog::error("ProgramLibrary has no registered program '{}'.", programName);
             return nullptr;
         }
+        // Registry override change: purge cached variants so recompiled programs
+        // do not pile up next to stale ones (AGX compiled-variants footprint).
+        if (_chunks.hash() != _cachedChunksHash) {
+            _forwardShaderCache.clear();
+            _cachedChunksHash = _chunks.hash();
+        }
+
         const uint64_t key = makeVariantKey(programName, options, material);
 
         const auto cached = _forwardShaderCache.find(key);
@@ -659,7 +663,7 @@ namespace visutwin::canvas
         warnFeature("displacement", options.displacement);
         // atmosphere: fully implemented — no warning needed.
 
-        auto shader = buildForwardShaderVariant(programName, options, key);
+        auto shader = buildForwardShaderVariant(programName, options, key, material);
         if (!shader) {
             spdlog::error("Failed to build shader variant '{}' (key={:#x}, localShadows={}, shadows={}, envAtlas={})",
                 programName, key, options.localShadows, options.shadowMapping, options.envAtlas);

@@ -185,3 +185,9 @@ add_executable(visutwin-pcss-dither MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-pcss-dither PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-pcss-dither com.visutwin.pcss-dither)
+
+add_executable(visutwin-shader-chunks MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/shader-chunks-example.cpp
+)
+target_link_libraries(visutwin-shader-chunks PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-shader-chunks com.visutwin.shader-chunks)

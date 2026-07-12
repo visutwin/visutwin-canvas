@@ -157,6 +157,20 @@ namespace visutwin::canvas
         uint64_t shaderVariantKey() const { return _shaderVariantKey; }
         void setShaderVariantKey(const uint64_t value) { _shaderVariantKey = value; }
 
+        /**
+         * Per-material shader chunk overrides (upstream material.shaderChunks):
+         * replace a named chunk's source for programs compiled for THIS material
+         * only. Resolution order at composition: material override, then the
+         * ProgramLibrary registry override, then the default chunk. The override
+         * set's content hash is folded into shader variant cache keys, so edits
+         * recompile fresh variants instead of reusing stale binaries.
+         */
+        void setShaderChunk(const std::string& name, std::string source);
+        bool removeShaderChunk(const std::string& name);
+        void clearShaderChunks();
+        const std::unordered_map<std::string, std::string>& shaderChunkOverrides() const { return _shaderChunkOverrides; }
+        uint64_t shaderChunksHash() const { return _shaderChunksHash; }
+
         const std::shared_ptr<Shader>& shaderOverride() const { return _shaderOverride; }
         void setShaderOverride(const std::shared_ptr<Shader>& shader) { _shaderOverride = shader; }
 
@@ -305,6 +319,8 @@ namespace visutwin::canvas
 
         bool _transparent = false;
         uint64_t _shaderVariantKey = 0;
+        std::unordered_map<std::string, std::string> _shaderChunkOverrides;
+        uint64_t _shaderChunksHash = 0;
 
         // Optional user-provided shader override.
         std::shared_ptr<Shader> _shaderOverride;

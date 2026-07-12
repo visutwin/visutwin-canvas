@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include "shaderChunks.h"
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
@@ -29,6 +30,12 @@ namespace visutwin::canvas
 
         void registerProgram(const std::string& name, const std::vector<std::string>& chunkOrder);
         bool hasProgram(const std::string& name) const;
+
+        /// Mutable shader chunk registry (upstream ShaderChunks): override chunk
+        /// sources at runtime; affected variants recompile lazily via cache-key
+        /// hashing. Per-material overrides live on Material::setShaderChunk.
+        ShaderChunks& chunks() { return _chunks; }
+        const ShaderChunks& chunks() const { return _chunks; }
 
         std::shared_ptr<Shader> getForwardShader(const Material* material, bool transparentPass,
                                                     bool dynamicBatch = false, bool skinning = false,
@@ -160,10 +167,10 @@ namespace visutwin::canvas
                                                          bool morphing = false) const;
         static std::string resolveProgramName(const ShaderVariantOptions& options);
         uint64_t makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;
-        std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantKey);
+        std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantKey, const Material* material = nullptr);
 
         std::string composeProgramVariantMetalSource(const std::string& programName, const ShaderVariantOptions& options,
-            const std::string& vertexEntry, const std::string& fragmentEntry);
+            const std::string& vertexEntry, const std::string& fragmentEntry, const Material* material = nullptr);
 
         std::shared_ptr<GraphicsDevice> _device;
         std::unordered_map<uint64_t, std::shared_ptr<Shader>> _forwardShaderCache;
@@ -175,6 +182,9 @@ namespace visutwin::canvas
         bool _omniShadowsEnabled = false;
         bool _vsmShadowsEnabled = false;
         bool _pcssShadowsEnabled = false;
+
+        ShaderChunks _chunks;
+        uint64_t _cachedChunksHash = 0;
         bool _clusteredLightingEnabled = false;
         bool _areaLightsEnabled = false;
         bool _ssaoEnabled = false;

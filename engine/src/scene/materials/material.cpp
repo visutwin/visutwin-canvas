@@ -5,6 +5,8 @@
 //
 #include "material.h"
 
+#include "scene/shader-lib/shaderChunks.h"
+
 #include <algorithm>
 #include <assert.h>
 #include <cmath>
@@ -420,5 +422,28 @@ namespace visutwin::canvas
     {
         const auto it = defaultMaterials.find(device.get());
         return it != defaultMaterials.end() ? it->second : nullptr;
+    }
+
+    void Material::setShaderChunk(const std::string& name, std::string source)
+    {
+        _shaderChunkOverrides[name] = std::move(source);
+        _shaderChunksHash = ShaderChunks::hashChunkMap(_shaderChunkOverrides);
+    }
+
+    bool Material::removeShaderChunk(const std::string& name)
+    {
+        const bool removed = _shaderChunkOverrides.erase(name) > 0;
+        if (removed) {
+            _shaderChunksHash = ShaderChunks::hashChunkMap(_shaderChunkOverrides);
+        }
+        return removed;
+    }
+
+    void Material::clearShaderChunks()
+    {
+        if (!_shaderChunkOverrides.empty()) {
+            _shaderChunkOverrides.clear();
+            _shaderChunksHash = 0;
+        }
     }
 }
