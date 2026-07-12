@@ -439,14 +439,6 @@ int main()
         }
     }
 
-    // GPU profiler: log per-pass timings once (verifies the append passes run
-    // inside the frame graph).
-    if (const auto& profiler = graphicsDevice->gpuProfiler()) {
-        profiler->setEnabled(true);
-    }
-    bool profilerLogged = false;
-    float profilerTimer = 0.0f;
-
     bool running = true;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
     uint64_t prevCounter = SDL_GetPerformanceCounter();
@@ -509,17 +501,6 @@ int main()
 
         engine->update(deltaTime);
         engine->render();
-
-        profilerTimer += deltaTime;
-        if (!profilerLogged && profilerTimer > 2.0f) {
-            profilerLogged = true;
-            if (const auto& profiler = graphicsDevice->gpuProfiler(); profiler && profiler->enabled()) {
-                spdlog::info("Frame graph passes ({} total):", profiler->passTimings().size());
-                for (const auto& pass : profiler->passTimings()) {
-                    spdlog::info("  pass '{}': {:.3f} ms", pass.name, pass.milliseconds);
-                }
-            }
-        }
     }
 
     engine.reset();

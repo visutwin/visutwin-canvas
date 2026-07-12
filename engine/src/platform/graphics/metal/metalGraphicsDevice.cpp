@@ -302,7 +302,22 @@ namespace visutwin::canvas
                 _paletteRing->endFrame(endBuffer);
 
                 if (_frameDrawable) {
-                    endBuffer->presentDrawable(_frameDrawable);
+                    // Present only after this buffer — and therefore every prior
+                    // command buffer on the queue — has COMPLETED on the GPU.
+                    // presentDrawable() fires when the buffer is merely SCHEDULED;
+                    // because the engine renders a frame through several separately
+                    // committed back-buffer command buffers and presents from this
+                    // empty end-of-frame buffer, a scheduled-time present can scan
+                    // out a partially rendered drawable when the layer takes the
+                    // direct-to-display path (visible as flashing patches of the
+                    // earlier passes' content; screen captures never show it since
+                    // compositing reads the surface after completion).
+                    CA::MetalDrawable* presentedDrawable = _frameDrawable;
+                    presentedDrawable->retain();
+                    endBuffer->addCompletedHandler([presentedDrawable](MTL::CommandBuffer*) {
+                        presentedDrawable->present();
+                        presentedDrawable->release();
+                    });
                 }
                 endBuffer->commit();
             }
