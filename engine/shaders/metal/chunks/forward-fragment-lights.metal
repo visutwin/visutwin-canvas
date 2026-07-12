@@ -363,7 +363,20 @@
         // Thin-film iridescence: blend base Fresnel toward iridescence Fresnel.
         F = mix(F, iridFresnel, iridIntensity);
 #endif
+#if VT_FEATURE_OREN_NAYAR
+        // Oren-Nayar rough diffuse (fast qualitative form): retro-reflection for
+        // rough surfaces instead of plain Lambert.
+        {
+            const float sigma2 = roughness * roughness;
+            const float onA = 1.0 - 0.5 * sigma2 / (sigma2 + 0.33);
+            const float onB = 0.45 * sigma2 / (sigma2 + 0.09);
+            const float sTerm = dot(L, V) - nDotL * nDotV;
+            const float tTerm = sTerm <= 0.0 ? 1.0 : max(max(nDotL, nDotV), 1e-4);
+            directDiffuse += radiance * nDotL * (onA + onB * sTerm / tTerm);
+        }
+#else
         directDiffuse += radiance * nDotL;
+#endif
         directSpecular += radiance * D * G * F * nDotL;
 
 #if VT_FEATURE_CLEARCOAT

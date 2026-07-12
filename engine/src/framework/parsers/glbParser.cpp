@@ -1303,14 +1303,19 @@ namespace visutwin::canvas
             spdlog::info("    specGloss: no diffuseTexture field");
         }
 
-        // specularGlossinessTexture
+        // True spec-gloss shader path (VT_FEATURE_SPEC_GLOSS): the fragment shader
+        // consumes specularColor/glossiness directly (F0 = specular color) instead
+        // of the metal-rough approximation kept below as fallback state.
+        material->setUseSpecGloss(true);
+
+        // specularGlossinessTexture: rgb = specular color (sRGB), a = glossiness.
+        // Bound at the metal-rough slot (3); the SPEC_GLOSS variant reinterprets it.
         if (sg.Has("specularGlossinessTexture")) {
             auto sgt = sg.Get("specularGlossinessTexture");
             if (sgt.IsObject() && sgt.Has("index")) {
                 int texIdx = sgt.Get("index").GetNumberAsInt();
                 if (auto tex = getOrCreateTexture(texIdx)) {
-                    material->setMetallicRoughnessTexture(tex.get());
-                    material->setHasMetallicRoughnessTexture(true);
+                    material->setSpecGlossMap(tex.get());
                 }
             }
         }
@@ -1319,20 +1324,23 @@ namespace visutwin::canvas
         if (sg.Has("specularFactor")) {
             auto sf = sg.Get("specularFactor");
             if (sf.IsArray() && sf.ArrayLen() >= 3) {
-                material->setSpecular(Color(
+                const Color specColor(
                     static_cast<float>(sf.Get(0).GetNumberAsDouble()),
                     static_cast<float>(sf.Get(1).GetNumberAsDouble()),
-                    static_cast<float>(sf.Get(2).GetNumberAsDouble()), 1.0f));
+                    static_cast<float>(sf.Get(2).GetNumberAsDouble()), 1.0f);
+                material->setSpecular(specColor);
+                material->setSpecularColor(specColor);
             }
         }
 
-        // glossinessFactor → roughness (roughness = 1 - glossiness)
+        // glossinessFactor → spec-gloss glossiness (+ legacy roughness fallback)
         float roughness = 0.5f;
         if (sg.Has("glossinessFactor")) {
             auto gf = sg.Get("glossinessFactor");
             if (gf.IsNumber()) {
                 float gloss = static_cast<float>(gf.GetNumberAsDouble());
                 material->setGloss(gloss);
+                material->setGlossiness(gloss);
                 roughness = 1.0f - gloss;
             }
         }

@@ -117,23 +117,62 @@
     }
 #endif
 
+#if VT_FEATURE_NORMAL_MAP || VT_FEATURE_DETAIL_NORMALS
+    {
+        float3 normalSample = float3(0.0, 0.0, 1.0);
+        bool haveSample = false;
 #if VT_FEATURE_NORMAL_MAP
-    if (normalTexture.get_width() > 0 && normalTexture.get_height() > 0) {
-        float3 normalSample = normalTexture.sample(defaultSampler, uvNormal).xyz * 2.0 - 1.0;
-        // blend toward flat (0,0,1) by bumpiness/normalScale.
-        // At normalScale=1.0 → full normal map; at 0.0 → geometric surface normal.
-        //mix(vec3(0,0,1), normalMap, material_bumpiness).
-        normalSample = normalize(mix(float3(0.0, 0.0, 1.0), normalSample, material.normalScale));
-        float3 T = rd.worldTangent.xyz;
-        if (length_squared(T) >= 1e-6) {
-            T = normalize(T);
-            float3 B = normalize(cross(N, T)) * rd.worldTangent.w;
-            const float3x3 tbn = float3x3(T, B, N);
-            N = normalize(tbn * normalSample);
+        if (normalTexture.get_width() > 0 && normalTexture.get_height() > 0) {
+            normalSample = normalTexture.sample(defaultSampler, uvNormal).xyz * 2.0 - 1.0;
+            // blend toward flat (0,0,1) by bumpiness/normalScale.
+            // At normalScale=1.0 → full normal map; at 0.0 → geometric surface normal.
+            normalSample = normalize(mix(float3(0.0, 0.0, 1.0), normalSample, material.normalScale));
+            haveSample = true;
+        }
+#endif
+#if VT_FEATURE_DETAIL_NORMALS
+        // Detail normal overlay (UDN blend): the detail map's xy perturbation is
+        // scaled by detailNormalScale and added in tangent space on top of the
+        // base normal sample (or the flat normal when no base map is bound).
+        if (detailNormalTexture.get_width() > 0 && detailNormalTexture.get_height() > 0) {
+            const float2 uvDetail = applyUvTransform(rd.uv0,
+                material.detailNormalTransform0, material.detailNormalTransform1);
+            float3 detailSample = detailNormalTexture.sample(defaultSampler, uvDetail).xyz * 2.0 - 1.0;
+            detailSample.xy *= material.detailDisplacementParams.x;  // detailNormalScale
+            normalSample = normalize(float3(normalSample.xy + detailSample.xy, normalSample.z));
+            haveSample = true;
+        }
+#endif
+        if (haveSample) {
+            float3 T = rd.worldTangent.xyz;
+            if (length_squared(T) >= 1e-6) {
+                T = normalize(T);
+                float3 B = normalize(cross(N, T)) * rd.worldTangent.w;
+                const float3x3 tbn = float3x3(T, B, N);
+                N = normalize(tbn * normalSample);
+            }
         }
     }
 #endif
 
+#if VT_FEATURE_SPEC_GLOSS
+    // KHR_materials_pbrSpecularGlossiness: diffuse color + specular color +
+    // glossiness instead of metallic/roughness. The spec-gloss texture reuses the
+    // metal-rough binding (slot 3): rgb = specular color (sRGB), a = glossiness.
+    float3 specularColor = clamp(material.specGlossParams.rgb, 0.0, 1.0);
+    float glossiness = clamp(material.specGlossParams.w, 0.0, 1.0);
+    if ((material.flags & (1u << 21)) != 0u && metallicRoughnessTexture.get_width() > 0) {
+        const float4 sg = metallicRoughnessTexture.sample(defaultSampler, uvMetalRough);
+        specularColor *= srgbToLinear(sg.rgb);
+        glossiness *= sg.a;
+    }
+    const float metallic = 0.0;
+    const float roughness = clamp(1.0 - glossiness, 0.04, 1.0);
+    // Diffuse energy conservation per the extension: scale by 1 - max(specular).
+    const float3 diffuseColor = baseLinear *
+        (1.0 - max(specularColor.r, max(specularColor.g, specularColor.b)));
+    const float3 F0 = specularColor;
+#else
     float metallic = clamp(material.metallicFactor, 0.0, 1.0);
     float roughness = clamp(material.roughnessFactor, 0.04, 1.0);
 #if VT_FEATURE_METAL_ROUGHNESS_MAP
@@ -146,6 +185,7 @@
 
     const float3 diffuseColor = baseLinear * (1.0 - metallic);
     const float3 F0 = mix(float3(0.04), baseLinear, metallic);
+#endif
     const float gloss = 1.0 - roughness;
 
 #if VT_FEATURE_CLEARCOAT

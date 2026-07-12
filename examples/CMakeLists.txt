@@ -192,6 +192,12 @@ add_executable(visutwin-shader-chunks MACOSX_BUNDLE
 target_link_libraries(visutwin-shader-chunks PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-shader-chunks com.visutwin.shader-chunks)
 
+add_executable(visutwin-material-stubs MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/material-stubs-example.cpp
+)
+target_link_libraries(visutwin-material-stubs PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-material-stubs com.visutwin.material-stubs)
+
 add_executable(visutwin-morph-anim MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/morph-anim-example.cpp
 )

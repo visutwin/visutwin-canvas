@@ -156,6 +156,9 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
                                       constant MorphParams &morphParams [[buffer(10)]],
                                       uint vid [[vertex_id]]
 #endif
+#if VT_FEATURE_DISPLACEMENT
+                                    , texture2d<float> displacementTexture [[texture(0)]]
+#endif
                                       )
 {
     RasterizerData rd;
@@ -163,6 +166,19 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     float3 localNormal = v.normal;
 #if VT_FEATURE_MORPHS
     applyMorph(localPos, localNormal, vid, morphDeltas, morphParams);
+#endif
+#if VT_FEATURE_DISPLACEMENT
+    // Vertex displacement along the local normal from a height map (vertex-stage
+    // texture slot 0, explicit LOD as required in the vertex stage).
+    // detailDisplacementParams: y = displacementScale, z = displacementBias.
+    // DEVIATION: applied in the standard vertex path only (not the instanced /
+    // dynamic-batch / skinned specializations).
+    if (displacementTexture.get_width() > 0) {
+        constexpr sampler displacementSampler(coord::normalized, filter::linear, address::repeat);
+        const float height = displacementTexture.sample(displacementSampler, v.uv0, level(0)).r;
+        localPos += localNormal * ((height - material.detailDisplacementParams.z)
+            * material.detailDisplacementParams.y);
+    }
 #endif
     float4 world = model.modelMatrix * float4(localPos, 1.0);
     float4 clip = scene.projViewMatrix * world;

@@ -57,6 +57,9 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #if VT_FEATURE_DYNAMIC_REFRACTION
                                   texture2d<float> sceneColorTexture [[texture(22)]],
 #endif
+#if VT_FEATURE_DETAIL_NORMALS
+                                  texture2d<float> detailNormalTexture [[texture(23)]],
+#endif
 #if VT_FEATURE_ATMOSPHERE
                                   constant AtmosphereData &atmosphere [[buffer(9)]],
 #endif

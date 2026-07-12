@@ -217,6 +217,10 @@ namespace visutwin::canvas
 
         // --- Spec-Gloss (KHR_materials_pbrSpecularGlossiness) ---
         // alternative PBR parameterization (specular + glossiness).
+        // Enables the spec-gloss parameterization even without a specGlossMap
+        // (factor-only KHR_materials_pbrSpecularGlossiness materials).
+        bool useSpecGloss() const { return _useSpecGloss; }
+        void setUseSpecGloss(const bool value) { _useSpecGloss = value; _dirtyShader = true; }
         const Color& specularColor() const { return _specularColor; }
         void setSpecularColor(const Color& value) { _specularColor = value; }
         float glossiness() const { return _glossiness; }
@@ -355,6 +359,7 @@ namespace visutwin::canvas
 
         // Oren-Nayar diffuse model toggle.
         bool _useOrenNayar = false;
+        bool _useSpecGloss = false;
 
         bool _useFog = true;
         bool _useLighting = true;

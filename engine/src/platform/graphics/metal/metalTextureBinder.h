@@ -24,7 +24,7 @@ namespace visutwin::canvas
     class MetalTextureBinder
     {
     public:
-        static constexpr int kMaxTextureSlots = 23;  // Slots 0-22; 11-12 = spot shadow, 15-16 = omni shadow cubemaps, 17 = height map, 18 = SSAO, 19 = lightmap, 20-21 = LTC area-light LUTs, 22 = scene color grab
+        static constexpr int kMaxTextureSlots = 24;  // Slots 0-23; 11-12 = spot shadow, 15-16 = omni shadow cubemaps, 17 = height map, 18 = SSAO, 19 = lightmap, 20-21 = LTC area-light LUTs, 22 = scene color grab, 23 = detail normal
 
         /// Bind a texture at the given fragment slot, skipping if already bound.
         void bindCached(MTL::RenderCommandEncoder* encoder, int slot, Texture* texture);

@@ -88,7 +88,18 @@
                 clF = mix(clF, iridFresnel, iridIntensity);
 #endif
 
+                #if VT_FEATURE_OREN_NAYAR
+                {
+                    const float sigma2 = roughness * roughness;
+                    const float onA = 1.0 - 0.5 * sigma2 / (sigma2 + 0.33);
+                    const float onB = 0.45 * sigma2 / (sigma2 + 0.09);
+                    const float sTerm = dot(clL, V) - clNdotL * clNdotV;
+                    const float tTerm = sTerm <= 0.0 ? 1.0 : max(max(clNdotL, clNdotV), 1e-4);
+                    directDiffuse += clRadiance * clNdotL * (onA + onB * sTerm / tTerm);
+                }
+#else
                 directDiffuse += clRadiance * clNdotL;
+#endif
                 directSpecular += clRadiance * clD * clG * clF * clNdotL;
 
 #if VT_FEATURE_CLEARCOAT

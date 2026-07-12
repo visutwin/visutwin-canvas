@@ -276,10 +276,14 @@ namespace visutwin::canvas
         overrideSlot(14, _clearCoatNormalMap);
         overrideSlot(17, _heightMap);
         overrideSlot(19, _lightMap);
-        // Sheen/iridescence/spec-gloss/detail-normal/displacement maps are NOT
-        // bound: slot 18 is the scene SSAO texture and 19 is the lightmap —
-        // binding unported maps there clobbered scene textures every draw.
-        // Re-add slots (>= 20) when the sampling paths for these stubbed
-        // features are ported.
+        // Spec-gloss reuses the metal-rough binding (slot 3) — the two
+        // parameterizations are mutually exclusive and VT_FEATURE_SPEC_GLOSS
+        // reinterprets the sample as rgb=specular color (sRGB), a=glossiness.
+        overrideSlot(3, _specGlossMap);
+        // Detail normal overlay at slot 23.
+        overrideSlot(23, _detailNormalMap);
+        // Vertex displacement map: routed to VERTEX texture slot 0 via the
+        // >= 100 sentinel (see MetalTextureBinder::bindMaterialTextures).
+        overrideSlot(100, _displacementMap);
     }
 }

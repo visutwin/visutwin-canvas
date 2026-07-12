@@ -71,7 +71,7 @@ namespace visutwin::canvas
         const std::vector<TextureSlot>& textureSlots)
     {
         // Clear material-owned slots (0,1,3,4,5) not used by this material.
-        constexpr int materialSlots[] = {0, 1, 3, 4, 5, 17, 19};
+        constexpr int materialSlots[] = {0, 1, 3, 4, 5, 17, 19, 23};
         for (const int s : materialSlots) {
             bool used = false;
             for (const auto& [slot, tex] : textureSlots) {
@@ -82,9 +82,23 @@ namespace visutwin::canvas
             }
         }
 
-        // Bind present material textures.
+        // Bind present material textures. Slots >= 100 are VERTEX-stage textures
+        // (slot - 100), used by displacement mapping.
+        bool vertexSlot0Used = false;
         for (const auto& [slot, texture] : textureSlots) {
+            if (slot >= 100) {
+                if (texture) {
+                    if (auto* hw = dynamic_cast<gpu::MetalTexture*>(texture->impl()); hw && hw->raw()) {
+                        encoder->setVertexTexture(hw->raw(), static_cast<NS::UInteger>(slot - 100));
+                        vertexSlot0Used = (slot == 100);
+                    }
+                }
+                continue;
+            }
             bindCached(encoder, slot, texture);
+        }
+        if (!vertexSlot0Used) {
+            encoder->setVertexTexture(nullptr, 0);
         }
     }
 

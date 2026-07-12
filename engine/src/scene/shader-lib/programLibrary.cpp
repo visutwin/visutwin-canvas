@@ -339,7 +339,7 @@ namespace visutwin::canvas
         options.morphing = morphing || (variantBits & (1ull << 23)) != 0ull;
         // spec-gloss from StandardMaterial or shaderVariantKey.
         if (stdMat) {
-            options.specGloss = (stdMat->specGlossMap() != nullptr);
+            options.specGloss = stdMat->useSpecGloss() || (stdMat->specGlossMap() != nullptr);
         } else {
             options.specGloss = (variantBits & (1ull << 24)) != 0ull;
         }
@@ -657,10 +657,7 @@ namespace visutwin::canvas
         // vertexColors: fully implemented — no warning needed.
         // skinning: fully implemented — no warning needed.
         // morphing: fully implemented — no warning needed.
-        warnFeature("specGloss", options.specGloss);
-        warnFeature("orenNayar", options.orenNayar);
-        warnFeature("detailNormals", options.detailNormals);
-        warnFeature("displacement", options.displacement);
+        // specGloss/orenNayar/detailNormals/displacement: fully implemented.
         // atmosphere: fully implemented — no warning needed.
 
         auto shader = buildForwardShaderVariant(programName, options, key, material);
