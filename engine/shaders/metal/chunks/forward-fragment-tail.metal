@@ -39,6 +39,54 @@
     float3 litLinear = diffuseColor * (directDiffuse + indirectDiffuse) + directSpecular + indirectSpecular + emissiveLinear;
 
 #if VT_FEATURE_TRANSMISSION
+#if VT_FEATURE_DYNAMIC_REFRACTION
+    // Dynamic grab-pass refraction (upstream refractionDynamic.js): sample the
+    // mid-frame scene color grab at the screen position of the refracted exit
+    // point instead of the environment atlas. Requires the camera to have
+    // requestSceneColorMap(true) so the depth-layer grab pass publishes slot 22.
+    if (material.transmissionFactor > 0.0 && sceneColorTexture.get_width() > 0) {
+        const float ior = max(material.refractionIndex, 1.001);
+        const float3 refrDir = refract(-V, N, 1.0 / ior);
+
+        if (length_squared(refrDir) > 0.0) {
+            // Refraction vector scaled by volume thickness.
+            // DEVIATION: upstream multiplies by per-axis model scale extracted from
+            // the model matrix; the fragment stage here has no model matrix, so
+            // material thickness is interpreted in world units.
+            const float3 refractionVector = normalize(refrDir) * max(material.thickness, 0.0);
+
+            // Project the refracted exit point to grab-texture UV.
+            const float4 projected = lighting.viewProjection * float4(rd.worldPos + refractionVector, 1.0);
+            const float invW = 1.0 / max(projected.w, 1e-6);
+            const float2 grabUv = clamp(projected.xy * invW * float2(0.5, -0.5) + 0.5, 0.001, 0.999);
+
+            // IOR + roughness select the grab mip (upstream iorToRoughness):
+            // higher IOR and rougher surfaces read blurrier scene color.
+            const float iorToRoughness = saturate(1.0 - gloss) * clamp(ior * 2.0 - 2.0, 0.0, 1.0);
+            const float refractionLod = log2(max(lighting.screenInvResolution.z, 2.0)) * iorToRoughness;
+            float3 refrColor = sceneColorTexture.sample(grabPassSampler, grabUv, level(refractionLod)).rgb;
+
+            // The forward path grabs the tonemapped sRGB back buffer — decode to
+            // linear (upstream SCENE_COLORMAP_GAMMA path).
+            refrColor = pow(max(refrColor, float3(0.0)), float3(2.2));
+
+            // Volume absorption: tint refracted light by base color (Beer approx),
+            // same as the cubemap refraction path.
+            const float absorb = max(material.thickness, 0.0) + 1.0;
+            refrColor *= pow(baseLinear, float3(absorb));
+
+            // Fresnel: grazing angles reflect more, normal incidence transmits more.
+            const float NdotV = max(dot(N, V), 0.0);
+            const float F0_ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
+            const float fresnel = F0_ior + (1.0 - F0_ior) * pow(1.0 - NdotV, 5.0);
+            const float transmission = material.transmissionFactor * (1.0 - fresnel);
+
+            // Blend: replace surface diffuse with the refracted scene, keep specular.
+            const float3 specPart = directSpecular + indirectSpecular + emissiveLinear;
+            litLinear = mix(litLinear, refrColor + specPart, transmission);
+        }
+    }
+#else
     // Cubemap-based refraction.
     // Samples the environment atlas in the refracted direction with roughness blur.
     if (material.transmissionFactor > 0.0 && envAtlasTexture.get_width() > 0) {
@@ -83,6 +131,7 @@
             litLinear = mix(litLinear, refrColor + specPart, transmission);
         }
     }
+#endif
 #endif
 
 #if VT_FEATURE_CLEARCOAT

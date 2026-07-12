@@ -118,6 +118,7 @@ namespace visutwin::canvas
             bool sheen = false;
             bool iridescence = false;
             bool transmission = false;
+            bool dynamicRefraction = false;  // grab-pass refraction (StandardMaterial::useDynamicRefraction)
             bool lightClustering = false;
             bool ssao = false;
             bool lightProbes = false;

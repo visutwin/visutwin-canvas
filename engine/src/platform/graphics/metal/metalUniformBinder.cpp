@@ -121,7 +121,7 @@ namespace visutwin::canvas
         const std::vector<GpuLightData>& lights, const Vector3& cameraPosition,
         const bool enableNormalMaps, const float exposure,
         const FogParams& fogParams, const ShadowParams& shadowParams,
-        const int toneMapping, const Vector3* ambientSH)
+        const int toneMapping, const Vector3* ambientSH, const Matrix4* viewProjection)
     {
         // Ambient SH light probes (VT_FEATURE_LIGHT_PROBES): 9 premultiplied
         // irradiance coefficients, or zeros when disabled.
@@ -134,6 +134,20 @@ namespace visutwin::canvas
             }
         } else {
             std::memset(_lightingUniforms.ambientSH, 0, sizeof(_lightingUniforms.ambientSH));
+        }
+
+        // Camera view-projection for fragment-stage screen projection
+        // (dynamic grab-pass refraction). Identity when not provided.
+        if (viewProjection) {
+            for (int col = 0; col < 4; ++col) {
+                for (int row = 0; row < 4; ++row) {
+                    _lightingUniforms.viewProjection[col * 4 + row] = viewProjection->getElement(row, col);
+                }
+            }
+        } else {
+            std::memset(_lightingUniforms.viewProjection, 0, sizeof(_lightingUniforms.viewProjection));
+            _lightingUniforms.viewProjection[0] = _lightingUniforms.viewProjection[5] =
+                _lightingUniforms.viewProjection[10] = _lightingUniforms.viewProjection[15] = 1.0f;
         }
 
         // scene ambient color is authored in sRGB and converted to linear.

@@ -955,13 +955,13 @@ namespace visutwin::canvas
             if (drawReceivesShadow) {
                 _device->setLightingUniforms(ambientColor, cachedGpuLights, cameraPosition, true,
                     (_scene ? _scene->exposure() : 1.0f), fogParams, shadowParams,
-                    (_scene ? _scene->toneMapping() : 0), ambientSH);
+                    (_scene ? _scene->toneMapping() : 0), ambientSH, &viewProjection);
             } else {
                 ShadowParams noShadow;
                 noShadow.enabled = false;
                 _device->setLightingUniforms(ambientColor, cachedGpuLights, cameraPosition, true,
                     (_scene ? _scene->exposure() : 1.0f), fogParams, noShadow,
-                    (_scene ? _scene->toneMapping() : 0), ambientSH);
+                    (_scene ? _scene->toneMapping() : 0), ambientSH, &viewProjection);
             }
 
             // Phase 4: cache material's base cull mode (skip parameter map lookups),

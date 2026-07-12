@@ -22,6 +22,8 @@ namespace visutwin::canvas
 
         void setSource(const std::shared_ptr<RenderTarget>& source) { _source = source; }
 
+        void execute() override;
+
     private:
         // The source render target to grab the color from
         std::shared_ptr<RenderTarget> _source = nullptr;

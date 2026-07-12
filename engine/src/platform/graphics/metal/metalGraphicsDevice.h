@@ -74,7 +74,8 @@ namespace visutwin::canvas
         void setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,
             const Vector3& cameraPosition, bool enableNormalMaps, float exposure,
             const FogParams& fogParams = FogParams{}, const ShadowParams& shadowParams = ShadowParams{},
-            int toneMapping = 0, const Vector3* ambientSH = nullptr) override;
+            int toneMapping = 0, const Vector3* ambientSH = nullptr,
+            const Matrix4* viewProjection = nullptr) override;
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) override;
@@ -84,6 +85,8 @@ namespace visutwin::canvas
             _areaLightLut1 = lut1;
             _areaLightLut2 = lut2;
         }
+
+        void grabSceneColor(RenderTarget* source) override;
         void setAtmosphereUniforms(const void* data, size_t size) override;
 
         [[nodiscard]] MTL::Device* raw() const { return _device; }
@@ -281,6 +284,11 @@ namespace visutwin::canvas
         // LTC area-light lookup textures (slots 20/21), owned by the renderer.
         Texture* _areaLightLut1 = nullptr;
         Texture* _areaLightLut2 = nullptr;
+
+        // Scene color grab target (dynamic refraction): full-mip copy of the scene
+        // color made by the depth-layer grab pass, wrapped for slot-22 binding.
+        MTL::Texture* _sceneGrabRaw = nullptr;
+        std::shared_ptr<Texture> _sceneGrabWrapper;
 
         // Clustered lighting GPU buffers (fragment slots 7 and 8).
         MTL::Buffer* _clusterLightBuffer = nullptr;

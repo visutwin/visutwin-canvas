@@ -83,6 +83,10 @@ namespace visutwin::canvas
             // Ambient SH light probes: 9 premultiplied irradiance coefficients
             // (VT_FEATURE_LIGHT_PROBES; upstream AMBIENTSH basis).
             float ambientSH[9][4] = {};
+
+            // Camera view-projection (column-major) for fragment-stage screen
+            // projection (VT_FEATURE_DYNAMIC_REFRACTION grab-pass UV).
+            float viewProjection[16] = {};
         };
 
         // ---------------------------------------------------------------

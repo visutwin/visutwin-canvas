@@ -338,6 +338,8 @@ namespace visutwin::canvas
         } else {
             options.transmission = (variantBits & (1ull << 17)) != 0ull;
         }
+        // Dynamic grab-pass refraction: StandardMaterial opt-in, requires transmission.
+        options.dynamicRefraction = options.transmission && stdMat && stdMat->useDynamicRefraction();
         options.envAtlas = _envAtlasEnabled;
         options.lightClustering = _clusteredLightingEnabled || (variantBits & (1ull << 18)) != 0ull;
         options.ssao = _ssaoEnabled || (variantBits & (1ull << 19)) != 0ull;
@@ -492,6 +494,7 @@ namespace visutwin::canvas
         key ^= options.unlit ? (1ull << 39) : 0ull;
         key ^= options.vsmShadows ? (1ull << 41) : 0ull;
         key ^= options.lightmap ? (1ull << 42) : 0ull;
+        key ^= options.dynamicRefraction ? (1ull << 43) : 0ull;
         return key;
     }
 
@@ -531,6 +534,7 @@ namespace visutwin::canvas
         appendFeatureDefine(source, "VT_FEATURE_SHEEN", options.sheen);
         appendFeatureDefine(source, "VT_FEATURE_IRIDESCENCE", options.iridescence);
         appendFeatureDefine(source, "VT_FEATURE_TRANSMISSION", options.transmission);
+        appendFeatureDefine(source, "VT_FEATURE_DYNAMIC_REFRACTION", options.dynamicRefraction);
         appendFeatureDefine(source, "VT_FEATURE_LIGHT_CLUSTERING", options.lightClustering);
         appendFeatureDefine(source, "VT_FEATURE_SSAO", options.ssao);
         appendFeatureDefine(source, "VT_FEATURE_LIGHT_PROBES", options.lightProbes);

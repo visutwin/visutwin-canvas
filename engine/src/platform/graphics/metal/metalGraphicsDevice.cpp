@@ -1039,10 +1039,11 @@ namespace visutwin::canvas
     void MetalGraphicsDevice::setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,
         const Vector3& cameraPosition, const bool enableNormalMaps, const float exposure,
         const FogParams& fogParams, const ShadowParams& shadowParams, const int toneMapping,
-        const Vector3* ambientSH)
+        const Vector3* ambientSH, const Matrix4* viewProjection)
     {
         _uniformBinder.setLightingUniforms(ambientColor, lights, cameraPosition,
-            enableNormalMaps, exposure, fogParams, shadowParams, toneMapping, ambientSH);
+            enableNormalMaps, exposure, fogParams, shadowParams, toneMapping, ambientSH,
+            viewProjection);
     }
 
     void MetalGraphicsDevice::setEnvironmentUniforms(Texture* envAtlas, const float skyboxIntensity,
@@ -1056,6 +1057,76 @@ namespace visutwin::canvas
     void MetalGraphicsDevice::setAtmosphereUniforms(const void* data, const size_t size)
     {
         _uniformBinder.setAtmosphereUniforms(data, size);
+    }
+
+    void MetalGraphicsDevice::grabSceneColor(RenderTarget* source)
+    {
+        // Resolve the source color texture: explicit RT color buffer, or the frame's
+        // drawable when rendering directly to the back buffer (framebufferOnly=false).
+        MTL::Texture* src = nullptr;
+        if (source && source->colorBufferCount() > 0) {
+            if (const auto* colorBuffer = source->getColorBuffer(0)) {
+                if (auto* hw = dynamic_cast<gpu::MetalTexture*>(colorBuffer->impl())) {
+                    src = hw->raw();
+                }
+            }
+        }
+        if (!src && _frameDrawable) {
+            src = _frameDrawable->texture();
+        }
+        if (!src || !_commandQueue) {
+            return;
+        }
+
+        // (Re)create the persistent grab texture when size/format changes. Full mip
+        // chain so rough refraction can sample blurred scene color at higher LODs.
+        if (!_sceneGrabRaw || _sceneGrabRaw->width() != src->width() ||
+            _sceneGrabRaw->height() != src->height() ||
+            _sceneGrabRaw->pixelFormat() != src->pixelFormat()) {
+            if (_sceneGrabRaw) {
+                _sceneGrabRaw->release();
+                _sceneGrabRaw = nullptr;
+            }
+            auto* descriptor = MTL::TextureDescriptor::texture2DDescriptor(
+                src->pixelFormat(), src->width(), src->height(), true);
+            descriptor->setUsage(MTL::TextureUsageShaderRead);
+            descriptor->setStorageMode(MTL::StorageModePrivate);
+            _sceneGrabRaw = _device->newTexture(descriptor);
+            if (!_sceneGrabRaw) {
+                return;
+            }
+            _sceneGrabRaw->setLabel(NS::String::string("sceneColorGrab", NS::UTF8StringEncoding));
+
+            // Engine-side wrapper so the texture binder can bind it like any Texture.
+            if (!_sceneGrabWrapper) {
+                TextureOptions wrapperOptions;
+                wrapperOptions.name = "sceneColorGrab";
+                wrapperOptions.width = 4;
+                wrapperOptions.height = 4;
+                wrapperOptions.mipmaps = false;
+                _sceneGrabWrapper = std::make_shared<Texture>(this, wrapperOptions);
+            }
+            if (auto* hw = dynamic_cast<gpu::MetalTexture*>(_sceneGrabWrapper->impl())) {
+                hw->setExternalTexture(_sceneGrabRaw);
+            }
+        }
+
+        // Copy + mip regenerate on a fresh command buffer: render passes each commit
+        // their own buffers, so in-order queue submission keeps this after the opaque
+        // scene render and before the transparent pass that samples it.
+        auto* cmdBuffer = _commandQueue->commandBuffer();
+        auto* blitEncoder = cmdBuffer ? cmdBuffer->blitCommandEncoder() : nullptr;
+        if (!blitEncoder) {
+            return;
+        }
+        blitEncoder->copyFromTexture(src, 0, 0, MTL::Origin(0, 0, 0),
+            MTL::Size(src->width(), src->height(), 1),
+            _sceneGrabRaw, 0, 0, MTL::Origin(0, 0, 0));
+        blitEncoder->generateMipmaps(_sceneGrabRaw);
+        blitEncoder->endEncoding();
+        cmdBuffer->commit();
+
+        setSceneColorMap(_sceneGrabWrapper.get());
     }
 
     void MetalGraphicsDevice::draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
@@ -1203,7 +1274,7 @@ namespace visutwin::canvas
                 _uniformBinder.envAtlasTexture(), _uniformBinder.shadowTexture(),
                 sceneDepthMap(), _uniformBinder.skyboxCubeMapTexture(),
                 reflectionMap(), reflectionDepthMap(), ssaoForwardTexture(),
-                _areaLightLut1, _areaLightLut2);
+                _areaLightLut1, _areaLightLut2, sceneColorMap());
             _textureBinder.bindLocalShadowTextures(passEncoder,
                 _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
             _textureBinder.bindOmniShadowTextures(passEncoder,

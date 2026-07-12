@@ -102,7 +102,7 @@ namespace visutwin::canvas
     void MetalTextureBinder::bindSceneTextures(MTL::RenderCommandEncoder* encoder,
         Texture* envAtlas, Texture* shadow, Texture* sceneDepth, Texture* skyboxCubeMap,
         Texture* reflection, Texture* reflectionDepth, Texture* ssao,
-        Texture* areaLightLut1, Texture* areaLightLut2)
+        Texture* areaLightLut1, Texture* areaLightLut2, Texture* sceneColor)
     {
         bindCached(encoder, 2, envAtlas);
         bindCached(encoder, 6, shadow);
@@ -113,6 +113,7 @@ namespace visutwin::canvas
         bindCached(encoder, 18, ssao);
         bindCached(encoder, 20, areaLightLut1);
         bindCached(encoder, 21, areaLightLut2);
+        bindCached(encoder, 22, sceneColor);
     }
 
     void MetalTextureBinder::bindQuadTextures(MTL::RenderCommandEncoder* encoder,

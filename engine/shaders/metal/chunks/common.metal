@@ -235,6 +235,9 @@ struct LightingData {
 
     // Ambient SH light probes: premultiplied irradiance coefficients (upstream AMBIENTSH).
     float4 ambientSH[9];
+    // Camera view-projection for fragment-stage screen projection
+    // (VT_FEATURE_DYNAMIC_REFRACTION grab-pass UV).
+    float4x4 viewProjection;
 };
 
 constant float PI = 3.14159265358979323846;
@@ -486,6 +489,10 @@ static inline float getFalloffInvSquared(float lightRadius, float3 lightDir)
 // ---------------------------------------------------------------------------
 
 constexpr sampler ltcLutSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
+
+// Scene color grab (dynamic refraction): trilinear so rough transmission can read
+// the blurred mip chain, clamped so edge refraction doesn't wrap.
+constexpr sampler grabPassSampler(filter::linear, mip_filter::linear, address::clamp_to_edge);
 
 // LUT parameterized by sqrt(GGX alpha) x sqrt(1 - cos(view angle)).
 static inline float2 ltcUv(float3 N, float3 V, float gloss)

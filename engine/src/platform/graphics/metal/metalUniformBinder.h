@@ -51,7 +51,8 @@ namespace visutwin::canvas
         void setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,
             const Vector3& cameraPosition, bool enableNormalMaps, float exposure,
             const FogParams& fogParams, const ShadowParams& shadowParams,
-            int toneMapping = 0, const Vector3* ambientSH = nullptr);
+            int toneMapping = 0, const Vector3* ambientSH = nullptr,
+            const Matrix4* viewProjection = nullptr);
 
         /// Pack environment uniforms (skybox, env atlas) into LightingUniforms.
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,

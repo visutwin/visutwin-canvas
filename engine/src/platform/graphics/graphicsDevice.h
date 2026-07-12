@@ -378,7 +378,8 @@ namespace visutwin::canvas
         virtual void setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,
             const Vector3& cameraPosition, bool enableNormalMaps, float exposure,
             const FogParams& fogParams = FogParams{}, const ShadowParams& shadowParams = ShadowParams{},
-            int toneMapping = 0, const Vector3* ambientSH = nullptr) {}
+            int toneMapping = 0, const Vector3* ambientSH = nullptr,
+            const Matrix4* viewProjection = nullptr) {}
         virtual void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) {}
@@ -590,6 +591,13 @@ namespace visutwin::canvas
         Texture* sceneDepthMap() const { return _sceneDepthMap; }
         void setSceneDepthMap(Texture* depthMap) { _sceneDepthMap = depthMap; }
 
+        /// Scene color grab (dynamic refraction): copy the current scene color into a
+        /// mipmapped texture bound at fragment slot 22. Backend-implemented; the base
+        /// class only stores the published texture.
+        virtual void grabSceneColor(RenderTarget* source) { (void)source; }
+        Texture* sceneColorMap() const { return _sceneColorMap; }
+        void setSceneColorMap(Texture* colorMap) { _sceneColorMap = colorMap; }
+
         // DEVIATION: planar reflection texture, set by application-level code.
         // Upstream handles this in the planarRenderer script; we promote it to
         // a device-level binding so the forward pass can sample it at slot 9.
@@ -763,6 +771,7 @@ namespace visutwin::canvas
         std::vector<std::shared_ptr<Texture>> _textures;
 
         Texture* _sceneDepthMap = nullptr;
+        Texture* _sceneColorMap = nullptr;
         Texture* _reflectionMap = nullptr;
         Texture* _reflectionDepthMap = nullptr;
         Texture* _ssaoForwardTexture = nullptr;

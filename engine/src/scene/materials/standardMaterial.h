@@ -53,6 +53,12 @@ namespace visutwin::canvas
         void setGloss(const float value) { _gloss = value; }
         bool glossInvert() const { return _glossInvert; }
         void setGlossInvert(const bool value) { _glossInvert = value; }
+
+        // Dynamic grab-pass refraction: transmission samples the mid-frame scene
+        // color grab instead of the environment atlas. The camera must have
+        // requestSceneColorMap(true) so the grab pass runs.
+        bool useDynamicRefraction() const { return _useDynamicRefraction; }
+        void setUseDynamicRefraction(const bool value) { _useDynamicRefraction = value; _dirtyShader = true; }
         Texture* glossMap() const { return _glossMap; }
         void setGlossMap(Texture* texture) { _glossMap = texture; _dirtyShader = true; }
 
@@ -254,6 +260,7 @@ namespace visutwin::canvas
 
         float _gloss = 0.25f;
         bool _glossInvert = false;
+        bool _useDynamicRefraction = false;
         Texture* _glossMap = nullptr;
 
         Color _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);

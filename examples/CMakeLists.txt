@@ -167,3 +167,9 @@ add_executable(visutwin-area-light MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-area-light PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-area-light com.visutwin.area-light)
+
+add_executable(visutwin-refraction MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/refraction-example.cpp
+)
+target_link_libraries(visutwin-refraction PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-refraction com.visutwin.refraction)
