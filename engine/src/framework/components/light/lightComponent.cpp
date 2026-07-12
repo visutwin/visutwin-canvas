@@ -52,6 +52,8 @@ namespace visutwin::canvas
         _light->setShadowType(_shadowType);
         _light->setVsmBlurSize(_vsmBlurSize);
         _light->setVsmBias(_vsmBias);
+        _light->setPenumbraSize(_penumbraSize);
+        _light->setPenumbraFalloff(_penumbraFalloff);
         _light->setNumCascades(_numCascades);
         _light->setCascadeDistribution(_cascadeDistribution);
         _light->setCascadeBlend(_cascadeBlend);

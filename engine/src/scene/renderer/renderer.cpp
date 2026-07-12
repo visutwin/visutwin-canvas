@@ -347,6 +347,21 @@ namespace visutwin::canvas
                 }
             }
             programLibrary->setVsmShadowsEnabled(hasVsmShadows);
+
+            // Directional PCSS: contact-hardening soft shadows. The shadow map
+            // stays the standard depth texture (only the sampling differs).
+            bool hasPcssShadows = false;
+            for (const auto* lc : LightComponent::instances()) {
+                if (lc && lc->enabled() && lc->castShadows() &&
+                    lc->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
+                    Light* sceneLight = lc->light();
+                    if (sceneLight && sceneLight->shadowType() == SHADOW_PCSS_32F) {
+                        hasPcssShadows = true;
+                        break;
+                    }
+                }
+            }
+            programLibrary->setPcssShadowsEnabled(hasPcssShadows);
         }
 
         // Area lights: enable when any LightComponent has LIGHTTYPE_AREA_RECT.
@@ -729,6 +744,24 @@ namespace visutwin::canvas
                         shadowParams.bias = shadowParams.vsm
                             ? sceneLight->vsmBias()
                             : 0.0001f;
+
+                        // PCSS: penumbra parameters + per-cascade shadow-camera
+                        // extents (the world-space penumbra math needs the ortho
+                        // radius and caster depth range of each cascade).
+                        shadowParams.pcss = (sceneLight->shadowType() == SHADOW_PCSS_32F);
+                        if (shadowParams.pcss) {
+                            shadowParams.penumbraSize = sceneLight->penumbraSize();
+                            shadowParams.penumbraFalloff = sceneLight->penumbraFalloff();
+                            for (int cascade = 0; cascade < shadowParams.numCascades && cascade < 4; ++cascade) {
+                                LightRenderData* cascadeData = sceneLight->getRenderData(fitCamera, cascade);
+                                if (cascadeData && cascadeData->shadowCamera) {
+                                    shadowParams.pcssCascadeRadii[cascade] =
+                                        std::max(cascadeData->shadowCamera->orthoHeight(), 1e-4f);
+                                    shadowParams.pcssCascadeDepthRanges[cascade] = std::max(
+                                        cascadeData->shadowCamera->farClip() - cascadeData->shadowCamera->nearClip(), 1e-4f);
+                                }
+                            }
+                        }
                     }
                 }
             }

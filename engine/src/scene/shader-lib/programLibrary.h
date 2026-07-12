@@ -66,6 +66,10 @@ namespace visutwin::canvas
         //     visibility is reconstructed via Chebyshev's inequality.
         void setVsmShadowsEnabled(bool value) { _vsmShadowsEnabled = value; }
 
+        // Set when the directional light uses SHADOW_PCSS_32F — forward shaders
+        // compile with VT_FEATURE_PCSS_SHADOWS (contact-hardening soft shadows).
+        void setPcssShadowsEnabled(bool value) { _pcssShadowsEnabled = value; }
+
         // Set when clustered lighting is enabled on the scene.
         // When true, forward shaders compile with VT_FEATURE_LIGHT_CLUSTERING.
         void setClusteredLightingEnabled(bool value) { _clusteredLightingEnabled = value; }
@@ -119,6 +123,7 @@ namespace visutwin::canvas
             bool iridescence = false;
             bool transmission = false;
             bool dynamicRefraction = false;  // grab-pass refraction (StandardMaterial::useDynamicRefraction)
+            bool opacityDither = false;      // Bayer8 dithered transparency in the opaque pass
             bool lightClustering = false;
             bool ssao = false;
             bool lightProbes = false;
@@ -142,6 +147,7 @@ namespace visutwin::canvas
             bool localShadows = false;      // Local light (spot/point) shadow mapping — 2D depth textures
             bool omniShadows = false;       // Omni light cubemap shadow mapping — depthcube textures
             bool vsmShadows = false;        // Directional EVSM_16F: moments texture sampled via Chebyshev.
+            bool pcssShadows = false;       // Directional PCSS: raw depth samples, Vogel-disk blocker search.
                                             // Mirrors upstream SHADOW_VSM_16F.
             bool dynamicBatch = false;      // Dynamic batching — per-vertex bone index + matrix palette
             bool pointSize = false;         // Point primitive rendering — [[point_size]] in vertex output
@@ -168,6 +174,7 @@ namespace visutwin::canvas
         bool _localShadowsEnabled = false;
         bool _omniShadowsEnabled = false;
         bool _vsmShadowsEnabled = false;
+        bool _pcssShadowsEnabled = false;
         bool _clusteredLightingEnabled = false;
         bool _areaLightsEnabled = false;
         bool _ssaoEnabled = false;

@@ -239,6 +239,16 @@ namespace visutwin::canvas
         _lightingUniforms.shadowBiasNormalStrength[2] = shadowParams.strength;
         _lightingUniforms.shadowBiasNormalStrength[3] = shadowParams.enabled ? 1.0f : 0.0f;
 
+        // PCSS directional shadow parameters (used when VT_FEATURE_PCSS_SHADOWS).
+        _lightingUniforms.pcssParams[0] = static_cast<float>(shadowParams.pcssSamples);
+        _lightingUniforms.pcssParams[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
+        _lightingUniforms.pcssParams[2] = shadowParams.penumbraSize;
+        _lightingUniforms.pcssParams[3] = shadowParams.penumbraFalloff;
+        std::memcpy(_lightingUniforms.pcssCascadeRadii, shadowParams.pcssCascadeRadii,
+                    sizeof(_lightingUniforms.pcssCascadeRadii));
+        std::memcpy(_lightingUniforms.pcssCascadeDepthRanges, shadowParams.pcssCascadeDepthRanges,
+                    sizeof(_lightingUniforms.pcssCascadeDepthRanges));
+
         // CSM: pack cascade matrix palette, distances, and params.
         //lines 279-282.
         std::memcpy(_lightingUniforms.shadowMatrixPalette,

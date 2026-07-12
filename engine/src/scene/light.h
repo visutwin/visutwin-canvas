@@ -133,6 +133,14 @@ namespace visutwin::canvas
         float vsmBias() const { return _vsmBias; }
         void setVsmBias(const float value) { _vsmBias = std::max(value, 0.0f); }
 
+        // PCSS (SHADOW_PCSS_32F): world-space light area size driving the penumbra width.
+        float penumbraSize() const { return _penumbraSize; }
+        void setPenumbraSize(const float value) { _penumbraSize = std::max(value, 0.0f); }
+
+        // PCSS: penumbra growth curve shape (>= 1; 1 = linear with blocker distance).
+        float penumbraFalloff() const { return _penumbraFalloff; }
+        void setPenumbraFalloff(const float value) { _penumbraFalloff = std::max(value, 1.0f); }
+
         //shadowBias.
         float shadowBias() const { return _shadowBias; }
         void setShadowBias(const float value) { _shadowBias = value; }
@@ -214,6 +222,8 @@ namespace visutwin::canvas
         int _shadowResolution = 2048;
         int _vsmBlurSize = 11;
         float _vsmBias = 0.0025f;
+        float _penumbraSize = 1.0f;
+        float _penumbraFalloff = 1.0f;
 
         //_shadowBias (-0.0005 default in the upstream engine).
         float _shadowBias = -0.0005f;

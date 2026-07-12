@@ -59,6 +59,13 @@ namespace visutwin::canvas
         // requestSceneColorMap(true) so the grab pass runs.
         bool useDynamicRefraction() const { return _useDynamicRefraction; }
         void setUseDynamicRefraction(const bool value) { _useDynamicRefraction = value; _dirtyShader = true; }
+
+        // Opacity dithering (upstream opacityDither, BAYER8): render partial opacity in
+        // the OPAQUE pass by discarding fragments against an 8x8 Bayer threshold —
+        // no sorting artifacts and depth writes stay valid. Leave the material
+        // non-transparent when using this.
+        bool opacityDither() const { return _opacityDither; }
+        void setOpacityDither(const bool value) { _opacityDither = value; _dirtyShader = true; }
         Texture* glossMap() const { return _glossMap; }
         void setGlossMap(Texture* texture) { _glossMap = texture; _dirtyShader = true; }
 
@@ -261,6 +268,7 @@ namespace visutwin::canvas
         float _gloss = 0.25f;
         bool _glossInvert = false;
         bool _useDynamicRefraction = false;
+        bool _opacityDither = false;
         Texture* _glossMap = nullptr;
 
         Color _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);

@@ -340,6 +340,8 @@ namespace visutwin::canvas
         }
         // Dynamic grab-pass refraction: StandardMaterial opt-in, requires transmission.
         options.dynamicRefraction = options.transmission && stdMat && stdMat->useDynamicRefraction();
+        // Opacity dither: Bayer8 dithered transparency in the opaque pass.
+        options.opacityDither = stdMat && stdMat->opacityDither();
         options.envAtlas = _envAtlasEnabled;
         options.lightClustering = _clusteredLightingEnabled || (variantBits & (1ull << 18)) != 0ull;
         options.ssao = _ssaoEnabled || (variantBits & (1ull << 19)) != 0ull;
@@ -420,6 +422,7 @@ namespace visutwin::canvas
 
         // Directional EVSM_16F: forward shader samples moments texture via Chebyshev.
         options.vsmShadows = _vsmShadowsEnabled && !options.skybox;
+        options.pcssShadows = _pcssShadowsEnabled;
 
         // Area lights: enabled when any area rect light is in the scene.
         // Set by the renderer before the draw loop.
@@ -495,6 +498,8 @@ namespace visutwin::canvas
         key ^= options.vsmShadows ? (1ull << 41) : 0ull;
         key ^= options.lightmap ? (1ull << 42) : 0ull;
         key ^= options.dynamicRefraction ? (1ull << 43) : 0ull;
+        key ^= options.opacityDither ? (1ull << 44) : 0ull;
+        key ^= options.pcssShadows ? (1ull << 45) : 0ull;
         return key;
     }
 
@@ -535,6 +540,8 @@ namespace visutwin::canvas
         appendFeatureDefine(source, "VT_FEATURE_IRIDESCENCE", options.iridescence);
         appendFeatureDefine(source, "VT_FEATURE_TRANSMISSION", options.transmission);
         appendFeatureDefine(source, "VT_FEATURE_DYNAMIC_REFRACTION", options.dynamicRefraction);
+        appendFeatureDefine(source, "VT_FEATURE_OPACITY_DITHER", options.opacityDither);
+        appendFeatureDefine(source, "VT_FEATURE_PCSS_SHADOWS", options.pcssShadows);
         appendFeatureDefine(source, "VT_FEATURE_LIGHT_CLUSTERING", options.lightClustering);
         appendFeatureDefine(source, "VT_FEATURE_SSAO", options.ssao);
         appendFeatureDefine(source, "VT_FEATURE_LIGHT_PROBES", options.lightProbes);

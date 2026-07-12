@@ -248,6 +248,15 @@
                 // VSM uses a separate vsmBias inside calculateEVSM.
                 const float vsmBias = max(lighting.shadowBiasNormalStrength.x, 1e-4);
                 const float visible = getShadowVSM16(shadowTexture, shadowUv, shadowDepth, vsmBias);
+#elif VT_FEATURE_PCSS_SHADOWS
+                // PCSS — contact-hardening soft shadows: Vogel-disk blocker search
+                // sets a world-space penumbra per fragment.
+                const float pcssDepth = shadowDepth - lighting.shadowBiasNormalStrength.x;
+                const float visible = getShadowPCSSDirectional(shadowTexture,
+                    float3(shadowUv, pcssDepth),
+                    lighting.pcssCascadeRadii[cascadeIndex],
+                    lighting.pcssCascadeDepthRanges[cascadeIndex],
+                    lighting.pcssParams, rd.position.xy);
 #else
                 // PCF3_32F — optimized bilinear 3×3 PCF.
                 const float receiverDepth = shadowDepth - lighting.shadowBiasNormalStrength.x;
@@ -276,6 +285,13 @@
 #if VT_FEATURE_VSM_SHADOWS
                         const float nextVsmBias = max(lighting.shadowBiasNormalStrength.x, 1e-4);
                         const float nextVisible = getShadowVSM16(shadowTexture, nextCoord.xy, nextCoord.z, nextVsmBias);
+#elif VT_FEATURE_PCSS_SHADOWS
+                        const float nextPcssDepth = nextCoord.z - lighting.shadowBiasNormalStrength.x;
+                        const float nextVisible = getShadowPCSSDirectional(shadowTexture,
+                            float3(nextCoord.xy, nextPcssDepth),
+                            lighting.pcssCascadeRadii[nextCascade],
+                            lighting.pcssCascadeDepthRanges[nextCascade],
+                            lighting.pcssParams, rd.position.xy);
 #else
                         const float nextReceiverDepth = nextCoord.z - lighting.shadowBiasNormalStrength.x;
                         const float nextVisible = getShadowPCF3x3(shadowTexture, nextCoord.xy, nextReceiverDepth, resolution);

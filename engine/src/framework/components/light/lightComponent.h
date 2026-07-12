@@ -98,6 +98,12 @@ namespace visutwin::canvas
         float vsmBias() const { return _vsmBias; }
         void setVsmBias(const float value) { _vsmBias = value < 0.0f ? 0.0f : value; }
 
+        // PCSS penumbra: world-space light size + growth curve (SHADOW_PCSS_32F).
+        float penumbraSize() const { return _penumbraSize; }
+        void setPenumbraSize(const float value) { _penumbraSize = value < 0.0f ? 0.0f : value; }
+        float penumbraFalloff() const { return _penumbraFalloff; }
+        void setPenumbraFalloff(const float value) { _penumbraFalloff = value < 1.0f ? 1.0f : value; }
+
         int numCascades() const { return _numCascades; }
         void setNumCascades(const int value) { _numCascades = value; }
 
@@ -158,6 +164,8 @@ namespace visutwin::canvas
         int _shadowResolution = 2048;
         ShadowType _shadowType = SHADOW_PCF3_32F;
         int _vsmBlurSize = 11;
+        float _penumbraSize = 1.0f;
+        float _penumbraFalloff = 1.0f;
         float _vsmBias = 0.0025f;
         int _numCascades = 4;
         float _cascadeDistribution = 0.5f;

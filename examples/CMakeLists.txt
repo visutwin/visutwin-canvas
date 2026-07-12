@@ -179,3 +179,9 @@ add_executable(visutwin-outline-viewcube MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-outline-viewcube PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-outline-viewcube com.visutwin.outline-viewcube)
+
+add_executable(visutwin-pcss-dither MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/pcss-dither-example.cpp
+)
+target_link_libraries(visutwin-pcss-dither PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-pcss-dither com.visutwin.pcss-dither)

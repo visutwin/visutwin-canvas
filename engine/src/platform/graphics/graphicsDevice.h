@@ -86,6 +86,19 @@ namespace visutwin::canvas
         // floor) instead of a depth offset. Metal selects the VSM sampling via
         // a shader variant; the Vulkan backend branches on this at runtime.
         bool vsm = false;
+        // True when the directional light uses SHADOW_PCSS_32F (contact-hardening
+        // soft shadows). The shadow map stays the standard depth texture; the
+        // shader samples it raw (non-comparison) with a Vogel-disk blocker search.
+        bool pcss = false;
+        float penumbraSize = 1.0f;
+        float penumbraFalloff = 1.0f;
+        int pcssSamples = 16;
+        int pcssBlockerSamples = 16;
+        // Per-cascade ortho half-extent (world units) and caster depth range
+        // (far - near) of the directional shadow cameras — the world-space PCSS
+        // penumbra math needs both.
+        float pcssCascadeRadii[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        float pcssCascadeDepthRanges[4] = {1.0f, 1.0f, 1.0f, 1.0f};
         float bias = 0.001f;
         float normalBias = 0.0f;
         float strength = 1.0f;

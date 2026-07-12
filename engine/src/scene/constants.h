@@ -114,6 +114,14 @@ namespace visutwin::canvas
          * comparison for sharp shadow edges.
          */
         SHADOW_PCF1_32F = 5,
+
+        /**
+         * Percentage-closer soft shadows: contact-hardening penumbras driven by a
+         * Vogel-disk blocker search. Directional lights only in this port.
+         * DEVIATION: upstream renders a dedicated R32F linear-depth map; this port
+         * samples the standard hardware depth map without comparison.
+         */
+        SHADOW_PCSS_32F = 6,
     };
 
     struct ShadowTypeInfo

@@ -15,6 +15,12 @@ namespace visutwin::canvas
         SHADOW_PCF3_16F, { name: 'PCF3_16F', kind: 'PCF3', format: PIXELFORMAT_DEPTH16, pcf: true },
         SHADOW_PCF5_16F, { name: 'PCF5_16F', kind: 'PCF5', format: PIXELFORMAT_DEPTH16, pcf: true },*/
         { SHADOW_VSM_16F, { "VSM_16F", "VSM", PixelFormat::PIXELFORMAT_RGBA16F, false, true }},
+        // DEVIATION: upstream PCSS uses an R32F color map; this port samples the
+        // standard depth map raw (non-comparison sampler), so the format matches PCF.
+        // pcf=true: in this port PCSS renders the same depth-only shadow map as PCF
+        // (the flag selects the depth attachment + nearest filtering in ShadowMap::create);
+        // only the forward-pass sampling differs.
+        { SHADOW_PCSS_32F, { "PCSS_32F", "PCSS", PixelFormat::PIXELFORMAT_DEPTH, true, false }},
         /*SHADOW_VSM_32F, { name: 'VSM_32F', kind: 'VSM', format: PIXELFORMAT_RGBA32F, vsm: true },
         SHADOW_PCSS_32F, { name: 'PCSS_32F', kind: 'PCSS', format: PIXELFORMAT_R32F, pcss: true }*/
     };

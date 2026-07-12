@@ -238,6 +238,11 @@ struct LightingData {
     // Camera view-projection for fragment-stage screen projection
     // (VT_FEATURE_DYNAMIC_REFRACTION grab-pass UV).
     float4x4 viewProjection;
+    // PCSS directional shadows: {filterSamples, blockerSamples, penumbraSize,
+    // penumbraFalloff}; per-cascade shadow-cam ortho radii and depth ranges.
+    float4 pcssParams;
+    float4 pcssCascadeRadii;
+    float4 pcssCascadeDepthRanges;
 };
 
 constant float PI = 3.14159265358979323846;
@@ -490,6 +495,24 @@ static inline float getFalloffInvSquared(float lightRadius, float3 lightDir)
 
 constexpr sampler ltcLutSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
 
+// ---------------------------------------------------------------------------
+// Procedural Bayer matrix (upstream bayer.js, from shadertoy.com/view/Mlt3z8),
+// used by VT_FEATURE_OPACITY_DITHER for ordered-dither transparency.
+// ---------------------------------------------------------------------------
+
+// 2x2 bayer matrix [1 2][3 0], p in [0,1]
+static inline float bayer2(float2 p) {
+    return fmod(2.0 * p.y + p.x + 1.0, 4.0);
+}
+
+// 8x8 matrix, p - pixel coordinate
+static inline float bayer8(float2 p) {
+    const float2 p1 = fmod(p, 2.0);
+    const float2 p2 = floor(0.5 * fmod(p, 4.0));
+    const float2 p4 = floor(0.25 * fmod(p, 8.0));
+    return 4.0 * (4.0 * bayer2(p1) + bayer2(p2)) + bayer2(p4);
+}
+
 // Scene color grab (dynamic refraction): trilinear so rough transmission can read
 // the blurred mip chain, clamped so edge refraction doesn't wrap.
 constexpr sampler grabPassSampler(filter::linear, mip_filter::linear, address::clamp_to_edge);
@@ -681,6 +704,111 @@ static inline float getShadowVSM16(texture2d<float> momentsTex, float2 shadowUv,
     constexpr sampler vsmSampler(coord::normalized, filter::linear, address::clamp_to_edge);
     const float3 moments = momentsTex.sample(vsmSampler, shadowUv).xyz;
     return calculateEVSM(moments, receiverDepth, vsmBias, VSM_EXPONENT);
+}
+
+// ---------------------------------------------------------------------------
+// PCSS directional shadows (upstream shadowSoft.js PCSSDirectional): Vogel-disk
+// blocker search + filter with world-space contact-hardening penumbra.
+// DEVIATION: samples the standard hardware depth map raw (non-comparison
+// sampler) instead of upstream's dedicated R32F linear-depth map — the ortho
+// directional shadow camera stores linear [0,1] depth either way.
+// ---------------------------------------------------------------------------
+
+// Raw (non-comparison) depth reads for the blocker search and filter taps.
+constexpr sampler shadowRawSampler(coord::normalized, filter::nearest, address::clamp_to_edge);
+
+static inline float pcssFractSinRand(float2 uv)
+{
+    const float a = 12.9898, b = 78.233, c = 43758.5453;
+    const float dt = dot(uv, float2(a, b));
+    const float sn = fmod(dt, PI);
+    return fract(sin(sn) * c);
+}
+
+struct PcssDiskData {
+    float invNumSamples;
+    float initialAngle;
+    float currentPointId;
+};
+
+static inline void pcssPrepareDisk(thread PcssDiskData &data, int sampleCount, float randomSeed)
+{
+    data.invNumSamples = 1.0 / float(sampleCount);
+    data.initialAngle = randomSeed * 2.0 * PI;
+    data.currentPointId = 0.0;
+}
+
+static inline float2 pcssDiskSample(thread PcssDiskData &data)
+{
+    const float GOLDEN_ANGLE = 2.399963;
+    const float r = sqrt((data.currentPointId + 0.5) * data.invNumSamples);
+    const float theta = data.currentPointId * GOLDEN_ANGLE + data.initialAngle;
+    data.currentPointId += 1.0;
+    return float2(r * cos(theta), r * sin(theta));
+}
+
+// shadowCoords: atlas UV + depth from the cascade's palette matrix.
+// orthoRadius / depthRange: this cascade's shadow-camera world half-extent and
+// caster depth span. pcssParams = {filterSamples, blockerSamples, penumbraSize,
+// penumbraFalloff}. NOTE: large penumbras can sample across cascade tiles at
+// atlas boundaries — cascade blending masks most of it.
+static inline float getShadowPCSSDirectional(depth2d<float> shadowMap, float3 shadowCoords,
+    float orthoRadius, float depthRange, float4 pcssParams, float2 fragCoord)
+{
+    const float receiverDepth = shadowCoords.z;
+    // clamp so cleared texels (depth = 1) are not treated as blockers when the
+    // receiver sits outside the tightened cascade depth range.
+    const float receiverDepthClamped = min(receiverDepth, 0.9999);
+    const float randomSeed = pcssFractSinRand(fragCoord);
+    const int shadowSamples = int(pcssParams.x);
+    const int blockerSamples = int(pcssParams.y);
+    const float penumbraSize = pcssParams.z;    // world-space light area size
+    const float penumbraFalloff = pcssParams.w; // curve shape (>= 1)
+
+    const float worldPerUv = 2.0 * orthoRadius;
+
+    float filterRadius;
+    if (blockerSamples > 0) {
+        // blocker search radius bounds the largest possible penumbra
+        const float searchWidthUv = (penumbraSize * depthRange) / worldPerUv;
+
+        PcssDiskData diskData;
+        pcssPrepareDisk(diskData, blockerSamples, randomSeed);
+        float blockerSum = 0.0;
+        int numBlockers = 0;
+        for (int i = 0; i < blockerSamples; ++i) {
+            const float2 sampleUv = shadowCoords.xy + pcssDiskSample(diskData) * searchWidthUv;
+            const float shadowMapDepth = shadowMap.sample(shadowRawSampler, sampleUv);
+            if (shadowMapDepth < receiverDepthClamped) {
+                blockerSum += shadowMapDepth;
+                numBlockers++;
+            }
+        }
+        if (numBlockers < 1) {
+            return 1.0;
+        }
+        const float avgBlockerDepth = blockerSum / float(numBlockers);
+
+        // world-space penumbra with shape control: reaches penumbraSize*depthRange
+        // when the blocker sits at the far end of the caster depth range.
+        const float worldDist = max((receiverDepth - avgBlockerDepth) * depthRange, 0.0);
+        const float t = clamp(worldDist / depthRange, 0.0, 1.0);
+        const float shape = 1.0 - pow(1.0 - t, penumbraFalloff);
+        filterRadius = (shape * penumbraSize * depthRange) / worldPerUv;
+    } else {
+        // constant filter size, no contact hardening
+        filterRadius = penumbraSize / worldPerUv;
+    }
+
+    PcssDiskData diskData;
+    pcssPrepareDisk(diskData, shadowSamples, randomSeed);
+    float sum = 0.0;
+    for (int i = 0; i < shadowSamples; ++i) {
+        const float2 sampleUv = shadowCoords.xy + pcssDiskSample(diskData) * filterRadius;
+        const float depth = shadowMap.sample(shadowRawSampler, sampleUv);
+        sum += step(receiverDepthClamped, depth);
+    }
+    return sum / float(shadowSamples);
 }
 
 // The glossSq term scales F90 (grazing-angle reflectance) by roughness, preventing

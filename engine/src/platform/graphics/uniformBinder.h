@@ -87,6 +87,13 @@ namespace visutwin::canvas
             // Camera view-projection (column-major) for fragment-stage screen
             // projection (VT_FEATURE_DYNAMIC_REFRACTION grab-pass UV).
             float viewProjection[16] = {};
+
+            // PCSS directional shadows (VT_FEATURE_PCSS_SHADOWS):
+            // pcssParams = {filterSamples, blockerSamples, penumbraSize, penumbraFalloff};
+            // per-cascade shadow-camera ortho radii and caster depth ranges.
+            float pcssParams[4] = {16.0f, 16.0f, 1.0f, 1.0f};
+            float pcssCascadeRadii[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+            float pcssCascadeDepthRanges[4] = {1.0f, 1.0f, 1.0f, 1.0f};
         };
 
         // ---------------------------------------------------------------

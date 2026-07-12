@@ -199,6 +199,28 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     }
 #endif
 
+#if VT_FEATURE_OPACITY_DITHER
+    // Opacity dithering (upstream opacity-dither.js, BAYER8 variant): screen-space
+    // ordered dither turns partial opacity into a discard pattern so transparency
+    // renders in the opaque pass with correct depth. DEVIATION: no blue-noise /
+    // IGN variants and no per-frame jitter (static pattern; upstream jitters
+    // for TAA convergence).
+    {
+        if (alpha <= 0.0) {
+            discard_fragment();
+        }
+        if (alpha < 1.0) {
+            float ditherNoise = bayer8(floor(fmod(rd.position.xy, 8.0))) / 64.0;
+            // The threshold is authored in perceptual (sRGB) space — linearize.
+            ditherNoise = pow(ditherNoise, 2.2);
+            if (alpha < ditherNoise) {
+                discard_fragment();
+            }
+        }
+        alpha = 1.0;
+    }
+#endif
+
 #if VT_FEATURE_UNLIT
     // KHR_materials_unlit: output base color directly, skip all PBR lighting.
     {
