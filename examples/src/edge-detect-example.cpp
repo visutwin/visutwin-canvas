@@ -417,6 +417,14 @@ int main()
     displayOriginalPass->setRequiresCubemaps(false);
     displayEdgePass->setRequiresCubemaps(false);
 
+    // Register the display passes as renderer append passes so they run inside
+    // Engine::render(), after the scene render actions but BEFORE frame end.
+    // Rendering to the back buffer after engine->render() returns is unsafe:
+    // frameEnd presents the drawable, and a later pass would reuse the stale
+    // presented drawable (pointer-auth SIGSEGV in startRenderPass).
+    engine->renderer()->addAppendPass(displayOriginalPass);
+    engine->renderer()->addAppendPass(displayEdgePass);
+
     std::shared_ptr<Shader> computeShader = nullptr;
     std::unique_ptr<Compute> compute = nullptr;
     if (graphicsDevice->supportsCompute()) {
@@ -430,6 +438,14 @@ int main()
             compute->setParameter("outputTexture", outputTexture.get());
         }
     }
+
+    // GPU profiler: log per-pass timings once (verifies the append passes run
+    // inside the frame graph).
+    if (const auto& profiler = graphicsDevice->gpuProfiler()) {
+        profiler->setEnabled(true);
+    }
+    bool profilerLogged = false;
+    float profilerTimer = 0.0f;
 
     bool running = true;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
@@ -475,10 +491,8 @@ int main()
             graphicsDevice->computeDispatch({compute.get()}, "EdgeDetectDispatch");
         }
 
-        engine->update(deltaTime);
-        engine->render();
-
-        // draw two screen-space textures with a small vertical gap.
+        // Two screen-space views with a small vertical gap — viewports set before
+        // render(); the append passes draw them at the end of the frame graph.
         const float gap = 0.02f;
         const int screenW = std::max(1, w);
         const int screenH = std::max(1, h);
@@ -493,8 +507,19 @@ int main()
         displayEdgePass->setViewport(Vector4(static_cast<float>(vx), static_cast<float>(bottomY), static_cast<float>(vw), static_cast<float>(vh)));
         displayEdgePass->setScissor(displayEdgePass->viewport());
 
-        displayOriginalPass->render();
-        displayEdgePass->render();
+        engine->update(deltaTime);
+        engine->render();
+
+        profilerTimer += deltaTime;
+        if (!profilerLogged && profilerTimer > 2.0f) {
+            profilerLogged = true;
+            if (const auto& profiler = graphicsDevice->gpuProfiler(); profiler && profiler->enabled()) {
+                spdlog::info("Frame graph passes ({} total):", profiler->passTimings().size());
+                for (const auto& pass : profiler->passTimings()) {
+                    spdlog::info("  pass '{}': {:.3f} ms", pass.name, pass.milliseconds);
+                }
+            }
+        }
     }
 
     engine.reset();
