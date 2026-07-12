@@ -2,6 +2,8 @@
 // Copyright 2025-2026 Arnis Lektauers
 #include "animEvaluator.h"
 
+#include "scene/morphInstance.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -115,6 +117,7 @@ namespace visutwin::canvas
             int posCounter = 0;
             int rotCounter = 0;
             int sclCounter = 0;
+            int wgtCounter = 0;
         };
         std::unordered_map<std::string, Accum> blended;
         std::unordered_map<std::string, AnimTransform> tmp;
@@ -162,6 +165,18 @@ namespace visutwin::canvas
                     acc.value.hasScale = true;
                     acc.sclCounter++;
                 }
+                if (transform.hasWeights) {
+                    if (acc.wgtCounter == 0 || weight >= 1.0f ||
+                        acc.value.weights.size() != transform.weights.size()) {
+                        acc.value.weights = transform.weights;
+                    } else {
+                        for (size_t c = 0; c < transform.weights.size(); ++c) {
+                            acc.value.weights[c] += (transform.weights[c] - acc.value.weights[c]) * weight;
+                        }
+                    }
+                    acc.value.hasWeights = true;
+                    acc.wgtCounter++;
+                }
             }
         }
 
@@ -178,6 +193,22 @@ namespace visutwin::canvas
             }
             if (acc.value.hasScale) {
                 node->setLocalScale(acc.value.scale);
+            }
+        }
+
+        // Morph weight channels: push blended weights into the target node's
+        // morph instances (glTF "weights" animation).
+        for (const auto& [nodeName, acc] : blended) {
+            if (!acc.value.hasWeights) {
+                continue;
+            }
+            for (auto* morphInstance : _binder->resolveMorphInstances(nodeName)) {
+                if (!morphInstance) {
+                    continue;
+                }
+                for (size_t c = 0; c < acc.value.weights.size(); ++c) {
+                    morphInstance->setWeight(static_cast<int>(c), acc.value.weights[c]);
+                }
             }
         }
     }

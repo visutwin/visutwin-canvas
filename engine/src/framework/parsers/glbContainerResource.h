@@ -60,6 +60,7 @@ namespace visutwin::canvas
         void addMeshPayload(const GlbMeshPayload& payload) { _meshPayloads.push_back(payload); }
         void addNodePayload(const GlbNodePayload& payload) { _nodePayloads.push_back(payload); }
         void addSkinPayload(const GlbSkinPayload& payload) { _skinPayloads.push_back(payload); }
+        size_t skinPayloadCount() const { return _skinPayloads.size(); }
         void addRootNodeIndex(const int index) { _rootNodeIndices.push_back(index); }
         void addOwnedTexture(const std::shared_ptr<Texture>& texture) { _ownedTextures.push_back(texture); }
 

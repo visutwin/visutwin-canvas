@@ -565,6 +565,84 @@ namespace visutwin::canvas
                 }
 
                 payload.skin = std::make_shared<Skin>(std::move(inverseBindPose), std::move(boneNames));
+
+                // Per-bone AABBs over the bind-space vertices each joint influences.
+                // Enables frustum culling of skinned meshes: at runtime the world
+                // bound is the union of bone AABBs transformed by
+                // bone.worldTransform * inverseBind (see MeshInstance::aabb()).
+                {
+                    const size_t jointCount = skin.joints.size();
+                    std::vector<float> mins(jointCount * 3, std::numeric_limits<float>::max());
+                    std::vector<float> maxs(jointCount * 3, std::numeric_limits<float>::lowest());
+                    std::vector<uint8_t> used(jointCount, 0);
+                    const int skinIndex = static_cast<int>(container->skinPayloadCount());
+
+                    for (const auto& node : model.nodes) {
+                        if (node.skin != skinIndex || node.mesh < 0 ||
+                            node.mesh >= static_cast<int>(model.meshes.size())) {
+                            continue;
+                        }
+                        for (const auto& primitive : model.meshes[static_cast<size_t>(node.mesh)].primitives) {
+                            const auto posIt = primitive.attributes.find("POSITION");
+                            if (posIt == primitive.attributes.end()) {
+                                continue;
+                            }
+                            const auto* posAccessor = getAccessor(model, posIt->second);
+                            if (!posAccessor) {
+                                continue;
+                            }
+                            std::vector<float> positions;
+                            if (!readFloatArray(model, *posAccessor, positions)) {
+                                continue;
+                            }
+                            const size_t vertexCount = positions.size() / 3;
+                            const auto attributes = readSkinAttributes(model, primitive, vertexCount);
+                            if (attributes.joints.size() < vertexCount * 4 ||
+                                attributes.weights.size() < vertexCount * 4) {
+                                continue;
+                            }
+                            for (size_t v = 0; v < vertexCount; ++v) {
+                                for (int k = 0; k < 4; ++k) {
+                                    const float weight = attributes.weights[v * 4 + static_cast<size_t>(k)];
+                                    if (weight <= 1e-4f) {
+                                        continue;
+                                    }
+                                    const auto joint = static_cast<size_t>(attributes.joints[v * 4 + static_cast<size_t>(k)]);
+                                    if (joint >= jointCount) {
+                                        continue;
+                                    }
+                                    used[joint] = 1;
+                                    for (int c = 0; c < 3; ++c) {
+                                        const float value = positions[v * 3 + static_cast<size_t>(c)];
+                                        mins[joint * 3 + static_cast<size_t>(c)] = std::min(mins[joint * 3 + static_cast<size_t>(c)], value);
+                                        maxs[joint * 3 + static_cast<size_t>(c)] = std::max(maxs[joint * 3 + static_cast<size_t>(c)], value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    std::vector<BoundingBox> boneAabbs(jointCount);
+                    bool anyUsed = false;
+                    for (size_t j = 0; j < jointCount; ++j) {
+                        if (!used[j]) {
+                            continue;
+                        }
+                        anyUsed = true;
+                        boneAabbs[j].setCenter(
+                            (mins[j * 3] + maxs[j * 3]) * 0.5f,
+                            (mins[j * 3 + 1] + maxs[j * 3 + 1]) * 0.5f,
+                            (mins[j * 3 + 2] + maxs[j * 3 + 2]) * 0.5f);
+                        boneAabbs[j].setHalfExtents(
+                            (maxs[j * 3] - mins[j * 3]) * 0.5f,
+                            (maxs[j * 3 + 1] - mins[j * 3 + 1]) * 0.5f,
+                            (maxs[j * 3 + 2] - mins[j * 3 + 2]) * 0.5f);
+                    }
+                    if (anyUsed) {
+                        payload.skin->setBoneAabbs(std::move(boneAabbs), std::move(used));
+                    }
+                }
+
                 container->addSkinPayload(payload);
             }
             if (!model.skins.empty()) {
@@ -621,8 +699,22 @@ namespace visutwin::canvas
                     } else if (channel.target_path == "scale") {
                         propertyPath = "localScale";
                         outputComponents = 3;
+                    } else if (channel.target_path == "weights") {
+                        // Morph target weights: one output component per target of the
+                        // node's mesh (glTF: output count = keyCount * targetCount).
+                        propertyPath = "weights";
+                        const auto& targetNode = model.nodes[static_cast<size_t>(channel.target_node)];
+                        if (targetNode.mesh < 0 ||
+                            targetNode.mesh >= static_cast<int>(model.meshes.size())) {
+                            continue;
+                        }
+                        const auto& mesh = model.meshes[static_cast<size_t>(targetNode.mesh)];
+                        if (mesh.primitives.empty() || mesh.primitives[0].targets.empty()) {
+                            continue;
+                        }
+                        outputComponents = static_cast<int>(mesh.primitives[0].targets.size());
                     } else {
-                        continue;  // "weights" (morph targets) — skip for now.
+                        continue;
                     }
 
                     // Map interpolation mode.

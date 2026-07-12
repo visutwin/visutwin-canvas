@@ -3,10 +3,12 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace visutwin::canvas
 {
     class GraphNode;
+    class MorphInstance;
 
     class AnimBinder
     {
@@ -15,5 +17,13 @@ namespace visutwin::canvas
 
         virtual GraphNode* resolve(const std::string& path) = 0;
         virtual void unresolve(const std::string& path) = 0;
+
+        /// Morph instances animated by a "weights" channel targeting the node at
+        /// `path` (the glTF mesh node). Default: none.
+        virtual std::vector<MorphInstance*> resolveMorphInstances(const std::string& path)
+        {
+            (void)path;
+            return {};
+        }
     };
 }

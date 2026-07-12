@@ -19,9 +19,11 @@ namespace visutwin::canvas
 
         GraphNode* resolve(const std::string& path) override;
         void unresolve(const std::string& path) override;
+        std::vector<MorphInstance*> resolveMorphInstances(const std::string& path) override;
 
     private:
         Entity* _entity = nullptr;
         std::unordered_map<std::string, GraphNode*> _nodes;
+        std::unordered_map<std::string, std::vector<MorphInstance*>> _morphInstances;
     };
 }

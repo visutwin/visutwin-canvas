@@ -130,6 +130,9 @@ namespace visutwin::canvas
                 } else if (curve.propertyPath == "localScale") {
                     transform.scale = Vector3(v[0], v[1], v[2]);
                     transform.hasScale = true;
+                } else if (curve.propertyPath == "weights") {
+                    transform.weights.assign(v, v + comp);
+                    transform.hasWeights = true;
                 }
 
             } else if (curve.interpolation == AnimInterpolation::LINEAR) {
@@ -152,6 +155,12 @@ namespace visutwin::canvas
                         Vector3(v0[0], v0[1], v0[2]),
                         Vector3(v1[0], v1[1], v1[2]), alpha);
                     transform.hasScale = true;
+                } else if (curve.propertyPath == "weights") {
+                    transform.weights.resize(static_cast<size_t>(comp));
+                    for (int c = 0; c < comp; ++c) {
+                        transform.weights[static_cast<size_t>(c)] = v0[c] + (v1[c] - v0[c]) * alpha;
+                    }
+                    transform.hasWeights = true;
                 }
 
             } else if (curve.interpolation == AnimInterpolation::CUBIC) {
@@ -168,6 +177,17 @@ namespace visutwin::canvas
                 const float* inTan1 = g1;                // in-tangent at i1
 
                 // Hermite spline per component.
+                // Weights channels can have arbitrarily many components (one per
+                // morph target); transform channels use at most 4.
+                if (curve.propertyPath == "weights") {
+                    transform.weights.resize(static_cast<size_t>(comp));
+                    for (int c = 0; c < comp; ++c) {
+                        transform.weights[static_cast<size_t>(c)] =
+                            hermite(alpha, val0[c], outTan0[c] * timeDelta, val1[c], inTan1[c] * timeDelta);
+                    }
+                    transform.hasWeights = true;
+                    continue;
+                }
                 float result[4];
                 for (int c = 0; c < comp && c < 4; ++c) {
                     result[c] = hermite(alpha, val0[c], outTan0[c] * timeDelta, val1[c], inTan1[c] * timeDelta);

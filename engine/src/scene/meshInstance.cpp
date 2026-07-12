@@ -5,6 +5,9 @@
 //
 #include "meshInstance.h"
 
+#include "skin.h"
+#include "skinInstance.h"
+
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/instanceCuller.h"
 #include "platform/graphics/vertexFormat.h"
@@ -81,6 +84,18 @@ namespace visutwin::canvas
             _instancingData.count, boundingSphereRadius);
     }
 
+    void MeshInstance::setSkinInstance(const std::shared_ptr<SkinInstance>& skinInstance)
+    {
+        _skinInstance = skinInstance;
+        // Skinned instances can be frustum-culled only when per-bone AABBs exist
+        // (GLB parser computes them); otherwise the bind-pose AABB is invalid under
+        // animation and culling must stay off.
+        if (skinInstance) {
+            const auto& skin = skinInstance->skin();
+            _cull = skin && skin->hasBoneAabbs();
+        }
+    }
+
     BoundingBox MeshInstance::aabb()
     {
         // Use specified world space aabb
@@ -103,6 +118,40 @@ namespace visutwin::canvas
             localAabb = &localAabbStorage;
 
             if (_skinInstance) {
+                // Bone-driven world AABB: union of each used bone's bind-space AABB
+                // transformed by bone.worldTransform * inverseBindPose (the same
+                // transform GPU skinning applies). Valid in any animated pose.
+                const auto& skin = _skinInstance->skin();
+                const auto& bones = _skinInstance->bones();
+                if (skin && skin->hasBoneAabbs() && !bones.empty()) {
+                    const auto& boneAabbs = skin->boneAabbs();
+                    const auto& boneUsed = skin->boneAabbUsed();
+                    const auto& inverseBinds = skin->inverseBindPose();
+                    bool first = true;
+                    BoundingBox worldAabb;
+                    const size_t count = std::min({boneAabbs.size(), bones.size(), inverseBinds.size()});
+                    for (size_t i = 0; i < count; ++i) {
+                        if (!boneUsed[i] || !bones[i]) {
+                            continue;
+                        }
+                        BoundingBox boneWorld;
+                        boneWorld.setFromTransformedAabb(boneAabbs[i],
+                            bones[i]->worldTransform() * inverseBinds[i]);
+                        if (first) {
+                            worldAabb = boneWorld;
+                            first = false;
+                        } else {
+                            worldAabb.add(boneWorld);
+                        }
+                    }
+                    if (!first) {
+                        _aabb = worldAabb;
+                        return _aabb;
+                    }
+                }
+
+                // Fallback (no bone AABBs, e.g. non-GLB skins): bind-pose mesh AABB —
+                // invalid under animation, which is why such instances keep cull=false.
                 if (_mesh) {
                     localAabb->setCenter(_mesh->aabb().center());
                     localAabb->setHalfExtents(_mesh->aabb().halfExtents());
@@ -110,8 +159,6 @@ namespace visutwin::canvas
                     localAabb->setCenter(0, 0, 0);
                     localAabb->setHalfExtents(0, 0, 0);
                 }
-                // Note: skinned AABB calculation not yet implemented.
-                // Requires accessing bone AABBs and transforming them.
                 toWorldSpace = true;
             } else if (_node && (_aabbVer != _node->aabbVer() || (_mesh && _aabbMeshVer != _mesh->aabbVer()))) {
                 // Local space bounding box from mesh

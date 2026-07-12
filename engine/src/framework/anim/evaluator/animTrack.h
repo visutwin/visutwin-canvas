@@ -20,6 +20,9 @@ namespace visutwin::canvas
         bool hasPosition = false;
         bool hasRotation = false;
         bool hasScale = false;
+        // Morph target weights (glTF "weights" channels) — one float per target.
+        std::vector<float> weights;
+        bool hasWeights = false;
     };
 
     // AnimData wraps a flat float array + component count.
@@ -44,7 +47,7 @@ namespace visutwin::canvas
     struct AnimCurve
     {
         std::string nodeName;          // target node name (used by AnimBinder)
-        std::string propertyPath;      // "localPosition", "localRotation", "localScale"
+        std::string propertyPath;      // "localPosition", "localRotation", "localScale", "weights"
         size_t inputIndex = 0;         // index into AnimTrack::_inputs
         size_t outputIndex = 0;        // index into AnimTrack::_outputs
         AnimInterpolation interpolation = AnimInterpolation::LINEAR;

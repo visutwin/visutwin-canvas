@@ -147,13 +147,7 @@ namespace visutwin::canvas
          * instance — the bind-pose AABB is not valid under animation and the port has
          * no bone-based AABB path yet (upstream recomputes the AABB from bones).
          */
-        void setSkinInstance(const std::shared_ptr<SkinInstance>& skinInstance)
-        {
-            _skinInstance = skinInstance;
-            if (skinInstance) {
-                _cull = false;
-            }
-        }
+        void setSkinInstance(const std::shared_ptr<SkinInstance>& skinInstance);
 
         // --- Gaussian splats ---
 
