@@ -161,3 +161,9 @@ add_executable(visutwin-light-probes MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-light-probes PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-light-probes com.visutwin.light-probes)
+
+add_executable(visutwin-area-light MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/area-light-example.cpp
+)
+target_link_libraries(visutwin-area-light PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-area-light com.visutwin.area-light)

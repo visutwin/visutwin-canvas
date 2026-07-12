@@ -14,6 +14,7 @@
 #include "shadowRendererLocal.h"
 #include "scene/scene.h"
 #include "scene/lighting/lightTextureAtlas.h"
+#include "scene/graphics/areaLightLuts.h"
 #include "scene/lighting/worldClusters.h"
 
 namespace visutwin::canvas
@@ -81,6 +82,9 @@ namespace visutwin::canvas
         std::unique_ptr<ShadowRendererDirectional> _shadowRendererDirectional;
 
         std::unique_ptr<LightTextureAtlas> _lightTextureAtlas;
+
+        // LTC lookup textures for area lights — created lazily on first area light.
+        AreaLightLuts::Textures _areaLightLuts;
 
         // Clustered lighting: CPU-side 3D grid that indexes local lights.
         // Created lazily when Scene::clusteredLightingEnabled() is true.

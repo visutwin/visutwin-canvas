@@ -359,6 +359,15 @@ namespace visutwin::canvas
                 }
             }
             programLibrary->setAreaLightsEnabled(hasAreaLights);
+
+            // LTC lookup tables: created lazily the first time an area light is
+            // seen, then bound at fragment slots 20/21 every frame they're needed.
+            if (hasAreaLights && !_areaLightLuts.lut1) {
+                _areaLightLuts = AreaLightLuts::create(_device.get());
+            }
+            _device->setAreaLightLuts(
+                hasAreaLights ? _areaLightLuts.lut1.get() : nullptr,
+                hasAreaLights ? _areaLightLuts.lut2.get() : nullptr);
         }
 
         // Clustered lighting: when enabled on the scene, compile forward shaders

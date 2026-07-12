@@ -23,55 +23,74 @@
         }
 #if VT_FEATURE_AREA_LIGHTS
         else if (lightType == 3u) {
-            // Area rectangular light — Most Representative Point (MRP) technique.
-            // For diffuse: closest point on rectangle to the fragment.
-            // For specular: closest point on rectangle to the reflected ray.
-            // Existing GGX NDF runs unchanged with the MRP-computed L.
+            // Area rectangular light — LTC (linearly transformed cosines), port of
+            // upstream ltc.js rect path. Diffuse and specular are both polygonal
+            // integrals; the shared punctual GGX below is skipped entirely.
             const float3 lightPos = light.positionRange.xyz;
-            const float3 lightNrm = normalize(light.directionCone.xyz);
             const float halfW = light.directionCone.w;
             const float halfH = light.coneAngles.x;
+            const float3 lightNrm = normalize(light.directionCone.xyz);
             const float3 right = normalize(float3(light.coneAngles.y, light.coneAngles.z, light.coneAngles.w));
             const float3 up = normalize(cross(lightNrm, right));
-            const float3 toCenter = lightPos - rd.worldPos;
+            const float3 halfWidthVec = right * halfW;
+            const float3 halfHeightVec = up * halfH;
 
-            // Hemisphere check: only illuminate from the emitting face.
-            // Light direction convention: entity -Y axis = emission direction,
-            // so the fragment must be on the emitting side (dot < 0 from light's perspective).
-            if (dot(toCenter, lightNrm) > 0.0) {
-                attenuation = 0.0;
-            } else {
-                // Diffuse: closest point on rectangle to fragment.
-                const float pR = clamp(-dot(toCenter, right), -halfW, halfW);
-                const float pU = clamp(-dot(toCenter, up), -halfH, halfH);
-                const float3 closestPt = lightPos + right * pR + up * pU;
-                lightDirW = closestPt - rd.worldPos;
+            // Rect corners, ccw (upstream getLTCLightCoords).
+            const float3 p0 = lightPos + halfWidthVec - halfHeightVec;
+            const float3 p1 = lightPos - halfWidthVec - halfHeightVec;
+            const float3 p2 = lightPos - halfWidthVec + halfHeightVec;
+            const float3 p3 = lightPos + halfWidthVec + halfHeightVec;
 
-                // Specular: closest point on rectangle to reflected ray.
-                const float3 R = reflect(-V, N);
-                const float dRP = dot(R, lightNrm);
-                if (abs(dRP) > 1e-6) {
-                    const float t = dot(toCenter, lightNrm) / dRP;
-                    if (t > 0.0) {
-                        const float3 hit = rd.worldPos + R * t;
-                        const float3 off = hit - lightPos;
-                        const float sR = clamp(dot(off, right), -halfW, halfW);
-                        const float sU = clamp(dot(off, up), -halfH, halfH);
-                        L = normalize(lightPos + right * sR + up * sU - rd.worldPos);
-                    } else {
-                        L = normalize(lightDirW);
-                    }
-                } else {
-                    L = normalize(lightDirW);
-                }
-
-                // Attenuation from closest-point distance.
-                if (falloffModeLinear) {
-                    attenuation = getFalloffLinear(light.positionRange.w, lightDirW);
-                } else {
-                    attenuation = getFalloffInvSquared(light.positionRange.w, lightDirW);
-                }
+            // Non-punctual lights only get the range window here — the physical
+            // distance falloff comes from the LTC form factor itself.
+            lightDirW = lightPos - rd.worldPos;
+            const float areaAtten = getFalloffWindow(light.positionRange.w, lightDirW);
+            if (areaAtten < 0.00001) {
+                continue;
             }
+            const float3 areaRadiance = lightColor * lightIntensity * areaAtten;
+
+            // LUT2: Fresnel magnitude (x) + geometric attenuation (y) for
+            // specular energy conservation.
+            const float2 ltcLutUv = ltcUv(N, V, gloss);
+            const float4 ltcT2 = areaLightsLutTex2.sample(ltcLutSampler, ltcLutUv, level(0));
+            const float3 ltcSpecFres = F0 * ltcT2.x + (float3(1.0) - F0) * ltcT2.y;
+
+            // Diffuse: LTC with identity transform (plain cosine integral).
+            // 16.0 mirrors the constant baked into getFalloffInvSquared so area and
+            // punctual lights of equal intensity have comparable brightness.
+            const float ltcDiffuse = ltcEvaluateRect(N, V, rd.worldPos,
+                float3x3(float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, 0.0, 1.0)),
+                p0, p1, p2, p3) * 16.0;
+            directDiffuse += areaRadiance * ltcDiffuse * (float3(1.0) - ltcSpecFres);
+
+            // Specular: LTC with the inverse transform fetched from LUT1.
+            const float4 ltcT1 = areaLightsLutTex1.sample(ltcLutSampler, ltcLutUv, level(0));
+            const float3x3 ltcMInv = float3x3(
+                float3(ltcT1.x, 0.0, ltcT1.y),
+                float3(0.0, 1.0, 0.0),
+                float3(ltcT1.z, 0.0, ltcT1.w));
+            const float ltcSpec = ltcEvaluateRect(N, V, rd.worldPos, ltcMInv, p0, p1, p2, p3);
+            directSpecular += areaRadiance * ltcSpec * ltcSpecFres;
+
+#if VT_FEATURE_CLEARCOAT
+            // Clearcoat LTC specular with the clearcoat normal/gloss and fixed F0=0.04.
+            {
+                const float2 ccLtcUv = ltcUv(ccNormalW, V, ccGlossiness);
+                const float4 ccT2 = areaLightsLutTex2.sample(ltcLutSampler, ccLtcUv, level(0));
+                const float3 ccSpecFres = float3(0.04) * ccT2.x + float3(0.96) * ccT2.y;
+                const float4 ccT1 = areaLightsLutTex1.sample(ltcLutSampler, ccLtcUv, level(0));
+                const float3x3 ccMInv = float3x3(
+                    float3(ccT1.x, 0.0, ccT1.y),
+                    float3(0.0, 1.0, 0.0),
+                    float3(ccT1.z, 0.0, ccT1.w));
+                ccSpecularLight += areaRadiance * ltcEvaluateRect(ccNormalW, V, rd.worldPos, ccMInv, p0, p1, p2, p3) * ccSpecFres;
+            }
+#endif
+
+            // Area light fully accumulated — skip the shared punctual shadow/GGX path.
+            // DEVIATION: area lights do not cast/receive local shadows in this port.
+            continue;
         }
 #endif
         else {

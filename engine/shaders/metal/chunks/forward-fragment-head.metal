@@ -50,6 +50,10 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #if VT_FEATURE_LIGHTMAP
                                   texture2d<float> lightMapTexture [[texture(19)]],
 #endif
+#if VT_FEATURE_AREA_LIGHTS
+                                  texture2d<float> areaLightsLutTex1 [[texture(20)]],
+                                  texture2d<float> areaLightsLutTex2 [[texture(21)]],
+#endif
 #if VT_FEATURE_ATMOSPHERE
                                   constant AtmosphereData &atmosphere [[buffer(9)]],
 #endif

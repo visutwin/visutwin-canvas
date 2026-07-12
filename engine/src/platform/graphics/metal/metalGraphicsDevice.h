@@ -78,6 +78,12 @@ namespace visutwin::canvas
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) override;
+
+        void setAreaLightLuts(Texture* lut1, Texture* lut2) override
+        {
+            _areaLightLut1 = lut1;
+            _areaLightLut2 = lut2;
+        }
         void setAtmosphereUniforms(const void* data, size_t size) override;
 
         [[nodiscard]] MTL::Device* raw() const { return _device; }
@@ -271,6 +277,10 @@ namespace visutwin::canvas
 
         // Per-pass texture binding deduplication (slots 0-8 + sampler).
         MetalTextureBinder _textureBinder;
+
+        // LTC area-light lookup textures (slots 20/21), owned by the renderer.
+        Texture* _areaLightLut1 = nullptr;
+        Texture* _areaLightLut2 = nullptr;
 
         // Clustered lighting GPU buffers (fragment slots 7 and 8).
         MTL::Buffer* _clusterLightBuffer = nullptr;

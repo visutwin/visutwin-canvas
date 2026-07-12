@@ -383,6 +383,10 @@ namespace visutwin::canvas
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) {}
 
+        /// Set the LTC lookup textures for area lights (bound at fragment slots 20/21
+        /// when VT_FEATURE_AREA_LIGHTS is active). Pass nullptrs to unbind.
+        virtual void setAreaLightLuts(Texture* lut1, Texture* lut2) { (void)lut1; (void)lut2; }
+
         /// Set atmosphere uniforms for Nishita sky scattering.
         /// data must point to an AtmosphereUniforms-compatible struct (96 bytes).
         virtual void setAtmosphereUniforms(const void* data, size_t size) { (void)data; (void)size; }

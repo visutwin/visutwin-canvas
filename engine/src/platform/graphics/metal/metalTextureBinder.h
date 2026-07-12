@@ -24,7 +24,7 @@ namespace visutwin::canvas
     class MetalTextureBinder
     {
     public:
-        static constexpr int kMaxTextureSlots = 20;  // Slots 0-19; 11-12 = spot shadow, 15-16 = omni shadow cubemaps, 17 = height map, 18 = SSAO, 19 = lightmap
+        static constexpr int kMaxTextureSlots = 22;  // Slots 0-21; 11-12 = spot shadow, 15-16 = omni shadow cubemaps, 17 = height map, 18 = SSAO, 19 = lightmap, 20-21 = LTC area-light LUTs
 
         /// Bind a texture at the given fragment slot, skipping if already bound.
         void bindCached(MTL::RenderCommandEncoder* encoder, int slot, Texture* texture);
@@ -47,7 +47,7 @@ namespace visutwin::canvas
         void bindSceneTextures(MTL::RenderCommandEncoder* encoder,
             Texture* envAtlas, Texture* shadow, Texture* sceneDepth, Texture* skyboxCubeMap,
             Texture* reflection = nullptr, Texture* reflectionDepth = nullptr,
-            Texture* ssao = nullptr);
+            Texture* ssao = nullptr, Texture* areaLightLut1 = nullptr, Texture* areaLightLut2 = nullptr);
 
         /// Bind quad render textures for all 8 slots.
         void bindQuadTextures(MTL::RenderCommandEncoder* encoder,
