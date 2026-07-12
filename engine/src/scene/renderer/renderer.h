@@ -38,6 +38,21 @@ namespace visutwin::canvas
         // Must be called once per frame before buildFrameGraph().
         void cullShadowmaps(Camera* camera);
 
+        // App-injected render passes appended to the END of every frame graph —
+        // they run after all scene render actions but before frame end (while the
+        // frame's drawable is still valid). Used by extras like OutlineRenderer;
+        // rendering to the back buffer AFTER Engine::render() is not safe because
+        // frameEnd() presents the drawable.
+        void addAppendPass(const std::shared_ptr<RenderPass>& pass)
+        {
+            _appendPasses.push_back(pass);
+        }
+        void removeAppendPass(const std::shared_ptr<RenderPass>& pass)
+        {
+            std::erase(_appendPasses, pass);
+        }
+        const std::vector<std::shared_ptr<RenderPass>>& appendPasses() const { return _appendPasses; }
+
         // Per-frame GPU instance culling dispatch: for every visible
         // MeshInstance that has called enableGpuInstanceCulling(), extract
         // frustum planes from `camera` and run the Metal compute cull pass.
@@ -47,6 +62,7 @@ namespace visutwin::canvas
         void dispatchGpuInstanceCulling(Camera* camera);
 
     protected:
+        std::vector<std::shared_ptr<RenderPass>> _appendPasses;
         std::shared_ptr<GraphicsDevice> _device;
 
         std::shared_ptr<Scene> _scene;

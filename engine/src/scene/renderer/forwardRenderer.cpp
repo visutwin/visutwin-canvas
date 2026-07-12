@@ -233,6 +233,13 @@ namespace visutwin::canvas
                 }
             }
         }
+        // App-injected passes (Renderer::addAppendPass) run last, before frame end.
+        for (const auto& appendPass : _appendPasses) {
+            if (appendPass) {
+                frameGraph->addRenderPass(appendPass);
+            }
+        }
+
     }
 
     void ForwardRenderer::addMainRenderPass(FrameGraph* frameGraph, LayerComposition* layerComposition,

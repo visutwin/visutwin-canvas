@@ -173,3 +173,9 @@ add_executable(visutwin-refraction MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-refraction PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-refraction com.visutwin.refraction)
+
+add_executable(visutwin-outline-viewcube MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/outline-viewcube-example.cpp
+)
+target_link_libraries(visutwin-outline-viewcube PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-outline-viewcube com.visutwin.outline-viewcube)

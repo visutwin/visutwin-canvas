@@ -51,6 +51,7 @@ namespace visutwin::canvas
 
         const std::shared_ptr<Scene>& scene() const { return _scene; }
         const std::shared_ptr<GraphicsDevice>& graphicsDevice() const { return _graphicsDevice; }
+        const std::shared_ptr<ForwardRenderer>& renderer() const { return _renderer; }
 
         // Controls how the canvas fills the window and resizes when the window changes
         void setCanvasFillMode(FillMode mode, int width = 0, int height = 0);
