@@ -118,6 +118,8 @@ namespace visutwin::canvas
         void setAreaWidth(const float value) { _areaWidth = value; }
         float areaHeight() const { return _areaHeight; }
         void setAreaHeight(const float value) { _areaHeight = value; }
+        AreaLightShape areaShape() const { return _areaShape; }
+        void setAreaShape(const AreaLightShape value) { _areaShape = value; }
 
         // Directional lights use the node's -Y axis as emission direction.
         Vector3 direction() const;
@@ -172,6 +174,7 @@ namespace visutwin::canvas
         float _cascadeBlend = 0.0f;
         float _areaWidth = 1.0f;
         float _areaHeight = 1.0f;
+        AreaLightShape _areaShape = AreaLightShape::LIGHTSHAPE_RECT;
         std::vector<int> _layers = {LAYERID_WORLD};
     };
 }

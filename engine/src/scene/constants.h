@@ -54,6 +54,16 @@ namespace visutwin::canvas
         LIGHTTYPE_AREA_RECT    // Rectangular area light (local)
     };
 
+    // Area light shape (upstream LIGHTSHAPE_*). Applies to LIGHTTYPE_AREA_RECT
+    // lights; disk is inscribed in the width/height quad, sphere uses
+    // max(halfWidth, halfHeight) as radius.
+    enum class AreaLightShape
+    {
+        LIGHTSHAPE_RECT = 0,
+        LIGHTSHAPE_DISK = 1,
+        LIGHTSHAPE_SPHERE = 2
+    };
+
     enum class LightFalloff
     {
         LIGHTFALLOFF_LINEAR = 0,

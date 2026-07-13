@@ -196,21 +196,33 @@ int main()
     engine->root()->addChild(glass);
 
     spdlog::info("Dynamic refraction: glass sphere over colorful columns");
-    spdlog::info("Keys: 1 = dynamic (grab pass), 2 = env atlas, Space = auto-cycle, Esc = quit");
+    spdlog::info("Keys: 1 = dynamic, 2 = +dispersion, 3 = +volume attenuation, 4 = env atlas, Space = auto-cycle, Esc = quit");
 
     bool running = true;
-    bool useDynamic = true;
     bool autoCycle = true;
+    int phase = 0;
     float cycleTimer = 0.0f;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
     uint64_t prevCounter = SDL_GetPerformanceCounter();
 
-    const auto applyMode = [&](const bool dynamic) {
-        useDynamic = dynamic;
-        glassMaterial->setUseDynamicRefraction(dynamic);
-        spdlog::info("Refraction mode: {}", dynamic ? "dynamic grab pass" : "env atlas");
+    // Phases: 0 = dynamic grab, 1 = dynamic + dispersion (KHR_materials_dispersion),
+    // 2 = dynamic + Beer-law volume attenuation (KHR_materials_volume), 3 = env atlas.
+    const auto applyMode = [&](const int newPhase) {
+        phase = newPhase;
+        glassMaterial->setUseDynamicRefraction(phase != 3);
+        glassMaterial->setDispersion(phase == 1 ? 10.0f : 0.0f);
+        if (phase == 2) {
+            glassMaterial->setAttenuationColor(Color(0.9f, 0.3f, 0.1f, 1.0f));
+            glassMaterial->setAttenuationDistance(0.35f);
+        } else {
+            glassMaterial->setAttenuationDistance(0.0f);
+        }
+        static const char* names[4] = {
+            "dynamic grab pass", "dynamic + dispersion",
+            "dynamic + volume attenuation (orange Beer-law)", "env atlas"};
+        spdlog::info("Refraction mode: {}", names[phase]);
     };
-    applyMode(true);
+    applyMode(0);
 
     while (running) {
         SDL_Event event;
@@ -219,12 +231,9 @@ int main()
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
                 running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_1) {
+            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key >= SDLK_1 && event.key.key <= SDLK_4) {
                 autoCycle = false;
-                applyMode(true);
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_2) {
-                autoCycle = false;
-                applyMode(false);
+                applyMode(static_cast<int>(event.key.key - SDLK_1));
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_SPACE) {
                 autoCycle = true;
                 cycleTimer = 0.0f;
@@ -240,7 +249,7 @@ int main()
             cycleTimer += static_cast<float>(dtSeconds);
             if (cycleTimer >= 3.0f) {
                 cycleTimer = 0.0f;
-                applyMode(!useDynamic);
+                applyMode((phase + 1) % 4);
             }
         }
 

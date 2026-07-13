@@ -642,6 +642,7 @@ namespace visutwin::canvas
                     lightData.type = GpuLightType::AreaRect;
                     lightData.areaHalfWidth = lightComponent->areaWidth() * 0.5f;
                     lightData.areaHalfHeight = lightComponent->areaHeight() * 0.5f;
+                    lightData.areaShape = static_cast<uint32_t>(lightComponent->areaShape());
                     {
                         // Right vector from entity's world transform X axis.
                         const auto& wt = lightComponent->entity()->worldTransform();
@@ -794,6 +795,22 @@ namespace visutwin::canvas
                     ls.bias = sceneLight->shadowBias();
                     ls.normalBias = sceneLight->normalBias();
                     ls.intensity = sceneLight->shadowIntensity();
+                    ls.nearClip = 0.01f;
+                    ls.farClip = std::max(sceneLight->range(), 0.1f);
+
+                    // PCSS local shadows (upstream shadowPCSS.js): blocker-search
+                    // area in shadow-map UV. Spot scales by the shadow camera's
+                    // FOV ratio; omni uses the raw penumbra/resolution ratio.
+                    if (sceneLight->shadowType() == SHADOW_PCSS_32F) {
+                        const float res = std::max(static_cast<float>(sceneLight->shadowResolution()), 1.0f);
+                        if (isOmni) {
+                            ls.pcssSearchArea = sceneLight->penumbraSize() / res;
+                        } else {
+                            const float fovRad = toRadians(std::min(sceneLight->outerConeAngle() * 2.0f, 179.0f));
+                            const float fovRatio = 1.0f / std::max(std::tan(fovRad * 0.5f), 1e-4f);
+                            ls.pcssSearchArea = sceneLight->penumbraSize() / res * fovRatio;
+                        }
+                    }
 
                     shadowParams.localShadowCount++;
                 } else {

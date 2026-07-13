@@ -23,19 +23,33 @@
         }
 #if VT_FEATURE_AREA_LIGHTS
         else if (lightType == 3u) {
-            // Area rectangular light — LTC (linearly transformed cosines), port of
-            // upstream ltc.js rect path. Diffuse and specular are both polygonal
-            // integrals; the shared punctual GGX below is skipped entirely.
+            // Area light — LTC (linearly transformed cosines), port of upstream
+            // ltc.js. Shape (0=rect, 1=disk, 2=sphere) rides in typeCastShadows.y
+            // (area lights never cast shadows, so the slot is free). Diffuse and
+            // specular are both LTC integrals; the shared punctual GGX below is
+            // skipped entirely.
+            const uint areaShape = light.typeCastShadows.y;
             const float3 lightPos = light.positionRange.xyz;
             const float halfW = light.directionCone.w;
             const float halfH = light.coneAngles.x;
             const float3 lightNrm = normalize(light.directionCone.xyz);
-            const float3 right = normalize(float3(light.coneAngles.y, light.coneAngles.z, light.coneAngles.w));
-            const float3 up = normalize(cross(lightNrm, right));
-            const float3 halfWidthVec = right * halfW;
-            const float3 halfHeightVec = up * halfH;
+            float3 right = normalize(float3(light.coneAngles.y, light.coneAngles.z, light.coneAngles.w));
+            float3 up = normalize(cross(lightNrm, right));
+            float3 halfWidthVec = right * halfW;
+            float3 halfHeightVec = up * halfH;
+            const float sphereRadius = max(halfW, halfH);
+            if (areaShape == 2u) {
+                // Sphere: billboard the quad to the reflection vector so the disk
+                // math can integrate it (upstream getSphereLightCoords). The light
+                // cannot be non-uniformly scaled.
+                const float3 f = reflect(normalize(lightPos - cameraPosition), N);
+                right = normalize(cross(f, halfHeightVec));
+                up = normalize(cross(f, right));
+                halfWidthVec = right * sphereRadius;
+                halfHeightVec = up * sphereRadius;
+            }
 
-            // Rect corners, ccw (upstream getLTCLightCoords).
+            // Corners, ccw (upstream getLTCLightCoords).
             const float3 p0 = lightPos + halfWidthVec - halfHeightVec;
             const float3 p1 = lightPos - halfWidthVec - halfHeightVec;
             const float3 p2 = lightPos - halfWidthVec + halfHeightVec;
@@ -59,18 +73,33 @@
             // Diffuse: LTC with identity transform (plain cosine integral).
             // 16.0 mirrors the constant baked into getFalloffInvSquared so area and
             // punctual lights of equal intensity have comparable brightness.
-            const float ltcDiffuse = ltcEvaluateRect(N, V, rd.worldPos,
-                float3x3(float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, 0.0, 1.0)),
-                p0, p1, p2, p3) * 16.0;
-            directDiffuse += areaRadiance * ltcDiffuse * (float3(1.0) - ltcSpecFres);
+            const float3x3 ltcIdentity =
+                float3x3(float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, 0.0, 1.0));
+            float ltcDiffuse;
+            if (areaShape == 1u) {
+                ltcDiffuse = ltcEvaluateDisk(N, V, rd.worldPos, ltcIdentity,
+                    p0, p1, p2, areaLightsLutTex2);
+            } else if (areaShape == 2u) {
+                // Sphere diffuse: wrap-style punctual Lambert with radius-based
+                // falloff (upstream getSphereLightDiffuse).
+                const float distSq = dot(lightDirW, lightDirW);
+                const float falloff = sphereRadius / (distSq + sphereRadius);
+                ltcDiffuse = max(dot(N, normalize(lightDirW)), 0.0) * falloff;
+            } else {
+                ltcDiffuse = ltcEvaluateRect(N, V, rd.worldPos, ltcIdentity, p0, p1, p2, p3);
+            }
+            directDiffuse += areaRadiance * ltcDiffuse * 16.0 * (float3(1.0) - ltcSpecFres);
 
-            // Specular: LTC with the inverse transform fetched from LUT1.
+            // Specular: LTC with the inverse transform fetched from LUT1
+            // (sphere uses the disk evaluator on the billboarded quad).
             const float4 ltcT1 = areaLightsLutTex1.sample(ltcLutSampler, ltcLutUv, level(0));
             const float3x3 ltcMInv = float3x3(
                 float3(ltcT1.x, 0.0, ltcT1.y),
                 float3(0.0, 1.0, 0.0),
                 float3(ltcT1.z, 0.0, ltcT1.w));
-            const float ltcSpec = ltcEvaluateRect(N, V, rd.worldPos, ltcMInv, p0, p1, p2, p3);
+            const float ltcSpec = (areaShape != 0u)
+                ? ltcEvaluateDisk(N, V, rd.worldPos, ltcMInv, p0, p1, p2, areaLightsLutTex2)
+                : ltcEvaluateRect(N, V, rd.worldPos, ltcMInv, p0, p1, p2, p3);
             directSpecular += areaRadiance * ltcSpec * ltcSpecFres;
 
 #if VT_FEATURE_CLEARCOAT
@@ -84,7 +113,10 @@
                     float3(ccT1.x, 0.0, ccT1.y),
                     float3(0.0, 1.0, 0.0),
                     float3(ccT1.z, 0.0, ccT1.w));
-                ccSpecularLight += areaRadiance * ltcEvaluateRect(ccNormalW, V, rd.worldPos, ccMInv, p0, p1, p2, p3) * ccSpecFres;
+                const float ccLtc = (areaShape != 0u)
+                    ? ltcEvaluateDisk(ccNormalW, V, rd.worldPos, ccMInv, p0, p1, p2, areaLightsLutTex2)
+                    : ltcEvaluateRect(ccNormalW, V, rd.worldPos, ccMInv, p0, p1, p2, p3);
+                ccSpecularLight += areaRadiance * ccLtc * ccSpecFres;
             }
 #endif
 
@@ -150,16 +182,27 @@
                 shadowCoord.z >= 0.0 && shadowCoord.z <= 1.0) {
 
                 const float receiverDepth = shadowCoord.z - shadowParamsLocal.x;
+                // PCSS (SHADOW_PCSS_32F on the light): contact-hardening soft
+                // shadows — runtime uniform branch, no extra shader variant.
+                const float4 pcssLocal = (shadowIdx == 0u) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
                 float visible = 1.0;
                 if (shadowIdx == 0u) {
                     const float res0 = float(localShadowTexture0.get_width());
                     if (res0 > 0.0) {
-                        visible = getShadowPCF3x3(localShadowTexture0, shadowCoord.xy, receiverDepth, res0);
+                        visible = (pcssLocal.x > 0.0)
+                            ? getShadowPCSSSpot(localShadowTexture0,
+                                float3(shadowCoord.xy, receiverDepth),
+                                pcssLocal.x, pcssLocal.y, pcssLocal.z, rd.position.xy)
+                            : getShadowPCF3x3(localShadowTexture0, shadowCoord.xy, receiverDepth, res0);
                     }
                 } else {
                     const float res1 = float(localShadowTexture1.get_width());
                     if (res1 > 0.0) {
-                        visible = getShadowPCF3x3(localShadowTexture1, shadowCoord.xy, receiverDepth, res1);
+                        visible = (pcssLocal.x > 0.0)
+                            ? getShadowPCSSSpot(localShadowTexture1,
+                                float3(shadowCoord.xy, receiverDepth),
+                                pcssLocal.x, pcssLocal.y, pcssLocal.z, rd.position.xy)
+                            : getShadowPCF3x3(localShadowTexture1, shadowCoord.xy, receiverDepth, res1);
                     }
                 }
                 shadowFactor = mix(1.0 - clamp(shadowParamsLocal.z, 0.0, 1.0), 1.0, visible);
@@ -198,8 +241,17 @@
             constexpr sampler omniShadowSampler(coord::normalized, filter::linear,
                                                 compare_func::less_equal, address::clamp_to_edge);
 
+            // PCSS (SHADOW_PCSS_32F on the light): Vogel-sphere contact-hardening
+            // cubemap shadows — runtime uniform branch, no extra shader variant.
+            const float4 pcssOmni = (shadowIdx == 0u) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
             float visible = 1.0;
-            if (shadowIdx == 0u) {
+            if (pcssOmni.x > 0.0) {
+                visible = (shadowIdx == 0u)
+                    ? getShadowPCSSOmni(omniShadowCube0, lightToFrag,
+                        pcssOmni.x, pcssOmni.y, pcssOmni.z, bias, rd.position.xy)
+                    : getShadowPCSSOmni(omniShadowCube1, lightToFrag,
+                        pcssOmni.x, pcssOmni.y, pcssOmni.z, bias, rd.position.xy);
+            } else if (shadowIdx == 0u) {
                 visible = omniShadowCube0.sample_compare(omniShadowSampler, lightToFrag, compareValue);
             } else {
                 visible = omniShadowCube1.sample_compare(omniShadowSampler, lightToFrag, compareValue);

@@ -63,10 +63,12 @@ namespace visutwin::canvas
         // Local light shadow data (spot/point).
         int shadowMapIndex = -1;    // -1 = no shadow, 0 = slot 11, 1 = slot 12
 
-        // Area rect light: half-extents and local right axis (world space).
+        // Area light: half-extents, local right axis (world space) and shape
+        // (0=rect, 1=disk, 2=sphere — mirrors AreaLightShape).
         float areaHalfWidth = 0.0f;
         float areaHalfHeight = 0.0f;
         Vector3 areaRight = Vector3(1.0f, 0.0f, 0.0f);
+        uint32_t areaShape = 0u;
     };
 
     struct FogParams
@@ -123,6 +125,11 @@ namespace visutwin::canvas
             float normalBias = 0.0f;
             float intensity = 1.0f;
             bool isOmni = false;    // true = cubemap shadow (omni), false = 2D shadow (spot)
+            // PCSS (SHADOW_PCSS_32F on the light): blocker-search area in
+            // shadow-map UV units (0 = PCSS off) + shadow camera clip range.
+            float pcssSearchArea = 0.0f;
+            float nearClip = 0.01f;
+            float farClip = 100.0f;
         } localShadows[kMaxLocalShadows];
     };
 

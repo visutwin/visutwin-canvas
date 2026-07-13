@@ -105,5 +105,121 @@ static inline float getShadowPCSSDirectional(depth2d<float> shadowMap, float3 sh
     return sum / float(shadowSamples);
 }
 
+
+// ---------------------------------------------------------------------------
+// Local light PCSS (upstream shadowPCSS.js): contact-hardening shadows for
+// spot (2D perspective map) and omni (cubemap) lights. DEVIATION: samples the
+// standard hardware depth maps raw and linearizes per tap instead of
+// upstream's dedicated R32F linear-depth targets.
+// ---------------------------------------------------------------------------
+
+#define PCSS_LOCAL_SAMPLE_COUNT 16
+
+// Perspective [0,1] depth -> linear view distance.
+static inline float pcssLinearizeDepth(float z, float nearClip, float farClip)
+{
+    return (nearClip * farClip) / max(farClip - z * (farClip - nearClip), 1e-6);
+}
+
+// Stored omni cube depth (far*(d-near)/((far-near)*d)) -> normalized distance d/far.
+static inline float pcssCubeStoredToLinear(float stored, float nearClip, float farClip)
+{
+    const float d = (farClip * nearClip) / max(farClip - stored * (farClip - nearClip), 1e-6);
+    return d / farClip;
+}
+
+// Vogel sphere sample (upstream vogelSphere + vogelSpherePrecalculationSamples:
+// radius = weight = i/count).
+static inline float3 pcssVogelSphere(int sampleIndex, int count, float phi)
+{
+    const float GOLDEN_ANGLE = 2.4;
+    const float theta = float(sampleIndex) * GOLDEN_ANGLE + phi;
+    const float weight = float(sampleIndex) / float(count);
+    return float3(cos(theta) * weight, weight, sin(theta) * weight);
+}
+
+// Spot light PCSS: blocker search + filter in linear view depth. searchArea is
+// the blocker-search radius in shadow-map UV (penumbraSize/resolution*fovRatio,
+// packed CPU-side). shadowCoords.z arrives with the shader bias applied.
+static inline float getShadowPCSSSpot(depth2d<float> shadowMap, float3 shadowCoords,
+    float searchArea, float nearClip, float farClip, float2 fragCoord)
+{
+    const float receiverDepth = pcssLinearizeDepth(shadowCoords.z, nearClip, farClip);
+    const float randomSeed = pcssFractSinRand(fragCoord);
+
+    PcssDiskData diskData;
+    pcssPrepareDisk(diskData, PCSS_LOCAL_SAMPLE_COUNT, randomSeed);
+    float blockerSum = 0.0;
+    int numBlockers = 0;
+    for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
+        const float2 sampleUv = shadowCoords.xy + pcssDiskSample(diskData) * searchArea;
+        const float depthLin = pcssLinearizeDepth(
+            shadowMap.sample(shadowRawSampler, sampleUv), nearClip, farClip);
+        if (depthLin < receiverDepth) {
+            blockerSum += depthLin;
+            numBlockers++;
+        }
+    }
+    if (numBlockers < 1) {
+        return 1.0;
+    }
+    const float avgBlockerDepth = blockerSum / float(numBlockers);
+
+    // upstream: filterRadius = (receiverDepth - avgBlocker) / 3.0 * searchArea
+    const float filterRadius = ((receiverDepth - avgBlockerDepth) / 3.0) * searchArea;
+
+    pcssPrepareDisk(diskData, PCSS_LOCAL_SAMPLE_COUNT, randomSeed);
+    float sum = 0.0;
+    for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
+        const float2 sampleUv = shadowCoords.xy + pcssDiskSample(diskData) * filterRadius;
+        const float depthLin = pcssLinearizeDepth(
+            shadowMap.sample(shadowRawSampler, sampleUv), nearClip, farClip);
+        sum += step(receiverDepth, depthLin);
+    }
+    return sum / float(PCSS_LOCAL_SAMPLE_COUNT);
+}
+
+// Omni light PCSS: Vogel-sphere direction perturbation on the cubemap, blocker
+// search + filter in normalized linear distance (upstream PCSSCube).
+// lightDir = fragment - light position (world, unnormalized).
+static inline float getShadowPCSSOmni(depthcube<float> shadowMap, float3 lightDir,
+    float searchArea, float nearClip, float farClip, float bias, float2 fragCoord)
+{
+    const float receiverDepth = length(lightDir) / farClip - bias;
+    const float3 lightDirNorm = normalize(lightDir);
+    const float phi = pcssFractSinRand(fragCoord) * 2.0 * PI;
+
+    float blockerSum = 0.0;
+    int numBlockers = 0;
+    for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
+        const float3 sampleDir = normalize(
+            lightDirNorm + pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * searchArea);
+        const float depthLin = pcssCubeStoredToLinear(
+            shadowMap.sample(shadowRawSampler, sampleDir), nearClip, farClip);
+        if (depthLin < receiverDepth) {
+            blockerSum += depthLin;
+            numBlockers++;
+        }
+    }
+    if (numBlockers < 1) {
+        return 1.0;
+    }
+    const float avgBlockerDepth = blockerSum / float(numBlockers);
+
+    // upstream: filterRadius = (receiver - blocker) / blocker * searchArea
+    const float filterRadius =
+        ((receiverDepth - avgBlockerDepth) / max(avgBlockerDepth, 1e-4)) * searchArea;
+
+    float sum = 0.0;
+    for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
+        const float3 sampleDir = normalize(
+            lightDirNorm + pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * filterRadius);
+        const float depthLin = pcssCubeStoredToLinear(
+            shadowMap.sample(shadowRawSampler, sampleDir), nearClip, farClip);
+        sum += step(receiverDepth, depthLin);
+    }
+    return sum / float(PCSS_LOCAL_SAMPLE_COUNT);
+}
+
 // The glossSq term scales F90 (grazing-angle reflectance) by roughness, preventing
 // rough surfaces from showing excessive Fresnel at grazing angles.

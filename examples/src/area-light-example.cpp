@@ -187,11 +187,28 @@ int main()
     areaLight->addChild(panel);
 
     spdlog::info("LTC area light: 9.6m x 1.6m warm panel over floor strips roughness 0.05 -> 0.75");
-    spdlog::info("Keys: Space = pause/resume tilt, Esc = quit");
+    spdlog::info("Auto-cycles shape rect -> disk -> sphere every 4s. Keys: Space = pause/resume tilt, Esc = quit");
+
+    // Shape cycle: rect -> disk -> sphere (disk inscribed in the panel quad;
+    // sphere radius = max half-extent). The emissive slab is resized to match.
+    const auto applyShape = [&](const int shapeIdx) {
+        static const char* names[3] = {"RECT", "DISK", "SPHERE"};
+        if (!lightComponent) return;
+        lightComponent->setAreaShape(static_cast<AreaLightShape>(shapeIdx));
+        if (shapeIdx == 2) {
+            panel->setLocalScale(4.8f, 4.8f, 4.8f);  // sphere: uniform blob
+        } else {
+            panel->setLocalScale(9.6f, 0.05f, 1.6f);
+        }
+        spdlog::info("Area light shape: {}", names[shapeIdx]);
+    };
+    applyShape(0);
 
     bool running = true;
     bool animate = true;
     float animTime = 0.0f;
+    float shapeTimer = 0.0f;
+    int shapeIdx = 0;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
     uint64_t prevCounter = SDL_GetPerformanceCounter();
 
@@ -222,6 +239,13 @@ int main()
         if (animate) {
             animTime += static_cast<float>(dtSeconds);
             poseLight(animTime);
+        }
+
+        shapeTimer += static_cast<float>(dtSeconds);
+        if (shapeTimer >= 4.0f) {
+            shapeTimer = 0.0f;
+            shapeIdx = (shapeIdx + 1) % 3;
+            applyShape(shapeIdx);
         }
 
         engine->update(static_cast<float>(dtSeconds));

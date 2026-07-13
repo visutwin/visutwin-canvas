@@ -119,6 +119,10 @@ namespace visutwin::canvas
         // --- Detail Normal UV Transform ---
         float detailNormalTransform0[4] = {1, 0, 0, 0};
         float detailNormalTransform1[4] = {0, 1, 0, 0};
+
+        // --- Volume Attenuation (KHR_materials_volume) + Dispersion (KHR_materials_dispersion) ---
+        float attenuationParams[4] = {1, 1, 1, 0};  // rgb=attenuationColor, w=attenuationDistance (0 = disabled)
+        float dispersionParams[4] = {0, 0, 0, 0};   // x=dispersion strength, yzw=pad
     };
 
     /**

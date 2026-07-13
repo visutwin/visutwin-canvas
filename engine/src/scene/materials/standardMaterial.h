@@ -116,6 +116,17 @@ namespace visutwin::canvas
         void setRefractionIndex(const float value) { _refractionIndex = value; }
         float thickness() const { return _thickness; }
         void setThickness(const float value) { _thickness = value; }
+        // KHR_materials_volume Beer-law attenuation. Distance 0 disables (falls
+        // back to the legacy baseColor^thickness tint). Runtime uniforms — no
+        // shader variant change.
+        const Color& attenuationColor() const { return _attenuationColor; }
+        void setAttenuationColor(const Color& value) { _attenuationColor = value; }
+        float attenuationDistance() const { return _attenuationDistance; }
+        void setAttenuationDistance(const float value) { _attenuationDistance = value; }
+        // KHR_materials_dispersion: per-channel IOR spread (0 = off). Dynamic
+        // refraction path only.
+        float dispersion() const { return _dispersion; }
+        void setDispersion(const float value) { _dispersion = value; }
 
         // --- Ambient Occlusion ---
         Texture* aoMap() const { return _aoMap; }
@@ -294,6 +305,9 @@ namespace visutwin::canvas
         float _transmissionFactor = 0.0f;
         float _refractionIndex = 1.5f;
         float _thickness = 0.0f;
+        Color _attenuationColor{1.0f, 1.0f, 1.0f, 1.0f};
+        float _attenuationDistance = 0.0f;
+        float _dispersion = 0.0f;
 
         Texture* _aoMap = nullptr;
 

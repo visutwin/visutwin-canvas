@@ -113,6 +113,10 @@ struct MaterialData {
     // Detail normal UV transform (3×2 affine matrix as two float4 rows).
     float4 detailNormalTransform0;
     float4 detailNormalTransform1;
+    // Volume attenuation (KHR_materials_volume): rgb=attenuationColor, w=attenuationDistance (0 = off).
+    float4 attenuationParams;
+    // Dispersion (KHR_materials_dispersion): x=strength, yzw=pad.
+    float4 dispersionParams;
 };
 
 /// CPU-side packing layout for hardware instancing (VT_FEATURE_INSTANCING).
@@ -243,4 +247,9 @@ struct LightingData {
     float4 pcssParams;
     float4 pcssCascadeRadii;
     float4 pcssCascadeDepthRanges;
+    // Local light PCSS (spot/omni contact-hardening shadows):
+    // [x]=searchArea in shadow-map UV (0 = PCSS off, use PCF/hardware compare),
+    // [y]=shadow camera near, [z]=shadow camera far, [w]=pad.
+    float4 localShadowPcss0;
+    float4 localShadowPcss1;
 };

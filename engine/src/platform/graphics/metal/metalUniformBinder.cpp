@@ -200,7 +200,10 @@ namespace visutwin::canvas
                     dst.coneAngles[3] = 0.0f;
                 }
                 dst.typeCastShadows[0] = static_cast<uint32_t>(src.type);
-                dst.typeCastShadows[1] = src.castShadows ? 1u : 0u;
+                // Area lights never cast shadows in this port — their castShadows
+                // slot carries the shape instead (0=rect, 1=disk, 2=sphere).
+                dst.typeCastShadows[1] = (src.type == GpuLightType::AreaRect)
+                    ? src.areaShape : (src.castShadows ? 1u : 0u);
                 dst.typeCastShadows[2] = src.falloffModeLinear ? 1u : 0u;
                 // Local shadow map index: 0 or 1 → texture slots 11/12. Encoded as uint.
                 dst.typeCastShadows[3] = (src.shadowMapIndex >= 0)
@@ -312,9 +315,10 @@ namespace visutwin::canvas
                     _localShadowTexture1 = ls.shadowMap;
                 }
                 const auto& m = ls.viewProjection;
+                // Matrix4::getElement takes (col, row) — upload column-major.
                 for (int col = 0; col < 4; ++col) {
                     for (int row = 0; row < 4; ++row) {
-                        matDst[col * 4 + row] = m.getElement(row, col);
+                        matDst[col * 4 + row] = m.getElement(col, row);
                     }
                 }
             }
@@ -322,6 +326,12 @@ namespace visutwin::canvas
             paramsDst[1] = ls.normalBias;
             paramsDst[2] = ls.intensity;
             paramsDst[3] = ls.isOmni ? 1.0f : 0.0f;  // Flag: 1=omni cubemap, 0=spot 2D
+
+            float* pcssDst = (idx == 0) ? _lightingUniforms.localShadowPcss0 : _lightingUniforms.localShadowPcss1;
+            pcssDst[0] = ls.pcssSearchArea;
+            pcssDst[1] = ls.nearClip;
+            pcssDst[2] = ls.farClip;
+            pcssDst[3] = 0.0f;
         };
 
         for (int i = 0; i < ShadowParams::kMaxLocalShadows; ++i) {
@@ -336,6 +346,8 @@ namespace visutwin::canvas
                 paramsDst[1] = 0.0f;
                 paramsDst[2] = 1.0f;
                 paramsDst[3] = 0.0f;
+                float* pcssDst = (i == 0) ? _lightingUniforms.localShadowPcss0 : _lightingUniforms.localShadowPcss1;
+                pcssDst[0] = 0.0f;
             }
         }
     }

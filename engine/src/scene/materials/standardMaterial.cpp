@@ -190,6 +190,11 @@ namespace visutwin::canvas
         uniforms.transmissionFactor = _transmissionFactor;
         uniforms.refractionIndex = _refractionIndex;
         uniforms.thickness = _thickness;
+        uniforms.attenuationParams[0] = _attenuationColor.r;
+        uniforms.attenuationParams[1] = _attenuationColor.g;
+        uniforms.attenuationParams[2] = _attenuationColor.b;
+        uniforms.attenuationParams[3] = _attenuationDistance;
+        uniforms.dispersionParams[0] = _dispersion;
 
         // parallax / height map uniform packing.
         if (_heightMap) {

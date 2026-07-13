@@ -94,6 +94,10 @@ namespace visutwin::canvas
             float pcssParams[4] = {16.0f, 16.0f, 1.0f, 1.0f};
             float pcssCascadeRadii[4] = {1.0f, 1.0f, 1.0f, 1.0f};
             float pcssCascadeDepthRanges[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+            // Local light PCSS: [x]=searchArea UV (0=off), [y]=near, [z]=far, [w]=pad.
+            float localShadowPcss0[4] = {0.0f, 0.01f, 100.0f, 0.0f};
+            float localShadowPcss1[4] = {0.0f, 0.01f, 100.0f, 0.0f};
         };
 
         // ---------------------------------------------------------------

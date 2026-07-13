@@ -46,14 +46,32 @@
     // requestSceneColorMap(true) so the depth-layer grab pass publishes slot 22.
     if (material.transmissionFactor > 0.0 && sceneColorTexture.get_width() > 0) {
         const float ior = max(material.refractionIndex, 1.001);
-        const float3 refrDir = refract(-V, N, 1.0 / ior);
+        const float thickness = max(material.thickness, 0.0);
+        // The simple forward path grabs the tonemapped sRGB back buffer — decode
+        // to linear (upstream SCENE_COLORMAP_GAMMA). Under the HDR camera-frame
+        // path (flag bit 5) the grab is mid-frame LINEAR — no decode.
+        const bool grabIsGamma = (lighting.flagsAndPad.x & (1u << 5)) == 0u;
 
-        if (length_squared(refrDir) > 0.0) {
-            // Refraction vector scaled by volume thickness.
+        // Dispersion (KHR_materials_dispersion, upstream LIT_DISPERSION): spread
+        // the refraction eta per channel and sample R/G/B separately. eta-space
+        // spread mirrors upstream: halfSpread = (ior - 1) * 0.025 * dispersion.
+        const float dispersion = max(material.dispersionParams.x, 0.0);
+        const float eta = 1.0 / ior;
+        const float halfSpread = (ior - 1.0) * 0.025 * dispersion;
+        const int refrSamples = (dispersion > 0.0) ? 3 : 1;
+
+        float3 refrColor = float3(0.0);
+        for (int ch = 0; ch < refrSamples; ++ch) {
+            const float etaCh = (refrSamples == 1) ? eta : (eta + halfSpread * float(ch - 1));
+            const float3 refrDir = refract(-V, N, etaCh);
+
+            // Refraction vector scaled by volume thickness (total internal
+            // reflection falls back to the unshifted surface point).
             // DEVIATION: upstream multiplies by per-axis model scale extracted from
             // the model matrix; the fragment stage here has no model matrix, so
             // material thickness is interpreted in world units.
-            const float3 refractionVector = normalize(refrDir) * max(material.thickness, 0.0);
+            const float3 refractionVector = (length_squared(refrDir) > 0.0)
+                ? normalize(refrDir) * thickness : float3(0.0);
 
             // Project the refracted exit point to grab-texture UV.
             const float4 projected = lighting.viewProjection * float4(rd.worldPos + refractionVector, 1.0);
@@ -62,29 +80,40 @@
 
             // IOR + roughness select the grab mip (upstream iorToRoughness):
             // higher IOR and rougher surfaces read blurrier scene color.
-            const float iorToRoughness = saturate(1.0 - gloss) * clamp(ior * 2.0 - 2.0, 0.0, 1.0);
+            const float iorCh = 1.0 / etaCh;
+            const float iorToRoughness = saturate(1.0 - gloss) * clamp(iorCh * 2.0 - 2.0, 0.0, 1.0);
             const float refractionLod = log2(max(lighting.screenInvResolution.z, 2.0)) * iorToRoughness;
-            float3 refrColor = sceneColorTexture.sample(grabPassSampler, grabUv, level(refractionLod)).rgb;
-
-            // The forward path grabs the tonemapped sRGB back buffer — decode to
-            // linear (upstream SCENE_COLORMAP_GAMMA path).
-            refrColor = pow(max(refrColor, float3(0.0)), float3(2.2));
-
-            // Volume absorption: tint refracted light by base color (Beer approx),
-            // same as the cubemap refraction path.
-            const float absorb = max(material.thickness, 0.0) + 1.0;
-            refrColor *= pow(baseLinear, float3(absorb));
-
-            // Fresnel: grazing angles reflect more, normal incidence transmits more.
-            const float NdotV = max(dot(N, V), 0.0);
-            const float F0_ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
-            const float fresnel = F0_ior + (1.0 - F0_ior) * pow(1.0 - NdotV, 5.0);
-            const float transmission = material.transmissionFactor * (1.0 - fresnel);
-
-            // Blend: replace surface diffuse with the refracted scene, keep specular.
-            const float3 specPart = directSpecular + indirectSpecular + emissiveLinear;
-            litLinear = mix(litLinear, refrColor + specPart, transmission);
+            float3 sampleColor = sceneColorTexture.sample(grabPassSampler, grabUv, level(refractionLod)).rgb;
+            if (grabIsGamma) {
+                sampleColor = pow(max(sampleColor, float3(0.0)), float3(2.2));
+            }
+            if (refrSamples == 1) {
+                refrColor = sampleColor;
+            } else {
+                refrColor[ch] = sampleColor[ch];
+            }
         }
+
+        // Volume transmittance (KHR_materials_volume Beer's law, upstream
+        // material_attenuation/material_invAttenuationDistance). Distance 0
+        // keeps the legacy baseColor^thickness tint.
+        const float attDistance = material.attenuationParams.w;
+        if (attDistance > 0.0) {
+            const float3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
+            refrColor *= exp(-(-log(attColor) / attDistance) * thickness);
+        } else {
+            refrColor *= pow(baseLinear, float3(thickness + 1.0));
+        }
+
+        // Fresnel: grazing angles reflect more, normal incidence transmits more.
+        const float NdotV = max(dot(N, V), 0.0);
+        const float F0_ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
+        const float fresnel = F0_ior + (1.0 - F0_ior) * pow(1.0 - NdotV, 5.0);
+        const float transmission = material.transmissionFactor * (1.0 - fresnel);
+
+        // Blend: replace surface diffuse with the refracted scene, keep specular.
+        const float3 specPart = directSpecular + indirectSpecular + emissiveLinear;
+        litLinear = mix(litLinear, refrColor + specPart, transmission);
     }
 #else
     // Cubemap-based refraction.
@@ -114,10 +143,16 @@
             float3 refrColor = processEnvironment(
                 refrSample, max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
 
-            // Volume absorption: tint refracted light by base color.
-            // Thicker volume = stronger tinting (Beer's law approximation).
-            const float absorb = max(material.thickness, 0.0) + 1.0;
-            refrColor *= pow(baseLinear, float3(absorb));
+            // Volume transmittance: KHR_materials_volume Beer's law when
+            // attenuationDistance > 0, else the legacy baseColor^thickness tint.
+            const float attDistance = material.attenuationParams.w;
+            if (attDistance > 0.0) {
+                const float3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
+                refrColor *= exp(-(-log(attColor) / attDistance) * max(material.thickness, 0.0));
+            } else {
+                const float absorb = max(material.thickness, 0.0) + 1.0;
+                refrColor *= pow(baseLinear, float3(absorb));
+            }
 
             // Fresnel: grazing angles reflect more, normal incidence transmits more.
             // Uses IOR-derived F0 for physically correct Fresnel.

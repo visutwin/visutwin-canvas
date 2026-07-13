@@ -1234,6 +1234,52 @@ namespace visutwin::canvas
     }
 
     /**
+     * Apply KHR_materials_transmission / _ior / _volume / _dispersion to a
+     * StandardMaterial. Volume attenuation feeds the Beer-law transmittance;
+     * dispersion feeds the per-channel refraction in the dynamic grab path.
+     */
+    static void applyVolumeExtensions(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    {
+        const auto readNumber = [](const tinygltf::Value& v, const char* key, float fallback) {
+            if (v.Has(key)) {
+                const auto n = v.Get(key);
+                if (n.IsNumber()) return static_cast<float>(n.GetNumberAsDouble());
+            }
+            return fallback;
+        };
+
+        if (const auto it = srcMaterial.extensions.find("KHR_materials_transmission");
+            it != srcMaterial.extensions.end() && it->second.IsObject()) {
+            material->setTransmissionFactor(readNumber(it->second, "transmissionFactor", 0.0f));
+        }
+
+        if (const auto it = srcMaterial.extensions.find("KHR_materials_ior");
+            it != srcMaterial.extensions.end() && it->second.IsObject()) {
+            material->setRefractionIndex(readNumber(it->second, "ior", 1.5f));
+        }
+
+        if (const auto it = srcMaterial.extensions.find("KHR_materials_volume");
+            it != srcMaterial.extensions.end() && it->second.IsObject()) {
+            material->setThickness(readNumber(it->second, "thicknessFactor", 0.0f));
+            material->setAttenuationDistance(readNumber(it->second, "attenuationDistance", 0.0f));
+            if (it->second.Has("attenuationColor")) {
+                const auto ac = it->second.Get("attenuationColor");
+                if (ac.IsArray() && ac.ArrayLen() >= 3) {
+                    material->setAttenuationColor(Color(
+                        static_cast<float>(ac.Get(0).GetNumberAsDouble()),
+                        static_cast<float>(ac.Get(1).GetNumberAsDouble()),
+                        static_cast<float>(ac.Get(2).GetNumberAsDouble()), 1.0f));
+                }
+            }
+        }
+
+        if (const auto it = srcMaterial.extensions.find("KHR_materials_dispersion");
+            it != srcMaterial.extensions.end() && it->second.IsObject()) {
+            material->setDispersion(readNumber(it->second, "dispersion", 0.0f));
+        }
+    }
+
+    /**
      * Apply KHR_materials_pbrSpecularGlossiness extension to a StandardMaterial.
      * Maps diffuseTexture → baseColorTexture and specular/glossiness factors.
      */
@@ -1571,6 +1617,7 @@ namespace visutwin::canvas
 
                 // Handle KHR_materials_pbrSpecularGlossiness extension
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
+                applyVolumeExtensions(srcMaterial, material.get());
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto baseColorTexture = getOrCreateTexture(pbr.baseColorTexture.index)) {
@@ -2531,6 +2578,7 @@ namespace visutwin::canvas
 
                 // Handle KHR_materials_pbrSpecularGlossiness extension
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
+                applyVolumeExtensions(srcMaterial, material.get());
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {
@@ -3076,6 +3124,7 @@ namespace visutwin::canvas
 
                 // Handle KHR_materials_pbrSpecularGlossiness extension
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
+                applyVolumeExtensions(srcMaterial, material.get());
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {

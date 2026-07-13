@@ -99,7 +99,10 @@ namespace visutwin::canvas
 
                 if (light->type() == LightType::LIGHTTYPE_SPOT) {
                     // Spot: orient camera along the light's direction, FOV = outerConeAngle * 2.
-                    shadowCam->node()->setRotation(lightNode->rotation());
+                    // The camera looks down its -Z, but the spot light emits down -Y —
+                    // compose a local -90° X rotation (upstream rotateLocal(-90, 0, 0)).
+                    shadowCam->node()->setRotation(
+                        lightNode->rotation() * Quaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f));
                     shadowCam->setFov(std::min(light->outerConeAngle() * 2.0f, 179.0f));
                     shadowCam->setNearClip(0.01f);
                     shadowCam->setFarClip(std::max(light->range(), 0.1f));
