@@ -356,6 +356,12 @@ namespace visutwin::canvas
     // Environment uniforms
     // -----------------------------------------------------------------------
 
+    void MetalUniformBinder::setCameraClipPlanes(const float nearClip, const float farClip)
+    {
+        _lightingUniforms.cameraNearFar[0] = nearClip;
+        _lightingUniforms.cameraNearFar[1] = farClip;
+    }
+
     void MetalUniformBinder::setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
         const Vector3& boxMax, const bool boxProjection, const float intensity, const float maxLod)
     {

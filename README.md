@@ -15,6 +15,7 @@ VisuTwin Canvas ports PlayCanvas's architecture, class hierarchy, and algorithms
 - **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, parallax, **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (UDN), and vertex-stage **displacement mapping**
 - **Image-based lighting**: environment atlas (GGX/Lambert prefiltered), HDR cubemap skybox, **ambient SH light probes**, and **box-projected cubemap reflection probes** (parallax-corrected local reflections)
 - **Dynamic grab-pass refraction** with chromatic **dispersion** and KHR_materials_volume Beer-law attenuation
+- **Screen-space reflections** (per-fragment world-space ray march against a scene depth+color grab, with env/probe fallback)
 - **Vertex colors**, **point-size** primitives, **opacity dither** (Bayer8 order-independent transparency), and **lightmap** (UV1) sampling
 - **GPU instancing** with per-instance color and optional per-frame GPU frustum culling (compute-driven indirect draw), plus **dynamic batching** with a bone-index matrix palette
 
@@ -124,6 +125,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | reflection-planar-blurred | Planar reflections with blur |
 | reflection-probe | Box-projected cubemap reflection probe |
 | refraction | Dynamic grab-pass refraction + dispersion + volume |
+| ssr | Screen-space reflections on a glossy floor |
 | edge-detect | Post-processing edge detection |
 | shader-chunks | ShaderChunks registry overrides (global + per-material) |
 | gsplat | Gaussian splatting (classic path) |
@@ -235,6 +237,7 @@ Sibling repositories (separate CMake projects): `visutwin-geo` (geospatial — W
 - Reflection probes use a supplied cubemap (procedural, authored, or from the skybox); scene-capture bake and GGX cube prefilter are deferred
 - Texture streaming is partial (no progressive mip-level budgeting)
 - The lightmapper baker is CPU-only (LDR, single bounce, no color+dir or auto-UV-unwrap)
+- Screen-space reflections march per-fragment (no HiZ acceleration or roughness cone) and are sharp-only, with no temporal accumulation
 
 ## Attribution
 

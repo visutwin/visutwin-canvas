@@ -60,6 +60,14 @@ namespace visutwin::canvas
         bool useDynamicRefraction() const { return _useDynamicRefraction; }
         void setUseDynamicRefraction(const bool value) { _useDynamicRefraction = value; _dirtyShader = true; }
 
+        // Screen-space reflections: ray-march the reflection against the scene
+        // depth grab and sample the scene color grab (needs the camera's
+        // requestSceneColorMap + requestSceneDepthMap; the material should be
+        // transparent so it draws after the mid-frame grab). Falls back to the
+        // reflection probe / env atlas where the ray leaves the screen.
+        bool useScreenSpaceReflection() const { return _useSSR; }
+        void setUseScreenSpaceReflection(const bool value) { _useSSR = value; _dirtyShader = true; }
+
         // Opacity dithering (upstream opacityDither, BAYER8): render partial opacity in
         // the OPAQUE pass by discarding fragments against an 8x8 Bayer threshold —
         // no sorting artifacts and depth writes stay valid. Leave the material
@@ -283,6 +291,7 @@ namespace visutwin::canvas
         float _gloss = 0.25f;
         bool _glossInvert = false;
         bool _useDynamicRefraction = false;
+        bool _useSSR = false;
         bool _opacityDither = false;
         Texture* _glossMap = nullptr;
 

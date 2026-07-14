@@ -319,6 +319,7 @@ namespace visutwin::canvas
         }
         // Dynamic grab-pass refraction: StandardMaterial opt-in, requires transmission.
         options.dynamicRefraction = options.transmission && stdMat && stdMat->useDynamicRefraction();
+        options.ssr = stdMat && stdMat->useScreenSpaceReflection();
         // Opacity dither: Bayer8 dithered transparency in the opaque pass.
         options.opacityDither = stdMat && stdMat->opacityDither();
         options.envAtlas = _envAtlasEnabled;
@@ -486,6 +487,7 @@ namespace visutwin::canvas
             key ^= material->shaderChunksHash();
         }
         key ^= options.dynamicRefraction ? (1ull << 43) : 0ull;
+        key ^= options.ssr ? (1ull << 47) : 0ull;
         key ^= options.opacityDither ? (1ull << 44) : 0ull;
         key ^= options.pcssShadows ? (1ull << 45) : 0ull;
         key ^= options.reflectionProbe ? (1ull << 46) : 0ull;
@@ -528,6 +530,7 @@ namespace visutwin::canvas
         appendFeatureDefine(source, "VT_FEATURE_IRIDESCENCE", options.iridescence);
         appendFeatureDefine(source, "VT_FEATURE_TRANSMISSION", options.transmission);
         appendFeatureDefine(source, "VT_FEATURE_DYNAMIC_REFRACTION", options.dynamicRefraction);
+        appendFeatureDefine(source, "VT_FEATURE_SSR", options.ssr);
         appendFeatureDefine(source, "VT_FEATURE_OPACITY_DITHER", options.opacityDither);
         appendFeatureDefine(source, "VT_FEATURE_PCSS_SHADOWS", options.pcssShadows);
         appendFeatureDefine(source, "VT_FEATURE_LIGHT_CLUSTERING", options.lightClustering);

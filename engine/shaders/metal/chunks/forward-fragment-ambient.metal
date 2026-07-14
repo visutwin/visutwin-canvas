@@ -184,6 +184,57 @@
     }
 #endif
 
+#if VT_FEATURE_SSR
+    // Screen-space reflections: march the reflection ray against the scene depth
+    // grab and sample the scene color grab at the hit, blending OVER the
+    // probe/env-atlas fallback where the ray hits on-screen geometry.
+    if (ssrSceneDepthTexture.get_width() > 0 && sceneColorTexture.get_width() > 0) {
+        const float ssrNear = lighting.cameraNearFar.x;
+        const float ssrFar = lighting.cameraNearFar.y;
+        const float3 ssrR = reflect(-V, N);
+
+        const int SSR_STEPS = 48;
+        const float SSR_MAX_DIST = 60.0;
+        const float ssrStep = SSR_MAX_DIST / float(SSR_STEPS);
+        const float ssrThickness = 1.5;   // view-space hit tolerance (world units)
+
+        float2 ssrHitUv = float2(0.0);
+        float ssrHit = 0.0;
+        for (int i = 1; i <= SSR_STEPS; ++i) {
+            const float3 samplePos = rd.worldPos + ssrR * (ssrStep * float(i));
+            const float4 clip = lighting.viewProjection * float4(samplePos, 1.0);
+            if (clip.w <= 0.0) break;                       // behind the camera
+            const float2 uv = clip.xy / clip.w * float2(0.5, -0.5) + 0.5;
+            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;   // left the screen
+            const float marchedZ = clip.w;                  // view-space distance
+            const float rawDepth = ssrSceneDepthTexture.sample(envAtlasSampler, uv);
+            const float sceneZ = (ssrNear * ssrFar) / (ssrFar - rawDepth * (ssrFar - ssrNear));
+            const float diff = marchedZ - sceneZ;           // >0 = marched behind the surface
+            if (diff > 0.0 && diff < ssrThickness) {
+                ssrHitUv = uv;
+                ssrHit = 1.0;
+                break;
+            }
+        }
+
+        if (ssrHit > 0.0) {
+            float3 ssrColor = sceneColorTexture.sample(envAtlasSampler, ssrHitUv).rgb;
+            // Decode the grab (tonemapped sRGB, unless the HDR camera-frame path).
+            if ((lighting.flagsAndPad.x & (1u << 5)) == 0u) {
+                ssrColor = pow(max(ssrColor, float3(0.0)), float3(2.2));
+            }
+            // Fade at screen edges (reflection pops as rays exit the frame) and on
+            // rough surfaces (this port marches sharp — no roughness cone).
+            const float2 eLo = smoothstep(float2(0.0), float2(0.12), ssrHitUv);
+            const float2 eHi = 1.0 - smoothstep(float2(0.88), float2(1.0), ssrHitUv);
+            const float edgeFade = eLo.x * eLo.y * eHi.x * eHi.y;
+            const float roughFade = saturate(gloss * 1.2 - 0.2);
+            const float3 ssrFresnel = getFresnel(dot(N, V), gloss, F0);
+            indirectSpecular = mix(indirectSpecular, ssrColor * ssrFresnel, edgeFade * roughFade);
+        }
+    }
+#endif
+
     float ao = 1.0;
 #if VT_FEATURE_OCCLUSION_MAP
     if (occlusionTexture.get_width() > 0 && occlusionTexture.get_height() > 0) {

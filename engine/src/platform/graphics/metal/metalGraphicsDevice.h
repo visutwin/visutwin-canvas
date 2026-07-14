@@ -78,6 +78,7 @@ namespace visutwin::canvas
             const Matrix4* viewProjection = nullptr) override;
         void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod) override;
+        void setCameraClipPlanes(float nearClip, float farClip) override;
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) override;
@@ -89,6 +90,7 @@ namespace visutwin::canvas
         }
 
         void grabSceneColor(RenderTarget* source) override;
+        void grabSceneDepth(RenderTarget* source) override;
         void setAtmosphereUniforms(const void* data, size_t size) override;
 
         [[nodiscard]] MTL::Device* raw() const { return _device; }
@@ -303,6 +305,8 @@ namespace visutwin::canvas
         // color made by the depth-layer grab pass, wrapped for slot-22 binding.
         MTL::Texture* _sceneGrabRaw = nullptr;
         std::shared_ptr<Texture> _sceneGrabWrapper;
+        MTL::Texture* _sceneDepthGrabRaw = nullptr;
+        std::shared_ptr<Texture> _sceneDepthGrabWrapper;
 
         // Clustered lighting GPU buffers (fragment slots 7 and 8).
         MTL::Buffer* _clusterLightBuffer = nullptr;

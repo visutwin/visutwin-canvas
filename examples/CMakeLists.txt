@@ -155,6 +155,12 @@ add_executable(visutwin-lightmap-bake MACOSX_BUNDLE
 target_link_libraries(visutwin-lightmap-bake PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-lightmap-bake com.visutwin.lightmap-bake)
 
+add_executable(visutwin-ssr MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/ssr-example.cpp
+)
+target_link_libraries(visutwin-ssr PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-ssr com.visutwin.ssr)
+
 add_executable(visutwin-reflection-probe MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/reflection-probe-example.cpp
 )

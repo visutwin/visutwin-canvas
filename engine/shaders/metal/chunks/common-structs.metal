@@ -257,4 +257,6 @@ struct LightingData {
     float4 reflectionProbeBoxMin;
     float4 reflectionProbeBoxMax;
     float4 reflectionProbeParams;
+    // Camera clip planes for SSR depth linearization: x=near, y=far, zw=pad.
+    float4 cameraNearFar;
 };

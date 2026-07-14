@@ -859,6 +859,11 @@ namespace visutwin::canvas
                     _scene->reflectionProbeBoxProjection(), _scene->reflectionProbeIntensity(),
                     static_cast<float>(levels - 1));
             }
+
+            // Camera clip planes for SSR depth-grab linearization.
+            if (camera) {
+                _device->setCameraClipPlanes(camera->nearClip(), camera->farClip());
+            }
         }
 
         // --- Clustered lighting: feed local lights into WorldClusters ---

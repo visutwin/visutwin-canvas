@@ -61,6 +61,7 @@ namespace visutwin::canvas
         /// Pack reflection-probe uniforms (box-projected cubemap) + store the cube.
         void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod);
+        void setCameraClipPlanes(float nearClip, float farClip);
 
         /// Pack atmosphere uniforms (Nishita scattering) into AtmosphereUniforms.
         void setAtmosphereUniforms(const void* data, size_t size);

@@ -1148,6 +1148,11 @@ namespace visutwin::canvas
         _uniformBinder.setReflectionProbeUniforms(cubemap, boxMin, boxMax, boxProjection, intensity, maxLod);
     }
 
+    void MetalGraphicsDevice::setCameraClipPlanes(const float nearClip, const float farClip)
+    {
+        _uniformBinder.setCameraClipPlanes(nearClip, farClip);
+    }
+
     void MetalGraphicsDevice::setEnvironmentUniforms(Texture* envAtlas, const float skyboxIntensity,
         const float skyboxMip, const Vector3& skyDomeCenter, const bool isDome,
         Texture* skyboxCubeMap)
@@ -1229,6 +1234,68 @@ namespace visutwin::canvas
         cmdBuffer->commit();
 
         setSceneColorMap(_sceneGrabWrapper.get());
+    }
+
+    void MetalGraphicsDevice::grabSceneDepth(RenderTarget* source)
+    {
+        // Resolve the source depth texture: explicit RT depth buffer, or the
+        // frame's internal back-buffer depth attachment.
+        MTL::Texture* src = nullptr;
+        if (source && source->depthBuffer()) {
+            if (auto* hw = dynamic_cast<gpu::MetalTexture*>(source->depthBuffer()->impl())) {
+                src = hw->raw();
+            }
+        }
+        if (!src) {
+            src = _backBufferDepthTexture;
+        }
+        if (!src || !_commandQueue) {
+            return;
+        }
+
+        // (Re)create the persistent depth copy. No mip chain (depth can't be
+        // averaged meaningfully); ShaderRead so the SSR path can sample it.
+        if (!_sceneDepthGrabRaw || _sceneDepthGrabRaw->width() != src->width() ||
+            _sceneDepthGrabRaw->height() != src->height()) {
+            if (_sceneDepthGrabRaw) {
+                _sceneDepthGrabRaw->release();
+                _sceneDepthGrabRaw = nullptr;
+            }
+            auto* descriptor = MTL::TextureDescriptor::texture2DDescriptor(
+                src->pixelFormat(), src->width(), src->height(), false);
+            descriptor->setUsage(MTL::TextureUsageShaderRead);
+            descriptor->setStorageMode(MTL::StorageModePrivate);
+            _sceneDepthGrabRaw = _device->newTexture(descriptor);
+            if (!_sceneDepthGrabRaw) {
+                return;
+            }
+            _sceneDepthGrabRaw->setLabel(NS::String::string("sceneDepthGrab", NS::UTF8StringEncoding));
+
+            if (!_sceneDepthGrabWrapper) {
+                TextureOptions wrapperOptions;
+                wrapperOptions.name = "sceneDepthGrab";
+                wrapperOptions.width = 4;
+                wrapperOptions.height = 4;
+                wrapperOptions.mipmaps = false;
+                _sceneDepthGrabWrapper = std::make_shared<Texture>(this, wrapperOptions);
+            }
+            if (auto* hw = dynamic_cast<gpu::MetalTexture*>(_sceneDepthGrabWrapper->impl())) {
+                hw->setExternalTexture(_sceneDepthGrabRaw);
+            }
+        }
+
+        auto* cmdBuffer = _commandQueue->commandBuffer();
+        auto* blitEncoder = cmdBuffer ? cmdBuffer->blitCommandEncoder() : nullptr;
+        if (!blitEncoder) {
+            return;
+        }
+        blitEncoder->copyFromTexture(src, 0, 0, MTL::Origin(0, 0, 0),
+            MTL::Size(src->width(), src->height(), 1),
+            _sceneDepthGrabRaw, 0, 0, MTL::Origin(0, 0, 0));
+        blitEncoder->endEncoding();
+        cmdBuffer->commit();
+
+        setSceneDepthGrabMap(_sceneDepthGrabWrapper.get());
     }
 
     void MetalGraphicsDevice::draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
@@ -1377,7 +1444,7 @@ namespace visutwin::canvas
                 sceneDepthMap(), _uniformBinder.skyboxCubeMapTexture(),
                 reflectionMap(), reflectionDepthMap(), ssaoForwardTexture(),
                 _areaLightLut1, _areaLightLut2, sceneColorMap(),
-                _uniformBinder.reflectionProbeCubeTexture());
+                _uniformBinder.reflectionProbeCubeTexture(), sceneDepthGrabMap());
             _textureBinder.bindLocalShadowTextures(passEncoder,
                 _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
             _textureBinder.bindOmniShadowTextures(passEncoder,

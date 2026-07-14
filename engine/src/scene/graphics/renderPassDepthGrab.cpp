@@ -29,6 +29,10 @@ namespace visutwin::canvas
             sceneDepth = device->backBuffer() ? device->backBuffer()->depthBuffer() : nullptr;
         }
         device->setSceneDepthMap(sceneDepth);
+
+        // Copy the post-opaque depth into a sampleable texture for SSR (sampling
+        // the still-attached depth buffer in the transparent pass is a feedback).
+        device->grabSceneDepth(sourceTarget.get());
     }
 
     void RenderPassDepthGrab::execute()

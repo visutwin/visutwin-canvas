@@ -104,6 +104,8 @@ namespace visutwin::canvas
             float reflectionProbeBoxMin[4] = {-1.0f, -1.0f, -1.0f, 0.0f};
             float reflectionProbeBoxMax[4] = {1.0f, 1.0f, 1.0f, 0.0f};
             float reflectionProbeParams[4] = {1.0f, 1.0f, 6.0f, 0.0f};
+            // Camera clip planes for SSR depth linearization: x=near, y=far.
+            float cameraNearFar[4] = {0.1f, 1000.0f, 0.0f, 0.0f};
         };
 
         // ---------------------------------------------------------------

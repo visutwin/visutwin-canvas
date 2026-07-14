@@ -133,6 +133,7 @@ namespace visutwin::canvas
             bool iridescence = false;
             bool transmission = false;
             bool dynamicRefraction = false;  // grab-pass refraction (StandardMaterial::useDynamicRefraction)
+            bool ssr = false;                // screen-space reflections (StandardMaterial::useScreenSpaceReflection)
             bool opacityDither = false;      // Bayer8 dithered transparency in the opaque pass
             bool lightClustering = false;
             bool ssao = false;

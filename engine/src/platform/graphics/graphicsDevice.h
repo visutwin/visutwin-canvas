@@ -447,6 +447,12 @@ namespace visutwin::canvas
             (void)cubemap; (void)boxMin; (void)boxMax; (void)boxProjection; (void)intensity; (void)maxLod;
         }
 
+        /// Camera clip planes for SSR depth linearization.
+        virtual void setCameraClipPlanes(float nearClip, float farClip)
+        {
+            (void)nearClip; (void)farClip;
+        }
+
         /// Set the LTC lookup textures for area lights (bound at fragment slots 20/21
         /// when VT_FEATURE_AREA_LIGHTS is active). Pass nullptrs to unbind.
         virtual void setAreaLightLuts(Texture* lut1, Texture* lut2) { (void)lut1; (void)lut2; }
@@ -675,6 +681,12 @@ namespace visutwin::canvas
         Texture* sceneColorMap() const { return _sceneColorMap; }
         void setSceneColorMap(Texture* colorMap) { _sceneColorMap = colorMap; }
 
+        /// Copy the post-opaque scene depth into a sampleable texture (for SSR),
+        /// avoiding the feedback of sampling the still-attached depth buffer.
+        virtual void grabSceneDepth(RenderTarget* source) { (void)source; }
+        Texture* sceneDepthGrabMap() const { return _sceneDepthGrabMap; }
+        void setSceneDepthGrabMap(Texture* depthMap) { _sceneDepthGrabMap = depthMap; }
+
         // DEVIATION: planar reflection texture, set by application-level code.
         // Upstream handles this in the planarRenderer script; we promote it to
         // a device-level binding so the forward pass can sample it at slot 9.
@@ -849,6 +861,7 @@ namespace visutwin::canvas
 
         Texture* _sceneDepthMap = nullptr;
         Texture* _sceneColorMap = nullptr;
+        Texture* _sceneDepthGrabMap = nullptr;
         Texture* _reflectionMap = nullptr;
         Texture* _reflectionDepthMap = nullptr;
         Texture* _ssaoForwardTexture = nullptr;
