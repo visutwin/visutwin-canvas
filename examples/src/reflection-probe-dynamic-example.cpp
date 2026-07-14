@@ -23,6 +23,7 @@
 #include "framework/engine.h"
 #include "log.h"
 #include "framework/appOptions.h"
+#include "framework/assets/asset.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/camera/cameraComponentSystem.h"
 #include "framework/components/light/lightComponentSystem.h"
@@ -44,6 +45,21 @@ using namespace visutwin::canvas;
 
 SDL_Window* window = nullptr;
 SDL_Renderer* renderer = nullptr;
+
+const std::string rootPath = ASSET_DIR;
+
+// Helipad environment atlas — the skybox/IBL backdrop the chrome sphere reflects
+// (matching the PlayCanvas reflection-cubemap example). Loaded as an RGBP-packed
+// equirect environment atlas.
+const auto helipad = std::make_unique<Asset>(
+    "helipad-env-atlas",
+    AssetType::TEXTURE,
+    rootPath + "/cubemaps/helipad-env-atlas.png",
+    AssetData{
+        .type = TextureType::TEXTURETYPE_RGBP,
+        .mipmaps = false
+    }
+);
 
 Entity* createEntity(Engine* engine, Material* material, const char* type,
     const Vector3& position, const Vector3& scale, const std::vector<int>& layers)
@@ -102,6 +118,19 @@ int main()
     auto scene = engine->scene();
     scene->setToneMapping(TONEMAP_ACES);
     scene->setAmbientLight(0.05f, 0.05f, 0.06f);
+
+    // Helipad environment atlas + skybox backdrop (matches the PlayCanvas
+    // reflection-cubemap example: setSkyboxMip(0), setSkyboxIntensity(2.0)).
+    // Installed BEFORE the render loop so the skybox is present when the dynamic
+    // probe captures its cube faces — the chrome sphere then reflects BOTH the
+    // captured orbiting boxes AND the environment.
+    scene->setSkyboxMip(0);
+    scene->setSkyboxIntensity(2.0f);
+    if (const auto helipadResource = helipad->resource()) {
+        scene->setEnvAtlas(std::get<Texture*>(*helipadResource));
+    } else {
+        spdlog::error("Failed to load helipad env atlas texture");
+    }
 
     // Layer composition: WORLD (orbiting boxes + floor), a dedicated REFLECTIVE
     // layer for the chrome sphere (so the probe does not capture it), SKYBOX.

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// PCSS + opacity-dither demo. A tall pole carries a wide plate high above the ground:
-// with PCSS the pole's shadow is razor sharp at its base and the plate's distant
-// shadow is broad and soft (contact hardening); with PCF both are uniformly sharp.
+// PCSS + opacity-dither demo (aligned with upstream dithered-transparency).
+// The glass-table.glb model is the hero: its materials are rendered with Bayer8
+// screen-door opacity dithering (opaque pass, correct depth) instead of alpha
+// blending, lit by the table-mountain environment atlas. A soft-shadow ground
+// plane shows contact-hardening: with PCSS the table legs' shadows are razor sharp
+// at their base and soften with distance; with PCF they are uniformly sharp.
+// Two half-transparent spheres flank the table to compare transparency modes:
+// LEFT uses Bayer8 opacity dithering, RIGHT uses classic alpha blending.
 // Auto-cycles PCF <-> PCSS every few seconds (1 = PCF, 2 = PCSS, Space = auto).
-// Two half-transparent spheres compare transparency modes: LEFT uses Bayer8 opacity
-// dithering (opaque pass, correct depth), RIGHT uses classic alpha blending.
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -23,6 +26,7 @@
 #include "framework/engine.h"
 #include "log.h"
 #include "framework/appOptions.h"
+#include "framework/assets/asset.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/camera/cameraComponentSystem.h"
 #include "framework/components/light/lightComponent.h"
@@ -41,6 +45,26 @@ SDL_Window* window;
 SDL_Renderer* renderer;
 
 using namespace visutwin::canvas;
+
+const std::string rootPath = ASSET_DIR;
+
+// table-mountain environment atlas (image-based lighting for the glass table).
+const auto envAtlasAsset = std::make_unique<Asset>(
+    "table-mountain-env-atlas",
+    AssetType::TEXTURE,
+    rootPath + "/cubemaps/table-mountain-env-atlas.png",
+    AssetData{
+        .type = TextureType::TEXTURETYPE_RGBP,
+        .mipmaps = false
+    }
+);
+
+// Low-poly glass table (Sketchfab, CC BY 4.0) — the dithered-opacity hero object.
+const auto glassTableAsset = std::make_unique<Asset>(
+    "glass-table",
+    AssetType::CONTAINER,
+    rootPath + "/models/glass-table.glb"
+);
 
 Entity* createEntity(Engine* engine, Material* material, const char* type,
     const Vector3& position, const Vector3& scale, const bool castShadows = true)
@@ -125,6 +149,16 @@ int main()
     scene->setToneMapping(TONEMAP_ACES);
     scene->setAmbientLight(0.22f, 0.22f, 0.25f);
 
+    // Image-based lighting from the table-mountain environment atlas (mirrors upstream).
+    const auto envAtlasResource = envAtlasAsset->resource();
+    if (envAtlasResource) {
+        scene->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+        scene->setSkyboxMip(2);
+        scene->setExposure(2.5f);
+    } else {
+        spdlog::error("Failed to load table-mountain env atlas");
+    }
+
     auto* camera = new Entity();
     camera->setEngine(engine.get());
     camera->addComponent<CameraComponent>();
@@ -160,16 +194,44 @@ int main()
         engine.get(), groundMaterial.get(), "plane", Vector3(0.0f, 0.0f, 0.0f), Vector3(40.0f, 1.0f, 40.0f), false
     ));
 
-    // Tall pole with a wide plate on top: contact-hardening shows the pole base
-    // shadow sharp and the plate shadow soft.
-    auto poleMaterial = std::make_shared<StandardMaterial>();
-    poleMaterial->setDiffuse(Color(0.65f, 0.5f, 0.35f, 1.0f));
-    engine->root()->addChild(createEntity(
-        engine.get(), poleMaterial.get(), "box", Vector3(-1.5f, 3.0f, 0.0f), Vector3(0.35f, 6.0f, 0.35f)
-    ));
-    engine->root()->addChild(createEntity(
-        engine.get(), poleMaterial.get(), "box", Vector3(-1.5f, 6.0f, 0.0f), Vector3(5.0f, 0.25f, 3.0f)
-    ));
+    // Hero object: the glass-table model, rendered with Bayer8 opacity dithering.
+    // Its (originally alpha-blended) StandardMaterials are switched to opaque-pass
+    // screen-door dithering so the table both casts crisp soft shadows and reads as
+    // partially transparent without any sorting artifacts.
+    const auto glassTableResource = glassTableAsset->resource();
+    if (glassTableResource) {
+        auto* tableEntity = std::get<ContainerResource*>(*glassTableResource)->instantiateRenderEntity();
+        tableEntity->setLocalScale(3.0f, 3.0f, 3.0f);
+        tableEntity->setLocalPosition(-1.5f, 0.0f, 0.0f);
+        engine->root()->addChild(tableEntity);
+
+        // Convert every StandardMaterial on the table to dithered opacity.
+        int ditheredCount = 0;
+        for (auto* render : RenderComponent::instances()) {
+            if (!render || !render->entity()) {
+                continue;
+            }
+            auto* owner = render->entity();
+            if (owner != tableEntity && !owner->isDescendantOf(tableEntity)) {
+                continue;
+            }
+            render->setCastShadows(true);
+            for (auto* mi : render->meshInstances()) {
+                if (!mi) {
+                    continue;
+                }
+                if (auto* stdMat = dynamic_cast<StandardMaterial*>(mi->material())) {
+                    stdMat->setTransparent(false);       // dither runs in the opaque pass
+                    stdMat->setOpacity(0.55f);           // screen-door coverage
+                    stdMat->setOpacityDither(true);      // Bayer8 screen-door pattern
+                    ++ditheredCount;
+                }
+            }
+        }
+        spdlog::info("Glass table loaded; {} material(s) switched to opacity dither", ditheredCount);
+    } else {
+        spdlog::error("Failed to load glass-table.glb");
+    }
 
     // Transparency comparison spheres (alpha 0.55): left dithers, right blends.
     auto ditherMaterial = std::make_shared<StandardMaterial>();

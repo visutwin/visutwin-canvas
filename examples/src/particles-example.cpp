@@ -16,8 +16,11 @@
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <memory>
+#include <string>
 
 #include <QuartzCore/QuartzCore.hpp>
+
+#include <framework/assets/asset.h>
 
 #include "framework/engine.h"
 #include "log.h"
@@ -41,6 +44,34 @@ SDL_Window* window;
 SDL_Renderer* renderer;
 
 using namespace visutwin::canvas;
+
+const std::string rootPath = ASSET_DIR;
+
+// Real particle sprites (mirrors PlayCanvas' particles-spark / particles-snow
+// examples, which attach spark.png / snowflake.png as the emitter color map).
+// spark.png  — bright streak sprite for the fast embers (sparks emitter).
+// snowflake.png — soft radial puff used for the fire and smoke billboards.
+const auto sparkTexAsset = std::make_unique<Asset>(
+    "spark",
+    AssetType::TEXTURE,
+    rootPath + "/textures/spark.png"
+);
+
+const auto softPuffTexAsset = std::make_unique<Asset>(
+    "snowflake",
+    AssetType::TEXTURE,
+    rootPath + "/textures/snowflake.png"
+);
+
+Texture* loadSpriteTexture(const std::unique_ptr<Asset>& asset, const char* label)
+{
+    const auto resource = asset->resource();
+    if (!resource) {
+        spdlog::error("Failed to load particle sprite '{}'", label);
+        return nullptr;
+    }
+    return std::get<Texture*>(*resource);
+}
 
 int main()
 {
@@ -126,6 +157,10 @@ int main()
         engine->root()->addChild(floor);
     }
 
+    // Load the sprite textures now that the graphics device is live.
+    Texture* sparkTex = loadSpriteTexture(sparkTexAsset, "spark.png");
+    Texture* softPuffTex = loadSpriteTexture(softPuffTexAsset, "snowflake.png");
+
     // ── Fire: additive sphere emitter with orange->deep-red gradient ─────────
     auto* fireEntity = new Entity();
     fireEntity->setEngine(engine.get());
@@ -153,6 +188,7 @@ int main()
         o.colorGraph.curves[1] = Curve({0.0f, 0.85f, 0.5f, 0.35f, 1.0f, 0.05f}); // g
         o.colorGraph.curves[2] = Curve({0.0f, 0.35f, 0.5f, 0.05f, 1.0f, 0.0f});  // b
         o.alphaGraph = Curve({0.0f, 0.0f, 0.1f, 0.55f, 1.0f, 0.0f});
+        o.colorMap = softPuffTex;  // soft radial puff sprite for the flames
         fire->apply();
     }
     engine->root()->addChild(fireEntity);
@@ -185,6 +221,7 @@ int main()
         o.colorGraph.curves[1] = Curve({0.0f, 0.45f, 1.0f, 0.3f});
         o.colorGraph.curves[2] = Curve({0.0f, 0.48f, 1.0f, 0.33f});
         o.alphaGraph = Curve({0.0f, 0.0f, 0.15f, 0.45f, 1.0f, 0.0f});
+        o.colorMap = softPuffTex;  // same soft puff sprite reads as smoke wisps
         smoke->apply();
     }
     engine->root()->addChild(smokeEntity);
@@ -213,6 +250,7 @@ int main()
         o.colorGraph.curves[1] = Curve({0.0f, 0.75f, 1.0f, 0.3f});
         o.colorGraph.curves[2] = Curve({0.0f, 0.25f, 1.0f, 0.0f});
         o.alphaGraph = Curve({0.0f, 1.0f, 0.8f, 1.0f, 1.0f, 0.0f});
+        o.colorMap = sparkTex;  // bright streak sprite (PlayCanvas particles-spark)
         sparks->apply();
     }
     engine->root()->addChild(sparkEntity);

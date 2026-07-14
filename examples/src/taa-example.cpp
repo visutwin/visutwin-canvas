@@ -55,13 +55,13 @@ const auto envAtlas = std::make_unique<Asset>(
 const auto house = std::make_unique<Asset>(
     "house",
     AssetType::CONTAINER,
-    rootPath + "/models/da_vinci_workshop.glb"
+    rootPath + "/models/pbr-house.glb"
 );
 
 const auto cube = std::make_unique<Asset>(
     "cube",
     AssetType::CONTAINER,
-    rootPath + "/models/box_textured.glb"
+    rootPath + "/models/playcanvas-cube.glb"
 );
 
 BoundingBox calcEntityAABB(Entity* entity)
@@ -179,7 +179,7 @@ int main()
 
     // setup skydome
     scene->setSkyboxMip(0);
-    scene->setExposure(1.6f);
+    scene->setExposure(2.5f);
     scene->setToneMapping(TONEMAP_ACES);
     scene->setAmbientLight(0.2f, 0.2f, 0.2f);
 

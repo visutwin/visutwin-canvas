@@ -23,6 +23,7 @@
 #include "framework/engine.h"
 #include "log.h"
 #include "framework/appOptions.h"
+#include "framework/assets/asset.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/camera/cameraComponentSystem.h"
 #include "framework/components/light/lightComponentSystem.h"
@@ -40,6 +41,39 @@ SDL_Window* window;
 SDL_Renderer* renderer;
 
 using namespace visutwin::canvas;
+
+const std::string rootPath = ASSET_DIR;
+
+// The helipad environment atlas gives the env-atlas refraction/reflection path real
+// content to sample (mirrors the PlayCanvas material-refraction example).
+const auto helipad = std::make_unique<Asset>(
+    "helipad-env-atlas",
+    AssetType::TEXTURE,
+    rootPath + "/cubemaps/helipad-env-atlas.png",
+    AssetData{
+        .type = TextureType::TEXTURETYPE_RGBP,
+        .mipmaps = false
+    }
+);
+
+// Seaside-rocks PBR maps texture the backdrop so refraction shows a realistic rocky
+// background rather than flat synthetic color.
+const auto rocksColor = std::make_unique<Asset>(
+    "rocks-color", AssetType::TEXTURE, rootPath + "/textures/seaside-rocks01-color.jpg");
+const auto rocksNormal = std::make_unique<Asset>(
+    "rocks-normal", AssetType::TEXTURE, rootPath + "/textures/seaside-rocks01-normal.jpg");
+const auto rocksGloss = std::make_unique<Asset>(
+    "rocks-gloss", AssetType::TEXTURE, rootPath + "/textures/seaside-rocks01-gloss.jpg");
+
+Texture* requireTexture(const std::unique_ptr<Asset>& asset, const char* label)
+{
+    const auto resource = asset->resource();
+    if (!resource) {
+        spdlog::error("Failed to load texture asset '{}'", label);
+        return nullptr;
+    }
+    return std::get<Texture*>(*resource);
+}
 
 Entity* createEntity(Engine* engine, Material* material, const char* type,
     const Vector3& position, const Vector3& scale)
@@ -123,6 +157,23 @@ int main()
     scene->setToneMapping(TONEMAP_ACES);
     scene->setAmbientLight(0.25f, 0.25f, 0.28f);
 
+    // Give the env-atlas refraction path real content to sample.
+    const auto helipadResource = helipad->resource();
+    if (!helipadResource) {
+        spdlog::error("Failed to load helipad texture");
+        shutdown();
+        return -1;
+    }
+    scene->setEnvAtlas(std::get<Texture*>(*helipadResource));
+
+    Texture* rocksColorTex = requireTexture(rocksColor, "rocks-color");
+    Texture* rocksNormalTex = requireTexture(rocksNormal, "rocks-normal");
+    Texture* rocksGlossTex = requireTexture(rocksGloss, "rocks-gloss");
+    if (!rocksColorTex || !rocksNormalTex || !rocksGlossTex) {
+        shutdown();
+        return -1;
+    }
+
     auto* camera = new Entity();
     camera->setEngine(engine.get());
     auto* cameraComponent = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
@@ -156,10 +207,15 @@ int main()
     for (int i = 0; i < 6; ++i) {
         auto material = std::make_shared<StandardMaterial>();
         material->setName("column-" + std::to_string(i));
+        // Tinted seaside-rocks: the color map keeps a rocky backdrop while the per-column
+        // tint preserves sharp color edges that make the refraction distortion obvious.
         material->setDiffuse(columnColors[i]);
+        material->setDiffuseMap(rocksColorTex);
+        material->setNormalMap(rocksNormalTex);
+        material->setBumpiness(1.0f);
+        material->setGlossMap(rocksGlossTex);
         material->setMetalness(0.0f);
-        material->setGlossInvert(true);
-        material->setGloss(0.7f);  // roughness
+        material->setGloss(0.4f);
         columnMaterials.push_back(material);
         engine->root()->addChild(createEntity(
             engine.get(), material.get(), "box",
@@ -167,13 +223,16 @@ int main()
         ));
     }
 
-    // Neutral floor.
+    // Rocky floor (seaside-rocks color+normal+gloss), like the PlayCanvas ground.
     auto floorMaterial = std::make_shared<StandardMaterial>();
     floorMaterial->setName("floor");
-    floorMaterial->setDiffuse(Color(0.45f, 0.45f, 0.48f, 1.0f));
+    floorMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
+    floorMaterial->setDiffuseMap(rocksColorTex);
+    floorMaterial->setNormalMap(rocksNormalTex);
+    floorMaterial->setBumpiness(1.0f);
+    floorMaterial->setGlossMap(rocksGlossTex);
     floorMaterial->setMetalness(0.0f);
-    floorMaterial->setGlossInvert(true);
-    floorMaterial->setGloss(0.9f);
+    floorMaterial->setGloss(0.4f);
     engine->root()->addChild(createEntity(
         engine.get(), floorMaterial.get(), "plane", Vector3(0.0f, -1.0f, 0.0f), Vector3(24.0f, 1.0f, 24.0f)
     ));

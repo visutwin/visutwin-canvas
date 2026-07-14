@@ -55,6 +55,13 @@ const auto envAtlas = std::make_unique<Asset>(
     }
 );
 
+// Low-poly terrain model (same hero asset as PlayCanvas shadow-cascades).
+const auto terrainAsset = std::make_unique<Asset>(
+    "terrain",
+    AssetType::CONTAINER,
+    rootPath + "/models/terrain.glb"
+);
+
 // Helper: create a primitive entity with material, shadows, position, and scale
 Entity* createPrimitive(Engine* engine, const std::string& type, StandardMaterial* material,
                         float x, float y, float z, float sx, float sy, float sz,
@@ -165,127 +172,21 @@ int main()
     scene->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
 
     // -----------------------------------------------------------------------
-    // Materials for the procedural scene
+    // Instantiate the low-poly terrain model (mirrors PlayCanvas shadow-cascades).
+    // The GLB contains ground, trees and static clouds; scaled up so cascades
+    // span it at varying distance.
     // -----------------------------------------------------------------------
-    auto* groundMaterial = new StandardMaterial();
-    groundMaterial->setDiffuse(Color(0.35f, 0.50f, 0.28f)); // grass green
-
-    auto* buildingMaterial = new StandardMaterial();
-    buildingMaterial->setDiffuse(Color(0.75f, 0.72f, 0.68f)); // concrete gray
-
-    auto* buildingDarkMaterial = new StandardMaterial();
-    buildingDarkMaterial->setDiffuse(Color(0.55f, 0.52f, 0.50f)); // darker concrete
-
-    auto* treeTrunkMaterial = new StandardMaterial();
-    treeTrunkMaterial->setDiffuse(Color(0.45f, 0.30f, 0.15f)); // brown
-
-    auto* treeCanopyMaterial = new StandardMaterial();
-    treeCanopyMaterial->setDiffuse(Color(0.20f, 0.45f, 0.15f)); // dark green
-
-    auto* mountainMaterial = new StandardMaterial();
-    mountainMaterial->setDiffuse(Color(0.50f, 0.45f, 0.38f)); // rock gray-brown
-
-    auto* cloudMaterial = new StandardMaterial();
-    cloudMaterial->setDiffuse(Color(0.95f, 0.95f, 0.97f)); // white
-
-    // -----------------------------------------------------------------------
-    // Ground plane — large area to receive shadows
-    // -----------------------------------------------------------------------
-    auto* ground = createPrimitive(engine.get(), "plane", groundMaterial,
-        0.0f, 0.0f, 0.0f, 600.0f, 1.0f, 600.0f, false, true);
-    engine->root()->addChild(ground);
-
-    // -----------------------------------------------------------------------
-    // Mountain / large hill (stacked scaled boxes — simple pyramid shape)
-    // -----------------------------------------------------------------------
-    auto* mountainBase = createPrimitive(engine.get(), "box", mountainMaterial,
-        -80.0f, 15.0f, -60.0f, 80.0f, 30.0f, 60.0f);
-    engine->root()->addChild(mountainBase);
-    auto* mountainMid = createPrimitive(engine.get(), "box", mountainMaterial,
-        -80.0f, 40.0f, -60.0f, 55.0f, 20.0f, 40.0f);
-    engine->root()->addChild(mountainMid);
-    auto* mountainTop = createPrimitive(engine.get(), "cone", mountainMaterial,
-        -80.0f, 65.0f, -60.0f, 30.0f, 30.0f, 30.0f);
-    engine->root()->addChild(mountainTop);
-
-    // -----------------------------------------------------------------------
-    // Buildings / towers at various distances — cast long shadows
-    // -----------------------------------------------------------------------
-    std::mt19937 rng(42); // fixed seed for reproducibility
-    std::uniform_real_distribution<float> heightDist(15.0f, 60.0f);
-    std::uniform_real_distribution<float> widthDist(6.0f, 16.0f);
-
-    struct BuildingPos { float x, z; };
-    const BuildingPos buildingPositions[] = {
-        // Near cluster
-        { 30.0f, 20.0f }, { 50.0f, 15.0f }, { 40.0f, 40.0f }, { 25.0f, 50.0f },
-        // Mid-distance cluster
-        { 100.0f, -30.0f }, { 120.0f, -20.0f }, { 110.0f, -50.0f }, { 90.0f, -45.0f },
-        { 130.0f, -40.0f },
-        // Far cluster
-        { -30.0f, 120.0f }, { -50.0f, 110.0f }, { -20.0f, 140.0f }, { -60.0f, 135.0f },
-        // Scattered distant
-        { 180.0f, 50.0f }, { -150.0f, -80.0f }, { 60.0f, -150.0f },
-    };
-
-    for (const auto& [bx, bz] : buildingPositions) {
-        const float h = heightDist(rng);
-        const float w = widthDist(rng);
-        const float d = widthDist(rng);
-        auto* mat = (static_cast<int>(bx + bz) % 2 == 0) ? buildingMaterial : buildingDarkMaterial;
-        auto* building = createPrimitive(engine.get(), "box", mat,
-            bx, h * 0.5f, bz, w, h, d);
-        engine->root()->addChild(building);
+    const auto terrainResource = terrainAsset->resource();
+    if (!terrainResource || !std::holds_alternative<ContainerResource*>(*terrainResource)) {
+        spdlog::error("Failed to load terrain.glb");
+        shutdown();
+        return -1;
     }
-
-    // -----------------------------------------------------------------------
-    // Trees — trunk (cylinder) + canopy (sphere) scattered around the scene
-    // -----------------------------------------------------------------------
-    struct TreePos { float x, z, trunkH, canopyR; };
-    const TreePos treePositions[] = {
-        // Along the path
-        { 12.0f, 30.0f, 10.0f, 7.0f }, { -10.0f, 50.0f, 12.0f, 8.0f },
-        { 14.0f, -20.0f, 8.0f, 6.0f }, { -12.0f, -40.0f, 11.0f, 7.0f },
-        // Near buildings
-        { 60.0f, 30.0f, 9.0f, 6.0f }, { 70.0f, -10.0f, 13.0f, 8.0f },
-        // Mid-distance
-        { -40.0f, 40.0f, 10.0f, 7.0f }, { -60.0f, 20.0f, 14.0f, 9.0f },
-        { 80.0f, 80.0f, 11.0f, 7.0f }, { -80.0f, 80.0f, 10.0f, 8.0f },
-        // Far trees
-        { 150.0f, -100.0f, 12.0f, 8.0f }, { -120.0f, 100.0f, 15.0f, 10.0f },
-        { 100.0f, 150.0f, 11.0f, 7.0f }, { -100.0f, -120.0f, 13.0f, 9.0f },
-    };
-
-    for (const auto& [tx, tz, th, cr] : treePositions) {
-        auto* trunk = createPrimitive(engine.get(), "cylinder", treeTrunkMaterial,
-            tx, th * 0.5f, tz, 1.5f, th, 1.5f);
-        engine->root()->addChild(trunk);
-        auto* canopy = createPrimitive(engine.get(), "sphere", treeCanopyMaterial,
-            tx, th + cr * 0.6f, tz, cr * 2.0f, cr * 1.6f, cr * 2.0f);
-        engine->root()->addChild(canopy);
-    }
-
-    // -----------------------------------------------------------------------
-    // Clouds — orbital animation.
-    // 16 cloud icospheres orbit around a center point at varying radii,
-    // casting moving shadows on the ground below.
-    // -----------------------------------------------------------------------
-    constexpr int NUM_CLOUDS = 16;
-    constexpr float CLOUD_SPEED = 0.2f;
-    constexpr float CLOUD_CENTER_X = 0.0f;
-    constexpr float CLOUD_HEIGHT = 120.0f;
-    constexpr float CLOUD_CENTER_Z = 0.0f;
-
-    std::vector<Entity*> cloudEntities;
-    std::uniform_real_distribution<float> cloudScaleDist(25.0f, 50.0f);
-    for (int i = 0; i < NUM_CLOUDS; ++i) {
-        const float sx = cloudScaleDist(rng);
-        const float sy = sx * 0.3f; // flattened vertically
-        const float sz = cloudScaleDist(rng);
-        auto* cloud = createPrimitive(engine.get(), "sphere", cloudMaterial,
-            0.0f, CLOUD_HEIGHT, 0.0f, sx, sy, sz, true, false);
-        engine->root()->addChild(cloud);
-        cloudEntities.push_back(cloud);
+    auto* terrainEntity = std::get<ContainerResource*>(*terrainResource)->instantiateRenderEntity();
+    if (terrainEntity) {
+        terrainEntity->setEngine(engine.get());
+        terrainEntity->setLocalScale(30.0f, 30.0f, 30.0f);
+        engine->root()->addChild(terrainEntity);
     }
 
     // -----------------------------------------------------------------------
@@ -301,7 +202,7 @@ int main()
         lightComp->setCastShadows(true);
         lightComp->setShadowBias(0.05f);
         lightComp->setShadowNormalBias(0.5f);
-        lightComp->setShadowDistance(800.0f);
+        lightComp->setShadowDistance(1000.0f);
 
         lightComp->setNumCascades(4);
         lightComp->setShadowResolution(2048);
@@ -321,7 +222,8 @@ int main()
     camera->addComponent<ScriptComponent>();
 
     if (cameraComp && cameraComp->camera()) {
-        cameraComp->camera()->setClearColor(Color(0.55f, 0.70f, 0.90f, 1.0f));
+        // PlayCanvas uses a light-grey clear behind the terrain.
+        cameraComp->camera()->setClearColor(Color(0.9f, 0.9f, 0.9f, 1.0f));
         cameraComp->camera()->setFarClip(2000.0f);
 
         auto rendering = cameraComp->rendering();
@@ -329,17 +231,17 @@ int main()
         cameraComp->setRendering(rendering);
     }
 
-    camera->setPosition(Vector3(120.0f, 80.0f, 120.0f));
+    camera->setPosition(Vector3(300.0f, 160.0f, 25.0f));
     engine->root()->addChild(camera);
 
     auto* cameraControls = camera->script()->create<CameraControls>();
-    cameraControls->setFocusPoint(Vector3(0.0f, 20.0f, 0.0f));
+    cameraControls->setFocusPoint(Vector3(0.0f, 40.0f, 0.0f));
     cameraControls->setEnableFly(false);
     cameraControls->setAutoFarClip(true);
-    cameraControls->setMoveSpeed(100.0f);
-    cameraControls->setMoveFastSpeed(300.0f);
-    cameraControls->setMoveSlowSpeed(30.0f);
-    cameraControls->setOrbitDistance(200.0f);
+    cameraControls->setMoveSpeed(150.0f);
+    cameraControls->setMoveFastSpeed(400.0f);
+    cameraControls->setMoveSlowSpeed(40.0f);
+    cameraControls->setOrbitDistance(470.0f);
     cameraControls->storeResetState();
 
     bool running = true;
@@ -426,7 +328,7 @@ int main()
 
             // Camera controls
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F && cameraControls) {
-                cameraControls->focus(Vector3(0.0f, 20.0f, 0.0f), 200.0f);
+                cameraControls->focus(Vector3(0.0f, 40.0f, 0.0f), 470.0f);
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_R && cameraControls) {
                 cameraControls->reset();
 
@@ -444,19 +346,6 @@ int main()
         prevCounter = nowCounter;
         const float dt = static_cast<float>(dtSeconds);
         time += dt;
-
-        // Animate clouds — circular orbit
-        for (size_t i = 0; i < cloudEntities.size(); ++i) {
-            const float radialOffset = (static_cast<float>(i) / static_cast<float>(cloudEntities.size()))
-                                       * (6.24f / CLOUD_SPEED);
-            const float radius = 180.0f + 80.0f * std::sin(radialOffset);
-            const float cloudTime = time + radialOffset;
-            cloudEntities[i]->setLocalPosition(
-                CLOUD_CENTER_X + radius * std::sin(cloudTime * CLOUD_SPEED),
-                CLOUD_HEIGHT,
-                CLOUD_CENTER_Z + radius * std::cos(cloudTime * CLOUD_SPEED)
-            );
-        }
 
         engine->update(dt);
         engine->render();

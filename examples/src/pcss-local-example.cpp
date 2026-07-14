@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Local light PCSS demo: a spot light (left pillar group) and an omni light
-// (right pillar group) cast contact-hardening soft shadows (upstream
+// Local light PCSS demo (VisuTwin counterpart of upstream's
+// contact-hardening-shadows test example): a Draco-compressed robot-arm.glb
+// stands on a receiver floor lit by a spot light (warm, left) and an omni
+// light (cool, right), both casting contact-hardening soft shadows (upstream
 // shadowPCSS.js port). Auto-cycles PCF <-> PCSS on both lights every 3 s —
-// with PCSS the shadows sharpen at the pillar base and soften with distance.
+// with PCSS the arm's shadow sharpens at its base and softens with distance.
+// The helipad env atlas provides the ambient/specular IBL.
 // Keys: 1 = PCF, 2 = PCSS, Space = auto-cycle, Esc = quit.
 //
 #define NS_PRIVATE_IMPLEMENTATION
@@ -16,19 +19,26 @@
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <memory>
+#include <variant>
 
 #include <QuartzCore/QuartzCore.hpp>
+
+#include <core/shape/boundingBox.h>
 
 #include "framework/engine.h"
 #include "log.h"
 #include "framework/appOptions.h"
+#include "framework/assets/asset.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/camera/cameraComponentSystem.h"
+#include "framework/components/light/lightComponent.h"
 #include "framework/components/light/lightComponentSystem.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/constants.h"
+#include "framework/handlers/containerResource.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
+#include "platform/graphics/texture.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 
@@ -39,6 +49,38 @@ SDL_Window* window;
 SDL_Renderer* renderer;
 
 using namespace visutwin::canvas;
+
+const std::string rootPath = ASSET_DIR;
+
+// Union AABB over every mesh instance owned by (or descended from) an entity —
+// used to auto-scale/position the loaded GLB hero regardless of its authored size.
+BoundingBox calcEntityAABB(Entity* entity)
+{
+    BoundingBox bbox;
+    bbox.setCenter(0, 0, 0);
+    bbox.setHalfExtents(0, 0, 0);
+    if (!entity) {
+        return bbox;
+    }
+    bool hasAny = false;
+    for (auto* render : RenderComponent::instances()) {
+        if (!render || !render->entity()) {
+            continue;
+        }
+        auto* owner = render->entity();
+        if (owner != entity && !owner->isDescendantOf(entity)) {
+            continue;
+        }
+        for (auto* mi : render->meshInstances()) {
+            if (!mi) {
+                continue;
+            }
+            if (!hasAny) { bbox = mi->aabb(); hasAny = true; }
+            else { bbox.add(mi->aabb()); }
+        }
+    }
+    return bbox;
+}
 
 Entity* createEntity(Engine* engine, Material* material, const char* type,
     const Vector3& position, const Vector3& scale, const bool castShadows)
@@ -103,40 +145,89 @@ int main()
 
     auto scene = engine->scene();
     scene->setToneMapping(TONEMAP_ACES);
-    scene->setAmbientLight(0.08f, 0.08f, 0.1f);
+    scene->setAmbientLight(0.0f, 0.0f, 0.0f);
+
+    // Helipad env atlas for image-based ambient/specular (upstream sets a low
+    // skybox intensity so the local lights dominate the shading).
+    auto helipadAsset = std::make_unique<Asset>(
+        "helipad-env-atlas",
+        AssetType::TEXTURE,
+        rootPath + "/cubemaps/helipad-env-atlas.png",
+        AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false}
+    );
+    if (const auto helipadResource = helipadAsset->resource()) {
+        scene->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene->setSkyboxMip(1.0f);
+        scene->setSkyboxIntensity(0.1f);
+    } else {
+        spdlog::warn("Failed to load helipad env atlas — continuing without IBL");
+    }
 
     auto* camera = new Entity();
     camera->setEngine(engine.get());
     camera->addComponent<CameraComponent>();
     camera->setLocalPosition(0.0f, 7.0f, 14.0f);
-    camera->setLocalEulerAngles(-26.0f, 0.0f, 0.0f);
+    camera->setLocalEulerAngles(-24.0f, 0.0f, 0.0f);
     engine->root()->addChild(camera);
 
-    // Receiver-only floor (large ground as caster would inflate depth fits).
+    // Receiver-only floor (a large flat ground; a big caster would inflate the
+    // shadow depth fits). Metallic + low gloss to match the upstream floor look.
     auto floorMaterial = std::make_shared<StandardMaterial>();
-    floorMaterial->setDiffuse(Color(0.55f, 0.55f, 0.58f, 1.0f));
-    floorMaterial->setGlossInvert(true);
-    floorMaterial->setGloss(0.85f);
+    floorMaterial->setDiffuse(Color(0.5f, 0.5f, 0.52f, 1.0f));
+    floorMaterial->setMetalness(0.7f);
+    floorMaterial->setGlossInvert(false);
+    floorMaterial->setGloss(0.25f);
     engine->root()->addChild(createEntity(
-        engine.get(), floorMaterial.get(), "plane", Vector3(0.0f, 0.0f, 0.0f), Vector3(40.0f, 1.0f, 40.0f), false));
+        engine.get(), floorMaterial.get(), "plane", Vector3(0.0f, 0.0f, 0.0f), Vector3(60.0f, 1.0f, 60.0f), false));
 
-    // Pillars: tall boxes so shadow softness visibly grows with distance.
-    auto pillarMaterial = std::make_shared<StandardMaterial>();
-    pillarMaterial->setDiffuse(Color(0.7f, 0.5f, 0.35f, 1.0f));
-    pillarMaterial->setGlossInvert(true);
-    pillarMaterial->setGloss(0.7f);
-    // Left group (spot light).
-    engine->root()->addChild(createEntity(
-        engine.get(), pillarMaterial.get(), "box", Vector3(-4.5f, 1.5f, 0.0f), Vector3(0.6f, 3.0f, 0.6f), true));
-    engine->root()->addChild(createEntity(
-        engine.get(), pillarMaterial.get(), "box", Vector3(-2.5f, 0.9f, -1.5f), Vector3(0.5f, 1.8f, 0.5f), true));
-    // Right group (omni light).
-    engine->root()->addChild(createEntity(
-        engine.get(), pillarMaterial.get(), "box", Vector3(4.5f, 1.5f, 0.0f), Vector3(0.6f, 3.0f, 0.6f), true));
-    engine->root()->addChild(createEntity(
-        engine.get(), pillarMaterial.get(), "sphere", Vector3(2.6f, 0.7f, -1.5f), Vector3(1.4f, 1.4f, 1.4f), true));
+    // Hero shadow caster: Draco-compressed robot-arm.glb, auto-scaled from its
+    // AABB to ~6 units tall and dropped so its base rests on the floor (y = 0).
+    // Keep the Asset alive for the whole program — the instantiated render
+    // entity references meshes/materials owned by the container resource.
+    auto armAsset = std::make_unique<Asset>(
+        "robot-arm",
+        AssetType::CONTAINER,
+        rootPath + "/models/robot-arm.glb"
+    );
+    Entity* robotArm = nullptr;
+    if (const auto armResource = armAsset->resource();
+        armResource && std::holds_alternative<ContainerResource*>(*armResource)) {
+        if (auto* container = std::get<ContainerResource*>(*armResource)) {
+            robotArm = container->instantiateRenderEntity();
+        }
+    }
+    if (robotArm) {
+        robotArm->setEngine(engine.get());
+        engine->root()->addChild(robotArm);
 
-    // Spot light over the left group.
+        // Enable shadow casting/receiving on every render component in the tree.
+        for (auto* render : RenderComponent::instances()) {
+            if (!render || !render->entity()) {
+                continue;
+            }
+            auto* owner = render->entity();
+            if (owner == robotArm || owner->isDescendantOf(robotArm)) {
+                render->setCastShadows(true);
+                render->setReceiveShadows(true);
+            }
+        }
+
+        const auto bbox = calcEntityAABB(robotArm);
+        const auto& he = bbox.halfExtents();
+        const auto& ct = bbox.center();
+        const float maxExtent = std::max({he.getX(), he.getY(), he.getZ()}) * 2.0f;
+        const float targetHeight = 6.0f;
+        const float s = (maxExtent > 0.001f) ? (targetHeight / maxExtent) : 3.0f;
+        robotArm->setLocalScale(s, s, s);
+        // Recenter horizontally and lift so the scaled AABB minimum sits at y = 0.
+        const float minY = (ct.getY() - he.getY()) * s;
+        robotArm->setLocalPosition(-ct.getX() * s, -minY, -ct.getZ() * s);
+        spdlog::info("robot-arm.glb: extent={:.2f}, scale={:.3f}", maxExtent, s);
+    } else {
+        spdlog::error("Failed to load/instantiate robot-arm.glb — is Draco enabled?");
+    }
+
+    // Spot light (warm) over the left of the arm.
     auto* spotLight = new Entity();
     spotLight->setEngine(engine.get());
     auto* spot = static_cast<LightComponent*>(spotLight->addComponent<LightComponent>());
@@ -153,12 +244,12 @@ int main()
         spot->setShadowNormalBias(0.02f);
         spot->setPenumbraSize(30.0f);  // local-light scale: search px on the shadow map
     }
-    // Emission is the node's -Y axis (straight down). Hover slightly behind the
-    // pillars so their shadows stretch toward the camera INSIDE the lit pool.
-    spotLight->setLocalPosition(-3.6f, 8.0f, -2.0f);
+    // Emission is the node's -Y axis (straight down). Hover above-left and
+    // slightly behind the arm so its shadow stretches toward the camera.
+    spotLight->setLocalPosition(-4.0f, 9.0f, -1.5f);
     engine->root()->addChild(spotLight);
 
-    // Omni light over the right group.
+    // Omni light (cool) to the right of the arm.
     auto* omniLight = new Entity();
     omniLight->setEngine(engine.get());
     auto* omni = static_cast<LightComponent*>(omniLight->addComponent<LightComponent>());
@@ -172,10 +263,10 @@ int main()
         omni->setShadowBias(0.0005f);
         omni->setPenumbraSize(30.0f);
     }
-    omniLight->setLocalPosition(4.0f, 6.0f, 2.0f);
+    omniLight->setLocalPosition(4.0f, 6.5f, 2.0f);
     engine->root()->addChild(omniLight);
 
-    spdlog::info("Local PCSS: spot (left, warm) + omni (right, cool), PCF <-> PCSS every 3 s");
+    spdlog::info("Local PCSS: robot arm lit by spot (left, warm) + omni (right, cool), PCF <-> PCSS every 3 s");
     spdlog::info("Keys: 1 = PCF, 2 = PCSS, Space = auto-cycle, Esc = quit");
 
     const auto applyMode = [&](const bool pcss) {

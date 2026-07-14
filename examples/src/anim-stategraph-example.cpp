@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Anim state-graph example — drives the skinned fox model through an
-// AnimComponent state graph: a "Survey" idle state transitions into a 1D
-// "Locomotion" blend tree (Walk <-> Run) based on a float "speed" parameter.
+// Anim state-graph example — mirrors PlayCanvas's `locomotion` example. The
+// skinned bitmoji character is driven through an AnimComponent state graph:
+// an "Idle" state transitions into a 1D "Locomotion" blend tree (Walk <-> Run)
+// based on a float "speed" parameter. The idle/walk/run animation clips live in
+// SEPARATE GLB files (assets/animations/bitmoji/*.glb) and are retargeted onto
+// the bitmoji rig by node name via DefaultAnimBinder — cross-GLB retargeting.
 //
 // Keys: 1 = idle (speed 0), 2 = walk (1.0), 3 = run (2.0), 4 = 50/50 blend (1.5).
 //
@@ -37,9 +40,11 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/components/script/scriptComponentSystem.h"
 #include "framework/entity.h"
+#include "framework/parsers/glbContainerResource.h"
 #include "core/shape/boundingBox.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "scene/constants.h"
+#include "scene/materials/standardMaterial.h"
 
 constexpr int WINDOW_WIDTH = 1200;
 constexpr int WINDOW_HEIGHT = 800;
@@ -51,10 +56,26 @@ using namespace visutwin::canvas;
 
 const std::string rootPath = ASSET_DIR;
 
-const auto glbAsset = std::make_unique<Asset>(
-    "fox",
+// Character model (skinned rig) + the separate per-clip animation GLBs. Each
+// animation GLB's curves target the shared bitmoji rig by node name, so the
+// tracks retarget onto the instantiated character via DefaultAnimBinder.
+const auto modelAsset = std::make_unique<Asset>(
+    "bitmoji",
     AssetType::CONTAINER,
-    rootPath + "/models/fox.glb"
+    rootPath + "/models/bitmoji.glb"
+);
+
+const auto idleAnimAsset = std::make_unique<Asset>(
+    "idleAnim", AssetType::CONTAINER, rootPath + "/animations/bitmoji/idle.glb");
+const auto walkAnimAsset = std::make_unique<Asset>(
+    "walkAnim", AssetType::CONTAINER, rootPath + "/animations/bitmoji/walk.glb");
+const auto runAnimAsset = std::make_unique<Asset>(
+    "runAnim", AssetType::CONTAINER, rootPath + "/animations/bitmoji/run.glb");
+
+const auto groundTexAsset = std::make_unique<Asset>(
+    "playcanvas-grey",
+    AssetType::TEXTURE,
+    rootPath + "/textures/playcanvas-grey.png"
 );
 
 const auto envAtlas = std::make_unique<Asset>(
@@ -66,6 +87,30 @@ const auto envAtlas = std::make_unique<Asset>(
         .mipmaps = false
     }
 );
+
+// Load a container GLB and return its first parsed animation track (each
+// bitmoji animation GLB contains exactly one clip). Returns nullptr on failure.
+std::shared_ptr<AnimTrack> loadFirstAnimTrack(Asset* asset)
+{
+    if (!asset) {
+        return nullptr;
+    }
+    const auto resource = asset->resource();
+    if (!resource || !std::holds_alternative<ContainerResource*>(*resource)) {
+        spdlog::error("Animation GLB '{}' failed to load as a container", asset->name());
+        return nullptr;
+    }
+    auto* glb = dynamic_cast<GlbContainerResource*>(std::get<ContainerResource*>(*resource));
+    if (!glb || glb->animTracks().empty()) {
+        spdlog::error("Animation GLB '{}' contains no animation tracks", asset->name());
+        return nullptr;
+    }
+    const auto& tracks = glb->animTracks();
+    const auto& [name, track] = *tracks.begin();
+    spdlog::info("Loaded animation track '{}' from '{}' ({} curves)",
+        name, asset->name(), track ? track->curves().size() : 0);
+    return track;
+}
 
 BoundingBox calcEntityAABB(Entity* entity)
 {
@@ -177,9 +222,9 @@ int main()
 
     auto scene = engine->scene();
     scene->setSkyboxMip(2);
-    scene->setSkyboxIntensity(0.4f);
-    scene->setExposure(2.0f);
-    scene->setToneMapping(TONEMAP_NEUTRAL);
+    scene->setSkyboxIntensity(0.7f);
+    scene->setExposure(1.0f);
+    scene->setToneMapping(TONEMAP_ACES);
 
     // Load environment atlas for IBL
     const auto envAtlasResource = envAtlas->resource();
@@ -190,10 +235,10 @@ int main()
     }
 
     // -----------------------------------------------------------------------
-    // Load the GLB model
+    // Load the bitmoji character model
     // -----------------------------------------------------------------------
-    spdlog::info("Loading 'A Windy Day' GLB model...");
-    const auto resource = glbAsset->resource();
+    spdlog::info("Loading bitmoji character GLB...");
+    const auto resource = modelAsset->resource();
     if (!resource) {
         spdlog::error("GLB load failed: asset resource is null");
         shutdown();
@@ -221,6 +266,12 @@ int main()
     modelEntity->setEngine(engine.get());
     engine->root()->addChild(modelEntity);
 
+    // Load the separate per-clip animation GLBs and extract their tracks. These
+    // will be retargeted onto the bitmoji rig by node name.
+    auto idleTrack = loadFirstAnimTrack(idleAnimAsset.get());
+    auto walkTrack = loadFirstAnimTrack(walkAnimAsset.get());
+    auto runTrack = loadFirstAnimTrack(runAnimAsset.get());
+
     // Log model stats
     {
         int renderComps = 0, meshInsts = 0;
@@ -235,30 +286,32 @@ int main()
             renderComps, meshInsts);
     }
 
-    // Build the anim state graph:
+    // Build the anim state graph (mirrors PlayCanvas locomotion):
     //
-    //   START ──► Survey ──(speed >= 0.5)──► Locomotion (1D blend: Walk@1 .. Run@2)
-    //                ▲                            │
-    //                └───────(speed < 0.5)────────┘
+    //   START ──► Idle ──(speed >= 0.5)──► Locomotion (1D blend: Walk@1 .. Run@2)
+    //              ▲                            │
+    //              └───────(speed < 0.5)────────┘
     //
     AnimComponent* animComp = nullptr;
     {
-        // The GLB instantiation attaches the legacy AnimationComponent (which would
-        // auto-play the first clip); disable it and take its parsed tracks.
-        auto* legacyAnim = modelEntity->findComponent<AnimationComponent>();
-        if (!legacyAnim || legacyAnim->animations().empty()) {
-            spdlog::error("Model has no animations — the state graph example needs fox.glb");
+        if (!idleTrack || !walkTrack || !runTrack) {
+            spdlog::error("Missing one or more animation tracks — cannot build state graph");
             shutdown();
             return -1;
         }
-        legacyAnim->setPlaying(false);
-        legacyAnim->setEnabled(false);
+
+        // The bitmoji GLB has no embedded animations, but disable any legacy
+        // AnimationComponent just in case so it doesn't fight the state graph.
+        if (auto* legacyAnim = modelEntity->findComponent<AnimationComponent>()) {
+            legacyAnim->setPlaying(false);
+            legacyAnim->setEnabled(false);
+        }
 
         AnimStateGraph stateGraph;
         stateGraph.addFloatParameter("speed", 0.0f);
 
-        auto& layer = stateGraph.addLayer("Base");
-        layer.states.push_back(AnimStateDesc{"Survey"});
+        auto& layer = stateGraph.addLayer("locomotion");
+        layer.states.push_back(AnimStateDesc{"Idle"});
 
         AnimBlendTreeDesc locomotionTree;
         locomotionTree.type = AnimBlendType::BLEND_1D;
@@ -268,21 +321,50 @@ int main()
         locomotionTree.children.push_back(AnimBlendTreeDesc{.name = "Run", .point = Vector2(2.0f, 0.0f)});
         layer.states.push_back(AnimStateDesc{"Locomotion", 1.0f, true, locomotionTree});
 
-        layer.transitions.push_back(AnimTransitionDesc{.from = "START", .to = "Survey"});
+        layer.transitions.push_back(AnimTransitionDesc{.from = "START", .to = "Idle"});
         layer.transitions.push_back(AnimTransitionDesc{
-            .from = "Survey", .to = "Locomotion", .time = 0.4f,
+            .from = "Idle", .to = "Locomotion", .time = 0.4f,
             .conditions = {{"speed", AnimPredicate::GREATER_THAN_EQUAL_TO, 0.5f}}});
         layer.transitions.push_back(AnimTransitionDesc{
-            .from = "Locomotion", .to = "Survey", .time = 0.4f,
+            .from = "Locomotion", .to = "Idle", .time = 0.4f,
             .conditions = {{"speed", AnimPredicate::LESS_THAN, 0.5f}}});
 
         animComp = static_cast<AnimComponent*>(modelEntity->addComponent<AnimComponent>());
         animComp->loadStateGraph(stateGraph);
-        animComp->assignAnimation("Survey", legacyAnim->getAnimTrack("Survey"));
-        animComp->assignAnimation("Locomotion.Walk", legacyAnim->getAnimTrack("Walk"));
-        animComp->assignAnimation("Locomotion.Run", legacyAnim->getAnimTrack("Run"));
+        // Assign tracks parsed from the SEPARATE animation GLBs — retargeted onto
+        // the bitmoji rig by node name.
+        animComp->assignAnimation("Idle", idleTrack);
+        animComp->assignAnimation("Locomotion.Walk", walkTrack);
+        animComp->assignAnimation("Locomotion.Run", runTrack);
 
-        spdlog::info("State graph loaded: states [Survey, Locomotion(Walk|Run)] — keys 1/2/3/4 set speed");
+        spdlog::info("State graph loaded: states [Idle, Locomotion(Walk|Run)] — keys 1/2/3/4 set speed");
+    }
+
+    // -----------------------------------------------------------------------
+    // Ground plane (playcanvas-grey texture, like the upstream locomotion demo)
+    // -----------------------------------------------------------------------
+    {
+        auto groundMaterial = std::make_shared<StandardMaterial>();
+        const auto groundTexRes = groundTexAsset->resource();
+        if (groundTexRes && std::holds_alternative<Texture*>(*groundTexRes)) {
+            groundMaterial->setDiffuseMap(std::get<Texture*>(*groundTexRes));
+        } else {
+            groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
+            spdlog::warn("Ground texture failed to load — using flat grey");
+        }
+
+        auto* ground = new Entity();
+        ground->setEngine(engine.get());
+        ground->setLocalScale(15.0f, 1.0f, 15.0f);
+        ground->setLocalPosition(0.0f, 0.0f, 0.0f);
+        auto* groundRender = static_cast<RenderComponent*>(ground->addComponent<RenderComponent>());
+        if (groundRender) {
+            groundRender->setMaterial(groundMaterial.get());
+            groundRender->setType("plane");
+        }
+        engine->root()->addChild(ground);
+        // Keep the material alive for the lifetime of the app.
+        static std::shared_ptr<StandardMaterial> keepAlive = groundMaterial;
     }
 
     // Auto-frame the model

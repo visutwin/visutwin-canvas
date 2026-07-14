@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// LTC area-light demo: a warm rectangular light panel hovers over a glossy floor and
-// a row of spheres with increasing roughness. The linearly-transformed-cosines
-// evaluation produces the characteristic stretched panel reflection on the floor and
-// progressively blurrier highlights across the sphere row. The panel slowly tilts
-// (auto-demo) so the reflection sweep is visible; Space pauses/resumes.
+// LTC area-light demo (parity with PlayCanvas graphics/area-lights): a colored
+// linearly-transformed-cosines area light illuminates the statue.glb hero standing on
+// a seaside-rocks textured floor, lit by the helipad environment atlas. The light
+// auto-cycles shape rect -> disk -> sphere and slowly tilts so the characteristic LTC
+// stretched reflection sweeps across the glossy floor; Space pauses/resumes the tilt.
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -27,6 +27,7 @@
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/constants.h"
+#include "framework/assets/asset.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
@@ -38,6 +39,47 @@ SDL_Window* window;
 SDL_Renderer* renderer;
 
 using namespace visutwin::canvas;
+
+const std::string rootPath = ASSET_DIR;
+
+// Environment atlas (image-based lighting + skydome), same asset the sibling examples use.
+const auto helipad = std::make_unique<Asset>(
+    "helipad-env-atlas",
+    AssetType::TEXTURE,
+    rootPath + "/cubemaps/helipad-env-atlas.png",
+    AssetData{
+        .type = TextureType::TEXTURETYPE_RGBP,
+        .mipmaps = false
+    }
+);
+
+// Statue hero model.
+const auto statue = std::make_unique<Asset>(
+    "statue",
+    AssetType::CONTAINER,
+    rootPath + "/models/statue.glb"
+);
+
+// Seaside-rocks floor textures (color / normal / gloss).
+const auto floorColorTex = std::make_unique<Asset>(
+    "floor-color", AssetType::TEXTURE, rootPath + "/textures/seaside-rocks01-color.jpg"
+);
+const auto floorNormalTex = std::make_unique<Asset>(
+    "floor-normal", AssetType::TEXTURE, rootPath + "/textures/seaside-rocks01-normal.jpg"
+);
+const auto floorGlossTex = std::make_unique<Asset>(
+    "floor-gloss", AssetType::TEXTURE, rootPath + "/textures/seaside-rocks01-gloss.jpg"
+);
+
+Texture* requireTexture(const std::unique_ptr<Asset>& asset, const char* label)
+{
+    const auto resource = asset->resource();
+    if (!resource) {
+        spdlog::error("Failed to load texture asset '{}'", label);
+        return nullptr;
+    }
+    return std::get<Texture*>(*resource);
+}
 
 Entity* createEntity(Engine* engine, Material* material, const char* type,
     const Vector3& position, const Vector3& scale)
@@ -121,43 +163,61 @@ int main()
     scene->setToneMapping(TONEMAP_ACES);
     scene->setAmbientLight(0.06f, 0.06f, 0.07f);
 
+    // Skydome + image-based lighting from the helipad environment atlas (darkened),
+    // matching the PlayCanvas counterpart.
+    scene->setSkyboxMip(1);
+    scene->setSkyboxIntensity(0.4f);
+    const auto helipadResource = helipad->resource();
+    if (!helipadResource) {
+        spdlog::error("Failed to load helipad env atlas");
+        shutdown();
+        return -1;
+    }
+    scene->setEnvAtlas(std::get<Texture*>(*helipadResource));
+
     auto* camera = new Entity();
     camera->setEngine(engine.get());
     camera->addComponent<CameraComponent>();
-    // Low grazing view across the floor so the stretched panel reflection is visible.
-    camera->setLocalPosition(0.0f, 1.5f, 8.5f);
-    camera->setLocalEulerAngles(-8.0f, 0.0f, 0.0f);
+    // Elevated view looking down at the statue on the floor (PlayCanvas: pos (0,2.5,12), lookAt origin).
+    camera->setLocalPosition(0.0f, 2.5f, 12.0f);
+    camera->setLocalEulerAngles(-12.0f, 0.0f, 0.0f);
     engine->root()->addChild(camera);
 
-    // Roughness-ladder floor: five reflective strips running toward the panel,
-    // roughness 0.05 -> 0.75. The LTC inverse-transform LUT stretches and blurs the
-    // panel reflection differently on each strip — the classic LTC demonstration.
-    std::vector<std::shared_ptr<StandardMaterial>> stripMaterials;
-    constexpr float stripRoughness[5] = {0.05f, 0.15f, 0.30f, 0.50f, 0.75f};
-    for (int i = 0; i < 5; ++i) {
-        auto material = std::make_shared<StandardMaterial>();
-        material->setName("floor-strip-r" + std::to_string(i));
-        material->setDiffuse(Color(0.05f, 0.05f, 0.06f, 1.0f));
-        material->setMetalness(0.7f);
-        material->setGlossInvert(true);
-        material->setGloss(stripRoughness[i]);  // glossInvert: value is roughness
-        stripMaterials.push_back(material);
-        engine->root()->addChild(createEntity(
-            engine.get(), material.get(), "plane",
-            Vector3(-4.8f + 2.4f * static_cast<float>(i), 0.0f, 0.0f), Vector3(2.4f, 1.0f, 24.0f)
-        ));
+    // Seaside-rocks textured ground plane (color + normal + gloss), metallic PBR so the
+    // LTC area light produces a glossy stretched reflection across it. Textures tiled 7x7.
+    Texture* floorColor = requireTexture(floorColorTex, "floor-color");
+    Texture* floorNormal = requireTexture(floorNormalTex, "floor-normal");
+    Texture* floorGloss = requireTexture(floorGlossTex, "floor-gloss");
+    if (!floorColor || !floorNormal || !floorGloss) {
+        shutdown();
+        return -1;
     }
 
-    // A single diffuse sphere off to the side for a soft-shading reference.
-    auto sphereMaterial = std::make_shared<StandardMaterial>();
-    sphereMaterial->setName("reference-sphere");
-    sphereMaterial->setDiffuse(Color(0.9f, 0.9f, 0.9f, 1.0f));
-    sphereMaterial->setMetalness(0.0f);
-    sphereMaterial->setGlossInvert(true);
-    sphereMaterial->setGloss(0.6f);  // roughness
+    auto floorMaterial = std::make_shared<StandardMaterial>();
+    floorMaterial->setName("seaside-rocks-floor");
+    floorMaterial->setUseMetalness(true);
+    floorMaterial->setMetalness(0.7f);
+    floorMaterial->setGloss(0.8f);
+    floorMaterial->setDiffuseMap(floorColor);
+    floorMaterial->setNormalMap(floorNormal);
+    floorMaterial->setGlossMap(floorGloss);
+    floorMaterial->setDiffuseMapTiling(Vector2(7.0f, 7.0f));
+    floorMaterial->setNormalMapTiling(Vector2(7.0f, 7.0f));
     engine->root()->addChild(createEntity(
-        engine.get(), sphereMaterial.get(), "sphere", Vector3(5.5f, 0.55f, 2.0f), Vector3(1.1f, 1.1f, 1.1f)
+        engine.get(), floorMaterial.get(), "plane", Vector3(0.0f, 0.0f, 0.0f), Vector3(20.0f, 20.0f, 20.0f)
     ));
+
+    // Statue hero standing on the floor, lit by the area light (parity with orbit-example).
+    const auto statueResource = statue->resource();
+    if (!statueResource) {
+        spdlog::error("Failed to load statue model");
+        shutdown();
+        return -1;
+    }
+    auto* statueEntity = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
+    statueEntity->setLocalScale(0.4f, 0.4f, 0.4f); // match PlayCanvas area-lights framing
+    statueEntity->setLocalPosition(0.0f, 0.0f, 0.0f);
+    engine->root()->addChild(statueEntity);
 
     // The rect area light: a near-vertical warm billboard behind the scene facing the
     // camera. Entity -Y is the emission direction, X is the rect width axis.
@@ -167,12 +227,14 @@ int main()
     if (lightComponent) {
         lightComponent->setType(LightType::LIGHTTYPE_AREA_RECT);
         lightComponent->setColor(Color(1.0f, 0.7f, 0.35f, 1.0f));
-        lightComponent->setIntensity(0.8f);
+        lightComponent->setIntensity(1.5f);
         lightComponent->setRange(30.0f);
         lightComponent->setAreaWidth(9.6f);
         lightComponent->setAreaHeight(1.6f);
     }
-    areaLight->setLocalPosition(0.0f, 1.9f, -3.0f);
+    // Positioned above and in front of the statue so it lights the hero and casts the
+    // stretched LTC reflection onto the floor toward the camera.
+    areaLight->setLocalPosition(0.0f, 5.0f, 3.5f);
     engine->root()->addChild(areaLight);
 
     // Emissive slab so the panel itself is visible where the light comes from.

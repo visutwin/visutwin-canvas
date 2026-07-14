@@ -26,6 +26,8 @@
 #include "framework/components/light/lightComponentSystem.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
+#include "framework/handlers/containerResource.h"
+#include "core/shape/boundingBox.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/layer.h"
@@ -52,24 +54,39 @@ const auto helipad = std::make_unique<Asset>(
     }
 );
 
-Entity* createPrimitiveEntity(
-    Engine* engine, const std::string& type, const Vector3& position, const Vector3& scale, StandardMaterial* material,
-    const std::vector<int>& layers)
+void setRenderLayersRecursive(GraphNode* node, const std::vector<int>& layers)
 {
-    auto* entity = new Entity();
-    entity->setEngine(engine);
-    entity->setLocalPosition(position);
-    entity->setLocalScale(scale);
-
-    auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
-    if (render) {
-        render->setMaterial(material);
-        render->setType(type);
-        render->setLayers(layers);
+    if (!node) {
+        return;
     }
+    if (auto* entity = dynamic_cast<Entity*>(node)) {
+        if (auto* render = entity->findComponent<RenderComponent>()) {
+            render->setLayers(layers);
+        }
+    }
+    for (auto* child : node->children()) {
+        setRenderLayersRecursive(child, layers);
+    }
+}
 
-    engine->root()->addChild(entity);
-    return entity;
+BoundingBox calcEntityAABB(Entity* entity)
+{
+    BoundingBox bbox;
+    bbox.setCenter(0, 0, 0);
+    bbox.setHalfExtents(0, 0, 0);
+    if (!entity) return bbox;
+    bool hasAny = false;
+    for (auto* render : RenderComponent::instances()) {
+        if (!render || !render->entity()) continue;
+        auto* owner = render->entity();
+        if (owner != entity && !owner->isDescendantOf(entity)) continue;
+        for (auto* mi : render->meshInstances()) {
+            if (!mi) continue;
+            if (!hasAny) { bbox = mi->aabb(); hasAny = true; }
+            else { bbox.add(mi->aabb()); }
+        }
+    }
+    return bbox;
 }
 
 void setLookAt(Entity* cameraEntity, const Vector3& target, const Vector3& up = Vector3(0.0f, 1.0f, 0.0f))
@@ -196,31 +213,46 @@ int main()
     }
     scene->setLayers(composition);
 
-    // Shared scene geometry appears in both lighting layers.
-    auto boardMaterial = std::make_shared<StandardMaterial>();
-    boardMaterial->setDiffuse(Color(0.24f, 0.25f, 0.28f, 1.0f));
-
-    auto worldMaterial = std::make_shared<StandardMaterial>();
-    worldMaterial->setDiffuse(Color(0.9f, 0.25f, 0.2f, 1.0f));
-
-    auto spotMaterial = std::make_shared<StandardMaterial>();
-    spotMaterial->setDiffuse(Color(0.15f, 0.35f, 0.95f, 1.0f));
-
-    auto* board = createPrimitiveEntity(
-        engine.get(), "box", Vector3(0.0f, -3.0f, 0.0f), Vector3(120.0f, 6.0f, 120.0f), boardMaterial.get(),
-        {LAYERID_WORLD, LAYERID_SPOTLIGHT}
+    // Load the chess-board GLB once. Like upstream, it belongs to BOTH lighting
+    // layers, so the world (left/top) cameras light it with the directional light
+    // and the spotlight (right) camera lights it with the spot light.
+    auto boardAsset = std::make_unique<Asset>(
+        "chess-board",
+        AssetType::CONTAINER,
+        rootPath + "/models/chess-board.glb"
     );
-    (void)board;
-    // World-only object: visible in left/top cameras, hidden in right spotlight view.
-    auto* centerA = createPrimitiveEntity(
-        engine.get(), "box", Vector3(-25.0f, 8.0f, 10.0f), Vector3(12.0f, 18.0f, 8.0f), worldMaterial.get(),
-        {LAYERID_WORLD}
-    );
-    // Spotlight-only object: visible in right camera, hidden in left/top world views.
-    auto* centerB = createPrimitiveEntity(
-        engine.get(), "box", Vector3(20.0f, 6.0f, -15.0f), Vector3(12.0f, 12.0f, 12.0f), spotMaterial.get(),
-        {LAYERID_SPOTLIGHT}
-    );
+    const auto boardResource = boardAsset->resource();
+    if (!boardResource || !std::holds_alternative<ContainerResource*>(*boardResource)) {
+        spdlog::error("Failed to load chess-board.glb");
+        shutdown();
+        return -1;
+    }
+
+    auto* boardContainer = std::get<ContainerResource*>(*boardResource);
+    auto* boardEntity = boardContainer ? boardContainer->instantiateRenderEntity() : nullptr;
+    if (!boardEntity) {
+        spdlog::error("Failed to instantiate chess-board.glb render entity");
+        shutdown();
+        return -1;
+    }
+    boardEntity->setEngine(engine.get());
+    setRenderLayersRecursive(boardEntity, {LAYERID_WORLD, LAYERID_SPOTLIGHT});
+    engine->root()->addChild(boardEntity);
+
+    // Normalize the board so its longest extent is ~100 units, centered at origin,
+    // matching the camera framing distances below.
+    {
+        const auto bbox = calcEntityAABB(boardEntity);
+        const auto& he = bbox.halfExtents();
+        const auto& ct = bbox.center();
+        const float maxExtent = std::max({he.getX(), he.getY(), he.getZ()}) * 2.0f;
+        if (maxExtent > 0.001f) {
+            const float s = 100.0f / maxExtent;
+            boardEntity->setLocalScale(s, s, s);
+            boardEntity->setLocalPosition(-ct.getX() * s, -ct.getY() * s, -ct.getZ() * s);
+            spdlog::info("Chess board: extent={:.1f}, scale={:.3f}", maxExtent, s);
+        }
+    }
 
     // Left camera: perspective, bottom-left viewport.
     auto* leftCamEntity = new Entity();
@@ -245,13 +277,13 @@ int main()
         rightCam->camera()->setRect(Vector4(0.5f, 0.0f, 0.5f, 0.5f));
         rightCam->camera()->setScissorRect(Vector4(0.5f, 0.0f, 0.5f, 0.5f));
         rightCam->camera()->setProjection(ProjectionType::Orthographic);
-        rightCam->camera()->setOrthoHeight(42.0f);
+        rightCam->camera()->setOrthoHeight(70.0f);
         rightCam->camera()->setClearColorBuffer(false);
         rightCam->camera()->setClearDepthBuffer(false);
         rightCam->camera()->setClearStencilBuffer(false);
     }
     rightCamEntity->setLocalPosition(60.0f, 42.0f, 60.0f);
-    setLookAt(rightCamEntity, Vector3(20.0f, 6.0f, -15.0f));
+    setLookAt(rightCamEntity, Vector3(0.0f, 0.0f, 0.0f));
     engine->root()->addChild(rightCamEntity);
 
     // Top camera: perspective, top-half full width viewport.
@@ -382,12 +414,8 @@ int main()
         setLookAt(spotLightEntity, Vector3(0.0f, 0.0f, 0.0f));
 
         if (rightCam && rightCam->camera()) {
-            rightCam->camera()->setOrthoHeight(40.0f + std::sin(time * 0.3f) * 8.0f);
+            rightCam->camera()->setOrthoHeight(70.0f + std::sin(time * 0.3f) * 20.0f);
         }
-
-        centerA->setLocalPosition(-25.0f + std::sin(time * 0.9f) * 14.0f, 8.0f, 10.0f + std::cos(time * 0.7f) * 8.0f);
-        centerA->setLocalEulerAngles(time * 35.0f, time * 70.0f, time * 20.0f);
-        centerB->setLocalEulerAngles(time * 25.0f, time * 20.0f, 0.0f);
 
         engine->update(dt);
         engine->render();
