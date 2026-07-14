@@ -91,6 +91,7 @@ namespace visutwin::canvas
 
         void grabSceneColor(RenderTarget* source) override;
         void grabSceneDepth(RenderTarget* source) override;
+        void generateCubemapMips(Texture* cubemap) override;
         void setAtmosphereUniforms(const void* data, size_t size) override;
 
         [[nodiscard]] MTL::Device* raw() const { return _device; }

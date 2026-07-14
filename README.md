@@ -124,6 +124,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | area-light | LTC area lights (rect / disk / sphere) |
 | reflection-planar-blurred | Planar reflections with blur |
 | reflection-probe | Box-projected cubemap reflection probe |
+| reflection-probe-dynamic | Runtime scene-capture reflection probe (live cubemap) |
 | refraction | Dynamic grab-pass refraction + dispersion + volume |
 | ssr | Screen-space reflections on a glossy floor |
 | edge-detect | Post-processing edge detection |
@@ -234,7 +235,7 @@ Sibling repositories (separate CMake projects): `visutwin-geo` (geospatial — W
 - Vulkan trails Metal on most recently added features
 - No audio subsystem; no Sprite / layout / scroll-view UI components
 - Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported
-- Reflection probes use a supplied cubemap (procedural, authored, or from the skybox); scene-capture bake and GGX cube prefilter are deferred
+- Reflection probes support runtime scene-capture baking (dynamic cubemap) as well as supplied cubemaps; per-level GGX cube prefilter is deferred (roughness uses hardware trilinear cube mips)
 - Texture streaming is partial (no progressive mip-level budgeting)
 - The lightmapper baker is CPU-only (LDR, single bounce, no color+dir or auto-UV-unwrap)
 - Screen-space reflections march per-fragment (no HiZ acceleration or roughness cone) and are sharp-only, with no temporal accumulation

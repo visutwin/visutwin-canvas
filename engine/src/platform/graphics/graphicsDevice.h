@@ -687,6 +687,12 @@ namespace visutwin::canvas
         Texture* sceneDepthGrabMap() const { return _sceneDepthGrabMap; }
         void setSceneDepthGrabMap(Texture* depthMap) { _sceneDepthGrabMap = depthMap; }
 
+        /// Regenerate the full mip chain of a (render-target) cubemap via a blit
+        /// pass on its own command buffer. Used after reflection-probe scene
+        /// capture, where the forward pass fills only level 0 of each cube face
+        /// and the probe shader samples coarser mips for higher roughness.
+        virtual void generateCubemapMips(Texture* cubemap) { (void)cubemap; }
+
         // DEVIATION: planar reflection texture, set by application-level code.
         // Upstream handles this in the planarRenderer script; we promote it to
         // a device-level binding so the forward pass can sample it at slot 9.

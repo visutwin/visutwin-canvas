@@ -1298,6 +1298,26 @@ namespace visutwin::canvas
         setSceneDepthGrabMap(_sceneDepthGrabWrapper.get());
     }
 
+    void MetalGraphicsDevice::generateCubemapMips(Texture* cubemap)
+    {
+        if (!cubemap || !_commandQueue) {
+            return;
+        }
+        auto* hw = dynamic_cast<gpu::MetalTexture*>(cubemap->impl());
+        MTL::Texture* raw = hw ? hw->raw() : nullptr;
+        if (!raw || raw->mipmapLevelCount() <= 1) {
+            return;
+        }
+        auto* cmdBuffer = _commandQueue->commandBuffer();
+        auto* blitEncoder = cmdBuffer ? cmdBuffer->blitCommandEncoder() : nullptr;
+        if (!blitEncoder) {
+            return;
+        }
+        blitEncoder->generateMipmaps(raw);
+        blitEncoder->endEncoding();
+        cmdBuffer->commit();
+    }
+
     void MetalGraphicsDevice::draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
                 int numInstances, const int indirectSlot, const bool first, const bool last)
     {
@@ -1700,6 +1720,15 @@ namespace visutwin::canvas
                 auto* colorAttachment = passDesc->colorAttachments()->object(static_cast<NS::UInteger>(i));
                 const bool multisampled = attachment->multisampledBuffer != nullptr;
                 colorAttachment->setTexture(multisampled ? attachment->multisampledBuffer : attachment->texture);
+
+                // Cubemap face rendering: when the (non-MSAA) color texture is a
+                // cubemap, target a specific face via the slice parameter. Mirrors
+                // the depth-attachment handling below; used for reflection-probe
+                // scene capture (render the scene into one cube face at a time).
+                if (!multisampled && attachment->texture->textureType() == MTL::TextureTypeCube &&
+                    activeTarget->face() >= 0) {
+                    colorAttachment->setSlice(static_cast<NS::UInteger>(activeTarget->face()));
+                }
 
                 const auto ops = i < colorOpsArray.size() ? colorOpsArray[i] : nullptr;
                 if (ops && ops->clear) {

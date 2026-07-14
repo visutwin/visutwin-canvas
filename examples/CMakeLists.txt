@@ -167,6 +167,12 @@ add_executable(visutwin-reflection-probe MACOSX_BUNDLE
 target_link_libraries(visutwin-reflection-probe PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-reflection-probe com.visutwin.reflection-probe)
 
+add_executable(visutwin-reflection-probe-dynamic MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/reflection-probe-dynamic-example.cpp
+)
+target_link_libraries(visutwin-reflection-probe-dynamic PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-reflection-probe-dynamic com.visutwin.reflection-probe-dynamic)
+
 add_executable(visutwin-gsplat-tier2 MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/gsplat-tier2-example.cpp
 )
