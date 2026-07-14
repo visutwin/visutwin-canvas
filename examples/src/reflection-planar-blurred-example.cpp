@@ -72,22 +72,22 @@ SDL_Renderer* renderer;
 
 const std::string rootPath = ASSET_DIR;
 
-// Environment atlas for IBL.
+// Environment atlas for IBL (matches PlayCanvas reflection-planar-blurred).
 const auto envAtlas = std::make_unique<Asset>(
-    "helipad-env-atlas",
+    "morning-env-atlas",
     AssetType::TEXTURE,
-    rootPath + "/cubemaps/helipad-env-atlas.png",
+    rootPath + "/cubemaps/morning-env-atlas.png",
     AssetData{
         .type = TextureType::TEXTURETYPE_RGBP,
         .mipmaps = false
     }
 );
 
-// GLB model to reflect.
+// GLB model to reflect (SunglassesKhronos — same hero model as PlayCanvas).
 const auto statueAsset = std::make_unique<Asset>(
-    "statue",
+    "sunglasses",
     AssetType::CONTAINER,
-    rootPath + "/models/antique_camera.glb"
+    rootPath + "/models/SunglassesKhronos.glb"
 );
 
 /// Utility: compute AABB over all RenderComponent mesh instances under `entity`.
@@ -296,7 +296,10 @@ int main()
     if (statueResource) {
         modelEntity = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
         if (modelEntity) {
-            modelEntity->setLocalScale(0.5f, 0.5f, 0.5f);
+            // SunglassesKhronos is authored at real-world scale (~14 cm) — scale up
+            // to be the visible hero object in this larger scene.
+            modelEntity->setLocalScale(18.0f, 18.0f, 18.0f);
+            modelEntity->setLocalPosition(0.0f, 1.6f, 0.0f);
             engine->root()->addChild(modelEntity);
         }
     }

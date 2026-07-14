@@ -48,7 +48,7 @@ using namespace visutwin::canvas;
 
 const std::string rootPath = ASSET_DIR;
 
-const std::string splatPath = rootPath + "/models/torus_splats.ply";
+const std::string splatPath = rootPath + "/models/biker.compressed.ply";
 
 BoundingBox calcEntityAABB(Entity* entity)
 {

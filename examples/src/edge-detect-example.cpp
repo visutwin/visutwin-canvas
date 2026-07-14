@@ -259,7 +259,7 @@ int main()
     auto boardAsset = std::make_unique<Asset>(
         "board",
         AssetType::CONTAINER,
-        rootPath + "/models/a_beautiful_game.glb"
+        rootPath + "/models/chess-board.glb"
     );
     auto helipadAsset = std::make_unique<Asset>(
         "helipad-env-atlas",

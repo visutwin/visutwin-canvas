@@ -52,7 +52,7 @@ const auto helipad = std::make_unique<Asset>(
 const auto statue = std::make_unique<Asset>(
     "statue",
     AssetType::CONTAINER,
-    rootPath + "/models/antique_camera.glb"
+    rootPath + "/models/statue.glb"
 );
 
 constexpr int LAYER_IMMEDIATE_EXAMPLE = 5;

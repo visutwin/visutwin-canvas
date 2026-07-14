@@ -1,8 +1,13 @@
 # Public Example Assets
 
 All assets in this directory are safe for open-source distribution.
-Most are CC-0 (public domain). Three models are CC-BY 4.0 and require
+Most are CC-0 (public domain). Several models are CC-BY 4.0 and require
 attribution — see THIRD_PARTY_NOTICES for details.
+
+Many assets are mirrored from the PlayCanvas engine example set so the
+VisuTwin examples can visually match their PlayCanvas counterparts. Assets
+copied from PlayCanvas that carry a Sketchfab/Khronos CC-BY license keep
+their original `<name>.txt` license sibling next to the file.
 
 ## Asset Inventory
 
@@ -14,6 +19,15 @@ attribution — see THIRD_PARTY_NOTICES for details.
 - `seaside-rocks01-normal.jpg` — Rock026 from ambientCG (CC-0)
 - `seaside-rocks01-gloss.jpg` — Rock026 from ambientCG (CC-0)
 - `seaside-rocks01-height.jpg` — Rock026 from ambientCG (CC-0)
+- `playcanvas.png` / `playcanvas-grey.png` — PlayCanvas logo textures (CC-0)
+- `snowflake.png`, `spark.png`, `particles-numbers.png` — particle sprites from PlayCanvas (CC-0)
+
+### fonts/ — complete
+- `courier.json` + `courier.png` — Courier MSDF bitmap-font atlas from PlayCanvas (CC-0)
+- `arial.json` + `arial.png` — Arial MSDF bitmap-font atlas from PlayCanvas (CC-0 atlas; Arial typeface is Monotype-proprietary)
+
+### animations/bitmoji/ — complete
+- `idle.glb`, `walk.glb`, `run.glb`, `jump-flip.glb`, `win-dance.glb` — Bitmoji locomotion clips from PlayCanvas (CC-0)
 
 ### hdri/ — complete
 - `cannon-2k.hdr` — Cannon outdoor HDRI from Poly Haven (CC-0)
@@ -30,6 +44,21 @@ attribution — see THIRD_PARTY_NOTICES for details.
 - `oceanic_currents.glb` — Oceanic Currents from Sketchfab (CC-0)
 - `metric_tensor_riemann.glb` — Metric Tensor from Sketchfab (CC-0)
 - `miller_indices_problem_2.glb` — Miller Indices from Sketchfab (CC-0)
+
+Mirrored from PlayCanvas examples (for visual parity):
+- `statue.glb` — PlayCanvas statue (CC-0)
+- `geometry-camera-light.glb` — GLB with embedded camera + lights (CC-0)
+- `playcanvas-cube.glb` — PlayCanvas logo cube (CC-0)
+- `bitmoji.glb` — Bitmoji character for anim state graph (CC-0)
+- `chess-board.glb` — Chess Board by Idmental, Sketchfab (**CC-BY 4.0**, see .txt)
+- `terrain.glb` — Low-poly terrain, Sketchfab (**CC-BY 4.0**, see .txt)
+- `robot-arm.glb` — Black Honey Robotic Arm, Sketchfab (**CC-BY 4.0**, Draco, see .txt)
+- `glass-table.glb` — Low-poly glass table, Sketchfab (**CC-BY 4.0**, see .txt)
+- `pbr-house.glb` — House 03 PBR, Sketchfab (**CC-BY 4.0**, see .txt)
+- `house.glb` — House scene w/ generated UV1 for lightmapping, Sketchfab (**CC-BY 4.0**, see .txt)
+- `SunglassesKhronos.glb` — Sunglasses from Khronos glTF-Sample-Assets (**CC-BY 4.0**)
+- `biker.compressed.ply` — SuperSplat compressed gsplat from PlayCanvas (CC-0)
+- `skull.compressed.ply` — SuperSplat compressed gsplat w/ SH from PlayCanvas (CC-0)
 
 ### cubemaps/ — complete
 - `helipad-env-atlas.png` — 512x512 RGBP atlas generated from cannon-2k.hdr (CC-0, derived)

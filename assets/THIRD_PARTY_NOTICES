@@ -27,7 +27,55 @@ models/fox.glb
   Author:   PixelMannen (mesh, CC-0), tomkranis (rigging/animation, CC-BY 4.0)
   License:  CC-BY 4.0
 
+models/chess-board.glb
+  Original: Chess Board
+  Source:   https://sketchfab.com/3d-models/chess-board-901eeeca884f4622ac37b7e8f7cb82c3
+  Author:   Idmental (https://sketchfab.com/idmental.id)
+  License:  CC-BY 4.0
+  Credit:   This work is based on "Chess Board"
+            (https://sketchfab.com/3d-models/chess-board-901eeeca884f4622ac37b7e8f7cb82c3)
+            by Idmental (https://sketchfab.com/idmental.id) licensed under
+            CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+models/terrain.glb
+  Original: Terrain (Low Poly)
+  Source:   https://sketchfab.com/3d-models/terrain-low-poly-248b21331315466e98d20c441935d99d
+  License:  CC-BY 4.0
+  Modifications: converted to glb format
+
+models/robot-arm.glb
+  Original: Black Honey Robotic Arm
+  Source:   https://sketchfab.com/3d-models/black-honey-robotic-arm-c50671f2a8e74de2a2e687103fdc93ab
+  License:  CC-BY 4.0
+
+models/glass-table.glb
+  Original: Low Poly Glass Table
+  Source:   https://sketchfab.com/3d-models/low-poly-glass-table-6acac6d9201e448b92dff859b6f63aad
+  License:  CC-BY 4.0
+
+models/pbr-house.glb
+  Original: House 03 (PBR)
+  Source:   https://sketchfab.com/3d-models/house-03-pbr-c56521b89188460a99235dec8bcd0ed3
+  License:  CC-BY 4.0
+
+models/house.glb
+  Original: House Scene
+  Source:   https://sketchfab.com/3d-models/house-scene-52772448c62348e0a4951b51758d5587
+  License:  CC-BY 4.0
+  Modifications: uv1 channel generated for lightmapping; textures stripped;
+                 converted to glb format
+
+models/SunglassesKhronos.glb
+  Original: Sunglasses (Khronos)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   Khronos Group
+  License:  CC-BY 4.0
+
 ------------------------------------------------------------------------
 
 All other assets in this directory are CC-0 (public domain) and require
-no attribution.
+no attribution. This includes the PlayCanvas-provided example assets
+statue.glb, geometry-camera-light.glb, playcanvas-cube.glb, bitmoji.glb
+and the animations/bitmoji/*.glb clips, the biker/skull .compressed.ply
+splats, morning-env-atlas.png, the playcanvas*/particle/spark/snowflake
+textures, and the courier/arial font atlases.
