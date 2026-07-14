@@ -71,7 +71,9 @@ namespace visutwin::canvas::gpu
 
         write(0, storage.data(), totalSize);
 
-        spdlog::debug("WriteBuffer: {} (size: {} bytes)", _buffer->label()->utf8String(), totalSize);
+        // trace, not debug: this fires on every buffer write (per-frame for dynamic
+        // uniform/vertex buffers) and floods the console at debug level.
+        spdlog::trace("WriteBuffer: {} (size: {} bytes)", _buffer->label()->utf8String(), totalSize);
     }
 
     void MetalBuffer::allocate(MetalGraphicsDevice* device, size_t size)
@@ -106,7 +108,9 @@ namespace visutwin::canvas::gpu
         }
         _buffer->setLabel(NS::String::string(label, NS::UTF8StringEncoding));
 
-        spdlog::debug("Allocated Metal buffer: {} (size: {} bytes)", label, size);
+        // trace, not debug: per-resource allocation spam (also happens per-frame for
+        // dynamically-sized buffers). Available at trace level when diagnosing allocs.
+        spdlog::trace("Allocated Metal buffer: {} (size: {} bytes)", label, size);
     }
 
     void MetalBuffer::upload(GraphicsDevice* device, const void* data, size_t dataSize)

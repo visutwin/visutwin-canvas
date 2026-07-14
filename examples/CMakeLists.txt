@@ -148,6 +148,52 @@ add_executable(visutwin-clustered-lighting MACOSX_BUNDLE
 target_link_libraries(visutwin-clustered-lighting PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-clustered-lighting com.visutwin.clustered-lighting)
 
+# --- Tier 2: PlayCanvas-parity examples for already-supported engine features ---
+add_executable(visutwin-transform-rotate MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/transform-rotate-example.cpp
+)
+target_link_libraries(visutwin-transform-rotate PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-transform-rotate com.visutwin.transform-rotate)
+
+add_executable(visutwin-transform-scale MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/transform-scale-example.cpp
+)
+target_link_libraries(visutwin-transform-scale PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-transform-scale com.visutwin.transform-scale)
+
+add_executable(visutwin-lights MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/lights-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-lights PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-lights com.visutwin.lights)
+
+add_executable(visutwin-depth-of-field MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/depth-of-field-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-depth-of-field PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-depth-of-field com.visutwin.depth-of-field)
+
+add_executable(visutwin-dynamic-batching MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/dynamic-batching-example.cpp
+)
+target_link_libraries(visutwin-dynamic-batching PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-dynamic-batching com.visutwin.dynamic-batching)
+
+add_executable(visutwin-blend-trees-2d MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/blend-trees-2d-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-blend-trees-2d PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-blend-trees-2d com.visutwin.blend-trees-2d)
+
+add_executable(visutwin-ui-text MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/ui-text-example.cpp
+)
+target_link_libraries(visutwin-ui-text PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-ui-text com.visutwin.ui-text)
+
 add_executable(visutwin-shadow-cascades MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/shadow-cascades-example.cpp
     ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp

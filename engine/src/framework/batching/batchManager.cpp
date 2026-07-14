@@ -595,7 +595,7 @@ namespace visutwin::canvas
             batch->origMeshInstances.push_back(mi);
         }
 
-        spdlog::debug("[BatchManager] Dynamic batch: {} instances, {} verts, {} indices, {} bones",
+        spdlog::trace("[BatchManager] Dynamic batch: {} instances, {} verts, {} indices, {} bones",
             meshInstances.size(), mergedVertCount, mergedIdxCount, boneNodes.size());
 
         return batch;

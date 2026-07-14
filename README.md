@@ -123,7 +123,14 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | custom-shader | ShaderMaterial with a user-supplied Metal toon shader |
 | mesh-decals | Decal projection |
 | shadow-cascades | Cascaded shadow maps |
-| clustered-lighting | Many local lights via 3D cluster grid |
+| clustered-lighting | Many local lights via 3D cluster grid (+ atlas spot shadows) |
+| lights | Directional / omni / spot / area light types |
+| transform-rotate | Rotate gizmo |
+| transform-scale | Scale gizmo |
+| depth-of-field | Bokeh depth-of-field with interactive focus |
+| dynamic-batching | Dynamic mesh batching of many shared-material objects |
+| blend-trees-2d | 2D-cartesian animation blend tree |
+| ui-text | Screen-space UI text (Screen + Element components) |
 | pcss-dither | PCSS soft shadows + opacity dither |
 | pcss-local | Spot/omni PCSS contact-hardening shadows |
 | ambient-occlusion | Screen-space ambient occlusion |

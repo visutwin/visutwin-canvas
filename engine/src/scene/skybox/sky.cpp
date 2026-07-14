@@ -76,7 +76,7 @@ namespace visutwin::canvas
 
         // need either skybox cubemap or envAtlas to create the sky mesh
         if (!_scene->skybox() && !_scene->envAtlas()) {
-            spdlog::debug("Sky::updateSkyMesh: no scene or skybox/envAtlas — resetting");
+            spdlog::trace("Sky::updateSkyMesh: no scene or skybox/envAtlas — resetting");
             resetSkyMesh();
             return;
         }
