@@ -149,6 +149,12 @@ add_executable(visutwin-env-reproject-test
 target_link_libraries(visutwin-env-reproject-test PRIVATE visutwin-canvas)
 target_compile_definitions(visutwin-env-reproject-test PRIVATE ASSET_DIR="${VISUTWIN_ASSET_DIR}")
 
+add_executable(visutwin-lightmap-bake MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/lightmap-bake-example.cpp
+)
+target_link_libraries(visutwin-lightmap-bake PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-lightmap-bake com.visutwin.lightmap-bake)
+
 add_executable(visutwin-reflection-probe MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/reflection-probe-example.cpp
 )

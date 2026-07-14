@@ -104,7 +104,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 
 ## Examples
 
-36 example applications in `examples/`:
+37 example applications in `examples/`:
 
 | Example | Description |
 |---------|-------------|
@@ -137,6 +137,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | layers | Render layer composition |
 | multi-view | Multiple camera viewports |
 | render-to-texture | Off-screen rendering |
+| lightmap-bake | CPU-baked lightmap (soft shadows + AO) applied at UV1 |
 | texture-stream | Dynamic texture updates |
 | raycast | Mouse picking via ray casting |
 | area-picker | Area selection / picking |
@@ -195,7 +196,7 @@ visutwin-canvas/
 │   └── shaders/metal/
 │       ├── chunks/                # 24 composable Metal shader micro-chunks
 │       └── embedded/              # Standalone shaders embedded at build time
-├── examples/                      # 36 example applications
+├── examples/                      # 37 example applications
 ├── tools/                         # Build and utility tools
 └── assets/                        # Example assets (some procedural, some user-provided)
 ```
@@ -232,7 +233,8 @@ Sibling repositories (separate CMake projects): `visutwin-geo` (geospatial — W
 - No audio subsystem; no Sprite / layout / scroll-view UI components
 - Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported
 - Reflection probes use a supplied cubemap (procedural, authored, or from the skybox); scene-capture bake and GGX cube prefilter are deferred
-- Texture streaming is partial (no progressive mip-level budgeting); the lightmapper baker is a stub
+- Texture streaming is partial (no progressive mip-level budgeting)
+- The lightmapper baker is CPU-only (LDR, single bounce, no color+dir or auto-UV-unwrap)
 
 ## Attribution
 
