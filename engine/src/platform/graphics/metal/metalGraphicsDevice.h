@@ -76,6 +76,8 @@ namespace visutwin::canvas
             const FogParams& fogParams = FogParams{}, const ShadowParams& shadowParams = ShadowParams{},
             int toneMapping = 0, const Vector3* ambientSH = nullptr,
             const Matrix4* viewProjection = nullptr) override;
+        void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
+            const Vector3& boxMax, bool boxProjection, float intensity, float maxLod) override;
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) override;

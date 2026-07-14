@@ -82,6 +82,22 @@ namespace visutwin::canvas
         void setSkybox(Texture* value);
         Texture* skybox() const { return _skyboxCubeMap; }
 
+        // Local reflection probe: a prefiltered cubemap sampled for specular IBL,
+        // optionally box-projected (parallax-corrected) against an axis-aligned
+        // volume so reflections align to a room's walls. Overrides the global
+        // env-atlas specular for all objects when set. `boxProjection == false`
+        // treats the cubemap as an infinite environment (direction only).
+        void setReflectionProbe(Texture* cubemap, const Vector3& position,
+            const Vector3& boxMin, const Vector3& boxMax, bool boxProjection = true,
+            float intensity = 1.0f);
+        void clearReflectionProbe() { _reflectionProbeCube = nullptr; }
+        Texture* reflectionProbe() const { return _reflectionProbeCube; }
+        const Vector3& reflectionProbePosition() const { return _reflectionProbePos; }
+        const Vector3& reflectionProbeBoxMin() const { return _reflectionProbeBoxMin; }
+        const Vector3& reflectionProbeBoxMax() const { return _reflectionProbeBoxMax; }
+        bool reflectionProbeBoxProjection() const { return _reflectionProbeBoxProjection; }
+        float reflectionProbeIntensity() const { return _reflectionProbeIntensity; }
+
         void setToneMapping(int value) { _toneMapping = value; }
         int toneMapping() const { return _toneMapping; }
 
@@ -153,6 +169,14 @@ namespace visutwin::canvas
 
         Texture* _envAtlas = nullptr;
         Texture* _skyboxCubeMap = nullptr;
+
+        Texture* _reflectionProbeCube = nullptr;
+        Vector3 _reflectionProbePos{0.0f, 0.0f, 0.0f};
+        Vector3 _reflectionProbeBoxMin{-1.0f, -1.0f, -1.0f};
+        Vector3 _reflectionProbeBoxMax{1.0f, 1.0f, 1.0f};
+        bool _reflectionProbeBoxProjection = true;
+        float _reflectionProbeIntensity = 1.0f;
+
         int _toneMapping = TONEMAP_LINEAR;
         bool _debugNormalMapsEnabled = false;
         bool _atmosphereEnabled = false;

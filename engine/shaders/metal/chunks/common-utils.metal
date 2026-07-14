@@ -63,6 +63,12 @@ constexpr sampler envAtlasSampler(
     mip_filter::linear,
     address::clamp_to_edge);
 
+// Reflection-probe cubemap sampler (trilinear across roughness mips).
+constexpr sampler reflectionProbeSampler(
+    filter::linear,
+    mip_filter::linear,
+    address::clamp_to_edge);
+
 static inline float2 mapUv(float2 uv, float4 rect)
 {
     return float2(mix(rect.x + ATLAS_SEAM, rect.x + rect.z - ATLAS_SEAM, uv.x),

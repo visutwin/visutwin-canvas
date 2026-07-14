@@ -98,6 +98,12 @@ namespace visutwin::canvas
             // Local light PCSS: [x]=searchArea UV (0=off), [y]=near, [z]=far, [w]=pad.
             float localShadowPcss0[4] = {0.0f, 0.01f, 100.0f, 0.0f};
             float localShadowPcss1[4] = {0.0f, 0.01f, 100.0f, 0.0f};
+
+            // Reflection probe (box-projected cubemap): box bounds + params.
+            // params = {boxProjection flag, intensity, maxMipLod, pad}.
+            float reflectionProbeBoxMin[4] = {-1.0f, -1.0f, -1.0f, 0.0f};
+            float reflectionProbeBoxMax[4] = {1.0f, 1.0f, 1.0f, 0.0f};
+            float reflectionProbeParams[4] = {1.0f, 1.0f, 6.0f, 0.0f};
         };
 
         // ---------------------------------------------------------------
@@ -114,6 +120,7 @@ namespace visutwin::canvas
 
         [[nodiscard]] virtual Texture* envAtlasTexture() const = 0;
         [[nodiscard]] virtual Texture* skyboxCubeMapTexture() const = 0;
+        [[nodiscard]] virtual Texture* reflectionProbeCubeTexture() const { return nullptr; }
         [[nodiscard]] virtual Texture* shadowTexture() const = 0;
         [[nodiscard]] virtual Texture* localShadowTexture0() const = 0;
         [[nodiscard]] virtual Texture* localShadowTexture1() const = 0;

@@ -252,4 +252,9 @@ struct LightingData {
     // [y]=shadow camera near, [z]=shadow camera far, [w]=pad.
     float4 localShadowPcss0;
     float4 localShadowPcss1;
+    // Reflection probe (box-projected cubemap): world-space box bounds + params.
+    // params = {boxProjection flag, intensity, maxMipLod, pad}.
+    float4 reflectionProbeBoxMin;
+    float4 reflectionProbeBoxMax;
+    float4 reflectionProbeParams;
 };

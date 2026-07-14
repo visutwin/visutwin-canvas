@@ -144,6 +144,46 @@
     }
 #endif
 
+#if VT_FEATURE_REFLECTION_PROBE
+    // Local reflection probe: sample a prefiltered cubemap in the reflection
+    // direction, optionally box-projected (parallax-corrected) so reflections
+    // align to the probe's volume. Overrides the global env-atlas specular.
+    if (reflectionProbeCube.get_width() > 0) {
+        const float3 Rp = reflect(-V, N);
+        float3 sampleDir = Rp;
+
+        // Box projection (upstream cubeMapProject BOX): intersect the reflection
+        // ray with the probe box and re-aim from the box center — this is what
+        // makes a flat cubemap track a room's walls as the surface moves.
+        if (lighting.reflectionProbeParams.x > 0.5) {
+            const float3 boxMin = lighting.reflectionProbeBoxMin.xyz;
+            const float3 boxMax = lighting.reflectionProbeBoxMax.xyz;
+            const float3 invDir = 1.0 / Rp;
+            const float3 rbmax = (boxMax - rd.worldPos) * invDir;
+            const float3 rbmin = (boxMin - rd.worldPos) * invDir;
+            const float3 rbminmax = select(rbmin, rbmax, Rp > 0.0);
+            const float fa = min(min(rbminmax.x, rbminmax.y), rbminmax.z);
+            const float3 posOnBox = rd.worldPos + Rp * fa;
+            const float3 boxCenter = (boxMin + boxMax) * 0.5;
+            sampleDir = normalize(posOnBox - boxCenter);
+        }
+
+        // Engine cube convention flips X (matches the skybox cube sampling).
+        const float3 cubeDir = float3(-sampleDir.x, sampleDir.y, sampleDir.z);
+        // Roughness → mip LOD (DEVIATION: hardware trilinear mips approximate the
+        // GGX prefilter upstream bakes per level).
+        const float probeLod = saturate(1.0 - gloss) * lighting.reflectionProbeParams.z;
+        float3 probeSpec = reflectionProbeCube.sample(reflectionProbeSampler, cubeDir, level(probeLod)).rgb;
+        probeSpec = pow(max(probeSpec, float3(0.0)), float3(2.2)) * lighting.reflectionProbeParams.y;
+
+        float3 probeFresnel = getFresnel(dot(N, V), gloss, F0);
+#if VT_FEATURE_IRIDESCENCE
+        probeFresnel = mix(probeFresnel, iridFresnel, iridIntensity);
+#endif
+        indirectSpecular = probeSpec * probeFresnel;
+    }
+#endif
+
     float ao = 1.0;
 #if VT_FEATURE_OCCLUSION_MAP
     if (occlusionTexture.get_width() > 0 && occlusionTexture.get_height() > 0) {

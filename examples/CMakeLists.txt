@@ -149,6 +149,12 @@ add_executable(visutwin-env-reproject-test
 target_link_libraries(visutwin-env-reproject-test PRIVATE visutwin-canvas)
 target_compile_definitions(visutwin-env-reproject-test PRIVATE ASSET_DIR="${VISUTWIN_ASSET_DIR}")
 
+add_executable(visutwin-reflection-probe MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/reflection-probe-example.cpp
+)
+target_link_libraries(visutwin-reflection-probe PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-reflection-probe com.visutwin.reflection-probe)
+
 add_executable(visutwin-gsplat-tier2 MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/gsplat-tier2-example.cpp
 )

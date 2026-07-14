@@ -105,6 +105,9 @@ namespace visutwin::canvas
         // a null texture binding returns nonzero dimensions on Apple GPUs).
         void setEnvAtlasEnabled(bool value) { _envAtlasEnabled = value; }
 
+        // Local reflection probe (box-projected cubemap) active this frame.
+        void setReflectionProbeEnabled(bool value) { _reflectionProbeEnabled = value; }
+
     private:
         struct ShaderVariantOptions
         {
@@ -147,6 +150,7 @@ namespace visutwin::canvas
             bool multiLight = false;
             bool shadowCatcher = false;
             bool skyCubemap = false;
+            bool reflectionProbe = false;  // Box-projected cubemap reflection probe
             bool surfaceLIC = false;    // Surface LIC flow visualization (velocity output + LIC compositing)
             bool instancing = false;    // Hardware instancing — per-instance transform + color via [[instance_id]]
             bool planarReflection = false;  // Planar reflection — screen-space UV sampling + Fresnel blend
@@ -191,6 +195,7 @@ namespace visutwin::canvas
         bool _atmosphereEnabled = false;
         bool _lightProbesEnabled = false;
         bool _envAtlasEnabled = true;
+        bool _reflectionProbeEnabled = false;
     };
 
     // Assigns the program library to the device cache.

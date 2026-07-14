@@ -1142,6 +1142,12 @@ namespace visutwin::canvas
             viewProjection);
     }
 
+    void MetalGraphicsDevice::setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
+        const Vector3& boxMax, const bool boxProjection, const float intensity, const float maxLod)
+    {
+        _uniformBinder.setReflectionProbeUniforms(cubemap, boxMin, boxMax, boxProjection, intensity, maxLod);
+    }
+
     void MetalGraphicsDevice::setEnvironmentUniforms(Texture* envAtlas, const float skyboxIntensity,
         const float skyboxMip, const Vector3& skyDomeCenter, const bool isDome,
         Texture* skyboxCubeMap)
@@ -1370,7 +1376,8 @@ namespace visutwin::canvas
                 _uniformBinder.envAtlasTexture(), _uniformBinder.shadowTexture(),
                 sceneDepthMap(), _uniformBinder.skyboxCubeMapTexture(),
                 reflectionMap(), reflectionDepthMap(), ssaoForwardTexture(),
-                _areaLightLut1, _areaLightLut2, sceneColorMap());
+                _areaLightLut1, _areaLightLut2, sceneColorMap(),
+                _uniformBinder.reflectionProbeCubeTexture());
             _textureBinder.bindLocalShadowTextures(passEncoder,
                 _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
             _textureBinder.bindOmniShadowTextures(passEncoder,

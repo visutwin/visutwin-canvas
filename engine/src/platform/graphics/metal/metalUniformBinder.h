@@ -58,6 +58,10 @@ namespace visutwin::canvas
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter, bool isDome, Texture* skyboxCubeMap);
 
+        /// Pack reflection-probe uniforms (box-projected cubemap) + store the cube.
+        void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
+            const Vector3& boxMax, bool boxProjection, float intensity, float maxLod);
+
         /// Pack atmosphere uniforms (Nishita scattering) into AtmosphereUniforms.
         void setAtmosphereUniforms(const void* data, size_t size);
 
@@ -151,6 +155,7 @@ namespace visutwin::canvas
 
         [[nodiscard]] Texture* envAtlasTexture() const override { return _envAtlasTexture; }
         [[nodiscard]] Texture* skyboxCubeMapTexture() const override { return _skyboxCubeMapTexture; }
+        [[nodiscard]] Texture* reflectionProbeCubeTexture() const override { return _reflectionProbeCubeTexture; }
         [[nodiscard]] Texture* shadowTexture() const override { return _shadowTexture; }
         [[nodiscard]] Texture* localShadowTexture0() const override { return _localShadowTexture0; }
         [[nodiscard]] Texture* localShadowTexture1() const override { return _localShadowTexture1; }
@@ -162,6 +167,7 @@ namespace visutwin::canvas
         // read by MetalGraphicsDevice::draw() for texture binding.
         Texture* _envAtlasTexture = nullptr;
         Texture* _skyboxCubeMapTexture = nullptr;
+        Texture* _reflectionProbeCubeTexture = nullptr;
         Texture* _shadowTexture = nullptr;
         Texture* _localShadowTexture0 = nullptr;
         Texture* _localShadowTexture1 = nullptr;

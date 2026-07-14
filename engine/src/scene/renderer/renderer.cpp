@@ -397,6 +397,7 @@ namespace visutwin::canvas
         programLibrary->setSsaoEnabled(_device->ssaoForwardTexture() != nullptr);
         programLibrary->setLightProbesEnabled(_scene && _scene->hasAmbientSH());
         programLibrary->setEnvAtlasEnabled(_scene && _scene->envAtlas() != nullptr);
+        programLibrary->setReflectionProbeEnabled(_scene && _scene->reflectionProbe() != nullptr);
 
         // Atmosphere scattering: when enabled on the scene, compile skybox shaders
         // with VT_FEATURE_ATMOSPHERE and push atmosphere uniforms to the device.
@@ -848,6 +849,16 @@ namespace visutwin::canvas
                 static_cast<float>(_scene ? _scene->skyboxMip() : 0),
                 skyDomeCenter, isDome,
                 _scene ? _scene->skybox() : nullptr);
+
+            if (_scene && _scene->reflectionProbe()) {
+                Texture* probe = _scene->reflectionProbe();
+                // maxLod = highest mip index (roughness → LOD in the shader).
+                const int levels = std::max(1, static_cast<int>(probe->getNumLevels()));
+                _device->setReflectionProbeUniforms(probe,
+                    _scene->reflectionProbeBoxMin(), _scene->reflectionProbeBoxMax(),
+                    _scene->reflectionProbeBoxProjection(), _scene->reflectionProbeIntensity(),
+                    static_cast<float>(levels - 1));
+            }
         }
 
         // --- Clustered lighting: feed local lights into WorldClusters ---

@@ -322,6 +322,7 @@ namespace visutwin::canvas
         // Opacity dither: Bayer8 dithered transparency in the opaque pass.
         options.opacityDither = stdMat && stdMat->opacityDither();
         options.envAtlas = _envAtlasEnabled;
+        options.reflectionProbe = _reflectionProbeEnabled;
         options.lightClustering = _clusteredLightingEnabled || (variantBits & (1ull << 18)) != 0ull;
         options.ssao = _ssaoEnabled || (variantBits & (1ull << 19)) != 0ull;
         options.lightProbes = _lightProbesEnabled || (variantBits & (1ull << 20)) != 0ull;
@@ -487,6 +488,7 @@ namespace visutwin::canvas
         key ^= options.dynamicRefraction ? (1ull << 43) : 0ull;
         key ^= options.opacityDither ? (1ull << 44) : 0ull;
         key ^= options.pcssShadows ? (1ull << 45) : 0ull;
+        key ^= options.reflectionProbe ? (1ull << 46) : 0ull;
         return key;
     }
 
@@ -545,6 +547,7 @@ namespace visutwin::canvas
         appendFeatureDefine(source, "VT_FEATURE_MULTI_LIGHT", options.multiLight);
         appendFeatureDefine(source, "VT_FEATURE_SHADOW_CATCHER", options.shadowCatcher);
         appendFeatureDefine(source, "VT_FEATURE_SKY_CUBEMAP", options.skyCubemap);
+        appendFeatureDefine(source, "VT_FEATURE_REFLECTION_PROBE", options.reflectionProbe);
         appendFeatureDefine(source, "VT_FEATURE_SURFACE_LIC", options.surfaceLIC);
         appendFeatureDefine(source, "VT_FEATURE_INSTANCING", options.instancing);
         appendFeatureDefine(source, "VT_FEATURE_PLANAR_REFLECTION", options.planarReflection);

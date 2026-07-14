@@ -441,6 +441,12 @@ namespace visutwin::canvas
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) {}
 
+        virtual void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
+            const Vector3& boxMax, bool boxProjection, float intensity, float maxLod)
+        {
+            (void)cubemap; (void)boxMin; (void)boxMax; (void)boxProjection; (void)intensity; (void)maxLod;
+        }
+
         /// Set the LTC lookup textures for area lights (bound at fragment slots 20/21
         /// when VT_FEATURE_AREA_LIGHTS is active). Pass nullptrs to unbind.
         virtual void setAreaLightLuts(Texture* lut1, Texture* lut2) { (void)lut1; (void)lut2; }

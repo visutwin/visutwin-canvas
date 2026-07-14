@@ -356,6 +356,21 @@ namespace visutwin::canvas
     // Environment uniforms
     // -----------------------------------------------------------------------
 
+    void MetalUniformBinder::setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
+        const Vector3& boxMax, const bool boxProjection, const float intensity, const float maxLod)
+    {
+        _reflectionProbeCubeTexture = cubemap;
+        _lightingUniforms.reflectionProbeBoxMin[0] = boxMin.getX();
+        _lightingUniforms.reflectionProbeBoxMin[1] = boxMin.getY();
+        _lightingUniforms.reflectionProbeBoxMin[2] = boxMin.getZ();
+        _lightingUniforms.reflectionProbeBoxMax[0] = boxMax.getX();
+        _lightingUniforms.reflectionProbeBoxMax[1] = boxMax.getY();
+        _lightingUniforms.reflectionProbeBoxMax[2] = boxMax.getZ();
+        _lightingUniforms.reflectionProbeParams[0] = boxProjection ? 1.0f : 0.0f;
+        _lightingUniforms.reflectionProbeParams[1] = intensity;
+        _lightingUniforms.reflectionProbeParams[2] = maxLod;
+    }
+
     void MetalUniformBinder::setEnvironmentUniforms(Texture* envAtlas, const float skyboxIntensity,
         const float skyboxMip, const Vector3& skyDomeCenter, const bool isDome,
         Texture* skyboxCubeMap)

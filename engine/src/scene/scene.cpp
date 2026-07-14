@@ -95,6 +95,18 @@ namespace visutwin::canvas
         }
     }
 
+    void Scene::setReflectionProbe(Texture* cubemap, const Vector3& position,
+        const Vector3& boxMin, const Vector3& boxMax, const bool boxProjection,
+        const float intensity)
+    {
+        _reflectionProbeCube = cubemap;
+        _reflectionProbePos = position;
+        _reflectionProbeBoxMin = boxMin;
+        _reflectionProbeBoxMax = boxMax;
+        _reflectionProbeBoxProjection = boxProjection;
+        _reflectionProbeIntensity = intensity;
+    }
+
     void Scene::setAtmosphereUniforms(const void* data, const size_t size)
     {
         if (data && size <= sizeof(_atmosphereUniforms)) {
