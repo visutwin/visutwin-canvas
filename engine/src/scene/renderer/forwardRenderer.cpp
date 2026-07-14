@@ -25,42 +25,47 @@ namespace visutwin::canvas
         // (shadow or forward pass) and are shared for the rest of the frame.
         SkinInstance::beginFrame();
 
-        if (_scene->clusteredLightingEnabled())
+        // Cull + render local-light shadow maps for shadow-casting spot/point lights.
+        // This runs in BOTH clustered and non-clustered modes: shadow-casting local
+        // lights are always evaluated through the main light array (LightingData.lights[]),
+        // which samples their shadow maps. Under clustered lighting only the many
+        // *unshadowed* local lights are bucketed into the 3D cluster grid; the handful
+        // of shadow-casting ones keep working shadows via this path. (The clustered
+        // texture-atlas shadow path — RenderPassShadowLocalClustered — is a no-op while
+        // LightTextureAtlas is unimplemented, so we route local shadows here instead.)
         {
-            const auto lighting = _scene->lighting();
-            _renderPassUpdateClustered->update(frameGraph, lighting.shadowsEnabled, lighting.cookiesEnabled,
-                _lights, _localLights);
-            frameGraph->addRenderPass(_renderPassUpdateClustered);
-        }
-        else
-        {
-            // Cull local light shadow maps: allocate shadow maps, position shadow cameras,
-            // compute VP matrices for all shadow-casting local (spot/point) lights.
             std::vector<Light*> localShadowLights;
-            {
-                for (auto* lightComponent : LightComponent::instances()) {
-                    if (!lightComponent || !lightComponent->enabled()) {
-                        continue;
-                    }
-                    if (lightComponent->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
-                        continue;
-                    }
-                    if (!lightComponent->castShadows()) {
-                        continue;
-                    }
-                    Light* sceneLight = lightComponent->light();
-                    if (sceneLight) {
-                        localShadowLights.push_back(sceneLight);
-                    }
+            for (auto* lightComponent : LightComponent::instances()) {
+                if (!lightComponent || !lightComponent->enabled()) {
+                    continue;
                 }
-                if (!localShadowLights.empty()) {
-                    _shadowRendererLocal->cullLocalLights(localShadowLights, _device);
+                if (lightComponent->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
+                    continue;
+                }
+                if (!lightComponent->castShadows()) {
+                    continue;
+                }
+                Light* sceneLight = lightComponent->light();
+                if (sceneLight) {
+                    localShadowLights.push_back(sceneLight);
                 }
             }
-
+            if (!localShadowLights.empty()) {
+                _shadowRendererLocal->cullLocalLights(localShadowLights, _device);
+            }
             // Build shadow render passes using the actual shadow-casting lights
             // (not _localLights which is only populated in the clustered path).
             _shadowRendererLocal->buildNonClusteredRenderPasses(frameGraph, localShadowLights);
+        }
+
+        if (_scene->clusteredLightingEnabled())
+        {
+            const auto lighting = _scene->lighting();
+            // Local shadows are handled above via the main light array, so disable the
+            // (unimplemented) clustered atlas shadow path here; cookies still route through.
+            _renderPassUpdateClustered->update(frameGraph, false, lighting.cookiesEnabled,
+                _lights, _localLights);
+            frameGraph->addRenderPass(_renderPassUpdateClustered);
         }
 
         // Cull directional shadow maps for each unique camera in the layer composition.

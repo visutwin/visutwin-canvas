@@ -889,6 +889,9 @@ namespace visutwin::canvas
                 const auto& ld = dispatchEntry.light;
                 // Area rect lights are not clustered — they go through the main 8-light array.
                 if (ld.type == GpuLightType::AreaRect) continue;
+                // Shadow-casting local lights are evaluated via the main light array
+                // (with real shadows), so keep them out of the grid to avoid double-lighting.
+                if (ld.castShadows) continue;
                 ClusterLightData lcd;
                 lcd.position = ld.position;
                 lcd.direction = ld.direction;
@@ -965,15 +968,18 @@ namespace visutwin::canvas
                 if ((dispatchEntry.mask & mask) == 0u) continue;
                 out.push_back(dispatchEntry.light);
             }
-            // When clustering is enabled, non-area local lights are handled by the
-            // cluster grid (fragment shader samples buffer slots 7/8).
-            if (!clusteredEnabled) {
-                for (const auto& dispatchEntry : localLights) {
-                    if (out.size() >= 8) break;
-                    if ((dispatchEntry.mask & mask) == 0u) continue;
-                    if (dispatchEntry.light.type == GpuLightType::AreaRect) continue;  // already added above
-                    out.push_back(dispatchEntry.light);
-                }
+            // Non-area local lights. In non-clustered mode all of them go into the
+            // main array. When clustering is enabled, the many *unshadowed* local
+            // lights are handled by the cluster grid (fragment shader samples buffer
+            // slots 7/8) — but *shadow-casting* local lights still go into the main
+            // array so they sample their shadow maps (clustered atlas shadows are
+            // not yet ported). They are correspondingly excluded from the grid feed.
+            for (const auto& dispatchEntry : localLights) {
+                if (out.size() >= 8) break;
+                if ((dispatchEntry.mask & mask) == 0u) continue;
+                if (dispatchEntry.light.type == GpuLightType::AreaRect) continue;  // already added above
+                if (clusteredEnabled && !dispatchEntry.light.castShadows) continue; // → cluster grid
+                out.push_back(dispatchEntry.light);
             }
         };
 
