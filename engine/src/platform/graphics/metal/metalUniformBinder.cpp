@@ -247,9 +247,9 @@ namespace visutwin::canvas
         _lightingUniforms.pcssParams[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
         _lightingUniforms.pcssParams[2] = shadowParams.penumbraSize;
         _lightingUniforms.pcssParams[3] = shadowParams.penumbraFalloff;
-        std::memcpy(_lightingUniforms.pcssCascadeRadii, shadowParams.pcssCascadeRadii,
+        std::memcpy(&_lightingUniforms.pcssCascadeRadii, shadowParams.pcssCascadeRadii,
                     sizeof(_lightingUniforms.pcssCascadeRadii));
-        std::memcpy(_lightingUniforms.pcssCascadeDepthRanges, shadowParams.pcssCascadeDepthRanges,
+        std::memcpy(&_lightingUniforms.pcssCascadeDepthRanges, shadowParams.pcssCascadeDepthRanges,
                     sizeof(_lightingUniforms.pcssCascadeDepthRanges));
 
         // CSM: pack cascade matrix palette, distances, and params.
@@ -257,7 +257,7 @@ namespace visutwin::canvas
         std::memcpy(_lightingUniforms.shadowMatrixPalette,
                     shadowParams.shadowMatrixPalette,
                     sizeof(_lightingUniforms.shadowMatrixPalette));
-        std::memcpy(_lightingUniforms.shadowCascadeDistances,
+        std::memcpy(&_lightingUniforms.shadowCascadeDistances,
                     shadowParams.shadowCascadeDistances,
                     sizeof(_lightingUniforms.shadowCascadeDistances));
         _lightingUniforms.shadowCascadeParams[0] = static_cast<float>(shadowParams.numCascades);
@@ -277,7 +277,7 @@ namespace visutwin::canvas
         // Helper lambda to pack a local shadow entry.
         auto packLocalShadow = [&](int idx, const ShadowParams::LocalShadow& ls) {
             float* matDst = (idx == 0) ? _lightingUniforms.localShadowMatrix0 : _lightingUniforms.localShadowMatrix1;
-            float* paramsDst = (idx == 0) ? _lightingUniforms.localShadowParams0 : _lightingUniforms.localShadowParams1;
+            float* paramsDst = (idx == 0) ? &_lightingUniforms.localShadowParams0.x : &_lightingUniforms.localShadowParams1.x;
 
             if (ls.isOmni) {
                 // Omni: bind cubemap texture, pack omni-specific params.
@@ -327,7 +327,7 @@ namespace visutwin::canvas
             paramsDst[2] = ls.intensity;
             paramsDst[3] = ls.isOmni ? 1.0f : 0.0f;  // Flag: 1=omni cubemap, 0=spot 2D
 
-            float* pcssDst = (idx == 0) ? _lightingUniforms.localShadowPcss0 : _lightingUniforms.localShadowPcss1;
+            float* pcssDst = (idx == 0) ? &_lightingUniforms.localShadowPcss0.x : &_lightingUniforms.localShadowPcss1.x;
             pcssDst[0] = ls.pcssSearchArea;
             pcssDst[1] = ls.nearClip;
             pcssDst[2] = ls.farClip;
@@ -340,13 +340,13 @@ namespace visutwin::canvas
             } else {
                 // Clear unused slots.
                 float* matDst = (i == 0) ? _lightingUniforms.localShadowMatrix0 : _lightingUniforms.localShadowMatrix1;
-                float* paramsDst = (i == 0) ? _lightingUniforms.localShadowParams0 : _lightingUniforms.localShadowParams1;
+                float* paramsDst = (i == 0) ? &_lightingUniforms.localShadowParams0.x : &_lightingUniforms.localShadowParams1.x;
                 std::memset(matDst, 0, 16 * sizeof(float));
                 paramsDst[0] = 0.0001f;
                 paramsDst[1] = 0.0f;
                 paramsDst[2] = 1.0f;
                 paramsDst[3] = 0.0f;
-                float* pcssDst = (i == 0) ? _lightingUniforms.localShadowPcss0 : _lightingUniforms.localShadowPcss1;
+                float* pcssDst = (i == 0) ? &_lightingUniforms.localShadowPcss0.x : &_lightingUniforms.localShadowPcss1.x;
                 pcssDst[0] = 0.0f;
             }
         }
