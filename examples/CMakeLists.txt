@@ -78,11 +78,12 @@ add_executable(visutwin-edge-detect MACOSX_BUNDLE
 target_link_libraries(visutwin-edge-detect PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-edge-detect com.visutwin.edge-detect)
 
-add_executable(visutwin-texture-stream MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/texture-stream-example.cpp
+add_executable(visutwin-orbit MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/orbit-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
 )
-target_link_libraries(visutwin-texture-stream PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-texture-stream com.visutwin.texture-stream)
+target_link_libraries(visutwin-orbit PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-orbit com.visutwin.orbit)
 
 add_executable(visutwin-ambient-occlusion MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/ambient-occlusion-example.cpp
@@ -110,18 +111,6 @@ add_executable(visutwin-instancing-basic MACOSX_BUNDLE
 target_link_libraries(visutwin-instancing-basic PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-instancing-basic com.visutwin.instancing-basic)
 
-add_executable(visutwin-instancing-culled MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/instancing-culled-example.cpp
-)
-target_link_libraries(visutwin-instancing-culled PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-instancing-culled com.visutwin.instancing-culled)
-
-add_executable(visutwin-assimp-loader MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/assimp-loader-example.cpp
-)
-target_link_libraries(visutwin-assimp-loader PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-assimp-loader com.visutwin.assimp-loader)
-
 add_executable(visutwin-reflection-planar-blurred MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/reflection-planar-blurred-example.cpp
     ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
@@ -142,12 +131,6 @@ add_executable(visutwin-anim-stategraph MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-anim-stategraph PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-anim-stategraph com.visutwin.anim-stategraph)
-
-add_executable(visutwin-env-reproject-test
-    ${VISUTWIN_ROOT_DIR}/examples/src/env-reproject-test-example.cpp
-)
-target_link_libraries(visutwin-env-reproject-test PRIVATE visutwin-canvas)
-target_compile_definitions(visutwin-env-reproject-test PRIVATE ASSET_DIR="${VISUTWIN_ASSET_DIR}")
 
 add_executable(visutwin-lightmap-bake MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/lightmap-bake-example.cpp

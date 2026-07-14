@@ -112,7 +112,6 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | orbit | Orbital camera with GLB model and environment lighting |
 | taa | Temporal anti-aliasing with a PBR scene |
 | glb-loader | Loading and rendering GLB models |
-| assimp-loader | Multi-format model loading via Assimp |
 | material-test | PBR material properties (metalness, gloss, normal maps) |
 | material-stubs | Spec-gloss, Oren-Nayar, detail normals, displacement |
 | mesh-decals | Decal projection |
@@ -136,18 +135,15 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | anim-stategraph | Animation state graph with blend trees |
 | morph-anim | Morph-weight animation + skinned culling |
 | instancing-basic | GPU instancing |
-| instancing-culled | 10,000 instances with per-frame GPU frustum culling |
 | layers | Render layer composition |
 | multi-view | Multiple camera viewports |
 | render-to-texture | Off-screen rendering |
 | lightmap-bake | CPU-baked lightmap (soft shadows + AO) applied at UV1 |
-| texture-stream | Dynamic texture updates |
 | raycast | Mouse picking via ray casting |
 | area-picker | Area selection / picking |
 | gizmo-translate | Transform gizmo interaction |
 | outline-viewcube | Selection outlines + orientation view cube |
 | world-to-screen | Screen-space UI with world anchors |
-| env-reproject-test | Environment-atlas bake / reproject test (mipmap, GGX, Lambert) |
 
 A shared `cameraControls` utility provides orbit, fly, focus, and auto far-clip camera modes across examples.
 
