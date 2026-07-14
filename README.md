@@ -10,28 +10,42 @@ VisuTwin Canvas ports PlayCanvas's architecture, class hierarchy, and algorithms
 
 ## Features
 
-- **PBR rendering** with metalness/roughness workflow, normal maps, environment lighting
-- **Forward renderer** with multi-light support (directional, point, spot, area rect)
-- **Shadow mapping** with PCF and **EVSM_16F** (Exponential Variance Shadow Maps with separable Gaussian blur and Chebyshev sampling) for directional lights, plus spot/point depth maps and omnidirectional cubemap shadows
-- **Post-processing**: TAA, SSAO, bloom, depth of field, tone mapping (Linear, Filmic, ACES, **ACES2**, Neutral, None), edge detection
-- **Clustered lighting** for many-light scenes
-- **Scene graph** with entity-component system (11 component types)
-- **GLB/glTF loading** with Draco mesh decompression
-- **Skybox rendering** (box, dome, infinite) via cubemap or equirectangular environment atlas
-- **Transform gizmos** (translate, rotate, scale)
-- **Screen-space UI** with anchored elements, buttons, text rendering
-- **GPU instancing** with per-instance color and optional per-frame GPU frustum culling (compute-driven indirect draw)
-- **Dynamic batching** with bone-index matrix palette
-- **Planar reflections** with distance-based blur
-- **Shadow catcher** materials (multiplicative ground plane shadows)
-- **Clearcoat, anisotropy, parallax, transmission, sheen, iridescence** PBR extensions
-- **Vertex color** rendering and **point-size** primitives
-- **Surface LIC** flow visualization shader path
-- **SIMD math** with SSE, ARM NEON, and Apple SIMD backends (scalar fallback default)
-- **ImGui overlay** with Metal/SDL3 bindings for digital twin HUD rendering
-- **Immediate-mode rendering** API for debug lines and primitives
-- **Gaussian splatting** unified rendering pipeline
-- **Layer composition** with render action scheduling
+### Rendering & materials
+- **Forward PBR renderer** (metalness/roughness) with multi-light support (directional, point, spot, rectangular/disk/spherical **area lights** via LTC) and a frame-graph pass scheduler
+- **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, parallax, **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (UDN), and vertex-stage **displacement mapping**
+- **Image-based lighting**: environment atlas (GGX/Lambert prefiltered), HDR cubemap skybox, **ambient SH light probes**, and **box-projected cubemap reflection probes** (parallax-corrected local reflections)
+- **Dynamic grab-pass refraction** with chromatic **dispersion** and KHR_materials_volume Beer-law attenuation
+- **Vertex colors**, **point-size** primitives, **opacity dither** (Bayer8 order-independent transparency), and **lightmap** (UV1) sampling
+- **GPU instancing** with per-instance color and optional per-frame GPU frustum culling (compute-driven indirect draw), plus **dynamic batching** with a bone-index matrix palette
+
+### Lighting & shadows
+- **Cascaded shadow maps** (4-cascade PSSM with cross-cascade blending and distance fade)
+- **PCF**, **EVSM_16F** (Exponential Variance Shadow Maps: separable Gaussian blur, Chebyshev sampling, caster-AABB depth tightening), and **PCSS** contact-hardening soft shadows for directional lights
+- **Spot/point** 2D depth maps and **omnidirectional cubemap** shadows, with PCSS also supported on spot/omni local lights
+- **Clustered lighting** for many-light scenes, plus a **shadow catcher** material for compositing
+
+### Animation & geometry
+- **GPU skinning** (4-bone weighted blend) and **morph targets**, with skinned-mesh bone-AABB frustum culling
+- **Animation state graph** (state machine, 1D/2D/directional/direct blend trees, typed parameters, crossfades) alongside the legacy animation component
+- **Morph-weight animation** from glTF `weights` channels
+
+### Gaussian splatting & particles
+- **Gaussian splatting** (classic path): 3DGS PLY loading, CPU-precomputed covariance, background depth sorter, EWA screen-space projection — with **view-dependent spherical harmonics** (bands 1–3) and the SuperSplat **`.compressed.ply`** quantized format
+- **GPU particle system**: compute-simulated pool, curve-driven size/color/alpha over life, box/sphere emitters, sprite-sheet animation, additive/normal/premultiplied blending
+
+### Post-processing & tooling
+- **TAA**, **SSAO**, **bloom**, **depth of field**, **edge detection**, and a compose chain with **color grading**, **3D LUT**, chromatic **fringing**, **color enhance**, **vignette**, and tone mapping (Linear, Filmic, ACES, **ACES2**, Neutral, None)
+- **Planar reflections** with distance-based blur, **atmosphere/sky scattering** (Nishita), and **surface LIC** flow visualization
+- **GPU timestamp profiler** (per-pass MTLCounterSampleBuffer timings)
+- **KTX2/Basis compressed textures** transcoded to ASTC 4×4 on the loader thread
+- **ImGui overlay** (Metal/SDL3 bindings) for digital-twin HUDs, **immediate-mode** debug rendering, **transform gizmos**, and an **outline renderer** + **view cube** (extras)
+
+### Foundation
+- **Scene graph** with an entity-component system (13 component types) and layer composition with render-action scheduling
+- **GLB/glTF loading** with Draco decompression, plus OBJ/STL/Assimp parsers
+- **Screen-space UI** with anchored elements, buttons, and text rendering
+- **SIMD math** with SSE, ARM NEON, and Apple SIMD backends (Apple SIMD active on Apple Silicon)
+- **ShaderChunks registry**: 24 named, user-overridable Metal micro-chunks with cache-invalidation hashing, plus build-time-embedded standalone shaders
 - **XR / ARKit** framework (in development)
 
 ## Supported Platforms
@@ -59,6 +73,8 @@ cmake --preset default
 cmake --build build
 ```
 
+Presets: `default` (Debug), `release`, `geo` (adds geospatial dependencies).
+
 ### Dependencies
 
 All dependencies are managed via vcpkg (see `vcpkg.json`):
@@ -71,6 +87,7 @@ All dependencies are managed via vcpkg (see `vcpkg.json`):
 | tinygltf | glTF/GLB parsing |
 | draco | Mesh compression |
 | assimp | Multi-format model loading |
+| basisu | KTX2/Basis texture transcoding |
 | Boost.Core | Core utilities |
 | imgui | UI overlay (Metal + SDL3 bindings, docking) |
 | implot | Chart and plotting for ImGui |
@@ -87,30 +104,45 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 
 ## Examples
 
-21 example applications in `examples/`:
+36 example applications in `examples/`:
 
 | Example | Description |
 |---------|-------------|
 | orbit | Orbital camera with GLB model and environment lighting |
-| taa | Temporal anti-aliasing with PBR scene |
+| taa | Temporal anti-aliasing with a PBR scene |
 | glb-loader | Loading and rendering GLB models |
+| assimp-loader | Multi-format model loading via Assimp |
 | material-test | PBR material properties (metalness, gloss, normal maps) |
+| material-stubs | Spec-gloss, Oren-Nayar, detail normals, displacement |
+| mesh-decals | Decal projection |
 | shadow-cascades | Cascaded shadow maps |
+| pcss-dither | PCSS soft shadows + opacity dither |
+| pcss-local | Spot/omni PCSS contact-hardening shadows |
 | ambient-occlusion | Screen-space ambient occlusion |
-| layers | Render layer composition |
-| multi-view | Multiple camera viewports |
-| raycast | Mouse picking via ray casting |
-| gizmo-translate | Transform gizmo interaction |
+| light-probes | Ambient SH light probes |
+| area-light | LTC area lights (rect / disk / sphere) |
+| reflection-planar-blurred | Planar reflections with blur |
+| reflection-probe | Box-projected cubemap reflection probe |
+| refraction | Dynamic grab-pass refraction + dispersion + volume |
 | edge-detect | Post-processing edge detection |
-| render-to-texture | Off-screen rendering |
+| shader-chunks | ShaderChunks registry overrides (global + per-material) |
+| gsplat | Gaussian splatting (classic path) |
+| gsplat-tier2 | Splatting with view-dependent SH + compressed PLY |
+| particles | GPU particle system (fire / smoke / sparks) |
+| animation | Skeletal animation playback (GPU skinning) |
+| anim-stategraph | Animation state graph with blend trees |
+| morph-anim | Morph-weight animation + skinned culling |
 | instancing-basic | GPU instancing |
 | instancing-culled | 10,000 instances with per-frame GPU frustum culling |
-| reflection-planar-blurred | Planar reflections with blur |
+| layers | Render layer composition |
+| multi-view | Multiple camera viewports |
+| render-to-texture | Off-screen rendering |
 | texture-stream | Dynamic texture updates |
-| world-to-screen | Screen-space UI with world anchors |
-| animation | Skeletal animation playback |
-| assimp-loader | Multi-format model loading via Assimp |
+| raycast | Mouse picking via ray casting |
 | area-picker | Area selection / picking |
+| gizmo-translate | Transform gizmo interaction |
+| outline-viewcube | Selection outlines + orientation view cube |
+| world-to-screen | Screen-space UI with world anchors |
 | env-reproject-test | Environment-atlas bake / reproject test (mipmap, GGX, Lambert) |
 
 A shared `cameraControls` utility provides orbit, fly, focus, and auto far-clip camera modes across examples.
@@ -125,7 +157,7 @@ open build/examples/visutwin-taa.app
 
 ### Example Assets
 
-Examples expect asset files in the `assets/` directory. You need to provide your own models, textures, and environment maps. See `assets/` for the expected directory structure.
+Examples expect asset files in the `assets/` directory. Some examples generate their test assets procedurally; others need models, textures, or HDR environment maps you provide.
 
 Recommended free asset sources:
 - [Poly Haven](https://polyhaven.com/) (CC0 HDR environment maps and textures)
@@ -135,62 +167,72 @@ Recommended free asset sources:
 
 ```
 visutwin-canvas/
-├── engine/                        # Engine library (422 source files)
+├── engine/                        # Engine library (478 C++ source files)
 │   ├── src/
-│   │   ├── core/                  # Math, events, tags, shapes, utilities
+│   │   ├── core/                  # Math, events, tags, shapes, curves, utilities
 │   │   ├── platform/
 │   │   │   ├── graphics/          # Graphics abstraction layer
-│   │   │   │   ├── metal/         # Metal backend
+│   │   │   │   ├── metal/         # Metal backend (+ 11 compute/post passes)
 │   │   │   │   └── vulkan/        # Vulkan backend (WIP)
 │   │   │   └── input/             # Keyboard, mouse, gamepad, touch
 │   │   ├── scene/                 # Scene graph, renderer, materials, lighting
 │   │   │   ├── composition/       # Layer composition, render actions
-│   │   │   ├── graphics/          # Post-processing passes (TAA, SSAO, bloom, DoF, etc.)
-│   │   │   ├── gsplay-unified/    # Gaussian splatting (stub)
+│   │   │   ├── graphics/          # Env lighting, embedded LTC LUTs
+│   │   │   ├── gsplat/            # Gaussian splatting (data, sorter, resource)
+│   │   │   ├── particles/         # GPU particle emitter
+│   │   │   ├── renderer/          # Forward renderer + render passes
+│   │   │   ├── shader-lib/        # ProgramLibrary + ShaderChunks registry
 │   │   │   └── immediate/         # Immediate-mode rendering
 │   │   ├── framework/             # Engine, Entity, Components, ECS
-│   │   │   ├── xr/                # XR / ARKit support
-│   │   │   └── gizmo/             # Transform gizmos
-│   │   ├── viz/
-│   │   │   └── overlay/           # ImGui overlay for digital twin HUD
-│   │   ├── extras/                # Input utilities
+│   │   │   ├── anim/              # Animation state graph + controller
+│   │   │   ├── components/        # 13 component types
+│   │   │   ├── extras/            # Outline renderer, view cube
+│   │   │   ├── gizmo/             # Transform gizmos
+│   │   │   └── xr/                # XR / ARKit support
+│   │   ├── viz/overlay/           # ImGui overlay for digital-twin HUD
 │   │   └── util/                  # General utilities
 │   ├── lib/                       # Vendored: metal-cpp, stb
-│   └── shaders/metal/chunks/      # 7 composable Metal shader chunks (41 feature toggles)
-├── examples/                      # 21 example applications
+│   └── shaders/metal/
+│       ├── chunks/                # 24 composable Metal shader micro-chunks
+│       └── embedded/              # Standalone shaders embedded at build time
+├── examples/                      # 36 example applications
 ├── tools/                         # Build and utility tools
-└── assets/                        # Example assets (user-provided)
+└── assets/                        # Example assets (some procedural, some user-provided)
 ```
+
+Sibling repositories (separate CMake projects): `visutwin-geo` (geospatial — WGS84, 3D Tiles, globe camera, atmosphere) and `visutwin-viz` (scientific visualization — volume rendering, marching cubes, streamlines).
 
 ## Implementation Status
 
 | Module | Coverage | Notes |
 |--------|----------|-------|
-| Core / Math | ~75% | Vector2/3/4, Matrix4, Quaternion, Curve, Color, Random |
+| Core / Math | ~80% | Vector2/3/4, Matrix4, Quaternion, Curve, Color, Random (SIMD multi-backend) |
 | Core / Events | ~95% | EventHandler, EventHandle |
 | Core / Shapes | ~70% | BoundingBox, BoundingSphere, OrientedBox, Plane, Ray, Tri |
-| Scene / Renderer | ~70% | Forward PBR, frustum culling, layer sorting |
-| Scene / Materials | ~75% | StandardMaterial with 67 properties; clearcoat, sheen, iridescence, transmission, anisotropy, parallax all functional |
-| Scene / Lighting | ~65% | Directional + point + spot + area rect, clustered lighting |
-| Scene / Shadows | ~80% | Full 4-cascade CSM with PSSM splits and cross-cascade blending, **PCF + EVSM_16F (Exponential VSM with separable Gaussian blur, Chebyshev sampling, caster-AABB depth tightening)** for directional, spot/point depth maps, omni cubemaps |
-| Scene / Shader-lib | ~75% | 7 Metal chunks (2k+ lines), 35 features implemented (incl. `VT_FEATURE_VSM_SHADOWS`), 7 stubbed |
-| Scene / Graphics | ~50% | Environment atlas, HDR cubemap, 14 post-processing passes |
-| Scene / Composition | ~50% | Layer composition, render action scheduling |
-| Graphics / Metal | ~40% | Buffer, texture, pipeline functional |
+| Scene / Renderer | ~75% | Forward PBR, frame graph, frustum culling, layer sorting |
+| Scene / Materials | ~85% | StandardMaterial: clearcoat, sheen, iridescence, transmission (+dispersion/volume), anisotropy, parallax, spec-gloss, Oren-Nayar, detail normals, displacement — all functional |
+| Scene / Lighting | ~75% | Directional/point/spot + LTC area (rect/disk/sphere), clustered lighting, ambient SH probes, box-projected reflection probes |
+| Scene / Shadows | ~85% | 4-cascade CSM (PSSM + blending), PCF/EVSM_16F/PCSS for directional, spot/point depth maps + omni cubemaps, PCSS on local lights |
+| Scene / Shader-lib | ~85% | ShaderChunks registry: 24 micro-chunks (+3 embedded standalone), 50 features implemented, **0 stubbed** |
+| Scene / Graphics | ~55% | Environment atlas, HDR cubemap, GPU profiler, 11 Metal compute/post passes |
+| Scene / GSplat | ~55% | Classic path + view-dependent SH (bands 1–3) + compressed PLY; SOG/unified octree deferred |
+| Graphics / Metal | ~55% | Buffers, textures, pipelines, compressed formats (ASTC/BC), compute |
 | Graphics / Vulkan | ~10% | File structure in place, minimal implementation |
 | Framework / ECS | ~70% | Engine, Entity, ComponentSystem, Script |
-| Framework / Components | ~35% | 11 types: Camera, Render, Light, Script, Animation, Screen, Element, Button, Collision, RigidBody, GSplat |
+| Framework / Components | ~45% | 13 types: Camera, Render, Light, Script, Animation, Anim (state graph), Screen, Element, Button, Collision, RigidBody, GSplat, ParticleSystem |
+| Framework / Animation | ~70% | GPU skinning, morph targets, state graph + blend trees, morph-weight animation |
 | Framework / Gizmo | ~70% | Translate, rotate, scale gizmos |
-| Framework / Assets | ~50% | GLB/glTF loading, 3 resource handlers (texture, container, font) |
-| Viz / Overlay | New | ImGui-based digital twin HUD with 3D-anchored labels |
+| Framework / Assets | ~55% | GLB/glTF (+Draco), OBJ/STL/Assimp, KTX2→ASTC, 3 resource handlers |
+| Viz / Overlay | New | ImGui-based digital-twin HUD with 3D-anchored labels |
 
 ### Known Limitations
 
 - Metal is the primary graphics backend; Vulkan is in early development
-- Skeletal animation GPU path not implemented (SkinInstance/MorphInstance are stubs)
-- 7 shader features stubbed (light probes, skinning, morphs, spec-gloss, Oren-Nayar, detail normals, displacement)
-- Gaussian splatting component registered but not implemented (empty directory)
-- No texture streaming or progressive mip-level loading
+- Vulkan trails Metal on most recently added features
+- No audio subsystem; no Sprite / layout / scroll-view UI components
+- Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported
+- Reflection probes use a supplied cubemap (procedural, authored, or from the skybox); scene-capture bake and GGX cube prefilter are deferred
+- Texture streaming is partial (no progressive mip-level budgeting); the lightmapper baker is a stub
 
 ## Attribution
 
