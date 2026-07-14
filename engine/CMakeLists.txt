@@ -95,9 +95,45 @@ if(NOT VISUTWIN_BACKEND_VULKAN)
     list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/vulkan/.*")
 endif()
 
+# ── Embedded Metal shaders ────────────────────────────────────────────
+# Self-contained MSL programs (particle sim/render, gsplat render) live as
+# editable .metal files but are embedded into the binary at build time as
+# raw-string constants — no runtime filesystem dependency (mirrors the
+# areaLightLuts embed, unlike the runtime-loaded ShaderChunks registry).
+set(_MSL_EMBED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shaders")
+file(MAKE_DIRECTORY "${_MSL_EMBED_DIR}")
+
+set(_MSL_EMBEDS
+    "particle-sim.metal|PARTICLE_SIM_KERNEL"
+    "particle-render.metal|PARTICLE_SHADER_SOURCE"
+    "gsplat-render.metal|GSPLAT_SHADER_SOURCE"
+)
+set(_MSL_EMBED_OUTPUTS "")
+foreach(_entry IN LISTS _MSL_EMBEDS)
+    string(REPLACE "|" ";" _parts "${_entry}")
+    list(GET _parts 0 _msl_name)
+    list(GET _parts 1 _msl_var)
+    set(_msl_src "${VISUTWIN_ROOT_DIR}/engine/shaders/metal/embedded/${_msl_name}")
+    set(_msl_dst "${_MSL_EMBED_DIR}/${_msl_name}.inc")
+    add_custom_command(
+        OUTPUT "${_msl_dst}"
+        COMMAND ${CMAKE_COMMAND}
+            -DSRC=${_msl_src} -DDST=${_msl_dst} -DVAR=${_msl_var}
+            -P ${VISUTWIN_ROOT_DIR}/tools/embed_msl.cmake
+        DEPENDS "${_msl_src}" "${VISUTWIN_ROOT_DIR}/tools/embed_msl.cmake"
+        COMMENT "Embedding MSL ${_msl_name}"
+        VERBATIM)
+    list(APPEND _MSL_EMBED_OUTPUTS "${_msl_dst}")
+endforeach()
+add_custom_target(visutwin_embedded_shaders DEPENDS ${_MSL_EMBED_OUTPUTS})
+
 add_library(visutwin-canvas STATIC
     ${VISUTWIN_CANVAS_SOURCES}
 )
+
+# Generate the embed headers before compiling, and expose their include dir.
+add_dependencies(visutwin-canvas visutwin_embedded_shaders)
+target_include_directories(visutwin-canvas PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 add_library(visutwin::canvas ALIAS visutwin-canvas)
 
