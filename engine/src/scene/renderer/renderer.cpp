@@ -165,12 +165,13 @@ namespace visutwin::canvas
         _shadowRendererLocal = std::make_unique<ShadowRendererLocal>(this, _shadowRenderer.get());
         _shadowRendererDirectional = std::make_unique<ShadowRendererDirectional>(device, this, _shadowRenderer.get());
 
-        if (scene->clusteredLightingEnabled())
-        {
-            _renderPassUpdateClustered = std::make_unique<RenderPassUpdateClustered>(
-                device, this, _shadowRenderer.get(), _shadowRendererLocal.get(), _lightTextureAtlas.get()
-            );
-        }
+        // Always construct the clustered update pass so clustered lighting can be
+        // toggled on the scene at any time (it is only added to the frame graph by
+        // ForwardRenderer when clusteredLightingEnabled() is true). Constructing it
+        // unconditionally avoids a null deref when clustering is enabled after init.
+        _renderPassUpdateClustered = std::make_unique<RenderPassUpdateClustered>(
+            device, this, _shadowRenderer.get(), _shadowRendererLocal.get(), _lightTextureAtlas.get()
+        );
 
     }
 

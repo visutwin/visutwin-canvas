@@ -22,7 +22,10 @@ namespace visutwin::canvas
         int cellsX = 12;
         int cellsY = 16;
         int cellsZ = 12;
-        int maxLightsPerCell = 12;
+        // Max lights bucketed per grid cell (matches upstream clustered-lighting default).
+        // The fragment shader loops up to this count dynamically, so raising it only
+        // costs a little cell-index memory (totalCells * maxLightsPerCell bytes).
+        int maxLightsPerCell = 48;
 
         int totalCells() const { return cellsX * cellsY * cellsZ; }
     };

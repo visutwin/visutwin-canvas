@@ -141,6 +141,13 @@ add_executable(visutwin-custom-shader MACOSX_BUNDLE
 target_link_libraries(visutwin-custom-shader PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-custom-shader com.visutwin.custom-shader)
 
+add_executable(visutwin-clustered-lighting MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/clustered-lighting-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-clustered-lighting PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-clustered-lighting com.visutwin.clustered-lighting)
+
 add_executable(visutwin-shadow-cascades MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/shadow-cascades-example.cpp
     ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp

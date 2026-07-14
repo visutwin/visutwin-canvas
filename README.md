@@ -123,6 +123,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | custom-shader | ShaderMaterial with a user-supplied Metal toon shader |
 | mesh-decals | Decal projection |
 | shadow-cascades | Cascaded shadow maps |
+| clustered-lighting | Many local lights via 3D cluster grid |
 | pcss-dither | PCSS soft shadows + opacity dither |
 | pcss-local | Spot/omni PCSS contact-hardening shadows |
 | ambient-occlusion | Screen-space ambient occlusion |
