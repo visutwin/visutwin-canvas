@@ -66,6 +66,10 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #if VT_FEATURE_SSR
                                   depth2d<float> ssrSceneDepthTexture [[texture(25)]],
 #endif
+#if VT_FEATURE_LIGHT_CLUSTERING
+                                  // Clustered spot-shadow atlas (LightTextureAtlas): one slice per light.
+                                  depth2d_array<float> clusterShadowAtlas [[texture(26)]],
+#endif
 #if VT_FEATURE_ATMOSPHERE
                                   constant AtmosphereData &atmosphere [[buffer(9)]],
 #endif

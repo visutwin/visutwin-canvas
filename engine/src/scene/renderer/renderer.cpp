@@ -79,6 +79,7 @@ namespace visutwin::canvas
         {
             GpuLightData light;
             uint32_t mask = MASK_AFFECT_DYNAMIC;
+            Light* sceneLight = nullptr;  // for clustered spot-shadow atlas lookup
         };
 
         uint64_t makeOpaqueSortKey(const MeshInstance* meshInstance)
@@ -826,6 +827,7 @@ namespace visutwin::canvas
             LightDispatchEntry dispatchEntry{};
             dispatchEntry.light = lightData;
             dispatchEntry.mask = lightComponent->mask();
+            dispatchEntry.sceneLight = lightComponent->light();
 
             if (dispatchEntry.light.type == GpuLightType::Directional) {
                 directionalLights.push_back(dispatchEntry);
@@ -889,9 +891,10 @@ namespace visutwin::canvas
                 const auto& ld = dispatchEntry.light;
                 // Area rect lights are not clustered — they go through the main 8-light array.
                 if (ld.type == GpuLightType::AreaRect) continue;
-                // Shadow-casting local lights are evaluated via the main light array
-                // (with real shadows), so keep them out of the grid to avoid double-lighting.
-                if (ld.castShadows) continue;
+                // Shadow-casting OMNI/POINT lights are evaluated via the main light array
+                // (bounded). Shadow-casting SPOTS stay in the grid and get a real shadow
+                // from the LightTextureAtlas (below). Unshadowed lights: grid, no shadow.
+                if (ld.castShadows && ld.type != GpuLightType::Spot) continue;
                 ClusterLightData lcd;
                 lcd.position = ld.position;
                 lcd.direction = ld.direction;
@@ -904,6 +907,17 @@ namespace visutwin::canvas
                     * (360.0f / std::numbers::pi_v<float>);
                 lcd.isSpot = (ld.type == GpuLightType::Spot);
                 lcd.falloffModeLinear = ld.falloffModeLinear;
+
+                // Clustered spot shadow: pull the atlas slice + VP matrix computed by
+                // cullLocalLights + LightTextureAtlas::allocate this frame.
+                if (ld.castShadows && ld.type == GpuLightType::Spot && dispatchEntry.sceneLight &&
+                    dispatchEntry.sceneLight->atlasSlice() >= 0) {
+                    lcd.castShadows = true;
+                    lcd.shadowMatrix = dispatchEntry.sceneLight->shadowViewProjection();
+                    lcd.atlasSlice = dispatchEntry.sceneLight->atlasSlice();
+                    lcd.shadowBias = dispatchEntry.sceneLight->shadowBias();
+                    lcd.shadowIntensity = dispatchEntry.sceneLight->shadowIntensity();
+                }
                 clusterLocalLights.push_back(lcd);
             }
 
@@ -914,6 +928,11 @@ namespace visutwin::canvas
             BoundingBox cameraBounds(cameraPosition, Vector3(50.0f, 50.0f, 50.0f));
 
             _worldClusters->update(clusterLocalLights, cameraBounds);
+
+            // Bind the clustered spot-shadow atlas (depth array) for this frame.
+            if (_lightTextureAtlas) {
+                _device->setClusterShadowAtlas(_lightTextureAtlas->shadowArrayTexture());
+            }
 
             // Bind cluster GPU buffers.
             if (_worldClusters->lightCount() > 0) {
@@ -978,7 +997,13 @@ namespace visutwin::canvas
                 if (out.size() >= 8) break;
                 if ((dispatchEntry.mask & mask) == 0u) continue;
                 if (dispatchEntry.light.type == GpuLightType::AreaRect) continue;  // already added above
-                if (clusteredEnabled && !dispatchEntry.light.castShadows) continue; // → cluster grid
+                // Clustered mode: only shadow-casting OMNI/POINT lights use the main array
+                // (bounded). Unshadowed lights and shadow-casting SPOTS go to the cluster
+                // grid (spots get a real shadow from the LightTextureAtlas).
+                if (clusteredEnabled &&
+                    !(dispatchEntry.light.castShadows && dispatchEntry.light.type != GpuLightType::Spot)) {
+                    continue;
+                }
                 out.push_back(dispatchEntry.light);
             }
         };

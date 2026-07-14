@@ -5,7 +5,7 @@
 // Many colored local lights (omni + spot) light a field of objects, plus a few
 // objects. With Scene::setClusteredLightingEnabled(true) the renderer buckets the
 // shadow-casting spots. The unshadowed lights are bucketed into a 3D world-space grid
-// (WorldClusters); the shadow-casters route through the main light array with shadows.
+// (WorldClusters); shadow-casting spots render into a per-light depth-array shadow atlas.
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -122,7 +122,7 @@ int main()
     scene->setClusteredLightingEnabled(true);
     scene->setToneMapping(TONEMAP_ACES);
     scene->setExposure(1.0f);
-    scene->setAmbientLight(0.05f, 0.05f, 0.07f);
+    scene->setAmbientLight(0.06f, 0.06f, 0.08f);
 
     // --- Ground plane ---
     auto* groundMaterial = new StandardMaterial();
@@ -200,13 +200,14 @@ int main()
         lights.push_back(dl);
     };
 
-    for (int i = 0; i < 24; ++i) addLight(false); // omni
-    for (int i = 0; i < 8; ++i)  addLight(true);  // spot
+    for (int i = 0; i < 16; ++i) addLight(false); // omni
+    for (int i = 0; i < 4; ++i)  addLight(true);  // spot
 
-    // --- A few SHADOW-CASTING spot lights ---
-    // These route through the main light array (not the cluster grid) so they cast
-    // real shadows even with clustered lighting enabled; the objects below them
-    // drop shadows onto the ground.
+    // --- Many SHADOW-CASTING spot lights ---
+    // Each renders into its own slice of the clustered shadow atlas (a depth
+    // texture2d_array) and is sampled directly by the clustered fragment shader —
+    // so the count is NOT bounded by the 8-slot main light array. Here we place 12
+    // (> 8) angled shadow-casting spots so their objects drop shadows on the ground.
     auto addShadowSpot = [&](const Vector3& pos, float pitchDeg, float yawDeg, const Color& color) {
         auto* light = new Entity();
         light->setEngine(engine.get());
@@ -233,9 +234,21 @@ int main()
         engine->root()->addChild(createPrimitive(engine.get(), "cone", markerMat,
             pos, Vector3(1.2f, 1.2f, 1.2f)));
     };
-    addShadowSpot(Vector3(  0.0f, 30.0f,  20.0f), 58.0f,   0.0f, Color(1.0f, 1.0f, 1.0f));
-    addShadowSpot(Vector3(-22.0f, 30.0f, -14.0f), 58.0f, 120.0f, Color(1.0f, 0.85f, 0.6f));
-    addShadowSpot(Vector3( 22.0f, 30.0f, -14.0f), 58.0f, 240.0f, Color(0.6f, 0.85f, 1.0f));
+    {
+        const Color spotCols[4] = {
+            Color(1.0f, 1.0f, 1.0f), Color(1.0f, 0.85f, 0.6f),
+            Color(0.6f, 0.85f, 1.0f), Color(0.8f, 1.0f, 0.7f)
+        };
+        int si = 0;
+        for (int cx = 0; cx < 4; ++cx) {
+            for (int cz = 0; cz < 3; ++cz) {
+                const float x = -27.0f + static_cast<float>(cx) * 18.0f;
+                const float z = -18.0f + static_cast<float>(cz) * 18.0f;
+                // All angled the same way so shadows stretch consistently toward the camera.
+                addShadowSpot(Vector3(x, 30.0f, z + 6.0f), 58.0f, 0.0f, spotCols[si++ % 4]);
+            }
+        }
+    }
 
     // --- A single dim directional fill so shadowed areas aren't pure black ---
     auto* dirLight = new Entity();
@@ -269,7 +282,7 @@ int main()
     cameraControls->storeResetState();
 
     spdlog::info("*** VisuTwin Clustered Lighting Example ***");
-    spdlog::info("{} clustered local lights (24 omni + 8 spot) + 3 shadow-casting spots.", lights.size());
+    spdlog::info("{} clustered local lights + 12 atlas shadow-casting spots.", lights.size());
     spdlog::info("Orbit: LMB/RMB, Wheel zoom, R reset, Esc quit.");
 
     bool running = true;

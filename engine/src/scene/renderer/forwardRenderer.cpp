@@ -26,15 +26,17 @@ namespace visutwin::canvas
         SkinInstance::beginFrame();
 
         // Cull + render local-light shadow maps for shadow-casting spot/point lights.
-        // This runs in BOTH clustered and non-clustered modes: shadow-casting local
-        // lights are always evaluated through the main light array (LightingData.lights[]),
-        // which samples their shadow maps. Under clustered lighting only the many
-        // *unshadowed* local lights are bucketed into the 3D cluster grid; the handful
-        // of shadow-casting ones keep working shadows via this path. (The clustered
-        // texture-atlas shadow path — RenderPassShadowLocalClustered — is a no-op while
-        // LightTextureAtlas is unimplemented, so we route local shadows here instead.)
+        // Runs in BOTH clustered and non-clustered modes. Routing under clustering:
+        //  - shadow-casting SPOTS render into the shared LightTextureAtlas (a depth
+        //    texture2d_array, one slice per spot) and are sampled directly by the
+        //    clustered fragment shader — arbitrarily many, not bounded by the main array;
+        //  - shadow-casting OMNI/POINT lights use their own cubemap shadow map and are
+        //    evaluated through the bounded main light array (LightingData.lights[]).
+        // Non-clustered mode: all shadow-casting locals use their own per-light maps.
+        const bool clusteredMode = _scene->clusteredLightingEnabled();
         {
-            std::vector<Light*> localShadowLights;
+            std::vector<Light*> localShadowLights;   // all shadow-casting locals (rendered)
+            std::vector<Light*> atlasSpotLights;     // clustered spots → atlas slices
             for (auto* lightComponent : LightComponent::instances()) {
                 if (!lightComponent || !lightComponent->enabled()) {
                     continue;
@@ -46,9 +48,18 @@ namespace visutwin::canvas
                     continue;
                 }
                 Light* sceneLight = lightComponent->light();
-                if (sceneLight) {
-                    localShadowLights.push_back(sceneLight);
+                if (!sceneLight) {
+                    continue;
                 }
+                localShadowLights.push_back(sceneLight);
+                if (clusteredMode && lightComponent->type() == LightType::LIGHTTYPE_SPOT) {
+                    atlasSpotLights.push_back(sceneLight);
+                }
+            }
+            // Wrap clustered spot ShadowMaps around atlas slices BEFORE culling, so
+            // cullLocalLights positions the cameras onto the atlas render targets.
+            if (clusteredMode && !atlasSpotLights.empty() && _lightTextureAtlas) {
+                _lightTextureAtlas->allocate(atlasSpotLights);
             }
             if (!localShadowLights.empty()) {
                 _shadowRendererLocal->cullLocalLights(localShadowLights, _device);
@@ -58,11 +69,12 @@ namespace visutwin::canvas
             _shadowRendererLocal->buildNonClusteredRenderPasses(frameGraph, localShadowLights);
         }
 
-        if (_scene->clusteredLightingEnabled())
+        if (clusteredMode)
         {
             const auto lighting = _scene->lighting();
-            // Local shadows are handled above via the main light array, so disable the
-            // (unimplemented) clustered atlas shadow path here; cookies still route through.
+            // Clustered spot shadows render into the atlas above (via the standard local
+            // shadow passes targeting atlas slices); disable RenderPassShadowLocalClustered's
+            // own (viewport-atlas) shadow path here. Cookies still route through.
             _renderPassUpdateClustered->update(frameGraph, false, lighting.cookiesEnabled,
                 _lights, _localLights);
             frameGraph->addRenderPass(_renderPassUpdateClustered);

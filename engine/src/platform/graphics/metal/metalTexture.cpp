@@ -129,6 +129,11 @@ namespace visutwin::canvas::gpu
         } else if (_texture->isVolume()) {
             _descriptor->setTextureType(MTL::TextureType3D);
             _descriptor->setDepth(_texture->depth());
+        } else if (_texture->isArray()) {
+            // 2D texture array — each layer is an independent render target / sampler
+            // slice. Used by the clustered local-shadow atlas (one slice per spot light).
+            _descriptor->setTextureType(MTL::TextureType2DArray);
+            _descriptor->setArrayLength(_texture->getArrayLength());
         }
 
         _metalTexture = device->raw()->newTexture(_descriptor);

@@ -48,6 +48,25 @@
 
                 if (attenuation < 0.00001) continue;
 
+                // Clustered spot shadow: sample this light's slice of the shadow atlas.
+                // shadowData: x=castShadows, y=bias, z=intensity, w=atlasSlice.
+                if (cl.shadowData.x > 0.5) {
+                    const float4 sc = cl.shadowMatrix * float4(rd.worldPos, 1.0);
+                    const float sw = max(sc.w, 1e-6);
+                    const float3 scoord = sc.xyz / sw;
+                    if (scoord.x >= 0.0 && scoord.x <= 1.0 &&
+                        scoord.y >= 0.0 && scoord.y <= 1.0 &&
+                        scoord.z >= 0.0 && scoord.z <= 1.0) {
+                        const uint slice = uint(cl.shadowData.w + 0.5);
+                        const float res = float(clusterShadowAtlas.get_width());
+                        if (res > 0.0) {
+                            const float vis = getShadowPCF3x3Array(clusterShadowAtlas, scoord.xy,
+                                scoord.z - cl.shadowData.y, res, slice);
+                            attenuation *= mix(1.0, vis, cl.shadowData.z);
+                        }
+                    }
+                }
+
                 // 6. PBR lighting (same GGX terms as the main light loop).
                 const float3 clL = normalize(lightDirW);
                 const float clNdotL = max(dot(N, clL), 0.0);

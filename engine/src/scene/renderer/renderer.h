@@ -71,6 +71,9 @@ namespace visutwin::canvas
 
         std::unique_ptr<ShadowRendererLocal> _shadowRendererLocal;
 
+        // Clustered spot-shadow atlas (depth texture2d_array). Accessed by ForwardRenderer.
+        std::unique_ptr<LightTextureAtlas> _lightTextureAtlas;
+
         // A list of all unique lights in the layer composition
         std::vector<Light*> _lights;
 
@@ -96,8 +99,6 @@ namespace visutwin::canvas
 
         std::unique_ptr<ShadowRenderer> _shadowRenderer;
         std::unique_ptr<ShadowRendererDirectional> _shadowRendererDirectional;
-
-        std::unique_ptr<LightTextureAtlas> _lightTextureAtlas;
 
         // LTC lookup textures for area lights — created lazily on first area light.
         AreaLightLuts::Textures _areaLightLuts;

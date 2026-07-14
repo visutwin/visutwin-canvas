@@ -225,6 +225,22 @@ namespace visutwin::canvas
             gpu.params[1] = ld.isSpot ? 1.0f : 0.0f;
             gpu.params[2] = ld.falloffModeLinear ? 1.0f : 0.0f;
             gpu.params[3] = 0.0f;
+
+            // Clustered spot shadow data (via LightTextureAtlas). Only spot lights
+            // with an allocated atlas slice cast a clustered shadow.
+            const bool hasShadow = ld.castShadows && ld.isSpot && ld.atlasSlice >= 0;
+            gpu.shadowData[0] = hasShadow ? 1.0f : 0.0f;
+            gpu.shadowData[1] = ld.shadowBias;
+            gpu.shadowData[2] = ld.shadowIntensity;
+            gpu.shadowData[3] = static_cast<float>(ld.atlasSlice);
+            if (hasShadow) {
+                // Column-major float4x4 for the GPU (dest[col*4+row] = M(row,col)).
+                for (int col = 0; col < 4; ++col) {
+                    for (int row = 0; row < 4; ++row) {
+                        gpu.shadowMatrix[col * 4 + row] = ld.shadowMatrix.getElement(row, col);
+                    }
+                }
+            }
         }
     }
 }

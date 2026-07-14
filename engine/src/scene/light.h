@@ -58,8 +58,14 @@ namespace visutwin::canvas
         Light(GraphicsDevice* graphicsDevice, bool clusteredLighting);
 
         bool atlasViewportAllocated() const { return _atlasViewportAllocated; }
+        void setAtlasViewportAllocated(bool value) { _atlasViewportAllocated = value; }
 
         bool atlasSlotUpdated() const { return _atlasSlotUpdated; }
+
+        // Clustered local-shadow atlas: index of this light's slice in the shared
+        // depth texture2d_array (LightTextureAtlas). -1 = not allocated.
+        int atlasSlice() const { return _atlasSlice; }
+        void setAtlasSlice(int value) { _atlasSlice = value; }
 
         bool enabled() const { return _enabled; }
         void setEnabled(const bool value) { _enabled = value; }
@@ -174,6 +180,8 @@ namespace visutwin::canvas
         bool _atlasViewportAllocated = false;
 
         bool _atlasSlotUpdated = false;
+
+        int _atlasSlice = -1;
 
         bool _enabled = false;
 

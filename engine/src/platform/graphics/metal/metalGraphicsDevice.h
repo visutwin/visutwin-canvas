@@ -89,6 +89,11 @@ namespace visutwin::canvas
             _areaLightLut2 = lut2;
         }
 
+        void setClusterShadowAtlas(Texture* atlas) override
+        {
+            _clusterShadowAtlas = atlas;
+        }
+
         void grabSceneColor(RenderTarget* source) override;
         void grabSceneDepth(RenderTarget* source) override;
         void generateCubemapMips(Texture* cubemap) override;
@@ -301,6 +306,7 @@ namespace visutwin::canvas
         // LTC area-light lookup textures (slots 20/21), owned by the renderer.
         Texture* _areaLightLut1 = nullptr;
         Texture* _areaLightLut2 = nullptr;
+        Texture* _clusterShadowAtlas = nullptr;  // clustered spot-shadow depth array (slot 26)
 
         // Scene color grab target (dynamic refraction): full-mip copy of the scene
         // color made by the depth-layer grab pass, wrapped for slot-22 binding.

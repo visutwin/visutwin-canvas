@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/math/color.h"
+#include "core/math/matrix4.h"
 #include "core/math/vector3.h"
 #include "core/shape/boundingBox.h"
 
@@ -31,8 +32,8 @@ namespace visutwin::canvas
     };
 
     /**
-     * GPU-side packed light struct (64 bytes, 16-byte aligned).
-     * Maps 1:1 to the Metal ClusteredLight struct in common.metal.
+     * GPU-side packed light struct (144 bytes, 16-byte aligned).
+     * Maps 1:1 to the Metal ClusteredLight struct in common-structs.metal.
      */
     struct alignas(16) GpuClusteredLight
     {
@@ -40,6 +41,9 @@ namespace visutwin::canvas
         float directionSpot[4] = {};     // xyz=direction, w=outerConeCos
         float colorIntensity[4] = {};    // xyz=color(linear), w=intensity
         float params[4] = {};            // x=innerConeCos, y=isSpot(0/1), z=falloffLinear(0/1), w=reserved
+        // Clustered spot shadows (LightTextureAtlas): world→atlas-slice shadow VP.
+        float shadowMatrix[16] = {};     // column-major float4x4 (GPU convention)
+        float shadowData[4] = {};        // x=castShadows(0/1), y=bias, z=intensity, w=atlasSlice(float)
     };
 
     /**
@@ -57,6 +61,13 @@ namespace visutwin::canvas
         float outerConeAngle = 45.0f;
         bool isSpot = false;
         bool falloffModeLinear = true;
+
+        // Clustered spot shadow (via LightTextureAtlas). castShadows=false → no shadow.
+        bool castShadows = false;
+        Matrix4 shadowMatrix = Matrix4::identity();  // world→atlas-slice shadow VP
+        float shadowBias = 0.0005f;
+        float shadowIntensity = 1.0f;
+        int atlasSlice = -1;                         // depth-array slice index
     };
 
     /**

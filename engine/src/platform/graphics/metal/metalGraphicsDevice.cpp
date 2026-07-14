@@ -1469,6 +1469,10 @@ namespace visutwin::canvas
                 _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
             _textureBinder.bindOmniShadowTextures(passEncoder,
                 _uniformBinder.omniShadowCube0(), _uniformBinder.omniShadowCube1());
+            // Clustered spot-shadow atlas (depth texture2d_array) at slot 26.
+            if (_clusterShadowAtlas) {
+                _textureBinder.bindCached(passEncoder, 26, _clusterShadowAtlas);
+            }
         }
 
         // Pack screen inverse resolution for planar reflection screen-space UV.
@@ -1755,8 +1759,11 @@ namespace visutwin::canvas
 
                 // Cubemap face rendering: when the depth texture is a cubemap, target a
                 // specific face via the slice parameter.  This enables rendering to individual
-                // faces of a point-light shadow cubemap.
-                if (depthTex->textureType() == MTL::TextureTypeCube && activeTarget->face() >= 0) {
+                // faces of a point-light shadow cubemap. The same slice mechanism targets an
+                // individual layer of a depth texture2d_array — used by the clustered local
+                // shadow atlas (LightTextureAtlas), where each spot light owns one array slice.
+                if ((depthTex->textureType() == MTL::TextureTypeCube ||
+                     depthTex->textureType() == MTL::TextureType2DArray) && activeTarget->face() >= 0) {
                     depthAttachment->setSlice(static_cast<NS::UInteger>(activeTarget->face()));
                 }
 

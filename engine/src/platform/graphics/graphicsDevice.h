@@ -457,6 +457,9 @@ namespace visutwin::canvas
         /// when VT_FEATURE_AREA_LIGHTS is active). Pass nullptrs to unbind.
         virtual void setAreaLightLuts(Texture* lut1, Texture* lut2) { (void)lut1; (void)lut2; }
 
+        /// Bind the clustered spot-shadow atlas (depth texture2d_array) for the frame.
+        virtual void setClusterShadowAtlas(Texture* atlas) { (void)atlas; }
+
         /// Set atmosphere uniforms for Nishita sky scattering.
         /// data must point to an AtmosphereUniforms-compatible struct (96 bytes).
         virtual void setAtmosphereUniforms(const void* data, size_t size) { (void)data; (void)size; }

@@ -12,6 +12,16 @@
 
 namespace visutwin::canvas
 {
+    std::unique_ptr<ShadowMap> ShadowMap::createAtlasSlice(
+        const std::shared_ptr<Texture>& atlasArray,
+        const std::shared_ptr<RenderTarget>& sliceTarget)
+    {
+        auto shadowMap = std::make_unique<ShadowMap>();
+        shadowMap->_shadowTexture = atlasArray;          // shared (owned by the atlas)
+        shadowMap->_renderTargets.push_back(sliceTarget); // targets one array slice
+        return shadowMap;
+    }
+
     std::unique_ptr<ShadowMap> ShadowMap::create(GraphicsDevice* device, Light* light)
     {
         if (!device || !light) {

@@ -172,12 +172,14 @@ struct GpuLight {
 };
 
 // Clustered lighting: per-light data packed into a Metal buffer (slot 7).
-// 64 bytes per light, 16-byte aligned. Maps 1:1 to CPU GpuClusteredLight.
+// 144 bytes per light, 16-byte aligned. Maps 1:1 to CPU GpuClusteredLight.
 struct ClusteredLight {
     float4 positionRange;     // xyz=position, w=range
     float4 directionSpot;     // xyz=direction, w=outerConeCos
     float4 colorIntensity;    // xyz=color (linear), w=intensity
     float4 params;            // x=innerConeCos, y=isSpot, z=falloffLinear, w=unused
+    float4x4 shadowMatrix;    // world→atlas-slice shadow VP (clustered spot shadows)
+    float4 shadowData;        // x=castShadows, y=bias, z=intensity, w=atlasSlice
 };
 
 struct LightingData {
