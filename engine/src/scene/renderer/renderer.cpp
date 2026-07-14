@@ -27,6 +27,7 @@
 #include "scene/morphInstance.h"
 #include "scene/skinInstance.h"
 #include "scene/gsplat/gsplatInstance.h"
+#include "scene/particles/particleEmitter.h"
 #include "scene/gsplat/gsplatResource.h"
 #include "scene/materials/material.h"
 #include "scene/graphNode.h"
@@ -1068,6 +1069,17 @@ namespace visutwin::canvas
                 }
                 _device->setTransformUniforms(viewProjection, Matrix4::identity());
                 _device->draw(entry->primitive, entry->indexBuffer, 1, -1, true, true);
+            } else if (auto* particles = entry->meshInstance ? entry->meshInstance->particleEmitter() : nullptr) {
+                // GPU particles: one instanced billboard quad per particle over the
+                // compute-simulated pool (dead particles emit clipped vertices).
+                const Matrix4 modelMatrix = entry->meshInstance->node()
+                    ? entry->meshInstance->node()->worldTransform() : Matrix4::identity();
+                particles->prepareRender(viewMatrix, projMatrix, modelMatrix);
+                _device->setParticleState(particles->particleBuffer(),
+                    &particles->renderParams(), sizeof(GpuParticleRenderParams));
+                _device->setTransformUniforms(viewProjection, modelMatrix);
+                _device->draw(entry->primitive, entry->indexBuffer,
+                    static_cast<int>(particles->numParticles()), -1, true, true);
             } else if (auto* gsplat = entry->meshInstance ? entry->meshInstance->gsplatInstance() : nullptr) {
                 // Gaussian splats: one instanced quad per splat, back-to-front via the
                 // per-instance order buffer filled by the background depth sorter.

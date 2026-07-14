@@ -192,6 +192,12 @@ add_executable(visutwin-shader-chunks MACOSX_BUNDLE
 target_link_libraries(visutwin-shader-chunks PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-shader-chunks com.visutwin.shader-chunks)
 
+add_executable(visutwin-particles MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/particles-example.cpp
+)
+target_link_libraries(visutwin-particles PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-particles com.visutwin.particles)
+
 add_executable(visutwin-pcss-local MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/pcss-local-example.cpp
 )

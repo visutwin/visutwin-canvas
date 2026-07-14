@@ -47,6 +47,43 @@ namespace visutwin::canvas
 
     /** @brief Per-light GPU data uploaded to the lighting uniform buffer.
      *  @ingroup group_scene_lighting */
+    /// GPU particle: mirrors the MSL Particle struct (48 bytes, 12 floats).
+    /// pos.xyz, age | vel.xyz, lifetime | rotation, rotSpeed, seed, size.
+    /// age < 0 counts down to birth; age > lifetime on a non-looping emitter = dead.
+    struct GpuParticle
+    {
+        float posAge[4];
+        float velLifetime[4];
+        float rotSeedSize[4];
+    };
+    static_assert(sizeof(GpuParticle) == 48);
+
+    /// Mirrors the MSL ParticleSimParams struct (compute kernel, buffer 1).
+    struct GpuParticleSimParams
+    {
+        Matrix4 emitterTransform;   // world transform for spawn (identity in local space)
+        float gravityDamping[4];    // xyz = gravity, w = damping (fraction/s)
+        float shapeParams[4];       // xyz = box half-extents or x=radius, w = shape type
+        float velocityBase[4];      // xyz = base velocity, w = localSpace flag
+        float velocitySpread[4];    // xyz = ± spread, w = loop flag
+        float timeParams[4];        // dt, time, birth interval (s), particle count
+        float lifeRot[4];           // lifetime min/max, rotSpeed min/max (radians/s)
+        float angleParams[4];       // startAngle min/max (radians), seed, playing flag
+    };
+    static_assert(sizeof(GpuParticleSimParams) == 176);
+
+    /// Mirrors the MSL ParticleRenderParams struct (vertex slot 11).
+    struct GpuParticleRenderParams
+    {
+        Matrix4 modelView;
+        Matrix4 projection;          // GL-style clip; z remapped in-shader
+        float animParams[4];         // tilesX, tilesY, numFrames, animSpeed
+        float miscParams[4];         // intensity, particle count, hasColorMap, pad
+        float colorLut[16][4];       // rgb + alpha over normalized life
+        float scaleLut[16][4];       // x = world size, yzw = pad
+    };
+    static_assert(sizeof(GpuParticleRenderParams) == 672);
+
     struct GpuLightData
     {
         GpuLightType type = GpuLightType::Directional;
@@ -468,6 +505,17 @@ namespace visutwin::canvas
         /// GPU pass profiler (nullptr when the backend/device doesn't support one).
         /// Disabled by default — call gpuProfiler()->setEnabled(true) to start sampling.
         const std::shared_ptr<GpuProfiler>& gpuProfiler() const { return _gpuProfiler; }
+
+        /// Advance a GPU particle emitter one simulation step (compute dispatch on
+        /// its own command buffer, ordered before this frame's render encoding).
+        virtual void simulateParticles(const std::shared_ptr<VertexBuffer>& particles,
+            const GpuParticleSimParams& params) { (void)particles; (void)params; }
+
+        /// Bind particle emitter state for the next draw call (consumed by one draw).
+        /// particles: GpuParticle pool (vertex slot 7); params: GpuParticleRenderParams
+        /// (vertex slot 11). Slots are shared with gsplat — a draw is one or the other.
+        virtual void setParticleState(const std::shared_ptr<VertexBuffer>& particles,
+            const void* params, size_t paramsSize) { (void)particles; (void)params; (void)paramsSize; }
 
         /// Bind Gaussian splat state for the next draw call (consumed by one draw).
         /// splats: GpuSplat storage (vertex slot 7); order: uint32 draw order, farthest

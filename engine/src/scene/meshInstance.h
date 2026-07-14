@@ -22,6 +22,7 @@ namespace visutwin::canvas
 {
     class GraphicsDevice;
     class GSplatInstance;
+    class ParticleEmitter;
     class InstanceCuller;
     class SkinBatchInstance;
 }
@@ -157,6 +158,14 @@ namespace visutwin::canvas
             _gsplatInstance = gsplatInstance;
         }
 
+        // --- GPU particles ---
+
+        ParticleEmitter* particleEmitter() const { return _particleEmitter.get(); }
+        void setParticleEmitter(const std::shared_ptr<ParticleEmitter>& emitter)
+        {
+            _particleEmitter = emitter;
+        }
+
         // --- Morph targets ---
 
         MorphInstance* morphInstance() const { return _morphInstance.get(); }
@@ -213,6 +222,7 @@ namespace visutwin::canvas
         std::shared_ptr<SkinInstance> _skinInstance;
         std::shared_ptr<MorphInstance> _morphInstance;
         std::shared_ptr<GSplatInstance> _gsplatInstance;
+        std::shared_ptr<ParticleEmitter> _particleEmitter;
         SkinBatchInstance* _skinBatchInstance = nullptr;
         InstancingData _instancingData;
 

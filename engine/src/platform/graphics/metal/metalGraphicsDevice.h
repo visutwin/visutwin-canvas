@@ -168,6 +168,10 @@ namespace visutwin::canvas
 
         /// Bind Gaussian splat buffers (vertex slots 7/8) + params (vertex slot 11)
         /// for the next draw call.
+        void simulateParticles(const std::shared_ptr<VertexBuffer>& particles,
+            const GpuParticleSimParams& params) override;
+        void setParticleState(const std::shared_ptr<VertexBuffer>& particles,
+            const void* params, size_t paramsSize) override;
         void setGSplatState(const std::shared_ptr<VertexBuffer>& splats,
             const std::shared_ptr<VertexBuffer>& order, const void* params, size_t paramsSize) override;
 
@@ -241,6 +245,12 @@ namespace visutwin::canvas
         MTL::Buffer* _pendingGSplatOrderBuffer = nullptr;
         std::array<uint8_t, 192> _pendingGSplatParams{};
         size_t _pendingGSplatParamsSize = 0;
+
+        // GPU particle emitters: sim compute pipeline (lazy) + per-draw binding.
+        MTL::ComputePipelineState* _particleSimPipeline = nullptr;
+        MTL::Buffer* _pendingParticleBuffer = nullptr;
+        std::array<uint8_t, 1024> _pendingParticleParams{};
+        size_t _pendingParticleParamsSize = 0;
         MTL::SamplerState* _defaultSampler = nullptr;
         // Clamp-to-edge sampler for screen-space post passes (no mips/aniso) —
         // the repeat-mode default sampler wraps kernel taps at frame borders.
