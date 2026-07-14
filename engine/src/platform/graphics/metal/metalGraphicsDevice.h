@@ -173,7 +173,8 @@ namespace visutwin::canvas
         void setParticleState(const std::shared_ptr<VertexBuffer>& particles,
             const void* params, size_t paramsSize) override;
         void setGSplatState(const std::shared_ptr<VertexBuffer>& splats,
-            const std::shared_ptr<VertexBuffer>& order, const void* params, size_t paramsSize) override;
+            const std::shared_ptr<VertexBuffer>& order, const std::shared_ptr<VertexBuffer>& sh,
+            const void* params, size_t paramsSize) override;
 
         /// Bind clustered lighting data for the current frame.
         /// Allocates/grows internal MTL::Buffers and copies data.
@@ -240,7 +241,8 @@ namespace visutwin::canvas
         std::shared_ptr<gpu::MetalGpuProfiler> _metalGpuProfiler;
 
         // Gaussian splat state: set by setGSplatState(), consumed by draw().
-        // Splats bind at vertex slot 7, order at 8, params bytes at 11.
+        // Splats bind at vertex slot 7, order at 8, SH coeffs at 12, params bytes at 11.
+        MTL::Buffer* _pendingGSplatShBuffer = nullptr;
         MTL::Buffer* _pendingGSplatBuffer = nullptr;
         MTL::Buffer* _pendingGSplatOrderBuffer = nullptr;
         std::array<uint8_t, 192> _pendingGSplatParams{};

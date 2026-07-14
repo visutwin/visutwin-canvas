@@ -26,7 +26,8 @@ namespace visutwin::canvas
         Matrix4 projection;
         float viewport[4];      // width, height, 1/width, 1/height
         uint32_t splatCount;
-        uint32_t pad[3];
+        uint32_t shBands;       // 0 = SH0 only; 1-3 evaluate view-dependent color
+        uint32_t pad[2];
     };
     static_assert(sizeof(GpuGSplatParams) == 160);
 

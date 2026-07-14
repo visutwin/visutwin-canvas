@@ -47,6 +47,24 @@ namespace visutwin::canvas
         splatOptions.data = std::move(splatBytes);
         _splatBuffer = device->createVertexBuffer(splatFormat, _data->numSplats(), splatOptions);
 
+        // ── SH coefficient buffer (vertex slot 12) ───────────────────────
+        // 45 floats/splat (coefficient-major interleaved) when shBands > 0; a
+        // 1-float dummy otherwise so slot 12 is always bound (the shader only
+        // reads it under the runtime shBands branch).
+        {
+            const auto& sh = _data->shCoeffs();
+            const bool hasSh = _data->shBands() > 0 && !sh.empty();
+            std::vector<uint8_t> shBytes(hasSh ? sh.size() * sizeof(float) : sizeof(float), 0);
+            if (hasSh) {
+                std::memcpy(shBytes.data(), sh.data(), shBytes.size());
+            }
+            const int shFloats = hasSh ? static_cast<int>(sh.size()) : 1;
+            auto shFormat = std::make_shared<VertexFormat>(static_cast<int>(sizeof(float)), true, false);
+            VertexBufferOptions shOptions;
+            shOptions.data = std::move(shBytes);
+            _shBuffer = device->createVertexBuffer(shFormat, shFloats, shOptions);
+        }
+
         // ── Quad mesh: 4 dummy vertices, one triangle-strip quad per instance ──
         // The vertex shader is [[vertex_id]]-driven; the buffer only satisfies the
         // renderer's non-null vertex buffer requirement.

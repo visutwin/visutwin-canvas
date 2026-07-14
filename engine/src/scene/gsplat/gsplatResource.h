@@ -46,12 +46,15 @@ namespace visutwin::canvas
         const GSplatData& data() const { return *_data; }
         int numSplats() const { return _data->numSplats(); }
         const std::shared_ptr<VertexBuffer>& splatBuffer() const { return _splatBuffer; }
+        // Per-splat SH coefficients (vertex slot 12); a 1-float dummy when SH0-only.
+        const std::shared_ptr<VertexBuffer>& shBuffer() const { return _shBuffer; }
         const std::shared_ptr<GraphicsDevice>& device() const { return _device; }
 
     private:
         std::shared_ptr<GraphicsDevice> _device;
         std::unique_ptr<GSplatData> _data;
         std::shared_ptr<VertexBuffer> _splatBuffer;
+        std::shared_ptr<VertexBuffer> _shBuffer;
         std::shared_ptr<Mesh> _quadMesh;
         std::shared_ptr<Material> _material;
         std::shared_ptr<Shader> _shader;

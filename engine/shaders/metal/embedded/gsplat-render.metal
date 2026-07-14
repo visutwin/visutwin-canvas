@@ -13,7 +13,8 @@ struct GSplatParams {
     float4x4 projection;    // GL-style clip (z in [-w,w]); remapped below
     float4 viewport;        // width, height, 1/width, 1/height
     uint splatCount;
-    uint pad0; uint pad1; uint pad2;
+    uint shBands;           // 0 = SH0 only; 1-3 = view-dependent SH color
+    uint pad1; uint pad2;
 };
 
 struct GSplatVaryings {
@@ -22,11 +23,58 @@ struct GSplatVaryings {
     half4 color;
 };
 
+// Spherical-harmonics evaluation (upstream gsplatEvalSH.js). sh is the per-splat
+// coefficient buffer; base = splatIndex*45; coefficients are coefficient-major
+// interleaved (sh[k] = rgb of coefficient k). Returns the view-dependent color
+// added to the DC term in display/gamma space (before the sRGB→linear decode).
+static inline float3 gsplatEvalSH(constant float* sh, uint base, uint bands, float3 dir)
+{
+    const float x = dir.x, y = dir.y, z = dir.z;
+#define SHV(k) float3(sh[base + (k) * 3u + 0u], sh[base + (k) * 3u + 1u], sh[base + (k) * 3u + 2u])
+
+    // 1st degree
+    const float SH_C1 = 0.4886025119029199;
+    float3 result = SH_C1 * (-SHV(0) * y + SHV(1) * z - SHV(2) * x);
+
+    if (bands > 1u) {
+        // 2nd degree
+        const float xx = x * x, yy = y * y, zz = z * z;
+        const float xy = x * y, yz = y * z, xz = x * z;
+        const float C2_0 = 1.0925484305920792, C2_1 = -1.0925484305920792,
+                    C2_2 = 0.31539156525252005, C2_3 = -1.0925484305920792,
+                    C2_4 = 0.5462742152960396;
+        result += SHV(3) * (C2_0 * xy) +
+                  SHV(4) * (C2_1 * yz) +
+                  SHV(5) * (C2_2 * (2.0 * zz - xx - yy)) +
+                  SHV(6) * (C2_3 * xz) +
+                  SHV(7) * (C2_4 * (xx - yy));
+    }
+
+    if (bands > 2u) {
+        // 3rd degree
+        const float xx = x * x, yy = y * y, zz = z * z, xy = x * y;
+        const float C3_0 = -0.5900435899266435, C3_1 = 2.890611442640554,
+                    C3_2 = -0.4570457994644658, C3_3 = 0.3731763325901154,
+                    C3_4 = -0.4570457994644658, C3_5 = 1.445305721320277,
+                    C3_6 = -0.5900435899266435;
+        result += SHV(8)  * (C3_0 * y * (3.0 * xx - yy)) +
+                  SHV(9)  * (C3_1 * xy * z) +
+                  SHV(10) * (C3_2 * y * (4.0 * zz - xx - yy)) +
+                  SHV(11) * (C3_3 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy)) +
+                  SHV(12) * (C3_4 * x * (4.0 * zz - xx - yy)) +
+                  SHV(13) * (C3_5 * z * (xx - yy)) +
+                  SHV(14) * (C3_6 * x * (xx - 3.0 * yy));
+    }
+#undef SHV
+    return result;
+}
+
 vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
                                uint iid [[instance_id]],
                                constant GpuSplat* splats [[buffer(7)]],
                                constant uint* order [[buffer(8)]],
-                               constant GSplatParams& params [[buffer(11)]])
+                               constant GSplatParams& params [[buffer(11)]],
+                               constant float* shCoeffs [[buffer(12)]])
 {
     GSplatVaryings out;
     out.position = float4(0.0, 0.0, 2.0, 1.0);  // default: clipped
@@ -105,10 +153,23 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
     clip.z = 0.5 * (clip.z + clip.w);
 
     const half4 color = unpack_unorm4x8_to_half(s.color);
+    float3 displayColor = float3(color.rgb);
+
+    // View-dependent spherical harmonics (added in display/gamma space before the
+    // sRGB→linear decode, matching upstream). dir = model-space view direction.
+    if (params.shBands > 0u) {
+        const float3 viewPos = view.xyz;
+        const float3x3 mv3 = float3x3(params.modelView[0].xyz,
+                                      params.modelView[1].xyz,
+                                      params.modelView[2].xyz);
+        const float3 dir = normalize(transpose(mv3) * viewPos);
+        displayColor += gsplatEvalSH(shCoeffs, splatIndex * 45u, params.shBands, dir);
+    }
+
     out.position = clip;
     out.uv = uv;
     // sRGB-ish splat color → linear (the HDR pipeline tonemaps/encodes on output).
-    out.color = half4(pow(color.rgb, half3(2.2h)), color.a);
+    out.color = half4(pow(half3(max(displayColor, 0.0)), half3(2.2h)), color.a);
     return out;
 }
 

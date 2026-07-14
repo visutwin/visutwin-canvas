@@ -1052,16 +1052,19 @@ namespace visutwin::canvas
     }
 
     void MetalGraphicsDevice::setGSplatState(const std::shared_ptr<VertexBuffer>& splats,
-        const std::shared_ptr<VertexBuffer>& order, const void* params, const size_t paramsSize)
+        const std::shared_ptr<VertexBuffer>& order, const std::shared_ptr<VertexBuffer>& sh,
+        const void* params, const size_t paramsSize)
     {
         if (!splats || !order || !params || paramsSize == 0 || paramsSize > _pendingGSplatParams.size()) {
             _pendingGSplatBuffer = nullptr;
             _pendingGSplatOrderBuffer = nullptr;
+            _pendingGSplatShBuffer = nullptr;
             _pendingGSplatParamsSize = 0;
             return;
         }
         _pendingGSplatBuffer = static_cast<MTL::Buffer*>(splats->nativeBuffer());
         _pendingGSplatOrderBuffer = static_cast<MTL::Buffer*>(order->nativeBuffer());
+        _pendingGSplatShBuffer = sh ? static_cast<MTL::Buffer*>(sh->nativeBuffer()) : nullptr;
         std::memcpy(_pendingGSplatParams.data(), params, paramsSize);
         _pendingGSplatParamsSize = paramsSize;
     }
@@ -1435,13 +1438,17 @@ namespace visutwin::canvas
             _pendingParticleParamsSize = 0;
         }
 
-        // ── Gaussian splat binding (slots 7/8/11) ──────────────────────
+        // ── Gaussian splat binding (slots 7/8/12/11) ───────────────────
         if (_pendingGSplatBuffer && _pendingGSplatOrderBuffer) {
             passEncoder->setVertexBuffer(_pendingGSplatBuffer, 0, 7);
             passEncoder->setVertexBuffer(_pendingGSplatOrderBuffer, 0, 8);
+            if (_pendingGSplatShBuffer) {
+                passEncoder->setVertexBuffer(_pendingGSplatShBuffer, 0, 12);
+            }
             passEncoder->setVertexBytes(_pendingGSplatParams.data(), _pendingGSplatParamsSize, 11);
             _pendingGSplatBuffer = nullptr;
             _pendingGSplatOrderBuffer = nullptr;
+            _pendingGSplatShBuffer = nullptr;
             _pendingGSplatParamsSize = 0;
         }
 

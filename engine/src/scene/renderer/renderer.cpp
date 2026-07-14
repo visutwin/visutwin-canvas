@@ -1095,7 +1095,7 @@ namespace visutwin::canvas
                     static_cast<float>(viewportW), static_cast<float>(viewportH));
                 if (gsplat->visibleCount() > 0) {
                     _device->setGSplatState(gsplat->resource()->splatBuffer(), gsplat->orderBuffer(),
-                        &gsplat->gpuParams(), sizeof(GpuGSplatParams));
+                        gsplat->resource()->shBuffer(), &gsplat->gpuParams(), sizeof(GpuGSplatParams));
                     _device->setTransformUniforms(viewProjection, modelMatrix);
                     _device->draw(entry->primitive, entry->indexBuffer,
                         static_cast<int>(gsplat->visibleCount()), -1, true, true);

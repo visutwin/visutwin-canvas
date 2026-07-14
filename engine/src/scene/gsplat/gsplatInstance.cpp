@@ -69,5 +69,6 @@ namespace visutwin::canvas
         _gpuParams.viewport[2] = viewportWidth > 0.0f ? 1.0f / viewportWidth : 0.0f;
         _gpuParams.viewport[3] = viewportHeight > 0.0f ? 1.0f / viewportHeight : 0.0f;
         _gpuParams.splatCount = static_cast<uint32_t>(_resource->numSplats());
+        _gpuParams.shBands = static_cast<uint32_t>(_resource->data().shBands());
     }
 }

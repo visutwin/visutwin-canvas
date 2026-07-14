@@ -33,9 +33,20 @@ namespace visutwin::canvas
      * CPU-side Gaussian splat set parsed from a 3DGS PLY file: packed GPU records,
      * raw centers for the depth sorter, and the model-space bounds.
      *
-     * Supports the standard 3D Gaussian Splatting binary_little_endian PLY layout
-     * (x/y/z, f_dc_0..2, opacity, scale_0..2, rot_0..3; higher-order SH bands are
-     * skipped — DEVIATION: view-dependent SH color is not evaluated, SH0 only).
+     * Two PLY layouts are auto-detected:
+     *  - **Uncompressed** (`binary_little_endian` float `vertex` element): x/y/z,
+     *    f_dc_0..2, opacity, scale_0..2, rot_0..3, and optional f_rest_* SH bands
+     *    (9/24/45 coefficients → SH bands 1/2/3).
+     *  - **Compressed** (SuperSplat `.compressed.ply`): a `chunk` element (per-256
+     *    min/max bounds) + a uint `vertex` element (packed 11-10-11 position/scale,
+     *    2-10-10-10 rotation, 8888 color) + an optional uchar `sh` element.
+     *
+     * Higher-order SH coefficients (bands 1-3) are dequantized into `shCoeffs()`
+     * laid out coefficient-major interleaved: `[c0.r,c0.g,c0.b, c1.r,...]`, 15
+     * coefficients × 3 channels = 45 floats per splat, zero-padded above the
+     * present band. The gsplat vertex shader evaluates them per frame by view
+     * direction. DEVIATION: upstream quantizes SH to 11-10-11 in a texture; this
+     * port stores raw floats in a storage buffer.
      */
     class GSplatData
     {
@@ -47,9 +58,15 @@ namespace visutwin::canvas
         const std::vector<float>& centers() const { return _centers; }  // xyz per splat
         const BoundingBox& aabb() const { return _aabb; }
 
+        int shBands() const { return _shBands; }   // 0 = SH0 only (no view-dependent color)
+        // 45 floats per splat (coefficient-major interleaved), empty when shBands == 0.
+        const std::vector<float>& shCoeffs() const { return _shCoeffs; }
+
     private:
         std::vector<GpuSplat> _splats;
         std::vector<float> _centers;
+        std::vector<float> _shCoeffs;
+        int _shBands = 0;
         BoundingBox _aabb;
     };
 }
