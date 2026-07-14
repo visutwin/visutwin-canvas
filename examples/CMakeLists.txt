@@ -92,6 +92,55 @@ add_executable(visutwin-ambient-occlusion MACOSX_BUNDLE
 target_link_libraries(visutwin-ambient-occlusion PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-ambient-occlusion com.visutwin.ambient-occlusion)
 
+# --- Tier 1: PlayCanvas-parity examples for already-supported engine features ---
+add_executable(visutwin-clearcoat MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/clearcoat-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-clearcoat PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-clearcoat com.visutwin.clearcoat)
+
+add_executable(visutwin-anisotropy MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/anisotropy-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-anisotropy PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-anisotropy com.visutwin.anisotropy)
+
+add_executable(visutwin-sheen MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/sheen-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-sheen PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-sheen com.visutwin.sheen)
+
+add_executable(visutwin-iridescence MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/iridescence-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-iridescence PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-iridescence com.visutwin.iridescence)
+
+add_executable(visutwin-procedural-sky MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/procedural-sky-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-procedural-sky PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-procedural-sky com.visutwin.procedural-sky)
+
+add_executable(visutwin-post-processing MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/post-processing-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-post-processing PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-post-processing com.visutwin.post-processing)
+
+add_executable(visutwin-custom-shader MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/custom-shader-example.cpp
+)
+target_link_libraries(visutwin-custom-shader PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-custom-shader com.visutwin.custom-shader)
+
 add_executable(visutwin-shadow-cascades MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/shadow-cascades-example.cpp
     ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp

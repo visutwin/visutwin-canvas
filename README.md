@@ -114,6 +114,13 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | glb-loader | Loading and rendering GLB models |
 | material-test | PBR material properties (metalness, gloss, normal maps) |
 | material-stubs | Spec-gloss, Oren-Nayar, detail normals, displacement |
+| clearcoat | Clearcoat dual-specular layer showcase |
+| anisotropy | Anisotropic specular highlights |
+| sheen | Fabric/velvet sheen layer |
+| iridescence | Thin-film iridescence (soap-bubble color shift) |
+| procedural-sky | Nishita atmosphere / procedural sky with animated sun |
+| post-processing | Compose chain: bloom, DOF, vignette, color grading, fringing |
+| custom-shader | ShaderMaterial with a user-supplied Metal toon shader |
 | mesh-decals | Decal projection |
 | shadow-cascades | Cascaded shadow maps |
 | pcss-dither | PCSS soft shadows + opacity dither |
