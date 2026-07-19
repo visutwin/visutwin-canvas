@@ -45,9 +45,18 @@ namespace visutwin::canvas
 
     ViewCube::~ViewCube()
     {
-        if (_root && _engine && _engine->root()) {
-            _engine->root()->removeChild(_root);
+        if (_root) {
+            if (_root->parent()) {
+                auto ownedRoot = _root->remove();
+                ownedRoot.reset();
+            } else {
+                delete _root;
+            }
+            _root = nullptr;
         }
+        _handles.fill(nullptr);
+        _rods.fill(nullptr);
+        _materials.fill(nullptr);
     }
 
     Entity* ViewCube::makeHandle(const Color& color, const float radius)
@@ -122,13 +131,15 @@ namespace visutwin::canvas
         // handles (neutral fill), 3 axis rods from the center to the positive handles.
         for (auto*& handle : _handles) {
             if (handle) {
-                _root->removeChild(handle);
+                auto removed = _root->removeChild(handle);
+                removed.reset();
                 handle = nullptr;
             }
         }
         for (auto*& rod : _rods) {
             if (rod) {
-                _root->removeChild(rod);
+                auto removed = _root->removeChild(rod);
+                removed.reset();
                 rod = nullptr;
             }
         }

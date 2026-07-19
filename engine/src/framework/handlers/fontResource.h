@@ -27,6 +27,14 @@ namespace visutwin::canvas
 
     struct FontResource
     {
+        FontResource() = default;
+        ~FontResource() { delete texture; }
+
+        FontResource(const FontResource&) = delete;
+        FontResource& operator=(const FontResource&) = delete;
+        FontResource(FontResource&&) = delete;
+        FontResource& operator=(FontResource&&) = delete;
+
         Texture* texture = nullptr;
         int atlasWidth = 0;
         int atlasHeight = 0;

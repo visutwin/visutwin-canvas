@@ -92,11 +92,17 @@ namespace visutwin::canvas
         if (_installed && _engine && _engine->scene()) {
             _engine->scene()->clearReflectionProbe();
         }
-        if (_node && _engine && _engine->root()) {
-            _engine->root()->removeChild(_node);
+        if (_node) {
+            if (_node->parent()) {
+                auto ownedNode = _node->remove();
+                ownedNode.reset();
+            } else {
+                delete _node;
+            }
+            _node = nullptr;
         }
-        // Entities are owned by the scene graph; removing the node detaches the
-        // subtree. Match the OutlineRenderer lifetime model (raw entity pointers).
+        _faceEntities.fill(nullptr);
+        _faceCameras.fill(nullptr);
     }
 
     void ReflectionProbe::setPosition(const Vector3& worldPosition)

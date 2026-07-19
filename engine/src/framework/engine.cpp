@@ -12,6 +12,7 @@
 #include "scene/materials/standardMaterial.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "framework/components/componentSystem.h"
+#include "framework/entity.h"
 #include "framework/components/script/scriptComponentSystem.h"
 #include "framework/assets/asset.h"
 #include "scene/frameGraph.h"
@@ -20,6 +21,10 @@
 namespace visutwin::canvas
 {
     std::unordered_map<std::string, std::shared_ptr<Engine>> Engine::_engines;
+
+    Engine::Engine(SDL_Window* window) : _window(window)
+    {
+    }
 
     MakeTickCallback makeTick(const std::shared_ptr<Engine>& engine) {
         // Weak capture: the tick closure is stored in Engine::_tick, so a strong
@@ -109,11 +114,6 @@ namespace visutwin::canvas
 
         fire("destroy");
 
-        // Cleanup root entity
-        if (_root) {
-            _root.reset();
-        }
-
         // Cleanup input devices
         if (_mouse) {
             _mouse->detach();
@@ -139,6 +139,13 @@ namespace visutwin::canvas
             _gamepads.reset();
         }
 
+        // The root owns the complete entity hierarchy. Destroy it only after
+        // subsystems with borrowed entity pointers have detached, and while
+        // component systems are still alive for component teardown.
+        if (_root) {
+            _root.reset();
+        }
+
         // Cleanup systems
         if (_systems) {
             _systems.reset();
@@ -146,9 +153,6 @@ namespace visutwin::canvas
 
         // Cleanup assets
         if (_assets) {
-            for (auto assetList = _assets->list(); auto& asset : assetList) {
-                asset->unload();
-            }
             _assets.reset();
         }
 
@@ -217,7 +221,7 @@ namespace visutwin::canvas
             throw std::runtime_error("The application cannot be created without a valid GraphicsDevice");
         }
 
-        _root = std::make_shared<Entity>();
+        _root = std::make_unique<Entity>();
         _root->setEngine(this);
         // The root entity has no parent, so _enabledInHierarchy must be set
         // explicitly — onInsertChild never runs for it.

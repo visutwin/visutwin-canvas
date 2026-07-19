@@ -107,8 +107,8 @@ namespace visutwin::canvas
 
         // 4. Recursively clone children
         // for each child, child._cloneRecursively(), clone.addChild(newChild)
-        for (const auto* child : children()) {
-            const auto* childEntity = dynamic_cast<const Entity*>(child);
+        for (const auto& child : children()) {
+            const auto* childEntity = dynamic_cast<const Entity*>(child.get());
             if (childEntity) {
                 auto* clonedChild = childEntity->clone();
                 cloned->addChild(clonedChild);

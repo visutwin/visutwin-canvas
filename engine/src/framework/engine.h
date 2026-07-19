@@ -37,7 +37,7 @@ namespace visutwin::canvas
     class Engine : public EventHandler, public std::enable_shared_from_this<Engine>
     {
     public:
-        Engine(SDL_Window* window) : _window(window) {}
+        explicit Engine(SDL_Window* window);
 
         virtual ~Engine();
 
@@ -90,7 +90,7 @@ namespace visutwin::canvas
         // Use in rendering to smooth visual positions when sim rate != frame rate.
         float fixedTimeAlpha() const { return _fixedTimeAlpha; }
 
-        std::shared_ptr<Entity> root() { return _root; }
+        Entity* root() const { return _root.get(); }
 
         std::shared_ptr<ScriptRegistry> scripts() const { return _scripts; }
 
@@ -103,6 +103,9 @@ namespace visutwin::canvas
 
         /** Async resource loader — single background I/O thread with main-thread callbacks. */
         const std::shared_ptr<ResourceLoader>& loader() const { return _loader; }
+
+        /** Registry owning application assets. */
+        const std::shared_ptr<AssetRegistry>& assets() const { return _assets; }
 
     protected:
         virtual double processTimestamp(double timestamp) { return timestamp; }
@@ -129,7 +132,7 @@ namespace visutwin::canvas
 
         std::shared_ptr<GraphicsDevice> _graphicsDevice;
 
-        std::shared_ptr<Entity> _root;
+        std::unique_ptr<Entity> _root;
         std::shared_ptr<ForwardRenderer> _renderer;
 
         std::shared_ptr<Scene> _scene;

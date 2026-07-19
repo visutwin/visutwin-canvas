@@ -214,8 +214,15 @@ fragment float4 outlineBlendFragment(
     {
         removeAllEntities();
         setPassesRegistered(false);
-        if (_cameraEntity && _engine && _engine->root()) {
-            _engine->root()->removeChild(_cameraEntity);
+        if (_cameraEntity) {
+            if (_cameraEntity->parent()) {
+                auto ownedCamera = _cameraEntity->remove();
+                ownedCamera.reset();
+            } else {
+                delete _cameraEntity;
+            }
+            _cameraEntity = nullptr;
+            _cameraComponent = nullptr;
         }
     }
 
@@ -249,8 +256,8 @@ fragment float4 outlineBlendFragment(
         }
 
         if (recursive) {
-            for (auto* child : entity->children()) {
-                collectClones(static_cast<Entity*>(child), color, recursive, clones, materials);
+            for (const auto& child : entity->children()) {
+                collectClones(static_cast<Entity*>(child.get()), color, recursive, clones, materials);
             }
         }
     }

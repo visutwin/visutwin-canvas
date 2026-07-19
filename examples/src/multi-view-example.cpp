@@ -64,8 +64,8 @@ void setRenderLayersRecursive(GraphNode* node, const std::vector<int>& layers)
             render->setLayers(layers);
         }
     }
-    for (auto* child : node->children()) {
-        setRenderLayersRecursive(child, layers);
+    for (const auto& child : node->children()) {
+        setRenderLayersRecursive(child.get(), layers);
     }
 }
 

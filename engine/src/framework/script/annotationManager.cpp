@@ -139,15 +139,15 @@ namespace visutwin::canvas
 
         std::function<Entity*(Entity*)> search = [&](Entity* e) -> Entity* {
             if (e->findComponent<CameraComponent>()) return e;
-            for (auto* child : e->children()) {
-                auto* ent = dynamic_cast<Entity*>(child);
+            for (const auto& child : e->children()) {
+                auto* ent = dynamic_cast<Entity*>(child.get());
                 if (!ent) continue;
                 auto* found = search(ent);
                 if (found) return found;
             }
             return nullptr;
         };
-        _camera = search(root.get());
+        _camera = search(root);
     }
 
     void AnnotationManager::update(float dt)

@@ -11,3 +11,8 @@ set(VISUTWIN_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 add_subdirectory(engine)
 add_subdirectory(examples)
 add_subdirectory(tools)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

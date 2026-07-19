@@ -113,6 +113,36 @@ namespace visutwin::canvas
         setMode(Mode::Translate);
     }
 
+    TransformGizmo::~TransformGizmo()
+    {
+        if (_root) {
+            // Detach the owned gizmo subtree from the scene. Destroying the
+            // returned unique_ptr recursively destroys every handle entity.
+            // RenderComponents must be destroyed before _materials is released,
+            // because they retain borrowed Material pointers.
+            if (_root->parent()) {
+                auto ownedRoot = _root->remove();
+                ownedRoot.reset();
+            } else {
+                delete _root;
+            }
+            _root = nullptr;
+        }
+
+        _handleX = {};
+        _handleY = {};
+        _handleZ = {};
+        _handleCenter = {};
+        _shaftX = {};
+        _shaftY = {};
+        _shaftZ = {};
+        _target = nullptr;
+        _camera = nullptr;
+        _engine = nullptr;
+
+        _materials.clear();
+    }
+
     Entity* TransformGizmo::createHandleEntity(const char* primitiveType, const Color& color)
     {
         if (!_engine || !_root) {

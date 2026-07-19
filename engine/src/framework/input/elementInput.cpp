@@ -269,7 +269,10 @@ namespace visutwin::canvas
     {
         for (auto& [_, visual] : _textVisuals) {
             if (visual.entity) {
-                visual.entity->remove();
+                auto removed = visual.entity->remove();
+                removed.reset();
+                visual.entity = nullptr;
+                visual.render = nullptr;
             }
         }
         _textVisuals.clear();
@@ -501,7 +504,10 @@ namespace visutwin::canvas
         for (auto& [element, visual] : _textVisuals) {
             if (!visual.activeFrame) {
                 if (visual.entity) {
-                    visual.entity->remove();
+                    auto removed = visual.entity->remove();
+                    removed.reset();
+                    visual.entity = nullptr;
+                    visual.render = nullptr;
                 }
                 toRemove.push_back(element);
             }

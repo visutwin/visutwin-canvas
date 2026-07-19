@@ -65,8 +65,8 @@ void gatherRenderableStats(GraphNode* node, RenderableStats& stats)
         }
     }
 
-    for (auto* child : node->children()) {
-        gatherRenderableStats(child, stats);
+    for (const auto& child : node->children()) {
+        gatherRenderableStats(child.get(), stats);
     }
 }
 

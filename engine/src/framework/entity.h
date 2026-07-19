@@ -109,12 +109,20 @@ namespace visutwin::canvas
         std::vector<T*> findComponents()
         {
             std::vector<T*> result;
-            auto it = _components.find(componentTypeID<T>());
-            if (it == _components.end())
-            {
-                return result;
-            }
-            result.push_back(static_cast<T*>(it->second));
+
+            const auto collect = [&result](auto&& self, GraphNode* node) -> void {
+                if (auto* entity = dynamic_cast<Entity*>(node)) {
+                    if (auto* component = entity->template findComponent<T>()) {
+                        result.push_back(component);
+                    }
+                }
+
+                for (const auto& child : node->children()) {
+                    self(self, child.get());
+                }
+            };
+
+            collect(collect, this);
             return result;
         }
 

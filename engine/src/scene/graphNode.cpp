@@ -6,6 +6,7 @@
 #include "graphNode.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 #include "core/math/quaternion.h"
 
@@ -13,18 +14,23 @@ namespace visutwin::canvas
 {
     GraphNode::~GraphNode()
     {
-        // Detach from the hierarchy without firing events — event dispatch on a
-        // half-destroyed node is unsafe. Children are not owned (raw pointers),
-        // so only sever the links; their lifetime is managed by their owners.
+        // A manually deleted attached node must first release the parent's
+        // unique_ptr without recursively deleting itself.
         if (_parent) {
             auto& siblings = _parent->_children;
-            std::erase(siblings, this);
+            const auto it = std::find_if(siblings.begin(), siblings.end(), [this](const auto& child) {
+                return child.get() == this;
+            });
+            if (it != siblings.end()) {
+                it->release();
+                siblings.erase(it);
+            }
             _parent = nullptr;
         }
-        for (auto* child : _children) {
+        for (auto& child : _children) {
             child->_parent = nullptr;
         }
-        _children.clear();
+        // _children owns and destroys the complete subtree.
     }
 
     void GraphNode::dirtifyLocal()
@@ -50,7 +56,7 @@ namespace visutwin::canvas
         if (!_dirtyWorld) {
             _frozen = false;
             _dirtyWorld = true;
-            for (auto* child : _children) {
+            for (const auto& child : _children) {
                 if (!child->_dirtyWorld) {
                     child->dirtifyWorldInternal();
                 }
@@ -213,11 +219,32 @@ namespace visutwin::canvas
         }
     }
 
+    void GraphNode::addChild(std::unique_ptr<GraphNode> node)
+    {
+        validateInsertChild(node.get());
+        if (node->_parent) {
+            throw std::invalid_argument("Cannot transfer unique ownership of an attached GraphNode");
+        }
+
+        auto* raw = node.get();
+        _children.push_back(std::move(node));
+        onInsertChild(raw);
+    }
+
     void GraphNode::addChild(GraphNode* node)
     {
-        prepareInsertChild(node);
-        _children.push_back(node);
-        onInsertChild(node);
+        validateInsertChild(node);
+
+        std::unique_ptr<GraphNode> ownership;
+        if (node->_parent) {
+            ownership = node->_parent->removeChild(node);
+        } else {
+            ownership.reset(node);
+        }
+
+        auto* raw = ownership.get();
+        _children.push_back(std::move(ownership));
+        onInsertChild(raw);
     }
 
     bool GraphNode::isDescendantOf(const GraphNode* node) const
@@ -232,40 +259,55 @@ namespace visutwin::canvas
         return false;
     }
 
-    void GraphNode::remove()
+    std::unique_ptr<GraphNode> GraphNode::remove()
     {
         if (_parent) {
-            _parent->removeChild(this);
+            return _parent->removeChild(this);
         }
+        return nullptr;
     }
 
-    void GraphNode::removeChild(GraphNode* child)
+    std::unique_ptr<GraphNode> GraphNode::removeChild(GraphNode* child)
     {
-        auto it = std::find(_children.begin(), _children.end(), child);
+        auto it = std::find_if(_children.begin(), _children.end(), [child](const auto& candidate) {
+            return candidate.get() == child;
+        });
         if (it == _children.end()) {
-            return;
+            return nullptr;
         }
 
+        auto ownership = std::move(*it);
         _children.erase(it);
         child->_parent = nullptr;
+        child->updateGraphDepth();
+        child->dirtifyWorld();
+        if (child->_enabledInHierarchy) {
+            child->notifyHierarchyStateChanged(child, false);
+        }
         child->fireOnHierarchy("remove", "removehierarchy", this);
         fire("childremove", child);
+        return ownership;
     }
 
     void GraphNode::fireOnHierarchy(const std::string& name, const std::string& nameHierarchy, GraphNode* parent)
     {
         fire(name, parent);
-        for (auto* child : _children) {
+        for (const auto& child : _children) {
             child->fireOnHierarchy(nameHierarchy, nameHierarchy, parent);
         }
     }
 
-    void GraphNode::prepareInsertChild(GraphNode* node)
+    void GraphNode::validateInsertChild(const GraphNode* node) const
     {
-        node->remove();
-
-        assert(node != this && (std::string("GraphNode ") + node->name() + " cannot be a child of itself").c_str());
-        assert(!isDescendantOf(node) && (std::string("GraphNode ") + node->name() + " cannot add an ancestor as a child").c_str());
+        if (!node) {
+            throw std::invalid_argument("Cannot add a null GraphNode child");
+        }
+        if (node == this) {
+            throw std::invalid_argument("A GraphNode cannot be a child of itself");
+        }
+        if (isDescendantOf(node)) {
+            throw std::invalid_argument("A GraphNode cannot add one of its ancestors as a child");
+        }
     }
 
     void GraphNode::onInsertChild(GraphNode* node)
@@ -296,9 +338,9 @@ namespace visutwin::canvas
     {
         node->onHierarchyStateChanged(enabled);
 
-        for (auto* child : node->_children) {
+        for (const auto& child : node->_children) {
             if (child->_enabled) {
-                notifyHierarchyStateChanged(child, enabled);
+                notifyHierarchyStateChanged(child.get(), enabled);
             }
         }
     }
@@ -309,9 +351,10 @@ namespace visutwin::canvas
         if (_enabled != value) {
             _enabled = value;
 
-            // If enabling, propagate only when parent is also enabled.
-            // If disabling, always propagate.
-            if ((value && _parent && _parent->enabled()) || !value) {
+            // A parentless node is a hierarchy root, so enabling it must also
+            // restore its hierarchy state. Attached nodes can only become
+            // enabled-in-hierarchy when their parent is enabled.
+            if (!value || !_parent || _parent->enabled()) {
                 notifyHierarchyStateChanged(this, value);
             }
         }
@@ -329,7 +372,7 @@ namespace visutwin::canvas
     {
         _graphDepth = _parent ? _parent->_graphDepth + 1 : 0;
 
-        for (auto* child : _children) {
+        for (const auto& child : _children) {
             child->updateGraphDepth();
         }
     }
@@ -393,11 +436,7 @@ namespace visutwin::canvas
             return this;
         }
 
-        for (auto* child : _children) {
-            if (!child) {
-                continue;
-            }
-
+        for (const auto& child : _children) {
             if (GraphNode* found = child->findByName(name)) {
                 return found;
             }
@@ -414,10 +453,7 @@ namespace visutwin::canvas
             results.push_back(this);
         }
 
-        for (auto* child : _children) {
-            if (!child) {
-                continue;
-            }
+        for (const auto& child : _children) {
             auto childResults = child->find(predicate);
             results.insert(results.end(), childResults.begin(), childResults.end());
         }

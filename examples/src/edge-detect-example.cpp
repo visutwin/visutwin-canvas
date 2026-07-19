@@ -120,8 +120,8 @@ kernel void edgeDetectKernel(
             }
         }
 
-        for (auto* child : node->children()) {
-            setRenderLayersRecursive(child, layers);
+        for (const auto& child : node->children()) {
+            setRenderLayersRecursive(child.get(), layers);
         }
     }
 
@@ -164,8 +164,8 @@ kernel void edgeDetectKernel(
             }
         }
 
-        for (auto* child : node->children()) {
-            gatherRenderableStats(child, stats);
+        for (const auto& child : node->children()) {
+            gatherRenderableStats(child.get(), stats);
         }
     }
 

@@ -24,8 +24,8 @@ namespace visutwin::canvas
             currKeyIndices[interpKey.name] = 0;
             interpolatedKeys.push_back(interpKey);
 
-            for (auto* child : node->children()) {
-                addInterpolatedKeysRecursive(child, interpolatedKeys, interpolatedKeyDict, currKeyIndices);
+            for (const auto& child : node->children()) {
+                addInterpolatedKeysRecursive(child.get(), interpolatedKeys, interpolatedKeyDict, currKeyIndices);
             }
         }
     }

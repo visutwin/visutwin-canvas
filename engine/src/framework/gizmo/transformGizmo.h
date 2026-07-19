@@ -40,7 +40,7 @@ namespace visutwin::canvas
         };
 
         TransformGizmo(Engine* engine, CameraComponent* camera);
-        ~TransformGizmo() = default;
+        ~TransformGizmo();
 
         void attach(Entity* target);
 

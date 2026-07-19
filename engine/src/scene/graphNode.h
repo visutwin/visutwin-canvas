@@ -6,6 +6,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,11 @@ namespace visutwin::canvas
             : _name(name), _tags(this), _localScale(1, 1, 1),
               _localTransform(Matrix4::identity()), _worldTransform(Matrix4::identity()) {}
         virtual ~GraphNode();
+
+        GraphNode(const GraphNode&) = delete;
+        GraphNode& operator=(const GraphNode&) = delete;
+        GraphNode(GraphNode&&) = delete;
+        GraphNode& operator=(GraphNode&&) = delete;
 
         const std::string& name() const { return _name; }
         void setName(const std::string& name) { _name = name; }
@@ -74,9 +80,16 @@ namespace visutwin::canvas
         void setPosition(float x, float y, float z);
         void setPosition(const Vector3& position);
 
+        /** Transfer ownership of a detached node to this parent. */
+        void addChild(std::unique_ptr<GraphNode> node);
+
+        /**
+         * Adopt a heap-allocated node. If it already has a parent, ownership is
+         * transferred from that parent. Prefer the unique_ptr overload in new code.
+         */
         void addChild(GraphNode* node);
 
-        const std::vector<GraphNode*>& children() const { return _children; }
+        const std::vector<std::unique_ptr<GraphNode>>& children() const { return _children; }
 
         GraphNode* findByName(const std::string& name);
 
@@ -87,12 +100,13 @@ namespace visutwin::canvas
 
         GraphNode* parent() const { return _parent; }
 
-        void removeChild(GraphNode* child);
+        /** Detach a child and transfer ownership to the caller. */
+        [[nodiscard]] std::unique_ptr<GraphNode> removeChild(GraphNode* child);
 
         /**
         * Remove graph node from current parent
         */
-        void remove();
+        [[nodiscard]] std::unique_ptr<GraphNode> remove();
 
         bool enabled() const { return _enabled && _enabledInHierarchy; }
 
@@ -115,6 +129,7 @@ namespace visutwin::canvas
         void setEnabledInHierarchy(bool value) { _enabledInHierarchy = value; }
 
         int aabbVer() const { return _aabbVer;}
+        int graphDepth() const { return _graphDepth; }
         float worldScaleSign();
 
     protected:
@@ -135,7 +150,7 @@ namespace visutwin::canvas
 
         void fireOnHierarchy(const std::string& name, const std::string& nameHierarchy, GraphNode* parent);
 
-        void prepareInsertChild(GraphNode* node);
+        void validateInsertChild(const GraphNode* node) const;
 
         void onInsertChild(GraphNode* node);
 
@@ -161,7 +176,7 @@ namespace visutwin::canvas
         int _worldScaleSign = 0;
 
         GraphNode* _parent = nullptr;
-        std::vector<GraphNode*> _children;
+        std::vector<std::unique_ptr<GraphNode>> _children;
         int _graphDepth = 0;
 
         bool _dirtyLocal = false;

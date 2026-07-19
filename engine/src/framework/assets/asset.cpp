@@ -30,6 +30,21 @@ namespace visutwin::canvas
     {
     }
 
+    Asset::~Asset()
+    {
+        // Expire async completion guards before releasing callbacks/resources.
+        _aliveToken.reset();
+        _pendingCallbacks.clear();
+        unload();
+    }
+
+    Resource Asset::observe(const OwnedResource& resource)
+    {
+        return std::visit([](const auto& owned) -> Resource {
+            return owned.get();
+        }, resource);
+    }
+
     void Asset::setDefaultGraphicsDevice(const std::shared_ptr<GraphicsDevice>& graphicsDevice)
     {
         _defaultGraphicsDevice = graphicsDevice;
@@ -37,21 +52,18 @@ namespace visutwin::canvas
 
     void Asset::unload()
     {
-        for (auto& resource : _resources) {
-            if (std::holds_alternative<Texture*>(resource)) {
-                delete std::get<Texture*>(resource);
-            } else if (std::holds_alternative<ContainerResource*>(resource)) {
-                delete std::get<ContainerResource*>(resource);
-            } else if (std::holds_alternative<FontResource*>(resource)) {
-                auto* font = std::get<FontResource*>(resource);
-                if (font) {
-                    delete font->texture;
-                    font->texture = nullptr;
-                    delete font;
-                }
+        // Invalidate an in-flight completion. The worker cannot be cancelled,
+        // but its main-thread callback will discard the result by generation.
+        ++_loadGeneration;
+        _loading = false;
+        auto callbacks = std::move(_pendingCallbacks);
+        _pendingCallbacks.clear();
+        _resources.clear();
+        for (auto& callback : callbacks) {
+            if (callback) {
+                callback(std::nullopt);
             }
         }
-        _resources.clear();
     }
 
     std::optional<Resource> Asset::resource() {
@@ -95,7 +107,7 @@ namespace visutwin::canvas
                 if (!container) {
                     return std::nullopt;
                 }
-                _resources.push_back(static_cast<ContainerResource*>(container.release()));
+                _resources.emplace_back(std::unique_ptr<ContainerResource>(std::move(container)));
             } else if (_type == AssetType::TEXTURE) {
                 auto graphicsDevice = _defaultGraphicsDevice.lock();
                 if (!graphicsDevice) {
@@ -140,7 +152,7 @@ namespace visutwin::canvas
                     options.numLevels = static_cast<uint32_t>(transcoded.levels.size());
                     options.name = _name;
 
-                    auto* texture = new Texture(graphicsDevice.get(), options);
+                    auto texture = std::make_unique<Texture>(graphicsDevice.get(), options);
                     texture->setEncoding(TextureEncoding::Default);
                     for (size_t level = 0; level < transcoded.levels.size(); ++level) {
                         texture->setLevelData(static_cast<uint32_t>(level),
@@ -150,7 +162,7 @@ namespace visutwin::canvas
 
                     spdlog::info("Loaded KTX2 texture '{}': {}x{} ({} mips, compressed)",
                         _name, transcoded.width, transcoded.height, transcoded.levels.size());
-                    _resources.push_back(texture);
+                    _resources.emplace_back(std::move(texture));
                 } else if (isHdr) {
                     // HDR path: load as floating-point data
                     float* hdrPixels = stbi_loadf(_file.c_str(), &width, &height, &channels, 0);
@@ -181,14 +193,14 @@ namespace visutwin::canvas
                     options.numLevels = _data.mipmaps ? 0 : 1;
                     options.name = _name;
 
-                    auto* texture = new Texture(graphicsDevice.get(), options);
+                    auto texture = std::make_unique<Texture>(graphicsDevice.get(), options);
                     texture->setEncoding(TextureEncoding::Default);
                     const auto dataSize = pixelCount * 4 * sizeof(float);
                     texture->setLevelData(0, reinterpret_cast<const uint8_t*>(rgbaData.data()), dataSize);
                     texture->upload();
 
                     spdlog::info("Loaded HDR texture '{}': {}x{} channels={}", _name, width, height, channels);
-                    _resources.push_back(texture);
+                    _resources.emplace_back(std::move(texture));
                 } else {
                     // LDR path: load as 8-bit RGBA
                     stbi_uc* pixels = stbi_load(_file.c_str(), &width, &height, &channels, STBI_rgb_alpha);
@@ -208,7 +220,7 @@ namespace visutwin::canvas
                     options.numLevels = _data.mipmaps ? 0 : 1;
                     options.name = _name;
 
-                    auto* texture = new Texture(graphicsDevice.get(), options);
+                    auto texture = std::make_unique<Texture>(graphicsDevice.get(), options);
                     if (_data.type == TextureType::TEXTURETYPE_RGBP) {
                         texture->setEncoding(TextureEncoding::RGBP);
                     } else if (_data.type == TextureType::TEXTURETYPE_RGBM) {
@@ -221,7 +233,7 @@ namespace visutwin::canvas
                     texture->upload();
 
                     stbi_image_free(pixels);
-                    _resources.push_back(texture);
+                    _resources.emplace_back(std::move(texture));
                 }
             } else if (_type == AssetType::FONT) {
                 auto graphicsDevice = _defaultGraphicsDevice.lock();
@@ -235,12 +247,12 @@ namespace visutwin::canvas
                     spdlog::error("Failed to decode bitmap font asset '{}' from '{}'", _name, _file);
                     return std::nullopt;
                 }
-                _resources.push_back(*font);
+                _resources.emplace_back(std::unique_ptr<FontResource>(*font));
             }
         }
 
         if (!_resources.empty()) {
-            return _resources[0];
+            return observe(_resources[0]);
         }
         return std::nullopt;
     }
@@ -262,7 +274,7 @@ namespace visutwin::canvas
         // If already loaded, invoke callback immediately.
         if (!_resources.empty()) {
             spdlog::info("Asset::loadAsync '{}' already loaded — returning cached", _name);
-            if (callback) callback(_resources[0]);
+            if (callback) callback(observe(_resources[0]));
             return;
         }
 
@@ -282,6 +294,7 @@ namespace visutwin::canvas
             return;
         }
         _loading = true;
+        const uint64_t loadGeneration = ++_loadGeneration;
 
         // Map asset type → handler type key used by ResourceLoader.
         // (Asset types and handler keys deliberately share the same strings.)
@@ -302,9 +315,12 @@ namespace visutwin::canvas
 
         loader.load(_file, handlerType,
             // ── onSuccess (main thread) ────────────────────────────────────
-            [self, alive, name, type, file, data, device](std::unique_ptr<LoadedData> loaded) {
+            [self, alive, name, type, file, data, device, loadGeneration](std::unique_ptr<LoadedData> loaded) {
                 if (!alive.lock()) {
                     spdlog::warn("Asset::loadAsync '{}' completed after the Asset was destroyed — dropping result", name);
+                    return;
+                }
+                if (self->_loadGeneration != loadGeneration) {
                     return;
                 }
                 if (type == AssetType::TEXTURE && loaded->pixelData) {
@@ -328,7 +344,7 @@ namespace visutwin::canvas
                     }
                     options.name     = name;
 
-                    auto* texture = new Texture(device.get(), options);
+                    auto texture = std::make_unique<Texture>(device.get(), options);
                     if (data.type == TextureType::TEXTURETYPE_RGBP) {
                         texture->setEncoding(TextureEncoding::RGBP);
                     } else if (data.type == TextureType::TEXTURETYPE_RGBM) {
@@ -355,8 +371,9 @@ namespace visutwin::canvas
                     spdlog::info("Asset::loadAsync texture '{}' GPU upload done {}x{}{}",
                         name, pd.width, pd.height, pd.isCompressed ? " (compressed)" : "");
 
-                    self->_resources.push_back(texture);
-                    self->finishLoad(Resource(texture));
+                    auto* resource = texture.get();
+                    self->_resources.emplace_back(std::move(texture));
+                    self->finishLoad(Resource(resource));
 
                 } else if (type == AssetType::CONTAINER) {
                     std::unique_ptr<GlbContainerResource> container;
@@ -427,8 +444,9 @@ namespace visutwin::canvas
                     }
 
                     if (container) {
-                        auto* res = static_cast<ContainerResource*>(container.release());
-                        self->_resources.push_back(res);
+                        auto* res = static_cast<ContainerResource*>(container.get());
+                        self->_resources.emplace_back(
+                            std::unique_ptr<ContainerResource>(std::move(container)));
                         spdlog::info("Asset::loadAsync container '{}' parse done", name);
                         self->finishLoad(Resource(res));
                     } else {
@@ -441,9 +459,11 @@ namespace visutwin::canvas
                     // The bg thread pre-read the bytes to warm the OS cache.
                     const auto font = loadBitmapFontResource(file, device);
                     if (font.has_value()) {
-                        self->_resources.push_back(*font);
+                        auto ownedFont = std::unique_ptr<FontResource>(*font);
+                        auto* resource = ownedFont.get();
+                        self->_resources.emplace_back(std::move(ownedFont));
                         spdlog::info("Asset::loadAsync font '{}' parse done", name);
-                        self->finishLoad(Resource(*font));
+                        self->finishLoad(Resource(resource));
                     } else {
                         spdlog::error("Asset::loadAsync font '{}' parse failed", name);
                         self->finishLoad(std::nullopt);
@@ -455,11 +475,14 @@ namespace visutwin::canvas
                 }
             },
             // ── onError (main thread) ──────────────────────────────────────
-            [self, alive, name](const std::string& error) {
-                spdlog::error("Asset::loadAsync '{}' failed: {}", name, error);
+            [self, alive, name, loadGeneration](const std::string& error) {
                 if (!alive.lock()) {
                     return;
                 }
+                if (self->_loadGeneration != loadGeneration) {
+                    return;
+                }
+                spdlog::error("Asset::loadAsync '{}' failed: {}", name, error);
                 self->finishLoad(std::nullopt);
             }
         );

@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <variant>
@@ -57,6 +58,8 @@ namespace visutwin::canvas
         bool mipmaps = false;
     };
 
+    // Borrowed resource view. The pointer remains valid until its Asset is
+    // unloaded, removed-and-destroyed by a registry, or destroyed directly.
     using Resource = std::variant<Texture*, ContainerResource*, FontResource*>;
 
     /**
@@ -71,10 +74,19 @@ namespace visutwin::canvas
     {
     public:
         Asset(const std::string& name, const std::string& type, const std::string& file, const AssetData& data = {});
+        ~Asset() override;
+
+        Asset(const Asset&) = delete;
+        Asset& operator=(const Asset&) = delete;
+        Asset(Asset&&) = delete;
+        Asset& operator=(Asset&&) = delete;
 
         static void setDefaultGraphicsDevice(const std::shared_ptr<GraphicsDevice>& graphicsDevice);
 
         bool preload() const { return _preload; }
+        void setPreload(bool preload) { _preload = preload; }
+        bool loaded() const { return !_resources.empty(); }
+        bool loading() const { return _loading; }
 
         const std::string& name() const { return _name; }
         const std::string& type() const { return _type; }
@@ -105,6 +117,13 @@ namespace visutwin::canvas
                        std::function<void(std::optional<Resource>)> callback);
 
     private:
+        using OwnedResource = std::variant<
+            std::unique_ptr<Texture>,
+            std::unique_ptr<ContainerResource>,
+            std::unique_ptr<FontResource>>;
+
+        static Resource observe(const OwnedResource& resource);
+
         // Completes an async load: stores nothing itself (the closure already
         // pushed the resource), flips _loading, and fires all pending callbacks.
         void finishLoad(const std::optional<Resource>& result);
@@ -119,9 +138,10 @@ namespace visutwin::canvas
 
         AssetData _data;
 
-        std::vector<Resource> _resources;
+        std::vector<OwnedResource> _resources;
 
         bool _loading = false;
+        uint64_t _loadGeneration = 0;
         std::vector<std::function<void(std::optional<Resource>)>> _pendingCallbacks;
 
         // Outlives nothing: destroyed with the Asset, which is exactly what the
