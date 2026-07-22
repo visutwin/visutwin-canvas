@@ -87,6 +87,10 @@ namespace visutwin::canvas
             assert(data != nullptr);
             assert(size > 0);
 
+            if (!_basePtr || !data || size == 0) {
+                return SIZE_MAX;
+            }
+
             const size_t alignedSize = alignUp(size, kAlignment);
             if (_writeOffset + alignedSize > kRegionSize) {
                 spdlog::warn("PaletteRingBuffer: frame allocation exceeded {}KB budget "
@@ -106,8 +110,11 @@ namespace visutwin::canvas
          */
         void endFrame(MTL::CommandBuffer* commandBuffer)
         {
-            assert(commandBuffer != nullptr);
             dispatch_semaphore_t sem = _frameSemaphore;
+            if (!commandBuffer) {
+                dispatch_semaphore_signal(sem);
+                return;
+            }
             commandBuffer->addCompletedHandler(^(MTL::CommandBuffer*) {
                 dispatch_semaphore_signal(sem);
             });

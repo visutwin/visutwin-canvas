@@ -99,14 +99,13 @@ namespace visutwin::canvas
         {
             assert(data != nullptr);
             assert(dataSize <= _alignedSlotSize && "Data exceeds aligned slot size");
-            assert(_drawCount < _maxDrawsPerFrame && "Ring buffer overflow: too many draws this frame");
-
             if (!_basePtr) {
                 return 0;
             }
             // Overflowing the frame region would memcpy into the next in-flight
-            // frame's data (or past the MTLBuffer). Reuse the last slot instead:
-            // the excess draws render with stale uniforms, but memory stays intact.
+            // frame's data (or past the MTLBuffer). Reuse the last slot without
+            // modifying it: overwriting it would also change the uniforms of the
+            // already-encoded draw that owns that slot before the GPU reads it.
             if (_drawCount >= _maxDrawsPerFrame) [[unlikely]] {
                 if (!_overflowWarned) {
                     _overflowWarned = true;
@@ -114,9 +113,7 @@ namespace visutwin::canvas
                                  "excess draws reuse the last uniform slot", _maxDrawsPerFrame);
                 }
                 const size_t lastSlot = _maxDrawsPerFrame - 1;
-                const size_t offset = _frameIndex * _regionSize + lastSlot * _alignedSlotSize;
-                std::memcpy(_basePtr + offset, data, std::min(dataSize, _alignedSlotSize));
-                return offset;
+                return _frameIndex * _regionSize + lastSlot * _alignedSlotSize;
             }
 
             const size_t offset = _frameIndex * _regionSize + _drawCount * _alignedSlotSize;
@@ -132,8 +129,11 @@ namespace visutwin::canvas
          */
         void endFrame(MTL::CommandBuffer* commandBuffer)
         {
-            assert(commandBuffer != nullptr);
             dispatch_semaphore_t sem = _frameSemaphore;
+            if (!commandBuffer) {
+                dispatch_semaphore_signal(sem);
+                return;
+            }
             commandBuffer->addCompletedHandler(^(MTL::CommandBuffer*) {
                 dispatch_semaphore_signal(sem);
             });

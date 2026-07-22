@@ -269,6 +269,8 @@ namespace visutwin::canvas
         MTL::SamplerState* _postSampler = nullptr;
         MTL::DepthStencilState* _defaultDepthStencilState = nullptr;
         MTL::DepthStencilState* _noWriteDepthStencilState = nullptr;
+        MTL::DepthStencilState* _noTestDepthStencilState = nullptr;
+        MTL::DepthStencilState* _noTestNoWriteDepthStencilState = nullptr;
         MTL::Texture* _backBufferDepthTexture = nullptr;
         int _backBufferDepthWidth = 0;
         int _backBufferDepthHeight = 0;

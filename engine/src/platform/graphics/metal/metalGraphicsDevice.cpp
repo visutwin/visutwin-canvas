@@ -115,18 +115,22 @@ namespace visutwin::canvas
         postDesc->release();
 
         auto* depthDesc = MTL::DepthStencilDescriptor::alloc()->init();
-        // Default depth function is FUNC_LESSEQUAL.
-        // This is critical for the skybox, which renders at depth ≈ 1.0 and needs
-        // LESSEQUAL to pass the depth test against the cleared depth buffer (also 1.0).
+        // Depth state is dynamic in Metal and is not part of the render PSO. Keep
+        // all four DepthState test/write combinations ready so draw() can honor
+        // both flags. LessEqual is required for the skybox at cleared depth 1.0.
         depthDesc->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
         depthDesc->setDepthWriteEnabled(true);
         _defaultDepthStencilState = _device->newDepthStencilState(depthDesc);
 
-        // depth-test-only state (no depth writes).
-        // Used by transparent materials and the skybox that need depth testing
-        // but should not write to the depth buffer.
         depthDesc->setDepthWriteEnabled(false);
         _noWriteDepthStencilState = _device->newDepthStencilState(depthDesc);
+
+        depthDesc->setDepthCompareFunction(MTL::CompareFunctionAlways);
+        depthDesc->setDepthWriteEnabled(true);
+        _noTestDepthStencilState = _device->newDepthStencilState(depthDesc);
+
+        depthDesc->setDepthWriteEnabled(false);
+        _noTestNoWriteDepthStencilState = _device->newDepthStencilState(depthDesc);
         depthDesc->release();
 
         _renderPipeline = std::make_unique<MetalRenderPipeline>(this);
@@ -192,6 +196,14 @@ namespace visutwin::canvas
             _noWriteDepthStencilState->release();
             _noWriteDepthStencilState = nullptr;
         }
+        if (_noTestDepthStencilState) {
+            _noTestDepthStencilState->release();
+            _noTestDepthStencilState = nullptr;
+        }
+        if (_noTestNoWriteDepthStencilState) {
+            _noTestNoWriteDepthStencilState->release();
+            _noTestNoWriteDepthStencilState = nullptr;
+        }
         // All envAtlas passes must be destroyed before _composePass — they
         // reference it.
         _equirectToCubePass.reset();
@@ -212,6 +224,23 @@ namespace visutwin::canvas
         if (_clusterCellBuffer) {
             _clusterCellBuffer->release();
             _clusterCellBuffer = nullptr;
+        }
+
+        // These resources are created with new* and wrapped as non-owning
+        // external textures, so the device remains responsible for releasing them.
+        _sceneGrabWrapper.reset();
+        _sceneDepthGrabWrapper.reset();
+        if (_sceneGrabRaw) {
+            _sceneGrabRaw->release();
+            _sceneGrabRaw = nullptr;
+        }
+        if (_sceneDepthGrabRaw) {
+            _sceneDepthGrabRaw->release();
+            _sceneDepthGrabRaw = nullptr;
+        }
+        if (_particleSimPipeline) {
+            _particleSimPipeline->release();
+            _particleSimPipeline = nullptr;
         }
 
         if (_framePool) {
@@ -291,38 +320,47 @@ namespace visutwin::canvas
         // occurred this frame (e.g. post-processing toggled off with stale render
         // actions), _frameDrawable may be null.  We must still signal the semaphores
         // — otherwise beginFrame() blocks forever after kMaxInflightFrames.
-        if (_commandQueue) {
-            auto* endBuffer = _commandQueue->commandBuffer();
-            if (endBuffer) {
-                // Register ring buffer completion handlers on this command buffer.
-                // This is the LAST command buffer committed per frame, so the
-                // semaphore signals correctly track whole-frame GPU completion.
-                _transformRing->endFrame(endBuffer);
-                _uniformRing->endFrame(endBuffer);
-                _paletteRing->endFrame(endBuffer);
+        auto* endBuffer = _commandQueue ? _commandQueue->commandBuffer() : nullptr;
+        if (endBuffer) {
+            // Register ring buffer completion handlers on this command buffer.
+            // This is the LAST command buffer committed per frame, so the
+            // semaphore signals correctly track whole-frame GPU completion.
+            _transformRing->endFrame(endBuffer);
+            _uniformRing->endFrame(endBuffer);
+            _paletteRing->endFrame(endBuffer);
 
-                if (_frameDrawable) {
-                    // Present only after this buffer — and therefore every prior
-                    // command buffer on the queue — has COMPLETED on the GPU.
-                    // presentDrawable() fires when the buffer is merely SCHEDULED;
-                    // because the engine renders a frame through several separately
-                    // committed back-buffer command buffers and presents from this
-                    // empty end-of-frame buffer, a scheduled-time present can scan
-                    // out a partially rendered drawable when the layer takes the
-                    // direct-to-display path (visible as flashing patches of the
-                    // earlier passes' content; screen captures never show it since
-                    // compositing reads the surface after completion).
-                    CA::MetalDrawable* presentedDrawable = _frameDrawable;
-                    presentedDrawable->retain();
-                    endBuffer->addCompletedHandler([presentedDrawable](MTL::CommandBuffer*) {
-                        presentedDrawable->present();
-                        presentedDrawable->release();
-                    });
-                }
-                endBuffer->commit();
+            if (_frameDrawable) {
+                // Present only after this buffer — and therefore every prior
+                // command buffer on the queue — has COMPLETED on the GPU.
+                // presentDrawable() fires when the buffer is merely SCHEDULED;
+                // because the engine renders a frame through several separately
+                // committed back-buffer command buffers and presents from this
+                // empty end-of-frame buffer, a scheduled-time present can scan
+                // out a partially rendered drawable when the layer takes the
+                // direct-to-display path (visible as flashing patches of the
+                // earlier passes' content; screen captures never show it since
+                // compositing reads the surface after completion).
+                CA::MetalDrawable* presentedDrawable = _frameDrawable;
+                presentedDrawable->retain();
+                endBuffer->addCompletedHandler([presentedDrawable](MTL::CommandBuffer*) {
+                    presentedDrawable->present();
+                    presentedDrawable->release();
+                });
             }
+            endBuffer->commit();
+        } else {
+            // Balance the beginFrame() waits even if Metal cannot allocate the
+            // sentinel command buffer. Otherwise the fourth such frame deadlocks.
+            spdlog::error("Failed to allocate end-of-frame Metal command buffer");
+            _transformRing->endFrame(nullptr);
+            _uniformRing->endFrame(nullptr);
+            _paletteRing->endFrame(nullptr);
         }
-        // The frame drawable is released at the start of the next frame.
+
+        // The drawable has either been retained by the completion handler above or
+        // was never acquired. Do not expose an autoreleased pointer after the frame
+        // pool is drained below.
+        _frameDrawable = nullptr;
 
         // Drain this frame's autorelease pool. All command buffers /
         // render pass descriptors / drawable queries created between
@@ -1502,11 +1540,19 @@ namespace visutwin::canvas
         // subsequent draws can rely on the cache for deduplication.
         _textureBinder.markClean();
 
-        // per-draw-call depth stencil state switching.
-        // Transparent materials (e.g. shadow catcher) may need depthWrite disabled.
-        const bool needsNoWrite = _depthState && !_depthState->depthWrite();
-        if (needsNoWrite && _noWriteDepthStencilState) {
-            passEncoder->setDepthStencilState(_noWriteDepthStencilState);
+        // Depth/stencil state is dynamic Metal encoder state. Select the exact
+        // depth-test/depth-write combination on every draw so state from a prior
+        // draw or a specialized pass cannot leak into this one.
+        const bool depthTest = !_depthState || _depthState->depthTest();
+        const bool depthWrite = !_depthState || _depthState->depthWrite();
+        MTL::DepthStencilState* drawDepthState = nullptr;
+        if (depthTest) {
+            drawDepthState = depthWrite ? _defaultDepthStencilState : _noWriteDepthStencilState;
+        } else {
+            drawDepthState = depthWrite ? _noTestDepthStencilState : _noTestNoWriteDepthStencilState;
+        }
+        if (drawDepthState) {
+            passEncoder->setDepthStencilState(drawDepthState);
         }
 
         // ── Dynamic batch palette binding (slot 6) ─────────────────────
@@ -1589,11 +1635,6 @@ namespace visutwin::canvas
                     static_cast<NS::UInteger>(numInstances)
                 );
             }
-        }
-
-        // Restore default depth stencil state after draw
-        if (needsNoWrite && _defaultDepthStencilState) {
-            passEncoder->setDepthStencilState(_defaultDepthStencilState);
         }
 
         recordDrawCall();
@@ -1725,12 +1766,17 @@ namespace visutwin::canvas
                 const bool multisampled = attachment->multisampledBuffer != nullptr;
                 colorAttachment->setTexture(multisampled ? attachment->multisampledBuffer : attachment->texture);
 
-                // Cubemap face rendering: when the (non-MSAA) color texture is a
-                // cubemap, target a specific face via the slice parameter. Mirrors
-                // the depth-attachment handling below; used for reflection-probe
-                // scene capture (render the scene into one cube face at a time).
-                if (!multisampled && attachment->texture->textureType() == MTL::TextureTypeCube &&
-                    activeTarget->face() >= 0) {
+                // A multisample attachment is a single-level texture sized for the
+                // target mip; otherwise render directly into the requested mip.
+                if (!multisampled) {
+                    colorAttachment->setLevel(static_cast<NS::UInteger>(activeTarget->mipLevel()));
+                }
+
+                // Cubemaps and 2D arrays select their destination through slice.
+                const auto colorTextureType = attachment->texture->textureType();
+                const bool colorHasSlices = colorTextureType == MTL::TextureTypeCube ||
+                    colorTextureType == MTL::TextureType2DArray;
+                if (!multisampled && colorHasSlices && activeTarget->face() >= 0) {
                     colorAttachment->setSlice(static_cast<NS::UInteger>(activeTarget->face()));
                 }
 
@@ -1746,6 +1792,10 @@ namespace visutwin::canvas
                 const bool resolve = multisampled && canResolve && ops && ops->resolve;
                 if (resolve) {
                     colorAttachment->setResolveTexture(attachment->texture);
+                    colorAttachment->setResolveLevel(static_cast<NS::UInteger>(activeTarget->mipLevel()));
+                    if (colorHasSlices && activeTarget->face() >= 0) {
+                        colorAttachment->setResolveSlice(static_cast<NS::UInteger>(activeTarget->face()));
+                    }
                 }
                 colorAttachment->setStoreAction(resolveColorStoreAction(ops ? ops->store : true, resolve));
             }
