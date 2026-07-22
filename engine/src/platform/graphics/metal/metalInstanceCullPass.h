@@ -82,7 +82,7 @@ namespace visutwin::canvas
         MTL::Buffer* compactedBuffer_    = nullptr;  // Visible instances (maxInstances * 80)
         MTL::Buffer* indirectArgsBuffer_ = nullptr;  // 20 bytes (MTLDrawIndexedPrimitivesIndirectArguments)
         MTL::Buffer* counterBuffer_      = nullptr;  // atomic_uint (4 bytes)
-        MTL::Buffer* uniformBuffer_      = nullptr;  // InstanceCullParams (128 bytes)
+        mutable MTL::CommandBuffer* pendingReadback_ = nullptr;
 
         uint32_t maxInstances_ = 0;
 

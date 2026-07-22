@@ -737,10 +737,9 @@ namespace visutwin::canvas
         virtual std::unique_ptr<InstanceCuller> createInstanceCuller() { return nullptr; }
 
         /// GPU instance-cull batching. All InstanceCuller::cull() calls between
-        /// begin/end share one backend command buffer and one CPU/GPU sync at
-        /// endGpuCullBatch() — without a batch each cull() is a full round-trip
-        /// stall (commit + wait) per mesh instance. Backends without batching
-        /// ignore these; cull() then runs standalone as before.
+        /// begin/end share one backend command buffer. Backends may submit it
+        /// asynchronously when later rendering is ordered on the same queue;
+        /// standalone cull() preserves immediate CPU-readback semantics.
         virtual void beginGpuCullBatch() {}
         virtual void endGpuCullBatch() {}
 

@@ -28,6 +28,7 @@
 #include "metalVertexBuffer.h"
 #include "platform/graphics/compute.h"
 #include "platform/graphics/shader.h"
+#include "platform/graphics/stencilParameters.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/material.h"
 #include "spdlog/spdlog.h"
@@ -56,9 +57,60 @@ namespace visutwin::canvas
             float normalSign;
             float _pad[3];
         };
+
+        MTL::CompareFunction toMetalStencilCompare(const StencilCompareFunction function)
+        {
+            switch (function) {
+            case StencilCompareFunction::Never:        return MTL::CompareFunctionNever;
+            case StencilCompareFunction::Less:         return MTL::CompareFunctionLess;
+            case StencilCompareFunction::Equal:        return MTL::CompareFunctionEqual;
+            case StencilCompareFunction::LessEqual:    return MTL::CompareFunctionLessEqual;
+            case StencilCompareFunction::Greater:      return MTL::CompareFunctionGreater;
+            case StencilCompareFunction::NotEqual:     return MTL::CompareFunctionNotEqual;
+            case StencilCompareFunction::GreaterEqual: return MTL::CompareFunctionGreaterEqual;
+            case StencilCompareFunction::Always:       return MTL::CompareFunctionAlways;
+            }
+            return MTL::CompareFunctionAlways;
+        }
+
+        MTL::StencilOperation toMetalStencilOperation(const StencilOperation operation)
+        {
+            switch (operation) {
+            case StencilOperation::Keep:           return MTL::StencilOperationKeep;
+            case StencilOperation::Zero:           return MTL::StencilOperationZero;
+            case StencilOperation::Replace:        return MTL::StencilOperationReplace;
+            case StencilOperation::IncrementClamp: return MTL::StencilOperationIncrementClamp;
+            case StencilOperation::DecrementClamp: return MTL::StencilOperationDecrementClamp;
+            case StencilOperation::Invert:         return MTL::StencilOperationInvert;
+            case StencilOperation::IncrementWrap:  return MTL::StencilOperationIncrementWrap;
+            case StencilOperation::DecrementWrap:  return MTL::StencilOperationDecrementWrap;
+            }
+            return MTL::StencilOperationKeep;
+        }
+
+        void configureStencilDescriptor(MTL::StencilDescriptor* descriptor,
+            const StencilParameters* parameters)
+        {
+            descriptor->setStencilCompareFunction(toMetalStencilCompare(parameters->compareFunction()));
+            descriptor->setStencilFailureOperation(toMetalStencilOperation(parameters->failOperation()));
+            descriptor->setDepthFailureOperation(toMetalStencilOperation(parameters->depthFailOperation()));
+            descriptor->setDepthStencilPassOperation(toMetalStencilOperation(parameters->passOperation()));
+            descriptor->setReadMask(parameters->readMask());
+            descriptor->setWriteMask(parameters->writeMask());
+        }
     }
 
     constexpr int INDIRECT_ENTRY_BYTE_SIZE = 5 * 4; // 5 x 32bit
+
+    size_t MetalGraphicsDevice::DepthStencilCacheKeyHash::operator()(
+        const DepthStencilCacheKey& key) const noexcept
+    {
+        size_t hash = std::hash<uint32_t>{}(key.frontState);
+        hash ^= std::hash<uint32_t>{}(key.backState) + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
+        hash ^= std::hash<bool>{}(key.depthTest) + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
+        hash ^= std::hash<bool>{}(key.depthWrite) + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
+        return hash;
+    }
 
     MetalGraphicsDevice::MetalGraphicsDevice(const GraphicsDeviceOptions& options):
         _window(options.window),
@@ -204,6 +256,12 @@ namespace visutwin::canvas
             _noTestNoWriteDepthStencilState->release();
             _noTestNoWriteDepthStencilState = nullptr;
         }
+        for (auto& [_, state] : _stencilStateCache) {
+            if (state) {
+                state->release();
+            }
+        }
+        _stencilStateCache.clear();
         // All envAtlas passes must be destroyed before _composePass — they
         // reference it.
         _equirectToCubePass.reset();
@@ -387,6 +445,54 @@ namespace visutwin::canvas
         return 1;
     }
 
+    MTL::DepthStencilState* MetalGraphicsDevice::resolveDepthStencilState(const DepthState* depthState,
+        StencilParameters* stencilFront, StencilParameters* stencilBack)
+    {
+        const bool depthTest = !depthState || depthState->depthTest();
+        const bool depthWrite = !depthState || depthState->depthWrite();
+        if (!stencilFront && !stencilBack) {
+            if (depthTest) {
+                return depthWrite ? _defaultDepthStencilState : _noWriteDepthStencilState;
+            }
+            return depthWrite ? _noTestDepthStencilState : _noTestNoWriteDepthStencilState;
+        }
+
+        // A single face descriptor applies to both windings, matching the common
+        // front-only API convention. Supplying both enables independent behavior.
+        StencilParameters* effectiveFront = stencilFront ? stencilFront : stencilBack;
+        StencilParameters* effectiveBack = stencilBack ? stencilBack : stencilFront;
+
+        const DepthStencilCacheKey cacheKey{
+            effectiveFront->stateKey(), effectiveBack->stateKey(), depthTest, depthWrite};
+        if (const auto it = _stencilStateCache.find(cacheKey); it != _stencilStateCache.end()) {
+            return it->second;
+        }
+
+        auto* descriptor = MTL::DepthStencilDescriptor::alloc()->init();
+        descriptor->setDepthCompareFunction(depthTest
+            ? MTL::CompareFunctionLessEqual : MTL::CompareFunctionAlways);
+        descriptor->setDepthWriteEnabled(depthWrite);
+
+        auto* frontDescriptor = MTL::StencilDescriptor::alloc()->init();
+        configureStencilDescriptor(frontDescriptor, effectiveFront);
+        descriptor->setFrontFaceStencil(frontDescriptor);
+
+        auto* backDescriptor = MTL::StencilDescriptor::alloc()->init();
+        configureStencilDescriptor(backDescriptor, effectiveBack);
+        descriptor->setBackFaceStencil(backDescriptor);
+
+        auto* state = _device->newDepthStencilState(descriptor);
+        backDescriptor->release();
+        frontDescriptor->release();
+        descriptor->release();
+        if (!state) {
+            spdlog::error("Failed to create Metal depth/stencil state");
+            return nullptr;
+        }
+        _stencilStateCache.emplace(cacheKey, state);
+        return state;
+    }
+
     std::shared_ptr<Shader> MetalGraphicsDevice::createShader(const ShaderDefinition& definition,
         const std::string& sourceCode)
     {
@@ -438,12 +544,11 @@ namespace visutwin::canvas
         if (!_gpuCullBatchCommandBuffer) {
             return;
         }
-        // One commit + one wait for the whole batch. The wait keeps the
-        // existing synchronous contract: cull results (compacted buffers,
-        // indirect args, CPU readbacks) are ready before rendering starts,
-        // and next frame's CPU-side uniform/counter writes can't race the GPU.
+        // Rendering is submitted to the same serial queue, so it consumes the
+        // compacted buffers and indirect arguments after this compute batch.
+        // Cull parameters and resets are encoder-owned/GPU-side, so no CPU wait
+        // is needed to protect resources reused by the following frame.
         _gpuCullBatchCommandBuffer->commit();
-        _gpuCullBatchCommandBuffer->waitUntilCompleted();
         _gpuCullBatchCommandBuffer = nullptr;
     }
 
@@ -704,7 +809,6 @@ namespace visutwin::canvas
 
         encoder->endEncoding();
         commandBuffer->commit();
-        commandBuffer->waitUntilCompleted();
     }
 
     void MetalGraphicsDevice::generateEnvConvolve(const EnvConvolvePassParams& params)
@@ -794,7 +898,6 @@ namespace visutwin::canvas
 
         encoder->endEncoding();
         commandBuffer->commit();
-        commandBuffer->waitUntilCompleted();
     }
 
     void MetalGraphicsDevice::generateEnvAtlas(const EnvAtlasBakeParams& params)
@@ -896,7 +999,6 @@ namespace visutwin::canvas
 
         encoder->endEncoding();
         commandBuffer->commit();
-        commandBuffer->waitUntilCompleted();
     }
 
     void MetalGraphicsDevice::generateEquirectToCubemap(const EquirectToCubeParams& params)
@@ -989,7 +1091,6 @@ namespace visutwin::canvas
         }
 
         commandBuffer->commit();
-        commandBuffer->waitUntilCompleted();
     }
 
     void MetalGraphicsDevice::setDepthBias(const float depthBias, const float slopeScale, const float clamp)
@@ -1543,16 +1644,16 @@ namespace visutwin::canvas
         // Depth/stencil state is dynamic Metal encoder state. Select the exact
         // depth-test/depth-write combination on every draw so state from a prior
         // draw or a specialized pass cannot leak into this one.
-        const bool depthTest = !_depthState || _depthState->depthTest();
-        const bool depthWrite = !_depthState || _depthState->depthWrite();
-        MTL::DepthStencilState* drawDepthState = nullptr;
-        if (depthTest) {
-            drawDepthState = depthWrite ? _defaultDepthStencilState : _noWriteDepthStencilState;
-        } else {
-            drawDepthState = depthWrite ? _noTestDepthStencilState : _noTestNoWriteDepthStencilState;
-        }
+        MTL::DepthStencilState* drawDepthState = resolveDepthStencilState(
+            _depthState.get(), _stencilEnabled ? _stencilFront.get() : nullptr,
+            _stencilEnabled ? _stencilBack.get() : nullptr);
         if (drawDepthState) {
             passEncoder->setDepthStencilState(drawDepthState);
+        }
+        if (_stencilEnabled && (_stencilFront || _stencilBack)) {
+            const auto* front = _stencilFront ? _stencilFront.get() : _stencilBack.get();
+            const auto* back = _stencilBack ? _stencilBack.get() : _stencilFront.get();
+            passEncoder->setStencilReferenceValues(front->reference(), back->reference());
         }
 
         // ── Dynamic batch palette binding (slot 6) ─────────────────────

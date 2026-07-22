@@ -259,9 +259,8 @@ namespace visutwin::canvas::gpu
                     blitEncoder->generateMipmaps(_metalTexture);
                     blitEncoder->endEncoding();
                     cmdBuffer->commit();
-                    // Block until mipmap generation finishes so subsequent sampling reads
-                    // valid mip data. This runs once at texture load time, not per frame.
-                    cmdBuffer->waitUntilCompleted();
+                    // Subsequent rendering uses this serial queue, so sampling is
+                    // ordered after mip generation without blocking the CPU.
                 }
             }
         }

@@ -892,16 +892,20 @@ kernel void generateVertices(
         // Update maxVertices in uniforms to actual count (for safety check in shader)
         MCComputeParams pass2Params = params;
         pass2Params.maxVertices = totalVertices;
-        std::memcpy(uniformBuffer_->contents(), &pass2Params, sizeof(MCComputeParams));
-
-        // Reset counter for Pass 2 (used for atomic allocation)
-        std::memcpy(counterBuffer_->contents(), &zero, sizeof(uint32_t));
+        auto* generationCounter = device_->raw()->newBuffer(
+            sizeof(uint32_t), MTL::ResourceStorageModeShared);
+        if (!generationCounter) {
+            vbuffer->release();
+            return result;
+        }
+        std::memset(generationCounter->contents(), 0, sizeof(uint32_t));
 
         // ── Pass 2: Generate vertices ────────────────────────────
         {
             auto* commandBuffer = device_->_commandQueue->commandBuffer();
             if (!commandBuffer) {
                 spdlog::warn("[MetalMarchingCubesPass] Failed to create command buffer for Pass 2");
+                generationCounter->release();
                 vbuffer->release();
                 return result;
             }
@@ -909,6 +913,7 @@ kernel void generateVertices(
             auto* encoder = commandBuffer->computeCommandEncoder();
             if (!encoder) {
                 spdlog::warn("[MetalMarchingCubesPass] Failed to create compute encoder for Pass 2");
+                generationCounter->release();
                 vbuffer->release();
                 return result;
             }
@@ -919,10 +924,10 @@ kernel void generateVertices(
             encoder->setComputePipelineState(generatePipeline_);
             encoder->setTexture(hwTexture->raw(), 0);         // [[texture(0)]]
             encoder->setSamplerState(fieldSampler_, 0);        // [[sampler(0)]]
-            encoder->setBuffer(uniformBuffer_, 0, 0);          // [[buffer(0)]]
+            encoder->setBytes(&pass2Params, sizeof(MCComputeParams), 0); // [[buffer(0)]]
             encoder->setBuffer(edgeTableBuffer_, 0, 1);        // [[buffer(1)]]
             encoder->setBuffer(triTableBuffer_, 0, 2);         // [[buffer(2)]]
-            encoder->setBuffer(counterBuffer_, 0, 3);          // [[buffer(3)]]
+            encoder->setBuffer(generationCounter, 0, 3);       // [[buffer(3)]]
             encoder->setBuffer(vbuffer, 0, 4);                 // [[buffer(4)]]
 
             encoder->dispatchThreadgroups(threadgroups, threadsPerGroup);
@@ -930,8 +935,9 @@ kernel void generateVertices(
             encoder->popDebugGroup();
             encoder->endEncoding();
             commandBuffer->commit();
-            commandBuffer->waitUntilCompleted();
         }
+        // Command buffers retain encoded resources until completion.
+        generationCounter->release();
 
         // Transfer ownership to caller — they must release or adopt this buffer.
         result.vertexBuffer = vbuffer;
@@ -981,48 +987,95 @@ kernel void generateVertices(
         batchResult.layers.resize(numLayers);
 
         // ── Pass 1: Count vertices for all layers ────────────────
+        // Parameters use encoder-owned bytes and each dispatch gets a distinct
+        // counter. All layer counts therefore need only one command buffer and
+        // the single CPU wait required for readback.
         std::vector<uint32_t> vertexCounts(numLayers, 0);
+        std::vector<MTL::Buffer*> layerCounters(numLayers, nullptr);
+        auto releaseCounters = [&]() {
+            for (auto*& counter : layerCounters) {
+                if (counter) {
+                    counter->release();
+                    counter = nullptr;
+                }
+            }
+        };
 
+        for (auto*& counter : layerCounters) {
+            counter = device_->raw()->newBuffer(sizeof(uint32_t), MTL::ResourceStorageModeShared);
+            if (!counter) {
+                releaseCounters();
+                return batchResult;
+            }
+            std::memset(counter->contents(), 0, sizeof(uint32_t));
+        }
+
+        auto* countCommandBuffer = device_->_commandQueue->commandBuffer();
+        auto* countEncoder = countCommandBuffer ? countCommandBuffer->computeCommandEncoder() : nullptr;
+        if (!countEncoder) {
+            releaseCounters();
+            return batchResult;
+        }
+        countEncoder->setComputePipelineState(classifyPipeline_);
+        countEncoder->setTexture(hwTexture->raw(), 0);
+        countEncoder->setSamplerState(fieldSampler_, 0);
+        countEncoder->setBuffer(edgeTableBuffer_, 0, 1);
+        countEncoder->setBuffer(triTableBuffer_, 0, 2);
         for (size_t i = 0; i < numLayers; ++i) {
             MCComputeParams layerParams = baseParams;
             layerParams.isovalue = isovalues[i];
             if (!flipNormals.empty() && i < flipNormals.size()) {
                 layerParams.flipNormals = flipNormals[i] ? 1 : 0;
             }
+            countEncoder->setBytes(&layerParams, sizeof(MCComputeParams), 0);
+            countEncoder->setBuffer(layerCounters[i], 0, 3);
+            countEncoder->dispatchThreadgroups(threadgroups, threadsPerGroup);
+        }
+        countEncoder->endEncoding();
+        countCommandBuffer->commit();
+        countCommandBuffer->waitUntilCompleted();
 
-            std::memcpy(uniformBuffer_->contents(), &layerParams, sizeof(MCComputeParams));
-
-            uint32_t zero = 0;
-            std::memcpy(counterBuffer_->contents(), &zero, sizeof(uint32_t));
-
-            auto* commandBuffer = device_->_commandQueue->commandBuffer();
-            if (!commandBuffer) continue;
-            auto* encoder = commandBuffer->computeCommandEncoder();
-            if (!encoder) continue;
-
-            encoder->setComputePipelineState(classifyPipeline_);
-            encoder->setTexture(hwTexture->raw(), 0);
-            encoder->setSamplerState(fieldSampler_, 0);
-            encoder->setBuffer(uniformBuffer_, 0, 0);
-            encoder->setBuffer(edgeTableBuffer_, 0, 1);
-            encoder->setBuffer(triTableBuffer_, 0, 2);
-            encoder->setBuffer(counterBuffer_, 0, 3);
-            encoder->dispatchThreadgroups(threadgroups, threadsPerGroup);
-            encoder->endEncoding();
-            commandBuffer->commit();
-            commandBuffer->waitUntilCompleted();
-
-            std::memcpy(&vertexCounts[i], counterBuffer_->contents(), sizeof(uint32_t));
+        for (size_t i = 0; i < numLayers; ++i) {
+            std::memcpy(&vertexCounts[i], layerCounters[i]->contents(), sizeof(uint32_t));
         }
 
         // ── Allocate per-layer vertex buffers ────────────────────
         for (size_t i = 0; i < numLayers; ++i) {
             if (vertexCounts[i] > 0) {
                 batchResult.layers[i].vertexBuffer = allocateVertexBuffer(vertexCounts[i]);
+                if (!batchResult.layers[i].vertexBuffer) {
+                    for (auto& layer : batchResult.layers) {
+                        if (layer.vertexBuffer) {
+                            layer.vertexBuffer->release();
+                            layer.vertexBuffer = nullptr;
+                        }
+                    }
+                    releaseCounters();
+                    return batchResult;
+                }
             }
         }
 
         // ── Pass 2: Generate vertices for all layers ─────────────
+        auto* generateCommandBuffer = device_->_commandQueue->commandBuffer();
+        auto* generateEncoder = generateCommandBuffer
+            ? generateCommandBuffer->computeCommandEncoder() : nullptr;
+        if (!generateEncoder) {
+            for (auto& layer : batchResult.layers) {
+                if (layer.vertexBuffer) {
+                    layer.vertexBuffer->release();
+                    layer.vertexBuffer = nullptr;
+                }
+            }
+            releaseCounters();
+            return batchResult;
+        }
+        generateEncoder->setComputePipelineState(generatePipeline_);
+        generateEncoder->setTexture(hwTexture->raw(), 0);
+        generateEncoder->setSamplerState(fieldSampler_, 0);
+        generateEncoder->setBuffer(edgeTableBuffer_, 0, 1);
+        generateEncoder->setBuffer(triTableBuffer_, 0, 2);
+
         for (size_t i = 0; i < numLayers; ++i) {
             if (vertexCounts[i] == 0 || !batchResult.layers[i].vertexBuffer) {
                 batchResult.layers[i].vertexCount = 0;
@@ -1036,31 +1089,17 @@ kernel void generateVertices(
                 layerParams.flipNormals = flipNormals[i] ? 1 : 0;
             }
 
-            std::memcpy(uniformBuffer_->contents(), &layerParams, sizeof(MCComputeParams));
-
-            uint32_t zero = 0;
-            std::memcpy(counterBuffer_->contents(), &zero, sizeof(uint32_t));
-
-            auto* commandBuffer = device_->_commandQueue->commandBuffer();
-            if (!commandBuffer) continue;
-            auto* encoder = commandBuffer->computeCommandEncoder();
-            if (!encoder) continue;
-
-            encoder->setComputePipelineState(generatePipeline_);
-            encoder->setTexture(hwTexture->raw(), 0);
-            encoder->setSamplerState(fieldSampler_, 0);
-            encoder->setBuffer(uniformBuffer_, 0, 0);
-            encoder->setBuffer(edgeTableBuffer_, 0, 1);
-            encoder->setBuffer(triTableBuffer_, 0, 2);
-            encoder->setBuffer(counterBuffer_, 0, 3);
-            encoder->setBuffer(batchResult.layers[i].vertexBuffer, 0, 4);
-            encoder->dispatchThreadgroups(threadgroups, threadsPerGroup);
-            encoder->endEncoding();
-            commandBuffer->commit();
-            commandBuffer->waitUntilCompleted();
-
+            std::memset(layerCounters[i]->contents(), 0, sizeof(uint32_t));
+            generateEncoder->setBytes(&layerParams, sizeof(MCComputeParams), 0);
+            generateEncoder->setBuffer(layerCounters[i], 0, 3);
+            generateEncoder->setBuffer(batchResult.layers[i].vertexBuffer, 0, 4);
+            generateEncoder->dispatchThreadgroups(threadgroups, threadsPerGroup);
             batchResult.layers[i].vertexCount = vertexCounts[i];
         }
+
+        generateEncoder->endEncoding();
+        generateCommandBuffer->commit();
+        releaseCounters();
 
         batchResult.success = true;
         return batchResult;

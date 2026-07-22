@@ -136,7 +136,7 @@ kernel void writeIndirectArgs(
         if (compactedBuffer_)   { compactedBuffer_->release();   compactedBuffer_ = nullptr; }
         if (indirectArgsBuffer_){ indirectArgsBuffer_->release(); indirectArgsBuffer_ = nullptr; }
         if (counterBuffer_)     { counterBuffer_->release();     counterBuffer_ = nullptr; }
-        if (uniformBuffer_)     { uniformBuffer_->release();     uniformBuffer_ = nullptr; }
+        if (pendingReadback_)   { pendingReadback_->release();   pendingReadback_ = nullptr; }
     }
 
     // ─── Lazy Resource Creation ──────────────────────────────────────
@@ -209,15 +209,6 @@ kernel void writeIndirectArgs(
             }
         }
 
-        // ── Uniform buffer (InstanceCullParams) ────────────────────
-        if (!uniformBuffer_) {
-            uniformBuffer_ = mtlDevice->newBuffer(sizeof(InstanceCullParams), MTL::ResourceStorageModeShared);
-            if (!uniformBuffer_) {
-                spdlog::error("[MetalInstanceCullPass] Failed to create uniform buffer");
-                return;
-            }
-        }
-
         // ── Indirect args buffer (20 bytes) ────────────────────────
         if (!indirectArgsBuffer_) {
             indirectArgsBuffer_ = mtlDevice->newBuffer(
@@ -229,7 +220,7 @@ kernel void writeIndirectArgs(
         }
 
         resourcesReady_ = (cullPipeline_ && writeArgsPipeline_ &&
-                           counterBuffer_ && uniformBuffer_ && indirectArgsBuffer_);
+                           counterBuffer_ && indirectArgsBuffer_);
 
         if (resourcesReady_) {
             spdlog::info("[MetalInstanceCullPass] Resources initialized successfully");
@@ -240,7 +231,7 @@ kernel void writeIndirectArgs(
 
     void MetalInstanceCullPass::reserve(uint32_t maxInstances)
     {
-        // Make sure pipelines + the fixed-size buffers (counter, uniform,
+        // Make sure pipelines + the fixed-size buffers (counter and
         // indirect args) exist — callers that invoke reserve() upfront
         // (MeshInstance::enableGpuInstanceCulling) rely on all native buffer
         // pointers being valid before any cull() dispatch.
@@ -292,25 +283,27 @@ kernel void writeIndirectArgs(
         reserve(params.instanceCount);
         if (!compactedBuffer_) return;
 
-        // Upload uniforms
-        std::memcpy(uniformBuffer_->contents(), &params, sizeof(InstanceCullParams));
-
-        // Reset atomic counter to 0
-        uint32_t zero = 0;
-        std::memcpy(counterBuffer_->contents(), &zero, sizeof(uint32_t));
-
         // Dispatch kernel 1 + kernel 2 in a single command buffer.
         // Metal guarantees sequential execution of compute encoders within
         // the same command buffer — no explicit barrier needed.
         //
         // When the device has an open cull batch (Renderer wraps its per-frame
         // dispatch loop in begin/endGpuCullBatch), encode into the shared
-        // command buffer: the batch commits and waits ONCE for all instances
-        // instead of a CPU-GPU round trip per instance.
+        // command buffer and submit it asynchronously before rendering.
         MTL::CommandBuffer* batchBuffer = device_->gpuCullBatchCommandBuffer();
         auto* commandBuffer = batchBuffer ? batchBuffer : device_->_commandQueue->commandBuffer();
         if (!commandBuffer) {
             spdlog::warn("[MetalInstanceCullPass] Failed to create command buffer");
+            return;
+        }
+
+        // Reset on the GPU so the CPU never writes a counter that a previous
+        // frame may still be using. This is ordered before both compute kernels.
+        if (auto* blitEncoder = commandBuffer->blitCommandEncoder()) {
+            blitEncoder->fillBuffer(counterBuffer_, NS::Range::Make(0, sizeof(uint32_t)), 0);
+            blitEncoder->endEncoding();
+        } else {
+            spdlog::warn("[MetalInstanceCullPass] Failed to create counter reset encoder");
             return;
         }
 
@@ -326,7 +319,7 @@ kernel void writeIndirectArgs(
                 NS::String::string("InstanceCull", NS::UTF8StringEncoding));
 
             encoder->setComputePipelineState(cullPipeline_);
-            encoder->setBuffer(uniformBuffer_,     0, 0);  // [[buffer(0)]] params
+            encoder->setBytes(&params, sizeof(InstanceCullParams), 0); // [[buffer(0)]] params
             encoder->setBuffer(inputBuffer,        0, 1);  // [[buffer(1)]] input
             encoder->setBuffer(compactedBuffer_,   0, 2);  // [[buffer(2)]] output
             encoder->setBuffer(counterBuffer_,     0, 3);  // [[buffer(3)]] counter
@@ -352,7 +345,7 @@ kernel void writeIndirectArgs(
                 NS::String::string("WriteIndirectArgs", NS::UTF8StringEncoding));
 
             encoder->setComputePipelineState(writeArgsPipeline_);
-            encoder->setBuffer(uniformBuffer_,      0, 0);  // [[buffer(0)]] params
+            encoder->setBytes(&params, sizeof(InstanceCullParams), 0); // [[buffer(0)]] params
             encoder->setBuffer(counterBuffer_,      0, 3);  // [[buffer(3)]] counter
             encoder->setBuffer(indirectArgsBuffer_, 0, 4);  // [[buffer(4)]] args
 
@@ -364,8 +357,13 @@ kernel void writeIndirectArgs(
             encoder->endEncoding();
         }
 
-        // Batched: the device commits and waits once in endGpuCullBatch().
+        // Batched: the device commits once in endGpuCullBatch().
         if (batchBuffer) {
+            if (pendingReadback_) {
+                pendingReadback_->release();
+            }
+            pendingReadback_ = batchBuffer;
+            pendingReadback_->retain();
             return;
         }
 
@@ -373,6 +371,10 @@ kernel void writeIndirectArgs(
         // read results (visibleCountReadback) immediately.
         commandBuffer->commit();
         commandBuffer->waitUntilCompleted();
+        if (pendingReadback_) {
+            pendingReadback_->release();
+            pendingReadback_ = nullptr;
+        }
     }
 
     // Note: extractFrustumPlanes lives in instanceCuller.cpp so it can be
@@ -381,6 +383,13 @@ kernel void writeIndirectArgs(
     uint32_t MetalInstanceCullPass::visibleCountReadback() const
     {
         if (!indirectArgsBuffer_) return 0;
+        // Batched culling is normally asynchronous. Diagnostics that explicitly
+        // request a CPU value pay the synchronization cost here, off the hot path.
+        if (pendingReadback_ && pendingReadback_->status() != MTL::CommandBufferStatusNotEnqueued) {
+            pendingReadback_->waitUntilCompleted();
+            pendingReadback_->release();
+            pendingReadback_ = nullptr;
+        }
         // Indirect args layout (MTLDrawIndexedPrimitivesIndirectArguments):
         //   uint indexCount;      // offset 0
         //   uint instanceCount;   // offset 4   <-- visible instance count

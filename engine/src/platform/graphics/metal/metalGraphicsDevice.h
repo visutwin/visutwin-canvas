@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <unordered_map>
 #include <Metal/Metal.hpp>
 #include <Foundation/NSAutoreleasePool.hpp>
 #include "QuartzCore/CAMetalDrawable.hpp"
@@ -124,9 +125,8 @@ namespace visutwin::canvas
         bool supportsGpuInstanceCulling() const override { return true; }
         std::unique_ptr<InstanceCuller> createInstanceCuller() override;
 
-        // One command buffer + one waitUntilCompleted for ALL cull dispatches
-        // between begin/end (previously each MeshInstance's cull committed and
-        // waited on its own command buffer — a CPU-GPU round trip per instance).
+        // Encode all per-frame cull dispatches into one asynchronously submitted
+        // command buffer. Rendering on the same queue consumes the results later.
         void beginGpuCullBatch() override;
         void endGpuCullBatch() override;
         [[nodiscard]] MTL::CommandBuffer* gpuCullBatchCommandBuffer() const { return _gpuCullBatchCommandBuffer; }
@@ -197,10 +197,27 @@ namespace visutwin::canvas
             int numClusteredLights) override;
 
     private:
+        struct DepthStencilCacheKey
+        {
+            uint32_t frontState;
+            uint32_t backState;
+            bool depthTest;
+            bool depthWrite;
+
+            bool operator==(const DepthStencilCacheKey&) const = default;
+        };
+
+        struct DepthStencilCacheKeyHash
+        {
+            size_t operator()(const DepthStencilCacheKey& key) const noexcept;
+        };
+
         void onFrameStart() override;
         void onFrameEnd() override;
 
         int submitVertexBuffer(const std::shared_ptr<VertexBuffer>& vertexBuffer, int slot);
+        MTL::DepthStencilState* resolveDepthStencilState(const DepthState* depthState,
+            StencilParameters* stencilFront, StencilParameters* stencilBack);
 
         // Sentinel null shared_ptr used as a const-ref return for empty VB slots,
         // avoiding shared_ptr copy when checking _vertexBuffers boundaries.
@@ -271,6 +288,8 @@ namespace visutwin::canvas
         MTL::DepthStencilState* _noWriteDepthStencilState = nullptr;
         MTL::DepthStencilState* _noTestDepthStencilState = nullptr;
         MTL::DepthStencilState* _noTestNoWriteDepthStencilState = nullptr;
+        std::unordered_map<DepthStencilCacheKey, MTL::DepthStencilState*,
+            DepthStencilCacheKeyHash> _stencilStateCache;
         MTL::Texture* _backBufferDepthTexture = nullptr;
         int _backBufferDepthWidth = 0;
         int _backBufferDepthHeight = 0;

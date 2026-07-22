@@ -172,8 +172,10 @@ namespace visutwin::canvas
         // Render pipeline unique hash
         _lookupHashes[0] = primitiveType;
         _lookupHashes[1] = shader->id();
-        _lookupHashes[2] = static_cast<int>(cullMode);
-        _lookupHashes[3] = depthState->key();
+        // Cull, depth and stencil state are dynamic Metal encoder state and do
+        // not require distinct render pipeline objects.
+        _lookupHashes[2] = 0;
+        _lookupHashes[3] = 0;
         _lookupHashes[4] = blendState->key();
         _lookupHashes[5] = vertexFormat0 ? vertexFormat0->renderingHash() : 0;
         _lookupHashes[6] = vertexFormat1 ? vertexFormat1->renderingHash() : 0;
@@ -201,8 +203,8 @@ namespace visutwin::canvas
         _lookupHashes[8] = bindGroupFormats.size() > 0 && bindGroupFormats[0] ? bindGroupFormats[0]->key() : 0;
         _lookupHashes[9] = bindGroupFormats.size() > 1 && bindGroupFormats[1] ? bindGroupFormats[1]->key() : 0;
         _lookupHashes[10] = bindGroupFormats.size() > 2 && bindGroupFormats[2] ? bindGroupFormats[2]->key() : 0;
-        _lookupHashes[11] = (stencilEnabled && stencilFront) ? stencilFront->key() : 0;
-        _lookupHashes[12] = (stencilEnabled && stencilBack) ? stencilBack->key() : 0;
+        _lookupHashes[11] = 0;
+        _lookupHashes[12] = 0;
         _lookupHashes[13] = ibFormat != -1 ? ibFormat : 0;
         _lookupHashes[14] = (instancingFormat && instancingFormat->isInstancing())
             ? instancingFormat->renderingHash() : 0;
@@ -222,8 +224,6 @@ namespace visutwin::canvas
         }
 
         // No match or hash collision, create a new pipeline
-        const MTL::PrimitiveType primTopology = primitiveTopology[primitiveType];
-
         // Vertex buffer layout
         auto vbLayout = _vertexBufferLayout->get(vertexFormat0, vertexFormat1);
 
@@ -238,10 +238,7 @@ namespace visutwin::canvas
         auto cacheEntry = std::make_shared<CacheEntry>();
         cacheEntry->hashes = _lookupHashes;
         cacheEntry->pipeline = create(
-            primTopology, ibFormat, shader, renderTarget,
-            blendState, depthState, vbLayout, cullMode,
-            stencilEnabled, stencilFront, stencilBack,
-            vbStride, instStride
+            shader, renderTarget, blendState, vbLayout, vbStride, instStride
         );
         if (!cacheEntry->pipeline) {
             spdlog::error("Render pipeline creation returned null");
@@ -258,12 +255,10 @@ namespace visutwin::canvas
         return cacheEntry->pipeline;
     }
 
-    MTL::RenderPipelineState* MetalRenderPipeline::create(const MTL::PrimitiveType primitiveTopology, int ibFormat,
+    MTL::RenderPipelineState* MetalRenderPipeline::create(
             const std::shared_ptr<Shader>& shader, const std::shared_ptr<RenderTarget>& renderTarget,
-            std::shared_ptr<BlendState> blendState,
-            std::shared_ptr<DepthState> depthState, const std::vector<void*>& vertexBufferLayout,
-            CullMode cullMode, bool stencilEnabled, std::shared_ptr<StencilParameters> stencilFront,
-            std::shared_ptr<StencilParameters> stencilBack,
+            const std::shared_ptr<BlendState>& blendState,
+            const std::vector<void*>& vertexBufferLayout,
             int vertexStride,
             int instancingStride
         )
