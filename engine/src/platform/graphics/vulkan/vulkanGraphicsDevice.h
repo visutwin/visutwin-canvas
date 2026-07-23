@@ -17,6 +17,8 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -90,8 +92,13 @@ namespace visutwin::canvas
         [[nodiscard]] std::shared_ptr<const std::atomic_uint32_t> validationErrorCounter() const {
             return _validationErrorCount;
         }
-        [[nodiscard]] VkDescriptorPool descriptorPool() const {
-            return _frames[_frameIndex].descriptorPool;
+        // Lightweight diagnostics used by validation/stress tests and runtime
+        // telemetry. Values describe the currently recording frame slot.
+        [[nodiscard]] size_t currentFrameDescriptorPoolCount() const {
+            return _frames[_frameIndex].descriptorPools.size();
+        }
+        [[nodiscard]] size_t currentFrameCachedImageDescriptorSetCount() const {
+            return _frames[_frameIndex].imageDescriptorCache.size();
         }
 
         // Records resource uploads into a shared batch. flushUploads submits
@@ -159,6 +166,14 @@ namespace visutwin::canvas
         void applyViewport();
         void applyScissor();
         void applyDepthBias();
+        [[nodiscard]] VkDescriptorPool createFrameDescriptorPool(uint32_t maxSets);
+        [[nodiscard]] VkDescriptorSet allocateFrameDescriptorSet(
+            VkDescriptorSetLayout layout);
+        [[nodiscard]] VkDescriptorSet getOrCreateImageDescriptorSet(
+            VkDescriptorSetLayout layout,
+            std::span<const VkDescriptorImageInfo> imageInfos);
+        [[nodiscard]] std::optional<uint32_t> allocateUniform(
+            const void* data, VkDeviceSize size);
 
         SDL_Window* _window = nullptr;
         bool _validationEnabled = false;
@@ -196,12 +211,36 @@ namespace visutwin::canvas
         // ── Per-frame resources (double-buffered) ────────────────────────
         static constexpr uint32_t kMaxFramesInFlight = 2;
 
+        static constexpr uint32_t kInitialDescriptorSets = 256;
+        static constexpr uint32_t kMaxCachedImageBindings = 7;
+
+        struct ImageDescriptorKey {
+            VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+            uint32_t count = 0;
+            std::array<VkSampler, kMaxCachedImageBindings> samplers{};
+            std::array<VkImageView, kMaxCachedImageBindings> views{};
+
+            bool operator==(const ImageDescriptorKey&) const = default;
+        };
+
+        struct ImageDescriptorKeyHash {
+            size_t operator()(const ImageDescriptorKey& key) const;
+        };
+
+        struct FrameDescriptorPool {
+            VkDescriptorPool handle = VK_NULL_HANDLE;
+            uint32_t maxSets = 0;
+        };
+
         struct PerFrame {
             VkCommandPool   commandPool    = VK_NULL_HANDLE;
             VkCommandBuffer commandBuffer  = VK_NULL_HANDLE;
             VkSemaphore     imageAvailable = VK_NULL_HANDLE;
             VkFence         inFlightFence  = VK_NULL_HANDLE;
-            VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+            std::vector<FrameDescriptorPool> descriptorPools;
+            size_t activeDescriptorPool = 0;
+            std::unordered_map<ImageDescriptorKey, VkDescriptorSet,
+                ImageDescriptorKeyHash> imageDescriptorCache;
         };
         std::array<PerFrame, kMaxFramesInFlight> _frames{};
         uint32_t _frameIndex = 0;
@@ -322,8 +361,10 @@ namespace visutwin::canvas
         VulkanLightingUBO _lightingUbo{};
         bool _lightingNeedsUpload = true;
 
-        // Once-per-frame throttle for descriptor-pool exhaustion warnings.
-        bool _descriptorOverflowWarned = false;
+        // Once-per-frame throttle for terminal allocation failures. Pool
+        // exhaustion itself is recovered by advancing to a larger pool.
+        bool _descriptorAllocationErrorWarned = false;
+        bool _uniformOverflowWarned = false;
 
         // Anisotropic-filtering support, resolved at device creation.
         bool _samplerAnisotropyEnabled = false;

@@ -17,8 +17,10 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
-#include <cassert>
 #include <cstring>
+#include <limits>
+#include <optional>
+#include <stdexcept>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
@@ -45,7 +47,17 @@ namespace visutwin::canvas
             allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
             VmaAllocationInfo info{};
-            vmaCreateBuffer(_allocator, &bufInfo, &allocInfo, &_buffer, &_allocation, &info);
+            const VkResult result =
+                vmaCreateBuffer(_allocator, &bufInfo, &allocInfo, &_buffer, &_allocation, &info);
+            if (result != VK_SUCCESS || info.pMappedData == nullptr) {
+                if (_buffer != VK_NULL_HANDLE) {
+                    vmaDestroyBuffer(_allocator, _buffer, _allocation);
+                    _buffer = VK_NULL_HANDLE;
+                    _allocation = VK_NULL_HANDLE;
+                }
+                throw std::runtime_error(
+                    "VulkanUniformRingBuffer: failed to create mapped uniform buffer");
+            }
             _mapped = static_cast<uint8_t*>(info.pMappedData);
         }
 
@@ -69,24 +81,38 @@ namespace visutwin::canvas
 
         // Copy `size` bytes into the current region and return the absolute
         // byte offset into the buffer (suitable as a dynamic descriptor offset).
-        // Returns 0 and logs nothing on overflow — the slot is clamped to the
-        // region start so a malformed frame degrades rather than corrupts.
-        [[nodiscard]] uint32_t allocate(const void* data, VkDeviceSize size)
+        // Failure is explicit: callers must skip the draw/pass rather than
+        // accidentally aliasing offset zero or an earlier allocation.
+        [[nodiscard]] std::optional<uint32_t> allocate(
+            const void* data, VkDeviceSize size)
         {
+            if (data == nullptr || size == 0 || size > _regionSize ||
+                size > std::numeric_limits<VkDeviceSize>::max() - (_alignment - 1)) {
+                return std::nullopt;
+            }
             const VkDeviceSize aligned = alignUp(size, _alignment);
-            if (_cursor + aligned > _regionSize) {
-                assert(false && "VulkanUniformRingBuffer region overflow");
-                return static_cast<uint32_t>(_frameIndex * _regionSize);
+            if (_cursor > _regionSize - aligned) {
+                return std::nullopt;
             }
             const VkDeviceSize offset = _frameIndex * _regionSize + _cursor;
-            if (_mapped && data) {
-                std::memcpy(_mapped + offset, data, size);
+            if (offset > std::numeric_limits<uint32_t>::max()) {
+                return std::nullopt;
             }
+            std::memcpy(_mapped + offset, data, size);
             _cursor += aligned;
+            // VMA rounds this range to nonCoherentAtomSize as needed. On
+            // coherent heaps this is a no-op; on discrete/non-coherent heaps
+            // it is required before the GPU can observe the copied uniforms.
+            if (vmaFlushAllocation(_allocator, _allocation, offset, size) !=
+                VK_SUCCESS) {
+                return std::nullopt;
+            }
             return static_cast<uint32_t>(offset);
         }
 
         [[nodiscard]] VkBuffer buffer() const { return _buffer; }
+        [[nodiscard]] VkDeviceSize usedBytes() const { return _cursor; }
+        [[nodiscard]] VkDeviceSize capacityPerFrame() const { return _regionSize; }
 
     private:
         static VkDeviceSize alignUp(VkDeviceSize value, VkDeviceSize alignment)

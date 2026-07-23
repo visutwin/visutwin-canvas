@@ -253,12 +253,16 @@ namespace visutwin::canvas
         auto& frame = _frames[_frameIndex];
         VkCommandBuffer cmd = frame.commandBuffer;
 
-        VkDescriptorSet set = VK_NULL_HANDLE;
-        VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        allocInfo.descriptorPool = frame.descriptorPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &_postSetLayout;
-        if (vkAllocateDescriptorSets(_device, &allocInfo, &set) != VK_SUCCESS) {
+        // Reserve uniform space before consuming a descriptor set. A failed
+        // ring allocation is an explicit skipped pass, never an offset alias.
+        const auto paramsOffset = allocateUniform(paramsData, paramsSize);
+        if (!paramsOffset) {
+            return;
+        }
+
+        const VkDescriptorSet set =
+            allocateFrameDescriptorSet(_postSetLayout);
+        if (set == VK_NULL_HANDLE) {
             return;
         }
 
@@ -288,10 +292,9 @@ namespace visutwin::canvas
 
         // Params UBO: sub-allocate from the per-frame uniform ring and bind
         // the exact offset/range (the set is transient, no dynamic offsets).
-        const uint32_t paramsOffset = _uniformRing->allocate(paramsData, paramsSize);
         VkDescriptorBufferInfo bufferInfo{};
         bufferInfo.buffer = _uniformRing->buffer();
-        bufferInfo.offset = paramsOffset;
+        bufferInfo.offset = *paramsOffset;
         bufferInfo.range = paramsSize;
         writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[4].dstSet = set;

@@ -39,6 +39,21 @@
 
 namespace visutwin::canvas
 {
+    size_t VulkanGraphicsDevice::ImageDescriptorKeyHash::operator()(
+        const ImageDescriptorKey& key) const
+    {
+        size_t hash = std::hash<VkDescriptorSetLayout>{}(key.layout);
+        const auto combine = [&hash](const size_t value) {
+            hash ^= value + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
+        };
+        combine(std::hash<uint32_t>{}(key.count));
+        for (uint32_t i = 0; i < key.count; ++i) {
+            combine(std::hash<VkSampler>{}(key.samplers[i]));
+            combine(std::hash<VkImageView>{}(key.views[i]));
+        }
+        return hash;
+    }
+
     namespace
     {
         std::string vulkanReadTextFile(const std::filesystem::path& path)
@@ -399,7 +414,11 @@ namespace visutwin::canvas
             dpInfo.maxSets = 2;
             dpInfo.poolSizeCount = static_cast<uint32_t>(sizes.size());
             dpInfo.pPoolSizes = sizes.data();
-            vkCreateDescriptorPool(_device, &dpInfo, nullptr, &_persistentDescriptorPool);
+            if (vkCreateDescriptorPool(
+                    _device, &dpInfo, nullptr, &_persistentDescriptorPool) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: persistent descriptor pool creation failed");
+            }
 
             auto allocSet = [&](VkDescriptorSetLayout layout, VkDeviceSize range) {
                 VkDescriptorSet set = VK_NULL_HANDLE;
@@ -407,7 +426,10 @@ namespace visutwin::canvas
                 ai.descriptorPool = _persistentDescriptorPool;
                 ai.descriptorSetCount = 1;
                 ai.pSetLayouts = &layout;
-                vkAllocateDescriptorSets(_device, &ai, &set);
+                if (vkAllocateDescriptorSets(_device, &ai, &set) != VK_SUCCESS) {
+                    throw std::runtime_error(
+                        "VulkanGraphicsDevice: persistent descriptor allocation failed");
+                }
 
                 VkDescriptorBufferInfo bi{};
                 bi.buffer = _uniformRing->buffer();
@@ -744,23 +766,153 @@ namespace visutwin::canvas
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
             vkCreateFence(_device, &fenceInfo, nullptr, &frame.inFlightFence);
 
-            // Per-frame pool serves the per-draw combined-image-sampler sets:
-            // set 1 (6 material textures) + set 3 (1 env atlas) = 7 samplers
-            // and 2 sets per draw.  Sized for a generous draw count per frame.
-            std::array<VkDescriptorPoolSize, 2> poolSizes{};
-            poolSizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8192};
-            // Post-process passes bind their params as transient plain UBOs
-            // sub-allocated from the uniform ring.
-            poolSizes[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256};
-
-            VkDescriptorPoolCreateInfo dpInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-            dpInfo.maxSets = 2048;
-            dpInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-            dpInfo.pPoolSizes = poolSizes.data();
-            vkCreateDescriptorPool(_device, &dpInfo, nullptr, &frame.descriptorPool);
+            const VkDescriptorPool descriptorPool =
+                createFrameDescriptorPool(kInitialDescriptorSets);
+            if (descriptorPool == VK_NULL_HANDLE) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: per-frame descriptor pool creation failed");
+            }
+            frame.descriptorPools.push_back(
+                {descriptorPool, kInitialDescriptorSets});
         }
 
         createSwapchainSemaphores();
+    }
+
+    VkDescriptorPool VulkanGraphicsDevice::createFrameDescriptorPool(
+        const uint32_t maxSets)
+    {
+        // Every cached image set has at most seven combined samplers. Post
+        // passes additionally consume one ordinary UBO descriptor per set.
+        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+        poolSizes[0] = {
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            maxSets * kMaxCachedImageBindings
+        };
+        poolSizes[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxSets};
+
+        VkDescriptorPoolCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        info.maxSets = maxSets;
+        info.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+        info.pPoolSizes = poolSizes.data();
+
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        if (vkCreateDescriptorPool(_device, &info, nullptr, &pool) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        return pool;
+    }
+
+    VkDescriptorSet VulkanGraphicsDevice::allocateFrameDescriptorSet(
+        const VkDescriptorSetLayout layout)
+    {
+        auto& frame = _frames[_frameIndex];
+        for (;;) {
+            if (frame.activeDescriptorPool >= frame.descriptorPools.size()) {
+                constexpr size_t kMaxGrowthSteps = 4;
+                const size_t growthStep =
+                    std::min(frame.descriptorPools.size(), kMaxGrowthSteps);
+                const uint32_t maxSets =
+                    kInitialDescriptorSets << static_cast<uint32_t>(growthStep);
+                const VkDescriptorPool pool = createFrameDescriptorPool(maxSets);
+                if (pool == VK_NULL_HANDLE) {
+                    if (!_descriptorAllocationErrorWarned) {
+                        _descriptorAllocationErrorWarned = true;
+                        spdlog::error(
+                            "VulkanGraphicsDevice: descriptor pool growth failed");
+                    }
+                    return VK_NULL_HANDLE;
+                }
+                frame.descriptorPools.push_back({pool, maxSets});
+            }
+
+            const VkDescriptorPool pool =
+                frame.descriptorPools[frame.activeDescriptorPool].handle;
+            if (pool == VK_NULL_HANDLE) {
+                ++frame.activeDescriptorPool;
+                continue;
+            }
+            VkDescriptorSet set = VK_NULL_HANDLE;
+            VkDescriptorSetAllocateInfo info{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            info.descriptorPool = pool;
+            info.descriptorSetCount = 1;
+            info.pSetLayouts = &layout;
+            const VkResult result =
+                vkAllocateDescriptorSets(_device, &info, &set);
+            if (result == VK_SUCCESS) {
+                return set;
+            }
+            if (result == VK_ERROR_OUT_OF_POOL_MEMORY ||
+                result == VK_ERROR_FRAGMENTED_POOL) {
+                ++frame.activeDescriptorPool;
+                continue;
+            }
+            if (!_descriptorAllocationErrorWarned) {
+                _descriptorAllocationErrorWarned = true;
+                spdlog::error(
+                    "VulkanGraphicsDevice: descriptor allocation failed ({})",
+                    static_cast<int>(result));
+            }
+            return VK_NULL_HANDLE;
+        }
+    }
+
+    VkDescriptorSet VulkanGraphicsDevice::getOrCreateImageDescriptorSet(
+        const VkDescriptorSetLayout layout,
+        const std::span<const VkDescriptorImageInfo> imageInfos)
+    {
+        if (imageInfos.empty() ||
+            imageInfos.size() > kMaxCachedImageBindings) {
+            return VK_NULL_HANDLE;
+        }
+
+        ImageDescriptorKey key{};
+        key.layout = layout;
+        key.count = static_cast<uint32_t>(imageInfos.size());
+        for (uint32_t i = 0; i < key.count; ++i) {
+            key.samplers[i] = imageInfos[i].sampler;
+            key.views[i] = imageInfos[i].imageView;
+        }
+
+        auto& cache = _frames[_frameIndex].imageDescriptorCache;
+        if (const auto found = cache.find(key); found != cache.end()) {
+            return found->second;
+        }
+
+        const VkDescriptorSet set = allocateFrameDescriptorSet(layout);
+        if (set == VK_NULL_HANDLE) {
+            return VK_NULL_HANDLE;
+        }
+
+        std::array<VkWriteDescriptorSet, kMaxCachedImageBindings> writes{};
+        for (uint32_t i = 0; i < key.count; ++i) {
+            writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[i].dstSet = set;
+            writes[i].dstBinding = i;
+            writes[i].descriptorType =
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[i].descriptorCount = 1;
+            writes[i].pImageInfo = &imageInfos[i];
+        }
+        vkUpdateDescriptorSets(_device, key.count, writes.data(), 0, nullptr);
+        cache.emplace(key, set);
+        return set;
+    }
+
+    std::optional<uint32_t> VulkanGraphicsDevice::allocateUniform(
+        const void* data, const VkDeviceSize size)
+    {
+        const auto offset = _uniformRing->allocate(data, size);
+        if (!offset && !_uniformOverflowWarned) {
+            _uniformOverflowWarned = true;
+            spdlog::error(
+                "VulkanGraphicsDevice: uniform ring allocation failed "
+                "(requested {}, used {} of {} bytes); skipping affected draws",
+                size, _uniformRing->usedBytes(),
+                _uniformRing->capacityPerFrame());
+        }
+        return offset;
     }
 
     void VulkanGraphicsDevice::createSwapchainSemaphores()
@@ -788,8 +940,12 @@ namespace visutwin::canvas
         destroySwapchainSemaphores();
 
         for (auto& frame : _frames) {
-            if (frame.descriptorPool != VK_NULL_HANDLE)
-                vkDestroyDescriptorPool(_device, frame.descriptorPool, nullptr);
+            for (const auto& pool : frame.descriptorPools) {
+                if (pool.handle != VK_NULL_HANDLE) {
+                    vkDestroyDescriptorPool(
+                        _device, pool.handle, nullptr);
+                }
+            }
             if (frame.inFlightFence != VK_NULL_HANDLE)
                 vkDestroyFence(_device, frame.inFlightFence, nullptr);
             if (frame.imageAvailable != VK_NULL_HANDLE)
@@ -864,10 +1020,35 @@ namespace visutwin::canvas
         }
         _lightingNeedsUpload = true;
 
-        // Reset this frame's descriptor pool — fence wait above guarantees
-        // the previous frame using this pool has completed on the GPU.
-        vkResetDescriptorPool(_device, frame.descriptorPool, 0);
-        _descriptorOverflowWarned = false;
+        // Recycle all pools and cached sets owned by this frame slot. The
+        // fence wait above guarantees none of them are still in GPU use.
+        for (auto& pool : frame.descriptorPools) {
+            if (pool.handle == VK_NULL_HANDLE) {
+                continue;
+            }
+            const VkResult resetResult =
+                vkResetDescriptorPool(_device, pool.handle, 0);
+            if (resetResult == VK_SUCCESS) {
+                continue;
+            }
+
+            // The frame fence makes destruction safe here. Replace a pool
+            // that cannot be reset instead of handing its stale sets back to
+            // the allocator.
+            vkDestroyDescriptorPool(_device, pool.handle, nullptr);
+            pool.handle = createFrameDescriptorPool(pool.maxSets);
+            if (pool.handle == VK_NULL_HANDLE &&
+                !_descriptorAllocationErrorWarned) {
+                _descriptorAllocationErrorWarned = true;
+                spdlog::error(
+                    "VulkanGraphicsDevice: descriptor pool recycle failed ({})",
+                    static_cast<int>(resetResult));
+            }
+        }
+        frame.activeDescriptorPool = 0;
+        frame.imageDescriptorCache.clear();
+        _descriptorAllocationErrorWarned = false;
+        _uniformOverflowWarned = false;
     }
 
     void VulkanGraphicsDevice::onFrameEnd()
@@ -1104,28 +1285,16 @@ namespace visutwin::canvas
         auto& frame = _frames[_frameIndex];
         VkCommandBuffer cmd = frame.commandBuffer;
 
-        // Transient descriptor for the source texture.
-        VkDescriptorSet set = VK_NULL_HANDLE;
-        VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        allocInfo.descriptorPool = frame.descriptorPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &_vsmBlurSetLayout;
-        if (vkAllocateDescriptorSets(_device, &allocInfo, &set) != VK_SUCCESS) {
-            return;
-        }
-
         VkDescriptorImageInfo imageInfo{};
         imageInfo.sampler = sourceTex->sampler() != VK_NULL_HANDLE ? sourceTex->sampler() : _defaultSampler;
         imageInfo.imageView = sourceTex->imageView();
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        write.dstSet = set;
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &imageInfo;
-        vkUpdateDescriptorSets(_device, 1, &write, 0, nullptr);
+        const VkDescriptorSet set = getOrCreateImageDescriptorSet(
+            _vsmBlurSetLayout, std::span(&imageInfo, 1));
+        if (set == VK_NULL_HANDLE) {
+            return;
+        }
 
         struct { float dirInvRes[4]; float filterParams[4]; } push{};
         push.dirInvRes[0] = horizontal ? 1.0f : 0.0f;
@@ -1729,7 +1898,12 @@ namespace visutwin::canvas
         // setLightingUniforms changed it) into the ring; every draw binds the
         // same descriptor set with the cached dynamic offset.
         if (_lightingNeedsUpload) {
-            _lightingSlotOffset = _uniformRing->allocate(&_lightingUbo, sizeof(VulkanLightingUBO));
+            const auto lightingOffset =
+                allocateUniform(&_lightingUbo, sizeof(VulkanLightingUBO));
+            if (!lightingOffset) {
+                return;
+            }
+            _lightingSlotOffset = *lightingOffset;
             _lightingNeedsUpload = false;
         }
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -1754,179 +1928,135 @@ namespace visutwin::canvas
                     _material->updateUniforms(materialUniforms);
                 }
             }
-            const uint32_t matOffset = _uniformRing->allocate(uniformData, uniformSize);
+            const auto matOffset = allocateUniform(uniformData, uniformSize);
+            if (!matOffset) {
+                return;
+            }
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 _renderPipeline->pipelineLayout(), 0, 1, &_materialDescriptorSet,
-                1, &matOffset);
+                1, &*matOffset);
         }
 
-        // Bind default texture descriptor set (set 1) if no material textures
-        // For now: bind the white fallback texture at binding 0
+        // Set 1: material textures. Cache identical image/sampler tuples for
+        // the lifetime of this frame slot instead of allocating per draw.
         {
-            VkDescriptorSet texSet;
-            VkDescriptorSetAllocateInfo dsAlloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-            dsAlloc.descriptorPool = frame.descriptorPool;
-            dsAlloc.descriptorSetCount = 1;
-            auto layout = _renderPipeline->textureSetLayout();
-            dsAlloc.pSetLayouts = &layout;
-
-            const VkResult texAllocResult = vkAllocateDescriptorSets(_device, &dsAlloc, &texSet);
-            if (texAllocResult != VK_SUCCESS && !_descriptorOverflowWarned) {
-                _descriptorOverflowWarned = true;
-                spdlog::warn("VulkanGraphicsDevice: per-draw descriptor allocation failed ({}) — "
-                             "draws beyond the pool capacity reuse the previous bindings",
-                    static_cast<int>(texAllocResult));
+            std::array<VkDescriptorImageInfo, 6> imageInfos{};
+            for (auto& imageInfo : imageInfos) {
+                imageInfo.sampler = _defaultSampler;
+                imageInfo.imageView = _whiteImageView;
+                imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
-            if (texAllocResult == VK_SUCCESS) {
-                // Start every binding on the white fallback, then override the
-                // ones the material actually provides.  Material texture slots
-                // share the same numbering as the descriptor bindings
-                // (0=baseColor, 1=normal, 3=metalRough, 4=ao, 5=emissive), so
-                // slots in [0,5] map straight to binding == slot.
-                std::array<VkDescriptorImageInfo, 6> imageInfos{};
-                std::array<VkWriteDescriptorSet, 6> writes{};
-                for (uint32_t i = 0; i < 6; i++) {
-                    imageInfos[i].sampler = _defaultSampler;
-                    imageInfos[i].imageView = _whiteImageView;
-                    imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-                    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    writes[i].dstSet = texSet;
-                    writes[i].dstBinding = i;
-                    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    writes[i].descriptorCount = 1;
-                    writes[i].pImageInfo = &imageInfos[i];
-                }
-
-                if (_material) {
-                    std::vector<TextureSlot> texSlots;
-                    _material->getTextureSlots(texSlots);
-                    for (const auto& ts : texSlots) {
-                        if (ts.slot < 0 || ts.slot >= 6 || ts.texture == nullptr) {
-                            continue;
-                        }
-                        auto* vkTex = static_cast<gpu::VulkanTexture*>(ts.texture->impl());
-                        if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
-                            imageInfos[ts.slot].imageView = vkTex->imageView();
-                            if (vkTex->sampler() != VK_NULL_HANDLE) {
-                                imageInfos[ts.slot].sampler = vkTex->sampler();
-                            }
+            if (_material) {
+                std::vector<TextureSlot> texSlots;
+                _material->getTextureSlots(texSlots);
+                for (const auto& ts : texSlots) {
+                    if (ts.slot < 0 || ts.slot >= 6 || ts.texture == nullptr) {
+                        continue;
+                    }
+                    auto* vkTex =
+                        static_cast<gpu::VulkanTexture*>(ts.texture->impl());
+                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                        imageInfos[ts.slot].imageView = vkTex->imageView();
+                        if (vkTex->sampler() != VK_NULL_HANDLE) {
+                            imageInfos[ts.slot].sampler = vkTex->sampler();
                         }
                     }
                 }
-
-                vkUpdateDescriptorSets(_device, 6, writes.data(), 0, nullptr);
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    _renderPipeline->pipelineLayout(), 1, 1, &texSet, 0, nullptr);
             }
+
+            const VkDescriptorSet texSet = getOrCreateImageDescriptorSet(
+                _renderPipeline->textureSetLayout(), imageInfos);
+            if (texSet == VK_NULL_HANDLE) {
+                return;
+            }
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                _renderPipeline->pipelineLayout(), 1, 1, &texSet, 0, nullptr);
         }
 
         // Set 3: scene textures.  Binding 0 = environment atlas (or white
         // fallback) read through the dedicated clamp-to-edge env sampler.
         {
-            VkDescriptorSet sceneSet = VK_NULL_HANDLE;
-            VkDescriptorSetAllocateInfo dsAlloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-            dsAlloc.descriptorPool = frame.descriptorPool;
-            dsAlloc.descriptorSetCount = 1;
-            auto layout = _renderPipeline->sceneSetLayout();
-            dsAlloc.pSetLayouts = &layout;
+            auto resolveView = [this](Texture* tex) -> VkImageView {
+                if (tex) {
+                    auto* vkTex =
+                        static_cast<gpu::VulkanTexture*>(tex->impl());
+                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                        return vkTex->imageView();
+                    }
+                }
+                return _whiteImageView;
+            };
 
-            const VkResult sceneAllocResult = vkAllocateDescriptorSets(_device, &dsAlloc, &sceneSet);
-            if (sceneAllocResult != VK_SUCCESS && !_descriptorOverflowWarned) {
-                _descriptorOverflowWarned = true;
-                spdlog::warn("VulkanGraphicsDevice: per-draw scene descriptor allocation failed ({})",
-                    static_cast<int>(sceneAllocResult));
+            // Resolve a cube view, falling back to the white cubemap so an
+            // unbound omni slot reads fully lit (and never mixes a 2D view
+            // into a samplerCube descriptor, which is invalid).
+            auto resolveCubeView = [this](Texture* tex) -> VkImageView {
+                if (tex) {
+                    auto* vkTex =
+                        static_cast<gpu::VulkanTexture*>(tex->impl());
+                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                        return vkTex->imageView();
+                    }
+                }
+                return _whiteCubeImageView;
+            };
+
+            // During a shadow render the shadow map is the attachment being
+            // written, so bind white fallbacks instead of creating feedback.
+            bool shadowIsActiveAttachment = false;
+            if (_activeOffscreenTarget && _shadowMapTexture &&
+                !_activeOffscreenTarget->colorAttachments().empty()) {
+                shadowIsActiveAttachment =
+                    _activeOffscreenTarget->colorAttachments()[0].texture ==
+                    static_cast<gpu::VulkanTexture*>(
+                        _shadowMapTexture->impl());
             }
-            if (sceneAllocResult == VK_SUCCESS) {
-                auto resolveView = [this](Texture* tex) -> VkImageView {
-                    if (tex) {
-                        auto* vkTex = static_cast<gpu::VulkanTexture*>(tex->impl());
-                        if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
-                            return vkTex->imageView();
-                        }
-                    }
-                    return _whiteImageView;
-                };
+            const bool hideShadowMaps =
+                _depthOnlyPass || shadowIsActiveAttachment;
 
-                // Resolve a cube view, falling back to the white cubemap so an
-                // unbound omni slot reads fully lit (and never mixes a 2D view
-                // into a samplerCube descriptor, which is invalid).
-                auto resolveCubeView = [this](Texture* tex) -> VkImageView {
-                    if (tex) {
-                        auto* vkTex = static_cast<gpu::VulkanTexture*>(tex->impl());
-                        if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
-                            return vkTex->imageView();
-                        }
-                    }
-                    return _whiteCubeImageView;
-                };
+            std::array<VkDescriptorImageInfo, 7> sceneInfos{};
+            sceneInfos[0].sampler = _envSampler;
+            sceneInfos[0].imageView = resolveView(_envAtlasTexture);
 
-                // During a shadow render the shadow map is the attachment
-                // being written, so binding it for sampling would be a
-                // read-write feedback loop — bind white fallbacks instead.
-                // PCF passes are depth-only (_depthOnlyPass); VSM passes write
-                // the moments texture as their COLOR attachment, so also check
-                // whether the shadow map is the active color attachment.
-                bool shadowIsActiveAttachment = false;
-                if (_activeOffscreenTarget && _shadowMapTexture &&
-                    !_activeOffscreenTarget->colorAttachments().empty()) {
-                    shadowIsActiveAttachment =
-                        _activeOffscreenTarget->colorAttachments()[0].texture ==
-                        static_cast<gpu::VulkanTexture*>(_shadowMapTexture->impl());
+            sceneInfos[1].sampler = _shadowSampler;
+            if (!hideShadowMaps && _shadowMapTexture) {
+                if (auto* vkShadowTex =
+                        static_cast<gpu::VulkanTexture*>(
+                            _shadowMapTexture->impl());
+                    vkShadowTex &&
+                    vkShadowTex->sampler() != VK_NULL_HANDLE) {
+                    sceneInfos[1].sampler = vkShadowTex->sampler();
                 }
-                const bool hideShadowMaps = _depthOnlyPass || shadowIsActiveAttachment;
-
-                std::array<VkDescriptorImageInfo, 7> sceneInfos{};
-                // Binding 0: environment atlas.
-                sceneInfos[0].sampler = _envSampler;
-                sceneInfos[0].imageView = resolveView(_envAtlasTexture);
-                // Binding 1: directional cascaded shadow-map atlas (depth or
-                // moments). Prefer the texture's own sampler — VSM moments
-                // need linear filtering (ShadowMap::create sets it); PCF depth
-                // textures are created nearest, matching _shadowSampler.
-                sceneInfos[1].sampler = _shadowSampler;
-                if (!hideShadowMaps && _shadowMapTexture) {
-                    if (auto* vkShadowTex = static_cast<gpu::VulkanTexture*>(_shadowMapTexture->impl());
-                        vkShadowTex && vkShadowTex->sampler() != VK_NULL_HANDLE) {
-                        sceneInfos[1].sampler = vkShadowTex->sampler();
-                    }
-                }
-                sceneInfos[1].imageView = hideShadowMaps ? _whiteImageView
-                                                         : resolveView(_shadowMapTexture);
-                // Bindings 2-3: local spot-light 2D depth maps.
-                sceneInfos[2].sampler = _shadowSampler;
-                sceneInfos[2].imageView = _depthOnlyPass ? _whiteImageView
-                                                         : resolveView(_localShadowTexture0);
-                sceneInfos[3].sampler = _shadowSampler;
-                sceneInfos[3].imageView = _depthOnlyPass ? _whiteImageView
-                                                         : resolveView(_localShadowTexture1);
-                // Bindings 4-5: omni point-light cubemap depth maps.
-                sceneInfos[4].sampler = _shadowSampler;
-                sceneInfos[4].imageView = _depthOnlyPass ? _whiteCubeImageView
-                                                         : resolveCubeView(_omniShadowCube0);
-                sceneInfos[5].sampler = _shadowSampler;
-                sceneInfos[5].imageView = _depthOnlyPass ? _whiteCubeImageView
-                                                         : resolveCubeView(_omniShadowCube1);
-                // Binding 6: high-res skybox cubemap.
-                sceneInfos[6].sampler = _envSampler;
-                sceneInfos[6].imageView = resolveCubeView(_skyboxCubeTexture);
-
-                std::array<VkWriteDescriptorSet, 7> writes{};
-                for (uint32_t i = 0; i < sceneInfos.size(); ++i) {
-                    sceneInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    writes[i].dstSet = sceneSet;
-                    writes[i].dstBinding = i;
-                    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    writes[i].descriptorCount = 1;
-                    writes[i].pImageInfo = &sceneInfos[i];
-                }
-
-                vkUpdateDescriptorSets(_device, static_cast<uint32_t>(writes.size()),
-                    writes.data(), 0, nullptr);
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
             }
+            sceneInfos[1].imageView = hideShadowMaps
+                ? _whiteImageView : resolveView(_shadowMapTexture);
+            sceneInfos[2].sampler = _shadowSampler;
+            sceneInfos[2].imageView = _depthOnlyPass
+                ? _whiteImageView : resolveView(_localShadowTexture0);
+            sceneInfos[3].sampler = _shadowSampler;
+            sceneInfos[3].imageView = _depthOnlyPass
+                ? _whiteImageView : resolveView(_localShadowTexture1);
+            sceneInfos[4].sampler = _shadowSampler;
+            sceneInfos[4].imageView = _depthOnlyPass
+                ? _whiteCubeImageView : resolveCubeView(_omniShadowCube0);
+            sceneInfos[5].sampler = _shadowSampler;
+            sceneInfos[5].imageView = _depthOnlyPass
+                ? _whiteCubeImageView : resolveCubeView(_omniShadowCube1);
+            sceneInfos[6].sampler = _envSampler;
+            sceneInfos[6].imageView = resolveCubeView(_skyboxCubeTexture);
+            for (auto& sceneInfo : sceneInfos) {
+                sceneInfo.imageLayout =
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            }
+
+            const VkDescriptorSet sceneSet = getOrCreateImageDescriptorSet(
+                _renderPipeline->sceneSetLayout(), sceneInfos);
+            if (sceneSet == VK_NULL_HANDLE) {
+                return;
+            }
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
         }
 
         // Draw

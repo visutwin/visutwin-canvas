@@ -27,7 +27,9 @@
 #include "platform/graphics/vertexFormat.h"
 #include "platform/graphics/vulkan/vulkanGraphicsDevice.h"
 #include "platform/graphics/vulkan/vulkanTexture.h"
+#include "platform/graphics/vulkan/vulkanUniformRingBuffer.h"
 #include "platform/graphics/vulkan/vulkanUtils.h"
+#include "scene/materials/material.h"
 #include "scene/mesh.h"
 #include "spdlog/spdlog.h"
 
@@ -66,6 +68,33 @@ int main()
         }
 
         validationErrors = device->validationErrorCounter();
+
+        // A ring overflow must be observable by the caller and must not alias
+        // the start of the current frame region.
+        {
+            VkPhysicalDeviceProperties properties{};
+            vkGetPhysicalDeviceProperties(
+                device->physicalDevice(), &properties);
+            VulkanUniformRingBuffer testRing(
+                device->vmaAllocator(), 2, 256,
+                properties.limits.minUniformBufferOffsetAlignment);
+            std::array<uint8_t, 16> smallUniform{};
+            std::array<uint8_t, 257> oversizedUniform{};
+            testRing.beginFrame(0);
+            const auto first =
+                testRing.allocate(smallUniform.data(), smallUniform.size());
+            const auto overflow = testRing.allocate(
+                oversizedUniform.data(), oversizedUniform.size());
+            testRing.beginFrame(1);
+            const auto secondFrame =
+                testRing.allocate(smallUniform.data(), smallUniform.size());
+            if (!first || overflow || !secondFrame ||
+                *secondFrame <= *first) {
+                spdlog::error(
+                    "Vulkan smoke: uniform ring overflow semantics failed");
+                result = 1;
+            }
+        }
 
         // Draw a triangle into a stencil-capable target while changing every
         // core pipeline state represented by the cross-platform interface.
@@ -129,6 +158,30 @@ int main()
                 pointStride, std::move(pointElements));
             auto pointBuffer = device->createVertexBuffer(pointFormat, 1, pointOptions);
             auto shader = device->createShader(ShaderDefinition{.name = "vulkan-smoke"});
+
+            // More unique image tuples than the initial descriptor pool can
+            // hold. This forces fence-owned pool growth; repeating the final
+            // tuple then verifies that the frame cache does not allocate again.
+            constexpr size_t descriptorStressCount = 260;
+            std::vector<std::unique_ptr<Texture>> descriptorStressTextures;
+            descriptorStressTextures.reserve(descriptorStressCount);
+            constexpr std::array<uint8_t, 4> stressPixel = {
+                255, 255, 255, 255
+            };
+            for (size_t i = 0; i < descriptorStressCount; ++i) {
+                TextureOptions stressOptions{};
+                stressOptions.name = "vulkan-descriptor-stress";
+                stressOptions.width = 1;
+                stressOptions.height = 1;
+                stressOptions.mipmaps = false;
+                auto texture =
+                    std::make_unique<Texture>(device.get(), stressOptions);
+                texture->setLevelData(
+                    0, stressPixel.data(), stressPixel.size());
+                texture->upload();
+                descriptorStressTextures.push_back(std::move(texture));
+            }
+            Material descriptorStressMaterial;
 
             const std::array compressedFormats = {
                 PixelFormat::PIXELFORMAT_DXT1,
@@ -311,6 +364,31 @@ int main()
             device->setCullMode(CullMode::CULLFACE_FRONTANDBACK);
             device->setVertexBuffer(vertexBuffer);
             device->draw(triangle);
+
+            device->setCullMode(CullMode::CULLFACE_BACK);
+            device->setMaterial(&descriptorStressMaterial);
+            for (const auto& texture : descriptorStressTextures) {
+                descriptorStressMaterial.setBaseColorTexture(texture.get());
+                device->setVertexBuffer(vertexBuffer);
+                device->draw(triangle);
+            }
+            if (device->currentFrameDescriptorPoolCount() < 2) {
+                spdlog::error(
+                    "Vulkan smoke: descriptor pool did not grow under stress");
+                result = 1;
+            }
+            const size_t cachedSetCount =
+                device->currentFrameCachedImageDescriptorSetCount();
+            device->setVertexBuffer(vertexBuffer);
+            device->draw(triangle);
+            if (device->currentFrameCachedImageDescriptorSetCount() !=
+                cachedSetCount) {
+                spdlog::error(
+                    "Vulkan smoke: reusable descriptor set was not cached");
+                result = 1;
+            }
+            device->setMaterial(nullptr);
+
             device->endRenderPass(&pass);
             device->frameEnd();
 
@@ -346,6 +424,12 @@ int main()
             device->frameEnd();
 
             device->frameStart();
+            if (device->currentFrameDescriptorPoolCount() < 2 ||
+                device->currentFrameCachedImageDescriptorSetCount() != 0) {
+                spdlog::error(
+                    "Vulkan smoke: descriptor pools were not recycled cleanly");
+                result = 1;
+            }
             device->startRenderPass(&cubePass);
             device->endRenderPass(&cubePass);
             device->frameEnd();
