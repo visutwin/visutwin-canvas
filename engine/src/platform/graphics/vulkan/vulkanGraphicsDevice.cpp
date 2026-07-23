@@ -15,6 +15,7 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include "vulkanIndexBuffer.h"
+#include "vulkanInstanceCullPass.h"
 #include "vulkanRenderPipeline.h"
 #include "vulkanRenderTarget.h"
 #include "vulkanShader.h"
@@ -26,6 +27,7 @@
 
 #include "core/math/color.h"
 #include "core/math/vector3.h"
+#include "platform/graphics/compute.h"
 #include "platform/graphics/renderPass.h"
 #include "platform/graphics/shaderFeatures.h"
 #include "platform/graphics/texture.h"
@@ -373,6 +375,7 @@ namespace visutwin::canvas
         flushDeferredDestroys(true);
 
         destroyPostResources();
+        destroyComputeResources();
 
         for (auto& [key, pipeline] : _vsmBlurPipelines) {
             vkDestroyPipeline(_device, pipeline, nullptr);
@@ -1694,6 +1697,380 @@ namespace visutwin::canvas
         vkCmdSetDepthBias(cmd, _depthBiasConstant, _depthBiasClamp, _depthBiasSlope);
     }
 
+    void VulkanGraphicsDevice::destroyComputeResources()
+    {
+        for (auto& [_, resources] : _computePipelines) {
+            if (resources.pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(_device, resources.pipeline, nullptr);
+            if (resources.pipelineLayout != VK_NULL_HANDLE)
+                vkDestroyPipelineLayout(_device, resources.pipelineLayout, nullptr);
+            if (resources.setLayout != VK_NULL_HANDLE)
+                vkDestroyDescriptorSetLayout(_device, resources.setLayout, nullptr);
+        }
+        _computePipelines.clear();
+        if (_particleSimPipeline != VK_NULL_HANDLE)
+            vkDestroyPipeline(_device, _particleSimPipeline, nullptr);
+        if (_particleSimPipelineLayout != VK_NULL_HANDLE)
+            vkDestroyPipelineLayout(_device, _particleSimPipelineLayout, nullptr);
+        if (_particleSimSetLayout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(_device, _particleSimSetLayout, nullptr);
+    }
+
+    bool VulkanGraphicsDevice::ensureParticleSimResources()
+    {
+        if (_particleSimPipeline != VK_NULL_HANDLE) return true;
+        std::array<VkDescriptorSetLayoutBinding, 2> bindings{{
+            {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+            {1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}
+        }};
+        VkDescriptorSetLayoutCreateInfo setInfo{
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        setInfo.bindingCount = bindings.size();
+        setInfo.pBindings = bindings.data();
+        if (vkCreateDescriptorSetLayout(_device, &setInfo, nullptr,
+                &_particleSimSetLayout) != VK_SUCCESS) return false;
+        VkPipelineLayoutCreateInfo layoutInfo{
+            VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &_particleSimSetLayout;
+        if (vkCreatePipelineLayout(_device, &layoutInfo, nullptr,
+                &_particleSimPipelineLayout) != VK_SUCCESS) return false;
+        VkShaderModuleCreateInfo moduleInfo{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        moduleInfo.codeSize = vulkan_generated::kParticleSimCompWordCount * sizeof(uint32_t);
+        moduleInfo.pCode = vulkan_generated::kParticleSimComp;
+        VkShaderModule module = VK_NULL_HANDLE;
+        if (vkCreateShaderModule(_device, &moduleInfo, nullptr, &module) != VK_SUCCESS)
+            return false;
+        VkPipelineShaderStageCreateInfo stage{
+            VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stage.module = module;
+        stage.pName = "main";
+        VkComputePipelineCreateInfo pipelineInfo{
+            VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+        pipelineInfo.stage = stage;
+        pipelineInfo.layout = _particleSimPipelineLayout;
+        const VkResult result = vkCreateComputePipelines(_device, VK_NULL_HANDLE,
+            1, &pipelineInfo, nullptr, &_particleSimPipeline);
+        vkDestroyShaderModule(_device, module, nullptr);
+        return result == VK_SUCCESS;
+    }
+
+    void VulkanGraphicsDevice::simulateParticles(
+        const std::shared_ptr<VertexBuffer>& particles,
+        const GpuParticleSimParams& params)
+    {
+        auto vkParticles = std::dynamic_pointer_cast<VulkanVertexBuffer>(particles);
+        if (!vkParticles || !vkParticles->buffer() ||
+            params.timeParams[3] <= 0.0f || !ensureParticleSimResources()) return;
+
+        VkBuffer paramsBuffer = VK_NULL_HANDLE;
+        VmaAllocation paramsAllocation = VK_NULL_HANDLE;
+        VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bufferInfo.size = sizeof(params);
+        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        VmaAllocationCreateInfo allocationInfo{};
+        allocationInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+        allocationInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VmaAllocationInfo mappedInfo{};
+        if (vmaCreateBuffer(_vmaAllocator, &bufferInfo, &allocationInfo,
+                &paramsBuffer, &paramsAllocation, &mappedInfo) != VK_SUCCESS) return;
+        std::memcpy(mappedInfo.pMappedData, &params, sizeof(params));
+        vmaFlushAllocation(_vmaAllocator, paramsAllocation, 0, sizeof(params));
+
+        std::array<VkDescriptorPoolSize, 2> sizes{{
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
+        }};
+        VkDescriptorPoolCreateInfo poolInfo{
+            VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        poolInfo.maxSets = 1;
+        poolInfo.poolSizeCount = sizes.size();
+        poolInfo.pPoolSizes = sizes.data();
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        if (vkCreateDescriptorPool(_device, &poolInfo, nullptr, &pool) != VK_SUCCESS) {
+            vmaDestroyBuffer(_vmaAllocator, paramsBuffer, paramsAllocation);
+            return;
+        }
+        VkDescriptorSetAllocateInfo setAlloc{
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        setAlloc.descriptorPool = pool;
+        setAlloc.descriptorSetCount = 1;
+        setAlloc.pSetLayouts = &_particleSimSetLayout;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        if (vkAllocateDescriptorSets(_device, &setAlloc, &set) != VK_SUCCESS) {
+            vkDestroyDescriptorPool(_device, pool, nullptr);
+            vmaDestroyBuffer(_vmaAllocator, paramsBuffer, paramsAllocation);
+            return;
+        }
+        std::array<VkDescriptorBufferInfo, 2> infos{{
+            {vkParticles->buffer(), 0, VK_WHOLE_SIZE},
+            {paramsBuffer, 0, sizeof(params)}
+        }};
+        std::array<VkWriteDescriptorSet, 2> writes{};
+        for (uint32_t i = 0; i < writes.size(); ++i) {
+            writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            writes[i].dstSet = set;
+            writes[i].dstBinding = i;
+            writes[i].descriptorCount = 1;
+            writes[i].descriptorType = sizes[i].type;
+            writes[i].pBufferInfo = &infos[i];
+        }
+        vkUpdateDescriptorSets(_device, writes.size(), writes.data(), 0, nullptr);
+        const VkPipeline pipeline = _particleSimPipeline;
+        const VkPipelineLayout layout = _particleSimPipelineLayout;
+        const VkBuffer particleBuffer = vkParticles->buffer();
+        const uint32_t groups =
+            (static_cast<uint32_t>(params.timeParams[3]) + 255u) / 256u;
+        enqueueUpload(
+            [pipeline, layout, set, particleBuffer, groups,
+             keepAlive = std::move(vkParticles)](VkCommandBuffer cmd) {
+                (void)keepAlive;
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    layout, 0, 1, &set, 0, nullptr);
+                vkCmdDispatch(cmd, groups, 1, 1);
+                VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+                barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.buffer = particleBuffer;
+                barrier.size = VK_WHOLE_SIZE;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 0, nullptr,
+                    1, &barrier, 0, nullptr);
+            },
+            [device = _device, allocator = _vmaAllocator, pool,
+             paramsBuffer, paramsAllocation] {
+                vkDestroyDescriptorPool(device, pool, nullptr);
+                vmaDestroyBuffer(allocator, paramsBuffer, paramsAllocation);
+            });
+        flushUploads();
+    }
+
+    void VulkanGraphicsDevice::setParticleState(
+        const std::shared_ptr<VertexBuffer>& particles,
+        const void* params, size_t paramsSize)
+    {
+        if (!particles || !params || paramsSize == 0 ||
+            paramsSize > _pendingParticleParams.size()) {
+            _pendingParticleBuffer.reset();
+            _pendingParticleParamsSize = 0;
+            return;
+        }
+        _pendingParticleBuffer = particles;
+        std::memcpy(_pendingParticleParams.data(), params, paramsSize);
+        _pendingParticleParamsSize = paramsSize;
+    }
+
+    void VulkanGraphicsDevice::setGSplatState(
+        const std::shared_ptr<VertexBuffer>& splats,
+        const std::shared_ptr<VertexBuffer>& order,
+        const std::shared_ptr<VertexBuffer>& sh,
+        const void* params, size_t paramsSize)
+    {
+        if (!splats || !order || !params || paramsSize == 0 ||
+            paramsSize > _pendingGSplatParams.size()) {
+            _pendingGSplatBuffer.reset();
+            _pendingGSplatOrderBuffer.reset();
+            _pendingGSplatShBuffer.reset();
+            _pendingGSplatParamsSize = 0;
+            return;
+        }
+        _pendingGSplatBuffer = splats;
+        _pendingGSplatOrderBuffer = order;
+        _pendingGSplatShBuffer = sh;
+        std::memcpy(_pendingGSplatParams.data(), params, paramsSize);
+        _pendingGSplatParamsSize = paramsSize;
+    }
+
+    void VulkanGraphicsDevice::computeDispatch(
+        const std::vector<Compute*>& computes, const std::string& label)
+    {
+        (void)label;
+        if (_dynamicRenderingActive) {
+            spdlog::warn("Vulkan compute dispatch cannot run inside a render pass");
+            return;
+        }
+
+        for (Compute* compute : computes) {
+            if (!compute || !compute->shader()) continue;
+            auto shader = std::dynamic_pointer_cast<VulkanShader>(compute->shader());
+            if (!shader || shader->computeModule() == VK_NULL_HANDLE) {
+                spdlog::error("Vulkan compute dispatch '{}' has no compute module",
+                    compute->name());
+                continue;
+            }
+
+            std::vector<std::pair<std::string, Texture*>> parameters(
+                compute->textureParameters().begin(),
+                compute->textureParameters().end());
+            std::ranges::sort(parameters, {}, &decltype(parameters)::value_type::first);
+
+            std::vector<gpu::VulkanTexture*> textures;
+            std::vector<VkDescriptorType> types;
+            bool valid = true;
+            for (const auto& [name, texture] : parameters) {
+                (void)name;
+                if (texture) {
+                    auto* pendingTexture =
+                        dynamic_cast<gpu::VulkanTexture*>(texture->impl());
+                    if (!pendingTexture ||
+                        pendingTexture->image() == VK_NULL_HANDLE) {
+                        texture->upload();
+                    }
+                }
+                auto* vkTexture = texture
+                    ? dynamic_cast<gpu::VulkanTexture*>(texture->impl()) : nullptr;
+                if (!vkTexture || vkTexture->image() == VK_NULL_HANDLE) {
+                    valid = false;
+                    break;
+                }
+                textures.push_back(vkTexture);
+                types.push_back(texture->storage()
+                    ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+                    : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            }
+            if (!valid || textures.empty()) {
+                spdlog::error("Vulkan compute dispatch '{}' has invalid texture parameters",
+                    compute->name());
+                continue;
+            }
+
+            auto [pipelineIt, inserted] = _computePipelines.try_emplace(shader->id());
+            auto& resources = pipelineIt->second;
+            if (inserted) {
+                resources.descriptorTypes = types;
+                std::vector<VkDescriptorSetLayoutBinding> bindings(types.size());
+                for (uint32_t i = 0; i < bindings.size(); ++i) {
+                    bindings[i] = {i, types[i], 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+                }
+                VkDescriptorSetLayoutCreateInfo setInfo{
+                    VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+                setInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+                setInfo.pBindings = bindings.data();
+                if (vkCreateDescriptorSetLayout(_device, &setInfo, nullptr,
+                        &resources.setLayout) != VK_SUCCESS) {
+                    spdlog::error("Failed to create Vulkan compute descriptor layout");
+                    _computePipelines.erase(pipelineIt);
+                    continue;
+                }
+                VkPipelineLayoutCreateInfo layoutInfo{
+                    VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+                layoutInfo.setLayoutCount = 1;
+                layoutInfo.pSetLayouts = &resources.setLayout;
+                if (vkCreatePipelineLayout(_device, &layoutInfo, nullptr,
+                        &resources.pipelineLayout) != VK_SUCCESS) {
+                    vkDestroyDescriptorSetLayout(_device, resources.setLayout, nullptr);
+                    _computePipelines.erase(pipelineIt);
+                    continue;
+                }
+                VkPipelineShaderStageCreateInfo stage{
+                    VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+                stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+                stage.module = shader->computeModule();
+                stage.pName = "main";
+                VkComputePipelineCreateInfo pipelineInfo{
+                    VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+                pipelineInfo.stage = stage;
+                pipelineInfo.layout = resources.pipelineLayout;
+                if (vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1,
+                        &pipelineInfo, nullptr, &resources.pipeline) != VK_SUCCESS) {
+                    vkDestroyPipelineLayout(_device, resources.pipelineLayout, nullptr);
+                    vkDestroyDescriptorSetLayout(_device, resources.setLayout, nullptr);
+                    _computePipelines.erase(pipelineIt);
+                    continue;
+                }
+            } else if (resources.descriptorTypes != types) {
+                spdlog::error(
+                    "Vulkan compute shader '{}' was rebound with an incompatible resource layout",
+                    compute->name());
+                continue;
+            }
+
+            std::vector<VkDescriptorPoolSize> poolSizes;
+            for (VkDescriptorType type : types) {
+                const auto it = std::ranges::find_if(poolSizes,
+                    [type](const VkDescriptorPoolSize& size) { return size.type == type; });
+                if (it == poolSizes.end()) poolSizes.push_back({type, 1});
+                else ++it->descriptorCount;
+            }
+            VkDescriptorPoolCreateInfo poolInfo{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+            poolInfo.maxSets = 1;
+            poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+            poolInfo.pPoolSizes = poolSizes.data();
+            VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+            if (vkCreateDescriptorPool(_device, &poolInfo, nullptr,
+                    &descriptorPool) != VK_SUCCESS) continue;
+            VkDescriptorSetAllocateInfo allocInfo{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            allocInfo.descriptorPool = descriptorPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts = &resources.setLayout;
+            VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+            if (vkAllocateDescriptorSets(_device, &allocInfo, &descriptorSet) != VK_SUCCESS) {
+                vkDestroyDescriptorPool(_device, descriptorPool, nullptr);
+                continue;
+            }
+
+            std::vector<VkDescriptorImageInfo> imageInfos(textures.size());
+            std::vector<VkWriteDescriptorSet> writes(textures.size());
+            for (uint32_t i = 0; i < textures.size(); ++i) {
+                const bool storage = types[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                imageInfos[i].sampler = storage ? VK_NULL_HANDLE : textures[i]->sampler();
+                imageInfos[i].imageView = textures[i]->imageView();
+                imageInfos[i].imageLayout = storage
+                    ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                writes[i].dstSet = descriptorSet;
+                writes[i].dstBinding = i;
+                writes[i].descriptorCount = 1;
+                writes[i].descriptorType = types[i];
+                writes[i].pImageInfo = &imageInfos[i];
+            }
+            vkUpdateDescriptorSets(_device, static_cast<uint32_t>(writes.size()),
+                writes.data(), 0, nullptr);
+
+            const VkPipeline pipeline = resources.pipeline;
+            const VkPipelineLayout pipelineLayout = resources.pipelineLayout;
+            const uint32_t dispatchX = compute->dispatchX();
+            const uint32_t dispatchY = compute->dispatchY();
+            const uint32_t dispatchZ = compute->dispatchZ();
+            enqueueUpload(
+                [textures, types, descriptorSet, pipeline, pipelineLayout,
+                 dispatchX, dispatchY, dispatchZ](VkCommandBuffer cmd) {
+                    for (uint32_t i = 0; i < textures.size(); ++i) {
+                        textures[i]->transitionLayout(cmd,
+                            types[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+                                ? VK_IMAGE_LAYOUT_GENERAL
+                                : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    }
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+                    vkCmdDispatch(cmd, dispatchX, dispatchY, dispatchZ);
+                    VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+                    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier,
+                        0, nullptr, 0, nullptr);
+                    for (uint32_t i = 0; i < textures.size(); ++i) {
+                        if (types[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
+                            textures[i]->transitionLayout(cmd,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        }
+                    }
+                },
+                [device = _device, descriptorPool] {
+                    vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+                });
+        }
+        flushUploads();
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // Core rendering
     // ─────────────────────────────────────────────────────────────────────
@@ -1702,7 +2079,6 @@ namespace visutwin::canvas
         const std::shared_ptr<IndexBuffer>& indexBuffer,
         int numInstances, int indirectSlot, bool first, bool last)
     {
-        (void)indirectSlot;
         if (!_shader || !_dynamicRenderingActive) return;
 
         auto& frame = _frames[_frameIndex];
@@ -1723,6 +2099,16 @@ namespace visutwin::canvas
         _pendingPaletteSize = 0;
         _pendingMorphParamsOffset.reset();
         _pendingMorphParamsSize = 0;
+        auto particleBuffer = std::move(_pendingParticleBuffer);
+        const auto particleParams = _pendingParticleParams;
+        const size_t particleParamsSize = _pendingParticleParamsSize;
+        _pendingParticleParamsSize = 0;
+        auto splatBuffer = std::move(_pendingGSplatBuffer);
+        auto splatOrderBuffer = std::move(_pendingGSplatOrderBuffer);
+        auto splatShBuffer = std::move(_pendingGSplatShBuffer);
+        const auto splatParams = _pendingGSplatParams;
+        const size_t splatParamsSize = _pendingGSplatParamsSize;
+        _pendingGSplatParamsSize = 0;
 
         if (first) {
             auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
@@ -2085,6 +2471,57 @@ namespace visutwin::canvas
                 _renderPipeline->pipelineLayout(), 5, 1, &clusterSet, 0, nullptr);
         }
 
+        // Set 6: dedicated GPU-driven render resources. The state is one-shot
+        // and was moved above, so failed draws cannot leak it to later meshes.
+        if (particleBuffer || splatBuffer) {
+            const bool particleDraw = particleBuffer != nullptr;
+            const void* paramsData = particleDraw
+                ? static_cast<const void*>(particleParams.data())
+                : static_cast<const void*>(splatParams.data());
+            const size_t paramsSize = particleDraw
+                ? particleParamsSize : splatParamsSize;
+            auto paramsOffset = allocateUniform(paramsData, paramsSize);
+            auto primary = std::dynamic_pointer_cast<VulkanVertexBuffer>(
+                particleDraw ? particleBuffer : splatBuffer);
+            auto order = std::dynamic_pointer_cast<VulkanVertexBuffer>(splatOrderBuffer);
+            auto sh = std::dynamic_pointer_cast<VulkanVertexBuffer>(splatShBuffer);
+            if (!paramsOffset || !primary || !primary->buffer() ||
+                (!particleDraw && (!order || !order->buffer()))) {
+                return;
+            }
+            const VkDescriptorSet gpuSet = allocateFrameDescriptorSet(
+                _renderPipeline->gpuDrivenSetLayout());
+            if (gpuSet == VK_NULL_HANDLE) return;
+            std::array<VkDescriptorBufferInfo, 4> infos{};
+            infos[0] = {primary->buffer(), 0, VK_WHOLE_SIZE};
+            if (order) infos[1] = {order->buffer(), 0, VK_WHOLE_SIZE};
+            if (sh) infos[2] = {sh->buffer(), 0, VK_WHOLE_SIZE};
+            infos[3] = {_uniformRing->buffer(), *paramsOffset, paramsSize};
+            std::array<VkWriteDescriptorSet, 4> writes{};
+            uint32_t writeCount = 0;
+            const auto addWrite = [&](uint32_t binding, VkDescriptorType type) {
+                auto& write = writes[writeCount++];
+                write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = gpuSet;
+                write.dstBinding = binding;
+                write.descriptorCount = 1;
+                write.descriptorType = type;
+                write.pBufferInfo = &infos[binding];
+            };
+            addWrite(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            if (!particleDraw) {
+                addWrite(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                // Current Vulkan splat variant evaluates SH0 color. Keep the
+                // SH buffer in state so higher-band evaluation can be enabled
+                // without changing the public binding contract.
+                if (sh) addWrite(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            }
+            addWrite(3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+            vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                _renderPipeline->pipelineLayout(), 6, 1, &gpuSet, 0, nullptr);
+        }
+
         // Draw
         if (indexBuffer) {
             auto* ib = static_cast<VulkanIndexBuffer*>(indexBuffer.get());
@@ -2092,11 +2529,27 @@ namespace visutwin::canvas
                 VkIndexType idxType = (indexBuffer->format() == INDEXFORMAT_UINT32)
                     ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
                 vkCmdBindIndexBuffer(cmd, ib->buffer(), 0, idxType);
-                vkCmdDrawIndexed(cmd, primitive.count, numInstances,
-                    primitive.base, primitive.baseVertex, 0);
+                if (indirectSlot >= 0 && _indirectDrawBuffer != VK_NULL_HANDLE) {
+                    vkCmdDrawIndexedIndirect(cmd, _indirectDrawBuffer,
+                        static_cast<VkDeviceSize>(indirectSlot) *
+                            sizeof(VkDrawIndexedIndirectCommand),
+                        1, sizeof(VkDrawIndexedIndirectCommand));
+                    _indirectDrawBuffer = VK_NULL_HANDLE;
+                } else {
+                    vkCmdDrawIndexed(cmd, primitive.count, numInstances,
+                        primitive.base, primitive.baseVertex, 0);
+                }
             }
         } else {
-            vkCmdDraw(cmd, primitive.count, numInstances, primitive.base, 0);
+            if (indirectSlot >= 0 && _indirectDrawBuffer != VK_NULL_HANDLE) {
+                vkCmdDrawIndirect(cmd, _indirectDrawBuffer,
+                    static_cast<VkDeviceSize>(indirectSlot) *
+                        sizeof(VkDrawIndirectCommand),
+                    1, sizeof(VkDrawIndirectCommand));
+                _indirectDrawBuffer = VK_NULL_HANDLE;
+            } else {
+                vkCmdDraw(cmd, primitive.count, numInstances, primitive.base, 0);
+            }
         }
 
         recordDrawCall();
@@ -2552,6 +3005,31 @@ namespace visutwin::canvas
     {
         const bool isShadowName = definition.name.rfind("program-shadow", 0) == 0;
 
+        if (!definition.cshader.empty()) {
+            if (sourceCode.empty() || !looksLikeGlsl(sourceCode)) {
+                spdlog::error(
+                    "VulkanGraphicsDevice::createShader('{}'): compute shaders require GLSL source",
+                    definition.name);
+                return nullptr;
+            }
+            if (!vulkanShaderCompilerAvailable()) {
+                spdlog::error(
+                    "VulkanGraphicsDevice::createShader('{}'): runtime compute GLSL requires shaderc",
+                    definition.name);
+                return nullptr;
+            }
+            auto computeSpv = vulkanCompileGlsl(sourceCode,
+                VulkanShaderStage::Compute, definition.name + ".comp");
+            if (computeSpv.empty()) {
+                return nullptr;
+            }
+            return std::make_shared<VulkanShader>(this, definition,
+                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0,
+                nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0,
+                nullptr, 0, nullptr, 0, false,
+                computeSpv.data(), computeSpv.size());
+        }
+
         // Custom GLSL source: compile at runtime via shaderc. The single
         // source is compiled twice with VT_VERTEX_SHADER / VT_FRAGMENT_SHADER
         // defines so authors can guard the stages with #ifdef. A failed custom
@@ -2596,6 +3074,20 @@ namespace visutwin::canvas
         const size_t fragmentWords = isShadowName
             ? vulkan_generated::kShadowVsmFragWordCount
             : vulkan_generated::kForwardFragWordCount;
+        if (definition.name == "particles") {
+            return std::make_shared<VulkanShader>(this, definition,
+                vulkan_generated::kParticleVert,
+                vulkan_generated::kParticleVertWordCount,
+                vulkan_generated::kParticleFrag,
+                vulkan_generated::kParticleFragWordCount);
+        }
+        if (definition.name == "gsplat") {
+            return std::make_shared<VulkanShader>(this, definition,
+                vulkan_generated::kGSplatVert,
+                vulkan_generated::kGSplatVertWordCount,
+                vulkan_generated::kGSplatFrag,
+                vulkan_generated::kGSplatFragWordCount);
+        }
         return std::make_shared<VulkanShader>(this, definition,
             vulkan_generated::kForwardVert,
             vulkan_generated::kForwardVertWordCount,
@@ -2629,6 +3121,19 @@ namespace visutwin::canvas
         const VertexBufferOptions& options)
     {
         return std::make_shared<VulkanVertexBuffer>(this, format, numVertices, options);
+    }
+
+    std::shared_ptr<VertexBuffer> VulkanGraphicsDevice::createVertexBufferFromNativeBuffer(
+        const std::shared_ptr<VertexFormat>& format, int numVertices, void* nativeBuffer)
+    {
+        const VkBuffer buffer = reinterpret_cast<VkBuffer>(nativeBuffer);
+        if (buffer == VK_NULL_HANDLE) return nullptr;
+        return std::make_shared<VulkanVertexBuffer>(this, format, numVertices, buffer);
+    }
+
+    std::unique_ptr<InstanceCuller> VulkanGraphicsDevice::createInstanceCuller()
+    {
+        return std::make_unique<VulkanInstanceCullPass>(this);
     }
 
     std::shared_ptr<IndexBuffer> VulkanGraphicsDevice::createIndexBuffer(

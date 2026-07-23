@@ -122,7 +122,7 @@ namespace visutwin::canvas
         // Enable per-frame GPU frustum culling for this hardware-instanced mesh.
         // Must be called *after* setInstancing(vb, count). Every frame, the
         // renderer tests each instance's bounding sphere against the camera
-        // frustum via a Metal compute pass and writes only the visible
+        // frustum via a backend compute pass and writes only the visible
         // instances into a compacted buffer; the draw call then uses indirect
         // instancing (see Renderer::dispatchGpuInstanceCulling).
         //

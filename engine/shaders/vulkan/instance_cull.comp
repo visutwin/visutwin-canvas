@@ -1,0 +1,49 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct InstanceData {
+    mat4 modelMatrix;
+    vec4 diffuseColor;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer InputInstances {
+    InstanceData instances[];
+} inputInstances;
+layout(set = 0, binding = 1, std430) writeonly buffer OutputInstances {
+    InstanceData instances[];
+} outputInstances;
+layout(set = 0, binding = 2, std430) buffer IndirectArguments {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+} indirect;
+
+layout(push_constant, std430) uniform CullParams {
+    vec4 frustumPlanes[6];
+    float boundingSphereRadius;
+    uint sourceInstanceCount;
+    uint drawIndexCount;
+    uint indexStart;
+    int baseVertex;
+    uint baseInstance;
+    vec2 padding;
+} params;
+
+void main()
+{
+    uint sourceIndex = gl_GlobalInvocationID.x;
+    if (sourceIndex >= params.sourceInstanceCount) return;
+    vec3 center = inputInstances.instances[sourceIndex].modelMatrix[3].xyz;
+    for (uint planeIndex = 0; planeIndex < 6; ++planeIndex) {
+        vec4 plane = params.frustumPlanes[planeIndex];
+        if (dot(plane.xyz, center) + plane.w < -params.boundingSphereRadius) {
+            return;
+        }
+    }
+    uint outputIndex = atomicAdd(indirect.instanceCount, 1);
+    outputInstances.instances[outputIndex] =
+        inputInstances.instances[sourceIndex];
+}

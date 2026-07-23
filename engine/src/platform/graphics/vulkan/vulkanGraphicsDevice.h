@@ -63,6 +63,13 @@ namespace visutwin::canvas
         std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture* texture) override;
         std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
             int numVertices, const VertexBufferOptions& options = VertexBufferOptions{}) override;
+        std::shared_ptr<VertexBuffer> createVertexBufferFromNativeBuffer(
+            const std::shared_ptr<VertexFormat>& format,
+            int numVertices, void* nativeBuffer) override;
+        bool supportsGpuInstanceCulling() const override { return true; }
+        std::unique_ptr<InstanceCuller> createInstanceCuller() override;
+        void beginGpuCullBatch() override {}
+        void endGpuCullBatch() override { flushUploads(); }
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) override;
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) override;
@@ -79,7 +86,18 @@ namespace visutwin::canvas
         void setScissor(int x, int y, int w, int h) override;
         void setDepthBias(float depthBias, float slopeScale, float clamp) override;
         void setDynamicBatchPalette(const void* data, size_t size) override;
+        void setIndirectDrawBuffer(void* nativeBuffer) override {
+            _indirectDrawBuffer = reinterpret_cast<VkBuffer>(nativeBuffer);
+        }
         void setMorphState(const std::shared_ptr<VertexBuffer>& deltaBuffer,
+            const void* params, size_t paramsSize) override;
+        void simulateParticles(const std::shared_ptr<VertexBuffer>& particles,
+            const GpuParticleSimParams& params) override;
+        void setParticleState(const std::shared_ptr<VertexBuffer>& particles,
+            const void* params, size_t paramsSize) override;
+        void setGSplatState(const std::shared_ptr<VertexBuffer>& splats,
+            const std::shared_ptr<VertexBuffer>& order,
+            const std::shared_ptr<VertexBuffer>& sh,
             const void* params, size_t paramsSize) override;
         void setClusterBuffers(const void* lightData, size_t lightSize,
             const void* cellData, size_t cellSize) override;
@@ -155,6 +173,9 @@ namespace visutwin::canvas
         void generateEnvConvolve(const EnvConvolvePassParams& params) override;
         void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
         void generateEquirectToCubemap(const EquirectToCubeParams& params) override;
+        bool supportsCompute() const override { return true; }
+        void computeDispatch(const std::vector<Compute*>& computes,
+            const std::string& label = "") override;
 
     private:
         void onFrameStart() override;
@@ -180,6 +201,8 @@ namespace visutwin::canvas
         // must have idled the device first).
         void flushDeferredDestroys(bool force);
         void collectUploads(bool wait);
+        void destroyComputeResources();
+        bool ensureParticleSimResources();
 
         // Record current viewport/scissor/depth-bias state into the live
         // command buffer.  Only valid while a render pass is active.
@@ -320,6 +343,26 @@ namespace visutwin::canvas
         std::vector<PendingUpload> _pendingUploads;
         std::deque<InFlightUpload> _inFlightUploads;
 
+        struct ComputePipelineResources {
+            VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+            VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+            VkPipeline pipeline = VK_NULL_HANDLE;
+            std::vector<VkDescriptorType> descriptorTypes;
+        };
+        std::unordered_map<int, ComputePipelineResources> _computePipelines;
+        VkDescriptorSetLayout _particleSimSetLayout = VK_NULL_HANDLE;
+        VkPipelineLayout _particleSimPipelineLayout = VK_NULL_HANDLE;
+        VkPipeline _particleSimPipeline = VK_NULL_HANDLE;
+
+        std::shared_ptr<VertexBuffer> _pendingParticleBuffer;
+        std::array<uint8_t, sizeof(GpuParticleRenderParams)> _pendingParticleParams{};
+        size_t _pendingParticleParamsSize = 0;
+        std::shared_ptr<VertexBuffer> _pendingGSplatBuffer;
+        std::shared_ptr<VertexBuffer> _pendingGSplatOrderBuffer;
+        std::shared_ptr<VertexBuffer> _pendingGSplatShBuffer;
+        std::array<uint8_t, 160> _pendingGSplatParams{};
+        size_t _pendingGSplatParamsSize = 0;
+
         // ── Render pipeline ──────────────────────────────────────────────
         std::unique_ptr<VulkanRenderPipeline> _renderPipeline;
         VkPipeline _currentPipeline = VK_NULL_HANDLE;
@@ -359,6 +402,7 @@ namespace visutwin::canvas
         };
         PushConstants _pushConstants{};
         bool _pushConstantsDirty = false;
+        VkBuffer _indirectDrawBuffer = VK_NULL_HANDLE;
 
         // ── Default resources ────────────────────────────────────────────
         VkSampler _defaultSampler = VK_NULL_HANDLE;

@@ -2,13 +2,17 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 //
+#ifdef VISUTWIN_HAS_METAL
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #define MTK_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION
+#endif
 
 #include <SDL3/SDL.h>
+#ifdef VISUTWIN_HAS_METAL
 #include <QuartzCore/QuartzCore.hpp>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -51,7 +55,7 @@ namespace
 
     const std::string rootPath = ASSET_DIR;
 
-    constexpr const char* EDGE_DETECT_COMPUTE_SOURCE = R"(
+    constexpr const char* EDGE_DETECT_COMPUTE_SOURCE_METAL = R"(
 #include <metal_stdlib>
 using namespace metal;
 
@@ -92,6 +96,36 @@ kernel void edgeDetectKernel(
     const float edgeAmount = clamp(edge * 3.0, 0.0, 1.0);
     const float3 outColor = mix(src.rgb, float3(1.0, 0.0, 0.0), edgeAmount);
     outputTexture.write(float4(outColor, 1.0), gid);
+}
+)";
+
+    constexpr const char* EDGE_DETECT_COMPUTE_SOURCE_VULKAN = R"(
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(set = 0, binding = 0) uniform sampler2D inputTexture;
+layout(rgba8, set = 0, binding = 1) uniform writeonly image2D outputTexture;
+void main()
+{
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(outputTexture);
+    if (any(greaterThanEqual(gid, size))) return;
+    vec2 uv = (vec2(gid) + 0.5) / vec2(size);
+    vec2 texel = 1.0 / vec2(size);
+    const vec3 weights = vec3(0.299, 0.587, 0.114);
+    float tl = dot(texture(inputTexture, uv + texel * vec2(-1, -1)).rgb, weights);
+    float tc = dot(texture(inputTexture, uv + texel * vec2( 0, -1)).rgb, weights);
+    float tr = dot(texture(inputTexture, uv + texel * vec2( 1, -1)).rgb, weights);
+    float ml = dot(texture(inputTexture, uv + texel * vec2(-1,  0)).rgb, weights);
+    float mr = dot(texture(inputTexture, uv + texel * vec2( 1,  0)).rgb, weights);
+    float bl = dot(texture(inputTexture, uv + texel * vec2(-1,  1)).rgb, weights);
+    float bc = dot(texture(inputTexture, uv + texel * vec2( 0,  1)).rgb, weights);
+    float br = dot(texture(inputTexture, uv + texel * vec2( 1,  1)).rgb, weights);
+    float gx = -tl - 2.0 * ml - bl + tr + 2.0 * mr + br;
+    float gy = -tl - 2.0 * tc - tr + bl + 2.0 * bc + br;
+    float edge = length(vec2(gx, gy));
+    vec4 src = texture(inputTexture, uv);
+    imageStore(outputTexture, gid,
+        vec4(mix(src.rgb, vec3(1, 0, 0), clamp(edge * 3.0, 0.0, 1.0)), 1));
 }
 )";
 
@@ -176,7 +210,9 @@ int main()
     log::init();
     log::set_level_debug();
 
+#ifdef VISUTWIN_HAS_METAL
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+#endif
     SDL_Init(SDL_INIT_VIDEO);
 
     SDL_Window* window = SDL_CreateWindow(
@@ -184,6 +220,9 @@ int main()
         WINDOW_WIDTH,
         WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+#ifdef VISUTWIN_HAS_VULKAN
+        | SDL_WINDOW_VULKAN
+#endif
     );
     if (!window) {
         SDL_Quit();
@@ -198,17 +237,27 @@ int main()
     }
     SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
 
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
+    void* swapchain = nullptr;
+#ifdef VISUTWIN_HAS_METAL
+    swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
     if (!swapchain) {
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return -1;
     }
+#endif
 
+    GraphicsDeviceOptions deviceOptions;
+#ifdef VISUTWIN_HAS_VULKAN
+    deviceOptions.backend = Backend::Vulkan;
+#else
+    deviceOptions.backend = Backend::Metal;
+#endif
+    deviceOptions.swapChain = swapchain;
+    deviceOptions.window = window;
     auto graphicsDevice = std::shared_ptr<GraphicsDevice>(
-        createGraphicsDevice(GraphicsDeviceOptions{.swapChain = swapchain, .window = window})
-    );
+        createGraphicsDevice(deviceOptions));
     if (!graphicsDevice) {
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
@@ -431,7 +480,13 @@ int main()
         ShaderDefinition computeDef;
         computeDef.name = "EdgeDetectCompute";
         computeDef.cshader = "edgeDetectKernel";
-        computeShader = createShader(graphicsDevice.get(), computeDef, EDGE_DETECT_COMPUTE_SOURCE);
+        const char* computeSource =
+#ifdef VISUTWIN_HAS_VULKAN
+            EDGE_DETECT_COMPUTE_SOURCE_VULKAN;
+#else
+            EDGE_DETECT_COMPUTE_SOURCE_METAL;
+#endif
+        computeShader = createShader(graphicsDevice.get(), computeDef, computeSource);
         if (computeShader) {
             compute = std::make_unique<Compute>(graphicsDevice.get(), computeShader, "EdgeDetect");
             compute->setParameter("inputTexture", sourceTexture.get());

@@ -246,6 +246,8 @@ namespace visutwin::canvas
             vkDestroyDescriptorSetLayout(vk, _geometrySetLayout, nullptr);
         if (_clusterSetLayout != VK_NULL_HANDLE)
             vkDestroyDescriptorSetLayout(vk, _clusterSetLayout, nullptr);
+        if (_gpuDrivenSetLayout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(vk, _gpuDrivenSetLayout, nullptr);
     }
 
     void VulkanRenderPipeline::createLayouts()
@@ -344,6 +346,21 @@ namespace visutwin::canvas
         vkCreateDescriptorSetLayout(vk, &clusterLayoutInfo, nullptr,
             &_clusterSetLayout);
 
+        // Set 6: particle / Gaussian-splat storage and per-draw parameters.
+        std::array<VkDescriptorSetLayoutBinding, 4> gpuBindings{};
+        for (uint32_t i = 0; i < 3; ++i) {
+            gpuBindings[i] = {i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+        }
+        gpuBindings[3] = {3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+            VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+        VkDescriptorSetLayoutCreateInfo gpuLayoutInfo{
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        gpuLayoutInfo.bindingCount = static_cast<uint32_t>(gpuBindings.size());
+        gpuLayoutInfo.pBindings = gpuBindings.data();
+        vkCreateDescriptorSetLayout(vk, &gpuLayoutInfo, nullptr,
+            &_gpuDrivenSetLayout);
+
         // Push constants: 2 × mat4 = 128 bytes
         VkPushConstantRange pushRange{};
         pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -352,10 +369,11 @@ namespace visutwin::canvas
 
         VkDescriptorSetLayout setLayouts[] = {
             _materialSetLayout, _textureSetLayout, _lightingSetLayout,
-            _sceneSetLayout, _geometrySetLayout, _clusterSetLayout};
+            _sceneSetLayout, _geometrySetLayout, _clusterSetLayout,
+            _gpuDrivenSetLayout};
 
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutInfo.setLayoutCount = 6;
+        layoutInfo.setLayoutCount = 7;
         layoutInfo.pSetLayouts = setLayouts;
         layoutInfo.pushConstantRangeCount = 1;
         layoutInfo.pPushConstantRanges = &pushRange;
@@ -527,7 +545,10 @@ namespace visutwin::canvas
             return true;
         };
 
-        if (!appendFormat(vertexFormat, 0, VK_VERTEX_INPUT_RATE_VERTEX) ||
+        const bool gpuDrivenVertex =
+            shader->name() == "particles" || shader->name() == "gsplat";
+        if ((!gpuDrivenVertex &&
+             !appendFormat(vertexFormat, 0, VK_VERTEX_INPUT_RATE_VERTEX)) ||
             (instanced && !appendFormat(instanceFormat, 1, VK_VERTEX_INPUT_RATE_INSTANCE))) {
             return VK_NULL_HANDLE;
         }
@@ -541,7 +562,9 @@ namespace visutwin::canvas
         // --- Input assembly ---
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         inputAssembly.topology = vulkanMapPrimitiveType(primitive.type);
-        inputAssembly.primitiveRestartEnable = VK_FALSE;
+        inputAssembly.primitiveRestartEnable =
+            primitive.type == PRIMITIVE_LINESTRIP ||
+            primitive.type == PRIMITIVE_TRISTRIP;
 
         // --- Viewport (dynamic) ---
         VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};

@@ -9,17 +9,21 @@
 //           smaller on disk; proves the compressed parser round-trips.
 // The camera auto-orbits in azimuth. Esc quits.
 //
+#ifdef VISUTWIN_HAS_METAL
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #define MTK_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION
+#endif
 
 #include <algorithm>
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <memory>
 
+#ifdef VISUTWIN_HAS_METAL
 #include <QuartzCore/QuartzCore.hpp>
+#endif
 
 #include "framework/engine.h"
 #include "log.h"
@@ -76,22 +80,36 @@ int main()
         SDL_Quit();
     };
 
+#ifdef VISUTWIN_HAS_METAL
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+#endif
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
         "VisuTwin GSplat Tier 2 (SH + Compressed)", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+#ifdef VISUTWIN_HAS_VULKAN
+        | SDL_WINDOW_VULKAN
+#endif
     );
     if (!window) { shutdown(); return -1; }
     renderer = SDL_CreateRenderer(window, nullptr);
     if (!renderer) { shutdown(); return -1; }
     SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
 
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
+    void* swapchain = nullptr;
+#ifdef VISUTWIN_HAS_METAL
+    swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
     if (!swapchain) { shutdown(); return -1; }
+#endif
 
-    auto device = createGraphicsDevice(GraphicsDeviceOptions{.swapChain = swapchain, .window = window});
+    GraphicsDeviceOptions deviceOptions;
+#ifdef VISUTWIN_HAS_VULKAN
+    deviceOptions.backend = Backend::Vulkan;
+#endif
+    deviceOptions.swapChain = swapchain;
+    deviceOptions.window = window;
+    auto device = createGraphicsDevice(deviceOptions);
     if (!device) { shutdown(); return -1; }
 
     AppOptions createOptions;

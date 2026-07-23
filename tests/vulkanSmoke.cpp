@@ -16,8 +16,10 @@
 #include "core/math/color.h"
 #include "core/math/matrix4.h"
 #include "platform/graphics/blendState.h"
+#include "platform/graphics/compute.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
+#include "platform/graphics/instanceCuller.h"
 #include "platform/graphics/renderPass.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
@@ -70,6 +72,75 @@ int main()
         }
 
         validationErrors = device->validationErrorCounter();
+
+        // Generic compute: sampled input + storage output, dispatched through
+        // the public cross-backend Compute API.
+        {
+            constexpr const char* copyCompute = R"(
+#version 450
+layout(local_size_x=1,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0) uniform sampler2D inputTexture;
+layout(rgba8,set=0,binding=1) uniform writeonly image2D outputTexture;
+void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2(0), 0)); }
+)";
+            TextureOptions inputOptions{};
+            inputOptions.name = "vulkan-smoke-compute-input";
+            inputOptions.width = 1;
+            inputOptions.height = 1;
+            inputOptions.mipmaps = false;
+            Texture input(device.get(), inputOptions);
+            const std::array<uint8_t, 4> pixel{64, 128, 255, 255};
+            input.setLevelData(0, pixel.data(), pixel.size());
+            input.upload();
+
+            TextureOptions outputOptions = inputOptions;
+            outputOptions.name = "vulkan-smoke-compute-output";
+            outputOptions.storage = true;
+            Texture output(device.get(), outputOptions);
+            output.upload();
+
+            ShaderDefinition definition{};
+            definition.name = "vulkan-smoke-compute";
+            definition.cshader = "main";
+            auto computeShader = device->createShader(definition, copyCompute);
+            if (!computeShader) {
+                spdlog::error("Vulkan smoke: compute shader creation failed");
+                result = 1;
+            }
+            Compute compute(device.get(), computeShader, "VulkanSmokeCompute");
+            compute.setParameter("inputTexture", &input);
+            compute.setParameter("outputTexture", &output);
+            compute.setupDispatch(1, 1, 1);
+            device->computeDispatch({&compute});
+            vkQueueWaitIdle(device->graphicsQueue());
+        }
+
+        // GPU instance compaction and indirect-argument generation.
+        {
+            std::array<float, 20> instance{};
+            instance[0] = instance[5] = instance[10] = instance[15] = 1.0f;
+            instance[16] = instance[17] = instance[18] = instance[19] = 1.0f;
+            VertexBufferOptions options{};
+            options.data.resize(sizeof(instance));
+            std::memcpy(options.data.data(), instance.data(), sizeof(instance));
+            auto format = std::make_shared<VertexFormat>(
+                80, VertexFormat::instanceMatrixElements(), true, true);
+            auto input = device->createVertexBuffer(format, 1, options);
+            auto culler = device->createInstanceCuller();
+            InstanceCullParams params{};
+            for (auto& plane : params.frustumPlanes) plane[3] = 1.0f;
+            params.boundingSphereRadius = 1.0f;
+            params.instanceCount = 1;
+            params.indexCount = 3;
+            culler->reserve(1);
+            culler->cull(input.get(), params);
+            device->endGpuCullBatch();
+            vkQueueWaitIdle(device->graphicsQueue());
+            if (culler->visibleCountReadback() != 1) {
+                spdlog::error("Vulkan smoke: GPU instance culling failed");
+                result = 1;
+            }
+        }
 
         // Exercise off-frame environment rendering, cubemap face views, and
         // asynchronous mip generation under validation.

@@ -5,13 +5,17 @@
 // rendered via the classic gsplat path: instanced screen-space EWA quads with a
 // background CPU depth sorter for back-to-front blending.
 //
+#ifdef VISUTWIN_HAS_METAL
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #define MTK_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION
+#endif
 
 #include <SDL3/SDL.h>
+#ifdef VISUTWIN_HAS_METAL
 #include <QuartzCore/QuartzCore.hpp>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -104,13 +108,18 @@ int main()
 
     spdlog::info("*** VisuTwin Gaussian Splatting Example ***");
 
+#ifdef VISUTWIN_HAS_METAL
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+#endif
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
         "VisuTwin — Gaussian Splatting",
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+#ifdef VISUTWIN_HAS_VULKAN
+        | SDL_WINDOW_VULKAN
+#endif
     );
     if (!window) {
         spdlog::error("SDL Window Creation Failed");
@@ -126,16 +135,23 @@ int main()
     }
     SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
 
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
+    void* swapchain = nullptr;
+#ifdef VISUTWIN_HAS_METAL
+    swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
     if (!swapchain) {
         spdlog::error("Unable to get render Metal layer");
         shutdown();
         return -1;
     }
+#endif
 
-    auto device = createGraphicsDevice(
-        GraphicsDeviceOptions{.swapChain = swapchain, .window = window}
-    );
+    GraphicsDeviceOptions deviceOptions;
+#ifdef VISUTWIN_HAS_VULKAN
+    deviceOptions.backend = Backend::Vulkan;
+#endif
+    deviceOptions.swapChain = swapchain;
+    deviceOptions.window = window;
+    auto device = createGraphicsDevice(deviceOptions);
     if (!device) {
         spdlog::error("Unable to create graphics device");
         shutdown();

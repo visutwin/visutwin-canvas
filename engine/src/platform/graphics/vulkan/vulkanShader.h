@@ -33,7 +33,8 @@ namespace visutwin::canvas
             const uint32_t* morphedVertSpirv = nullptr, size_t morphedVertWordCount = 0,
             const uint32_t* skinnedMorphedVertSpirv = nullptr,
             size_t skinnedMorphedVertWordCount = 0,
-            bool specializeFeatures = false);
+            bool specializeFeatures = false,
+            const uint32_t* computeSpirv = nullptr, size_t computeWordCount = 0);
 
         ~VulkanShader() override;
 

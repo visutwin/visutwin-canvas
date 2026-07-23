@@ -136,6 +136,12 @@ if(VISUTWIN_BACKEND_VULKAN)
         "${_VK_SHADER_DIR}/post_coc.frag"
         "${_VK_SHADER_DIR}/post_dof_blur.frag"
         "${_VK_SHADER_DIR}/env_reproject.frag"
+        "${_VK_SHADER_DIR}/instance_cull.comp"
+        "${_VK_SHADER_DIR}/particle_sim.comp"
+        "${_VK_SHADER_DIR}/particle.vert"
+        "${_VK_SHADER_DIR}/particle.frag"
+        "${_VK_SHADER_DIR}/gsplat.vert"
+        "${_VK_SHADER_DIR}/gsplat.frag"
     )
     add_custom_command(
         OUTPUT "${_VK_SHADER_BUNDLE}"

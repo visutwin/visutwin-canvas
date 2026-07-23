@@ -53,6 +53,7 @@ namespace visutwin::canvas
         [[nodiscard]] VkDescriptorSetLayout sceneSetLayout() const { return _sceneSetLayout; }
         [[nodiscard]] VkDescriptorSetLayout geometrySetLayout() const { return _geometrySetLayout; }
         [[nodiscard]] VkDescriptorSetLayout clusterSetLayout() const { return _clusterSetLayout; }
+        [[nodiscard]] VkDescriptorSetLayout gpuDrivenSetLayout() const { return _gpuDrivenSetLayout; }
 
     private:
         VkPipeline create(const Primitive& primitive,
@@ -79,6 +80,7 @@ namespace visutwin::canvas
         VkDescriptorSetLayout _sceneSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout _geometrySetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout _clusterSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSetLayout _gpuDrivenSetLayout = VK_NULL_HANDLE;
 
         std::unordered_map<uint64_t, VkPipeline> _cache;
     };

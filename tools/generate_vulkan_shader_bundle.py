@@ -33,6 +33,12 @@ MODULES = (
     ("PostCocFrag", "post_coc.frag", "frag"),
     ("PostDofBlurFrag", "post_dof_blur.frag", "frag"),
     ("EnvReprojectFrag", "env_reproject.frag", "frag"),
+    ("InstanceCullComp", "instance_cull.comp", "comp"),
+    ("ParticleSimComp", "particle_sim.comp", "comp"),
+    ("ParticleVert", "particle.vert", "vert"),
+    ("ParticleFrag", "particle.frag", "frag"),
+    ("GSplatVert", "gsplat.vert", "vert"),
+    ("GSplatFrag", "gsplat.frag", "frag"),
 )
 
 FEATURE_RE = re.compile(
@@ -116,6 +122,52 @@ def push_constant_size(reflection: dict) -> int:
 
 def validate(module: str, reflection: dict) -> None:
     bindings = resources(reflection)
+    if module == "InstanceCullComp":
+        expected = [
+            (0, 0, "StorageBuffer", 0),
+            (0, 1, "StorageBuffer", 0),
+            (0, 2, "StorageBuffer", 20),
+        ]
+        if bindings != expected or push_constant_size(reflection) != 128:
+            raise RuntimeError(
+                f"{module}: reflected layout mismatch: "
+                f"bindings={bindings}, push={push_constant_size(reflection)}"
+            )
+        return
+    if module == "ParticleSimComp":
+        expected = [
+            (0, 0, "StorageBuffer", 0),
+            (0, 1, "UniformBuffer", 176),
+        ]
+        if bindings != expected or push_constant_size(reflection):
+            raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
+        return
+    if module == "ParticleVert":
+        expected = [
+            (6, 0, "StorageBuffer", 0),
+            (6, 3, "UniformBuffer", 672),
+        ]
+        if bindings != expected or push_constant_size(reflection):
+            raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
+        return
+    if module == "ParticleFrag":
+        if bindings != [(1, 0, "CombinedImageSampler", 0)]:
+            raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
+        return
+    if module == "GSplatVert":
+        expected = [
+            (6, 0, "StorageBuffer", 0),
+            (6, 1, "StorageBuffer", 0),
+            (6, 2, "StorageBuffer", 0),
+            (6, 3, "UniformBuffer", 160),
+        ]
+        if bindings != expected or push_constant_size(reflection):
+            raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
+        return
+    if module == "GSplatFrag":
+        if bindings or push_constant_size(reflection):
+            raise RuntimeError(f"{module}: unexpected resources")
+        return
     if module == "PostFullscreenVert":
         if bindings or push_constant_size(reflection):
             raise RuntimeError(f"{module}: unexpected reflected resources")

@@ -41,6 +41,7 @@ namespace visutwin::canvas
         const std::string& vertexEntry() const { return _definition.vshader; }
         const std::string& fragmentEntry() const { return _definition.fshader; }
         const std::string& computeEntry() const { return _definition.cshader; }
+        const std::string& name() const { return _definition.name; }
         GraphicsDevice* graphicsDevice() const { return _device; }
 
     private:

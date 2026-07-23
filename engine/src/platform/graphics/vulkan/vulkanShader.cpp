@@ -22,7 +22,8 @@ namespace visutwin::canvas
         const uint32_t* skinnedVertSpirv, size_t skinnedVertWordCount,
         const uint32_t* morphedVertSpirv, size_t morphedVertWordCount,
         const uint32_t* skinnedMorphedVertSpirv, size_t skinnedMorphedVertWordCount,
-        const bool specializeFeatures)
+        const bool specializeFeatures,
+        const uint32_t* computeSpirv, size_t computeWordCount)
         : Shader(device, definition)
     {
         auto* vkDevice = static_cast<VulkanGraphicsDevice*>(device);
@@ -52,6 +53,8 @@ namespace visutwin::canvas
         if (skinnedMorphedVertSpirv && skinnedMorphedVertWordCount > 0)
             _skinnedMorphedVertexModule = createModule(
                 skinnedMorphedVertSpirv, skinnedMorphedVertWordCount);
+        if (computeSpirv && computeWordCount > 0)
+            _computeModule = createModule(computeSpirv, computeWordCount);
 
         spdlog::debug("VulkanShader created: {} (vert={} frag={} instanced={} sky={} color={} point={})",
             definition.name,

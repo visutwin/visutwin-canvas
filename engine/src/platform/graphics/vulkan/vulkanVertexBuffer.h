@@ -22,6 +22,8 @@ namespace visutwin::canvas
     public:
         VulkanVertexBuffer(GraphicsDevice* device, const std::shared_ptr<VertexFormat>& format,
             int numVertices, const VertexBufferOptions& options = VertexBufferOptions{});
+        VulkanVertexBuffer(GraphicsDevice* device, const std::shared_ptr<VertexFormat>& format,
+            int numVertices, VkBuffer externalBuffer);
         ~VulkanVertexBuffer() override;
 
         void unlock() override;
@@ -32,6 +34,7 @@ namespace visutwin::canvas
     private:
         VkBuffer _buffer = VK_NULL_HANDLE;
         VmaAllocation _allocation = VK_NULL_HANDLE;
+        bool _ownsBuffer = true;
         VmaAllocator _allocator = VK_NULL_HANDLE;
         // Deferred-destroy routing (in-flight frames may reference the buffer).
         VulkanGraphicsDevice* _deviceRef = nullptr;
