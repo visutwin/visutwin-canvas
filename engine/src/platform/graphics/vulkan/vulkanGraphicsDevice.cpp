@@ -1760,8 +1760,14 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::setLightingUniforms(const Color& ambientColor,
         const std::vector<GpuLightData>& lights, const Vector3& cameraPosition,
         bool enableNormalMaps, float exposure, const FogParams& fogParams,
-        const ShadowParams& shadowParams, int toneMapping)
+        const ShadowParams& shadowParams, int toneMapping,
+        const Vector3* ambientSH, const Matrix4* viewProjection)
     {
+        // The baseline Vulkan lighting shader does not consume ambient SH or
+        // the auxiliary view-projection matrix yet. Keep the interface in sync
+        // with GraphicsDevice while those feature bindings are ported.
+        (void)ambientSH;
+        (void)viewProjection;
 
         // Directional cascaded shadows.  The cascade matrices, split distances,
         // and parameters all come straight from the renderer's ShadowParams;

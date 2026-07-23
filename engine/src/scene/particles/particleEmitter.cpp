@@ -33,7 +33,11 @@ namespace visutwin::canvas
         // shares no code with the forward PBR chunks.
         // PARTICLE_SHADER_SOURCE is embedded from shaders/metal/embedded/particle-render.metal at build
         // time (see tools/embed_msl.cmake).
+#ifdef VISUTWIN_HAS_METAL
 #include "embedded_shaders/particle-render.metal.inc"
+#else
+        constexpr const char* PARTICLE_SHADER_SOURCE = "";
+#endif
     }
 
     ParticleEmitterOptions::ParticleEmitterOptions()

@@ -31,7 +31,11 @@ namespace visutwin::canvas
         // the splat pipeline shares no code with the forward PBR mega-chunks.
         // GSPLAT_SHADER_SOURCE is embedded from shaders/metal/embedded/gsplat-render.metal at build
         // time (see tools/embed_msl.cmake).
+#ifdef VISUTWIN_HAS_METAL
 #include "embedded_shaders/gsplat-render.metal.inc"
+#else
+        constexpr const char* GSPLAT_SHADER_SOURCE = "";
+#endif
     }
 
     GSplatResource::GSplatResource(std::unique_ptr<GSplatData> data,

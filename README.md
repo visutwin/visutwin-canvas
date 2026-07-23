@@ -51,8 +51,8 @@ VisuTwin Canvas ports PlayCanvas's architecture, class hierarchy, and algorithms
 
 ## Supported Platforms
 
-- macOS (Apple Silicon and Intel) with Metal
-- Vulkan backend in development (Linux/Windows, optional build feature)
+- macOS (Apple Silicon and Intel) with Metal or Vulkan
+- Vulkan backend in development (macOS/Linux/Windows, optional build feature)
 
 ## Build
 
@@ -83,6 +83,10 @@ project focused on the engine, tools, and tests. The `examples` preset enables
 the example applications in its separate `build-examples` directory.
 
 Presets: `default` (Debug), `release`, `examples`, and `vulkan`.
+On macOS, `default` selects Metal only and `vulkan` selects Vulkan only.
+The backends can also be selected explicitly with
+`VISUTWIN_BACKEND_METAL=ON|OFF` and `VISUTWIN_BACKEND_VULKAN=ON|OFF`;
+at least one backend must be enabled.
 
 ### Dependencies
 

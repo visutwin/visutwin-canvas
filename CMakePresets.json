@@ -32,6 +32,7 @@
       "inherits": "default",
       "binaryDir": "${sourceDir}/build-vulkan",
       "cacheVariables": {
+        "VISUTWIN_BACKEND_METAL": "OFF",
         "VISUTWIN_BACKEND_VULKAN": "ON",
         "VCPKG_MANIFEST_FEATURES": "vulkan"
       }

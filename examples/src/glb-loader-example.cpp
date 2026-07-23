@@ -2,13 +2,15 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 //
+#ifdef VISUTWIN_HAS_METAL
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #define MTK_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION
+#include <QuartzCore/QuartzCore.hpp>
+#endif
 
 #include <SDL3/SDL.h>
-#include <QuartzCore/QuartzCore.hpp>
 
 #include <algorithm>
 #include <cmath>
