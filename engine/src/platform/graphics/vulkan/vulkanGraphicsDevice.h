@@ -146,6 +146,15 @@ namespace visutwin::canvas
             const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
             const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
             bool highQuality, bool historyValid) override;
+        void executeCoCPass(const CoCPassParams& params) override;
+        void executeDofBlurPass(const DofBlurPassParams& params) override;
+        void grabSceneColor(RenderTarget* source) override;
+        void grabSceneDepth(RenderTarget* source) override;
+        void generateCubemapMips(Texture* cubemap) override;
+        void generateEnvReproject(const EnvReprojectPassParams& params) override;
+        void generateEnvConvolve(const EnvConvolvePassParams& params) override;
+        void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
+        void generateEquirectToCubemap(const EquirectToCubeParams& params) override;
 
     private:
         void onFrameStart() override;
@@ -415,14 +424,20 @@ namespace visutwin::canvas
         // (sub-allocated from _uniformRing). Pipelines cached per
         // (pass, colorFormat, depthFormat); shaders are runtime-GLSL only —
         // without shaderc the passes no-op (pre-port behavior).
-        enum class PostPassKind : uint32_t { Compose = 0, Ssao, DepthBlur, Taa, Count };
+        enum class PostPassKind : uint32_t {
+            Compose = 0, Ssao, DepthBlur, Taa, CoC, DofBlur, Count
+        };
         bool ensurePostResources();
         VkShaderModule postFragmentModule(PostPassKind kind);
         VkPipeline getPostPipeline(PostPassKind kind, VkFormat colorFormat, VkFormat depthFormat);
         // Draws a fullscreen triangle with up to 4 textures + a params blob.
-        void executePostPass(PostPassKind kind, Texture* const textures[4],
+        void executePostPass(PostPassKind kind, Texture* const textures[6],
             const void* paramsData, size_t paramsSize);
         void destroyPostResources();
+        void renderEnvironment(Texture* target, Texture* sourceEquirect,
+            Texture* sourceCubemap, const std::vector<EnvReprojectOp>& ops,
+            bool encodeRgbp, bool decodeSrgb, bool clearTarget,
+            bool cubemapFaces, bool convolve = false);
 
         VkDescriptorSetLayout _postSetLayout = VK_NULL_HANDLE;
         VkPipelineLayout _postPipelineLayout = VK_NULL_HANDLE;
@@ -433,6 +448,8 @@ namespace visutwin::canvas
         std::unordered_map<uint64_t, VkPipeline> _postPipelines;
         bool _postResourcesAttempted = false;
         uint32_t _lightingSlotOffset = 0;
+        std::shared_ptr<Texture> _sceneColorGrabTexture;
+        std::shared_ptr<Texture> _sceneDepthGrabTexture;
 
         // Scene-global environment atlas (equirectangular IBL + skybox source),
         // bound at set 3.  Non-owning — owned by the scene/asset system.  Read

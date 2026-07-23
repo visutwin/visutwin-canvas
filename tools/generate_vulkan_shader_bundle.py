@@ -30,6 +30,9 @@ MODULES = (
     ("PostSsaoFrag", "post_ssao.frag", "frag"),
     ("PostDepthBlurFrag", "post_depth_blur.frag", "frag"),
     ("PostTaaFrag", "post_taa.frag", "frag"),
+    ("PostCocFrag", "post_coc.frag", "frag"),
+    ("PostDofBlurFrag", "post_dof_blur.frag", "frag"),
+    ("EnvReprojectFrag", "env_reproject.frag", "frag"),
 )
 
 FEATURE_RE = re.compile(
@@ -122,7 +125,8 @@ def validate(module: str, reflection: dict) -> None:
             valid = (
                 set_index == 0
                 and (
-                    (binding < 4 and kind == "CombinedImageSampler")
+                    ((binding < 4 or binding in (5, 6))
+                     and kind == "CombinedImageSampler")
                     or (binding == 4 and kind == "UniformBuffer")
                 )
             )
@@ -134,6 +138,16 @@ def validate(module: str, reflection: dict) -> None:
             raise RuntimeError(f"{module}: params UBO was not reflected")
         if push_constant_size(reflection):
             raise RuntimeError(f"{module}: unexpected push constants")
+        return
+    if module == "EnvReprojectFrag":
+        expected = [
+            (0, 0, "CombinedImageSampler", 0),
+            (0, 1, "CombinedImageSampler", 0),
+        ]
+        if bindings != expected or push_constant_size(reflection) != 48:
+            raise RuntimeError(
+                f"{module}: reflected layout mismatch: {bindings}"
+            )
         return
     if module == "VsmBlurVert":
         if bindings or push_constant_size(reflection):

@@ -184,10 +184,8 @@ namespace visutwin::canvas::gpu
         _supportsColorAttachment = !isDepth &&
             (optimalFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT);
         VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_SAMPLED_BIT |
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        if (_supportsLinearBlit) {
-            imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        }
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         if (isDepth) {
             imageUsage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         } else if (_supportsColorAttachment) {

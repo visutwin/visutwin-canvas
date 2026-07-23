@@ -39,7 +39,7 @@ namespace visutwin::canvas
         _postResourcesAttempted = true;
 
         // Bindings 0-3: pass inputs (scene/bloom/ssao/depth etc. per pass).
-        std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
         for (uint32_t i = 0; i < 4; ++i) {
             bindings[i].binding = i;
             bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -52,6 +52,12 @@ namespace visutwin::canvas
         bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[4].descriptorCount = 1;
         bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        for (uint32_t i = 5; i < 7; ++i) {
+            bindings[i].binding = i;
+            bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            bindings[i].descriptorCount = 1;
+            bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
 
         VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         setInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -111,6 +117,14 @@ namespace visutwin::canvas
         case PostPassKind::Taa:
             words = vulkan_generated::kPostTaaFrag;
             wordCount = vulkan_generated::kPostTaaFragWordCount;
+            break;
+        case PostPassKind::CoC:
+            words = vulkan_generated::kPostCocFrag;
+            wordCount = vulkan_generated::kPostCocFragWordCount;
+            break;
+        case PostPassKind::DofBlur:
+            words = vulkan_generated::kPostDofBlurFrag;
+            wordCount = vulkan_generated::kPostDofBlurFragWordCount;
             break;
         default:                      return VK_NULL_HANDLE;
         }
@@ -212,7 +226,7 @@ namespace visutwin::canvas
     }
 
     void VulkanGraphicsDevice::executePostPass(const PostPassKind kind,
-        Texture* const textures[4], const void* paramsData, const size_t paramsSize)
+        Texture* const textures[6], const void* paramsData, const size_t paramsSize)
     {
         if (!_frameActive || !_dynamicRenderingActive || !_uniformRing) {
             return;
@@ -258,23 +272,29 @@ namespace visutwin::canvas
 
         // Texture bindings: white fallback for absent slots so every declared
         // sampler is valid (statically-used descriptors must be bound).
-        std::array<VkDescriptorImageInfo, 4> imageInfos{};
-        std::array<VkWriteDescriptorSet, 5> writes{};
-        for (uint32_t i = 0; i < 4; ++i) {
+        constexpr std::array<uint32_t, 6> textureBindings = {0, 1, 2, 3, 5, 6};
+        std::array<VkDescriptorImageInfo, 6> imageInfos{};
+        std::array<VkWriteDescriptorSet, 7> writes{};
+        for (uint32_t i = 0; i < textureBindings.size(); ++i) {
             VkImageView view = _whiteImageView;
+            VkImageLayout imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             if (textures[i]) {
                 if (auto* vkTex = static_cast<gpu::VulkanTexture*>(textures[i]->impl());
                     vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
                     view = vkTex->imageView();
+                    if (vkTex->isDepth()) {
+                        imageLayout =
+                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+                    }
                 }
             }
             imageInfos[i].sampler = _postSampler;
             imageInfos[i].imageView = view;
-            imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfos[i].imageLayout = imageLayout;
 
             writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[i].dstSet = set;
-            writes[i].dstBinding = i;
+            writes[i].dstBinding = textureBindings[i];
             writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[i].descriptorCount = 1;
             writes[i].pImageInfo = &imageInfos[i];
@@ -286,12 +306,12 @@ namespace visutwin::canvas
         bufferInfo.buffer = _uniformRing->buffer();
         bufferInfo.offset = *paramsOffset;
         bufferInfo.range = paramsSize;
-        writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[4].dstSet = set;
-        writes[4].dstBinding = 4;
-        writes[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[4].descriptorCount = 1;
-        writes[4].pBufferInfo = &bufferInfo;
+        writes[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[6].dstSet = set;
+        writes[6].dstBinding = 4;
+        writes[6].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[6].descriptorCount = 1;
+        writes[6].pBufferInfo = &bufferInfo;
 
         vkUpdateDescriptorSets(_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 
@@ -347,6 +367,11 @@ namespace visutwin::canvas
             float p3[4]; // dofCameraNear, dofCameraFar, vignetteEnabled, vignetteInner
             float p4[4]; // vignetteOuter, vignetteCurvature, vignetteIntensity, pad
             float p5[4]; // vignetteColor rgb, pad
+            float p6[4]; // fringing, gradingEnabled, brightness, contrast
+            float p7[4]; // saturation, tint rgb
+            float p8[4]; // enhanceEnabled, shadows, highlights, vibrance
+            float p9[4]; // dehaze, midtones, lut1 intensity, lut2 intensity
+            float p10[4]; // lut blend, has lut1, has lut2, pad
         } ubo{};
 
         // Resolution from the scene texture (the compose target matches it).
@@ -377,9 +402,28 @@ namespace visutwin::canvas
         ubo.p5[0] = params.vignetteColor[0];
         ubo.p5[1] = params.vignetteColor[1];
         ubo.p5[2] = params.vignetteColor[2];
+        ubo.p6[0] = params.fringingIntensity;
+        ubo.p6[1] = params.gradingEnabled ? 1.0f : 0.0f;
+        ubo.p6[2] = params.gradingBrightness;
+        ubo.p6[3] = params.gradingContrast;
+        ubo.p7[0] = params.gradingSaturation;
+        ubo.p7[1] = params.gradingTint[0];
+        ubo.p7[2] = params.gradingTint[1];
+        ubo.p7[3] = params.gradingTint[2];
+        ubo.p8[0] = params.colorEnhanceEnabled ? 1.0f : 0.0f;
+        ubo.p8[1] = params.colorEnhanceShadows;
+        ubo.p8[2] = params.colorEnhanceHighlights;
+        ubo.p8[3] = params.colorEnhanceVibrance;
+        ubo.p9[0] = params.colorEnhanceDehaze;
+        ubo.p9[1] = params.colorEnhanceMidtones;
+        ubo.p9[2] = params.colorLUTIntensity;
+        ubo.p9[3] = params.colorLUTIntensity2;
+        ubo.p10[0] = params.colorLUTBlend;
+        ubo.p10[1] = params.colorLUT ? 1.0f : 0.0f;
+        ubo.p10[2] = params.colorLUT2 ? 1.0f : 0.0f;
 
-        Texture* textures[4] = {params.sceneTexture, params.bloomTexture,
-                                params.ssaoTexture, params.depthTexture};
+        Texture* textures[6] = {params.sceneTexture, params.bloomTexture,
+            params.ssaoTexture, params.depthTexture, params.colorLUT, params.colorLUT2};
         executePostPass(PostPassKind::Compose, textures, &ubo, sizeof(ubo));
     }
 
@@ -411,7 +455,7 @@ namespace visutwin::canvas
         ubo.p4[0] = params.cameraNear;
         ubo.p4[1] = params.cameraFar;
 
-        Texture* textures[4] = {params.depthTexture, nullptr, nullptr, nullptr};
+        Texture* textures[6] = {params.depthTexture, nullptr, nullptr, nullptr, nullptr, nullptr};
         executePostPass(PostPassKind::Ssao, textures, &ubo, sizeof(ubo));
     }
 
@@ -430,7 +474,7 @@ namespace visutwin::canvas
         ubo.p1[1] = params.cameraNear;
         ubo.p1[2] = params.cameraFar;
 
-        Texture* textures[4] = {params.sourceTexture, params.depthTexture, nullptr, nullptr};
+        Texture* textures[6] = {params.sourceTexture, params.depthTexture, nullptr, nullptr, nullptr, nullptr};
         executePostPass(PostPassKind::DepthBlur, textures, &ubo, sizeof(ubo));
     }
 
@@ -458,8 +502,40 @@ namespace visutwin::canvas
         ubo.texSizeFlags[3] = historyValid ? 1.0f : 0.0f;
         std::memcpy(ubo.cameraParams, cameraParams.data(), sizeof(ubo.cameraParams));
 
-        Texture* textures[4] = {sourceTexture, historyTexture, depthTexture, nullptr};
+        Texture* textures[6] = {sourceTexture, historyTexture, depthTexture, nullptr, nullptr, nullptr};
         executePostPass(PostPassKind::Taa, textures, &ubo, sizeof(ubo));
+    }
+
+    void VulkanGraphicsDevice::executeCoCPass(const CoCPassParams& params)
+    {
+        struct alignas(16) CocUbo {
+            float focus[4];
+            float flags[4];
+        } ubo{};
+        ubo.focus[0] = params.focusDistance;
+        ubo.focus[1] = params.focusRange;
+        ubo.focus[2] = params.cameraNear;
+        ubo.focus[3] = params.cameraFar;
+        ubo.flags[0] = params.nearBlur ? 1.0f : 0.0f;
+        Texture* textures[6] = {params.depthTexture, nullptr, nullptr, nullptr, nullptr, nullptr};
+        executePostPass(PostPassKind::CoC, textures, &ubo, sizeof(ubo));
+    }
+
+    void VulkanGraphicsDevice::executeDofBlurPass(const DofBlurPassParams& params)
+    {
+        struct alignas(16) DofUbo {
+            float radiiInvRes[4];
+            float rings[4];
+        } ubo{};
+        ubo.radiiInvRes[0] = params.blurRadiusNear;
+        ubo.radiiInvRes[1] = params.blurRadiusFar;
+        ubo.radiiInvRes[2] = params.invResolutionX;
+        ubo.radiiInvRes[3] = params.invResolutionY;
+        ubo.rings[0] = static_cast<float>(params.blurRings);
+        ubo.rings[1] = static_cast<float>(params.blurRingPoints);
+        Texture* textures[6] = {
+            params.nearTexture, params.farTexture, params.cocTexture, nullptr, nullptr, nullptr};
+        executePostPass(PostPassKind::DofBlur, textures, &ubo, sizeof(ubo));
     }
 }
 

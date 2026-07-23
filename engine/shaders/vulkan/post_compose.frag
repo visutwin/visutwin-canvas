@@ -9,6 +9,8 @@ layout(set = 0, binding = 0) uniform sampler2D sceneTex;
 layout(set = 0, binding = 1) uniform sampler2D bloomTex;
 layout(set = 0, binding = 2) uniform sampler2D ssaoTex;
 layout(set = 0, binding = 3) uniform sampler2D depthTex;
+layout(set = 0, binding = 5) uniform sampler2D colorLut1;
+layout(set = 0, binding = 6) uniform sampler2D colorLut2;
 
 layout(set = 0, binding = 4) uniform ComposeParams {
     vec4 p0; // invRes.xy, sharpness, exposure
@@ -17,6 +19,11 @@ layout(set = 0, binding = 4) uniform ComposeParams {
     vec4 p3; // dofCameraNear, dofCameraFar, vignetteEnabled, vignetteInner
     vec4 p4; // vignetteOuter, vignetteCurvature, vignetteIntensity, pad
     vec4 p5; // vignetteColor rgb, pad
+    vec4 p6; // fringing, grading enabled, brightness, contrast
+    vec4 p7; // saturation, tint rgb
+    vec4 p8; // enhance enabled, shadows, highlights, vibrance
+    vec4 p9; // dehaze, midtones, lut intensities
+    vec4 p10;// lut blend, has lut1, has lut2
 } pc;
 
 layout(location = 0) out vec4 outColor;
@@ -109,6 +116,18 @@ float linearizeSceneDepth(float rawDepth, float cameraNear, float cameraFar) {
     return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
 }
 
+vec3 sampleStripLut(sampler2D lut, vec3 color) {
+    color = clamp(color, 0.0, 1.0);
+    float blue = color.b * 15.0;
+    float slice0 = floor(blue);
+    float slice1 = min(slice0 + 1.0, 15.0);
+    vec2 uv0 = vec2((slice0 * 16.0 + color.r * 15.0 + 0.5) / 256.0,
+                    (color.g * 15.0 + 0.5) / 16.0);
+    vec2 uv1 = vec2((slice1 * 16.0 + color.r * 15.0 + 0.5) / 256.0,
+                    uv0.y);
+    return mix(texture(lut, uv0).rgb, texture(lut, uv1).rgb, fract(blue));
+}
+
 // Single-pass DOF from the depth buffer (far blur only, PlayCanvas-style CoC).
 vec3 applyDofSinglePass(vec3 sharpColor, vec2 uv, vec2 invRes,
     float focusDistance, float focusRange, float blurRadius,
@@ -149,7 +168,15 @@ vec3 applyDofSinglePass(vec3 sharpColor, vec2 uv, vec2 invRes,
 void main() {
     vec2 invRes = pc.p0.xy;
     vec2 uv = gl_FragCoord.xy * invRes;
-    vec3 result = texture(sceneTex, uv).rgb;
+    vec3 result;
+    if (pc.p6.x > 0.0) {
+        vec2 offset = (uv - 0.5) * pc.p6.x;
+        result = vec3(texture(sceneTex, uv + offset).r,
+                      texture(sceneTex, uv).g,
+                      texture(sceneTex, uv - offset).b);
+    } else {
+        result = texture(sceneTex, uv).rgb;
+    }
 
     // 1. CAS
     if (pc.p0.z > 0.0) {
@@ -173,6 +200,26 @@ void main() {
         result += texture(bloomTex, uv).rgb * max(pc.p1.w, 0.0);
     }
 
+    if (pc.p8.x > 0.5) {
+        float luma = dot(result, vec3(0.2126, 0.7152, 0.0722));
+        float shadowMask = 1.0 - smoothstep(0.0, 0.5, luma);
+        float highlightMask = smoothstep(0.5, 1.0, luma);
+        float midMask = 1.0 - abs(luma * 2.0 - 1.0);
+        result *= exp2(pc.p8.y * shadowMask + pc.p8.z * highlightMask +
+                       pc.p9.y * midMask);
+        float saturation = maxComp(result) - min(result.r, min(result.g, result.b));
+        result = mix(vec3(dot(result, vec3(0.2126, 0.7152, 0.0722))), result,
+            1.0 + pc.p8.w * (1.0 - saturation));
+        result = max(result - vec3(pc.p9.x * 0.02), 0.0) *
+            (1.0 + pc.p9.x);
+    }
+    if (pc.p6.y > 0.5) {
+        result *= pc.p6.z;
+        result = (result - 0.5) * pc.p6.w + 0.5;
+        float luma = dot(result, vec3(0.2126, 0.7152, 0.0722));
+        result = mix(vec3(luma), result, pc.p7.x) * pc.p7.yzw;
+    }
+
     // 5. Tonemapping. Every curve consumes exposure-scaled color (Metal
     // passes exposure into each curve); TONEMAP_NONE applies neither the
     // curve nor exposure — matching metalComposePass exactly.
@@ -186,6 +233,16 @@ void main() {
     else if (mode == 5) result = toneMapNeutral(result * exposure);
     else if (mode == 6) { /* TONEMAP_NONE: no curve, no exposure */ }
     else                result *= exposure;   // TONEMAP_LINEAR
+
+    if (pc.p10.y > 0.5) {
+        result = mix(result, sampleStripLut(colorLut1, result),
+            clamp(pc.p9.z, 0.0, 1.0));
+    }
+    if (pc.p10.z > 0.5) {
+        vec3 graded2 = mix(result, sampleStripLut(colorLut2, result),
+            clamp(pc.p9.w, 0.0, 1.0));
+        result = mix(result, graded2, clamp(pc.p10.x, 0.0, 1.0));
+    }
 
     // 6. Vignette (tonemapped linear space, before gamma)
     if (pc.p3.z > 0.5) {

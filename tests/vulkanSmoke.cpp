@@ -71,6 +71,45 @@ int main()
 
         validationErrors = device->validationErrorCounter();
 
+        // Exercise off-frame environment rendering, cubemap face views, and
+        // asynchronous mip generation under validation.
+        {
+            TextureOptions sourceOptions{};
+            sourceOptions.name = "vulkan-smoke-equirect";
+            sourceOptions.width = 4;
+            sourceOptions.height = 2;
+            sourceOptions.mipmaps = false;
+            Texture source(device.get(), sourceOptions);
+            std::array<uint8_t, 32> sourcePixels{};
+            sourcePixels.fill(128);
+            source.setLevelData(0, sourcePixels.data(), sourcePixels.size());
+            source.upload();
+
+            TextureOptions cubeOptions{};
+            cubeOptions.name = "vulkan-smoke-env-cube";
+            cubeOptions.width = 8;
+            cubeOptions.height = 8;
+            cubeOptions.cubemap = true;
+            cubeOptions.mipmaps = true;
+            Texture cube(device.get(), cubeOptions);
+            cube.upload();
+            device->generateEquirectToCubemap({&source, &cube, false});
+
+            TextureOptions atlasOptions{};
+            atlasOptions.name = "vulkan-smoke-env-atlas";
+            atlasOptions.width = 16;
+            atlasOptions.height = 8;
+            atlasOptions.mipmaps = false;
+            Texture atlas(device.get(), atlasOptions);
+            atlas.upload();
+            EnvReprojectPassParams reproject{};
+            reproject.target = &atlas;
+            reproject.sourceCubemap = &cube;
+            reproject.ops.push_back({0, 0, 16, 8, 1});
+            device->generateEnvReproject(reproject);
+            device->flushUploads();
+        }
+
         // A ring overflow must be observable by the caller and must not alias
         // the start of the current frame region.
         {
@@ -425,6 +464,7 @@ int main()
             device->setMaterial(nullptr);
 
             device->endRenderPass(&pass);
+            device->grabSceneColor(target.get());
             device->frameEnd();
 
             TextureOptions depthOptions{};
@@ -456,6 +496,50 @@ int main()
             device->setStencilState();
             device->draw(triangle);
             device->endRenderPass(&depthPass);
+            device->grabSceneDepth(depthTarget.get());
+            device->frameEnd();
+
+            TextureOptions cocOptions{};
+            cocOptions.name = "vulkan-smoke-coc";
+            cocOptions.width = 64;
+            cocOptions.height = 64;
+            cocOptions.mipmaps = false;
+            auto coc = std::make_unique<Texture>(device.get(), cocOptions);
+            RenderTargetOptions cocTargetOptions{};
+            cocTargetOptions.graphicsDevice = device.get();
+            cocTargetOptions.colorBuffer = coc.get();
+            auto cocTarget = device->createRenderTarget(cocTargetOptions);
+            RenderPass cocPass(sharedDevice);
+            cocPass.init(cocTarget);
+            device->frameStart();
+            device->startRenderPass(&cocPass);
+            CoCPassParams cocParams{};
+            cocParams.depthTexture = depth.get();
+            cocParams.focusDistance = 2.0f;
+            cocParams.focusRange = 1.0f;
+            device->executeCoCPass(cocParams);
+            device->endRenderPass(&cocPass);
+            device->frameEnd();
+
+            TextureOptions dofOptions = cocOptions;
+            dofOptions.name = "vulkan-smoke-dof";
+            auto dof = std::make_unique<Texture>(device.get(), dofOptions);
+            RenderTargetOptions dofTargetOptions{};
+            dofTargetOptions.graphicsDevice = device.get();
+            dofTargetOptions.colorBuffer = dof.get();
+            auto dofTarget = device->createRenderTarget(dofTargetOptions);
+            RenderPass dofPass(sharedDevice);
+            dofPass.init(dofTarget);
+            device->frameStart();
+            device->startRenderPass(&dofPass);
+            DofBlurPassParams dofParams{};
+            dofParams.nearTexture = color.get();
+            dofParams.farTexture = color.get();
+            dofParams.cocTexture = coc.get();
+            dofParams.invResolutionX = 1.0f / 64.0f;
+            dofParams.invResolutionY = 1.0f / 64.0f;
+            device->executeDofBlurPass(dofParams);
+            device->endRenderPass(&dofPass);
             device->frameEnd();
 
             device->frameStart();

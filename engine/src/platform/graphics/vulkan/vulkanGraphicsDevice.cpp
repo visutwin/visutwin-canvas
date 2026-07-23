@@ -368,6 +368,8 @@ namespace visutwin::canvas
         // whose destructors need a live VkDevice/VMA allocator. Release them
         // before tearing down native state, then drain their deferred destroys.
         releaseGpuReferences();
+        _sceneColorGrabTexture.reset();
+        _sceneDepthGrabTexture.reset();
         flushDeferredDestroys(true);
 
         destroyPostResources();
@@ -561,7 +563,9 @@ namespace visutwin::canvas
         swapBuilder.set_desired_extent(static_cast<uint32_t>(width), static_cast<uint32_t>(height))
                    .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
                    .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
-                   .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+                   .add_image_usage_flags(
+                       VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
 
         auto result = swapBuilder.build();
         if (!result) {
@@ -2100,6 +2104,126 @@ namespace visutwin::canvas
         if (last) {
             clearVertexBuffer();
             _currentPipeline = VK_NULL_HANDLE;
+        }
+    }
+
+    void VulkanGraphicsDevice::grabSceneColor(RenderTarget* source)
+    {
+        if (!_frameActive || _dynamicRenderingActive) return;
+        Texture* sourceTexture = source && source->colorBufferCount() > 0
+            ? source->getColorBuffer(0) : nullptr;
+        auto* src = sourceTexture
+            ? dynamic_cast<gpu::VulkanTexture*>(sourceTexture->impl()) : nullptr;
+        const uint32_t sourceWidth = sourceTexture
+            ? sourceTexture->width() : _swapchainExtent.width;
+        const uint32_t sourceHeight = sourceTexture
+            ? sourceTexture->height() : _swapchainExtent.height;
+        if (!src && _swapchainImageIndex >= _swapchainImages.size()) return;
+        if (!_sceneColorGrabTexture ||
+            _sceneColorGrabTexture->width() != sourceWidth ||
+            _sceneColorGrabTexture->height() != sourceHeight) {
+            TextureOptions options;
+            options.name = "sceneColorGrab";
+            options.width = sourceWidth;
+            options.height = sourceHeight;
+            options.format = sourceTexture
+                ? sourceTexture->format() : PixelFormat::PIXELFORMAT_RGBA8;
+            options.mipmaps = true;
+            _sceneColorGrabTexture = std::make_shared<Texture>(this, options);
+            _sceneColorGrabTexture->upload();
+        }
+        auto* dst = dynamic_cast<gpu::VulkanTexture*>(
+            _sceneColorGrabTexture->impl());
+        if (!dst) return;
+        VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
+        VkImage sourceImage = src ? src->image() : _swapchainImages[_swapchainImageIndex];
+        if (src) {
+            src->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+        } else {
+            vulkanTransitionImageLayout(cmd, sourceImage, _swapchainImageLayout,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+            _swapchainImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        }
+        dst->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageCopy copy{};
+        copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.extent = {sourceWidth, sourceHeight, 1};
+        vkCmdCopyImage(cmd, sourceImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            dst->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        if (src) {
+            src->transitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+        } else {
+            vulkanTransitionImageLayout(cmd, sourceImage, _swapchainImageLayout,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+            _swapchainImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        }
+        dst->generateMipmaps(cmd);
+        setSceneColorMap(_sceneColorGrabTexture.get());
+    }
+
+    void VulkanGraphicsDevice::grabSceneDepth(RenderTarget* source)
+    {
+        if (!_frameActive || _dynamicRenderingActive) return;
+        Texture* sourceTexture = source ? source->depthBuffer() : nullptr;
+        auto* src = sourceTexture
+            ? dynamic_cast<gpu::VulkanTexture*>(sourceTexture->impl()) : nullptr;
+        if (!sourceTexture && _depthImage == VK_NULL_HANDLE) return;
+        const uint32_t sourceWidth = sourceTexture
+            ? sourceTexture->width() : _swapchainExtent.width;
+        const uint32_t sourceHeight = sourceTexture
+            ? sourceTexture->height() : _swapchainExtent.height;
+        if (!_sceneDepthGrabTexture ||
+            _sceneDepthGrabTexture->width() != sourceWidth ||
+            _sceneDepthGrabTexture->height() != sourceHeight) {
+            TextureOptions options;
+            options.name = "sceneDepthGrab";
+            options.width = sourceWidth;
+            options.height = sourceHeight;
+            options.format = sourceTexture
+                ? sourceTexture->format() : PixelFormat::PIXELFORMAT_DEPTH;
+            options.mipmaps = false;
+            _sceneDepthGrabTexture = std::make_shared<Texture>(this, options);
+            _sceneDepthGrabTexture->upload();
+        }
+        auto* dst = dynamic_cast<gpu::VulkanTexture*>(
+            _sceneDepthGrabTexture->impl());
+        if (!dst) return;
+        VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
+        VkImage sourceImage = src ? src->image() : _depthImage;
+        if (src) {
+            src->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+        } else {
+            vulkanTransitionImageLayout(cmd, sourceImage, _depthImageLayout,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+            _depthImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        }
+        dst->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageCopy copy{};
+        copy.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+        copy.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+        copy.extent = {sourceWidth, sourceHeight, 1};
+        vkCmdCopyImage(cmd, sourceImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            dst->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        if (src) {
+            src->transitionLayout(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                0, 1, 0, 1);
+        } else {
+            vulkanTransitionImageLayout(cmd, sourceImage, _depthImageLayout,
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                VK_IMAGE_ASPECT_DEPTH_BIT);
+            _depthImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        }
+        dst->transitionLayout(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        setSceneDepthGrabMap(_sceneDepthGrabTexture.get());
+    }
+
+    void VulkanGraphicsDevice::generateCubemapMips(Texture* cubemap)
+    {
+        if (!_frameActive || _dynamicRenderingActive || !cubemap) return;
+        auto* texture = dynamic_cast<gpu::VulkanTexture*>(cubemap->impl());
+        if (texture) {
+            texture->generateMipmaps(_frames[_frameIndex].commandBuffer, 0, 6);
         }
     }
 

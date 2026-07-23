@@ -133,6 +133,9 @@ if(VISUTWIN_BACKEND_VULKAN)
         "${_VK_SHADER_DIR}/post_ssao.frag"
         "${_VK_SHADER_DIR}/post_depth_blur.frag"
         "${_VK_SHADER_DIR}/post_taa.frag"
+        "${_VK_SHADER_DIR}/post_coc.frag"
+        "${_VK_SHADER_DIR}/post_dof_blur.frag"
+        "${_VK_SHADER_DIR}/env_reproject.frag"
     )
     add_custom_command(
         OUTPUT "${_VK_SHADER_BUNDLE}"
