@@ -421,6 +421,67 @@ namespace visutwin::canvas
         return options.skybox ? "skybox" : "forward";
     }
 
+    uint64_t ProgramLibrary::makeFeatureMask(
+        const ShaderVariantOptions& options)
+    {
+        uint64_t mask = 0;
+        const auto set = [&mask](const ShaderFeature feature, const bool enabled) {
+            if (enabled) mask |= shaderFeatureBit(feature);
+        };
+        set(ShaderFeature::TransparentPass, options.transparentPass);
+        set(ShaderFeature::Skybox, options.skybox);
+        set(ShaderFeature::BaseColorMap, options.baseColorMap);
+        set(ShaderFeature::NormalMap, options.normalMap);
+        set(ShaderFeature::MetallicRoughnessMap, options.metallicRoughnessMap);
+        set(ShaderFeature::OcclusionMap, options.occlusionMap);
+        set(ShaderFeature::EmissiveMap, options.emissiveMap);
+        set(ShaderFeature::AlphaTest, options.alphaTest);
+        set(ShaderFeature::DoubleSided, options.doubleSided);
+        set(ShaderFeature::Shadows, options.shadowMapping);
+        set(ShaderFeature::Fog, options.fog);
+        set(ShaderFeature::VertexColors, options.vertexColors);
+        set(ShaderFeature::PointSpotAttenuation, options.pointSpotAttenuation);
+        set(ShaderFeature::MultiLight, options.multiLight);
+        set(ShaderFeature::EnvAtlas, options.envAtlas);
+        set(ShaderFeature::Parallax, options.parallax);
+        set(ShaderFeature::Clearcoat, options.clearcoat);
+        set(ShaderFeature::Anisotropy, options.anisotropy);
+        set(ShaderFeature::Sheen, options.sheen);
+        set(ShaderFeature::Iridescence, options.iridescence);
+        set(ShaderFeature::Transmission, options.transmission);
+        set(ShaderFeature::LightClustering, options.lightClustering);
+        set(ShaderFeature::Ssao, options.ssao);
+        set(ShaderFeature::LightProbes, options.lightProbes);
+        set(ShaderFeature::Skinning, options.skinning);
+        set(ShaderFeature::Morphing, options.morphing);
+        set(ShaderFeature::SpecGloss, options.specGloss);
+        set(ShaderFeature::OrenNayar, options.orenNayar);
+        set(ShaderFeature::DetailNormals, options.detailNormals);
+        set(ShaderFeature::Displacement, options.displacement);
+        set(ShaderFeature::Atmosphere, options.atmosphere);
+        set(ShaderFeature::ShadowCatcher, options.shadowCatcher);
+        set(ShaderFeature::SkyCubemap, options.skyCubemap);
+        set(ShaderFeature::Instancing, options.instancing);
+        set(ShaderFeature::PlanarReflection, options.planarReflection);
+        set(ShaderFeature::PlanarReflectionDepthPass,
+            options.planarReflectionDepthPass);
+        set(ShaderFeature::LocalShadows, options.localShadows);
+        set(ShaderFeature::OmniShadows, options.omniShadows);
+        set(ShaderFeature::DynamicBatch, options.dynamicBatch);
+        set(ShaderFeature::PointSize, options.pointSize);
+        set(ShaderFeature::Unlit, options.unlit);
+        set(ShaderFeature::AreaLights, options.areaLights);
+        set(ShaderFeature::VsmShadows, options.vsmShadows);
+        set(ShaderFeature::Lightmap, options.lightmap);
+        set(ShaderFeature::DynamicRefraction, options.dynamicRefraction);
+        set(ShaderFeature::OpacityDither, options.opacityDither);
+        set(ShaderFeature::PcssShadows, options.pcssShadows);
+        set(ShaderFeature::ReflectionProbe, options.reflectionProbe);
+        set(ShaderFeature::Ssr, options.ssr);
+        set(ShaderFeature::SurfaceLic, options.surfaceLIC);
+        return mask;
+    }
+
     uint64_t ProgramLibrary::makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const
     {
         (void)material;
@@ -430,54 +491,7 @@ namespace visutwin::canvas
         // creating spurious unique variants (different materials mapping to the
         // same set of options but different shaderVariantKey values) and hitting
         // the AGX compiled-variants footprint limit.
-        uint64_t key = fnv1a64(programName);
-        key ^= options.transparentPass ? (1ull << 63) : 0ull;
-        key ^= options.skybox ? (1ull << 62) : 0ull;
-        key ^= options.baseColorMap ? (1ull << 0) : 0ull;
-        key ^= options.normalMap ? (1ull << 1) : 0ull;
-        key ^= options.metallicRoughnessMap ? (1ull << 2) : 0ull;
-        key ^= options.occlusionMap ? (1ull << 3) : 0ull;
-        key ^= options.emissiveMap ? (1ull << 4) : 0ull;
-        key ^= options.alphaTest ? (1ull << 5) : 0ull;
-        key ^= options.doubleSided ? (1ull << 6) : 0ull;
-        key ^= options.shadowMapping ? (1ull << 8) : 0ull;
-        key ^= options.fog ? (1ull << 9) : 0ull;
-        key ^= options.vertexColors ? (1ull << 10) : 0ull;
-        key ^= options.pointSpotAttenuation ? (1ull << 11) : 0ull;
-        key ^= options.multiLight ? (1ull << 12) : 0ull;
-        key ^= options.envAtlas ? (1ull << 13) : 0ull;
-        // Stubbed feature flags (parallax, clearcoat, etc.) are included for
-        // correctness but are never true in practice yet, so they don't add
-        // extra variants.
-        key ^= options.parallax ? (1ull << 14) : 0ull;
-        key ^= options.clearcoat ? (1ull << 15) : 0ull;
-        key ^= options.anisotropy ? (1ull << 16) : 0ull;
-        key ^= options.sheen ? (1ull << 17) : 0ull;
-        key ^= options.iridescence ? (1ull << 18) : 0ull;
-        key ^= options.transmission ? (1ull << 19) : 0ull;
-        key ^= options.lightClustering ? (1ull << 20) : 0ull;
-        key ^= options.ssao ? (1ull << 21) : 0ull;
-        key ^= options.lightProbes ? (1ull << 22) : 0ull;
-        key ^= options.skinning ? (1ull << 23) : 0ull;
-        key ^= options.morphing ? (1ull << 24) : 0ull;
-        key ^= options.specGloss ? (1ull << 25) : 0ull;
-        key ^= options.orenNayar ? (1ull << 26) : 0ull;
-        key ^= options.detailNormals ? (1ull << 27) : 0ull;
-        key ^= options.displacement ? (1ull << 28) : 0ull;
-        key ^= options.atmosphere ? (1ull << 29) : 0ull;
-        key ^= options.shadowCatcher ? (1ull << 30) : 0ull;
-        key ^= options.skyCubemap ? (1ull << 31) : 0ull;
-        key ^= options.instancing ? (1ull << 32) : 0ull;
-        key ^= options.planarReflection ? (1ull << 33) : 0ull;
-        key ^= options.planarReflectionDepthPass ? (1ull << 34) : 0ull;
-        key ^= options.localShadows ? (1ull << 35) : 0ull;
-        key ^= options.omniShadows ? (1ull << 36) : 0ull;
-        key ^= options.dynamicBatch ? (1ull << 37) : 0ull;
-        key ^= options.pointSize ? (1ull << 38) : 0ull;
-        key ^= options.areaLights ? (1ull << 40) : 0ull;
-        key ^= options.unlit ? (1ull << 39) : 0ull;
-        key ^= options.vsmShadows ? (1ull << 41) : 0ull;
-        key ^= options.lightmap ? (1ull << 42) : 0ull;
+        uint64_t key = fnv1a64(programName) ^ makeFeatureMask(options);
 
         // Shader chunk overrides (registry + per-material) change the composed
         // source without changing any option bit — fold their content hashes in so
@@ -486,11 +500,6 @@ namespace visutwin::canvas
         if (material) {
             key ^= material->shaderChunksHash();
         }
-        key ^= options.dynamicRefraction ? (1ull << 43) : 0ull;
-        key ^= options.ssr ? (1ull << 47) : 0ull;
-        key ^= options.opacityDither ? (1ull << 44) : 0ull;
-        key ^= options.pcssShadows ? (1ull << 45) : 0ull;
-        key ^= options.reflectionProbe ? (1ull << 46) : 0ull;
         return key;
     }
 
@@ -510,57 +519,15 @@ namespace visutwin::canvas
         std::string source;
         source.reserve(24 * 1024);
 
-        appendFeatureDefine(source, "VT_FEATURE_SKYBOX", options.skybox);
-        appendFeatureDefine(source, "VT_FEATURE_TRANSPARENT_PASS", options.transparentPass);
-        appendFeatureDefine(source, "VT_FEATURE_ALPHA_TEST", options.alphaTest);
-        appendFeatureDefine(source, "VT_FEATURE_DOUBLE_SIDED", options.doubleSided);
-        appendFeatureDefine(source, "VT_FEATURE_BASE_COLOR_MAP", options.baseColorMap);
-        appendFeatureDefine(source, "VT_FEATURE_NORMAL_MAP", options.normalMap);
-        appendFeatureDefine(source, "VT_FEATURE_METAL_ROUGHNESS_MAP", options.metallicRoughnessMap);
-        appendFeatureDefine(source, "VT_FEATURE_OCCLUSION_MAP", options.occlusionMap);
-        appendFeatureDefine(source, "VT_FEATURE_EMISSIVE_MAP", options.emissiveMap);
-        appendFeatureDefine(source, "VT_FEATURE_ENV_ATLAS", options.envAtlas);
-
-        appendFeatureDefine(source, "VT_FEATURE_SHADOWS", options.shadowMapping);
-        appendFeatureDefine(source, "VT_FEATURE_FOG", options.fog);
-        appendFeatureDefine(source, "VT_FEATURE_PARALLAX", options.parallax);
-        appendFeatureDefine(source, "VT_FEATURE_CLEARCOAT", options.clearcoat);
-        appendFeatureDefine(source, "VT_FEATURE_ANISOTROPY", options.anisotropy);
-        appendFeatureDefine(source, "VT_FEATURE_SHEEN", options.sheen);
-        appendFeatureDefine(source, "VT_FEATURE_IRIDESCENCE", options.iridescence);
-        appendFeatureDefine(source, "VT_FEATURE_TRANSMISSION", options.transmission);
-        appendFeatureDefine(source, "VT_FEATURE_DYNAMIC_REFRACTION", options.dynamicRefraction);
-        appendFeatureDefine(source, "VT_FEATURE_SSR", options.ssr);
-        appendFeatureDefine(source, "VT_FEATURE_OPACITY_DITHER", options.opacityDither);
-        appendFeatureDefine(source, "VT_FEATURE_PCSS_SHADOWS", options.pcssShadows);
-        appendFeatureDefine(source, "VT_FEATURE_LIGHT_CLUSTERING", options.lightClustering);
-        appendFeatureDefine(source, "VT_FEATURE_SSAO", options.ssao);
-        appendFeatureDefine(source, "VT_FEATURE_LIGHT_PROBES", options.lightProbes);
-        appendFeatureDefine(source, "VT_FEATURE_LIGHTMAP", options.lightmap);
-        appendFeatureDefine(source, "VT_FEATURE_VERTEX_COLORS", options.vertexColors);
-        appendFeatureDefine(source, "VT_FEATURE_SKINNING", options.skinning);
-        appendFeatureDefine(source, "VT_FEATURE_MORPHS", options.morphing);
-        appendFeatureDefine(source, "VT_FEATURE_SPEC_GLOSS", options.specGloss);
-        appendFeatureDefine(source, "VT_FEATURE_OREN_NAYAR", options.orenNayar);
-        appendFeatureDefine(source, "VT_FEATURE_DETAIL_NORMALS", options.detailNormals);
-        appendFeatureDefine(source, "VT_FEATURE_DISPLACEMENT", options.displacement);
-        appendFeatureDefine(source, "VT_FEATURE_ATMOSPHERE", options.atmosphere);
-        appendFeatureDefine(source, "VT_FEATURE_AREA_LIGHTS", options.areaLights);
-        appendFeatureDefine(source, "VT_FEATURE_POINT_SPOT_ATTENUATION", options.pointSpotAttenuation);
-        appendFeatureDefine(source, "VT_FEATURE_MULTI_LIGHT", options.multiLight);
-        appendFeatureDefine(source, "VT_FEATURE_SHADOW_CATCHER", options.shadowCatcher);
-        appendFeatureDefine(source, "VT_FEATURE_SKY_CUBEMAP", options.skyCubemap);
-        appendFeatureDefine(source, "VT_FEATURE_REFLECTION_PROBE", options.reflectionProbe);
-        appendFeatureDefine(source, "VT_FEATURE_SURFACE_LIC", options.surfaceLIC);
-        appendFeatureDefine(source, "VT_FEATURE_INSTANCING", options.instancing);
-        appendFeatureDefine(source, "VT_FEATURE_PLANAR_REFLECTION", options.planarReflection);
-        appendFeatureDefine(source, "VT_FEATURE_PLANAR_REFLECTION_DEPTH_PASS", options.planarReflectionDepthPass);
-        appendFeatureDefine(source, "VT_FEATURE_LOCAL_SHADOWS", options.localShadows);
-        appendFeatureDefine(source, "VT_FEATURE_OMNI_SHADOWS", options.omniShadows);
-        appendFeatureDefine(source, "VT_FEATURE_VSM_SHADOWS", options.vsmShadows);
-        appendFeatureDefine(source, "VT_FEATURE_DYNAMIC_BATCH", options.dynamicBatch);
-        appendFeatureDefine(source, "VT_FEATURE_POINT_SIZE", options.pointSize);
-        appendFeatureDefine(source, "VT_FEATURE_UNLIT", options.unlit);
+        // The feature names/bits consumed by Metal and Vulkan are generated
+        // from one contract. Metal receives defines; Vulkan receives this same
+        // mask through SPIR-V specialization constants.
+        const uint64_t featureMask = makeFeatureMask(options);
+#define VT_APPEND_METAL_FEATURE(symbol, defineName, bit) \
+        appendFeatureDefine(source, defineName, \
+            (featureMask & shaderFeatureBit(ShaderFeature::symbol)) != 0);
+        VT_SHADER_FEATURES(VT_APPEND_METAL_FEATURE)
+#undef VT_APPEND_METAL_FEATURE
         // VT_FEATURE_HDR_PASS is not emitted as a compile-time define.
         // It is passed as a runtime uniform bit in LightingData.flagsAndPad
         // to avoid doubling the number of compiled shader variants.
@@ -606,6 +573,7 @@ namespace visutwin::canvas
         const auto entryPrefix = programName == "shadow" ? "pcShadow" : "pcForward";
         definition.vshader = entryPrefix + std::string("VS_") + std::to_string(variantKey);
         definition.fshader = entryPrefix + std::string("FS_") + std::to_string(variantKey);
+        definition.featureMask = makeFeatureMask(options);
         const std::string sourceCode = composeProgramVariantMetalSource(programName, options, definition.vshader, definition.fshader, material);
         if (sourceCode.empty()) {
             return nullptr;

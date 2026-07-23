@@ -1,16 +1,17 @@
 #version 450
 
-// Vertex-color variant: the 72-byte interleaved layout appends a vec4 color
-// after uv1 (attribute location 5, offset 56). Identical to forward_basic.vert
-// otherwise; the color reaches the fragment stage at location 6 and is
-// multiplied into albedo. Selected when the vertex format declares COLOR.
+// Skybox vertex stage.  Identical to forward.vert except the clip-space
+// depth is pinned to the far plane (z = w → depth 1.0 after the perspective
+// divide).  The sky shell is authored at a huge radius so it always clears the
+// near plane; pinning depth keeps it from being far-clipped and ensures it
+// renders behind all scene geometry.  Selected by the pipeline only for
+// materials flagged isSkybox, so normal geometry never pays for it.
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV0;
 layout(location = 3) in vec4 inTangent;
 layout(location = 4) in vec2 inUV1;
-layout(location = 5) in vec4 inColor;
 
 layout(push_constant) uniform PushConstants {
     mat4 viewProjection;
@@ -27,9 +28,12 @@ layout(location = 6) out vec4 fragColor;
 
 void main() {
     vec4 worldPos = pc.model * vec4(inPosition, 1.0);
-    gl_Position = pc.viewProjection * worldPos;
+    gl_Position = (pc.viewProjection * worldPos).xyww;
 
+    // Skybox never samples shadows, but the fragment stage declares this
+    // varying — write it so the stage interfaces match.
     fragViewDepth = gl_Position.w;
+
     fragWorldPos = worldPos.xyz;
 
     mat3 normalMatrix = mat3(pc.model);
@@ -37,5 +41,5 @@ void main() {
     fragWorldTangent = vec4(normalize(normalMatrix * inTangent.xyz), inTangent.w);
     fragUV0 = inUV0;
     fragUV1 = inUV1;
-    fragColor = inColor;
+    fragColor = vec4(1.0);
 }

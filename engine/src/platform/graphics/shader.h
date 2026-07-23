@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 
+#include "platform/graphics/shaderFeatures.h"
+
 namespace visutwin::canvas
 {
     struct ShaderDefinition
@@ -17,6 +19,9 @@ namespace visutwin::canvas
         std::string vshader;  // Vertex shader entry-point name
         std::string fshader;  // Fragment shader entry-point name
         std::string cshader;  // Compute shader entry-point name (optional)
+        // Backend-independent feature selection resolved by ProgramLibrary.
+        // Metal emits these as defines; Vulkan uses specialization constants.
+        uint64_t featureMask = 0;
     };
 
     class GraphicsDevice;

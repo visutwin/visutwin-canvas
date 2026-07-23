@@ -26,11 +26,13 @@
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
 #include "platform/graphics/vulkan/vulkanGraphicsDevice.h"
+#include "platform/graphics/vulkan/vulkanShader.h"
 #include "platform/graphics/vulkan/vulkanTexture.h"
 #include "platform/graphics/vulkan/vulkanUniformRingBuffer.h"
 #include "platform/graphics/vulkan/vulkanUtils.h"
 #include "scene/materials/material.h"
 #include "scene/mesh.h"
+#include "scene/shader-lib/programLibrary.h"
 #include "spdlog/spdlog.h"
 
 using namespace visutwin::canvas;
@@ -118,6 +120,17 @@ int main()
 
             auto sharedDevice = std::shared_ptr<GraphicsDevice>(
                 device.get(), [](GraphicsDevice*) {});
+
+            ShaderDefinition rejectedMslDefinition{};
+            rejectedMslDefinition.name = "vulkan-no-generic-fallback";
+            if (device->createShader(
+                    rejectedMslDefinition,
+                    "#include <metal_stdlib>\nusing namespace metal;")) {
+                spdlog::error(
+                    "Vulkan smoke: custom MSL received a generic fallback");
+                result = 1;
+            }
+
             RenderPass pass(sharedDevice);
             pass.init(target);
             const Color clearColor(0.05f, 0.1f, 0.2f, 1.0f);
@@ -157,7 +170,29 @@ int main()
             auto pointFormat = std::make_shared<VertexFormat>(
                 pointStride, std::move(pointElements));
             auto pointBuffer = device->createVertexBuffer(pointFormat, 1, pointOptions);
-            auto shader = device->createShader(ShaderDefinition{.name = "vulkan-smoke"});
+            auto shader = device->createShader(
+                ShaderDefinition{.name = "vulkan-smoke"});
+
+            Material featureMaterial;
+            featureMaterial.setBaseColorTexture(color.get());
+            featureMaterial.setHasBaseColorTexture(true);
+            featureMaterial.setAlphaMode(AlphaMode::MASK);
+            ProgramLibrary featurePrograms(sharedDevice);
+            auto featureShader =
+                featurePrograms.getForwardShader(&featureMaterial, false);
+            const auto* vkFeatureShader =
+                dynamic_cast<VulkanShader*>(featureShader.get());
+            const uint64_t requiredFeatures =
+                shaderFeatureBit(ShaderFeature::BaseColorMap) |
+                shaderFeatureBit(ShaderFeature::AlphaTest);
+            if (!vkFeatureShader ||
+                (vkFeatureShader->featureMask() & requiredFeatures) !=
+                    requiredFeatures ||
+                !vkFeatureShader->specializesFeatures()) {
+                spdlog::error(
+                    "Vulkan smoke: shared feature mask did not reach SPIR-V");
+                result = 1;
+            }
 
             // More unique image tuples than the initial descriptor pool can
             // hold. This forces fence-owned pool growth; repeating the final

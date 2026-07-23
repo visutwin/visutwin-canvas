@@ -8,11 +8,15 @@
 #include "vulkanGraphicsDevice.h"
 #include "vulkanShader.h"
 #include "vulkanUtils.h"
+#include "vulkan/vulkan_shader_bundle.h"
+
+#include <stdexcept>
 
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/stencilParameters.h"
 #include "platform/graphics/vertexFormat.h"
+#include "scene/materials/material.h"
 #include "scene/mesh.h"
 #include "spdlog/spdlog.h"
 
@@ -20,6 +24,44 @@ namespace visutwin::canvas
 {
     namespace
     {
+        void validateGeneratedForwardLayout()
+        {
+            using namespace vulkan_generated;
+            static_assert(kForwardVertPushConstantSize == 128);
+            static_assert(kForwardInstancedVertPushConstantSize == 128);
+            static_assert(kForwardSkyVertPushConstantSize == 128);
+            static_assert(kForwardColorVertPushConstantSize == 128);
+            static_assert(kForwardPointVertPushConstantSize == 128);
+            static_assert(sizeof(VulkanLightingUBO) == 1120);
+            static_assert(
+                offsetof(MaterialUniforms, emissiveTransform1) +
+                    sizeof(float) * 4 ==
+                224);
+
+            for (const auto& reflected : kForwardFragBindings) {
+                const bool uniform =
+                    reflected.kind == ReflectedDescriptorKind::UniformBuffer;
+                const bool sampler = reflected.kind ==
+                    ReflectedDescriptorKind::CombinedImageSampler;
+                const bool validMaterial =
+                    reflected.set == 0 && reflected.binding == 0 && uniform &&
+                    reflected.blockSize == 224;
+                const bool validLighting =
+                    reflected.set == 2 && reflected.binding == 0 && uniform &&
+                    reflected.blockSize == sizeof(VulkanLightingUBO);
+                const bool validMaterialTexture =
+                    reflected.set == 1 && reflected.binding < 6 && sampler;
+                const bool validSceneTexture =
+                    reflected.set == 3 && reflected.binding < 7 && sampler;
+                if (!validMaterial && !validLighting &&
+                    !validMaterialTexture && !validSceneTexture) {
+                    throw std::runtime_error(
+                        "VulkanRenderPipeline: reflected shader layout is "
+                        "incompatible with the engine descriptor contract");
+                }
+            }
+        }
+
         int semanticLocation(const VertexSemantic semantic)
         {
             switch (semantic) {
@@ -164,6 +206,7 @@ namespace visutwin::canvas
     VulkanRenderPipeline::VulkanRenderPipeline(VulkanGraphicsDevice* device)
         : _device(device)
     {
+        validateGeneratedForwardLayout();
         createLayouts();
     }
 
@@ -357,11 +400,33 @@ namespace visutwin::canvas
         // fragment shader that declares a colour output with no colour
         // attachment is a MoltenVK hazard that silently drops depth writes.
         const bool depthOnly = colorFormat == VK_FORMAT_UNDEFINED;
+        struct FeatureSpecialization {
+            uint32_t low;
+            uint32_t high;
+        };
+        static constexpr std::array<VkSpecializationMapEntry, 2>
+            featureEntries = {{
+                {0, offsetof(FeatureSpecialization, low), sizeof(uint32_t)},
+                {1, offsetof(FeatureSpecialization, high), sizeof(uint32_t)},
+            }};
+        FeatureSpecialization featureData{};
+        VkSpecializationInfo featureInfo{};
         if (!depthOnly && shader->fragmentModule() != VK_NULL_HANDLE) {
             VkPipelineShaderStageCreateInfo frag{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
             frag.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
             frag.module = shader->fragmentModule();
             frag.pName = "main";
+            if (shader->specializesFeatures()) {
+                const uint64_t featureMask = shader->featureMask();
+                featureData.low = static_cast<uint32_t>(featureMask);
+                featureData.high = static_cast<uint32_t>(featureMask >> 32u);
+                featureInfo.mapEntryCount =
+                    static_cast<uint32_t>(featureEntries.size());
+                featureInfo.pMapEntries = featureEntries.data();
+                featureInfo.dataSize = sizeof(featureData);
+                featureInfo.pData = &featureData;
+                frag.pSpecializationInfo = &featureInfo;
+            }
             stages.push_back(frag);
         }
 

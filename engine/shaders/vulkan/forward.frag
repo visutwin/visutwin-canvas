@@ -1,5 +1,7 @@
 #version 450
 
+#include "shader_features.glsl"
+
 layout(location = 0) in vec3 fragWorldPos;
 layout(location = 1) in vec3 fragWorldNormal;
 layout(location = 2) in vec2 fragUV0;
@@ -404,7 +406,7 @@ void main() {
     // Skybox: sample the environment along the view direction and output it
     // directly — no surface lighting.  The sky mesh is centered on the camera,
     // so the world-space position relative to the camera is the view ray.
-    if ((material.flags & FLAG_SKYBOX) != 0u) {
+    if (vtFeatureEnabled(VT_FEATURE_SKYBOX_BIT)) {
         // Dome projection: view direction from the dome center rather than
         // the camera so the flattened bottom hemisphere reads as a ground
         // plane (tripod projection). Mirrors forward-fragment-head.metal.
@@ -418,7 +420,8 @@ void main() {
             // lookup handedness — same as the Metal SKY_CUBEMAP path).
             float intensity = max(lighting.envParams.x, 0.0);
             sky = decodeEnv(texture(skyboxCube, vec3(-dir.x, dir.y, dir.z))) * intensity;
-        } else if (lighting.envParams.y > 0.5) {
+        } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
+                   lighting.envParams.y > 0.5) {
             float intensity = max(lighting.envParams.x, 0.0);
             sky = decodeEnv(texture(envAtlas, mapRoughnessUv(dirToEquirect(dir),
                                     max(lighting.envParams.w, 0.0)))) * intensity;
@@ -449,19 +452,22 @@ void main() {
         ((material.flags & FLAG_EMISSIVE_UV1) != 0u) ? fragUV1 : fragUV0,
         material.emissiveTransform0, material.emissiveTransform1);
 
-    vec4 baseSample = texture(baseColorMap, uvBase);
+    vec4 baseSample = vtFeatureEnabled(VT_FEATURE_BASE_COLOR_MAP_BIT)
+        ? texture(baseColorMap, uvBase) : vec4(1.0);
     // fragColor is vec4(1) except for the vertex-color / point-cloud vertex
     // variants, which feed the mesh's per-vertex color through.
     vec4 albedo = material.baseColor * baseSample * fragColor;
 
-    if ((material.flags & FLAG_ALPHA_TEST) != 0u && albedo.a < material.alphaCutoff) {
+    if (vtFeatureEnabled(VT_FEATURE_ALPHA_TEST_BIT) &&
+        albedo.a < material.alphaCutoff) {
         discard;
     }
 
     // Point-cloud (unlit) path: the point vertex variant writes a zero world
     // normal as its sentinel — no surface lighting, just exposure + tonemap +
     // gamma on the tinted color (mirrors Metal's unlit point shader).
-    if (dot(fragWorldNormal, fragWorldNormal) < 1e-6) {
+    if (vtFeatureEnabled(VT_FEATURE_UNLIT_BIT) ||
+        dot(fragWorldNormal, fragWorldNormal) < 1e-6) {
         vec3 unlit = albedo.rgb * lighting.cameraPosExposure.w;
         unlit = applyToneMap(unlit);
         outColor = vec4(pow(max(unlit, vec3(0.0)), vec3(1.0 / 2.2)), albedo.a);
@@ -471,7 +477,7 @@ void main() {
     // Metallic-roughness (glTF packs roughness in G, metallic in B).
     float metallic = material.metallicFactor;
     float roughness = material.roughnessFactor;
-    if ((material.flags & FLAG_HAS_METALROUGH) != 0u) {
+    if (vtFeatureEnabled(VT_FEATURE_METAL_ROUGHNESS_MAP_BIT)) {
         vec4 mr = texture(metalRoughMap, uvMetalRough);
         roughness *= mr.g;
         metallic *= mr.b;
@@ -481,19 +487,20 @@ void main() {
 
     // Ambient occlusion.
     float ao = 1.0;
-    if ((material.flags & FLAG_HAS_OCCLUSION) != 0u) {
+    if (vtFeatureEnabled(VT_FEATURE_OCCLUSION_MAP_BIT)) {
         float occ = texture(occlusionMap, uvOcclusion).r;
         ao = mix(1.0, occ, material.occlusionStrength);
     }
 
     // Geometric normal, flipped for back faces on double-sided materials.
     vec3 N = normalize(fragWorldNormal);
-    if ((material.flags & FLAG_DOUBLE_SIDED) != 0u && !gl_FrontFacing) {
+    if (vtFeatureEnabled(VT_FEATURE_DOUBLE_SIDED_BIT) && !gl_FrontFacing) {
         N = -N;
     }
 
     // Tangent-space normal mapping (shadowParams2.w = global enable toggle).
-    if ((material.flags & FLAG_HAS_NORMAL) != 0u && lighting.shadowParams2.w > 0.5) {
+    if (vtFeatureEnabled(VT_FEATURE_NORMAL_MAP_BIT) &&
+        lighting.shadowParams2.w > 0.5) {
         vec3 T = normalize(fragWorldTangent.xyz);
         // Re-orthonormalize (Gram-Schmidt) and build the bitangent with the
         // handedness sign carried in tangent.w.
@@ -574,7 +581,8 @@ void main() {
     // a flat ambient term plus a Fresnel-weighted specular floor so metals
     // aren't pitch black.
     vec3 indirect;
-    if (lighting.envParams.y > 0.5) {
+    if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
+        lighting.envParams.y > 0.5) {
         float intensity = max(lighting.envParams.x, 0.0);
 
         // Diffuse irradiance (the negate-X matches the engine's atlas lookup
@@ -604,13 +612,14 @@ void main() {
 
     // Emissive.
     vec3 emissive = material.emissiveColor.rgb;
-    if ((material.flags & FLAG_HAS_EMISSIVE) != 0u) {
+    if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
         emissive *= texture(emissiveMap, uvEmissive).rgb;
     }
     color += emissive;
 
     // Fog (linear or exponential) toward the fog color.
-    float fogType = lighting.fogStartEndType.z;
+    float fogType = vtFeatureEnabled(VT_FEATURE_FOG_BIT)
+        ? lighting.fogStartEndType.z : 0.0;
     if (fogType > 0.5) {
         float dist = length(lighting.cameraPosExposure.xyz - fragWorldPos);
         float f;

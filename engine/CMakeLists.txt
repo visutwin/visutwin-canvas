@@ -78,9 +78,19 @@ if(VISUTWIN_BACKEND_VULKAN)
     find_package(Vulkan REQUIRED)
     find_package(VulkanMemoryAllocator CONFIG REQUIRED)
     find_package(vk-bootstrap CONFIG REQUIRED)
-    # Runtime GLSL -> SPIR-V compilation (optional: the backend falls back to
-    # embedded precompiled SPIR-V when shaderc is unavailable).
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    # Optional runtime compiler for user-provided GLSL. Engine shader modules
+    # are always compiled and reflected at build time below.
     find_package(unofficial-shaderc CONFIG QUIET)
+
+    if(NOT Vulkan_GLSLC_EXECUTABLE)
+        find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc REQUIRED)
+    endif()
+    find_program(VISUTWIN_SPIRV_CROSS_EXECUTABLE
+        NAMES spirv-cross
+        HINTS
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/spirv-cross"
+        REQUIRED)
 endif()
 
 # ── Source collection ─────────────────────────────────────────────────
@@ -94,6 +104,50 @@ if(VISUTWIN_BACKEND_METAL)
         "${VISUTWIN_ROOT_DIR}/engine/src/*.mm"
     )
     list(APPEND VISUTWIN_CANVAS_SOURCES ${VISUTWIN_CANVAS_MM_SOURCES})
+endif()
+
+# ── Build-time Vulkan shader bundle ──────────────────────────────────
+# GLSL is compiled before C++ and reflected by SPIRV-Cross. The generator
+# validates descriptor sets, uniform block sizes, and push constants, then
+# embeds both SPIR-V and its reflected layout manifest in one generated header.
+if(VISUTWIN_BACKEND_VULKAN)
+    set(_VK_SHADER_DIR "${VISUTWIN_ROOT_DIR}/engine/shaders/vulkan")
+    set(_VK_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/vulkan")
+    set(_VK_SHADER_BUNDLE "${_VK_GENERATED_DIR}/vulkan_shader_bundle.h")
+    set(_VK_SHADER_SOURCES
+        "${_VK_SHADER_DIR}/forward.vert"
+        "${_VK_SHADER_DIR}/forward_instanced.vert"
+        "${_VK_SHADER_DIR}/forward_sky.vert"
+        "${_VK_SHADER_DIR}/forward_color.vert"
+        "${_VK_SHADER_DIR}/forward_point.vert"
+        "${_VK_SHADER_DIR}/forward.frag"
+        "${_VK_SHADER_DIR}/shadow_vsm_moments.frag"
+        "${_VK_SHADER_DIR}/vsm_blur.vert"
+        "${_VK_SHADER_DIR}/vsm_blur.frag"
+        "${_VK_SHADER_DIR}/post_fullscreen.vert"
+        "${_VK_SHADER_DIR}/post_compose.frag"
+        "${_VK_SHADER_DIR}/post_ssao.frag"
+        "${_VK_SHADER_DIR}/post_depth_blur.frag"
+        "${_VK_SHADER_DIR}/post_taa.frag"
+    )
+    add_custom_command(
+        OUTPUT "${_VK_SHADER_BUNDLE}"
+        COMMAND "${Python3_EXECUTABLE}"
+            "${VISUTWIN_ROOT_DIR}/tools/generate_vulkan_shader_bundle.py"
+            --glslc "${Vulkan_GLSLC_EXECUTABLE}"
+            --spirv-cross "${VISUTWIN_SPIRV_CROSS_EXECUTABLE}"
+            --shader-dir "${_VK_SHADER_DIR}"
+            --features
+                "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
+            --output "${_VK_SHADER_BUNDLE}"
+            --work-dir "${_VK_GENERATED_DIR}/work"
+        DEPENDS
+            ${_VK_SHADER_SOURCES}
+            "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
+            "${VISUTWIN_ROOT_DIR}/tools/generate_vulkan_shader_bundle.py"
+        COMMENT "Compiling and reflecting Vulkan shader variants"
+        VERBATIM)
+    add_custom_target(visutwin_vulkan_shaders DEPENDS "${_VK_SHADER_BUNDLE}")
 endif()
 
 # Exclude backend sources that are not enabled
@@ -139,7 +193,6 @@ if(VISUTWIN_BACKEND_METAL)
     endforeach()
     add_custom_target(visutwin_embedded_shaders DEPENDS ${_MSL_EMBED_OUTPUTS})
 endif()
-
 add_library(visutwin-canvas STATIC
     ${VISUTWIN_CANVAS_SOURCES}
 )
@@ -149,6 +202,11 @@ add_library(visutwin-canvas STATIC
 if(VISUTWIN_BACKEND_METAL)
     add_dependencies(visutwin-canvas visutwin_embedded_shaders)
     target_include_directories(visutwin-canvas PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+endif()
+if(VISUTWIN_BACKEND_VULKAN)
+    add_dependencies(visutwin-canvas visutwin_vulkan_shaders)
+    target_include_directories(visutwin-canvas PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/generated")
 endif()
 
 add_library(visutwin::canvas ALIAS visutwin-canvas)
@@ -233,6 +291,6 @@ if(VISUTWIN_BACKEND_VULKAN)
         target_link_libraries(visutwin-canvas PUBLIC unofficial::shaderc::shaderc)
         message(STATUS "Vulkan runtime shader compilation enabled (shaderc)")
     else()
-        message(STATUS "shaderc not found - Vulkan uses embedded precompiled SPIR-V only")
+        message(STATUS "shaderc not found - runtime custom GLSL is disabled")
     endif()
 endif()

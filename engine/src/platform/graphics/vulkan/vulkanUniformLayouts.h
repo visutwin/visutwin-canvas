@@ -4,7 +4,7 @@
 // GPU-side uniform block layouts for the Vulkan backend.
 //
 // These mirror the std140 layout declared in the embedded GLSL shaders
-// (forward_basic.frag).  Every member is either a vec4 or a run of exactly
+// (forward.frag). Every member is either a vec4 or a run of exactly
 // four 4-byte scalars, so the natural C++ layout already satisfies std140 —
 // no explicit padding is required.  Keep these structs and the GLSL blocks in
 // lock-step; a mismatch shifts every field that follows it.
@@ -27,7 +27,7 @@ namespace visutwin::canvas
         float coneParams[4]     = {1.0f, 1.0f, 1.0f, -1.0f};
     };
 
-    // Per-pass lighting block bound at set 2, binding 0.  1136 bytes.
+    // Per-pass lighting block bound at set 2, binding 0. 1120 bytes.
     struct VulkanLightingUBO
     {
         float ambient[4]            = {0.0f, 0.0f, 0.0f, 0.0f};  // rgb ambient

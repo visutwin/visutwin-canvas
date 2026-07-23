@@ -12,28 +12,20 @@
 namespace visutwin::canvas
 {
     VulkanShader::VulkanShader(GraphicsDevice* device, const ShaderDefinition& definition,
-        const std::string& sourceCode)
-        : Shader(device, definition)
-    {
-        auto* vkDevice = static_cast<VulkanGraphicsDevice*>(device);
-        _vkDevice = vkDevice->device();
-        _deviceAlive = vkDevice->aliveToken();
-        (void)sourceCode;
-        // Runtime GLSL compilation not supported — use the SPIR-V constructor.
-    }
-
-    VulkanShader::VulkanShader(GraphicsDevice* device, const ShaderDefinition& definition,
         const uint32_t* vertSpirv, size_t vertWordCount,
         const uint32_t* fragSpirv, size_t fragWordCount,
         const uint32_t* instancedVertSpirv, size_t instancedVertWordCount,
         const uint32_t* skyVertSpirv, size_t skyVertWordCount,
         const uint32_t* colorVertSpirv, size_t colorVertWordCount,
-        const uint32_t* pointVertSpirv, size_t pointVertWordCount)
+        const uint32_t* pointVertSpirv, size_t pointVertWordCount,
+        const bool specializeFeatures)
         : Shader(device, definition)
     {
         auto* vkDevice = static_cast<VulkanGraphicsDevice*>(device);
         _vkDevice = vkDevice->device();
         _deviceAlive = vkDevice->aliveToken();
+        _featureMask = definition.featureMask;
+        _specializeFeatures = specializeFeatures;
 
         if (vertSpirv && vertWordCount > 0)
             _vertexModule = createModule(vertSpirv, vertWordCount);

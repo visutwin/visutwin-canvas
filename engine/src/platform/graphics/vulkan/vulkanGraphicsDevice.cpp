@@ -11,9 +11,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <VkBootstrap.h>
 #include <SDL3/SDL_vulkan.h>
 
@@ -34,8 +31,7 @@
 #include "scene/materials/material.h"
 #include "spdlog/spdlog.h"
 
-// Embedded SPIR-V for the basic forward shader.
-#include "engine/shaders/vulkan/forward_basic_spirv.h"
+#include "vulkan/vulkan_shader_bundle.h"
 
 namespace visutwin::canvas
 {
@@ -56,100 +52,6 @@ namespace visutwin::canvas
 
     namespace
     {
-        std::string vulkanReadTextFile(const std::filesystem::path& path)
-        {
-            std::ifstream in(path, std::ios::in | std::ios::binary);
-            if (!in) {
-                return {};
-            }
-            std::ostringstream buffer;
-            buffer << in.rdbuf();
-            return buffer.str();
-        }
-
-        // Locate engine/shaders/vulkan — same resolution scheme as the Metal
-        // chunk registry in programLibrary.cpp: the source tree relative to
-        // this file, then the working directory and its parents.
-        std::filesystem::path resolveVulkanShaderRoot()
-        {
-            auto sourceRoot = std::filesystem::path(__FILE__).parent_path();
-            for (int i = 0; i < 5; ++i) {
-                sourceRoot = sourceRoot.parent_path();
-            }
-            const auto cwd = std::filesystem::current_path();
-            const std::array<std::filesystem::path, 4> roots = {
-                sourceRoot / "engine/shaders/vulkan",
-                cwd / "engine/shaders/vulkan",
-                cwd.parent_path() / "engine/shaders/vulkan",
-                cwd.parent_path().parent_path() / "engine/shaders/vulkan",
-            };
-            for (const auto& root : roots) {
-                if (std::filesystem::exists(root / "forward_basic.frag")) {
-                    return root;
-                }
-            }
-            return {};
-        }
-
-        // The backend's built-in shaders, compiled from GLSL at runtime when
-        // shaderc and the source files are available. All-or-nothing: any
-        // missing file or compile error falls the whole set back to the
-        // embedded precompiled SPIR-V so the module set stays consistent.
-        struct RuntimeBuiltinSpirv
-        {
-            std::vector<uint32_t> vert, instancedVert, skyVert, colorVert, pointVert;
-            std::vector<uint32_t> forwardFrag, momentsFrag;
-            std::vector<uint32_t> blurVert, blurFrag;
-            bool valid = false;
-        };
-
-        const RuntimeBuiltinSpirv& runtimeBuiltins()
-        {
-            static const RuntimeBuiltinSpirv builtins = [] {
-                RuntimeBuiltinSpirv result;
-                if (!vulkanShaderCompilerAvailable()) {
-                    spdlog::info("Vulkan built-in shaders: embedded SPIR-V (built without shaderc)");
-                    return result;
-                }
-                const auto root = resolveVulkanShaderRoot();
-                if (root.empty()) {
-                    spdlog::info("Vulkan built-in shaders: embedded SPIR-V (GLSL sources not found)");
-                    return result;
-                }
-
-                struct Entry { const char* file; VulkanShaderStage stage; std::vector<uint32_t>* dst; };
-                const Entry entries[] = {
-                    {"forward_basic.vert",           VulkanShaderStage::Vertex,   &result.vert},
-                    {"forward_basic_instanced.vert", VulkanShaderStage::Vertex,   &result.instancedVert},
-                    {"forward_basic_sky.vert",       VulkanShaderStage::Vertex,   &result.skyVert},
-                    {"forward_basic_color.vert",     VulkanShaderStage::Vertex,   &result.colorVert},
-                    {"forward_basic_point.vert",     VulkanShaderStage::Vertex,   &result.pointVert},
-                    {"forward_basic.frag",           VulkanShaderStage::Fragment, &result.forwardFrag},
-                    {"shadow_vsm_moments.frag",      VulkanShaderStage::Fragment, &result.momentsFrag},
-                    {"vsm_blur.vert",                VulkanShaderStage::Vertex,   &result.blurVert},
-                    {"vsm_blur.frag",                VulkanShaderStage::Fragment, &result.blurFrag},
-                };
-                for (const auto& entry : entries) {
-                    const auto source = vulkanReadTextFile(root / entry.file);
-                    if (source.empty()) {
-                        spdlog::warn("Vulkan built-in shaders: '{}' unreadable — using embedded SPIR-V",
-                            entry.file);
-                        return RuntimeBuiltinSpirv{};
-                    }
-                    *entry.dst = vulkanCompileGlsl(source, entry.stage, entry.file);
-                    if (entry.dst->empty()) {
-                        spdlog::warn("Vulkan built-in shaders: '{}' failed to compile — using embedded SPIR-V",
-                            entry.file);
-                        return RuntimeBuiltinSpirv{};
-                    }
-                }
-                result.valid = true;
-                spdlog::info("Vulkan built-in shaders compiled at runtime from {}", root.string());
-                return result;
-            }();
-            return builtins;
-        }
-
         // Detects GLSL custom shader source (the engine's composed shader
         // variants are MSL, which no Vulkan compiler consumes).
         bool looksLikeGlsl(const std::string& source)
@@ -1155,14 +1057,12 @@ namespace visutwin::canvas
             vkCreateShaderModule(_device, &info, nullptr, &module);
             return module;
         };
-        const auto& rt = runtimeBuiltins();
-        if (rt.valid) {
-            _vsmBlurVertModule = createModule(rt.blurVert.data(), rt.blurVert.size());
-            _vsmBlurFragModule = createModule(rt.blurFrag.data(), rt.blurFrag.size());
-        } else {
-            _vsmBlurVertModule = createModule(vulkan_spirv::kVsmBlurVert, vulkan_spirv::kVsmBlurVertSize);
-            _vsmBlurFragModule = createModule(vulkan_spirv::kVsmBlurFrag, vulkan_spirv::kVsmBlurFragSize);
-        }
+        _vsmBlurVertModule = createModule(
+            vulkan_generated::kVsmBlurVert,
+            vulkan_generated::kVsmBlurVertWordCount);
+        _vsmBlurFragModule = createModule(
+            vulkan_generated::kVsmBlurFrag,
+            vulkan_generated::kVsmBlurFragWordCount);
     }
 
     VkPipeline VulkanGraphicsDevice::getVsmBlurPipeline(const VkFormat colorFormat, const VkFormat depthFormat)
@@ -2296,8 +2196,8 @@ namespace visutwin::canvas
 
         // Custom GLSL source: compile at runtime via shaderc. The single
         // source is compiled twice with VT_VERTEX_SHADER / VT_FRAGMENT_SHADER
-        // defines so authors can guard the stages with #ifdef; both stages
-        // must succeed or the shader falls back to the built-ins below.
+        // defines so authors can guard the stages with #ifdef. A failed custom
+        // shader is an error; it never mutates into an unrelated forward shader.
         if (!sourceCode.empty() && looksLikeGlsl(sourceCode) && vulkanShaderCompilerAvailable()) {
             auto vertSpv = vulkanCompileGlsl(sourceCode, VulkanShaderStage::Vertex,
                 definition.name + ".vert", {{"VT_VERTEX_SHADER", "1"}});
@@ -2310,59 +2210,47 @@ namespace visutwin::canvas
                     vertSpv.data(), vertSpv.size(),
                     fragSpv.data(), fragSpv.size());
             }
-            spdlog::warn("VulkanGraphicsDevice::createShader('{}'): custom GLSL failed to "
-                         "compile — using the built-in shader instead", definition.name);
+            spdlog::error(
+                "VulkanGraphicsDevice::createShader('{}'): custom GLSL failed",
+                definition.name);
+            return nullptr;
+        } else if (!sourceCode.empty() && looksLikeGlsl(sourceCode)) {
+            spdlog::error(
+                "VulkanGraphicsDevice::createShader('{}'): runtime custom GLSL "
+                "requires shaderc", definition.name);
+            return nullptr;
         } else if (!sourceCode.empty() && !looksLikeGlsl(sourceCode)) {
-            // FEATURE GAP: the engine's composed shader variants (and Metal
-            // ShaderMaterial sources) are MSL, which no Vulkan compiler
-            // consumes. Warn once per distinct shader name. Custom shaders CAN
-            // target Vulkan by providing GLSL (detected by "#version").
-            static std::unordered_set<std::string> warnedShaders;
-            if (warnedShaders.insert(definition.name).second) {
-                spdlog::warn("VulkanGraphicsDevice::createShader('{}'): MSL shader source is "
-                             "not supported on the Vulkan backend — using the built-in {} shader "
-                             "(provide GLSL starting with #version for runtime compilation)",
-                    definition.name, isShadowName ? "shadow (EVSM moments)" : "forward PBR");
+            // ProgramLibrary composes MSL for Metal, but the definition also
+            // carries the shared feature mask consumed by the build-time
+            // Vulkan module family. Arbitrary ShaderMaterial MSL is not a
+            // Vulkan program and must fail explicitly.
+            if (definition.name.rfind("program-", 0) != 0) {
+                spdlog::error(
+                    "VulkanGraphicsDevice::createShader('{}'): custom MSL "
+                    "cannot be used by Vulkan; provide GLSL", definition.name);
+                return nullptr;
             }
         }
 
-        // Built-in shader set: runtime-compiled from the GLSL sources when
-        // shaderc + files are available, embedded precompiled SPIR-V otherwise.
-        const auto& rt = runtimeBuiltins();
-        const auto pick = [&rt](const std::vector<uint32_t>& runtimeBlob,
-                                const uint32_t* embedded, const size_t embeddedSize)
-            -> std::pair<const uint32_t*, size_t> {
-            if (rt.valid && !runtimeBlob.empty()) {
-                return {runtimeBlob.data(), runtimeBlob.size()};
-            }
-            return {embedded, embeddedSize};
-        };
-
-        // Shadow programs ("program-shadow-*"): substitute the EVSM moments
-        // fragment. PCF shadow passes are depth-only and omit the fragment
-        // stage; VSM passes carry the RGBA16F moments color attachment, where
-        // running the full PBR fragment would write garbage moments.
-        const auto [vert, vertSize] = pick(rt.vert,
-            vulkan_spirv::kForwardBasicVert, vulkan_spirv::kForwardBasicVertSize);
-        const auto [frag, fragSize] = isShadowName
-            ? pick(rt.momentsFrag, vulkan_spirv::kShadowVsmMomentsFrag, vulkan_spirv::kShadowVsmMomentsFragSize)
-            : pick(rt.forwardFrag, vulkan_spirv::kForwardBasicFrag, vulkan_spirv::kForwardBasicFragSize);
-        const auto [inst, instSize] = pick(rt.instancedVert,
-            vulkan_spirv::kForwardBasicInstancedVert, vulkan_spirv::kForwardBasicInstancedVertSize);
-        const auto [sky, skySize] = pick(rt.skyVert,
-            vulkan_spirv::kForwardBasicSkyVert, vulkan_spirv::kForwardBasicSkyVertSize);
-        const auto [color, colorSize] = pick(rt.colorVert,
-            vulkan_spirv::kForwardBasicColorVert, vulkan_spirv::kForwardBasicColorVertSize);
-        const auto [point, pointSize] = pick(rt.pointVert,
-            vulkan_spirv::kForwardBasicPointVert, vulkan_spirv::kForwardBasicPointVertSize);
-
+        const uint32_t* fragment = isShadowName
+            ? vulkan_generated::kShadowVsmFrag
+            : vulkan_generated::kForwardFrag;
+        const size_t fragmentWords = isShadowName
+            ? vulkan_generated::kShadowVsmFragWordCount
+            : vulkan_generated::kForwardFragWordCount;
         return std::make_shared<VulkanShader>(this, definition,
-            vert, vertSize,
-            frag, fragSize,
-            inst, instSize,
-            sky, skySize,
-            color, colorSize,
-            point, pointSize);
+            vulkan_generated::kForwardVert,
+            vulkan_generated::kForwardVertWordCount,
+            fragment, fragmentWords,
+            vulkan_generated::kForwardInstancedVert,
+            vulkan_generated::kForwardInstancedVertWordCount,
+            vulkan_generated::kForwardSkyVert,
+            vulkan_generated::kForwardSkyVertWordCount,
+            vulkan_generated::kForwardColorVert,
+            vulkan_generated::kForwardColorVertWordCount,
+            vulkan_generated::kForwardPointVert,
+            vulkan_generated::kForwardPointVertWordCount,
+            !isShadowName);
     }
 
     std::unique_ptr<gpu::HardwareTexture> VulkanGraphicsDevice::createGPUTexture(Texture* texture)

@@ -171,6 +171,7 @@ namespace visutwin::canvas
                                                          bool dynamicBatch = false, bool skinning = false,
                                                          bool morphing = false) const;
         static std::string resolveProgramName(const ShaderVariantOptions& options);
+        static uint64_t makeFeatureMask(const ShaderVariantOptions& options);
         uint64_t makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;
         std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantKey, const Material* material = nullptr);
 

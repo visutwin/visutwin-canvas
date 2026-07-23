@@ -18,9 +18,6 @@ namespace visutwin::canvas
     class VulkanShader : public Shader
     {
     public:
-        VulkanShader(GraphicsDevice* device, const ShaderDefinition& definition,
-            const std::string& sourceCode = "");
-
         // Construct from precompiled SPIR-V arrays.  The instanced and skybox
         // vertex stages are optional — when present, the pipeline selects them
         // for instanced draws / skybox materials respectively.
@@ -30,7 +27,8 @@ namespace visutwin::canvas
             const uint32_t* instancedVertSpirv = nullptr, size_t instancedVertWordCount = 0,
             const uint32_t* skyVertSpirv = nullptr, size_t skyVertWordCount = 0,
             const uint32_t* colorVertSpirv = nullptr, size_t colorVertWordCount = 0,
-            const uint32_t* pointVertSpirv = nullptr, size_t pointVertWordCount = 0);
+            const uint32_t* pointVertSpirv = nullptr, size_t pointVertWordCount = 0,
+            bool specializeFeatures = false);
 
         ~VulkanShader() override;
 
@@ -43,6 +41,10 @@ namespace visutwin::canvas
         [[nodiscard]] VkShaderModule pointVertexModule() const { return _pointVertexModule; }
         [[nodiscard]] VkShaderModule fragmentModule() const { return _fragmentModule; }
         [[nodiscard]] VkShaderModule computeModule() const { return _computeModule; }
+        [[nodiscard]] uint64_t featureMask() const { return _featureMask; }
+        [[nodiscard]] bool specializesFeatures() const {
+            return _specializeFeatures;
+        }
 
     private:
         VkShaderModule createModule(const uint32_t* spirv, size_t wordCount);
@@ -58,6 +60,8 @@ namespace visutwin::canvas
         VkShaderModule _pointVertexModule = VK_NULL_HANDLE;
         VkShaderModule _fragmentModule = VK_NULL_HANDLE;
         VkShaderModule _computeModule = VK_NULL_HANDLE;
+        uint64_t _featureMask = 0;
+        bool _specializeFeatures = false;
     };
 }
 

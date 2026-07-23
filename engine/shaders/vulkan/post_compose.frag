@@ -21,7 +21,7 @@ layout(set = 0, binding = 4) uniform ComposeParams {
 
 layout(location = 0) out vec4 outColor;
 
-// ── Tonemapping (same curves as forward_basic.frag / common.metal) ──
+// ── Tonemapping (same curves as forward.frag / common.metal) ──
 vec3 toneMapAcesFit(vec3 x) {
     const float tA = 2.51, tB = 0.03, tC = 2.43, tD = 0.59, tE = 0.14;
     return (x * (tA * x + tB)) / (x * (tC * x + tD) + tE);

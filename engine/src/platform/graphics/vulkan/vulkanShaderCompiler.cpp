@@ -6,11 +6,6 @@
 
 #include "vulkanShaderCompiler.h"
 
-#include <array>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-
 #include "spdlog/spdlog.h"
 
 #ifdef VISUTWIN_HAS_SHADERC
@@ -19,30 +14,6 @@
 
 namespace visutwin::canvas
 {
-    std::string vulkanReadShaderSourceFile(const std::string& filename)
-    {
-        auto sourceRoot = std::filesystem::path(__FILE__).parent_path();
-        for (int i = 0; i < 5; ++i) {
-            sourceRoot = sourceRoot.parent_path();
-        }
-        const auto cwd = std::filesystem::current_path();
-        const std::array<std::filesystem::path, 4> roots = {
-            sourceRoot / "engine/shaders/vulkan",
-            cwd / "engine/shaders/vulkan",
-            cwd.parent_path() / "engine/shaders/vulkan",
-            cwd.parent_path().parent_path() / "engine/shaders/vulkan",
-        };
-        for (const auto& root : roots) {
-            std::ifstream in(root / filename, std::ios::in | std::ios::binary);
-            if (in) {
-                std::ostringstream buffer;
-                buffer << in.rdbuf();
-                return buffer.str();
-            }
-        }
-        return {};
-    }
-
 #ifdef VISUTWIN_HAS_SHADERC
 
     bool vulkanShaderCompilerAvailable()

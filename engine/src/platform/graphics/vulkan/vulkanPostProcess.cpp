@@ -18,10 +18,10 @@
 #include <cstring>
 
 #include "vulkanRenderTarget.h"
-#include "vulkanShaderCompiler.h"
 #include "vulkanTexture.h"
 #include "vulkanUniformRingBuffer.h"
 #include "vulkanUtils.h"
+#include "vulkan/vulkan_shader_bundle.h"
 #include "platform/graphics/texture.h"
 #include "spdlog/spdlog.h"
 
@@ -37,12 +37,6 @@ namespace visutwin::canvas
             return false;
         }
         _postResourcesAttempted = true;
-
-        if (!vulkanShaderCompilerAvailable()) {
-            spdlog::warn("Vulkan post-processing requires runtime shader compilation "
-                         "(build with shaderc) — post passes are disabled");
-            return false;
-        }
 
         // Bindings 0-3: pass inputs (scene/bloom/ssao/depth etc. per pass).
         std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
@@ -69,20 +63,13 @@ namespace visutwin::canvas
         layoutInfo.pSetLayouts = &_postSetLayout;
         vkCreatePipelineLayout(_device, &layoutInfo, nullptr, &_postPipelineLayout);
 
-        // Shared fullscreen-triangle vertex stage (same source the VSM blur uses).
-        const auto vertSource = std::string(
-            "#version 450\n"
-            "void main() {\n"
-            "    vec2 pos = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));\n"
-            "    gl_Position = vec4(pos * 2.0 - 1.0, 0.0, 1.0);\n"
-            "}\n");
-        const auto vertSpv = vulkanCompileGlsl(vertSource, VulkanShaderStage::Vertex, "post_fullscreen.vert");
-        if (!vertSpv.empty()) {
-            VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-            info.codeSize = vertSpv.size() * sizeof(uint32_t);
-            info.pCode = vertSpv.data();
-            vkCreateShaderModule(_device, &info, nullptr, &_postVertModule);
-        }
+        VkShaderModuleCreateInfo vertexInfo{
+            VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        vertexInfo.codeSize =
+            sizeof(vulkan_generated::kPostFullscreenVert);
+        vertexInfo.pCode = vulkan_generated::kPostFullscreenVert;
+        vkCreateShaderModule(
+            _device, &vertexInfo, nullptr, &_postVertModule);
 
         // Linear clamp-to-edge sampler for all post inputs (kernel taps at the
         // frame border must not wrap — mirrors the Metal _postSampler).
@@ -106,28 +93,31 @@ namespace visutwin::canvas
         }
         _postFragCompileAttempted[index] = true;
 
-        const char* file = nullptr;
+        const uint32_t* words = nullptr;
+        size_t wordCount = 0;
         switch (kind) {
-        case PostPassKind::Compose:   file = "post_compose.frag";    break;
-        case PostPassKind::Ssao:      file = "post_ssao.frag";       break;
-        case PostPassKind::DepthBlur: file = "post_depth_blur.frag"; break;
-        case PostPassKind::Taa:       file = "post_taa.frag";        break;
+        case PostPassKind::Compose:
+            words = vulkan_generated::kPostComposeFrag;
+            wordCount = vulkan_generated::kPostComposeFragWordCount;
+            break;
+        case PostPassKind::Ssao:
+            words = vulkan_generated::kPostSsaoFrag;
+            wordCount = vulkan_generated::kPostSsaoFragWordCount;
+            break;
+        case PostPassKind::DepthBlur:
+            words = vulkan_generated::kPostDepthBlurFrag;
+            wordCount = vulkan_generated::kPostDepthBlurFragWordCount;
+            break;
+        case PostPassKind::Taa:
+            words = vulkan_generated::kPostTaaFrag;
+            wordCount = vulkan_generated::kPostTaaFragWordCount;
+            break;
         default:                      return VK_NULL_HANDLE;
-        }
-        const auto source = vulkanReadShaderSourceFile(file);
-        if (source.empty()) {
-            spdlog::warn("Vulkan post pass '{}' source not found — pass disabled", file);
-            return VK_NULL_HANDLE;
-        }
-        const auto spv = vulkanCompileGlsl(source, VulkanShaderStage::Fragment, file);
-        if (spv.empty()) {
-            spdlog::warn("Vulkan post pass '{}' failed to compile — pass disabled", file);
-            return VK_NULL_HANDLE;
         }
 
         VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-        info.codeSize = spv.size() * sizeof(uint32_t);
-        info.pCode = spv.data();
+        info.codeSize = wordCount * sizeof(uint32_t);
+        info.pCode = words;
         vkCreateShaderModule(_device, &info, nullptr, &_postFragModules[index]);
         return _postFragModules[index];
     }
