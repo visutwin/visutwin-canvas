@@ -26,6 +26,12 @@ namespace visutwin::canvas
         void* swapChain{nullptr};
 
         SDL_Window* window{nullptr};
+
+#ifdef VISUTWIN_DEBUG_GPU_VALIDATION
+        bool enableValidation{true};
+#else
+        bool enableValidation{false};
+#endif
     };
 
     std::unique_ptr<GraphicsDevice> createGraphicsDevice(const GraphicsDeviceOptions& options);

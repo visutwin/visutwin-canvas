@@ -12,6 +12,7 @@
 #include <vk_mem_alloc.h>
 #include <SDL3/SDL.h>
 
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -83,6 +84,10 @@ namespace visutwin::canvas
         [[nodiscard]] VmaAllocator vmaAllocator() const { return _vmaAllocator; }
         [[nodiscard]] VkFormat swapchainFormat() const { return _swapchainFormat; }
         [[nodiscard]] VkFormat depthFormat() const { return _depthFormat; }
+        [[nodiscard]] bool validationEnabled() const { return _validationEnabled; }
+        [[nodiscard]] std::shared_ptr<const std::atomic_uint32_t> validationErrorCounter() const {
+            return _validationErrorCount;
+        }
         [[nodiscard]] VkDescriptorPool descriptorPool() const {
             return _frames[_frameIndex].descriptorPool;
         }
@@ -151,6 +156,9 @@ namespace visutwin::canvas
         void applyDepthBias();
 
         SDL_Window* _window = nullptr;
+        bool _validationEnabled = false;
+        std::shared_ptr<std::atomic_uint32_t> _validationErrorCount =
+            std::make_shared<std::atomic_uint32_t>(0);
 
         // ── Vulkan core objects ──────────────────────────────────────────
         VkInstance _instance = VK_NULL_HANDLE;

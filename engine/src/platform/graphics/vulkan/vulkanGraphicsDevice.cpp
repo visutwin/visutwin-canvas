@@ -143,6 +143,30 @@ namespace visutwin::canvas
             return firstChar != std::string::npos &&
                 source.compare(firstChar, 8, "#version") == 0;
         }
+
+        VKAPI_ATTR VkBool32 VKAPI_CALL vulkanValidationCallback(
+            const VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+            const VkDebugUtilsMessageTypeFlagsEXT,
+            const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
+            void* userData)
+        {
+            const char* message = callbackData && callbackData->pMessage
+                ? callbackData->pMessage
+                : "Vulkan validation emitted an empty message";
+
+            if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+                if (userData) {
+                    static_cast<std::atomic_uint32_t*>(userData)->fetch_add(
+                        1, std::memory_order_relaxed);
+                }
+                spdlog::error("Vulkan validation: {}", message);
+            } else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+                spdlog::warn("Vulkan validation: {}", message);
+            } else {
+                spdlog::debug("Vulkan validation: {}", message);
+            }
+            return VK_FALSE;
+        }
     }
 }
 
@@ -156,6 +180,7 @@ namespace visutwin::canvas
     VulkanGraphicsDevice::VulkanGraphicsDevice(const GraphicsDeviceOptions& options)
     {
         _window = options.window;
+        _validationEnabled = options.enableValidation;
 
         int w = 0, h = 0;
         SDL_GetWindowSize(_window, &w, &h);
@@ -484,9 +509,20 @@ namespace visutwin::canvas
         vkb::InstanceBuilder builder;
         builder.set_app_name("VisuTwin Canvas")
                .set_engine_name("VisuTwin")
-               .require_api_version(1, 3, 0)
-               .request_validation_layers(true)
-               .use_default_debug_messenger();
+               .require_api_version(1, 3, 0);
+
+        if (_validationEnabled) {
+            builder.enable_validation_layers()
+                   .set_debug_callback(vulkanValidationCallback)
+                   .set_debug_callback_user_data_pointer(_validationErrorCount.get())
+                   .set_debug_messenger_severity(
+                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+                   .set_debug_messenger_type(
+                       VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                       VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                       VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT);
+        }
 
         auto result = builder.build();
         if (!result) {
@@ -496,6 +532,9 @@ namespace visutwin::canvas
         auto vkbInstance = result.value();
         _instance = vkbInstance.instance;
         _debugMessenger = vkbInstance.debug_messenger;
+        if (_validationEnabled) {
+            spdlog::info("Vulkan validation enabled");
+        }
 
         if (!SDL_Vulkan_CreateSurface(window, _instance, nullptr, &_surface)) {
             spdlog::error("Failed to create Vulkan surface");

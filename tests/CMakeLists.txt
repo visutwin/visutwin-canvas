@@ -13,3 +13,17 @@ add_executable(visutwin-stencil-parameters-tests
 target_link_libraries(visutwin-stencil-parameters-tests PRIVATE visutwin-canvas)
 
 add_test(NAME stencil-parameters COMMAND visutwin-stencil-parameters-tests)
+
+if(VISUTWIN_BACKEND_VULKAN)
+    add_executable(visutwin-vulkan-smoke
+        vulkanSmoke.cpp
+    )
+
+    target_link_libraries(visutwin-vulkan-smoke PRIVATE visutwin-canvas)
+
+    add_test(NAME vulkan-validation-smoke COMMAND visutwin-vulkan-smoke)
+    set_tests_properties(vulkan-validation-smoke PROPERTIES
+        LABELS "vulkan;smoke"
+        TIMEOUT 60
+    )
+endif()

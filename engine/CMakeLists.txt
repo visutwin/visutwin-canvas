@@ -201,7 +201,9 @@ target_link_libraries(visutwin-canvas
         implot::implot
 )
 
-target_compile_definitions(visutwin-canvas PUBLIC)
+target_compile_definitions(visutwin-canvas PUBLIC
+    $<$<CONFIG:Debug>:VISUTWIN_DEBUG_GPU_VALIDATION>
+)
 
 # ── Metal backend linking ─────────────────────────────────────────────
 if(VISUTWIN_BACKEND_METAL)

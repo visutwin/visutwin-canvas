@@ -88,6 +88,15 @@ The backends can also be selected explicitly with
 `VISUTWIN_BACKEND_METAL=ON|OFF` and `VISUTWIN_BACKEND_VULKAN=ON|OFF`;
 at least one backend must be enabled.
 
+Debug builds enable Vulkan validation by default. The Vulkan preset registers
+`vulkan-validation-smoke` with CTest; any validation-layer error fails the test:
+
+```bash
+cmake --preset vulkan
+cmake --build build-vulkan --target visutwin-vulkan-smoke
+ctest --test-dir build-vulkan -R vulkan-validation-smoke --output-on-failure
+```
+
 ### Dependencies
 
 All dependencies are managed via vcpkg (see `vcpkg.json`):
