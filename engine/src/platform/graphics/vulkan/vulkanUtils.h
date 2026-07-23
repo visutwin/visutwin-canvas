@@ -7,7 +7,6 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
-#include <functional>
 #include <vulkan/vulkan.h>
 
 #include "platform/graphics/constants.h"
@@ -17,10 +16,6 @@
 namespace visutwin::canvas
 {
     class VulkanGraphicsDevice;
-
-    // Execute a one-shot command buffer and block until GPU completes.
-    void vulkanImmediateSubmit(VulkanGraphicsDevice* device,
-        const std::function<void(VkCommandBuffer)>& func);
 
     // Insert an image layout transition barrier.
     //
@@ -39,6 +34,14 @@ namespace visutwin::canvas
     // Picks a device-supported depth-stencil format: D24_UNORM_S8_UINT when
     // available, else D32_SFLOAT_S8_UINT (MoltenVK on Apple GPUs has no D24S8).
     VkFormat vulkanSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice);
+    VkFormat vulkanSupportedDepthFormat(VkPhysicalDevice physicalDevice);
+
+    bool vulkanFormatSupportsImage(VkPhysicalDevice physicalDevice, VkFormat format,
+        VkImageType imageType, VkImageTiling tiling, VkImageUsageFlags usage,
+        VkImageCreateFlags flags, VkFormatFeatureFlags requiredFeatures,
+        VkExtent3D extent = {1, 1, 1}, uint32_t mipLevels = 1,
+        uint32_t arrayLayers = 1,
+        VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
 
     // Enum mapping functions.
     VkFormat vulkanMapPixelFormat(PixelFormat format);

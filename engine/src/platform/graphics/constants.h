@@ -33,6 +33,7 @@ namespace visutwin::canvas
         PIXELFORMAT_RGB8 = 6,           // 24-bit RGB (8-bits for a red channel, 8 for green and 8 for blue)
         PIXELFORMAT_RGBA8 = 7,          // 32-bit RGBA (8-bits for a red channel, 8 for green, 8 for blue with 8-bit alpha)
         PIXELFORMAT_DXT1 = 8,           // Block-compressed BC1: 4x4 blocks, 8 bytes/block (RGB + 1-bit alpha)
+        PIXELFORMAT_DXT3 = 9,           // Block-compressed BC2: 4x4 blocks, 16 bytes/block (RGBA)
         PIXELFORMAT_DXT5 = 10,          // Block-compressed BC3: 4x4 blocks, 16 bytes/block (RGBA)
         PIXELFORMAT_RGBA16F = 12,       // 16-bit floating point RGBA (16-bit float for each red, green, blue and alpha channel)
         PIXELFORMAT_RGBA32F = 14,       // 32-bit floating point RGBA (32-bit float for each red, green, blue and alpha channel)
@@ -40,8 +41,16 @@ namespace visutwin::canvas
         PIXELFORMAT_DEPTHSTENCIL = 19,  // A readable depth/stencil buffer format
         PIXELFORMAT_DEPTH = 16,         // A readable depth buffer format
         PIXELFORMAT_ASTC_4x4 = 28,      // Block-compressed ASTC 4x4: 16 bytes/block (RGBA) — native on Apple GPUs
+        PIXELFORMAT_ASTC_5x5 = 32,      // Block-compressed ASTC 5x5
+        PIXELFORMAT_ASTC_6x6 = 35,      // Block-compressed ASTC 6x6
+        PIXELFORMAT_ASTC_8x8 = 38,      // Block-compressed ASTC 8x8
+        PIXELFORMAT_ASTC_10x10 = 40,    // Block-compressed ASTC 10x10
+        PIXELFORMAT_ASTC_12x12 = 41,    // Block-compressed ASTC 12x12
         PIXELFORMAT_R8 = 52,            // 8-bit per-channel (R) format
         PIXELFORMAT_RG8 = 53,           // 8-bit per-channel (RG) format
+        PIXELFORMAT_BC4 = 64,           // Block-compressed BC4: one channel
+        PIXELFORMAT_BC5 = 65,           // Block-compressed BC5: two channels
+        PIXELFORMAT_BC6H = 66,          // Block-compressed BC6H: unsigned HDR RGB
         PIXELFORMAT_BC7 = 67,           // Block-compressed BC7: 4x4 blocks, 16 bytes/block (high-quality RGBA)
         PIXELFORMAT_DEPTH16 = 69        // A 16-bit depth buffer format
     };
@@ -89,6 +98,12 @@ namespace visutwin::canvas
 
     bool isIntegerPixelFormat(PixelFormat format);
 
-    /// Bytes per 4x4 block for compressed formats (0 for uncompressed).
+    uint32_t pixelFormatBytesPerPixel(PixelFormat format);
+
+    /// Bytes per compressed block (0 for uncompressed).
     uint32_t compressedPixelFormatBlockSize(PixelFormat format);
+
+    uint32_t compressedPixelFormatBlockWidth(PixelFormat format);
+
+    uint32_t compressedPixelFormatBlockHeight(PixelFormat format);
 }

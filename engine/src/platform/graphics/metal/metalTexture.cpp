@@ -42,10 +42,28 @@ namespace visutwin::canvas::gpu
             // linearize LDR texture samples themselves (matching the RGBA8Unorm path).
             case PixelFormat::PIXELFORMAT_ASTC_4x4:
                 return MTL::PixelFormatASTC_4x4_LDR;
+            case PixelFormat::PIXELFORMAT_ASTC_5x5:
+                return MTL::PixelFormatASTC_5x5_LDR;
+            case PixelFormat::PIXELFORMAT_ASTC_6x6:
+                return MTL::PixelFormatASTC_6x6_LDR;
+            case PixelFormat::PIXELFORMAT_ASTC_8x8:
+                return MTL::PixelFormatASTC_8x8_LDR;
+            case PixelFormat::PIXELFORMAT_ASTC_10x10:
+                return MTL::PixelFormatASTC_10x10_LDR;
+            case PixelFormat::PIXELFORMAT_ASTC_12x12:
+                return MTL::PixelFormatASTC_12x12_LDR;
+            case PixelFormat::PIXELFORMAT_BC4:
+                return MTL::PixelFormatBC4_RUnorm;
+            case PixelFormat::PIXELFORMAT_BC5:
+                return MTL::PixelFormatBC5_RGUnorm;
+            case PixelFormat::PIXELFORMAT_BC6H:
+                return MTL::PixelFormatBC6H_RGBUfloat;
             case PixelFormat::PIXELFORMAT_BC7:
                 return MTL::PixelFormatBC7_RGBAUnorm;
             case PixelFormat::PIXELFORMAT_DXT1:
                 return MTL::PixelFormatBC1_RGBA;
+            case PixelFormat::PIXELFORMAT_DXT3:
+                return MTL::PixelFormatBC2_RGBA;
             case PixelFormat::PIXELFORMAT_DXT5:
                 return MTL::PixelFormatBC3_RGBA;
             default:
@@ -284,11 +302,17 @@ namespace visutwin::canvas::gpu
         // For cubemaps, 'index' is the face/slice index (0-5)
         const NS::UInteger slice = _texture->isCubemap() ? index : 0;
 
-        // Block-compressed upload: bytesPerRow spans a row of 4x4 blocks.
+        // Block-compressed upload: bytesPerRow spans one row of blocks.
         if (const uint32_t blockSize = compressedPixelFormatBlockSize(_texture->format());
             blockSize > 0) {
-            const uint32_t blocksWide = (mipWidth + 3u) / 4u;
-            const uint32_t blocksHigh = (mipHeight + 3u) / 4u;
+            const uint32_t blockWidth =
+                compressedPixelFormatBlockWidth(_texture->format());
+            const uint32_t blockHeight =
+                compressedPixelFormatBlockHeight(_texture->format());
+            const uint32_t blocksWide =
+                (mipWidth + blockWidth - 1u) / blockWidth;
+            const uint32_t blocksHigh =
+                (mipHeight + blockHeight - 1u) / blockHeight;
             const size_t expectedSize = static_cast<size_t>(blocksWide) * blocksHigh * blockSize;
             if (imageDataSize > 0 && imageDataSize < expectedSize) {
                 spdlog::warn("Compressed texture upload skipped: level data size {} < expected {}",

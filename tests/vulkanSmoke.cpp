@@ -3,6 +3,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -25,6 +26,8 @@
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
 #include "platform/graphics/vulkan/vulkanGraphicsDevice.h"
+#include "platform/graphics/vulkan/vulkanTexture.h"
+#include "platform/graphics/vulkan/vulkanUtils.h"
 #include "scene/mesh.h"
 #include "spdlog/spdlog.h"
 
@@ -127,6 +130,119 @@ int main()
             auto pointBuffer = device->createVertexBuffer(pointFormat, 1, pointOptions);
             auto shader = device->createShader(ShaderDefinition{.name = "vulkan-smoke"});
 
+            const std::array compressedFormats = {
+                PixelFormat::PIXELFORMAT_DXT1,
+                PixelFormat::PIXELFORMAT_DXT3,
+                PixelFormat::PIXELFORMAT_DXT5,
+                PixelFormat::PIXELFORMAT_BC4,
+                PixelFormat::PIXELFORMAT_BC5,
+                PixelFormat::PIXELFORMAT_BC6H,
+                PixelFormat::PIXELFORMAT_BC7,
+                PixelFormat::PIXELFORMAT_ASTC_4x4,
+                PixelFormat::PIXELFORMAT_ASTC_5x5,
+                PixelFormat::PIXELFORMAT_ASTC_6x6,
+                PixelFormat::PIXELFORMAT_ASTC_8x8,
+                PixelFormat::PIXELFORMAT_ASTC_10x10,
+                PixelFormat::PIXELFORMAT_ASTC_12x12,
+            };
+            for (const PixelFormat format : compressedFormats) {
+                if (vulkanMapPixelFormat(format) == VK_FORMAT_UNDEFINED) {
+                    spdlog::error(
+                        "Vulkan smoke: compressed format {} has no mapping",
+                        static_cast<uint32_t>(format));
+                    result = 1;
+                }
+            }
+            std::unique_ptr<Texture> compressedTexture;
+            for (const PixelFormat format : compressedFormats) {
+                const VkFormat vkFormat = vulkanMapPixelFormat(format);
+                if (!vulkanFormatSupportsImage(device->physicalDevice(), vkFormat,
+                        VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+                        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                        0, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
+                    continue;
+                }
+                TextureOptions compressedOptions{};
+                compressedOptions.name = "vulkan-smoke-compressed";
+                compressedOptions.width = 8;
+                compressedOptions.height = 8;
+                compressedOptions.format = format;
+                compressedOptions.mipmaps = false;
+                compressedTexture =
+                    std::make_unique<Texture>(device.get(), compressedOptions);
+                const uint32_t blocksWide =
+                    (8 + compressedPixelFormatBlockWidth(format) - 1) /
+                    compressedPixelFormatBlockWidth(format);
+                const uint32_t blocksHigh =
+                    (8 + compressedPixelFormatBlockHeight(format) - 1) /
+                    compressedPixelFormatBlockHeight(format);
+                std::vector<uint8_t> blocks(
+                    static_cast<size_t>(blocksWide) * blocksHigh *
+                    compressedPixelFormatBlockSize(format), 0);
+                compressedTexture->setLevelData(
+                    0, blocks.data(), blocks.size());
+                compressedTexture->upload();
+                break;
+            }
+            if (!compressedTexture) {
+                spdlog::warn(
+                    "Vulkan smoke: device exposes no tested ASTC/BC sampled format");
+            }
+
+            TextureOptions explicitMipOptions{};
+            explicitMipOptions.name = "vulkan-smoke-explicit-mips";
+            explicitMipOptions.width = 8;
+            explicitMipOptions.height = 8;
+            explicitMipOptions.numLevels = 3;
+            explicitMipOptions.mipmaps = true;
+            auto explicitMips =
+                std::make_unique<Texture>(device.get(), explicitMipOptions);
+            for (uint32_t mip = 0; mip < 3; ++mip) {
+                const uint32_t dimension = std::max(8u >> mip, 1u);
+                std::vector<uint8_t> mipData(
+                    static_cast<size_t>(dimension) * dimension * 4,
+                    static_cast<uint8_t>(64 + mip * 48));
+                explicitMips->setLevelData(
+                    mip, mipData.data(), mipData.size());
+            }
+            explicitMips->upload();
+
+            // Upload every cubemap face in one batch, generate its mip chain,
+            // then render into one nonzero (face, mip) subresource.
+            TextureOptions cubeOptions{};
+            cubeOptions.name = "vulkan-smoke-cube";
+            cubeOptions.width = 8;
+            cubeOptions.height = 8;
+            cubeOptions.cubemap = true;
+            cubeOptions.mipmaps = true;
+            auto cube = std::make_unique<Texture>(device.get(), cubeOptions);
+            for (uint32_t face = 0; face < 6; ++face) {
+                std::array<uint8_t, 8 * 8 * 4> faceData{};
+                for (size_t i = 0; i < faceData.size(); i += 4) {
+                    faceData[i + 0] = static_cast<uint8_t>(32 * face);
+                    faceData[i + 1] = static_cast<uint8_t>(255 - 24 * face);
+                    faceData[i + 2] = 128;
+                    faceData[i + 3] = 255;
+                }
+                cube->setLevelData(0, faceData.data(), faceData.size(), face);
+            }
+            cube->upload();
+            auto* vkCube = dynamic_cast<gpu::VulkanTexture*>(cube->impl());
+            if (!vkCube || vkCube->arrayLayers() != 6 || vkCube->mipLevels() != 4) {
+                spdlog::error("Vulkan smoke: cubemap allocation is incomplete");
+                result = 1;
+            }
+
+            RenderTargetOptions cubeTargetOptions{};
+            cubeTargetOptions.graphicsDevice = device.get();
+            cubeTargetOptions.colorBuffer = cube.get();
+            cubeTargetOptions.face = 3;
+            cubeTargetOptions.mipLevel = 1;
+            cubeTargetOptions.name = "vulkan-smoke-cube-face-mip";
+            auto cubeTarget = device->createRenderTarget(cubeTargetOptions);
+            RenderPass cubePass(sharedDevice);
+            cubePass.init(cubeTarget);
+
             Primitive triangle{};
             triangle.type = PRIMITIVE_TRIANGLES;
             triangle.count = 3;
@@ -227,6 +343,11 @@ int main()
             device->setStencilState();
             device->draw(triangle);
             device->endRenderPass(&depthPass);
+            device->frameEnd();
+
+            device->frameStart();
+            device->startRenderPass(&cubePass);
+            device->endRenderPass(&cubePass);
             device->frameEnd();
         }
 

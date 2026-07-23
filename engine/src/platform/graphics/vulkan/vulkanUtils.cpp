@@ -11,40 +11,6 @@
 
 namespace visutwin::canvas
 {
-    void vulkanImmediateSubmit(VulkanGraphicsDevice* device,
-        const std::function<void(VkCommandBuffer)>& func)
-    {
-        VkDevice vk = device->device();
-        VkCommandPool pool = device->uploadCommandPool();
-
-        VkCommandBufferAllocateInfo allocInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-        allocInfo.commandPool = pool;
-        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = 1;
-
-        VkCommandBuffer cmd;
-        vkAllocateCommandBuffers(vk, &allocInfo, &cmd);
-
-        VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmd, &beginInfo);
-
-        func(cmd);
-
-        vkEndCommandBuffer(cmd);
-
-        VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmd;
-
-        VkFence fence = device->uploadFence();
-        vkQueueSubmit(device->graphicsQueue(), 1, &submitInfo, fence);
-        vkWaitForFences(vk, 1, &fence, VK_TRUE, UINT64_MAX);
-        vkResetFences(vk, 1, &fence);
-
-        vkFreeCommandBuffers(vk, pool, 1, &cmd);
-    }
-
     void vulkanTransitionImageLayout(VkCommandBuffer cmd, VkImage image,
         VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspect,
         uint32_t baseMipLevel, uint32_t levelCount,
@@ -158,6 +124,9 @@ namespace visutwin::canvas
         // barely supported by desktop drivers anyway.
         case PixelFormat::PIXELFORMAT_RGB8:         return VK_FORMAT_R8G8B8A8_UNORM;
         case PixelFormat::PIXELFORMAT_RGBA8:        return VK_FORMAT_R8G8B8A8_UNORM;
+        case PixelFormat::PIXELFORMAT_DXT1:         return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_DXT3:         return VK_FORMAT_BC2_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_DXT5:         return VK_FORMAT_BC3_UNORM_BLOCK;
         case PixelFormat::PIXELFORMAT_RGBA16F:      return VK_FORMAT_R16G16B16A16_SFLOAT;
         case PixelFormat::PIXELFORMAT_RGBA32F:      return VK_FORMAT_R32G32B32A32_SFLOAT;
         case PixelFormat::PIXELFORMAT_R32F:         return VK_FORMAT_R32_SFLOAT;
@@ -166,8 +135,51 @@ namespace visutwin::canvas
         case PixelFormat::PIXELFORMAT_DEPTHSTENCIL: return VK_FORMAT_D24_UNORM_S8_UINT;
         case PixelFormat::PIXELFORMAT_R8:           return VK_FORMAT_R8_UNORM;
         case PixelFormat::PIXELFORMAT_RG8:          return VK_FORMAT_R8G8_UNORM;
-        default:                                    return VK_FORMAT_R8G8B8A8_UNORM;
+        case PixelFormat::PIXELFORMAT_ASTC_4x4:     return VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_ASTC_5x5:     return VK_FORMAT_ASTC_5x5_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_ASTC_6x6:     return VK_FORMAT_ASTC_6x6_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_ASTC_8x8:     return VK_FORMAT_ASTC_8x8_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_ASTC_10x10:   return VK_FORMAT_ASTC_10x10_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_ASTC_12x12:   return VK_FORMAT_ASTC_12x12_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_BC4:          return VK_FORMAT_BC4_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_BC5:          return VK_FORMAT_BC5_UNORM_BLOCK;
+        case PixelFormat::PIXELFORMAT_BC6H:         return VK_FORMAT_BC6H_UFLOAT_BLOCK;
+        case PixelFormat::PIXELFORMAT_BC7:          return VK_FORMAT_BC7_UNORM_BLOCK;
+        default:                                    return VK_FORMAT_UNDEFINED;
         }
+    }
+
+    bool vulkanFormatSupportsImage(const VkPhysicalDevice physicalDevice,
+        const VkFormat format, const VkImageType imageType,
+        const VkImageTiling tiling, const VkImageUsageFlags usage,
+        const VkImageCreateFlags flags, const VkFormatFeatureFlags requiredFeatures,
+        const VkExtent3D extent, const uint32_t mipLevels,
+        const uint32_t arrayLayers, const VkSampleCountFlagBits samples)
+    {
+        if (format == VK_FORMAT_UNDEFINED) {
+            return false;
+        }
+
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &properties);
+        const VkFormatFeatureFlags available = tiling == VK_IMAGE_TILING_OPTIMAL
+            ? properties.optimalTilingFeatures : properties.linearTilingFeatures;
+        if ((available & requiredFeatures) != requiredFeatures) {
+            return false;
+        }
+
+        VkImageFormatProperties imageProperties{};
+        if (vkGetPhysicalDeviceImageFormatProperties(
+            physicalDevice, format, imageType, tiling, usage, flags,
+            &imageProperties) != VK_SUCCESS) {
+            return false;
+        }
+        return extent.width <= imageProperties.maxExtent.width &&
+               extent.height <= imageProperties.maxExtent.height &&
+               extent.depth <= imageProperties.maxExtent.depth &&
+               mipLevels <= imageProperties.maxMipLevels &&
+               arrayLayers <= imageProperties.maxArrayLayers &&
+               (imageProperties.sampleCounts & samples) != 0;
     }
 
     VkFormat vulkanSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice)
@@ -179,7 +191,20 @@ namespace visutwin::canvas
                 return format;
             }
         }
-        return VK_FORMAT_D32_SFLOAT_S8_UINT;
+        return VK_FORMAT_UNDEFINED;
+    }
+
+    VkFormat vulkanSupportedDepthFormat(const VkPhysicalDevice physicalDevice)
+    {
+        for (const VkFormat format : {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D16_UNORM}) {
+            VkFormatProperties props{};
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+            if (props.optimalTilingFeatures &
+                VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+                return format;
+            }
+        }
+        return VK_FORMAT_UNDEFINED;
     }
 
     VkFilter vulkanMapFilterMode(FilterMode mode)

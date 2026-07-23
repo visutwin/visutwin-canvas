@@ -83,25 +83,26 @@ namespace visutwin::canvas
     }
 
     void Texture::clearLevels() {
-        if (_cubemap) {
-            _levels.resize(1);
-            _levels[0].resize(6, nullptr);
-            _levelDataSizes.resize(1);
-            _levelDataSizes[0].resize(6, 0);
-            _levelStorage.resize(1);
-            _levelStorage[0].resize(6);
-            _levelsUpdated.resize(1);
-            _levelsUpdated[0].resize(6, true);
-        } else {
-            _levels.resize(1);
-            _levels[0].resize(1, nullptr);
-            _levelDataSizes.resize(1);
-            _levelDataSizes[0].resize(1, 0);
-            _levelStorage.resize(1);
-            _levelStorage[0].resize(1);
-            _levelsUpdated.resize(1);
-            _levelsUpdated[0].resize(1, true);
+        const uint32_t faceCount = _cubemap ? 6u : 1u;
+        _levels.assign(faceCount, std::vector<void*>(1, nullptr));
+        _levelDataSizes.assign(faceCount, std::vector<size_t>(1, 0));
+        _levelStorage.assign(
+            faceCount, std::vector<std::vector<uint8_t>>(1));
+        _levelsUpdated.assign(faceCount, std::vector<bool>(1, true));
+    }
+
+    void Texture::dirtyAll() {
+        const uint32_t faceCount = _cubemap ? 6u : 1u;
+        _levelsUpdated.resize(faceCount);
+        for (auto& faceLevels : _levelsUpdated) {
+            faceLevels.resize(std::max<size_t>(faceLevels.size(), 1), true);
         }
+
+        _needsUpload = true;
+        _needsMipmapsUpload = _mipmaps;
+        _mipmapsUploaded = false;
+
+        //propertyChanged(TEXPROPERTY_ALL);
     }
 
     void Texture::recreateImpl(bool enableUpload)
@@ -118,30 +119,15 @@ namespace visutwin::canvas
         }
     }
 
-    void Texture::dirtyAll() {
-        if (_cubemap) {
-            _levelsUpdated.resize(1);
-            _levelsUpdated[0].resize(6, true);
-        } else {
-            _levelsUpdated.resize(1);
-            _levelsUpdated[0].resize(1, true);
-        }
-
-        _needsUpload = true;
-        _needsMipmapsUpload = _mipmaps;
-        _mipmapsUploaded = false;
-
-        //propertyChanged(TEXPROPERTY_ALL);
-    }
-
     void Texture::upload()
     {
-        _needsUpload = true;
-        _needsMipmapsUpload = _mipmaps;
-
-        if (_impl) {
-            _impl->uploadImmediate(_device);
+        if (!_impl || (!_needsUpload && !_needsMipmapsUpload)) {
+            return;
         }
+        _impl->uploadImmediate(_device);
+        _needsUpload = false;
+        _needsMipmapsUpload = false;
+        _mipmapsUploaded = _mipmaps;
     }
 
     void* Texture::getLevel(uint32_t mipLevel) const

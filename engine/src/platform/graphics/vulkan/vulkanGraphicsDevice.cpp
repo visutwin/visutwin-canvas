@@ -213,14 +213,11 @@ namespace visutwin::canvas
             throw std::runtime_error("VulkanGraphicsDevice: swapchain creation failed");
         }
 
-        // Upload command pool + fence (for staging transfers)
+        // Upload command pool (batched, nonblocking staging transfers)
         VkCommandPoolCreateInfo uploadPoolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         uploadPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         uploadPoolInfo.queueFamilyIndex = _graphicsQueueFamily;
         vkCreateCommandPool(_device, &uploadPoolInfo, nullptr, &_uploadCommandPool);
-
-        VkFenceCreateInfo uploadFenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-        vkCreateFence(_device, &uploadFenceInfo, nullptr, &_uploadFence);
 
         // Render pipeline
         _renderPipeline = std::make_unique<VulkanRenderPipeline>(this);
@@ -303,19 +300,21 @@ namespace visutwin::canvas
             memcpy(mapped, &whitePixel, 4);
             vmaUnmapMemory(_vmaAllocator, stagingAlloc);
 
-            vulkanImmediateSubmit(this, [&](VkCommandBuffer cmd) {
-                vulkanTransitionImageLayout(cmd, _whiteImage,
+            const VkImage whiteImage = _whiteImage;
+            enqueueUpload([whiteImage, stagingBuf](VkCommandBuffer cmd) {
+                vulkanTransitionImageLayout(cmd, whiteImage,
                     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
                 VkBufferImageCopy region{};
                 region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
                 region.imageExtent = {1, 1, 1};
-                vkCmdCopyBufferToImage(cmd, stagingBuf, _whiteImage,
+                vkCmdCopyBufferToImage(cmd, stagingBuf, whiteImage,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-                vulkanTransitionImageLayout(cmd, _whiteImage,
+                vulkanTransitionImageLayout(cmd, whiteImage,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }, [allocator = _vmaAllocator, stagingBuf, stagingAlloc] {
+                vmaDestroyBuffer(allocator, stagingBuf, stagingAlloc);
             });
-            vmaDestroyBuffer(_vmaAllocator, stagingBuf, stagingAlloc);
         }
 
         // 1×1 white cubemap (fallback for unbound omni shadow slots).  Six
@@ -359,8 +358,9 @@ namespace visutwin::canvas
             memcpy(mapped, whitePixels, sizeof(whitePixels));
             vmaUnmapMemory(_vmaAllocator, stagingAlloc);
 
-            vulkanImmediateSubmit(this, [&](VkCommandBuffer cmd) {
-                vulkanTransitionImageLayout(cmd, _whiteCubeImage,
+            const VkImage whiteCubeImage = _whiteCubeImage;
+            enqueueUpload([whiteCubeImage, stagingBuf](VkCommandBuffer cmd) {
+                vulkanTransitionImageLayout(cmd, whiteCubeImage,
                     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6);
                 // One copy per face (each face is a distinct array layer).
@@ -370,14 +370,15 @@ namespace visutwin::canvas
                     regions[f].imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, f, 1};
                     regions[f].imageExtent = {1, 1, 1};
                 }
-                vkCmdCopyBufferToImage(cmd, stagingBuf, _whiteCubeImage,
+                vkCmdCopyBufferToImage(cmd, stagingBuf, whiteCubeImage,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6, regions);
-                vulkanTransitionImageLayout(cmd, _whiteCubeImage,
+                vulkanTransitionImageLayout(cmd, whiteCubeImage,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                     VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6);
+            }, [allocator = _vmaAllocator, stagingBuf, stagingAlloc] {
+                vmaDestroyBuffer(allocator, stagingBuf, stagingAlloc);
             });
-            vmaDestroyBuffer(_vmaAllocator, stagingBuf, stagingAlloc);
         }
 
         // Per-draw / per-pass uniform ring buffer.  Sized for a generous draw
@@ -433,8 +434,10 @@ namespace visutwin::canvas
 
     VulkanGraphicsDevice::~VulkanGraphicsDevice()
     {
+        flushUploads();
         if (_device != VK_NULL_HANDLE)
             vkDeviceWaitIdle(_device);
+        collectUploads(true);
 
         // GraphicsDevice owns shaders, buffers, textures, and render targets
         // whose destructors need a live VkDevice/VMA allocator. Release them
@@ -479,8 +482,6 @@ namespace visutwin::canvas
 
         destroyPerFrameResources();
 
-        if (_uploadFence != VK_NULL_HANDLE)
-            vkDestroyFence(_device, _uploadFence, nullptr);
         if (_uploadCommandPool != VK_NULL_HANDLE)
             vkDestroyCommandPool(_device, _uploadCommandPool, nullptr);
 
@@ -671,6 +672,12 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::createDepthResources()
     {
+        _depthFormat = vulkanSupportedDepthFormat(_physicalDevice);
+        if (_depthFormat == VK_FORMAT_UNDEFINED) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: no supported swapchain depth format");
+        }
+
         VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
         imageInfo.format = _depthFormat;
@@ -683,15 +690,25 @@ namespace visutwin::canvas
 
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-        vmaCreateImage(_vmaAllocator, &imageInfo, &allocInfo,
-            &_depthImage, &_depthAllocation, nullptr);
+        if (vmaCreateImage(_vmaAllocator, &imageInfo, &allocInfo,
+                &_depthImage, &_depthAllocation, nullptr) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: swapchain depth image allocation failed");
+        }
 
         VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         viewInfo.image = _depthImage;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = _depthFormat;
         viewInfo.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-        vkCreateImageView(_device, &viewInfo, nullptr, &_depthImageView);
+        if (vkCreateImageView(_device, &viewInfo, nullptr, &_depthImageView) !=
+            VK_SUCCESS) {
+            vmaDestroyImage(_vmaAllocator, _depthImage, _depthAllocation);
+            _depthImage = VK_NULL_HANDLE;
+            _depthAllocation = VK_NULL_HANDLE;
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: swapchain depth image view creation failed");
+        }
     }
 
     void VulkanGraphicsDevice::destroyDepthResources()
@@ -793,6 +810,8 @@ namespace visutwin::canvas
         auto& frame = _frames[_frameIndex];
 
         vkWaitForFences(_device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+        collectUploads(false);
+        flushUploads();
 
         // The fence wait proves frame (_frameNumber - kMaxFramesInFlight) has
         // completed on the GPU — release resources queued up to that frame.
@@ -876,6 +895,10 @@ namespace visutwin::canvas
 
         VkSemaphore& renderFinished =
             _renderFinishedSemaphores[_swapchainImageIndex];
+
+        // Upload batches use the same queue. Submitting them first gives the
+        // frame an implicit queue-order dependency without blocking the CPU.
+        flushUploads();
 
         // Submit
         VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1132,6 +1155,104 @@ namespace visutwin::canvas
         _deferredDestroys.push_back({_frameNumber, std::move(destroyFn)});
     }
 
+    void VulkanGraphicsDevice::enqueueUpload(
+        std::function<void(VkCommandBuffer)> record,
+        std::function<void()> retire)
+    {
+        if (!record) {
+            return;
+        }
+        std::lock_guard lock(_uploadMutex);
+        _pendingUploads.push_back({std::move(record), std::move(retire)});
+    }
+
+    void VulkanGraphicsDevice::flushUploads()
+    {
+        std::vector<PendingUpload> uploads;
+        {
+            std::lock_guard lock(_uploadMutex);
+            if (_pendingUploads.empty()) {
+                return;
+            }
+            uploads.swap(_pendingUploads);
+        }
+
+        VkCommandBufferAllocateInfo allocInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocInfo.commandPool = _uploadCommandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        if (vkAllocateCommandBuffers(_device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+            spdlog::error("VulkanGraphicsDevice: failed to allocate upload command buffer");
+            for (auto& upload : uploads) {
+                if (upload.retire) upload.retire();
+            }
+            return;
+        }
+
+        VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+        std::vector<std::function<void()>> retirements;
+        retirements.reserve(uploads.size());
+        for (auto& upload : uploads) {
+            upload.record(commandBuffer);
+            if (upload.retire) {
+                retirements.push_back(std::move(upload.retire));
+            }
+        }
+        vkEndCommandBuffer(commandBuffer);
+
+        VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        VkFence fence = VK_NULL_HANDLE;
+        if (vkCreateFence(_device, &fenceInfo, nullptr, &fence) != VK_SUCCESS) {
+            vkFreeCommandBuffers(_device, _uploadCommandPool, 1, &commandBuffer);
+            for (auto& retire : retirements) retire();
+            return;
+        }
+
+        VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+        if (vkQueueSubmit(_graphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS) {
+            vkDestroyFence(_device, fence, nullptr);
+            vkFreeCommandBuffers(_device, _uploadCommandPool, 1, &commandBuffer);
+            for (auto& retire : retirements) retire();
+            return;
+        }
+
+        _inFlightUploads.push_back(
+            {commandBuffer, fence, std::move(retirements)});
+    }
+
+    void VulkanGraphicsDevice::collectUploads(const bool wait)
+    {
+        // Queue submission order means batches retire from the front.
+        while (!_inFlightUploads.empty()) {
+            auto& batch = _inFlightUploads.front();
+            VkResult status = VK_NOT_READY;
+            if (wait) {
+                status = vkWaitForFences(
+                    _device, 1, &batch.fence, VK_TRUE, UINT64_MAX);
+            } else {
+                status = vkGetFenceStatus(_device, batch.fence);
+            }
+            if (status != VK_SUCCESS) {
+                break;
+            }
+
+            for (auto& retire : batch.retirements) {
+                retire();
+            }
+            vkDestroyFence(_device, batch.fence, nullptr);
+            vkFreeCommandBuffers(
+                _device, _uploadCommandPool, 1, &batch.commandBuffer);
+            _inFlightUploads.pop_front();
+        }
+    }
+
     void VulkanGraphicsDevice::flushDeferredDestroys(const bool force)
     {
         while (!_deferredDestroys.empty()) {
@@ -1186,18 +1307,14 @@ namespace visutwin::canvas
 
             for (const auto& att : offscreen->colorAttachments()) {
                 if (!att.texture) continue;
-                const VkImageLayout from = att.texture->currentLayout();
+                const uint32_t mip = static_cast<uint32_t>(offscreen->mipLevel());
+                const uint32_t layer = att.texture->arrayLayers() > 1
+                    ? static_cast<uint32_t>(offscreen->face()) : 0u;
+                const VkImageLayout from = att.texture->layout(mip, layer);
                 if (from != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-                    vulkanTransitionImageLayout(cmd, att.texture->image(),
-                        from, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                        VK_IMAGE_ASPECT_COLOR_BIT,
-                        0, 1,
-                        // For cubemap face attachments target only that face.
-                        att.texture->arrayLayers() > 1
-                            ? static_cast<uint32_t>(offscreen->face()) : 0u,
-                        att.texture->arrayLayers() > 1
-                            ? 1u : att.texture->arrayLayers());
-                    att.texture->setCurrentLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                    att.texture->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        mip, 1, layer, 1);
                 }
 
                 VkRenderingAttachmentInfo info{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -1224,24 +1341,25 @@ namespace visutwin::canvas
                 // Source image + source layout differ between texture-backed
                 // and internally-owned depth.
                 VkImage depthImg = da.texture ? da.texture->image() : da.internalImage;
+                const uint32_t depthMip = static_cast<uint32_t>(offscreen->mipLevel());
+                const uint32_t depthLayer = da.texture && da.texture->arrayLayers() > 1
+                    ? static_cast<uint32_t>(offscreen->face()) : 0u;
                 VkImageLayout fromLayout = da.texture
-                    ? da.texture->currentLayout()
+                    ? da.texture->layout(depthMip, depthLayer)
                     : da.currentLayout;
                 if (depthImg != VK_NULL_HANDLE &&
                     fromLayout != VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
                     // Omni-shadow cubemap depth carves per-face attachment views —
                     // barrier the face being rendered, not just layer 0 (the
                     // default), or faces 1-5 render in the wrong layout.
-                    const bool depthLayered = da.texture && da.texture->arrayLayers() > 1;
-                    vulkanTransitionImageLayout(cmd, depthImg,
-                        fromLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                        depthAspect,
-                        0, 1,
-                        depthLayered ? static_cast<uint32_t>(offscreen->face()) : 0u,
-                        1u);
                     if (da.texture) {
-                        da.texture->setCurrentLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+                        da.texture->transitionLayout(cmd,
+                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                            depthMip, 1, depthLayer, 1);
                     } else {
+                        vulkanTransitionImageLayout(cmd, depthImg,
+                            fromLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                            depthAspect, 0, 1, 0, 1);
                         // Internal depth — track via the RT itself.
                         const_cast<VulkanDepthAttachment&>(da).currentLayout =
                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -1365,18 +1483,19 @@ namespace visutwin::canvas
         // next pass writes is valid.  Layout tracking on the texture (or on the
         // RT for internal depth) makes future transitions cheap.
         if (_activeOffscreenTarget) {
+            const auto colorOps = renderPass ? renderPass->colorOps() : nullptr;
             for (const auto& att : _activeOffscreenTarget->colorAttachments()) {
                 if (!att.texture) continue;
-                vulkanTransitionImageLayout(cmd, att.texture->image(),
-                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                const uint32_t mip =
+                    static_cast<uint32_t>(_activeOffscreenTarget->mipLevel());
+                const uint32_t layer = att.texture->arrayLayers() > 1
+                    ? static_cast<uint32_t>(_activeOffscreenTarget->face()) : 0u;
+                att.texture->transitionLayout(cmd,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    VK_IMAGE_ASPECT_COLOR_BIT,
-                    0, 1,
-                    att.texture->arrayLayers() > 1
-                        ? static_cast<uint32_t>(_activeOffscreenTarget->face()) : 0u,
-                    att.texture->arrayLayers() > 1
-                        ? 1u : att.texture->arrayLayers());
-                att.texture->setCurrentLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    mip, 1, layer, 1);
+                if (mip == 0 && colorOps && colorOps->genMipmaps) {
+                    att.texture->generateMipmaps(cmd);
+                }
             }
             if (_activeOffscreenTarget->hasDepthAttachment()) {
                 const auto& da = _activeOffscreenTarget->depthAttachment();
@@ -1391,16 +1510,12 @@ namespace visutwin::canvas
                     // Mirror the per-face handling in startRenderPass for
                     // layered (omni cubemap) depth textures.
                     const bool depthLayered = da.texture->arrayLayers() > 1;
-                    vulkanTransitionImageLayout(cmd, da.texture->image(),
-                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    da.texture->transitionLayout(cmd,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        VK_IMAGE_ASPECT_DEPTH_BIT |
-                            (vulkanFormatHasStencil(da.format)
-                                ? VK_IMAGE_ASPECT_STENCIL_BIT : 0),
-                        0, 1,
-                        depthLayered ? static_cast<uint32_t>(_activeOffscreenTarget->face()) : 0u,
+                        static_cast<uint32_t>(_activeOffscreenTarget->mipLevel()), 1,
+                        depthLayered
+                            ? static_cast<uint32_t>(_activeOffscreenTarget->face()) : 0u,
                         1u);
-                    da.texture->setCurrentLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 }
             }
             _activeOffscreenTarget = nullptr;

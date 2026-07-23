@@ -33,7 +33,11 @@ namespace visutwin::canvas
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-        vmaCreateBuffer(_allocator, &bufferInfo, &allocInfo, &_buffer, &_allocation, nullptr);
+        if (vmaCreateBuffer(_allocator, &bufferInfo, &allocInfo,
+                &_buffer, &_allocation, nullptr) != VK_SUCCESS) {
+            spdlog::error("VulkanVertexBuffer: GPU allocation failed");
+            return;
+        }
 
         if (!options.data.empty()) {
             unlock();
@@ -76,15 +80,23 @@ namespace visutwin::canvas
         VmaAllocationCreateInfo stagingAllocInfo{};
         stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 
-        vmaCreateBuffer(_allocator, &stagingInfo, &stagingAllocInfo,
-            &stagingBuffer, &stagingAlloc, nullptr);
+        if (vmaCreateBuffer(_allocator, &stagingInfo, &stagingAllocInfo,
+                &stagingBuffer, &stagingAlloc, nullptr) != VK_SUCCESS) {
+            spdlog::error("VulkanVertexBuffer: staging allocation failed");
+            return;
+        }
 
         void* mapped;
-        vmaMapMemory(_allocator, stagingAlloc, &mapped);
+        if (vmaMapMemory(_allocator, stagingAlloc, &mapped) != VK_SUCCESS) {
+            spdlog::error("VulkanVertexBuffer: staging map failed");
+            vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);
+            return;
+        }
         memcpy(mapped, _storage.data(), dataSize);
         vmaUnmapMemory(_allocator, stagingAlloc);
 
-        vulkanImmediateSubmit(vkDev, [&](VkCommandBuffer cmd) {
+        const VkBuffer destinationBuffer = _buffer;
+        vkDev->enqueueUpload([destinationBuffer, stagingBuffer, dataSize](VkCommandBuffer cmd) {
             // Pipeline barriers order queue-wide in submission order: the
             // pre-barrier makes already-submitted frames finish reading the
             // buffer before the copy overwrites it; the post-barrier orders
@@ -94,23 +106,23 @@ namespace visutwin::canvas
             pre.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             pre.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             pre.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            pre.buffer = _buffer;
+            pre.buffer = destinationBuffer;
             pre.size = VK_WHOLE_SIZE;
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &pre, 0, nullptr);
 
             VkBufferCopy copy{};
             copy.size = dataSize;
-            vkCmdCopyBuffer(cmd, stagingBuffer, _buffer, 1, &copy);
+            vkCmdCopyBuffer(cmd, stagingBuffer, destinationBuffer, 1, &copy);
 
             VkBufferMemoryBarrier post = pre;
             post.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             post.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, nullptr, 1, &post, 0, nullptr);
+        }, [allocator = _allocator, stagingBuffer, stagingAlloc] {
+            vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
         });
-
-        vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);
     }
 }
 

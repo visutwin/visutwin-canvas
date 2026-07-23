@@ -16,7 +16,9 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
@@ -92,9 +94,11 @@ namespace visutwin::canvas
             return _frames[_frameIndex].descriptorPool;
         }
 
-        // Upload command pool for immediate staging transfers
-        [[nodiscard]] VkCommandPool uploadCommandPool() const { return _uploadCommandPool; }
-        [[nodiscard]] VkFence uploadFence() const { return _uploadFence; }
+        // Records resource uploads into a shared batch. flushUploads submits
+        // without waiting; retirement callbacks run after its fence signals.
+        void enqueueUpload(std::function<void(VkCommandBuffer)> record,
+            std::function<void()> retire = {});
+        void flushUploads();
 
         // Queue a GPU-resource destroy to run once every frame that could
         // reference the resource has completed (fence-gated). Resource
@@ -148,6 +152,7 @@ namespace visutwin::canvas
         // completed on the GPU (or everything, when force is true — callers
         // must have idled the device first).
         void flushDeferredDestroys(bool force);
+        void collectUploads(bool wait);
 
         // Record current viewport/scissor/depth-bias state into the live
         // command buffer.  Only valid while a render pass is active.
@@ -238,9 +243,23 @@ namespace visutwin::canvas
         // declare a wrong source layout and validation fails.
         VkImageLayout _swapchainImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-        // ── Upload resources (for immediate staging transfers) ───────────
+        // ── Upload resources (batched asynchronous staging transfers) ─────
         VkCommandPool _uploadCommandPool = VK_NULL_HANDLE;
-        VkFence _uploadFence = VK_NULL_HANDLE;
+
+        struct PendingUpload
+        {
+            std::function<void(VkCommandBuffer)> record;
+            std::function<void()> retire;
+        };
+        struct InFlightUpload
+        {
+            VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+            VkFence fence = VK_NULL_HANDLE;
+            std::vector<std::function<void()>> retirements;
+        };
+        std::mutex _uploadMutex;
+        std::vector<PendingUpload> _pendingUploads;
+        std::deque<InFlightUpload> _inFlightUploads;
 
         // ── Render pipeline ──────────────────────────────────────────────
         std::unique_ptr<VulkanRenderPipeline> _renderPipeline;

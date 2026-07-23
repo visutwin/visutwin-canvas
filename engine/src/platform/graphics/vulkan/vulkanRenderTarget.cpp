@@ -142,6 +142,12 @@ namespace visutwin::canvas
                 spdlog::warn("VulkanRenderTarget: color buffer {} has no VkImage", i);
                 continue;
             }
+            if (!vkTex->supportsColorAttachment()) {
+                spdlog::error(
+                    "VulkanRenderTarget: color buffer {} format does not support attachment usage",
+                    i);
+                continue;
+            }
 
             VulkanColorAttachment attachment{};
             attachment.format = vkTex->format();
@@ -166,7 +172,9 @@ namespace visutwin::canvas
                 _depthAttachment.texture = vkTex;
                 _depthAttachment.view = resolveAttachmentView(vk, vkTex, face(), mipLevel(),
                                                               _depthAttachment.ownView);
-                _depthAttachment.currentLayout = vkTex->currentLayout();
+                _depthAttachment.currentLayout = vkTex->layout(
+                    static_cast<uint32_t>(mipLevel()),
+                    vkTex->arrayLayers() > 1 ? static_cast<uint32_t>(face()) : 0u);
             } else {
                 spdlog::warn("VulkanRenderTarget: depthBuffer has no VkImage");
             }
@@ -175,7 +183,12 @@ namespace visutwin::canvas
             // lacks it) — probe and fall back to D32S8.
             const VkFormat depthFormat = hasStencil()
                 ? vulkanSupportedDepthStencilFormat(vkDev->physicalDevice())
-                : VK_FORMAT_D32_SFLOAT;
+                : vulkanSupportedDepthFormat(vkDev->physicalDevice());
+            if (depthFormat == VK_FORMAT_UNDEFINED) {
+                spdlog::error(
+                    "VulkanRenderTarget: no supported depth-stencil attachment format");
+                return;
+            }
 
             const uint32_t w = static_cast<uint32_t>(width());
             const uint32_t h = static_cast<uint32_t>(height());

@@ -8,6 +8,7 @@
 #ifdef VISUTWIN_HAS_VULKAN
 
 #include <memory>
+#include <vector>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
@@ -39,12 +40,18 @@ namespace visutwin::canvas::gpu
         [[nodiscard]] VkImageAspectFlags aspect() const { return _aspect; }
         [[nodiscard]] bool isDepth() const { return (_aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0; }
         [[nodiscard]] uint32_t arrayLayers() const { return _arrayLayers; }
+        [[nodiscard]] uint32_t mipLevels() const { return _mipLevels; }
+        [[nodiscard]] bool supportsColorAttachment() const {
+            return _supportsColorAttachment;
+        }
 
-        // Tracks the layout the image is currently in.  Render-target writes,
-        // copies, and shader reads all need to know the source layout when
-        // inserting their barriers; this is the single source of truth.
-        [[nodiscard]] VkImageLayout currentLayout() const { return _currentLayout; }
-        void setCurrentLayout(VkImageLayout layout) { _currentLayout = layout; }
+        [[nodiscard]] VkImageLayout layout(uint32_t mipLevel, uint32_t arrayLayer) const;
+        void transitionLayout(VkCommandBuffer commandBuffer, VkImageLayout newLayout,
+            uint32_t baseMipLevel = 0, uint32_t levelCount = VK_REMAINING_MIP_LEVELS,
+            uint32_t baseArrayLayer = 0, uint32_t layerCount = VK_REMAINING_ARRAY_LAYERS);
+        bool generateMipmaps(VkCommandBuffer commandBuffer,
+            uint32_t baseArrayLayer = 0,
+            uint32_t layerCount = VK_REMAINING_ARRAY_LAYERS);
 
     private:
         void createSampler(VulkanGraphicsDevice* device);
@@ -65,7 +72,10 @@ namespace visutwin::canvas::gpu
         VkImageAspectFlags _aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         uint32_t _arrayLayers = 1;
         uint32_t _mipLevels = 1;
-        VkImageLayout _currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        bool _supportsLinearBlit = false;
+        bool _supportsLinearSampling = false;
+        bool _supportsColorAttachment = false;
+        std::vector<VkImageLayout> _subresourceLayouts;
     };
 }
 
