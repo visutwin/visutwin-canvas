@@ -14,6 +14,10 @@ from pathlib import Path
 MODULES = (
     ("ForwardVert", "forward.vert", "vert"),
     ("ForwardInstancedVert", "forward_instanced.vert", "vert"),
+    ("ForwardDynamicBatchVert", "forward_dynamic_batch.vert", "vert"),
+    ("ForwardSkinnedVert", "forward_skinned.vert", "vert"),
+    ("ForwardMorphedVert", "forward_morphed.vert", "vert"),
+    ("ForwardSkinnedMorphedVert", "forward_skinned_morphed.vert", "vert"),
     ("ForwardSkyVert", "forward_sky.vert", "vert"),
     ("ForwardColorVert", "forward_color.vert", "vert"),
     ("ForwardPointVert", "forward_point.vert", "vert"),
@@ -55,6 +59,7 @@ def resources(reflection: dict) -> list[tuple[int, int, str, int]]:
         ("ubos", "UniformBuffer"),
         ("textures", "CombinedImageSampler"),
         ("sampled_images", "CombinedImageSampler"),
+        ("ssbos", "StorageBuffer"),
         ("storage_buffers", "StorageBuffer"),
         ("storage_images", "StorageImage"),
     ):
@@ -147,8 +152,24 @@ def validate(module: str, reflection: dict) -> None:
             raise RuntimeError(
                 f"{module}: reflected push constants are not 128 bytes"
             )
-        if bindings:
-            raise RuntimeError(f"{module}: unexpected descriptors: {bindings}")
+        geometry_expected = {
+            "ForwardDynamicBatchVert": [(4, 0, "StorageBuffer", 0)],
+            "ForwardSkinnedVert": [(4, 0, "StorageBuffer", 0)],
+            "ForwardMorphedVert": [
+                (4, 1, "StorageBuffer", 0),
+                (4, 2, "UniformBuffer", 80),
+            ],
+            "ForwardSkinnedMorphedVert": [
+                (4, 0, "StorageBuffer", 0),
+                (4, 1, "StorageBuffer", 0),
+                (4, 2, "UniformBuffer", 80),
+            ],
+        }
+        expected = geometry_expected.get(module, [])
+        if bindings != expected:
+            raise RuntimeError(
+                f"{module}: unexpected descriptors: {bindings}; expected={expected}"
+            )
         return
     if module == "ShadowVsmFrag":
         if bindings or push_constant_size(reflection):
@@ -165,7 +186,10 @@ def validate(module: str, reflection: dict) -> None:
         (1, 3, "CombinedImageSampler"),
         (1, 4, "CombinedImageSampler"),
         (1, 5, "CombinedImageSampler"),
-        *( (3, binding, "CombinedImageSampler") for binding in range(7) ),
+        (1, 19, "CombinedImageSampler"),
+        *( (3, binding, "CombinedImageSampler") for binding in range(8) ),
+        (5, 0, "StorageBuffer"),
+        (5, 1, "StorageBuffer"),
     }
     actual = {(set_index, binding, kind) for set_index, binding, kind, _ in bindings}
     if actual != expected:
@@ -178,7 +202,7 @@ def validate(module: str, reflection: dict) -> None:
         for set_index, binding, kind, size in bindings
         if kind == "UniformBuffer"
     }
-    if block_sizes != {(0, 0): 224, (2, 0): 1120}:
+    if block_sizes != {(0, 0): 384, (2, 0): 1664}:
         raise RuntimeError(
             f"{module}: uniform block reflection mismatch: {block_sizes}"
         )
@@ -269,6 +293,10 @@ def main() -> None:
     for vertex_module in (
         "ForwardVert",
         "ForwardInstancedVert",
+        "ForwardDynamicBatchVert",
+        "ForwardSkinnedVert",
+        "ForwardMorphedVert",
+        "ForwardSkinnedMorphedVert",
         "ForwardSkyVert",
         "ForwardColorVert",
         "ForwardPointVert",

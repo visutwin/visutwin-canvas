@@ -18,6 +18,10 @@ namespace visutwin::canvas
         const uint32_t* skyVertSpirv, size_t skyVertWordCount,
         const uint32_t* colorVertSpirv, size_t colorVertWordCount,
         const uint32_t* pointVertSpirv, size_t pointVertWordCount,
+        const uint32_t* dynamicBatchVertSpirv, size_t dynamicBatchVertWordCount,
+        const uint32_t* skinnedVertSpirv, size_t skinnedVertWordCount,
+        const uint32_t* morphedVertSpirv, size_t morphedVertWordCount,
+        const uint32_t* skinnedMorphedVertSpirv, size_t skinnedMorphedVertWordCount,
         const bool specializeFeatures)
         : Shader(device, definition)
     {
@@ -39,6 +43,15 @@ namespace visutwin::canvas
             _colorVertexModule = createModule(colorVertSpirv, colorVertWordCount);
         if (pointVertSpirv && pointVertWordCount > 0)
             _pointVertexModule = createModule(pointVertSpirv, pointVertWordCount);
+        if (dynamicBatchVertSpirv && dynamicBatchVertWordCount > 0)
+            _dynamicBatchVertexModule = createModule(dynamicBatchVertSpirv, dynamicBatchVertWordCount);
+        if (skinnedVertSpirv && skinnedVertWordCount > 0)
+            _skinnedVertexModule = createModule(skinnedVertSpirv, skinnedVertWordCount);
+        if (morphedVertSpirv && morphedVertWordCount > 0)
+            _morphedVertexModule = createModule(morphedVertSpirv, morphedVertWordCount);
+        if (skinnedMorphedVertSpirv && skinnedMorphedVertWordCount > 0)
+            _skinnedMorphedVertexModule = createModule(
+                skinnedMorphedVertSpirv, skinnedMorphedVertWordCount);
 
         spdlog::debug("VulkanShader created: {} (vert={} frag={} instanced={} sky={} color={} point={})",
             definition.name,
@@ -70,6 +83,14 @@ namespace visutwin::canvas
                 vkDestroyShaderModule(_vkDevice, _colorVertexModule, nullptr);
             if (_pointVertexModule != VK_NULL_HANDLE)
                 vkDestroyShaderModule(_vkDevice, _pointVertexModule, nullptr);
+            if (_dynamicBatchVertexModule != VK_NULL_HANDLE)
+                vkDestroyShaderModule(_vkDevice, _dynamicBatchVertexModule, nullptr);
+            if (_skinnedVertexModule != VK_NULL_HANDLE)
+                vkDestroyShaderModule(_vkDevice, _skinnedVertexModule, nullptr);
+            if (_morphedVertexModule != VK_NULL_HANDLE)
+                vkDestroyShaderModule(_vkDevice, _morphedVertexModule, nullptr);
+            if (_skinnedMorphedVertexModule != VK_NULL_HANDLE)
+                vkDestroyShaderModule(_vkDevice, _skinnedMorphedVertexModule, nullptr);
             if (_fragmentModule != VK_NULL_HANDLE)
                 vkDestroyShaderModule(_vkDevice, _fragmentModule, nullptr);
             if (_computeModule != VK_NULL_HANDLE)

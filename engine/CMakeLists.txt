@@ -117,6 +117,10 @@ if(VISUTWIN_BACKEND_VULKAN)
     set(_VK_SHADER_SOURCES
         "${_VK_SHADER_DIR}/forward.vert"
         "${_VK_SHADER_DIR}/forward_instanced.vert"
+        "${_VK_SHADER_DIR}/forward_dynamic_batch.vert"
+        "${_VK_SHADER_DIR}/forward_skinned.vert"
+        "${_VK_SHADER_DIR}/forward_morphed.vert"
+        "${_VK_SHADER_DIR}/forward_skinned_morphed.vert"
         "${_VK_SHADER_DIR}/forward_sky.vert"
         "${_VK_SHADER_DIR}/forward_color.vert"
         "${_VK_SHADER_DIR}/forward_point.vert"

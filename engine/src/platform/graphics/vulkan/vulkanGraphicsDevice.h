@@ -51,6 +51,9 @@ namespace visutwin::canvas
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) override;
+        void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
+            const Vector3& boxMax, bool boxProjection, float intensity,
+            float maxLod) override;
 
         // ── Shader creation ──────────────────────────────────────────────
         std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
@@ -75,6 +78,14 @@ namespace visutwin::canvas
         void setViewport(float x, float y, float w, float h) override;
         void setScissor(int x, int y, int w, int h) override;
         void setDepthBias(float depthBias, float slopeScale, float clamp) override;
+        void setDynamicBatchPalette(const void* data, size_t size) override;
+        void setMorphState(const std::shared_ptr<VertexBuffer>& deltaBuffer,
+            const void* params, size_t paramsSize) override;
+        void setClusterBuffers(const void* lightData, size_t lightSize,
+            const void* cellData, size_t cellSize) override;
+        void setClusterGridParams(const float* boundsMin, const float* boundsRange,
+            const float* cellsCountByBoundsSize, int cellsX, int cellsY, int cellsZ,
+            int maxLightsPerCell, int numClusteredLights) override;
 
         // ── Display management ───────────────────────────────────────────
         void setResolution(int width, int height) override;
@@ -212,7 +223,7 @@ namespace visutwin::canvas
         static constexpr uint32_t kMaxFramesInFlight = 2;
 
         static constexpr uint32_t kInitialDescriptorSets = 256;
-        static constexpr uint32_t kMaxCachedImageBindings = 7;
+        static constexpr uint32_t kMaxCachedImageBindings = 8;
 
         struct ImageDescriptorKey {
             VkDescriptorSetLayout layout = VK_NULL_HANDLE;
@@ -356,6 +367,19 @@ namespace visutwin::canvas
         VkDescriptorSet _lightingDescriptorSet = VK_NULL_HANDLE;
         VkDeviceSize _uboOffsetAlignment = 256;
 
+        // One-draw geometry state. Palette and params are copied into the
+        // fence-gated ring when set; the morph delta buffer remains owned by
+        // Morph and is retained until the draw consumes it.
+        std::optional<uint32_t> _pendingPaletteOffset;
+        VkDeviceSize _pendingPaletteSize = 0;
+        std::shared_ptr<VertexBuffer> _pendingMorphDeltaBuffer;
+        std::optional<uint32_t> _pendingMorphParamsOffset;
+        VkDeviceSize _pendingMorphParamsSize = 0;
+        std::optional<uint32_t> _clusterLightOffset;
+        VkDeviceSize _clusterLightSize = 0;
+        std::optional<uint32_t> _clusterCellOffset;
+        VkDeviceSize _clusterCellSize = 0;
+
         // Packed lighting block; re-uploaded into the ring once per frame (or
         // when setLightingUniforms changes it) and shared by every draw.
         VulkanLightingUBO _lightingUbo{};
@@ -375,6 +399,7 @@ namespace visutwin::canvas
 
         // High-res skybox cubemap bound at set 3 binding 6 (white-cube fallback).
         Texture* _skyboxCubeTexture = nullptr;
+        Texture* _reflectionProbeTexture = nullptr;
 
         // ── VSM blur pass (lazy) ─────────────────────────────────────────
         void ensureVsmBlurResources();

@@ -25,9 +25,11 @@ namespace visutwin::canvas
         float colorIntensity[4] = {1.0f, 1.0f, 1.0f, 0.0f};   // rgb color, w intensity
         // innerCos, outerCos, falloffLinear, localShadowIndex (-1 = none, 0/1 = local slot)
         float coneParams[4]     = {1.0f, 1.0f, 1.0f, -1.0f};
+        float areaRightHalfWidth[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+        float areaUpHalfHeight[4] = {0.0f, 0.0f, 1.0f, 0.0f};
     };
 
-    // Per-pass lighting block bound at set 2, binding 0. 1120 bytes.
+    // Per-pass lighting block bound at set 2, binding 0.
     struct VulkanLightingUBO
     {
         float ambient[4]            = {0.0f, 0.0f, 0.0f, 0.0f};  // rgb ambient
@@ -65,6 +67,17 @@ namespace visutwin::canvas
         // xyz = sky dome center (world), w = flags: bit0 = has skybox cubemap,
         // bit1 = dome projection (view dir from dome center, not camera).
         float skyParams2[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        // Nine premultiplied irradiance SH coefficients.
+        float ambientSH[9][4] = {};
+        float clusterBoundsMin[4] = {};
+        float clusterBoundsRange[4] = {};
+        float clusterCellsCountByBoundsSize[4] = {};
+        uint32_t clusterParams[4] = {};
+        uint32_t clusterParams2[4] = {};
+        float reflectionProbeBoxMin[4] = {};
+        float reflectionProbeBoxMax[4] = {};
+        float reflectionProbePosition[4] = {};
+        float reflectionProbeParams[4] = {};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

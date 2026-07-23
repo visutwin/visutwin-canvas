@@ -36,6 +36,22 @@ layout(set = 0, binding = 0) uniform MaterialData {
     vec4 occlusionTransform1;
     vec4 emissiveTransform0;
     vec4 emissiveTransform1;
+    float clearCoatFactor;
+    float clearCoatRoughness;
+    float clearCoatBumpiness;
+    float heightMapFactor;
+    float anisotropy;
+    float transmissionFactor;
+    float refractionIndex;
+    float thickness;
+    vec4 sheenColor;
+    vec4 iridescenceParams;
+    vec4 specGlossParams;
+    vec4 detailDisplacementParams;
+    vec4 detailNormalTransform0;
+    vec4 detailNormalTransform1;
+    vec4 attenuationParams;
+    vec4 dispersionParams;
 } material;
 
 // Set 1: material texture slots (engine slot numbering).
@@ -44,6 +60,7 @@ layout(set = 1, binding = 1) uniform sampler2D normalMap;        // 1
 layout(set = 1, binding = 3) uniform sampler2D metalRoughMap;    // 3 (glTF: G=rough, B=metal)
 layout(set = 1, binding = 4) uniform sampler2D occlusionMap;     // 4 (R = AO)
 layout(set = 1, binding = 5) uniform sampler2D emissiveMap;      // 5
+layout(set = 1, binding = 19) uniform sampler2D lightMap;        // 19
 
 // Set 2 (dynamic UBO): per-pass lighting. Matches VulkanLightingUBO.
 struct Light {
@@ -51,6 +68,8 @@ struct Light {
     vec4 directionType;   // xyz direction, w type (0=dir, 1=point, 2=spot)
     vec4 colorIntensity;  // rgb color, w intensity
     vec4 coneParams;      // innerCos, outerCos, falloffLinear, localShadowIndex(-1/0/1)
+    vec4 areaRightHalfWidth;
+    vec4 areaUpHalfHeight;
 };
 
 layout(set = 2, binding = 0) uniform LightingData {
@@ -72,7 +91,32 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 omniShadowParams0;   // near, far, depthBias, intensity
     vec4 omniShadowParams1;
     vec4 skyParams2;          // xyz sky dome center, w flags: bit0 cubemap, bit1 dome
+    vec4 ambientSH[9];
+    vec4 clusterBoundsMin;
+    vec4 clusterBoundsRange;
+    vec4 clusterCellsCountByBoundsSize;
+    uvec4 clusterParams;
+    uvec4 clusterParams2;
+    vec4 reflectionProbeBoxMin;
+    vec4 reflectionProbeBoxMax;
+    vec4 reflectionProbePosition;
+    vec4 reflectionProbeParams;
 } lighting;
+
+struct ClusterLight {
+    vec4 positionRange;
+    vec4 directionSpot;
+    vec4 colorIntensity;
+    vec4 params;
+    mat4 shadowMatrix;
+    vec4 shadowData;
+};
+layout(std430, set = 5, binding = 0) readonly buffer ClusterLights {
+    ClusterLight values[];
+} clusterLights;
+layout(std430, set = 5, binding = 1) readonly buffer ClusterCells {
+    uint values[];
+} clusterCells;
 
 // Set 3: scene textures. Binding 0 = equirectangular environment atlas
 // (IBL irradiance + roughness mips + skybox source). Binding 1 = directional
@@ -86,6 +130,7 @@ layout(set = 3, binding = 3) uniform sampler2D localShadowMap1;
 layout(set = 3, binding = 4) uniform samplerCube omniShadowCube0;
 layout(set = 3, binding = 5) uniform samplerCube omniShadowCube1;
 layout(set = 3, binding = 6) uniform samplerCube skyboxCube;
+layout(set = 3, binding = 7) uniform samplerCube reflectionProbeCube;
 
 // 3×3 percentage-closer filter: average binary depth comparisons over the
 // texel neighbourhood.  `receiver` is the (biased) light-space depth of the
@@ -482,7 +527,16 @@ void main() {
         roughness *= mr.g;
         metallic *= mr.b;
     }
+    if (vtFeatureEnabled(VT_FEATURE_SPEC_GLOSS_BIT)) {
+        roughness = 1.0 - material.specGlossParams.w;
+    }
     roughness = clamp(roughness, 0.04, 1.0);
+    if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
+        // Energy-preserving scalar approximation until the tangent-aligned
+        // GGX sampling path is shared with Metal.
+        roughness = clamp(roughness * (1.0 - 0.35 * abs(material.anisotropy)),
+            0.04, 1.0);
+    }
     metallic = clamp(metallic, 0.0, 1.0);
 
     // Ambient occlusion.
@@ -514,7 +568,15 @@ void main() {
     vec3 V = normalize(lighting.cameraPosExposure.xyz - fragWorldPos);
     float NdotV = max(dot(N, V), 1e-4);
 
-    vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
+    vec3 dielectricF0 = vtFeatureEnabled(VT_FEATURE_SPEC_GLOSS_BIT)
+        ? material.specGlossParams.rgb : vec3(0.04);
+    vec3 F0 = mix(dielectricF0, albedo.rgb, metallic);
+    if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
+        float film = material.iridescenceParams.x;
+        float phase = material.iridescenceParams.z * 0.01;
+        vec3 filmTint = 0.5 + 0.5 * cos(phase + vec3(0.0, 2.094, 4.189));
+        F0 = mix(F0, filmTint, clamp(film, 0.0, 1.0));
+    }
     vec3 diffuseAlbedo = albedo.rgb * (1.0 - metallic);
 
     vec3 color = vec3(0.0);
@@ -531,7 +593,19 @@ void main() {
             // Directional light is the CSM shadow caster.
             atten = sampleDirectionalShadow(fragWorldPos, fragViewDepth, N, L);
         } else {
-            vec3 toLight = light.positionRange.xyz - fragWorldPos;
+            vec3 lightPosition = light.positionRange.xyz;
+            if (type == 3u) {
+                vec3 relative = fragWorldPos - lightPosition;
+                float rightOffset = clamp(dot(relative,
+                    light.areaRightHalfWidth.xyz),
+                    -light.areaRightHalfWidth.w, light.areaRightHalfWidth.w);
+                float upOffset = clamp(dot(relative,
+                    light.areaUpHalfHeight.xyz),
+                    -light.areaUpHalfHeight.w, light.areaUpHalfHeight.w);
+                lightPosition += light.areaRightHalfWidth.xyz * rightOffset +
+                    light.areaUpHalfHeight.xyz * upOffset;
+            }
+            vec3 toLight = lightPosition - fragWorldPos;
             float dist = length(toLight);
             L = (dist > 1e-4) ? toLight / dist : vec3(0.0, 1.0, 0.0);
             atten = distanceAttenuation(dist, light.positionRange.w, light.coneParams.z);
@@ -574,6 +648,60 @@ void main() {
 
         vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.w * atten;
         color += (kD * diffuseAlbedo / PI + specular) * radiance * NdotL;
+        if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+            float ccRough = clamp(material.clearCoatRoughness, 0.04, 1.0);
+            float ccD = distributionGGX(NdotH, ccRough);
+            float ccG = geometrySmith(NdotV, NdotL, ccRough);
+            vec3 ccF = fresnelSchlick(VdotH, vec3(0.04));
+            color += material.clearCoatFactor * ccD * ccG * ccF /
+                max(4.0 * NdotV, 1e-4) * radiance;
+        }
+        if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
+            float velvet = pow(1.0 - max(NdotH, 0.0),
+                mix(2.0, 8.0, material.sheenColor.w));
+            color += material.sheenColor.rgb * velvet * radiance * NdotL;
+        }
+    }
+
+    if (vtFeatureEnabled(VT_FEATURE_LIGHT_CLUSTERING_BIT)) {
+        ivec3 cell = ivec3(floor((fragWorldPos -
+            lighting.clusterBoundsMin.xyz) *
+            lighting.clusterCellsCountByBoundsSize.xyz));
+        ivec3 dims = ivec3(lighting.clusterParams.xyz);
+        if (all(greaterThanEqual(cell, ivec3(0))) &&
+            all(lessThan(cell, dims))) {
+            uint maxPerCell = lighting.clusterParams.w;
+            uint base = (uint(cell.y) * uint(dims.x) * uint(dims.z) +
+                uint(cell.z) * uint(dims.x) + uint(cell.x)) * maxPerCell;
+            for (uint slot = 0u; slot < maxPerCell; ++slot) {
+                uint index1 = clusterCells.values[base + slot];
+                if (index1 == 0u) break;
+                ClusterLight cl = clusterLights.values[index1 - 1u];
+                vec3 delta = cl.positionRange.xyz - fragWorldPos;
+                float distance = length(delta);
+                vec3 L = delta / max(distance, 1e-5);
+                float atten = distanceAttenuation(distance,
+                    cl.positionRange.w, cl.params.z);
+                if (cl.params.y > 0.5) {
+                    float cone = dot(normalize(-cl.directionSpot.xyz), L);
+                    atten *= clamp((cone - cl.directionSpot.w) /
+                        max(cl.params.x - cl.directionSpot.w, 1e-4), 0.0, 1.0);
+                }
+                float nl = max(dot(N, L), 0.0);
+                vec3 H = normalize(L + V);
+                float nh = max(dot(N, H), 0.0);
+                float vh = max(dot(V, H), 0.0);
+                float D = distributionGGX(nh, roughness);
+                float G = geometrySmith(NdotV, nl, roughness);
+                vec3 F = fresnelSchlick(vh, F0);
+                vec3 kd = (1.0 - F) * (1.0 - metallic);
+                vec3 radiance = cl.colorIntensity.rgb *
+                    cl.colorIntensity.w * atten;
+                color += (kd * diffuseAlbedo / PI +
+                    D * G * F / max(4.0 * NdotV * nl, 1e-4)) *
+                    radiance * nl;
+            }
+        }
     }
 
     // Indirect lighting.  With an environment atlas: image-based diffuse
@@ -605,10 +733,52 @@ void main() {
         vec3 kD = (vec3(1.0) - Fr) * (1.0 - metallic);
 
         indirect = kD * irradiance * diffuseAlbedo + prefiltered * Fr;
+    } else if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
+        vec3 shN = N;
+        vec3 irradiance =
+            lighting.ambientSH[0].rgb +
+            lighting.ambientSH[1].rgb * shN.x +
+            lighting.ambientSH[2].rgb * shN.y +
+            lighting.ambientSH[3].rgb * shN.z +
+            lighting.ambientSH[4].rgb * (shN.x * shN.z) +
+            lighting.ambientSH[5].rgb * (shN.z * shN.y) +
+            lighting.ambientSH[6].rgb * (shN.y * shN.x) +
+            lighting.ambientSH[7].rgb * (3.0 * shN.z * shN.z - 1.0) +
+            lighting.ambientSH[8].rgb * (shN.x * shN.x - shN.y * shN.y);
+        indirect = max(irradiance, vec3(0.0)) * diffuseAlbedo;
     } else {
         indirect = lighting.ambient.rgb * diffuseAlbedo + lighting.ambient.rgb * F0;
     }
+    if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
+        indirect += srgbToLinear(texture(lightMap, fragUV1).rgb) * diffuseAlbedo;
+    }
     color += indirect * ao;
+    if (vtFeatureEnabled(VT_FEATURE_REFLECTION_PROBE_BIT)) {
+        vec3 probeDirection = reflect(-V, N);
+        if (lighting.reflectionProbeParams.x > 0.5) {
+            vec3 rbmax = (lighting.reflectionProbeBoxMax.xyz - fragWorldPos) /
+                max(abs(probeDirection), vec3(1e-5));
+            vec3 rbmin = (lighting.reflectionProbeBoxMin.xyz - fragWorldPos) /
+                max(abs(probeDirection), vec3(1e-5));
+            vec3 distances = mix(rbmin, rbmax,
+                greaterThan(probeDirection, vec3(0.0)));
+            float distance = min(distances.x, min(distances.y, distances.z));
+            probeDirection = fragWorldPos + probeDirection * distance -
+                lighting.reflectionProbePosition.xyz;
+        }
+        color += textureLod(reflectionProbeCube, probeDirection,
+            roughness * lighting.reflectionProbeParams.z).rgb *
+            F0 * lighting.reflectionProbeParams.y;
+    }
+    if (vtFeatureEnabled(VT_FEATURE_TRANSMISSION_BIT)) {
+        float transmission = clamp(material.transmissionFactor, 0.0, 1.0);
+        vec3 transmitted = indirect;
+        if (material.attenuationParams.w > 0.0) {
+            transmitted *= pow(max(material.attenuationParams.rgb, vec3(1e-4)),
+                vec3(material.thickness / material.attenuationParams.w));
+        }
+        color = mix(color, transmitted, transmission);
+    }
 
     // Emissive.
     vec3 emissive = material.emissiveColor.rgb;

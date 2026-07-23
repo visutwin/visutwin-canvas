@@ -27,6 +27,7 @@
 #include "core/math/color.h"
 #include "core/math/vector3.h"
 #include "platform/graphics/renderPass.h"
+#include "platform/graphics/shaderFeatures.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/material.h"
 #include "spdlog/spdlog.h"
@@ -514,7 +515,9 @@ namespace visutwin::canvas
             VK_API_VERSION_PATCH(props.apiVersion));
 
         // Dynamic UBO offsets must be a multiple of this (256 on MoltenVK).
-        _uboOffsetAlignment = props.limits.minUniformBufferOffsetAlignment;
+        _uboOffsetAlignment = std::max(
+            props.limits.minUniformBufferOffsetAlignment,
+            props.limits.minStorageBufferOffsetAlignment);
         if (_uboOffsetAlignment == 0) _uboOffsetAlignment = 256;
 
         // Enable anisotropic filtering when the hardware has it (MoltenVK on
@@ -686,12 +689,13 @@ namespace visutwin::canvas
     {
         // Every cached image set has at most seven combined samplers. Post
         // passes additionally consume one ordinary UBO descriptor per set.
-        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+        std::array<VkDescriptorPoolSize, 3> poolSizes{};
         poolSizes[0] = {
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             maxSets * kMaxCachedImageBindings
         };
         poolSizes[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxSets};
+        poolSizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxSets * 2};
 
         VkDescriptorPoolCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         info.maxSets = maxSets;
@@ -788,10 +792,15 @@ namespace visutwin::canvas
         }
 
         std::array<VkWriteDescriptorSet, kMaxCachedImageBindings> writes{};
+        constexpr std::array<uint32_t, 6> materialBindings =
+            {0, 1, 3, 4, 5, 19};
+        const bool materialSet =
+            layout == _renderPipeline->textureSetLayout() &&
+            key.count == materialBindings.size();
         for (uint32_t i = 0; i < key.count; ++i) {
             writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[i].dstSet = set;
-            writes[i].dstBinding = i;
+            writes[i].dstBinding = materialSet ? materialBindings[i] : i;
             writes[i].descriptorType =
                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[i].descriptorCount = 1;
@@ -1698,6 +1707,19 @@ namespace visutwin::canvas
         auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(_shader);
         if (!vulkanShader || vulkanShader->vertexModule() == VK_NULL_HANDLE) return;
 
+        // Geometry bindings are deliberately one-shot, matching Metal. Move
+        // them into draw-local state before any fallible pipeline/descriptor
+        // work so an aborted draw cannot leak stale deformation state.
+        const auto paletteOffset = _pendingPaletteOffset;
+        const VkDeviceSize paletteSize = _pendingPaletteSize;
+        auto morphDeltaBuffer = std::move(_pendingMorphDeltaBuffer);
+        const auto morphParamsOffset = _pendingMorphParamsOffset;
+        const VkDeviceSize morphParamsSize = _pendingMorphParamsSize;
+        _pendingPaletteOffset.reset();
+        _pendingPaletteSize = 0;
+        _pendingMorphParamsOffset.reset();
+        _pendingMorphParamsSize = 0;
+
         if (first) {
             auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
 
@@ -1840,7 +1862,8 @@ namespace visutwin::canvas
         // Set 1: material textures. Cache identical image/sampler tuples for
         // the lifetime of this frame slot instead of allocating per draw.
         {
-            std::array<VkDescriptorImageInfo, 6> imageInfos{};
+            constexpr std::array<int, 6> materialSlots = {0, 1, 3, 4, 5, 19};
+            std::array<VkDescriptorImageInfo, materialSlots.size()> imageInfos{};
             for (auto& imageInfo : imageInfos) {
                 imageInfo.sampler = _defaultSampler;
                 imageInfo.imageView = _whiteImageView;
@@ -1851,15 +1874,19 @@ namespace visutwin::canvas
                 std::vector<TextureSlot> texSlots;
                 _material->getTextureSlots(texSlots);
                 for (const auto& ts : texSlots) {
-                    if (ts.slot < 0 || ts.slot >= 6 || ts.texture == nullptr) {
+                    const auto slotIt = std::find(
+                        materialSlots.begin(), materialSlots.end(), ts.slot);
+                    if (slotIt == materialSlots.end() || ts.texture == nullptr) {
                         continue;
                     }
                     auto* vkTex =
                         static_cast<gpu::VulkanTexture*>(ts.texture->impl());
                     if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
-                        imageInfos[ts.slot].imageView = vkTex->imageView();
+                        const size_t descriptorIndex =
+                            static_cast<size_t>(slotIt - materialSlots.begin());
+                        imageInfos[descriptorIndex].imageView = vkTex->imageView();
                         if (vkTex->sampler() != VK_NULL_HANDLE) {
-                            imageInfos[ts.slot].sampler = vkTex->sampler();
+                            imageInfos[descriptorIndex].sampler = vkTex->sampler();
                         }
                     }
                 }
@@ -1915,7 +1942,7 @@ namespace visutwin::canvas
             const bool hideShadowMaps =
                 _depthOnlyPass || shadowIsActiveAttachment;
 
-            std::array<VkDescriptorImageInfo, 7> sceneInfos{};
+            std::array<VkDescriptorImageInfo, 8> sceneInfos{};
             sceneInfos[0].sampler = _envSampler;
             sceneInfos[0].imageView = resolveView(_envAtlasTexture);
 
@@ -1945,6 +1972,8 @@ namespace visutwin::canvas
                 ? _whiteCubeImageView : resolveCubeView(_omniShadowCube1);
             sceneInfos[6].sampler = _envSampler;
             sceneInfos[6].imageView = resolveCubeView(_skyboxCubeTexture);
+            sceneInfos[7].sampler = _envSampler;
+            sceneInfos[7].imageView = resolveCubeView(_reflectionProbeTexture);
             for (auto& sceneInfo : sceneInfos) {
                 sceneInfo.imageLayout =
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1957,6 +1986,99 @@ namespace visutwin::canvas
             }
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
+        }
+
+        // Set 4: deformation data selected by the shared feature mask.
+        const uint64_t featureMask = vulkanShader->featureMask();
+        const bool usesPalette =
+            (featureMask & (shaderFeatureBit(ShaderFeature::Skinning) |
+                            shaderFeatureBit(ShaderFeature::DynamicBatch))) != 0;
+        const bool usesMorph =
+            (featureMask & shaderFeatureBit(ShaderFeature::Morphing)) != 0;
+        if (usesPalette || usesMorph) {
+            if ((usesPalette && (!paletteOffset || paletteSize == 0)) ||
+                (usesMorph && (!morphDeltaBuffer || !morphParamsOffset ||
+                               morphParamsSize == 0))) {
+                spdlog::error(
+                    "VulkanGraphicsDevice: draw skipped because required "
+                    "palette/morph geometry state was not supplied");
+                return;
+            }
+
+            const VkDescriptorSet geometrySet = allocateFrameDescriptorSet(
+                _renderPipeline->geometrySetLayout());
+            if (geometrySet == VK_NULL_HANDLE) {
+                return;
+            }
+
+            std::array<VkDescriptorBufferInfo, 3> infos{};
+            std::array<VkWriteDescriptorSet, 3> writes{};
+            uint32_t writeCount = 0;
+            auto appendBuffer = [&](const uint32_t binding,
+                                    const VkDescriptorType type,
+                                    const VkBuffer buffer,
+                                    const VkDeviceSize offset,
+                                    const VkDeviceSize range) {
+                infos[writeCount] = {buffer, offset, range};
+                auto& write = writes[writeCount];
+                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet = geometrySet;
+                write.dstBinding = binding;
+                write.descriptorType = type;
+                write.descriptorCount = 1;
+                write.pBufferInfo = &infos[writeCount];
+                ++writeCount;
+            };
+            if (usesPalette) {
+                appendBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    _uniformRing->buffer(), *paletteOffset, paletteSize);
+            }
+            if (usesMorph) {
+                auto* morphBuffer =
+                    static_cast<VulkanVertexBuffer*>(morphDeltaBuffer.get());
+                appendBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    morphBuffer->buffer(), 0, VK_WHOLE_SIZE);
+                appendBuffer(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    _uniformRing->buffer(), *morphParamsOffset,
+                    morphParamsSize);
+            }
+            vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                _renderPipeline->pipelineLayout(), 4, 1, &geometrySet, 0, nullptr);
+        }
+
+        {
+            // Specialization constants do not remove statically-declared
+            // descriptors from SPIR-V, so set 5 must be valid for every
+            // forward draw. Non-clustered draws bind tiny zero sentinels.
+            std::array<uint8_t, 144> emptyLight{};
+            const uint32_t emptyCell = 0;
+            const auto lightOffset = _clusterLightOffset
+                ? _clusterLightOffset : allocateUniform(emptyLight.data(), emptyLight.size());
+            const auto cellOffset = _clusterCellOffset
+                ? _clusterCellOffset : allocateUniform(&emptyCell, sizeof(emptyCell));
+            if (!lightOffset || !cellOffset) return;
+            const VkDescriptorSet clusterSet = allocateFrameDescriptorSet(
+                _renderPipeline->clusterSetLayout());
+            if (clusterSet == VK_NULL_HANDLE) return;
+            std::array<VkDescriptorBufferInfo, 2> infos{{
+                {_uniformRing->buffer(), *lightOffset,
+                    _clusterLightOffset ? _clusterLightSize : emptyLight.size()},
+                {_uniformRing->buffer(), *cellOffset,
+                    _clusterCellOffset ? _clusterCellSize : sizeof(emptyCell)},
+            }};
+            std::array<VkWriteDescriptorSet, 2> writes{};
+            for (uint32_t i = 0; i < writes.size(); ++i) {
+                writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[i].dstSet = clusterSet;
+                writes[i].dstBinding = i;
+                writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                writes[i].descriptorCount = 1;
+                writes[i].pBufferInfo = &infos[i];
+            }
+            vkUpdateDescriptorSets(_device, writes.size(), writes.data(), 0, nullptr);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                _renderPipeline->pipelineLayout(), 5, 1, &clusterSet, 0, nullptr);
         }
 
         // Draw
@@ -1998,16 +2120,99 @@ namespace visutwin::canvas
         _pushConstantsDirty = true;
     }
 
+    void VulkanGraphicsDevice::setDynamicBatchPalette(
+        const void* data, const size_t size)
+    {
+        _pendingPaletteOffset.reset();
+        _pendingPaletteSize = 0;
+        if (!data || size == 0) {
+            return;
+        }
+        _pendingPaletteOffset = allocateUniform(data, size);
+        if (_pendingPaletteOffset) {
+            _pendingPaletteSize = size;
+        }
+    }
+
+    void VulkanGraphicsDevice::setMorphState(
+        const std::shared_ptr<VertexBuffer>& deltaBuffer,
+        const void* params, const size_t paramsSize)
+    {
+        _pendingMorphDeltaBuffer.reset();
+        _pendingMorphParamsOffset.reset();
+        _pendingMorphParamsSize = 0;
+        if (!deltaBuffer || !params || paramsSize == 0) {
+            return;
+        }
+        const auto offset = allocateUniform(params, paramsSize);
+        if (!offset) {
+            return;
+        }
+        _pendingMorphDeltaBuffer = deltaBuffer;
+        _pendingMorphParamsOffset = offset;
+        _pendingMorphParamsSize = paramsSize;
+    }
+
+    void VulkanGraphicsDevice::setClusterBuffers(
+        const void* lightData, const size_t lightSize,
+        const void* cellData, const size_t cellSize)
+    {
+        _clusterLightOffset.reset();
+        _clusterCellOffset.reset();
+        _clusterLightSize = _clusterCellSize = 0;
+        if (!lightData || lightSize == 0 || !cellData || cellSize == 0) return;
+        _clusterLightOffset = allocateUniform(lightData, lightSize);
+        std::vector<uint32_t> expandedCells(cellSize);
+        const auto* bytes = static_cast<const uint8_t*>(cellData);
+        for (size_t i = 0; i < cellSize; ++i) expandedCells[i] = bytes[i];
+        _clusterCellOffset = allocateUniform(expandedCells.data(),
+            expandedCells.size() * sizeof(uint32_t));
+        if (_clusterLightOffset && _clusterCellOffset) {
+            _clusterLightSize = lightSize;
+            _clusterCellSize = expandedCells.size() * sizeof(uint32_t);
+        } else {
+            _clusterLightOffset.reset();
+            _clusterCellOffset.reset();
+        }
+    }
+
+    void VulkanGraphicsDevice::setClusterGridParams(
+        const float* boundsMin, const float* boundsRange,
+        const float* cellsCountByBoundsSize, const int cellsX,
+        const int cellsY, const int cellsZ, const int maxLightsPerCell,
+        const int numClusteredLights)
+    {
+        for (int i = 0; i < 3; ++i) {
+            _lightingUbo.clusterBoundsMin[i] = boundsMin ? boundsMin[i] : 0.0f;
+            _lightingUbo.clusterBoundsRange[i] = boundsRange ? boundsRange[i] : 0.0f;
+            _lightingUbo.clusterCellsCountByBoundsSize[i] =
+                cellsCountByBoundsSize ? cellsCountByBoundsSize[i] : 0.0f;
+        }
+        _lightingUbo.clusterParams[0] = std::max(cellsX, 0);
+        _lightingUbo.clusterParams[1] = std::max(cellsY, 0);
+        _lightingUbo.clusterParams[2] = std::max(cellsZ, 0);
+        _lightingUbo.clusterParams[3] = std::max(maxLightsPerCell, 0);
+        _lightingUbo.clusterParams2[0] = std::max(numClusteredLights, 0);
+        _lightingNeedsUpload = true;
+    }
+
     void VulkanGraphicsDevice::setLightingUniforms(const Color& ambientColor,
         const std::vector<GpuLightData>& lights, const Vector3& cameraPosition,
         bool enableNormalMaps, float exposure, const FogParams& fogParams,
         const ShadowParams& shadowParams, int toneMapping,
         const Vector3* ambientSH, const Matrix4* viewProjection)
     {
-        // The baseline Vulkan lighting shader does not consume ambient SH or
-        // the auxiliary view-projection matrix yet. Keep the interface in sync
-        // with GraphicsDevice while those feature bindings are ported.
-        (void)ambientSH;
+        if (ambientSH) {
+            for (size_t i = 0; i < 9; ++i) {
+                _lightingUbo.ambientSH[i][0] = ambientSH[i].getX();
+                _lightingUbo.ambientSH[i][1] = ambientSH[i].getY();
+                _lightingUbo.ambientSH[i][2] = ambientSH[i].getZ();
+                _lightingUbo.ambientSH[i][3] = 0.0f;
+            }
+        } else {
+            std::memset(_lightingUbo.ambientSH, 0,
+                sizeof(_lightingUbo.ambientSH));
+        }
         (void)viewProjection;
 
         // Directional cascaded shadows.  The cascade matrices, split distances,
@@ -2116,10 +2321,8 @@ namespace visutwin::canvas
             dst.directionType[0] = src.direction.getX();
             dst.directionType[1] = src.direction.getY();
             dst.directionType[2] = src.direction.getZ();
-            // AreaRect (3) has no dedicated path yet — fall back to point shading.
-            dst.directionType[3] = (src.type == GpuLightType::AreaRect)
-                ? static_cast<float>(VulkanLightTypeTag::Point)
-                : static_cast<float>(static_cast<uint32_t>(src.type));
+            dst.directionType[3] =
+                static_cast<float>(static_cast<uint32_t>(src.type));
 
             dst.colorIntensity[0] = lightLinear.r;
             dst.colorIntensity[1] = lightLinear.g;
@@ -2134,6 +2337,15 @@ namespace visutwin::canvas
             dst.coneParams[3] = src.castShadows
                 ? static_cast<float>(src.shadowMapIndex)
                 : -1.0f;
+            dst.areaRightHalfWidth[0] = src.areaRight.getX();
+            dst.areaRightHalfWidth[1] = src.areaRight.getY();
+            dst.areaRightHalfWidth[2] = src.areaRight.getZ();
+            dst.areaRightHalfWidth[3] = src.areaHalfWidth;
+            const Vector3 areaUp = src.direction.cross(src.areaRight).normalized();
+            dst.areaUpHalfHeight[0] = areaUp.getX();
+            dst.areaUpHalfHeight[1] = areaUp.getY();
+            dst.areaUpHalfHeight[2] = areaUp.getZ();
+            dst.areaUpHalfHeight[3] = src.areaHalfHeight;
         }
 
         Color fogLinear;
@@ -2148,6 +2360,28 @@ namespace visutwin::canvas
         _lightingUbo.fogStartEndType[3] = 0.0f;
 
         // Re-upload into the ring on the next draw.
+        _lightingNeedsUpload = true;
+    }
+
+    void VulkanGraphicsDevice::setReflectionProbeUniforms(
+        Texture* cubemap, const Vector3& boxMin, const Vector3& boxMax,
+        const bool boxProjection, const float intensity, const float maxLod)
+    {
+        _reflectionProbeTexture = cubemap;
+        const Vector3 position = (boxMin + boxMax) * 0.5f;
+        const Vector3 values[3] = {boxMin, boxMax, position};
+        float* destinations[3] = {
+            _lightingUbo.reflectionProbeBoxMin,
+            _lightingUbo.reflectionProbeBoxMax,
+            _lightingUbo.reflectionProbePosition};
+        for (int v = 0; v < 3; ++v) {
+            destinations[v][0] = values[v].getX();
+            destinations[v][1] = values[v].getY();
+            destinations[v][2] = values[v].getZ();
+        }
+        _lightingUbo.reflectionProbeParams[0] = boxProjection ? 1.0f : 0.0f;
+        _lightingUbo.reflectionProbeParams[1] = intensity;
+        _lightingUbo.reflectionProbeParams[2] = maxLod;
         _lightingNeedsUpload = true;
     }
 
@@ -2250,6 +2484,14 @@ namespace visutwin::canvas
             vulkan_generated::kForwardColorVertWordCount,
             vulkan_generated::kForwardPointVert,
             vulkan_generated::kForwardPointVertWordCount,
+            vulkan_generated::kForwardDynamicBatchVert,
+            vulkan_generated::kForwardDynamicBatchVertWordCount,
+            vulkan_generated::kForwardSkinnedVert,
+            vulkan_generated::kForwardSkinnedVertWordCount,
+            vulkan_generated::kForwardMorphedVert,
+            vulkan_generated::kForwardMorphedVertWordCount,
+            vulkan_generated::kForwardSkinnedMorphedVert,
+            vulkan_generated::kForwardSkinnedMorphedVertWordCount,
             !isShadowName);
     }
 

@@ -40,7 +40,11 @@ namespace visutwin::canvas
 
             VkBufferCreateInfo bufInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
             bufInfo.size = _totalSize;
-            bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+            // Geometry palettes share this fence-gated upload ring with
+            // uniforms. Individual allocations are exposed through either
+            // UBO or SSBO descriptors depending on the shader contract.
+            bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
             VmaAllocationCreateInfo allocInfo{};
             allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;

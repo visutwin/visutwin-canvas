@@ -28,6 +28,11 @@ namespace visutwin::canvas
             const uint32_t* skyVertSpirv = nullptr, size_t skyVertWordCount = 0,
             const uint32_t* colorVertSpirv = nullptr, size_t colorVertWordCount = 0,
             const uint32_t* pointVertSpirv = nullptr, size_t pointVertWordCount = 0,
+            const uint32_t* dynamicBatchVertSpirv = nullptr, size_t dynamicBatchVertWordCount = 0,
+            const uint32_t* skinnedVertSpirv = nullptr, size_t skinnedVertWordCount = 0,
+            const uint32_t* morphedVertSpirv = nullptr, size_t morphedVertWordCount = 0,
+            const uint32_t* skinnedMorphedVertSpirv = nullptr,
+            size_t skinnedMorphedVertWordCount = 0,
             bool specializeFeatures = false);
 
         ~VulkanShader() override;
@@ -39,6 +44,10 @@ namespace visutwin::canvas
         [[nodiscard]] VkShaderModule colorVertexModule() const { return _colorVertexModule; }
         // 28-byte point-cloud layout variant (pos @0 + vec4 color @12, unlit).
         [[nodiscard]] VkShaderModule pointVertexModule() const { return _pointVertexModule; }
+        [[nodiscard]] VkShaderModule dynamicBatchVertexModule() const { return _dynamicBatchVertexModule; }
+        [[nodiscard]] VkShaderModule skinnedVertexModule() const { return _skinnedVertexModule; }
+        [[nodiscard]] VkShaderModule morphedVertexModule() const { return _morphedVertexModule; }
+        [[nodiscard]] VkShaderModule skinnedMorphedVertexModule() const { return _skinnedMorphedVertexModule; }
         [[nodiscard]] VkShaderModule fragmentModule() const { return _fragmentModule; }
         [[nodiscard]] VkShaderModule computeModule() const { return _computeModule; }
         [[nodiscard]] uint64_t featureMask() const { return _featureMask; }
@@ -58,6 +67,10 @@ namespace visutwin::canvas
         VkShaderModule _skyVertexModule = VK_NULL_HANDLE;
         VkShaderModule _colorVertexModule = VK_NULL_HANDLE;
         VkShaderModule _pointVertexModule = VK_NULL_HANDLE;
+        VkShaderModule _dynamicBatchVertexModule = VK_NULL_HANDLE;
+        VkShaderModule _skinnedVertexModule = VK_NULL_HANDLE;
+        VkShaderModule _morphedVertexModule = VK_NULL_HANDLE;
+        VkShaderModule _skinnedMorphedVertexModule = VK_NULL_HANDLE;
         VkShaderModule _fragmentModule = VK_NULL_HANDLE;
         VkShaderModule _computeModule = VK_NULL_HANDLE;
         uint64_t _featureMask = 0;

@@ -15,6 +15,7 @@
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/stencilParameters.h"
+#include "platform/graphics/shaderFeatures.h"
 #include "platform/graphics/vertexFormat.h"
 #include "scene/materials/material.h"
 #include "scene/mesh.h"
@@ -29,14 +30,19 @@ namespace visutwin::canvas
             using namespace vulkan_generated;
             static_assert(kForwardVertPushConstantSize == 128);
             static_assert(kForwardInstancedVertPushConstantSize == 128);
+            static_assert(kForwardDynamicBatchVertPushConstantSize == 128);
+            static_assert(kForwardSkinnedVertPushConstantSize == 128);
+            static_assert(kForwardMorphedVertPushConstantSize == 128);
+            static_assert(kForwardSkinnedMorphedVertPushConstantSize == 128);
             static_assert(kForwardSkyVertPushConstantSize == 128);
             static_assert(kForwardColorVertPushConstantSize == 128);
             static_assert(kForwardPointVertPushConstantSize == 128);
-            static_assert(sizeof(VulkanLightingUBO) == 1120);
+            static_assert(sizeof(VulkanLightingUBO) == 1664);
             static_assert(
                 offsetof(MaterialUniforms, emissiveTransform1) +
                     sizeof(float) * 4 ==
                 224);
+            static_assert(sizeof(MaterialUniforms) == 384);
 
             for (const auto& reflected : kForwardFragBindings) {
                 const bool uniform =
@@ -45,16 +51,26 @@ namespace visutwin::canvas
                     ReflectedDescriptorKind::CombinedImageSampler;
                 const bool validMaterial =
                     reflected.set == 0 && reflected.binding == 0 && uniform &&
-                    reflected.blockSize == 224;
+                    reflected.blockSize == sizeof(MaterialUniforms);
                 const bool validLighting =
                     reflected.set == 2 && reflected.binding == 0 && uniform &&
                     reflected.blockSize == sizeof(VulkanLightingUBO);
                 const bool validMaterialTexture =
-                    reflected.set == 1 && reflected.binding < 6 && sampler;
+                    reflected.set == 1 && reflected.binding < 20 && sampler;
                 const bool validSceneTexture =
-                    reflected.set == 3 && reflected.binding < 7 && sampler;
+                    reflected.set == 3 && reflected.binding < 8 && sampler;
+                const bool validGeometry =
+                    reflected.set == 4 &&
+                    ((reflected.binding < 2 &&
+                      reflected.kind == ReflectedDescriptorKind::StorageBuffer) ||
+                     (reflected.binding == 2 && uniform &&
+                      reflected.blockSize == 80));
+                const bool validCluster =
+                    reflected.set == 5 && reflected.binding < 2 &&
+                    reflected.kind == ReflectedDescriptorKind::StorageBuffer;
                 if (!validMaterial && !validLighting &&
-                    !validMaterialTexture && !validSceneTexture) {
+                    !validMaterialTexture && !validSceneTexture &&
+                    !validGeometry && !validCluster) {
                     throw std::runtime_error(
                         "VulkanRenderPipeline: reflected shader layout is "
                         "incompatible with the engine descriptor contract");
@@ -226,6 +242,10 @@ namespace visutwin::canvas
             vkDestroyDescriptorSetLayout(vk, _lightingSetLayout, nullptr);
         if (_sceneSetLayout != VK_NULL_HANDLE)
             vkDestroyDescriptorSetLayout(vk, _sceneSetLayout, nullptr);
+        if (_geometrySetLayout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(vk, _geometrySetLayout, nullptr);
+        if (_clusterSetLayout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(vk, _clusterSetLayout, nullptr);
     }
 
     void VulkanRenderPipeline::createLayouts()
@@ -245,10 +265,13 @@ namespace visutwin::canvas
         materialLayoutInfo.pBindings = &materialBinding;
         vkCreateDescriptorSetLayout(vk, &materialLayoutInfo, nullptr, &_materialSetLayout);
 
-        // Set 1: Texture samplers (6 slots)
-        std::array<VkDescriptorSetLayoutBinding, 6> texBindings{};
+        // Set 1: only statically-used material slots. Binding numbers remain
+        // the engine texture-slot numbers, but unused gaps consume no sampler
+        // descriptors (important on MoltenVK's 16-sampler stage limit).
+        constexpr std::array<uint32_t, 6> textureSlots = {0, 1, 3, 4, 5, 19};
+        std::array<VkDescriptorSetLayoutBinding, textureSlots.size()> texBindings{};
         for (uint32_t i = 0; i < texBindings.size(); i++) {
-            texBindings[i].binding = i;
+            texBindings[i].binding = textureSlots[i];
             texBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             texBindings[i].descriptorCount = 1;
             texBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -278,7 +301,7 @@ namespace visutwin::canvas
         // binding 6 = high-res skybox cubemap.  All are combined image
         // samplers; the sampler-cube vs sampler-2D distinction is a
         // shader-side concern, not a layout one.
-        std::array<VkDescriptorSetLayoutBinding, 7> sceneBindings{};
+        std::array<VkDescriptorSetLayoutBinding, 8> sceneBindings{};
         for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
             sceneBindings[i].binding = i;
             sceneBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -291,6 +314,36 @@ namespace visutwin::canvas
         sceneLayoutInfo.pBindings = sceneBindings.data();
         vkCreateDescriptorSetLayout(vk, &sceneLayoutInfo, nullptr, &_sceneSetLayout);
 
+        // Set 4: optional per-draw geometry resources. Palette matrices and
+        // morph deltas are storage buffers; the compact 80-byte morph
+        // parameter block is a regular UBO. Only bindings statically used by
+        // the selected vertex variant need to be populated.
+        std::array<VkDescriptorSetLayoutBinding, 3> geometryBindings{};
+        geometryBindings[0] = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+            VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+        geometryBindings[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+            VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+        geometryBindings[2] = {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+            VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+        VkDescriptorSetLayoutCreateInfo geometryLayoutInfo{
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        geometryLayoutInfo.bindingCount =
+            static_cast<uint32_t>(geometryBindings.size());
+        geometryLayoutInfo.pBindings = geometryBindings.data();
+        vkCreateDescriptorSetLayout(vk, &geometryLayoutInfo, nullptr,
+            &_geometrySetLayout);
+        std::array<VkDescriptorSetLayoutBinding, 2> clusterBindings{};
+        for (uint32_t i = 0; i < clusterBindings.size(); ++i) {
+            clusterBindings[i] = {i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+        }
+        VkDescriptorSetLayoutCreateInfo clusterLayoutInfo{
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        clusterLayoutInfo.bindingCount = 2;
+        clusterLayoutInfo.pBindings = clusterBindings.data();
+        vkCreateDescriptorSetLayout(vk, &clusterLayoutInfo, nullptr,
+            &_clusterSetLayout);
+
         // Push constants: 2 × mat4 = 128 bytes
         VkPushConstantRange pushRange{};
         pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -298,10 +351,11 @@ namespace visutwin::canvas
         pushRange.size = 128;
 
         VkDescriptorSetLayout setLayouts[] = {
-            _materialSetLayout, _textureSetLayout, _lightingSetLayout, _sceneSetLayout};
+            _materialSetLayout, _textureSetLayout, _lightingSetLayout,
+            _sceneSetLayout, _geometrySetLayout, _clusterSetLayout};
 
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutInfo.setLayoutCount = 4;
+        layoutInfo.setLayoutCount = 6;
         layoutInfo.pSetLayouts = setLayouts;
         layoutInfo.pushConstantRangeCount = 1;
         layoutInfo.pPushConstantRanges = &pushRange;
@@ -379,15 +433,27 @@ namespace visutwin::canvas
         const bool useColor = !useSky && !instanced && !usePoint &&
             hasSemantic(vertexFormat, VertexSemantic::SEMANTIC_COLOR) &&
             shader->colorVertexModule() != VK_NULL_HANDLE;
+        const uint64_t features = shader->featureMask();
+        const bool dynamicBatch =
+            (features & shaderFeatureBit(ShaderFeature::DynamicBatch)) != 0;
+        const bool skinned =
+            (features & shaderFeatureBit(ShaderFeature::Skinning)) != 0;
+        const bool morphed =
+            (features & shaderFeatureBit(ShaderFeature::Morphing)) != 0;
 
         // --- Shader stages ---
         std::vector<VkPipelineShaderStageCreateInfo> stages;
-        VkShaderModule vertModule = useSky
-            ? shader->skyVertexModule()
-            : (instanced ? shader->instancedVertexModule()
-                         : (usePoint ? shader->pointVertexModule()
-                                     : (useColor ? shader->colorVertexModule()
-                                                 : shader->vertexModule())));
+        VkShaderModule vertModule = shader->vertexModule();
+        if (useColor) vertModule = shader->colorVertexModule();
+        if (usePoint) vertModule = shader->pointVertexModule();
+        if (instanced) vertModule = shader->instancedVertexModule();
+        if (useSky) vertModule = shader->skyVertexModule();
+        if (morphed) vertModule = shader->morphedVertexModule();
+        if (skinned) vertModule = shader->skinnedVertexModule();
+        if (skinned && morphed)
+            vertModule = shader->skinnedMorphedVertexModule();
+        if (dynamicBatch)
+            vertModule = shader->dynamicBatchVertexModule();
         if (vertModule != VK_NULL_HANDLE) {
             VkPipelineShaderStageCreateInfo vert{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
             vert.stage = VK_SHADER_STAGE_VERTEX_BIT;
