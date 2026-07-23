@@ -11,6 +11,7 @@
 #include <vulkan/vulkan.h>
 
 #include "platform/graphics/constants.h"
+#include "platform/graphics/stencilParameters.h"
 #include "scene/mesh.h"
 
 namespace visutwin::canvas
@@ -47,6 +48,9 @@ namespace visutwin::canvas
     VkPrimitiveTopology vulkanMapPrimitiveType(PrimitiveType type);
     VkBlendFactor vulkanMapBlendFactor(int factor);
     VkBlendOp vulkanMapBlendOp(int op);
+    VkCompareOp vulkanMapStencilCompare(StencilCompareFunction function);
+    VkStencilOp vulkanMapStencilOperation(StencilOperation operation);
+    bool vulkanFormatHasStencil(VkFormat format);
 }
 
 #endif // VISUTWIN_HAS_VULKAN

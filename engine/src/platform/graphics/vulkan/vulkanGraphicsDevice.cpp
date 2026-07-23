@@ -436,6 +436,10 @@ namespace visutwin::canvas
         if (_device != VK_NULL_HANDLE)
             vkDeviceWaitIdle(_device);
 
+        // GraphicsDevice owns shaders, buffers, textures, and render targets
+        // whose destructors need a live VkDevice/VMA allocator. Release them
+        // before tearing down native state, then drain their deferred destroys.
+        releaseGpuReferences();
         flushDeferredDestroys(true);
 
         destroyPostResources();
@@ -1169,7 +1173,9 @@ namespace visutwin::canvas
 
         std::vector<VkRenderingAttachmentInfo> colorInfos;
         VkRenderingAttachmentInfo depthInfo{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        VkRenderingAttachmentInfo stencilInfo{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         bool hasDepth = false;
+        bool hasStencil = false;
         VkExtent2D extent{};
 
         if (offscreen) {
@@ -1211,7 +1217,9 @@ namespace visutwin::canvas
             if (offscreen->hasDepthAttachment()) {
                 hasDepth = true;
                 const auto& da = offscreen->depthAttachment();
-                const VkImageAspectFlags depthAspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+                hasStencil = vulkanFormatHasStencil(da.format);
+                const VkImageAspectFlags depthAspect = VK_IMAGE_ASPECT_DEPTH_BIT |
+                    (hasStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
 
                 // Source image + source layout differ between texture-backed
                 // and internally-owned depth.
@@ -1247,6 +1255,16 @@ namespace visutwin::canvas
                 depthInfo.storeOp = (dsOps && dsOps->storeDepth)
                     ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
                 depthInfo.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
+
+                if (hasStencil) {
+                    stencilInfo = depthInfo;
+                    stencilInfo.loadOp = (dsOps && dsOps->clearStencil)
+                        ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+                    stencilInfo.storeOp = (dsOps && dsOps->storeStencil)
+                        ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                    stencilInfo.clearValue.depthStencil.stencil =
+                        static_cast<uint32_t>(dsOps ? dsOps->clearStencilValue : 0);
+                }
             }
         } else {
             // Swapchain (back-buffer) path.
@@ -1297,6 +1315,7 @@ namespace visutwin::canvas
         renderingInfo.colorAttachmentCount = static_cast<uint32_t>(colorInfos.size());
         renderingInfo.pColorAttachments = colorInfos.empty() ? nullptr : colorInfos.data();
         renderingInfo.pDepthAttachment = hasDepth ? &depthInfo : nullptr;
+        renderingInfo.pStencilAttachment = hasStencil ? &stencilInfo : nullptr;
 
         vkCmdBeginRendering(cmd, &renderingInfo);
 
@@ -1375,7 +1394,9 @@ namespace visutwin::canvas
                     vulkanTransitionImageLayout(cmd, da.texture->image(),
                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        VK_IMAGE_ASPECT_DEPTH_BIT,
+                        VK_IMAGE_ASPECT_DEPTH_BIT |
+                            (vulkanFormatHasStencil(da.format)
+                                ? VK_IMAGE_ASPECT_STENCIL_BIT : 0),
                         0, 1,
                         depthLayered ? static_cast<uint32_t>(_activeOffscreenTarget->face()) : 0u,
                         1u);
@@ -1445,11 +1466,27 @@ namespace visutwin::canvas
     {
         VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
 
+        const int64_t requestedWidth = sw() > 0
+            ? static_cast<int64_t>(sw())
+            : static_cast<int64_t>(_activeExtent.width);
+        const int64_t requestedHeight = sh() > 0
+            ? static_cast<int64_t>(sh())
+            : static_cast<int64_t>(_activeExtent.height);
+        const int64_t left = std::clamp<int64_t>(sx(), 0, _activeExtent.width);
+        const int64_t top = std::clamp<int64_t>(sy(), 0, _activeExtent.height);
+        const int64_t right = std::clamp<int64_t>(
+            static_cast<int64_t>(sx()) + requestedWidth, left, _activeExtent.width);
+        const int64_t bottom = std::clamp<int64_t>(
+            static_cast<int64_t>(sy()) + requestedHeight, top, _activeExtent.height);
+
         VkRect2D scissor{};
-        scissor.offset = {std::max(sx(), 0), std::max(sy(), 0)};
+        scissor.offset = {
+            static_cast<int32_t>(left),
+            static_cast<int32_t>(top)
+        };
         scissor.extent = {
-            sw() > 0 ? static_cast<uint32_t>(sw()) : _activeExtent.width,
-            sh() > 0 ? static_cast<uint32_t>(sh()) : _activeExtent.height
+            static_cast<uint32_t>(right - left),
+            static_cast<uint32_t>(bottom - top)
         };
         vkCmdSetScissor(cmd, 0, 1, &scissor);
     }
@@ -1519,8 +1556,13 @@ namespace visutwin::canvas
             VkPipeline pipeline = _renderPipeline->get(primitive,
                 vf ? vf->format() : nullptr,
                 vulkanShader, _blendState, _depthState, cullMode,
+                _stencilEnabled, _stencilFront, _stencilBack,
                 colorFmt, depthFmt, instanceStride, isSkybox);
 
+            if (pipeline == VK_NULL_HANDLE) {
+                spdlog::error("VulkanGraphicsDevice: draw skipped because pipeline creation failed");
+                return;
+            }
             if (pipeline != _currentPipeline) {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                 _currentPipeline = pipeline;
@@ -1544,6 +1586,21 @@ namespace visutwin::canvas
                 VkDeviceSize offset = 0;
                 vkCmdBindVertexBuffers(cmd, 1, 1, &instBuf, &offset);
             }
+        }
+
+        if (_stencilEnabled && (_stencilFront || _stencilBack)) {
+            const auto& effectiveFront = _stencilFront ? _stencilFront : _stencilBack;
+            const auto& effectiveBack = _stencilBack ? _stencilBack : _stencilFront;
+            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_BIT,
+                effectiveFront->reference());
+            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_BACK_BIT,
+                effectiveBack->reference());
+        } else {
+            // Pipelines declare stencil reference as dynamic even when the
+            // current attachment/state does not use stencil. Define it on
+            // every command buffer so a first non-stencil draw never depends
+            // on state left by an earlier draw or frame.
+            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
         }
 
         // Push constants (transforms)

@@ -18,10 +18,9 @@ namespace visutwin::canvas::gpu
 {
     namespace
     {
-        // Map a VkFormat to its image aspect bits.  We intentionally treat
-        // depth-stencil formats as depth-only here because every consumer in
-        // the engine that writes to or reads from these textures is depth-only.
-        // Stencil sampling/clearing would require a separate aspect mask.
+        // Map a VkFormat to every image aspect it owns. Combined
+        // depth-stencil resources must retain both aspects for attachment
+        // transitions and stencil clear/store operations.
         VkImageAspectFlags aspectForFormat(VkFormat fmt)
         {
             switch (fmt) {

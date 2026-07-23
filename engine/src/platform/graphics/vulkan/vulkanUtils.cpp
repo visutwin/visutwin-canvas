@@ -258,6 +258,43 @@ namespace visutwin::canvas
         default:                             return VK_BLEND_OP_ADD;
         }
     }
+
+    VkCompareOp vulkanMapStencilCompare(const StencilCompareFunction function)
+    {
+        switch (function) {
+        case StencilCompareFunction::Never:        return VK_COMPARE_OP_NEVER;
+        case StencilCompareFunction::Less:         return VK_COMPARE_OP_LESS;
+        case StencilCompareFunction::Equal:        return VK_COMPARE_OP_EQUAL;
+        case StencilCompareFunction::LessEqual:    return VK_COMPARE_OP_LESS_OR_EQUAL;
+        case StencilCompareFunction::Greater:      return VK_COMPARE_OP_GREATER;
+        case StencilCompareFunction::NotEqual:     return VK_COMPARE_OP_NOT_EQUAL;
+        case StencilCompareFunction::GreaterEqual: return VK_COMPARE_OP_GREATER_OR_EQUAL;
+        case StencilCompareFunction::Always:       return VK_COMPARE_OP_ALWAYS;
+        }
+        return VK_COMPARE_OP_ALWAYS;
+    }
+
+    VkStencilOp vulkanMapStencilOperation(const StencilOperation operation)
+    {
+        switch (operation) {
+        case StencilOperation::Keep:           return VK_STENCIL_OP_KEEP;
+        case StencilOperation::Zero:           return VK_STENCIL_OP_ZERO;
+        case StencilOperation::Replace:        return VK_STENCIL_OP_REPLACE;
+        case StencilOperation::IncrementClamp: return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+        case StencilOperation::DecrementClamp: return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+        case StencilOperation::Invert:         return VK_STENCIL_OP_INVERT;
+        case StencilOperation::IncrementWrap:  return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+        case StencilOperation::DecrementWrap:  return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+        }
+        return VK_STENCIL_OP_KEEP;
+    }
+
+    bool vulkanFormatHasStencil(const VkFormat format)
+    {
+        return format == VK_FORMAT_D16_UNORM_S8_UINT ||
+               format == VK_FORMAT_D24_UNORM_S8_UINT ||
+               format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+    }
 }
 
 #endif // VISUTWIN_HAS_VULKAN

@@ -37,6 +37,19 @@ namespace visutwin::canvas
         }
     }
 
+    void GraphicsDevice::releaseGpuReferences()
+    {
+        _shader.reset();
+        _shaderCache.clear();
+        _vertexBuffers.clear();
+        _quadVertexBuffer.reset();
+        _renderTarget.reset();
+        _backBuffer.reset();
+        _textures.clear();
+        _dynamicBuffers.reset();
+        _gpuProfiler.reset();
+    }
+
     void GraphicsDevice::frameStart()
     {
         _renderPassIndex = 0;

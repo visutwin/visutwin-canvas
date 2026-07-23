@@ -11,6 +11,7 @@
 
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
+#include "platform/graphics/stencilParameters.h"
 #include "platform/graphics/vertexFormat.h"
 #include "scene/mesh.h"
 #include "spdlog/spdlog.h"
@@ -127,6 +128,9 @@ namespace visutwin::canvas
         const std::shared_ptr<BlendState>& blendState,
         const std::shared_ptr<DepthState>& depthState,
         CullMode cullMode,
+        bool stencilEnabled,
+        const std::shared_ptr<StencilParameters>& stencilFront,
+        const std::shared_ptr<StencilParameters>& stencilBack,
         VkFormat colorFormat,
         VkFormat depthFormat,
         uint32_t instanceStride,
@@ -141,6 +145,9 @@ namespace visutwin::canvas
         mix(blendState ? blendState->key() : 0);
         mix(depthState ? depthState->key() : 0);
         mix(static_cast<uint64_t>(cullMode));
+        mix(stencilEnabled ? 1ull : 0ull);
+        mix(stencilFront ? stencilFront->stateKey() : 0);
+        mix(stencilBack ? stencilBack->stateKey() : 0);
         mix(static_cast<uint64_t>(colorFormat));
         mix(static_cast<uint64_t>(depthFormat));
         mix(static_cast<uint64_t>(instanceStride));
@@ -150,8 +157,11 @@ namespace visutwin::canvas
         if (it != _cache.end()) return it->second;
 
         VkPipeline pipeline = create(primitive, vertexFormat, shader,
-            blendState, depthState, cullMode, colorFormat, depthFormat, instanceStride, isSkybox);
-        _cache[hash] = pipeline;
+            blendState, depthState, cullMode, stencilEnabled, stencilFront, stencilBack,
+            colorFormat, depthFormat, instanceStride, isSkybox);
+        if (pipeline != VK_NULL_HANDLE) {
+            _cache[hash] = pipeline;
+        }
         return pipeline;
     }
 
@@ -161,6 +171,9 @@ namespace visutwin::canvas
         const std::shared_ptr<BlendState>& blendState,
         const std::shared_ptr<DepthState>& depthState,
         CullMode cullMode,
+        bool stencilEnabled,
+        const std::shared_ptr<StencilParameters>& stencilFront,
+        const std::shared_ptr<StencilParameters>& stencilBack,
         VkFormat colorFormat,
         VkFormat depthFormat,
         uint32_t instanceStride,
@@ -273,10 +286,7 @@ namespace visutwin::canvas
         rasterization.depthClampEnable = VK_FALSE;
         rasterization.rasterizerDiscardEnable = VK_FALSE;
         rasterization.polygonMode = VK_POLYGON_MODE_FILL;
-        // Shadow / depth-only passes render double-sided: for closed meshes the
-        // nearest (light-facing) surface wins the depth test anyway, and this
-        // sidesteps winding ambiguity from the negative-height viewport.
-        rasterization.cullMode = depthOnly ? VK_CULL_MODE_NONE : vulkanMapCullMode(cullMode);
+        rasterization.cullMode = vulkanMapCullMode(cullMode);
         rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         // Depth bias values come from dynamic state (vkCmdSetDepthBias) so
         // decals can toggle bias per draw without a pipeline permutation.
@@ -305,7 +315,28 @@ namespace visutwin::canvas
         }
         depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
         depthStencil.depthBoundsTestEnable = VK_FALSE;
-        depthStencil.stencilTestEnable = VK_FALSE;
+        const bool hasStencil = vulkanFormatHasStencil(depthFormat);
+        const bool useStencil = stencilEnabled && hasStencil &&
+            (stencilFront || stencilBack);
+        depthStencil.stencilTestEnable = useStencil ? VK_TRUE : VK_FALSE;
+        if (useStencil) {
+            const auto& effectiveFront = stencilFront ? stencilFront : stencilBack;
+            const auto& effectiveBack = stencilBack ? stencilBack : stencilFront;
+            const auto makeStencilState = [](const StencilParameters& parameters) {
+                VkStencilOpState state{};
+                state.failOp = vulkanMapStencilOperation(parameters.failOperation());
+                state.passOp = vulkanMapStencilOperation(parameters.passOperation());
+                state.depthFailOp = vulkanMapStencilOperation(parameters.depthFailOperation());
+                state.compareOp = vulkanMapStencilCompare(parameters.compareFunction());
+                state.compareMask = parameters.readMask();
+                state.writeMask = parameters.writeMask();
+                // Reference is dynamic so changing it does not create a pipeline.
+                state.reference = 0;
+                return state;
+            };
+            depthStencil.front = makeStencilState(*effectiveFront);
+            depthStencil.back = makeStencilState(*effectiveBack);
+        }
 
         // --- Color blend ---
         // colorFormat == UNDEFINED means depth-only (e.g. shadow map pass).
@@ -322,8 +353,18 @@ namespace visutwin::canvas
             blendAttachment.dstAlphaBlendFactor = vulkanMapBlendFactor(blendState->alphaDstFactor());
             blendAttachment.alphaBlendOp = vulkanMapBlendOp(blendState->alphaOp());
         }
-        blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        if (!blendState || blendState->redWrite()) {
+            blendAttachment.colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
+        }
+        if (!blendState || blendState->greenWrite()) {
+            blendAttachment.colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
+        }
+        if (!blendState || blendState->blueWrite()) {
+            blendAttachment.colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
+        }
+        if (!blendState || blendState->alphaWrite()) {
+            blendAttachment.colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
+        }
 
         VkPipelineColorBlendStateCreateInfo colorBlend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
         colorBlend.attachmentCount = hasColor ? 1 : 0;
@@ -334,9 +375,10 @@ namespace visutwin::canvas
             VK_DYNAMIC_STATE_VIEWPORT,
             VK_DYNAMIC_STATE_SCISSOR,
             VK_DYNAMIC_STATE_DEPTH_BIAS,
+            VK_DYNAMIC_STATE_STENCIL_REFERENCE,
         };
         VkPipelineDynamicStateCreateInfo dynamicState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-        dynamicState.dynamicStateCount = 3;
+        dynamicState.dynamicStateCount = 4;
         dynamicState.pDynamicStates = dynamicStates;
 
         // --- Dynamic rendering (Vulkan 1.3) ---
@@ -344,6 +386,7 @@ namespace visutwin::canvas
         renderingInfo.colorAttachmentCount = hasColor ? 1 : 0;
         renderingInfo.pColorAttachmentFormats = hasColor ? &colorFormat : nullptr;
         renderingInfo.depthAttachmentFormat = depthFormat;
+        renderingInfo.stencilAttachmentFormat = hasStencil ? depthFormat : VK_FORMAT_UNDEFINED;
 
         // --- Create pipeline ---
         VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};

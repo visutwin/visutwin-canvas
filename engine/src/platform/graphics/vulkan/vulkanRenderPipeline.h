@@ -17,6 +17,7 @@ namespace visutwin::canvas
 {
     class BlendState;
     class DepthState;
+    class StencilParameters;
     class VulkanGraphicsDevice;
     class VulkanShader;
     class VertexFormat;
@@ -39,6 +40,9 @@ namespace visutwin::canvas
             const std::shared_ptr<BlendState>& blendState,
             const std::shared_ptr<DepthState>& depthState,
             CullMode cullMode,
+            bool stencilEnabled,
+            const std::shared_ptr<StencilParameters>& stencilFront,
+            const std::shared_ptr<StencilParameters>& stencilBack,
             VkFormat colorFormat,
             VkFormat depthFormat,
             uint32_t instanceStride = 0,
@@ -57,6 +61,9 @@ namespace visutwin::canvas
             const std::shared_ptr<BlendState>& blendState,
             const std::shared_ptr<DepthState>& depthState,
             CullMode cullMode,
+            bool stencilEnabled,
+            const std::shared_ptr<StencilParameters>& stencilFront,
+            const std::shared_ptr<StencilParameters>& stencilBack,
             VkFormat colorFormat,
             VkFormat depthFormat,
             uint32_t instanceStride,

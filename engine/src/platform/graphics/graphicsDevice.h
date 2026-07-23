@@ -787,6 +787,9 @@ namespace visutwin::canvas
         void recordDrawCall(int count = 1) { _drawCallsPerFrame += count; }
 
         void clearVertexBuffer();
+        // Backends that destroy their native device in the derived destructor
+        // must release base-owned GPU objects first.
+        void releaseGpuReferences();
 
         std::shared_ptr<Shader> _shader;
 
