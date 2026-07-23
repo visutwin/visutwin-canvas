@@ -8,7 +8,8 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_CXX_STANDARD": "23",
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VISUTWIN_BUILD_EXAMPLES": "OFF"
       }
     },
     {
@@ -16,6 +17,14 @@
       "inherits": "default",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "examples",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-examples",
+      "cacheVariables": {
+        "VISUTWIN_BUILD_EXAMPLES": "ON"
       }
     },
     {

@@ -8,8 +8,12 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(VISUTWIN_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
+option(VISUTWIN_BUILD_EXAMPLES "Build the VisuTwin Canvas example applications" OFF)
+
 add_subdirectory(engine)
-add_subdirectory(examples)
+if(VISUTWIN_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
 add_subdirectory(tools)
 
 include(CTest)

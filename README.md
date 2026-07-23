@@ -72,9 +72,17 @@ export VCPKG_ROOT=/path/to/vcpkg
 # Configure and build
 cmake --preset default
 cmake --build build
+
+# Configure and build the examples separately
+cmake --preset examples
+cmake --build build-examples
 ```
 
-Presets: `default` (Debug), `release`, `geo` (adds geospatial dependencies).
+`VISUTWIN_BUILD_EXAMPLES` defaults to `OFF`, keeping the normal CMake/CLion
+project focused on the engine, tools, and tests. The `examples` preset enables
+the example applications in its separate `build-examples` directory.
+
+Presets: `default` (Debug), `release`, `examples`, and `vulkan`.
 
 ### Dependencies
 
