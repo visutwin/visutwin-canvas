@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "core/math/color.h"
@@ -102,13 +103,36 @@ int main()
             VertexBufferOptions vertexOptions{};
             vertexOptions.data.resize(sizeof(vertices));
             std::memcpy(vertexOptions.data.data(), vertices.data(), sizeof(vertices));
-            auto format = std::make_shared<VertexFormat>(14 * sizeof(float));
+            auto format = std::make_shared<VertexFormat>(
+                14 * sizeof(float), VertexFormat::standardElements());
             auto vertexBuffer = device->createVertexBuffer(format, 3, vertexOptions);
+
+            // A padded point record deliberately has no stride-based layout
+            // signature. Its position offset and normalized RGBA8 color must
+            // come from the declared elements.
+            constexpr uint32_t pointStride = 64;
+            std::array<uint8_t, pointStride> pointData{};
+            constexpr std::array<float, 3> pointPosition = {0.0f, 0.0f, 0.0f};
+            constexpr std::array<uint8_t, 4> pointColor = {255, 128, 32, 255};
+            std::memcpy(pointData.data() + 8, pointPosition.data(), sizeof(pointPosition));
+            std::memcpy(pointData.data() + 24, pointColor.data(), sizeof(pointColor));
+            VertexBufferOptions pointOptions{};
+            pointOptions.data.assign(pointData.begin(), pointData.end());
+            std::vector<VertexElement> pointElements = {
+                {VertexSemantic::SEMANTIC_POSITION, VertexDataType::TYPE_FLOAT32, 3, 8},
+                {VertexSemantic::SEMANTIC_COLOR, VertexDataType::TYPE_UINT8, 4, 24, true},
+            };
+            auto pointFormat = std::make_shared<VertexFormat>(
+                pointStride, std::move(pointElements));
+            auto pointBuffer = device->createVertexBuffer(pointFormat, 1, pointOptions);
             auto shader = device->createShader(ShaderDefinition{.name = "vulkan-smoke"});
 
             Primitive triangle{};
             triangle.type = PRIMITIVE_TRIANGLES;
             triangle.count = 3;
+            Primitive point{};
+            point.type = PRIMITIVE_POINTS;
+            point.count = 1;
 
             auto maskedBlend = std::make_shared<BlendState>();
             maskedBlend->setGreenWrite(false);
@@ -150,7 +174,12 @@ int main()
             // Reference is dynamic and must not require a new pipeline.
             stencilFront->setReference(3);
             stencilBack->setReference(4);
+            device->setVertexBuffer(vertexBuffer);
             device->draw(triangle);
+
+            device->setVertexBuffer(pointBuffer);
+            device->draw(point);
+            device->setVertexBuffer(vertexBuffer);
 
             auto alphaBlend = std::make_shared<BlendState>(BlendState::alphaBlend());
             auto noDepth = std::make_shared<DepthState>();
@@ -164,6 +193,7 @@ int main()
             device->draw(triangle);
 
             device->setCullMode(CullMode::CULLFACE_FRONTANDBACK);
+            device->setVertexBuffer(vertexBuffer);
             device->draw(triangle);
             device->endRenderPass(&pass);
             device->frameEnd();

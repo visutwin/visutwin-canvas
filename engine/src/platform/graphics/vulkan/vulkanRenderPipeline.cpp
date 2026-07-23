@@ -18,6 +18,149 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        int semanticLocation(const VertexSemantic semantic)
+        {
+            switch (semantic) {
+                case VertexSemantic::SEMANTIC_POSITION: return 0;
+                case VertexSemantic::SEMANTIC_NORMAL: return 1;
+                case VertexSemantic::SEMANTIC_TEXCOORD:
+                case VertexSemantic::SEMANTIC_TEXCOORD0: return 2;
+                case VertexSemantic::SEMANTIC_TANGENT: return 3;
+                case VertexSemantic::SEMANTIC_TEXCOORD1: return 4;
+                case VertexSemantic::SEMANTIC_COLOR: return 5;
+                case VertexSemantic::SEMANTIC_BLENDWEIGHT: return 11;
+                case VertexSemantic::SEMANTIC_BLENDINDICES: return 12;
+                default:
+                    break;
+            }
+
+            const int semanticValue = static_cast<int>(semantic);
+            const int attr0 = static_cast<int>(VertexSemantic::SEMANTIC_ATTR0);
+            const int attr15 = static_cast<int>(VertexSemantic::SEMANTIC_ATTR15);
+            return semanticValue >= attr0 && semanticValue <= attr15
+                ? semanticValue - attr0 : -1;
+        }
+
+        VkFormat vertexElementFormat(const VertexElement& element)
+        {
+            const auto count = element.componentCount;
+            switch (element.dataType) {
+                case VertexDataType::TYPE_FLOAT32:
+                    switch (count) {
+                        case 1: return VK_FORMAT_R32_SFLOAT;
+                        case 2: return VK_FORMAT_R32G32_SFLOAT;
+                        case 3: return VK_FORMAT_R32G32B32_SFLOAT;
+                        case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+                        default: return VK_FORMAT_UNDEFINED;
+                    }
+                case VertexDataType::TYPE_FLOAT16:
+                    switch (count) {
+                        case 1: return VK_FORMAT_R16_SFLOAT;
+                        case 2: return VK_FORMAT_R16G16_SFLOAT;
+                        case 3: return VK_FORMAT_R16G16B16_SFLOAT;
+                        case 4: return VK_FORMAT_R16G16B16A16_SFLOAT;
+                        default: return VK_FORMAT_UNDEFINED;
+                    }
+                case VertexDataType::TYPE_INT32:
+                    switch (count) {
+                        case 1: return VK_FORMAT_R32_SINT;
+                        case 2: return VK_FORMAT_R32G32_SINT;
+                        case 3: return VK_FORMAT_R32G32B32_SINT;
+                        case 4: return VK_FORMAT_R32G32B32A32_SINT;
+                        default: return VK_FORMAT_UNDEFINED;
+                    }
+                case VertexDataType::TYPE_UINT32:
+                    switch (count) {
+                        case 1: return VK_FORMAT_R32_UINT;
+                        case 2: return VK_FORMAT_R32G32_UINT;
+                        case 3: return VK_FORMAT_R32G32B32_UINT;
+                        case 4: return VK_FORMAT_R32G32B32A32_UINT;
+                        default: return VK_FORMAT_UNDEFINED;
+                    }
+                case VertexDataType::TYPE_INT16:
+                    if (element.normalized) {
+                        switch (count) {
+                            case 1: return VK_FORMAT_R16_SNORM;
+                            case 2: return VK_FORMAT_R16G16_SNORM;
+                            case 3: return VK_FORMAT_R16G16B16_SNORM;
+                            case 4: return VK_FORMAT_R16G16B16A16_SNORM;
+                            default: return VK_FORMAT_UNDEFINED;
+                        }
+                    }
+                    switch (count) {
+                        case 1: return VK_FORMAT_R16_SINT;
+                        case 2: return VK_FORMAT_R16G16_SINT;
+                        case 3: return VK_FORMAT_R16G16B16_SINT;
+                        case 4: return VK_FORMAT_R16G16B16A16_SINT;
+                        default: return VK_FORMAT_UNDEFINED;
+                    }
+                case VertexDataType::TYPE_UINT16:
+                    if (element.normalized) {
+                        switch (count) {
+                            case 1: return VK_FORMAT_R16_UNORM;
+                            case 2: return VK_FORMAT_R16G16_UNORM;
+                            case 3: return VK_FORMAT_R16G16B16_UNORM;
+                            case 4: return VK_FORMAT_R16G16B16A16_UNORM;
+                            default: return VK_FORMAT_UNDEFINED;
+                        }
+                    }
+                    switch (count) {
+                        case 1: return VK_FORMAT_R16_UINT;
+                        case 2: return VK_FORMAT_R16G16_UINT;
+                        case 3: return VK_FORMAT_R16G16B16_UINT;
+                        case 4: return VK_FORMAT_R16G16B16A16_UINT;
+                        default: return VK_FORMAT_UNDEFINED;
+                    }
+                case VertexDataType::TYPE_INT8:
+                    if (element.normalized) {
+                        switch (count) {
+                            case 1: return VK_FORMAT_R8_SNORM;
+                            case 2: return VK_FORMAT_R8G8_SNORM;
+                            case 3: return VK_FORMAT_R8G8B8_SNORM;
+                            case 4: return VK_FORMAT_R8G8B8A8_SNORM;
+                            default: return VK_FORMAT_UNDEFINED;
+                        }
+                    }
+                    switch (count) {
+                        case 1: return VK_FORMAT_R8_SINT;
+                        case 2: return VK_FORMAT_R8G8_SINT;
+                        case 3: return VK_FORMAT_R8G8B8_SINT;
+                        case 4: return VK_FORMAT_R8G8B8A8_SINT;
+                        default: return VK_FORMAT_UNDEFINED;
+                    }
+                case VertexDataType::TYPE_UINT8:
+                    if (element.normalized) {
+                        switch (count) {
+                            case 1: return VK_FORMAT_R8_UNORM;
+                            case 2: return VK_FORMAT_R8G8_UNORM;
+                            case 3: return VK_FORMAT_R8G8B8_UNORM;
+                            case 4: return VK_FORMAT_R8G8B8A8_UNORM;
+                            default: return VK_FORMAT_UNDEFINED;
+                        }
+                    }
+                    switch (count) {
+                        case 1: return VK_FORMAT_R8_UINT;
+                        case 2: return VK_FORMAT_R8G8_UINT;
+                        case 3: return VK_FORMAT_R8G8B8_UINT;
+                        case 4: return VK_FORMAT_R8G8B8A8_UINT;
+                        default: return VK_FORMAT_UNDEFINED;
+                    }
+            }
+            return VK_FORMAT_UNDEFINED;
+        }
+
+        bool hasSemantic(const std::shared_ptr<VertexFormat>& format, VertexSemantic semantic)
+        {
+            if (!format) return false;
+            for (const auto& element : format->elements()) {
+                if (element.semantic == semantic) return true;
+            }
+            return false;
+        }
+    }
+
     VulkanRenderPipeline::VulkanRenderPipeline(VulkanGraphicsDevice* device)
         : _device(device)
     {
@@ -124,6 +267,7 @@ namespace visutwin::canvas
 
     VkPipeline VulkanRenderPipeline::get(const Primitive& primitive,
         const std::shared_ptr<VertexFormat>& vertexFormat,
+        const std::shared_ptr<VertexFormat>& instanceFormat,
         const std::shared_ptr<VulkanShader>& shader,
         const std::shared_ptr<BlendState>& blendState,
         const std::shared_ptr<DepthState>& depthState,
@@ -133,7 +277,6 @@ namespace visutwin::canvas
         const std::shared_ptr<StencilParameters>& stencilBack,
         VkFormat colorFormat,
         VkFormat depthFormat,
-        uint32_t instanceStride,
         bool isSkybox)
     {
         // FNV-1a hash of pipeline state
@@ -150,15 +293,15 @@ namespace visutwin::canvas
         mix(stencilBack ? stencilBack->stateKey() : 0);
         mix(static_cast<uint64_t>(colorFormat));
         mix(static_cast<uint64_t>(depthFormat));
-        mix(static_cast<uint64_t>(instanceStride));
+        mix(instanceFormat ? instanceFormat->renderingHash() : 0);
         mix(isSkybox ? 1ull : 0ull);
 
         auto it = _cache.find(hash);
         if (it != _cache.end()) return it->second;
 
-        VkPipeline pipeline = create(primitive, vertexFormat, shader,
+        VkPipeline pipeline = create(primitive, vertexFormat, instanceFormat, shader,
             blendState, depthState, cullMode, stencilEnabled, stencilFront, stencilBack,
-            colorFormat, depthFormat, instanceStride, isSkybox);
+            colorFormat, depthFormat, isSkybox);
         if (pipeline != VK_NULL_HANDLE) {
             _cache[hash] = pipeline;
         }
@@ -167,6 +310,7 @@ namespace visutwin::canvas
 
     VkPipeline VulkanRenderPipeline::create(const Primitive& primitive,
         const std::shared_ptr<VertexFormat>& vertexFormat,
+        const std::shared_ptr<VertexFormat>& instanceFormat,
         const std::shared_ptr<VulkanShader>& shader,
         const std::shared_ptr<BlendState>& blendState,
         const std::shared_ptr<DepthState>& depthState,
@@ -176,25 +320,21 @@ namespace visutwin::canvas
         const std::shared_ptr<StencilParameters>& stencilBack,
         VkFormat colorFormat,
         VkFormat depthFormat,
-        uint32_t instanceStride,
         bool isSkybox)
     {
         VkDevice vk = _device->device();
 
         // Use the instanced vertex stage only when the draw carries a
         // per-instance buffer AND the shader provides that variant.
-        const bool instanced = instanceStride > 0 &&
+        const bool instanced = instanceFormat &&
             shader->instancedVertexModule() != VK_NULL_HANDLE;
         const bool useSky = isSkybox && shader->skyVertexModule() != VK_NULL_HANDLE;
-
-        // Stride-variant vertex layouts (mirrors the Metal scheme):
-        //   <= 28 bytes  → point cloud: pos(vec3)@0 + color(vec4)@12, unlit
-        //   >= 72 bytes  → standard + vertex color (vec4)@56 at location 5
-        //   otherwise    → standard 56/60-byte interleaved layout
-        const int vertexStride = vertexFormat ? vertexFormat->size() : 56;
-        const bool usePoint = !useSky && !instanced && vertexStride <= 28 &&
+        const bool usePoint = !useSky && !instanced &&
+            primitive.type == PRIMITIVE_POINTS &&
+            hasSemantic(vertexFormat, VertexSemantic::SEMANTIC_COLOR) &&
             shader->pointVertexModule() != VK_NULL_HANDLE;
-        const bool useColor = !useSky && !instanced && !usePoint && vertexStride >= 72 &&
+        const bool useColor = !useSky && !instanced && !usePoint &&
+            hasSemantic(vertexFormat, VertexSemantic::SEMANTIC_COLOR) &&
             shader->colorVertexModule() != VK_NULL_HANDLE;
 
         // --- Shader stages ---
@@ -226,43 +366,39 @@ namespace visutwin::canvas
         }
 
         // --- Vertex input ---
-        // Stride-variant attribute sets, matching the vertex-shader variant
-        // chosen above (VertexFormat does not yet expose its elements — the
-        // Metal layout builder uses the same stride-driven scheme).
         std::vector<VkVertexInputBindingDescription> bindings;
-        bindings.push_back({0, static_cast<uint32_t>(vertexStride), VK_VERTEX_INPUT_RATE_VERTEX});
-
         std::vector<VkVertexInputAttributeDescription> attributes;
-        if (usePoint) {
-            // Point cloud: position + color only (the point shader consumes
-            // exactly these two locations).
-            attributes = {
-                {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},       // position
-                {5, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 12},   // color
-            };
-        } else {
-            attributes = {
-                {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},       // position
-                {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12},      // normal
-                {2, 0, VK_FORMAT_R32G32_SFLOAT, 24},         // uv0
-                {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 32},   // tangent
-                {4, 0, VK_FORMAT_R32G32_SFLOAT, 48},         // uv1
-            };
-            if (useColor) {
-                attributes.push_back({5, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 56}); // vertex color
+        auto appendFormat = [&](const std::shared_ptr<VertexFormat>& format,
+                                const uint32_t binding,
+                                const VkVertexInputRate inputRate) {
+            if (!format || format->size() <= 0 || format->elements().empty()) {
+                spdlog::error(
+                    "VulkanRenderPipeline: draw requires a vertex format with declared attributes");
+                return false;
             }
-        }
 
-        if (instanced) {
-            // Binding 1: per-instance data — column-major mat4 occupies the
-            // first 64 bytes (4 × vec4 at locations 5-8).  Any trailing data
-            // in the instance stride (e.g. a 16-byte RGBA color) is skipped
-            // by the attribute layout until the shader consumes it.
-            bindings.push_back({1, instanceStride, VK_VERTEX_INPUT_RATE_INSTANCE});
-            attributes.push_back({5, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 0});
-            attributes.push_back({6, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 16});
-            attributes.push_back({7, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 32});
-            attributes.push_back({8, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 48});
+            bindings.push_back(
+                {binding, static_cast<uint32_t>(format->size()), inputRate});
+            for (const auto& element : format->elements()) {
+                const int location = semanticLocation(element.semantic);
+                const VkFormat vkFormat = vertexElementFormat(element);
+                if (location < 0 || vkFormat == VK_FORMAT_UNDEFINED) {
+                    spdlog::error(
+                        "VulkanRenderPipeline: unsupported vertex element semantic={} type={} components={}",
+                        static_cast<int>(element.semantic),
+                        static_cast<int>(element.dataType),
+                        element.componentCount);
+                    return false;
+                }
+                attributes.push_back({
+                    static_cast<uint32_t>(location), binding, vkFormat, element.offset});
+            }
+            return true;
+        };
+
+        if (!appendFormat(vertexFormat, 0, VK_VERTEX_INPUT_RATE_VERTEX) ||
+            (instanced && !appendFormat(instanceFormat, 1, VK_VERTEX_INPUT_RATE_INSTANCE))) {
+            return VK_NULL_HANDLE;
         }
 
         VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};

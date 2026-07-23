@@ -126,7 +126,8 @@ namespace visutwin::canvas
         std::vector<uint8_t> data(sizeof(quadVertices));
         std::memcpy(data.data(), quadVertices, sizeof(quadVertices));
 
-        auto format = std::make_shared<VertexFormat>(14 * static_cast<int>(sizeof(float)), true, false);
+        auto format = std::make_shared<VertexFormat>(
+            14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
         VertexBufferOptions options;
         options.usage = BUFFER_STATIC;
         options.data = std::move(data);

@@ -536,7 +536,8 @@ namespace visutwin::canvas
         // ── Process shapes ──────────────────────────────────────────────
 
         constexpr int BYTES_PER_VERTEX = static_cast<int>(sizeof(PackedVertex));  // 56
-        auto vertexFormat = std::make_shared<VertexFormat>(BYTES_PER_VERTEX, true, false);
+        auto vertexFormat = std::make_shared<VertexFormat>(
+            BYTES_PER_VERTEX, VertexFormat::standardElements(), true, false);
 
         size_t meshPayloadIndex = 0;
 

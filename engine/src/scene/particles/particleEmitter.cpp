@@ -91,7 +91,8 @@ namespace visutwin::canvas
     {
         // 4 dummy vertices, one triangle-strip quad per instance — the vertex
         // shader is [[vertex_id]]-driven (same trick as the gsplat quad).
-        auto quadFormat = std::make_shared<VertexFormat>(14 * static_cast<int>(sizeof(float)), true, false);
+        auto quadFormat = std::make_shared<VertexFormat>(
+            14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
         VertexBufferOptions quadOptions;
         quadOptions.data.assign(4 * 14 * sizeof(float), 0);
         auto quadBuffer = _device->createVertexBuffer(quadFormat, 4, quadOptions);

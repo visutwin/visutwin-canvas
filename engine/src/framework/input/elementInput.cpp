@@ -240,7 +240,8 @@ namespace visutwin::canvas
             std::memcpy(vbData.data(), vertices.data(), vbData.size());
             VertexBufferOptions vbOpts;
             vbOpts.data = std::move(vbData);
-            auto vertexFormat = std::make_shared<VertexFormat>(14 * static_cast<int>(sizeof(float)), true, false);
+            auto vertexFormat = std::make_shared<VertexFormat>(
+                14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
             auto vb = gd->createVertexBuffer(vertexFormat, vertexCount, vbOpts);
 
             std::vector<uint8_t> ibData(indices.size() * sizeof(uint32_t));

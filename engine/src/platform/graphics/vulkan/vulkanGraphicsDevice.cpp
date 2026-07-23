@@ -1528,8 +1528,7 @@ namespace visutwin::canvas
                     break;
                 }
             }
-            const uint32_t instanceStride = instancingVB && instancingVB->format()
-                ? static_cast<uint32_t>(instancingVB->format()->size()) : 0u;
+            const auto instanceFormat = instancingVB ? instancingVB->format() : nullptr;
 
             // Resolve attachment formats for pipeline creation.  The pipeline
             // is keyed on these — a mismatch with the actual VkRenderingInfo
@@ -1555,9 +1554,10 @@ namespace visutwin::canvas
 
             VkPipeline pipeline = _renderPipeline->get(primitive,
                 vf ? vf->format() : nullptr,
+                instanceFormat,
                 vulkanShader, _blendState, _depthState, cullMode,
                 _stencilEnabled, _stencilFront, _stencilBack,
-                colorFmt, depthFmt, instanceStride, isSkybox);
+                colorFmt, depthFmt, isSkybox);
 
             if (pipeline == VK_NULL_HANDLE) {
                 spdlog::error("VulkanGraphicsDevice: draw skipped because pipeline creation failed");

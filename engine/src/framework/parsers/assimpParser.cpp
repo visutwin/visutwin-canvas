@@ -712,7 +712,7 @@ namespace visutwin::canvas
 
         auto container = std::make_unique<GlbContainerResource>();
         auto vertexFormat = std::make_shared<VertexFormat>(
-            static_cast<int>(sizeof(PackedVertex)), true, false);
+            static_cast<int>(sizeof(PackedVertex)), VertexFormat::standardElements(), true, false);
 
         // ── Convert materials ──────────────────────────────────────────
 

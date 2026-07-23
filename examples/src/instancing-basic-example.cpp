@@ -222,7 +222,8 @@ int main()
     }
 
     // Create static vertex buffer containing the instance data
-    auto instanceFormat = std::make_shared<VertexFormat>(kInstanceDataBytes, false, true);
+    auto instanceFormat = std::make_shared<VertexFormat>(
+        kInstanceDataBytes, VertexFormat::instanceMatrixElements(), true, true);
     VertexBufferOptions vbOptions;
     vbOptions.data = std::move(instanceBytes);
     auto instanceBuffer = graphicsDevice->createVertexBuffer(instanceFormat, instanceCount, vbOptions);

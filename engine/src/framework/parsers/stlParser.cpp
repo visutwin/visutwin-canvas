@@ -656,7 +656,8 @@ namespace visutwin::canvas
         // ── Create GPU buffers ───────────────────────────────────────────
 
         constexpr int BYTES_PER_VERTEX = static_cast<int>(sizeof(PackedVertex));
-        auto vertexFormat = std::make_shared<VertexFormat>(BYTES_PER_VERTEX, true, false);
+        auto vertexFormat = std::make_shared<VertexFormat>(
+            BYTES_PER_VERTEX, VertexFormat::standardElements(), true, false);
 
         const int vertexCount = static_cast<int>(vertices.size());
         std::vector<uint8_t> vertexBytes(vertices.size() * sizeof(PackedVertex));

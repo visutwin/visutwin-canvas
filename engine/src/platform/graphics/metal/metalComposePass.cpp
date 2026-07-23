@@ -519,7 +519,8 @@ fragment float4 composeFragment(
         }
 
         if (!_vertexFormat) {
-            _vertexFormat = std::make_shared<VertexFormat>(static_cast<int>(14 * sizeof(float)), true, false);
+            _vertexFormat = std::make_shared<VertexFormat>(
+                static_cast<int>(14 * sizeof(float)), VertexFormat::standardElements(), true, false);
         }
 
         if (!_vertexBuffer && _vertexFormat) {

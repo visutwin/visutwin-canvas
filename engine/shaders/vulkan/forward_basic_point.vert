@@ -1,7 +1,7 @@
 #version 450
 
 // Point-cloud variant: the 28-byte layout packs position (vec3 @0) and a vec4
-// color (@12). Selected by the pipeline for vertex strides <= 28. Writes a
+// color. Selected for point primitives whose format declares COLOR. Writes a
 // ZERO world normal as the unlit sentinel — the fragment stage detects it and
 // outputs the tinted color without surface lighting (mirrors Metal, where
 // point clouds use the unlit shader path).

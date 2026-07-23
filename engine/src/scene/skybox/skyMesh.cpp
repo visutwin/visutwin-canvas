@@ -35,7 +35,8 @@ namespace visutwin::canvas
             std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
             VertexBufferOptions vbOptions;
             vbOptions.data = std::move(vertexBytes);
-            auto vertexFormat = std::make_shared<VertexFormat>(14 * static_cast<int>(sizeof(float)), true, false);
+            auto vertexFormat = std::make_shared<VertexFormat>(
+                14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
             auto vertexBuffer = device->createVertexBuffer(vertexFormat, static_cast<int>(vertices.size() / 14), vbOptions);
 
             std::vector<uint8_t> indexBytes(indices.size() * sizeof(uint32_t));

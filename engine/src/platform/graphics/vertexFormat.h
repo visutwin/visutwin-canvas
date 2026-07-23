@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace visutwin::canvas
 {
@@ -57,6 +58,15 @@ namespace visutwin::canvas
         TYPE_FLOAT16 = 7
     };
 
+    struct VertexElement
+    {
+        VertexSemantic semantic;
+        VertexDataType dataType;
+        uint8_t componentCount;
+        uint32_t offset;
+        bool normalized = false;
+    };
+
     /**
      * A vertex format is a descriptor that defines the layout of vertex data inside a VertexBuffer
      */
@@ -64,6 +74,8 @@ namespace visutwin::canvas
     {
     public:
         VertexFormat(int size, bool interleaved = true, bool instancing = false);
+        VertexFormat(int size, std::vector<VertexElement> elements,
+            bool interleaved = true, bool instancing = false);
 
         int size() const { return _size; }
 
@@ -78,6 +90,13 @@ namespace visutwin::canvas
 
         bool isInstancing() const { return _instancing; }
 
+        const std::vector<VertexElement>& elements() const { return _elements; }
+
+        static std::vector<VertexElement> standardElements();
+        static std::vector<VertexElement> pointElements();
+        static std::vector<VertexElement> skinnedElements();
+        static std::vector<VertexElement> instanceMatrixElements();
+
     private:
         int _verticesByteSize = 0;
 
@@ -89,5 +108,6 @@ namespace visutwin::canvas
 
         bool _interleaved;
         bool _instancing;
+        std::vector<VertexElement> _elements;
     };
 }

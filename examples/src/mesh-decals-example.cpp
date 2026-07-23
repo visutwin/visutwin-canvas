@@ -307,7 +307,11 @@ int main()
         decalIndices[i * 6 + 5] = base + 0;
     }
 
-    auto vertexFormat = std::make_shared<VertexFormat>(VERTEX_STRIDE_BYTES, true, false);
+    auto decalElements = VertexFormat::standardElements();
+    decalElements.push_back(
+        {VertexSemantic::SEMANTIC_COLOR, VertexDataType::TYPE_FLOAT32, 4, 56});
+    auto vertexFormat = std::make_shared<VertexFormat>(
+        VERTEX_STRIDE_BYTES, std::move(decalElements), true, false);
 
     VertexBufferOptions vbOpts;
     vbOpts.usage = BUFFER_DYNAMIC;

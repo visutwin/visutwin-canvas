@@ -30,12 +30,11 @@ namespace visutwin::canvas
         explicit VulkanRenderPipeline(VulkanGraphicsDevice* device);
         ~VulkanRenderPipeline() override;
 
-        // instanceStride > 0 selects the shader's instanced vertex stage and
-        // adds a per-instance vertex binding (binding 1) carrying a
-        // column-major mat4 at locations 5-8.  isSkybox selects the depth-pin
-        // skybox vertex stage instead.
+        // The declared elements in both formats define their Vulkan vertex
+        // bindings. isSkybox selects the depth-pin skybox vertex stage.
         VkPipeline get(const Primitive& primitive,
             const std::shared_ptr<VertexFormat>& vertexFormat,
+            const std::shared_ptr<VertexFormat>& instanceFormat,
             const std::shared_ptr<VulkanShader>& shader,
             const std::shared_ptr<BlendState>& blendState,
             const std::shared_ptr<DepthState>& depthState,
@@ -45,7 +44,6 @@ namespace visutwin::canvas
             const std::shared_ptr<StencilParameters>& stencilBack,
             VkFormat colorFormat,
             VkFormat depthFormat,
-            uint32_t instanceStride = 0,
             bool isSkybox = false);
 
         [[nodiscard]] VkPipelineLayout pipelineLayout() const { return _pipelineLayout; }
@@ -57,6 +55,7 @@ namespace visutwin::canvas
     private:
         VkPipeline create(const Primitive& primitive,
             const std::shared_ptr<VertexFormat>& vertexFormat,
+            const std::shared_ptr<VertexFormat>& instanceFormat,
             const std::shared_ptr<VulkanShader>& shader,
             const std::shared_ptr<BlendState>& blendState,
             const std::shared_ptr<DepthState>& depthState,
@@ -66,7 +65,6 @@ namespace visutwin::canvas
             const std::shared_ptr<StencilParameters>& stencilBack,
             VkFormat colorFormat,
             VkFormat depthFormat,
-            uint32_t instanceStride,
             bool isSkybox);
 
         void createLayouts();

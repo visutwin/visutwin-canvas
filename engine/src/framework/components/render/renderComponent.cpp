@@ -108,7 +108,8 @@ namespace visutwin::canvas
             VertexBufferOptions vbOptions;
             vbOptions.data = std::move(vertexBytes);
 
-            auto vertexFormat = std::make_shared<VertexFormat>(14 * static_cast<int>(sizeof(float)), true, false);
+            auto vertexFormat = std::make_shared<VertexFormat>(
+                14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
             auto vertexBuffer = device->createVertexBuffer(vertexFormat, vertexCount, vbOptions);
 
             std::vector<uint8_t> indexBytes(geometry.indices.size() * sizeof(uint32_t));

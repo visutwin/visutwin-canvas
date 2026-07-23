@@ -72,7 +72,8 @@ namespace visutwin::canvas
         // ── Quad mesh: 4 dummy vertices, one triangle-strip quad per instance ──
         // The vertex shader is [[vertex_id]]-driven; the buffer only satisfies the
         // renderer's non-null vertex buffer requirement.
-        auto quadFormat = std::make_shared<VertexFormat>(14 * static_cast<int>(sizeof(float)), true, false);
+        auto quadFormat = std::make_shared<VertexFormat>(
+            14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
         VertexBufferOptions quadOptions;
         quadOptions.data.assign(4 * 14 * sizeof(float), 0);
         auto quadBuffer = device->createVertexBuffer(quadFormat, 4, quadOptions);

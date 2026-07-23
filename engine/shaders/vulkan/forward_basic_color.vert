@@ -3,7 +3,7 @@
 // Vertex-color variant: the 72-byte interleaved layout appends a vec4 color
 // after uv1 (attribute location 5, offset 56). Identical to forward_basic.vert
 // otherwise; the color reaches the fragment stage at location 6 and is
-// multiplied into albedo. Selected by the pipeline for vertex strides >= 72.
+// multiplied into albedo. Selected when the vertex format declares COLOR.
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;

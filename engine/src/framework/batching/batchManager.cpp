@@ -523,8 +523,11 @@ namespace visutwin::canvas
         const int mergedIdxCount = static_cast<int>(mergedIndices.size());
 
         // Build vertex format for dynamic batch (60 bytes stride).
+        auto dynamicElements = VertexFormat::standardElements();
+        dynamicElements.push_back(
+            {VertexSemantic::SEMANTIC_ATTR5, VertexDataType::TYPE_FLOAT32, 1, 56});
         auto dynamicFormat = std::make_shared<VertexFormat>(
-            static_cast<int>(sizeof(DynamicBatchVertex)));
+            static_cast<int>(sizeof(DynamicBatchVertex)), std::move(dynamicElements));
 
         VertexBufferOptions vbOpts;
         vbOpts.data.resize(mergedVertCount * sizeof(DynamicBatchVertex));

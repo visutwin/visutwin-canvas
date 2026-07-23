@@ -1444,8 +1444,10 @@ namespace visutwin::canvas
         }
 
         auto container = std::make_unique<GlbContainerResource>();
-        auto vertexFormat = std::make_shared<VertexFormat>(sizeof(PackedVertex), true, false);
-        auto skinnedVertexFormat = std::make_shared<VertexFormat>(static_cast<int>(SKINNED_VERTEX_STRIDE), true, false);
+        auto vertexFormat = std::make_shared<VertexFormat>(
+            sizeof(PackedVertex), VertexFormat::standardElements(), true, false);
+        auto skinnedVertexFormat = std::make_shared<VertexFormat>(
+            static_cast<int>(SKINNED_VERTEX_STRIDE), VertexFormat::skinnedElements(), true, false);
         size_t dracoPrimitiveCount = 0;
         size_t dracoDecodeSuccessCount = 0;
         size_t dracoDecodeFailureCount = 0;
@@ -1889,7 +1891,8 @@ namespace visutwin::canvas
                         }
 
                         auto pointVertexFormat = std::make_shared<VertexFormat>(
-                            static_cast<int>(sizeof(PackedPointVertex)), true, false);
+                            static_cast<int>(sizeof(PackedPointVertex)),
+                            VertexFormat::pointElements(), true, false);
 
                         std::vector<uint8_t> pointVertexBytes(pointVertices.size() * sizeof(PackedPointVertex));
                         std::memcpy(pointVertexBytes.data(), pointVertices.data(), pointVertexBytes.size());
@@ -2224,7 +2227,8 @@ namespace visutwin::canvas
         // ---------------------------------------------------------------
         if (!hasAnimations && !mergedPointVertices.empty()) {
             auto pointVertexFormat = std::make_shared<VertexFormat>(
-                static_cast<int>(sizeof(PackedPointVertex)), true, false);
+                static_cast<int>(sizeof(PackedPointVertex)),
+                VertexFormat::pointElements(), true, false);
 
             std::vector<uint8_t> pointVertexBytes(mergedPointVertices.size() * sizeof(PackedPointVertex));
             std::memcpy(pointVertexBytes.data(), mergedPointVertices.data(), pointVertexBytes.size());
@@ -2436,8 +2440,10 @@ namespace visutwin::canvas
         }
 
         auto container = std::make_unique<GlbContainerResource>();
-        auto vertexFormat = std::make_shared<VertexFormat>(sizeof(PackedVertex), true, false);
-        auto skinnedVertexFormat = std::make_shared<VertexFormat>(static_cast<int>(SKINNED_VERTEX_STRIDE), true, false);
+        auto vertexFormat = std::make_shared<VertexFormat>(
+            sizeof(PackedVertex), VertexFormat::standardElements(), true, false);
+        auto skinnedVertexFormat = std::make_shared<VertexFormat>(
+            static_cast<int>(SKINNED_VERTEX_STRIDE), VertexFormat::skinnedElements(), true, false);
         size_t dracoPrimitiveCount = 0;
         size_t dracoDecodeSuccessCount = 0;
         size_t dracoDecodeFailureCount = 0;
@@ -2940,8 +2946,10 @@ namespace visutwin::canvas
         }
 
         auto container = std::make_unique<GlbContainerResource>();
-        auto vertexFormat = std::make_shared<VertexFormat>(sizeof(PackedVertex), true, false);
-        auto skinnedVertexFormat = std::make_shared<VertexFormat>(static_cast<int>(SKINNED_VERTEX_STRIDE), true, false);
+        auto vertexFormat = std::make_shared<VertexFormat>(
+            sizeof(PackedVertex), VertexFormat::standardElements(), true, false);
+        auto skinnedVertexFormat = std::make_shared<VertexFormat>(
+            static_cast<int>(SKINNED_VERTEX_STRIDE), VertexFormat::skinnedElements(), true, false);
 
         auto makeDefaultMaterial = []() {
             auto material = std::make_shared<StandardMaterial>();
