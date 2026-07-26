@@ -194,7 +194,12 @@ namespace visutwin::canvas
 
         // Waits for the device to idle, then rebuilds the swapchain, depth
         // resources, and per-image semaphores at the current _width/_height.
-        void recreateSwapchain();
+        [[nodiscard]] bool recreateSwapchain();
+
+        // A failed queue submission leaves its reset fence unsignaled and its
+        // acquire semaphore unconsumed. Submit an empty wait to consume the
+        // semaphore, then rebuild the swapchain to release the acquired image.
+        void recoverFailedFrameSubmission(VkResult result);
 
         // Runs queued deferred destroys whose owning frames have provably
         // completed on the GPU (or everything, when force is true — callers
@@ -293,6 +298,16 @@ namespace visutwin::canvas
         // onFrameEnd. When acquire fails (even after a swapchain rebuild) the
         // frame is skipped: nothing records, submits, or presents.
         bool _frameActive = false;
+
+        // Set when the device or frame lifecycle can no longer safely submit.
+        // frameStart/frameEnd become no-ops instead of waiting forever on a
+        // fence which cannot be signaled.
+        bool _renderingDisabled = false;
+
+        // Submission fault injection is private and exposed only through the
+        // validation smoke test's friend accessor.
+        std::optional<VkResult> _submitResultOverride;
+        friend struct VulkanGraphicsDeviceTestAccess;
 
         // Monotonic count of submitted frames — stamps deferred destroys.
         uint64_t _frameNumber = 0;

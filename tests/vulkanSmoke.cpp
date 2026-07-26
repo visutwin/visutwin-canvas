@@ -39,6 +39,28 @@
 
 using namespace visutwin::canvas;
 
+namespace visutwin::canvas
+{
+    struct VulkanGraphicsDeviceTestAccess
+    {
+        static void failNextSubmit(
+            VulkanGraphicsDevice& device, const VkResult result)
+        {
+            device._submitResultOverride = result;
+        }
+
+        static bool renderingDisabled(const VulkanGraphicsDevice& device)
+        {
+            return device._renderingDisabled;
+        }
+
+        static bool frameActive(const VulkanGraphicsDevice& device)
+        {
+            return device._frameActive;
+        }
+    };
+}
+
 int main()
 {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -707,11 +729,28 @@ void main() {
             device->frameEnd();
         }
 
-        for (int frame = 0; frame < 1 && result == 0; ++frame) {
-            SDL_PumpEvents();
-            device->frameStart();
-            device->frameEnd();
+        // A failed submit must consume the acquire semaphore, release the
+        // acquired image, and leave a signaled fence for the next frame slot
+        // reuse. Before this recovery path existed, the second frameStart()
+        // blocked forever on the reset fence.
+        SDL_PumpEvents();
+        device->frameStart();
+        VulkanGraphicsDeviceTestAccess::failNextSubmit(
+            *device, VK_ERROR_OUT_OF_HOST_MEMORY);
+        device->frameEnd();
+        if (VulkanGraphicsDeviceTestAccess::renderingDisabled(*device)) {
+            spdlog::error(
+                "Vulkan smoke: recoverable submit failure disabled rendering");
+            result = 1;
         }
+
+        device->frameStart();
+        if (!VulkanGraphicsDeviceTestAccess::frameActive(*device)) {
+            spdlog::error(
+                "Vulkan smoke: frame did not recover after failed submission");
+            result = 1;
+        }
+        device->frameEnd();
 
         if (vkDeviceWaitIdle(device->device()) != VK_SUCCESS) {
             spdlog::error("Vulkan smoke: vkDeviceWaitIdle failed");

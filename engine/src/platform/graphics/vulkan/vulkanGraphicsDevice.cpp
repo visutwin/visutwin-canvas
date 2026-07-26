@@ -881,9 +881,22 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::onFrameStart()
     {
         _frameActive = false;
+        if (_renderingDisabled) {
+            return;
+        }
         auto& frame = _frames[_frameIndex];
 
-        vkWaitForFences(_device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+        const VkResult waitResult =
+            vkWaitForFences(
+                _device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+        if (waitResult != VK_SUCCESS) {
+            _renderingDisabled = true;
+            spdlog::error(
+                "VulkanGraphicsDevice: frame fence wait failed ({}); "
+                "rendering disabled",
+                static_cast<int>(waitResult));
+            return;
+        }
         collectUploads(false);
         flushUploads();
 
@@ -897,7 +910,9 @@ namespace visutwin::canvas
             // Recreate directly — setResolution(_width, _height) would
             // early-return on the unchanged size and never rebuild the
             // swapchain, wedging every subsequent frame.
-            recreateSwapchain();
+            if (!recreateSwapchain()) {
+                return;
+            }
             result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
                 frame.imageAvailable, VK_NULL_HANDLE, &_swapchainImageIndex);
         }
@@ -910,9 +925,6 @@ namespace visutwin::canvas
             return;
         }
 
-        // Reset the fence only once the frame is guaranteed to submit —
-        // resetting before a skipped frame would deadlock the next wait.
-        vkResetFences(_device, 1, &frame.inFlightFence);
         _frameActive = true;
 
         // A fresh swapchain image is always in an undefined layout — vkAcquire
@@ -923,11 +935,23 @@ namespace visutwin::canvas
         // LOAD_OP_DONT_CARE on the colour attachment).
         _swapchainImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-        vkResetCommandBuffer(frame.commandBuffer, 0);
+        const VkResult resetCommandResult =
+            vkResetCommandBuffer(frame.commandBuffer, 0);
+        if (resetCommandResult != VK_SUCCESS) {
+            _frameActive = false;
+            recoverFailedFrameSubmission(resetCommandResult);
+            return;
+        }
 
         VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(frame.commandBuffer, &beginInfo);
+        const VkResult beginResult =
+            vkBeginCommandBuffer(frame.commandBuffer, &beginInfo);
+        if (beginResult != VK_SUCCESS) {
+            _frameActive = false;
+            recoverFailedFrameSubmission(beginResult);
+            return;
+        }
 
         // Advance the uniform ring to this frame's region.  The fence wait
         // above guarantees the GPU has finished reading it, so it is safe to
@@ -990,7 +1014,11 @@ namespace visutwin::canvas
             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
         _swapchainImageLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-        vkEndCommandBuffer(cmd);
+        const VkResult endResult = vkEndCommandBuffer(cmd);
+        if (endResult != VK_SUCCESS) {
+            recoverFailedFrameSubmission(endResult);
+            return;
+        }
 
         VkSemaphore& renderFinished =
             _renderFinishedSemaphores[_swapchainImageIndex];
@@ -1009,7 +1037,27 @@ namespace visutwin::canvas
         submitInfo.pCommandBuffers = &cmd;
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &renderFinished;
-        vkQueueSubmit(_graphicsQueue, 1, &submitInfo, frame.inFlightFence);
+        // Keep the fence signaled throughout command recording. Reset it only
+        // at the last possible moment, when a submission is ready. If reset or
+        // submit fails, recovery restores a signaled fence before slot reuse.
+        const VkResult resetFenceResult =
+            vkResetFences(_device, 1, &frame.inFlightFence);
+        if (resetFenceResult != VK_SUCCESS) {
+            recoverFailedFrameSubmission(resetFenceResult);
+            return;
+        }
+        VkResult submitResult = VK_SUCCESS;
+        if (_submitResultOverride) {
+            submitResult = *_submitResultOverride;
+            _submitResultOverride.reset();
+        } else {
+            submitResult = vkQueueSubmit(
+                _graphicsQueue, 1, &submitInfo, frame.inFlightFence);
+        }
+        if (submitResult != VK_SUCCESS) {
+            recoverFailedFrameSubmission(submitResult);
+            return;
+        }
 
         // Present
         VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
@@ -1022,7 +1070,7 @@ namespace visutwin::canvas
         if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
             // Present is the usual place a resize surfaces — rebuild now so the
             // next acquire starts from a valid swapchain.
-            recreateSwapchain();
+            (void)recreateSwapchain();
         } else if (presentResult != VK_SUCCESS) {
             spdlog::warn("VulkanGraphicsDevice: vkQueuePresentKHR failed ({})",
                 static_cast<int>(presentResult));
@@ -3186,24 +3234,94 @@ namespace visutwin::canvas
         if (width == _width && height == _height) return;
         _width = width;
         _height = height;
-        recreateSwapchain();
+        (void)recreateSwapchain();
     }
 
-    void VulkanGraphicsDevice::recreateSwapchain()
+    void VulkanGraphicsDevice::recoverFailedFrameSubmission(
+        const VkResult result)
     {
-        if (_device == VK_NULL_HANDLE) {
+        spdlog::error(
+            "VulkanGraphicsDevice: frame submission failed ({}); "
+            "recovering frame synchronization",
+            static_cast<int>(result));
+
+        if (result == VK_ERROR_DEVICE_LOST) {
+            _renderingDisabled = true;
+            spdlog::error(
+                "VulkanGraphicsDevice: device lost; rendering disabled");
             return;
         }
-        vkDeviceWaitIdle(_device);
+
+        auto& frame = _frames[_frameIndex];
+
+        // The failed submission did not consume imageAvailable. Reusing that
+        // binary semaphore in vkAcquireNextImageKHR would try to signal an
+        // already-signaled semaphore. Consume it with an empty queue submission
+        // and use the frame fence so swapchain recreation can wait for it.
+        const VkResult resetResult =
+            vkResetFences(_device, 1, &frame.inFlightFence);
+        if (resetResult != VK_SUCCESS) {
+            _renderingDisabled = true;
+            spdlog::error(
+                "VulkanGraphicsDevice: failed to reset recovery fence ({}); "
+                "rendering disabled",
+                static_cast<int>(resetResult));
+            return;
+        }
+        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkSubmitInfo consumeAcquire{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        consumeAcquire.waitSemaphoreCount = 1;
+        consumeAcquire.pWaitSemaphores = &frame.imageAvailable;
+        consumeAcquire.pWaitDstStageMask = &waitStage;
+        const VkResult recoverySubmit = vkQueueSubmit(
+            _graphicsQueue, 1, &consumeAcquire, frame.inFlightFence);
+        if (recoverySubmit != VK_SUCCESS) {
+            _renderingDisabled = true;
+            spdlog::error(
+                "VulkanGraphicsDevice: synchronization recovery submit failed "
+                "({}); rendering disabled",
+                static_cast<int>(recoverySubmit));
+            return;
+        }
+
+        // The failed frame acquired an image but never presented it. Rebuilding
+        // releases that image and gives the next frame a clean WSI state.
+        if (!recreateSwapchain()) {
+            _renderingDisabled = true;
+        }
+    }
+
+    bool VulkanGraphicsDevice::recreateSwapchain()
+    {
+        if (_device == VK_NULL_HANDLE) {
+            return false;
+        }
+        const VkResult idleResult = vkDeviceWaitIdle(_device);
+        if (idleResult != VK_SUCCESS) {
+            _renderingDisabled = true;
+            spdlog::error(
+                "VulkanGraphicsDevice: device wait before swapchain recreation "
+                "failed ({}); rendering disabled",
+                static_cast<int>(idleResult));
+            return false;
+        }
         flushDeferredDestroys(true); // idle device — everything is safe to free
         destroyDepthResources();
         destroySwapchainSemaphores();
         cleanupSwapchain();
         initSwapchain(_width, _height);
+        if (_swapchain == VK_NULL_HANDLE || _swapchainImages.empty()) {
+            _renderingDisabled = true;
+            spdlog::error(
+                "VulkanGraphicsDevice: swapchain recreation failed; "
+                "rendering disabled");
+            return false;
+        }
         createDepthResources();
         // Image count may differ in the new swapchain — per-image
         // semaphores must match it.
         createSwapchainSemaphores();
+        return true;
     }
 
     std::pair<int, int> VulkanGraphicsDevice::size() const
