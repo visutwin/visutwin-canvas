@@ -121,8 +121,12 @@ namespace visutwin::canvas
         // Fail loudly instead of limping on: every later frame call would
         // dereference these (e.g. _swapchainImages[_swapchainImageIndex]).
         if (_instance == VK_NULL_HANDLE || _device == VK_NULL_HANDLE ||
-            _surface == VK_NULL_HANDLE || _vmaAllocator == VK_NULL_HANDLE) {
-            throw std::runtime_error("VulkanGraphicsDevice: instance/device/surface initialization failed");
+            _surface == VK_NULL_HANDLE || _vmaAllocator == VK_NULL_HANDLE ||
+            _graphicsQueue == VK_NULL_HANDLE ||
+            _presentQueue == VK_NULL_HANDLE) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: instance/device/surface/queue "
+                "initialization failed");
         }
 
         initSwapchain(_width, _height);
@@ -548,10 +552,30 @@ namespace visutwin::canvas
         auto vkbDevice = devResult.value();
         _device = vkbDevice.device;
 
-        auto qr = vkbDevice.get_queue(vkb::QueueType::graphics);
-        if (qr) _graphicsQueue = qr.value();
-        auto qi = vkbDevice.get_queue_index(vkb::QueueType::graphics);
-        if (qi) _graphicsQueueFamily = qi.value();
+        const auto graphicsQueue =
+            vkbDevice.get_queue(vkb::QueueType::graphics);
+        const auto graphicsQueueFamily =
+            vkbDevice.get_queue_index(vkb::QueueType::graphics);
+        const auto presentQueue =
+            vkbDevice.get_queue(vkb::QueueType::present);
+        const auto presentQueueFamily =
+            vkbDevice.get_queue_index(vkb::QueueType::present);
+        if (!graphicsQueue || !graphicsQueueFamily ||
+            !presentQueue || !presentQueueFamily) {
+            spdlog::error(
+                "Failed to retrieve required Vulkan graphics/presentation queues");
+            return;
+        }
+
+        _graphicsQueue = graphicsQueue.value();
+        _graphicsQueueFamily = graphicsQueueFamily.value();
+        _presentQueue = presentQueue.value();
+        _presentQueueFamily = presentQueueFamily.value();
+        spdlog::info(
+            "Vulkan queue families: graphics={}, present={}{}",
+            _graphicsQueueFamily, _presentQueueFamily,
+            _graphicsQueueFamily == _presentQueueFamily
+                ? " (shared)" : " (dedicated presentation queue)");
     }
 
     void VulkanGraphicsDevice::initSwapchain(int width, int height)
@@ -562,7 +586,12 @@ namespace visutwin::canvas
         // VK_FORMAT_B8G8R8A8_SRGB instead would make the hardware apply a
         // second sRGB encode on store, doubling the gamma and washing out
         // the rendered scene.
-        vkb::SwapchainBuilder swapBuilder{_physicalDevice, _device, _surface};
+        // Passing both family indices makes vk-bootstrap use concurrent image
+        // sharing when graphics and presentation are on different families,
+        // avoiding explicit queue-family ownership transfers for each frame.
+        vkb::SwapchainBuilder swapBuilder{
+            _physicalDevice, _device, _surface,
+            _graphicsQueueFamily, _presentQueueFamily};
         swapBuilder.set_desired_extent(static_cast<uint32_t>(width), static_cast<uint32_t>(height))
                    .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
                    .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
@@ -1066,7 +1095,8 @@ namespace visutwin::canvas
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = &_swapchain;
         presentInfo.pImageIndices = &_swapchainImageIndex;
-        const VkResult presentResult = vkQueuePresentKHR(_graphicsQueue, &presentInfo);
+        const VkResult presentResult =
+            vkQueuePresentKHR(_presentQueue, &presentInfo);
         if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
             // Present is the usual place a resize surfaces — rebuild now so the
             // next acquire starts from a valid swapchain.

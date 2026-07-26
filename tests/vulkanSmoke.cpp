@@ -58,6 +58,16 @@ namespace visutwin::canvas
         {
             return device._frameActive;
         }
+
+        static bool presentFamilySupportsSurface(
+            const VulkanGraphicsDevice& device)
+        {
+            VkBool32 supported = VK_FALSE;
+            return vkGetPhysicalDeviceSurfaceSupportKHR(
+                       device._physicalDevice, device._presentQueueFamily,
+                       device._surface, &supported) == VK_SUCCESS &&
+                supported == VK_TRUE;
+        }
     };
 }
 
@@ -94,6 +104,15 @@ int main()
         }
 
         validationErrors = device->validationErrorCounter();
+
+        if (device->graphicsQueue() == VK_NULL_HANDLE ||
+            device->presentQueue() == VK_NULL_HANDLE ||
+            !VulkanGraphicsDeviceTestAccess::presentFamilySupportsSurface(
+                *device)) {
+            spdlog::error(
+                "Vulkan smoke: presentation queue is missing or unsupported");
+            result = 1;
+        }
 
         // Generic compute: sampled input + storage output, dispatched through
         // the public cross-backend Compute API.

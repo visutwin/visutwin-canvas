@@ -114,6 +114,8 @@ namespace visutwin::canvas
         [[nodiscard]] VkPhysicalDevice physicalDevice() const { return _physicalDevice; }
         [[nodiscard]] VkQueue graphicsQueue() const { return _graphicsQueue; }
         [[nodiscard]] uint32_t graphicsQueueFamily() const { return _graphicsQueueFamily; }
+        [[nodiscard]] VkQueue presentQueue() const { return _presentQueue; }
+        [[nodiscard]] uint32_t presentQueueFamily() const { return _presentQueueFamily; }
         [[nodiscard]] VmaAllocator vmaAllocator() const { return _vmaAllocator; }
         [[nodiscard]] VkFormat swapchainFormat() const { return _swapchainFormat; }
         [[nodiscard]] VkFormat depthFormat() const { return _depthFormat; }
@@ -236,6 +238,8 @@ namespace visutwin::canvas
         VkDevice _device = VK_NULL_HANDLE;
         VkQueue _graphicsQueue = VK_NULL_HANDLE;
         uint32_t _graphicsQueueFamily = 0;
+        VkQueue _presentQueue = VK_NULL_HANDLE;
+        uint32_t _presentQueueFamily = 0;
 
         // ── Memory allocator ─────────────────────────────────────────────
         VmaAllocator _vmaAllocator = VK_NULL_HANDLE;
