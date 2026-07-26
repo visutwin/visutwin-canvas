@@ -448,6 +448,19 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             point.type = PRIMITIVE_POINTS;
             point.count = 1;
 
+            // Vulkan core has no uint8 index type, so the backend widens these
+            // indices to uint16 while retaining uint8 CPU storage.
+            auto uint8IndexBuffer =
+                device->createIndexBuffer(INDEXFORMAT_UINT8, 3);
+            if (uint8IndexBuffer->setData({0, 1}) ||
+                !uint8IndexBuffer->setData({0, 1, 2}) ||
+                uint8IndexBuffer->storage() !=
+                    std::vector<uint8_t>({0, 1, 2})) {
+                spdlog::error(
+                    "Vulkan smoke: uint8 index widening or size validation failed");
+                result = 1;
+            }
+
             auto maskedBlend = std::make_shared<BlendState>();
             maskedBlend->setGreenWrite(false);
             maskedBlend->setBlueWrite(false);
@@ -484,6 +497,9 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             device->setCullMode(CullMode::CULLFACE_BACK);
             device->setStencilState(stencilFront, stencilBack);
             device->draw(triangle);
+
+            device->setVertexBuffer(vertexBuffer);
+            device->draw(triangle, uint8IndexBuffer);
 
             // Reference is dynamic and must not require a new pipeline.
             stencilFront->setReference(3);

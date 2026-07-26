@@ -2526,9 +2526,7 @@ namespace visutwin::canvas
         if (indexBuffer) {
             auto* ib = static_cast<VulkanIndexBuffer*>(indexBuffer.get());
             if (ib->buffer() != VK_NULL_HANDLE) {
-                VkIndexType idxType = (indexBuffer->format() == INDEXFORMAT_UINT32)
-                    ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
-                vkCmdBindIndexBuffer(cmd, ib->buffer(), 0, idxType);
+                vkCmdBindIndexBuffer(cmd, ib->buffer(), 0, ib->indexType());
                 if (indirectSlot >= 0 && _indirectDrawBuffer != VK_NULL_HANDLE) {
                     vkCmdDrawIndexedIndirect(cmd, _indirectDrawBuffer,
                         static_cast<VkDeviceSize>(indirectSlot) *

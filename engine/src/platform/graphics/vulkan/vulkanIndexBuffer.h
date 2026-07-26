@@ -27,11 +27,15 @@ namespace visutwin::canvas
         bool setData(const std::vector<uint8_t>& data) override;
 
         [[nodiscard]] VkBuffer buffer() const { return _buffer; }
+        [[nodiscard]] VkIndexType indexType() const { return _indexType; }
 
     private:
-        void uploadStaging(const void* data, size_t size);
+        bool uploadStaging(const void* data, size_t size);
 
         VkBuffer _buffer = VK_NULL_HANDLE;
+        // Vulkan's core index types are uint16 and uint32. Public uint8 index
+        // buffers are widened to uint16 during upload for portable support.
+        VkIndexType _indexType = VK_INDEX_TYPE_UINT16;
         VmaAllocation _allocation = VK_NULL_HANDLE;
         VmaAllocator _allocator = VK_NULL_HANDLE;
         // Deferred-destroy routing (in-flight frames may reference the buffer).

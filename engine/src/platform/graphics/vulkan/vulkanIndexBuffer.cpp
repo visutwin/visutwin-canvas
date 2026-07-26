@@ -9,6 +9,7 @@
 #include "vulkanUtils.h"
 
 #include <cstring>
+#include <vector>
 #include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
@@ -21,8 +22,12 @@ namespace visutwin::canvas
         _deviceAlive = vkDev->aliveToken();
         _allocator = vkDev->vmaAllocator();
 
-        int bytesPerIndex = (format == INDEXFORMAT_UINT32) ? 4 : (format == INDEXFORMAT_UINT16) ? 2 : 1;
-        size_t bufferSize = static_cast<size_t>(numIndices) * bytesPerIndex;
+        _indexType = format == INDEXFORMAT_UINT32
+            ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
+        const size_t deviceBytesPerIndex =
+            _indexType == VK_INDEX_TYPE_UINT32 ? sizeof(uint32_t) : sizeof(uint16_t);
+        const size_t bufferSize =
+            static_cast<size_t>(numIndices) * deviceBytesPerIndex;
         if (bufferSize == 0) return;
 
         VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -59,12 +64,40 @@ namespace visutwin::canvas
     bool VulkanIndexBuffer::setData(const std::vector<uint8_t>& data)
     {
         if (data.empty() || !_allocator || !_buffer) return false;
+
+        const size_t sourceBytesPerIndex = format() == INDEXFORMAT_UINT32
+            ? sizeof(uint32_t)
+            : format() == INDEXFORMAT_UINT16 ? sizeof(uint16_t) : sizeof(uint8_t);
+        const size_t expectedSize =
+            static_cast<size_t>(numIndices()) * sourceBytesPerIndex;
+        if (data.size() != expectedSize) {
+            spdlog::error(
+                "VulkanIndexBuffer: received {} bytes for {} indices, expected {}",
+                data.size(), numIndices(), expectedSize);
+            return false;
+        }
+
+        bool uploaded = false;
+        if (format() == INDEXFORMAT_UINT8) {
+            std::vector<uint16_t> widened(static_cast<size_t>(numIndices()));
+            for (size_t i = 0; i < widened.size(); ++i) {
+                widened[i] = data[i];
+            }
+            uploaded = uploadStaging(
+                widened.data(), widened.size() * sizeof(uint16_t));
+        } else {
+            uploaded = uploadStaging(data.data(), data.size());
+        }
+        if (!uploaded) {
+            return false;
+        }
+
+        // Preserve the source representation for CPU-side mesh batching.
         _storage = data;
-        uploadStaging(data.data(), data.size());
         return true;
     }
 
-    void VulkanIndexBuffer::uploadStaging(const void* data, size_t size)
+    bool VulkanIndexBuffer::uploadStaging(const void* data, size_t size)
     {
         auto* vkDev = static_cast<VulkanGraphicsDevice*>(_device);
 
@@ -81,14 +114,14 @@ namespace visutwin::canvas
         if (vmaCreateBuffer(_allocator, &stagingInfo, &stagingAllocInfo,
                 &stagingBuffer, &stagingAlloc, nullptr) != VK_SUCCESS) {
             spdlog::error("VulkanIndexBuffer: staging allocation failed");
-            return;
+            return false;
         }
 
         void* mapped;
         if (vmaMapMemory(_allocator, stagingAlloc, &mapped) != VK_SUCCESS) {
             spdlog::error("VulkanIndexBuffer: staging map failed");
             vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);
-            return;
+            return false;
         }
         memcpy(mapped, data, size);
         vmaUnmapMemory(_allocator, stagingAlloc);
@@ -119,6 +152,7 @@ namespace visutwin::canvas
         }, [allocator = _allocator, stagingBuffer, stagingAlloc] {
             vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
         });
+        return true;
     }
 }
 
