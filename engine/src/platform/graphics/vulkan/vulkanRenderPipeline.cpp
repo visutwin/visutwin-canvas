@@ -390,7 +390,7 @@ namespace visutwin::canvas
         bool stencilEnabled,
         const std::shared_ptr<StencilParameters>& stencilFront,
         const std::shared_ptr<StencilParameters>& stencilBack,
-        VkFormat colorFormat,
+        const std::span<const VkFormat> colorFormats,
         VkFormat depthFormat,
         bool isSkybox)
     {
@@ -406,7 +406,10 @@ namespace visutwin::canvas
         mix(stencilEnabled ? 1ull : 0ull);
         mix(stencilFront ? stencilFront->stateKey() : 0);
         mix(stencilBack ? stencilBack->stateKey() : 0);
-        mix(static_cast<uint64_t>(colorFormat));
+        mix(static_cast<uint64_t>(colorFormats.size()));
+        for (const VkFormat colorFormat : colorFormats) {
+            mix(static_cast<uint64_t>(colorFormat));
+        }
         mix(static_cast<uint64_t>(depthFormat));
         mix(instanceFormat ? instanceFormat->renderingHash() : 0);
         mix(isSkybox ? 1ull : 0ull);
@@ -416,7 +419,7 @@ namespace visutwin::canvas
 
         VkPipeline pipeline = create(primitive, vertexFormat, instanceFormat, shader,
             blendState, depthState, cullMode, stencilEnabled, stencilFront, stencilBack,
-            colorFormat, depthFormat, isSkybox);
+            colorFormats, depthFormat, isSkybox);
         if (pipeline != VK_NULL_HANDLE) {
             _cache[hash] = pipeline;
         }
@@ -433,7 +436,7 @@ namespace visutwin::canvas
         bool stencilEnabled,
         const std::shared_ptr<StencilParameters>& stencilFront,
         const std::shared_ptr<StencilParameters>& stencilBack,
-        VkFormat colorFormat,
+        const std::span<const VkFormat> colorFormats,
         VkFormat depthFormat,
         bool isSkybox)
     {
@@ -479,11 +482,11 @@ namespace visutwin::canvas
             vert.pName = "main";
             stages.push_back(vert);
         }
-        // Depth-only passes (shadow maps: colorFormat == UNDEFINED) omit the
+        // Depth-only passes (shadow maps: no color formats) omit the
         // fragment stage entirely.  Depth is written from rasterization, and a
         // fragment shader that declares a colour output with no colour
         // attachment is a MoltenVK hazard that silently drops depth writes.
-        const bool depthOnly = colorFormat == VK_FORMAT_UNDEFINED;
+        const bool depthOnly = colorFormats.empty();
         struct FeatureSpecialization {
             uint32_t low;
             uint32_t high;
@@ -629,10 +632,9 @@ namespace visutwin::canvas
         }
 
         // --- Color blend ---
-        // colorFormat == UNDEFINED means depth-only (e.g. shadow map pass).
+        // An empty color-format list means depth-only (e.g. shadow map pass).
         // The pipeline must have zero colour attachments to match the render
         // pass attached at draw time (VUID-vkCmdDrawIndexed-colorAttachmentCount-06179).
-        const bool hasColor = colorFormat != VK_FORMAT_UNDEFINED;
         VkPipelineColorBlendAttachmentState blendAttachment{};
         if (blendState && blendState->enabled()) {
             blendAttachment.blendEnable = VK_TRUE;
@@ -656,9 +658,17 @@ namespace visutwin::canvas
             blendAttachment.colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
         }
 
-        VkPipelineColorBlendStateCreateInfo colorBlend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-        colorBlend.attachmentCount = hasColor ? 1 : 0;
-        colorBlend.pAttachments = hasColor ? &blendAttachment : nullptr;
+        // Dynamic rendering requires the pipeline to declare the same ordered
+        // color attachment list as VkRenderingInfo. The shader may write only
+        // a subset of locations; unwritten attachments retain their load value.
+        std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(
+            colorFormats.size(), blendAttachment);
+        VkPipelineColorBlendStateCreateInfo colorBlend{
+            VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+        colorBlend.attachmentCount =
+            static_cast<uint32_t>(blendAttachments.size());
+        colorBlend.pAttachments =
+            blendAttachments.empty() ? nullptr : blendAttachments.data();
 
         // --- Dynamic state ---
         VkDynamicState dynamicStates[] = {
@@ -673,8 +683,10 @@ namespace visutwin::canvas
 
         // --- Dynamic rendering (Vulkan 1.3) ---
         VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-        renderingInfo.colorAttachmentCount = hasColor ? 1 : 0;
-        renderingInfo.pColorAttachmentFormats = hasColor ? &colorFormat : nullptr;
+        renderingInfo.colorAttachmentCount =
+            static_cast<uint32_t>(colorFormats.size());
+        renderingInfo.pColorAttachmentFormats =
+            colorFormats.empty() ? nullptr : colorFormats.data();
         renderingInfo.depthAttachmentFormat = depthFormat;
         renderingInfo.stencilAttachmentFormat = hasStencil ? depthFormat : VK_FORMAT_UNDEFINED;
 

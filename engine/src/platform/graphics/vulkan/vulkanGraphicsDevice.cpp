@@ -1373,7 +1373,10 @@ namespace visutwin::canvas
             : nullptr;
 
         // ── Resolve attachment views, formats, extents, and clear ops ──
-        auto colorOps = renderPass ? renderPass->colorOps() : nullptr;
+        const std::vector<std::shared_ptr<ColorAttachmentOps>> emptyColorOps;
+        const auto& colorArrayOps = renderPass
+            ? renderPass->colorArrayOps()
+            : emptyColorOps;
         auto dsOps = renderPass ? renderPass->depthStencilOps() : nullptr;
 
 
@@ -1390,8 +1393,13 @@ namespace visutwin::canvas
             // on first use) into the appropriate attachment-optimal layout.
             extent = offscreen->extent();
 
-            for (const auto& att : offscreen->colorAttachments()) {
+            const auto& attachments = offscreen->colorAttachments();
+            for (size_t colorIndex = 0;
+                 colorIndex < attachments.size(); ++colorIndex) {
+                const auto& att = attachments[colorIndex];
                 if (!att.texture) continue;
+                const auto colorOps = colorIndex < colorArrayOps.size()
+                    ? colorArrayOps[colorIndex] : nullptr;
                 const uint32_t mip = static_cast<uint32_t>(offscreen->mipLevel());
                 const uint32_t layer = att.texture->arrayLayers() > 1
                     ? static_cast<uint32_t>(offscreen->face()) : 0u;
@@ -1472,6 +1480,8 @@ namespace visutwin::canvas
         } else {
             // Swapchain (back-buffer) path.
             extent = _swapchainExtent;
+            const auto colorOps =
+                colorArrayOps.empty() ? nullptr : colorArrayOps[0];
 
             if (_swapchainImageLayout != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
                 vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
@@ -1552,7 +1562,6 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::endRenderPass(RenderPass* renderPass)
     {
-        (void)renderPass;
         if (!_dynamicRenderingActive) {
             _insideRenderPass = false;
             return;
@@ -1568,9 +1577,18 @@ namespace visutwin::canvas
         // next pass writes is valid.  Layout tracking on the texture (or on the
         // RT for internal depth) makes future transitions cheap.
         if (_activeOffscreenTarget) {
-            const auto colorOps = renderPass ? renderPass->colorOps() : nullptr;
-            for (const auto& att : _activeOffscreenTarget->colorAttachments()) {
+            const std::vector<std::shared_ptr<ColorAttachmentOps>> emptyColorOps;
+            const auto& colorArrayOps = renderPass
+                ? renderPass->colorArrayOps()
+                : emptyColorOps;
+            const auto& attachments =
+                _activeOffscreenTarget->colorAttachments();
+            for (size_t colorIndex = 0;
+                 colorIndex < attachments.size(); ++colorIndex) {
+                const auto& att = attachments[colorIndex];
                 if (!att.texture) continue;
+                const auto colorOps = colorIndex < colorArrayOps.size()
+                    ? colorArrayOps[colorIndex] : nullptr;
                 const uint32_t mip =
                     static_cast<uint32_t>(_activeOffscreenTarget->mipLevel());
                 const uint32_t layer = att.texture->arrayLayers() > 1
@@ -2130,11 +2148,15 @@ namespace visutwin::canvas
             // is keyed on these — a mismatch with the actual VkRenderingInfo
             // attachments at draw-time is rejected by validation as
             // VUID-vkCmdDrawIndexed-dynamicRenderingUnusedAttachments-08910.
-            VkFormat colorFmt = _swapchainFormat;
+            std::vector<VkFormat> colorFormats{_swapchainFormat};
             VkFormat depthFmt = _depthFormat;
             if (_activeOffscreenTarget) {
                 const auto& colors = _activeOffscreenTarget->colorAttachments();
-                colorFmt = colors.empty() ? VK_FORMAT_UNDEFINED : colors[0].format;
+                colorFormats.clear();
+                colorFormats.reserve(colors.size());
+                for (const auto& color : colors) {
+                    colorFormats.push_back(color.format);
+                }
                 depthFmt = _activeOffscreenTarget->hasDepthAttachment()
                     ? _activeOffscreenTarget->depthAttachment().format
                     : VK_FORMAT_UNDEFINED;
@@ -2153,7 +2175,7 @@ namespace visutwin::canvas
                 instanceFormat,
                 vulkanShader, _blendState, _depthState, cullMode,
                 _stencilEnabled, _stencilFront, _stencilBack,
-                colorFmt, depthFmt, isSkybox);
+                colorFormats, depthFmt, isSkybox);
 
             if (pipeline == VK_NULL_HANDLE) {
                 spdlog::error("VulkanGraphicsDevice: draw skipped because pipeline creation failed");

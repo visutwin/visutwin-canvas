@@ -8,6 +8,7 @@
 #ifdef VISUTWIN_HAS_VULKAN
 
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vulkan/vulkan.h>
 
@@ -42,7 +43,7 @@ namespace visutwin::canvas
             bool stencilEnabled,
             const std::shared_ptr<StencilParameters>& stencilFront,
             const std::shared_ptr<StencilParameters>& stencilBack,
-            VkFormat colorFormat,
+            std::span<const VkFormat> colorFormats,
             VkFormat depthFormat,
             bool isSkybox = false);
 
@@ -66,7 +67,7 @@ namespace visutwin::canvas
             bool stencilEnabled,
             const std::shared_ptr<StencilParameters>& stencilFront,
             const std::shared_ptr<StencilParameters>& stencilBack,
-            VkFormat colorFormat,
+            std::span<const VkFormat> colorFormats,
             VkFormat depthFormat,
             bool isSkybox);
 

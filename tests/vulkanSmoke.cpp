@@ -639,6 +639,72 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             device->startRenderPass(&cubePass);
             device->endRenderPass(&cubePass);
             device->frameEnd();
+
+            // Exercise dynamic rendering with two ordered color attachments of
+            // different formats using a fragment shader that writes both output
+            // locations. Both formats must be declared by the compatible
+            // graphics pipeline.
+            TextureOptions mrtColor0Options = colorOptions;
+            mrtColor0Options.name = "vulkan-smoke-mrt-color-0";
+            auto mrtColor0 =
+                std::make_unique<Texture>(device.get(), mrtColor0Options);
+            TextureOptions mrtColor1Options = colorOptions;
+            mrtColor1Options.name = "vulkan-smoke-mrt-color-1";
+            mrtColor1Options.format = PixelFormat::PIXELFORMAT_RGBA16F;
+            auto mrtColor1 =
+                std::make_unique<Texture>(device.get(), mrtColor1Options);
+
+            RenderTargetOptions mrtTargetOptions{};
+            mrtTargetOptions.graphicsDevice = device.get();
+            mrtTargetOptions.colorBuffers = {
+                mrtColor0.get(), mrtColor1.get()
+            };
+            mrtTargetOptions.depth = true;
+            mrtTargetOptions.name = "vulkan-smoke-mrt-target";
+            auto mrtTarget = device->createRenderTarget(mrtTargetOptions);
+            RenderPass mrtPass(sharedDevice);
+            mrtPass.init(mrtTarget);
+            mrtPass.setClearColor(&clearColor);
+            mrtPass.setClearDepth(&clearDepth);
+
+            constexpr const char* mrtShaderSource = R"(
+#version 450
+#ifdef VT_VERTEX_SHADER
+layout(location=0) in vec3 vertexPosition;
+void main() {
+    gl_Position = vec4(vertexPosition, 1.0);
+}
+#endif
+#ifdef VT_FRAGMENT_SHADER
+layout(location=0) out vec4 color0;
+layout(location=1) out vec4 color1;
+void main() {
+    color0 = vec4(1.0, 0.0, 0.0, 1.0);
+    color1 = vec4(0.0, 1.0, 0.0, 1.0);
+}
+#endif
+)";
+            auto mrtShader = device->createShader(
+                ShaderDefinition{.name = "vulkan-smoke-mrt"},
+                mrtShaderSource);
+            if (!mrtShader) {
+                spdlog::error("Vulkan smoke: MRT shader creation failed");
+                result = 1;
+            }
+
+            device->frameStart();
+            device->startRenderPass(&mrtPass);
+            device->setShader(mrtShader ? mrtShader : shader);
+            device->setVertexBuffer(vertexBuffer);
+            device->setTransformUniforms(
+                Matrix4::identity(), Matrix4::identity());
+            device->setBlendState(maskedBlend);
+            device->setDepthState(defaultDepth);
+            device->setCullMode(CullMode::CULLFACE_BACK);
+            device->setStencilState();
+            device->draw(triangle);
+            device->endRenderPass(&mrtPass);
+            device->frameEnd();
         }
 
         for (int frame = 0; frame < 1 && result == 0; ++frame) {
