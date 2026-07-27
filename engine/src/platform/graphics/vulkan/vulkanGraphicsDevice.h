@@ -191,7 +191,9 @@ namespace visutwin::canvas
 
         void initInstance(SDL_Window* window);
         void initDevice();
-        void initSwapchain(int width, int height);
+        [[nodiscard]] bool initSwapchain(
+            int width, int height,
+            VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE);
         void cleanupSwapchain();
         void createDepthResources();
         void destroyDepthResources();
@@ -200,9 +202,11 @@ namespace visutwin::canvas
         [[nodiscard]] bool createSwapchainSemaphores();
         void destroySwapchainSemaphores();
 
-        // Waits for the device to idle, then rebuilds the swapchain, depth
-        // resources, and per-image semaphores at the current _width/_height.
+        // Rebuilds the swapchain against oldSwapchain without idling the
+        // device. Old resources are retired after the frame fences that can
+        // reference them have completed.
         [[nodiscard]] bool recreateSwapchain();
+        void collectRetiredSwapchains(bool force);
 
         // A failed queue submission leaves its reset fence unsignaled and its
         // acquire semaphore unconsumed. Submit an empty wait to consume the
@@ -256,6 +260,19 @@ namespace visutwin::canvas
         VkExtent2D _swapchainExtent = {0, 0};
         std::vector<VkImage> _swapchainImages;
         std::vector<VkImageView> _swapchainImageViews;
+        bool _swapchainRecreationPending = false;
+
+        struct RetiredSwapchain
+        {
+            uint64_t frame = 0;
+            VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+            std::vector<VkImageView> imageViews;
+            VkImage depthImage = VK_NULL_HANDLE;
+            VmaAllocation depthAllocation = VK_NULL_HANDLE;
+            VkImageView depthImageView = VK_NULL_HANDLE;
+            std::vector<VkSemaphore> renderFinishedSemaphores;
+        };
+        std::deque<RetiredSwapchain> _retiredSwapchains;
 
         // ── Depth buffer ─────────────────────────────────────────────────
         VkImage _depthImage = VK_NULL_HANDLE;

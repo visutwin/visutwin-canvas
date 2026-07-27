@@ -158,8 +158,7 @@ namespace visutwin::canvas
                 "VulkanGraphicsDevice: VMA allocator creation failed");
         }
 
-        initSwapchain(_width, _height);
-        if (_swapchain == VK_NULL_HANDLE || _swapchainImages.empty()) {
+        if (!initSwapchain(_width, _height)) {
             throw std::runtime_error("VulkanGraphicsDevice: swapchain creation failed");
         }
         createDepthResources();
@@ -474,6 +473,7 @@ namespace visutwin::canvas
         _sceneColorGrabTexture.reset();
         _sceneDepthGrabTexture.reset();
         flushDeferredDestroys(true);
+        collectRetiredSwapchains(true);
 
         destroyPostResources();
         destroyComputeResources();
@@ -795,7 +795,9 @@ namespace visutwin::canvas
                 ? " (shared)" : " (dedicated presentation queue)");
     }
 
-    void VulkanGraphicsDevice::initSwapchain(int width, int height)
+    bool VulkanGraphicsDevice::initSwapchain(
+        const int width, const int height,
+        const VkSwapchainKHR oldSwapchain)
     {
         // Use a linear (UNORM) swapchain — the shaders apply manual
         // pow(1/2.2) for display gamma encoding, matching the Metal path
@@ -815,18 +817,36 @@ namespace visutwin::canvas
                    .add_image_usage_flags(
                        VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+        if (oldSwapchain != VK_NULL_HANDLE) {
+            swapBuilder.set_old_swapchain(oldSwapchain);
+        }
 
         auto result = swapBuilder.build();
         if (!result) {
             spdlog::error("Failed to create Vulkan swapchain: {}", result.error().message());
-            return;
+            return false;
         }
         auto vkbSwap = result.value();
+        auto imagesResult = vkbSwap.get_images();
+        auto viewsResult = vkbSwap.get_image_views();
+        if (!imagesResult || !viewsResult) {
+            if (viewsResult) {
+                vkbSwap.destroy_image_views(viewsResult.value());
+            }
+            vkb::destroy_swapchain(vkbSwap);
+            // A successful vkCreateSwapchainKHR retires oldSwapchain even if
+            // subsequent setup fails, so the caller must not restore it.
+            _swapchain = VK_NULL_HANDLE;
+            spdlog::error(
+                "Failed to retrieve Vulkan swapchain images or image views");
+            return false;
+        }
+
         _swapchain = vkbSwap.swapchain;
         _swapchainFormat = vkbSwap.image_format;
         _swapchainExtent = vkbSwap.extent;
-        _swapchainImages = vkbSwap.get_images().value();
-        _swapchainImageViews = vkbSwap.get_image_views().value();
+        _swapchainImages = std::move(imagesResult.value());
+        _swapchainImageViews = std::move(viewsResult.value());
 
         // Adopt the actual swapchain extent as the device size.  The requested
         // width/height can be stale or zero — SDL_GetWindowSize may report 0×0
@@ -836,6 +856,7 @@ namespace visutwin::canvas
         // 1×1 viewport.
         _width = static_cast<int>(_swapchainExtent.width);
         _height = static_cast<int>(_swapchainExtent.height);
+        return true;
     }
 
     void VulkanGraphicsDevice::cleanupSwapchain()
@@ -1157,6 +1178,11 @@ namespace visutwin::canvas
         if (_renderingDisabled) {
             return;
         }
+        if (_swapchainRecreationPending) {
+            if (!recreateSwapchain() || _swapchainRecreationPending) {
+                return;
+            }
+        }
         auto& frame = _frames[_frameIndex];
 
         const VkResult waitResult =
@@ -1176,6 +1202,10 @@ namespace visutwin::canvas
         // The fence wait proves frame (_frameNumber - kMaxFramesInFlight) has
         // completed on the GPU — release resources queued up to that frame.
         flushDeferredDestroys(false);
+        collectRetiredSwapchains(false);
+        if (_renderingDisabled) {
+            return;
+        }
 
         VkResult result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
             frame.imageAvailable, VK_NULL_HANDLE, &_swapchainImageIndex);
@@ -1184,6 +1214,9 @@ namespace visutwin::canvas
             // early-return on the unchanged size and never rebuild the
             // swapchain, wedging every subsequent frame.
             if (!recreateSwapchain()) {
+                return;
+            }
+            if (_swapchainRecreationPending) {
                 return;
             }
             result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
@@ -1721,6 +1754,70 @@ namespace visutwin::canvas
             auto fn = std::move(_deferredDestroys.front().fn);
             _deferredDestroys.pop_front();
             fn();
+        }
+    }
+
+    void VulkanGraphicsDevice::collectRetiredSwapchains(const bool force)
+    {
+        if (_retiredSwapchains.empty()) {
+            return;
+        }
+
+        const auto ready = [this, force](const RetiredSwapchain& retired) {
+            return force ||
+                retired.frame + kMaxFramesInFlight <= _frameNumber;
+        };
+        if (!ready(_retiredSwapchains.front())) {
+            return;
+        }
+
+        // Frame fences cover graphics use of the old image views and depth
+        // buffer. Presentation is not covered by those fences, however: its
+        // queue may still be consuming renderFinished. Wait only that queue,
+        // and only when an old bundle is actually ready to be destroyed.
+        if (!force) {
+            const VkResult presentWaitResult =
+                vkQueueWaitIdle(_presentQueue);
+            if (presentWaitResult != VK_SUCCESS) {
+                _renderingDisabled = true;
+                spdlog::error(
+                    "VulkanGraphicsDevice: presentation queue wait while "
+                    "retiring a swapchain failed ({}); rendering disabled",
+                    static_cast<int>(presentWaitResult));
+                return;
+            }
+        }
+
+        while (!_retiredSwapchains.empty() &&
+               ready(_retiredSwapchains.front())) {
+            RetiredSwapchain retired =
+                std::move(_retiredSwapchains.front());
+            _retiredSwapchains.pop_front();
+
+            for (VkSemaphore semaphore :
+                 retired.renderFinishedSemaphores) {
+                if (semaphore != VK_NULL_HANDLE) {
+                    vkDestroySemaphore(_device, semaphore, nullptr);
+                }
+            }
+            for (VkImageView view : retired.imageViews) {
+                if (view != VK_NULL_HANDLE) {
+                    vkDestroyImageView(_device, view, nullptr);
+                }
+            }
+            if (retired.depthImageView != VK_NULL_HANDLE) {
+                vkDestroyImageView(
+                    _device, retired.depthImageView, nullptr);
+            }
+            if (retired.depthImage != VK_NULL_HANDLE) {
+                vmaDestroyImage(
+                    _vmaAllocator, retired.depthImage,
+                    retired.depthAllocation);
+            }
+            if (retired.swapchain != VK_NULL_HANDLE) {
+                vkDestroySwapchainKHR(
+                    _device, retired.swapchain, nullptr);
+            }
         }
     }
 
@@ -3552,9 +3649,13 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::setResolution(int width, int height)
     {
-        if (width == _width && height == _height) return;
+        if (width == _width && height == _height &&
+            !_swapchainRecreationPending) {
+            return;
+        }
         _width = width;
         _height = height;
+        _swapchainRecreationPending = true;
         (void)recreateSwapchain();
     }
 
@@ -3617,28 +3718,73 @@ namespace visutwin::canvas
         if (_device == VK_NULL_HANDLE) {
             return false;
         }
-        const VkResult idleResult = vkDeviceWaitIdle(_device);
-        if (idleResult != VK_SUCCESS) {
-            _renderingDisabled = true;
-            spdlog::error(
-                "VulkanGraphicsDevice: device wait before swapchain recreation "
-                "failed ({}); rendering disabled",
-                static_cast<int>(idleResult));
-            return false;
+
+        int drawableWidth = 0;
+        int drawableHeight = 0;
+        const bool drawableSizeAvailable =
+            _window != nullptr &&
+            SDL_GetWindowSizeInPixels(
+                _window, &drawableWidth, &drawableHeight);
+        if (_width <= 0 || _height <= 0 ||
+            (drawableSizeAvailable &&
+             (drawableWidth <= 0 || drawableHeight <= 0))) {
+            _swapchainRecreationPending = true;
+            return true;
         }
-        flushDeferredDestroys(true); // idle device — everything is safe to free
-        destroyDepthResources();
-        destroySwapchainSemaphores();
-        cleanupSwapchain();
-        initSwapchain(_width, _height);
-        if (_swapchain == VK_NULL_HANDLE || _swapchainImages.empty()) {
+
+        RetiredSwapchain retired{};
+        retired.frame = _frameNumber;
+        retired.swapchain = _swapchain;
+        retired.imageViews = std::move(_swapchainImageViews);
+        retired.depthImage = _depthImage;
+        retired.depthAllocation = _depthAllocation;
+        retired.depthImageView = _depthImageView;
+        retired.renderFinishedSemaphores =
+            std::move(_renderFinishedSemaphores);
+        const VkImageLayout oldDepthLayout = _depthImageLayout;
+
+        _swapchainImages.clear();
+        _depthImage = VK_NULL_HANDLE;
+        _depthAllocation = VK_NULL_HANDLE;
+        _depthImageView = VK_NULL_HANDLE;
+        _depthImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        if (!initSwapchain(
+                _width, _height, retired.swapchain)) {
+            // vkCreateSwapchainKHR failure leaves oldSwapchain usable. A
+            // later setup failure does not, and initSwapchain marks that by
+            // clearing _swapchain after destroying the unusable replacement.
+            if (_swapchain == retired.swapchain) {
+                _swapchainImageViews =
+                    std::move(retired.imageViews);
+                _depthImage = retired.depthImage;
+                _depthAllocation = retired.depthAllocation;
+                _depthImageView = retired.depthImageView;
+                _depthImageLayout = oldDepthLayout;
+                _renderFinishedSemaphores =
+                    std::move(retired.renderFinishedSemaphores);
+            } else {
+                _retiredSwapchains.push_back(std::move(retired));
+            }
             _renderingDisabled = true;
             spdlog::error(
                 "VulkanGraphicsDevice: swapchain recreation failed; "
                 "rendering disabled");
             return false;
         }
-        createDepthResources();
+
+        _retiredSwapchains.push_back(std::move(retired));
+
+        try {
+            createDepthResources();
+        } catch (const std::exception& error) {
+            _renderingDisabled = true;
+            spdlog::error(
+                "VulkanGraphicsDevice: swapchain depth recreation failed: {}; "
+                "rendering disabled",
+                error.what());
+            return false;
+        }
         // Image count may differ in the new swapchain — per-image
         // semaphores must match it.
         if (!createSwapchainSemaphores()) {
@@ -3648,6 +3794,7 @@ namespace visutwin::canvas
                 "failed; rendering disabled");
             return false;
         }
+        _swapchainRecreationPending = false;
         return true;
     }
 

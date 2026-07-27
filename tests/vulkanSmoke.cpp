@@ -59,6 +59,12 @@ namespace visutwin::canvas
             return device._frameActive;
         }
 
+        static size_t retiredSwapchainCount(
+            const VulkanGraphicsDevice& device)
+        {
+            return device._retiredSwapchains.size();
+        }
+
         static bool presentFamilySupportsSurface(
             const VulkanGraphicsDevice& device)
         {
@@ -774,6 +780,38 @@ void main() {
             device->draw(triangle);
             device->endRenderPass(&mrtPass);
             device->frameEnd();
+        }
+
+        // A zero-sized drawable must defer swapchain recreation and skip
+        // acquisition. Restoring the size recreates against oldSwapchain;
+        // subsequent frames exercise fence-aged retirement of its views,
+        // depth image, and presentation semaphores.
+        const auto drawableSize = device->size();
+        device->setResolution(0, 0);
+        device->frameStart();
+        if (VulkanGraphicsDeviceTestAccess::frameActive(*device) ||
+            VulkanGraphicsDeviceTestAccess::renderingDisabled(*device)) {
+            spdlog::error(
+                "Vulkan smoke: zero-sized drawable was not deferred safely");
+            result = 1;
+        }
+        device->frameEnd();
+
+        device->setResolution(drawableSize.first, drawableSize.second);
+        for (uint32_t frame = 0; frame < 3; ++frame) {
+            device->frameStart();
+            if (!VulkanGraphicsDeviceTestAccess::frameActive(*device)) {
+                spdlog::error(
+                    "Vulkan smoke: frame inactive after swapchain resize");
+                result = 1;
+            }
+            device->frameEnd();
+        }
+        if (VulkanGraphicsDeviceTestAccess::retiredSwapchainCount(
+                *device) != 0) {
+            spdlog::error(
+                "Vulkan smoke: retired swapchain resources were not collected");
+            result = 1;
         }
 
         // A failed submit must consume the acquire semaphore, release the
