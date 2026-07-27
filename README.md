@@ -203,7 +203,7 @@ Recommended free asset sources:
 
 ```
 visutwin-canvas/
-├── engine/                        # Engine library (478 C++ source files)
+├── engine/                        # Engine library (488 C++ source/header files)
 │   ├── src/
 │   │   ├── core/                  # Math, events, tags, shapes, curves, utilities
 │   │   ├── platform/
@@ -245,21 +245,21 @@ Sibling repositories (separate CMake projects): `visutwin-geo` (geospatial — W
 | Core / Math | ~80% | Vector2/3/4, Matrix4, Quaternion, Curve, Color, Random (SIMD multi-backend) |
 | Core / Events | ~95% | EventHandler, EventHandle |
 | Core / Shapes | ~70% | BoundingBox, BoundingSphere, OrientedBox, Plane, Ray, Tri |
-| Scene / Renderer | ~75% | Forward PBR, frame graph, frustum culling, layer sorting |
-| Scene / Materials | ~85% | StandardMaterial: clearcoat, sheen, iridescence, transmission (+dispersion/volume), anisotropy, parallax, spec-gloss, Oren-Nayar, detail normals, displacement — all functional |
-| Scene / Lighting | ~75% | Directional/point/spot + LTC area (rect/disk/sphere), clustered lighting, ambient SH probes, box-projected reflection probes |
+| Scene / Renderer | ~80% | Forward PBR, camera frame graph, 23 render-pass classes, frustum/shadow-caster culling, layer sorting, and post-processing scheduling |
+| Scene / Materials | ~85% | StandardMaterial with clearcoat, sheen, iridescence, transmission/dispersion/volume, anisotropy, parallax, spec-gloss, Oren-Nayar, detail normals, and displacement |
+| Scene / Lighting | ~80% | Directional/point/spot + rectangular LTC area lights, clustered lighting/cookie atlas, ambient SH probes, and box-projected reflection probes |
 | Scene / Shadows | ~85% | 4-cascade CSM (PSSM + blending), PCF/EVSM_16F/PCSS for directional, spot/point depth maps + omni cubemaps, PCSS on local lights |
-| Scene / Shader-lib | ~85% | ShaderChunks registry: 24 micro-chunks (+3 embedded standalone), 50 features implemented, **0 stubbed** |
-| Scene / Graphics | ~55% | Environment atlas, HDR cubemap, GPU profiler, 11 Metal compute/post passes |
-| Scene / GSplat | ~55% | Classic path + view-dependent SH (bands 1–3) + compressed PLY; SOG/unified octree deferred |
-| Graphics / Metal | ~55% | Buffers, textures, pipelines, compressed formats (ASTC/BC), compute |
-| Graphics / Vulkan | ~50% | Vulkan 1.3 dynamic rendering, buffers/textures, MRT, PBR draw binding, compute/particles/culling, post-processing, environment baking, async uploads, and validation smoke coverage |
-| Framework / ECS | ~70% | Engine, Entity, ComponentSystem, Script |
-| Framework / Components | ~45% | 13 types: Camera, Render, Light, Script, Animation, Anim (state graph), Screen, Element, Button, Collision, RigidBody, GSplat, ParticleSystem |
-| Framework / Animation | ~70% | GPU skinning, morph targets, state graph + blend trees, morph-weight animation |
-| Framework / Gizmo | ~70% | Translate, rotate, scale gizmos |
-| Framework / Assets | ~55% | GLB/glTF (+Draco), OBJ/STL/Assimp, KTX2→ASTC, 3 resource handlers |
-| Viz / Overlay | New | ImGui-based digital-twin HUD with 3D-anchored labels |
+| Scene / Shader-lib | ~80% | 24 overridable Metal chunks, 50 compile-time feature flags, cache-invalidation hashing, and 3 embedded standalone shaders |
+| Scene / Graphics | ~70% | Camera-frame/post stack with bloom, SSAO, TAA, DOF, compose, color/depth grabs, environment atlas/convolution, HDR cubemaps, and spherical harmonics |
+| Scene / GSplat | ~60% | Classic 3DGS path, background depth sorting, SH bands 1–3 on Metal, and uncompressed/compressed SuperSplat PLY; Vulkan currently evaluates SH0 |
+| Graphics / Metal | ~70% | Buffers/textures/pipelines, ASTC/BC formats, compute, particles/culling, post-processing, environment baking, GSplat, and GPU timestamp profiling |
+| Graphics / Vulkan | ~65% | Vulkan 1.3 dynamic rendering/synchronization2, MRT, PBR draw binding, compute/particles/culling, post-processing, environment baking, async uploads, and validation smoke coverage |
+| Framework / ECS | ~75% | Engine, Entity, component-system registry, scripts, hierarchy, and lifecycle/event integration |
+| Framework / Components | ~55% | 13 types: Camera, Render, Light, Script, Animation, Anim (state graph), Screen, Element, Button, Collision, RigidBody, GSplat, ParticleSystem |
+| Framework / Animation | ~75% | GPU skinning, morph targets/weights, clips/evaluator/binder, state graphs, transitions, and blend trees |
+| Framework / Gizmo | ~75% | Interactive translate/rotate/scale handles with axis picking and snapping |
+| Framework / Assets | ~65% | Async container/texture/font loading; GLB/glTF (+Draco), OBJ/STL/Assimp; KTX2/Basis transcoding to ASTC or BC |
+| Viz / Overlay | ~45% | Metal-only ImGui/ImPlot HUD integration, input capture, digital-twin theme, and 3D-anchored labels/panels |
 
 ### Known Limitations
 
