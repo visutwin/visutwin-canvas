@@ -72,6 +72,7 @@ namespace visutwin::canvas
             bool isSkybox);
 
         void createLayouts();
+        void destroy() noexcept;
 
         VulkanGraphicsDevice* _device;
         VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;

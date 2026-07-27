@@ -183,6 +183,12 @@ namespace visutwin::canvas
         void onFrameStart() override;
         void onFrameEnd() override;
 
+        void initialize(const GraphicsDeviceOptions& options);
+        // Used only when initialize() throws. The most-derived destructor is
+        // not invoked for a failed constructor, so every acquired native handle
+        // must be released explicitly.
+        void cleanupPartialInitialization() noexcept;
+
         void initInstance(SDL_Window* window);
         void initDevice();
         void initSwapchain(int width, int height);
@@ -191,7 +197,7 @@ namespace visutwin::canvas
         void destroyDepthResources();
         void createPerFrameResources();
         void destroyPerFrameResources();
-        void createSwapchainSemaphores();
+        [[nodiscard]] bool createSwapchainSemaphores();
         void destroySwapchainSemaphores();
 
         // Waits for the device to idle, then rebuilds the swapchain, depth
@@ -308,9 +314,10 @@ namespace visutwin::canvas
         // fence which cannot be signaled.
         bool _renderingDisabled = false;
 
-        // Submission fault injection is private and exposed only through the
-        // validation smoke test's friend accessor.
+        // Fault injection is private and exposed only through the validation
+        // smoke test's friend accessor.
         std::optional<VkResult> _submitResultOverride;
+        static std::atomic_int _initializationFailureCheckpoint;
         friend struct VulkanGraphicsDeviceTestAccess;
 
         // Monotonic count of submitted frames — stamps deferred destroys.

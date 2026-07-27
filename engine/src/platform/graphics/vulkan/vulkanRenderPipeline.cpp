@@ -222,37 +222,75 @@ namespace visutwin::canvas
     VulkanRenderPipeline::VulkanRenderPipeline(VulkanGraphicsDevice* device)
         : _device(device)
     {
-        validateGeneratedForwardLayout();
-        createLayouts();
+        try {
+            validateGeneratedForwardLayout();
+            createLayouts();
+        } catch (...) {
+            destroy();
+            throw;
+        }
     }
 
     VulkanRenderPipeline::~VulkanRenderPipeline()
+    {
+        destroy();
+    }
+
+    void VulkanRenderPipeline::destroy() noexcept
     {
         VkDevice vk = _device->device();
         for (auto& [key, pipeline] : _cache) {
             vkDestroyPipeline(vk, pipeline, nullptr);
         }
-        if (_pipelineLayout != VK_NULL_HANDLE)
+        _cache.clear();
+        if (_pipelineLayout != VK_NULL_HANDLE) {
             vkDestroyPipelineLayout(vk, _pipelineLayout, nullptr);
-        if (_materialSetLayout != VK_NULL_HANDLE)
+            _pipelineLayout = VK_NULL_HANDLE;
+        }
+        if (_materialSetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(vk, _materialSetLayout, nullptr);
-        if (_textureSetLayout != VK_NULL_HANDLE)
+            _materialSetLayout = VK_NULL_HANDLE;
+        }
+        if (_textureSetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(vk, _textureSetLayout, nullptr);
-        if (_lightingSetLayout != VK_NULL_HANDLE)
+            _textureSetLayout = VK_NULL_HANDLE;
+        }
+        if (_lightingSetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(vk, _lightingSetLayout, nullptr);
-        if (_sceneSetLayout != VK_NULL_HANDLE)
+            _lightingSetLayout = VK_NULL_HANDLE;
+        }
+        if (_sceneSetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(vk, _sceneSetLayout, nullptr);
-        if (_geometrySetLayout != VK_NULL_HANDLE)
+            _sceneSetLayout = VK_NULL_HANDLE;
+        }
+        if (_geometrySetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(vk, _geometrySetLayout, nullptr);
-        if (_clusterSetLayout != VK_NULL_HANDLE)
+            _geometrySetLayout = VK_NULL_HANDLE;
+        }
+        if (_clusterSetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(vk, _clusterSetLayout, nullptr);
-        if (_gpuDrivenSetLayout != VK_NULL_HANDLE)
+            _clusterSetLayout = VK_NULL_HANDLE;
+        }
+        if (_gpuDrivenSetLayout != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(vk, _gpuDrivenSetLayout, nullptr);
+            _gpuDrivenSetLayout = VK_NULL_HANDLE;
+        }
     }
 
     void VulkanRenderPipeline::createLayouts()
     {
         VkDevice vk = _device->device();
+        const auto createSetLayout =
+            [vk](const VkDescriptorSetLayoutCreateInfo& info,
+                 VkDescriptorSetLayout& layout, const char* name) {
+                if (vkCreateDescriptorSetLayout(
+                        vk, &info, nullptr, &layout) != VK_SUCCESS) {
+                    throw std::runtime_error(
+                        std::string(
+                            "VulkanRenderPipeline: failed to create ") +
+                        name + " descriptor set layout");
+                }
+            };
 
         // Set 0: per-draw Material UBO (dynamic — one descriptor set, the ring
         // buffer offset varies per draw).
@@ -265,7 +303,8 @@ namespace visutwin::canvas
         VkDescriptorSetLayoutCreateInfo materialLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         materialLayoutInfo.bindingCount = 1;
         materialLayoutInfo.pBindings = &materialBinding;
-        vkCreateDescriptorSetLayout(vk, &materialLayoutInfo, nullptr, &_materialSetLayout);
+        createSetLayout(
+            materialLayoutInfo, _materialSetLayout, "material");
 
         // Set 1: only statically-used material slots. Binding numbers remain
         // the engine texture-slot numbers, but unused gaps consume no sampler
@@ -282,7 +321,8 @@ namespace visutwin::canvas
         VkDescriptorSetLayoutCreateInfo textureLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         textureLayoutInfo.bindingCount = static_cast<uint32_t>(texBindings.size());
         textureLayoutInfo.pBindings = texBindings.data();
-        vkCreateDescriptorSetLayout(vk, &textureLayoutInfo, nullptr, &_textureSetLayout);
+        createSetLayout(
+            textureLayoutInfo, _textureSetLayout, "texture");
 
         // Set 2: per-pass lighting/environment UBO (dynamic).
         VkDescriptorSetLayoutBinding lightingBinding{};
@@ -294,7 +334,8 @@ namespace visutwin::canvas
         VkDescriptorSetLayoutCreateInfo lightingLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         lightingLayoutInfo.bindingCount = 1;
         lightingLayoutInfo.pBindings = &lightingBinding;
-        vkCreateDescriptorSetLayout(vk, &lightingLayoutInfo, nullptr, &_lightingSetLayout);
+        createSetLayout(
+            lightingLayoutInfo, _lightingSetLayout, "lighting");
 
         // Set 3: per-pass scene textures.  Binding 0 = environment atlas
         // (equirectangular IBL + skybox source), binding 1 = directional
@@ -314,7 +355,8 @@ namespace visutwin::canvas
         VkDescriptorSetLayoutCreateInfo sceneLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         sceneLayoutInfo.bindingCount = static_cast<uint32_t>(sceneBindings.size());
         sceneLayoutInfo.pBindings = sceneBindings.data();
-        vkCreateDescriptorSetLayout(vk, &sceneLayoutInfo, nullptr, &_sceneSetLayout);
+        createSetLayout(
+            sceneLayoutInfo, _sceneSetLayout, "scene");
 
         // Set 4: optional per-draw geometry resources. Palette matrices and
         // morph deltas are storage buffers; the compact 80-byte morph
@@ -332,8 +374,8 @@ namespace visutwin::canvas
         geometryLayoutInfo.bindingCount =
             static_cast<uint32_t>(geometryBindings.size());
         geometryLayoutInfo.pBindings = geometryBindings.data();
-        vkCreateDescriptorSetLayout(vk, &geometryLayoutInfo, nullptr,
-            &_geometrySetLayout);
+        createSetLayout(
+            geometryLayoutInfo, _geometrySetLayout, "geometry");
         std::array<VkDescriptorSetLayoutBinding, 2> clusterBindings{};
         for (uint32_t i = 0; i < clusterBindings.size(); ++i) {
             clusterBindings[i] = {i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
@@ -343,8 +385,8 @@ namespace visutwin::canvas
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         clusterLayoutInfo.bindingCount = 2;
         clusterLayoutInfo.pBindings = clusterBindings.data();
-        vkCreateDescriptorSetLayout(vk, &clusterLayoutInfo, nullptr,
-            &_clusterSetLayout);
+        createSetLayout(
+            clusterLayoutInfo, _clusterSetLayout, "cluster");
 
         // Set 6: particle / Gaussian-splat storage and per-draw parameters.
         std::array<VkDescriptorSetLayoutBinding, 4> gpuBindings{};
@@ -358,8 +400,8 @@ namespace visutwin::canvas
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         gpuLayoutInfo.bindingCount = static_cast<uint32_t>(gpuBindings.size());
         gpuLayoutInfo.pBindings = gpuBindings.data();
-        vkCreateDescriptorSetLayout(vk, &gpuLayoutInfo, nullptr,
-            &_gpuDrivenSetLayout);
+        createSetLayout(
+            gpuLayoutInfo, _gpuDrivenSetLayout, "GPU-driven");
 
         // Push constants: 2 × mat4 = 128 bytes
         VkPushConstantRange pushRange{};
@@ -377,7 +419,12 @@ namespace visutwin::canvas
         layoutInfo.pSetLayouts = setLayouts;
         layoutInfo.pushConstantRangeCount = 1;
         layoutInfo.pPushConstantRanges = &pushRange;
-        vkCreatePipelineLayout(vk, &layoutInfo, nullptr, &_pipelineLayout);
+        if (vkCreatePipelineLayout(
+                vk, &layoutInfo, nullptr,
+                &_pipelineLayout) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "VulkanRenderPipeline: pipeline layout creation failed");
+        }
     }
 
     VkPipeline VulkanRenderPipeline::get(const Primitive& primitive,

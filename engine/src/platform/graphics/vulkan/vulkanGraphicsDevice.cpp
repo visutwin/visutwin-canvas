@@ -93,22 +93,57 @@ namespace visutwin::canvas
 
 namespace visutwin::canvas
 {
+    std::atomic_int
+        VulkanGraphicsDevice::_initializationFailureCheckpoint{0};
+
     // ─────────────────────────────────────────────────────────────────────
     // Construction / Destruction
     // ─────────────────────────────────────────────────────────────────────
 
     VulkanGraphicsDevice::VulkanGraphicsDevice(const GraphicsDeviceOptions& options)
     {
+        try {
+            initialize(options);
+        } catch (...) {
+            cleanupPartialInitialization();
+            throw;
+        }
+    }
+
+    void VulkanGraphicsDevice::initialize(
+        const GraphicsDeviceOptions& options)
+    {
         _window = options.window;
         _validationEnabled = options.enableValidation;
+        if (_window == nullptr) {
+            throw std::invalid_argument(
+                "VulkanGraphicsDevice: window must not be null");
+        }
 
         int w = 0, h = 0;
-        SDL_GetWindowSize(_window, &w, &h);
+        if (!SDL_GetWindowSize(_window, &w, &h)) {
+            throw std::runtime_error(
+                std::string(
+                    "VulkanGraphicsDevice: failed to query window size: ") +
+                SDL_GetError());
+        }
         _width = w;
         _height = h;
 
         initInstance(_window);
+        if (_instance == VK_NULL_HANDLE || _surface == VK_NULL_HANDLE) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: instance/surface initialization failed");
+        }
+
         initDevice();
+        if (_physicalDevice == VK_NULL_HANDLE ||
+            _device == VK_NULL_HANDLE ||
+            _graphicsQueue == VK_NULL_HANDLE ||
+            _presentQueue == VK_NULL_HANDLE) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: device/queue initialization failed");
+        }
 
         // VMA allocator
         VmaAllocatorCreateInfo allocatorInfo{};
@@ -116,32 +151,35 @@ namespace visutwin::canvas
         allocatorInfo.device = _device;
         allocatorInfo.instance = _instance;
         allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
-        vmaCreateAllocator(&allocatorInfo, &_vmaAllocator);
-
-        // Fail loudly instead of limping on: every later frame call would
-        // dereference these (e.g. _swapchainImages[_swapchainImageIndex]).
-        if (_instance == VK_NULL_HANDLE || _device == VK_NULL_HANDLE ||
-            _surface == VK_NULL_HANDLE || _vmaAllocator == VK_NULL_HANDLE ||
-            _graphicsQueue == VK_NULL_HANDLE ||
-            _presentQueue == VK_NULL_HANDLE) {
+        if (vmaCreateAllocator(
+                &allocatorInfo, &_vmaAllocator) != VK_SUCCESS ||
+            _vmaAllocator == VK_NULL_HANDLE) {
             throw std::runtime_error(
-                "VulkanGraphicsDevice: instance/device/surface/queue "
-                "initialization failed");
+                "VulkanGraphicsDevice: VMA allocator creation failed");
         }
 
         initSwapchain(_width, _height);
-        createDepthResources();
-        createPerFrameResources();
-
         if (_swapchain == VK_NULL_HANDLE || _swapchainImages.empty()) {
             throw std::runtime_error("VulkanGraphicsDevice: swapchain creation failed");
+        }
+        createDepthResources();
+        createPerFrameResources();
+        if (_initializationFailureCheckpoint.exchange(
+                0, std::memory_order_relaxed) != 0) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: injected initialization failure");
         }
 
         // Upload command pool (batched, nonblocking staging transfers)
         VkCommandPoolCreateInfo uploadPoolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         uploadPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         uploadPoolInfo.queueFamilyIndex = _graphicsQueueFamily;
-        vkCreateCommandPool(_device, &uploadPoolInfo, nullptr, &_uploadCommandPool);
+        if (vkCreateCommandPool(
+                _device, &uploadPoolInfo, nullptr,
+                &_uploadCommandPool) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: upload command pool creation failed");
+        }
 
         // Render pipeline
         _renderPipeline = std::make_unique<VulkanRenderPipeline>(this);
@@ -155,7 +193,12 @@ namespace visutwin::canvas
         samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-        vkCreateSampler(_device, &samplerInfo, nullptr, &_defaultSampler);
+        if (vkCreateSampler(
+                _device, &samplerInfo, nullptr,
+                &_defaultSampler) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: default sampler creation failed");
+        }
 
         // Environment-atlas sampler: clamp-to-edge so the equirectangular seam
         // and the packed sub-rects (irradiance, roughness mips) never wrap
@@ -169,7 +212,12 @@ namespace visutwin::canvas
         envSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         envSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         envSamplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-        vkCreateSampler(_device, &envSamplerInfo, nullptr, &_envSampler);
+        if (vkCreateSampler(
+                _device, &envSamplerInfo, nullptr,
+                &_envSampler) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: environment sampler creation failed");
+        }
 
         // Shadow-map sampler: clamp-to-edge, NEAREST filter, no mips.  A plain
         // (non-comparison) sampler — the shader does the depth compare manually
@@ -184,7 +232,12 @@ namespace visutwin::canvas
         shadowSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         shadowSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         shadowSamplerInfo.maxLod = 0.0f;
-        vkCreateSampler(_device, &shadowSamplerInfo, nullptr, &_shadowSampler);
+        if (vkCreateSampler(
+                _device, &shadowSamplerInfo, nullptr,
+                &_shadowSampler) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: shadow sampler creation failed");
+        }
 
         // 1×1 white texture (fallback for unbound texture slots)
         {
@@ -200,27 +253,48 @@ namespace visutwin::canvas
 
             VmaAllocationCreateInfo aInfo{};
             aInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-            vmaCreateImage(_vmaAllocator, &imgInfo, &aInfo, &_whiteImage, &_whiteAllocation, nullptr);
+            if (vmaCreateImage(
+                    _vmaAllocator, &imgInfo, &aInfo, &_whiteImage,
+                    &_whiteAllocation, nullptr) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: fallback image creation failed");
+            }
 
             VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
             viewInfo.image = _whiteImage;
             viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
             viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
             viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-            vkCreateImageView(_device, &viewInfo, nullptr, &_whiteImageView);
+            if (vkCreateImageView(
+                    _device, &viewInfo, nullptr,
+                    &_whiteImageView) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: fallback image view creation failed");
+            }
 
             // Upload single white pixel
             uint32_t whitePixel = 0xFFFFFFFF;
-            VkBuffer stagingBuf;
-            VmaAllocation stagingAlloc;
+            VkBuffer stagingBuf = VK_NULL_HANDLE;
+            VmaAllocation stagingAlloc = VK_NULL_HANDLE;
             VkBufferCreateInfo sInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
             sInfo.size = 4;
             sInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             VmaAllocationCreateInfo saInfo{};
             saInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-            vmaCreateBuffer(_vmaAllocator, &sInfo, &saInfo, &stagingBuf, &stagingAlloc, nullptr);
-            void* mapped;
-            vmaMapMemory(_vmaAllocator, stagingAlloc, &mapped);
+            if (vmaCreateBuffer(
+                    _vmaAllocator, &sInfo, &saInfo, &stagingBuf,
+                    &stagingAlloc, nullptr) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: fallback staging buffer creation failed");
+            }
+            void* mapped = nullptr;
+            if (vmaMapMemory(
+                    _vmaAllocator, stagingAlloc, &mapped) != VK_SUCCESS) {
+                vmaDestroyBuffer(
+                    _vmaAllocator, stagingBuf, stagingAlloc);
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: fallback staging buffer mapping failed");
+            }
             memcpy(mapped, &whitePixel, 4);
             vmaUnmapMemory(_vmaAllocator, stagingAlloc);
 
@@ -258,27 +332,50 @@ namespace visutwin::canvas
 
             VmaAllocationCreateInfo aInfo{};
             aInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-            vmaCreateImage(_vmaAllocator, &imgInfo, &aInfo, &_whiteCubeImage, &_whiteCubeAllocation, nullptr);
+            if (vmaCreateImage(
+                    _vmaAllocator, &imgInfo, &aInfo, &_whiteCubeImage,
+                    &_whiteCubeAllocation, nullptr) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: fallback cubemap creation failed");
+            }
 
             VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
             viewInfo.image = _whiteCubeImage;
             viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
             viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
             viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
-            vkCreateImageView(_device, &viewInfo, nullptr, &_whiteCubeImageView);
+            if (vkCreateImageView(
+                    _device, &viewInfo, nullptr,
+                    &_whiteCubeImageView) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: fallback cubemap view creation failed");
+            }
 
             uint32_t whitePixels[6] = {0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu,
                                        0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu};
-            VkBuffer stagingBuf;
-            VmaAllocation stagingAlloc;
+            VkBuffer stagingBuf = VK_NULL_HANDLE;
+            VmaAllocation stagingAlloc = VK_NULL_HANDLE;
             VkBufferCreateInfo sInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
             sInfo.size = sizeof(whitePixels);
             sInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             VmaAllocationCreateInfo saInfo{};
             saInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-            vmaCreateBuffer(_vmaAllocator, &sInfo, &saInfo, &stagingBuf, &stagingAlloc, nullptr);
-            void* mapped;
-            vmaMapMemory(_vmaAllocator, stagingAlloc, &mapped);
+            if (vmaCreateBuffer(
+                    _vmaAllocator, &sInfo, &saInfo, &stagingBuf,
+                    &stagingAlloc, nullptr) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: fallback cubemap staging buffer "
+                    "creation failed");
+            }
+            void* mapped = nullptr;
+            if (vmaMapMemory(
+                    _vmaAllocator, stagingAlloc, &mapped) != VK_SUCCESS) {
+                vmaDestroyBuffer(
+                    _vmaAllocator, stagingBuf, stagingAlloc);
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: fallback cubemap staging buffer "
+                    "mapping failed");
+            }
             memcpy(mapped, whitePixels, sizeof(whitePixels));
             vmaUnmapMemory(_vmaAllocator, stagingAlloc);
 
@@ -437,6 +534,126 @@ namespace visutwin::canvas
             vkDestroyInstance(_instance, nullptr);
 
         spdlog::info("VulkanGraphicsDevice destroyed");
+    }
+
+    void VulkanGraphicsDevice::cleanupPartialInitialization() noexcept
+    {
+        if (_device != VK_NULL_HANDLE) {
+            // No constructor stage intentionally submits GPU work, but waiting
+            // here also makes this cleanup safe if initialization grows later.
+            (void)vkDeviceWaitIdle(_device);
+        }
+
+        // Constructor uploads have not been submitted yet. Run their retirement
+        // callbacks so staging allocations do not survive until VMA teardown.
+        std::vector<PendingUpload> pendingUploads;
+        {
+            std::lock_guard lock(_uploadMutex);
+            pendingUploads.swap(_pendingUploads);
+        }
+        for (auto& upload : pendingUploads) {
+            if (upload.retire) {
+                try {
+                    upload.retire();
+                } catch (...) {
+                    // Cleanup must never replace the initialization exception.
+                }
+            }
+        }
+
+        // Objects with destructors that call VkDevice/VMA must die first.
+        _renderPipeline.reset();
+
+        if (_device != VK_NULL_HANDLE) {
+            if (_persistentDescriptorPool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(
+                    _device, _persistentDescriptorPool, nullptr);
+                _persistentDescriptorPool = VK_NULL_HANDLE;
+            }
+            if (_shadowSampler != VK_NULL_HANDLE) {
+                vkDestroySampler(_device, _shadowSampler, nullptr);
+                _shadowSampler = VK_NULL_HANDLE;
+            }
+            if (_envSampler != VK_NULL_HANDLE) {
+                vkDestroySampler(_device, _envSampler, nullptr);
+                _envSampler = VK_NULL_HANDLE;
+            }
+            if (_defaultSampler != VK_NULL_HANDLE) {
+                vkDestroySampler(_device, _defaultSampler, nullptr);
+                _defaultSampler = VK_NULL_HANDLE;
+            }
+            if (_whiteImageView != VK_NULL_HANDLE) {
+                vkDestroyImageView(_device, _whiteImageView, nullptr);
+                _whiteImageView = VK_NULL_HANDLE;
+            }
+            if (_whiteCubeImageView != VK_NULL_HANDLE) {
+                vkDestroyImageView(
+                    _device, _whiteCubeImageView, nullptr);
+                _whiteCubeImageView = VK_NULL_HANDLE;
+            }
+        }
+        _uniformRing.reset();
+        if (_vmaAllocator != VK_NULL_HANDLE) {
+            if (_whiteImage != VK_NULL_HANDLE) {
+                vmaDestroyImage(
+                    _vmaAllocator, _whiteImage, _whiteAllocation);
+                _whiteImage = VK_NULL_HANDLE;
+                _whiteAllocation = VK_NULL_HANDLE;
+            }
+            if (_whiteCubeImage != VK_NULL_HANDLE) {
+                vmaDestroyImage(
+                    _vmaAllocator, _whiteCubeImage,
+                    _whiteCubeAllocation);
+                _whiteCubeImage = VK_NULL_HANDLE;
+                _whiteCubeAllocation = VK_NULL_HANDLE;
+            }
+        }
+
+        if (_device != VK_NULL_HANDLE) {
+            destroyPerFrameResources();
+            if (_uploadCommandPool != VK_NULL_HANDLE) {
+                vkDestroyCommandPool(
+                    _device, _uploadCommandPool, nullptr);
+                _uploadCommandPool = VK_NULL_HANDLE;
+            }
+        }
+        if (_vmaAllocator != VK_NULL_HANDLE) {
+            destroyDepthResources();
+        }
+        if (_device != VK_NULL_HANDLE) {
+            cleanupSwapchain();
+        }
+
+        if (_vmaAllocator != VK_NULL_HANDLE) {
+            vmaDestroyAllocator(_vmaAllocator);
+            _vmaAllocator = VK_NULL_HANDLE;
+        }
+        if (_device != VK_NULL_HANDLE) {
+            vkDestroyDevice(_device, nullptr);
+            _device = VK_NULL_HANDLE;
+        }
+        if (_surface != VK_NULL_HANDLE &&
+            _instance != VK_NULL_HANDLE) {
+            vkDestroySurfaceKHR(_instance, _surface, nullptr);
+            _surface = VK_NULL_HANDLE;
+        }
+        if (_debugMessenger != VK_NULL_HANDLE &&
+            _instance != VK_NULL_HANDLE) {
+            const auto destroyMessenger =
+                reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+                    vkGetInstanceProcAddr(
+                        _instance,
+                        "vkDestroyDebugUtilsMessengerEXT"));
+            if (destroyMessenger) {
+                destroyMessenger(
+                    _instance, _debugMessenger, nullptr);
+            }
+            _debugMessenger = VK_NULL_HANDLE;
+        }
+        if (_instance != VK_NULL_HANDLE) {
+            vkDestroyInstance(_instance, nullptr);
+            _instance = VK_NULL_HANDLE;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -692,20 +909,40 @@ namespace visutwin::canvas
             VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
             poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             poolInfo.queueFamilyIndex = _graphicsQueueFamily;
-            vkCreateCommandPool(_device, &poolInfo, nullptr, &frame.commandPool);
+            if (vkCreateCommandPool(
+                    _device, &poolInfo, nullptr,
+                    &frame.commandPool) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: frame command pool creation failed");
+            }
 
             VkCommandBufferAllocateInfo allocInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
             allocInfo.commandPool = frame.commandPool;
             allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocInfo.commandBufferCount = 1;
-            vkAllocateCommandBuffers(_device, &allocInfo, &frame.commandBuffer);
+            if (vkAllocateCommandBuffers(
+                    _device, &allocInfo,
+                    &frame.commandBuffer) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: frame command buffer allocation failed");
+            }
 
             VkSemaphoreCreateInfo semInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-            vkCreateSemaphore(_device, &semInfo, nullptr, &frame.imageAvailable);
+            if (vkCreateSemaphore(
+                    _device, &semInfo, nullptr,
+                    &frame.imageAvailable) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: acquire semaphore creation failed");
+            }
 
             VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-            vkCreateFence(_device, &fenceInfo, nullptr, &frame.inFlightFence);
+            if (vkCreateFence(
+                    _device, &fenceInfo, nullptr,
+                    &frame.inFlightFence) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: frame fence creation failed");
+            }
 
             const VkDescriptorPool descriptorPool =
                 createFrameDescriptorPool(kInitialDescriptorSets);
@@ -717,7 +954,10 @@ namespace visutwin::canvas
                 {descriptorPool, kInitialDescriptorSets});
         }
 
-        createSwapchainSemaphores();
+        if (!createSwapchainSemaphores()) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: presentation semaphore creation failed");
+        }
     }
 
     VkDescriptorPool VulkanGraphicsDevice::createFrameDescriptorPool(
@@ -862,7 +1102,7 @@ namespace visutwin::canvas
         return offset;
     }
 
-    void VulkanGraphicsDevice::createSwapchainSemaphores()
+    bool VulkanGraphicsDevice::createSwapchainSemaphores()
     {
         // One renderFinished semaphore per swapchain image — recreated
         // alongside the swapchain because the image count can change on
@@ -870,8 +1110,12 @@ namespace visutwin::canvas
         _renderFinishedSemaphores.resize(_swapchainImages.size(), VK_NULL_HANDLE);
         VkSemaphoreCreateInfo semInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         for (auto& s : _renderFinishedSemaphores) {
-            vkCreateSemaphore(_device, &semInfo, nullptr, &s);
+            if (vkCreateSemaphore(
+                    _device, &semInfo, nullptr, &s) != VK_SUCCESS) {
+                return false;
+            }
         }
+        return true;
     }
 
     void VulkanGraphicsDevice::destroySwapchainSemaphores()
@@ -3350,7 +3594,13 @@ namespace visutwin::canvas
         createDepthResources();
         // Image count may differ in the new swapchain — per-image
         // semaphores must match it.
-        createSwapchainSemaphores();
+        if (!createSwapchainSemaphores()) {
+            _renderingDisabled = true;
+            spdlog::error(
+                "VulkanGraphicsDevice: presentation semaphore recreation "
+                "failed; rendering disabled");
+            return false;
+        }
         return true;
     }
 

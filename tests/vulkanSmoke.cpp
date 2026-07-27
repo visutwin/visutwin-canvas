@@ -68,6 +68,12 @@ namespace visutwin::canvas
                        device._surface, &supported) == VK_SUCCESS &&
                 supported == VK_TRUE;
         }
+
+        static void failNextInitialization()
+        {
+            VulkanGraphicsDevice::_initializationFailureCheckpoint.store(
+                1, std::memory_order_relaxed);
+        }
     };
 }
 
@@ -92,6 +98,28 @@ int main()
     int result = 0;
     std::shared_ptr<const std::atomic_uint32_t> validationErrors;
     try {
+        // Force a constructor exception after instance/device/VMA, swapchain,
+        // depth, and per-frame resources exist. The partial cleanup must leave
+        // the same window usable for a normal initialization immediately after.
+        bool initializationFailed = false;
+        VulkanGraphicsDeviceTestAccess::failNextInitialization();
+        try {
+            GraphicsDeviceOptions rejectedOptions{};
+            rejectedOptions.backend = Backend::Vulkan;
+            rejectedOptions.window = window;
+            rejectedOptions.enableValidation = true;
+            auto rejectedDevice =
+                std::make_unique<VulkanGraphicsDevice>(
+                    rejectedOptions);
+        } catch (const std::exception&) {
+            initializationFailed = true;
+        }
+        if (!initializationFailed) {
+            spdlog::error(
+                "Vulkan smoke: injected initialization failure was ignored");
+            result = 1;
+        }
+
         GraphicsDeviceOptions options{};
         options.backend = Backend::Vulkan;
         options.window = window;
