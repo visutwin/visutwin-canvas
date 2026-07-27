@@ -219,7 +219,18 @@ namespace visutwin::canvas
                 viewInfo.subresourceRange.levelCount = 1;
                 viewInfo.subresourceRange.baseArrayLayer = 0;
                 viewInfo.subresourceRange.layerCount = 1;
-                vkCreateImageView(vk, &viewInfo, nullptr, &_depthAttachment.view);
+                const VkResult viewResult =
+                    vkCreateImageView(vk, &viewInfo, nullptr, &_depthAttachment.view);
+                if (viewResult != VK_SUCCESS) {
+                    spdlog::error(
+                        "VulkanRenderTarget: failed to create internal depth image view ({})",
+                        static_cast<int>(viewResult));
+                    vmaDestroyImage(allocator, _depthAttachment.internalImage,
+                        _depthAttachment.internalAllocation);
+                    _depthAttachment.internalImage = VK_NULL_HANDLE;
+                    _depthAttachment.internalAllocation = VK_NULL_HANDLE;
+                    return;
+                }
 
                 _depthAttachment.format = depthFormat;
                 _depthAttachment.ownView = true;

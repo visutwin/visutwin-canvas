@@ -263,7 +263,15 @@ namespace visutwin::canvas::gpu
         }
 
         // Sampler — only meaningful for color textures, but harmless on depth.
-        createSampler(vkDev);
+        if (!createSampler(vkDev, _sampler)) {
+            vkDestroyImageView(_vkDevice, _imageView, nullptr);
+            vmaDestroyImage(_allocator, _image, _allocation);
+            _imageView = VK_NULL_HANDLE;
+            _image = VK_NULL_HANDLE;
+            _allocation = VK_NULL_HANDLE;
+            _subresourceLayouts.clear();
+            return;
+        }
 
         struct UploadData
         {
@@ -567,18 +575,24 @@ namespace visutwin::canvas::gpu
         // Texture exposes its GraphicsDevice — cast to the Vulkan flavour.
         auto* dev = dynamic_cast<VulkanGraphicsDevice*>(_owner->device());
         if (!dev) return;
+        VkSampler replacement = VK_NULL_HANDLE;
+        if (!createSampler(dev, replacement)) {
+            return;
+        }
+
         // Defer the old sampler's destruction — descriptors already written
         // this frame (or in-flight frames) may still reference it.
-        if (_sampler != VK_NULL_HANDLE) {
-            dev->deferDestroy([vkDevice = _vkDevice, sampler = _sampler] {
+        const VkSampler oldSampler = _sampler;
+        _sampler = replacement;
+        if (oldSampler != VK_NULL_HANDLE) {
+            dev->deferDestroy([vkDevice = _vkDevice, sampler = oldSampler] {
                 vkDestroySampler(vkDevice, sampler, nullptr);
             });
-            _sampler = VK_NULL_HANDLE;
         }
-        createSampler(dev);
     }
 
-    void VulkanTexture::createSampler(VulkanGraphicsDevice* device)
+    bool VulkanTexture::createSampler(
+        VulkanGraphicsDevice* device, VkSampler& sampler) const
     {
         VkSamplerCreateInfo samplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         const VkFilter requestedMag = vulkanMapFilterMode(_owner->magFilter());
@@ -598,7 +612,16 @@ namespace visutwin::canvas::gpu
         samplerInfo.anisotropyEnable = anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
         samplerInfo.maxAnisotropy = std::max(anisotropy, 1.0f);
 
-        vkCreateSampler(device->device(), &samplerInfo, nullptr, &_sampler);
+        const VkResult result =
+            vkCreateSampler(device->device(), &samplerInfo, nullptr, &sampler);
+        if (result != VK_SUCCESS) {
+            sampler = VK_NULL_HANDLE;
+            spdlog::error(
+                "VulkanTexture: failed to create sampler ({})",
+                static_cast<int>(result));
+            return false;
+        }
+        return true;
     }
 
     void VulkanTexture::destroySampler()

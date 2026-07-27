@@ -1360,9 +1360,11 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::ensureVsmBlurResources()
     {
-        if (_vsmBlurPipelineLayout != VK_NULL_HANDLE) {
+        if (_vsmBlurPipelineLayout != VK_NULL_HANDLE ||
+            _vsmBlurResourcesAttempted) {
             return;
         }
+        _vsmBlurResourcesAttempted = true;
 
         VkDescriptorSetLayoutBinding binding{};
         binding.binding = 0;
@@ -1373,7 +1375,14 @@ namespace visutwin::canvas
         VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         setInfo.bindingCount = 1;
         setInfo.pBindings = &binding;
-        vkCreateDescriptorSetLayout(_device, &setInfo, nullptr, &_vsmBlurSetLayout);
+        VkResult result = vkCreateDescriptorSetLayout(
+            _device, &setInfo, nullptr, &_vsmBlurSetLayout);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "VulkanGraphicsDevice: VSM blur descriptor set layout creation failed ({})",
+                static_cast<int>(result));
+            return;
+        }
 
         VkPushConstantRange pushRange{};
         pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -1385,14 +1394,33 @@ namespace visutwin::canvas
         layoutInfo.pSetLayouts = &_vsmBlurSetLayout;
         layoutInfo.pushConstantRangeCount = 1;
         layoutInfo.pPushConstantRanges = &pushRange;
-        vkCreatePipelineLayout(_device, &layoutInfo, nullptr, &_vsmBlurPipelineLayout);
+        result = vkCreatePipelineLayout(
+            _device, &layoutInfo, nullptr, &_vsmBlurPipelineLayout);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "VulkanGraphicsDevice: VSM blur pipeline layout creation failed ({})",
+                static_cast<int>(result));
+            vkDestroyDescriptorSetLayout(
+                _device, _vsmBlurSetLayout, nullptr);
+            _vsmBlurSetLayout = VK_NULL_HANDLE;
+            return;
+        }
 
-        auto createModule = [this](const uint32_t* spirv, size_t words) {
+        auto createModule = [this](
+                                const uint32_t* spirv,
+                                size_t words) -> VkShaderModule {
             VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
             info.codeSize = words * sizeof(uint32_t);
             info.pCode = spirv;
             VkShaderModule module = VK_NULL_HANDLE;
-            vkCreateShaderModule(_device, &info, nullptr, &module);
+            const VkResult moduleResult =
+                vkCreateShaderModule(_device, &info, nullptr, &module);
+            if (moduleResult != VK_SUCCESS) {
+                spdlog::error(
+                    "VulkanGraphicsDevice: VSM blur shader module creation failed ({})",
+                    static_cast<int>(moduleResult));
+                return VK_NULL_HANDLE;
+            }
             return module;
         };
         _vsmBlurVertModule = createModule(
@@ -1401,6 +1429,25 @@ namespace visutwin::canvas
         _vsmBlurFragModule = createModule(
             vulkan_generated::kVsmBlurFrag,
             vulkan_generated::kVsmBlurFragWordCount);
+        if (_vsmBlurVertModule == VK_NULL_HANDLE ||
+            _vsmBlurFragModule == VK_NULL_HANDLE) {
+            if (_vsmBlurVertModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(
+                    _device, _vsmBlurVertModule, nullptr);
+            }
+            if (_vsmBlurFragModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(
+                    _device, _vsmBlurFragModule, nullptr);
+            }
+            vkDestroyPipelineLayout(
+                _device, _vsmBlurPipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(
+                _device, _vsmBlurSetLayout, nullptr);
+            _vsmBlurVertModule = VK_NULL_HANDLE;
+            _vsmBlurFragModule = VK_NULL_HANDLE;
+            _vsmBlurPipelineLayout = VK_NULL_HANDLE;
+            _vsmBlurSetLayout = VK_NULL_HANDLE;
+        }
     }
 
     VkPipeline VulkanGraphicsDevice::getVsmBlurPipeline(const VkFormat colorFormat, const VkFormat depthFormat)

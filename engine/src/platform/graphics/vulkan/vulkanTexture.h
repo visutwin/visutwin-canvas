@@ -54,7 +54,8 @@ namespace visutwin::canvas::gpu
             uint32_t layerCount = VK_REMAINING_ARRAY_LAYERS);
 
     private:
-        void createSampler(VulkanGraphicsDevice* device);
+        [[nodiscard]] bool createSampler(
+            VulkanGraphicsDevice* device, VkSampler& sampler) const;
         void destroySampler();
 
         Texture* _owner = nullptr;

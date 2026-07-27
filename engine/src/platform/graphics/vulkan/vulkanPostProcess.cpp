@@ -62,20 +62,46 @@ namespace visutwin::canvas
         VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         setInfo.bindingCount = static_cast<uint32_t>(bindings.size());
         setInfo.pBindings = bindings.data();
-        vkCreateDescriptorSetLayout(_device, &setInfo, nullptr, &_postSetLayout);
+        VkResult result =
+            vkCreateDescriptorSetLayout(_device, &setInfo, nullptr, &_postSetLayout);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "VulkanGraphicsDevice: post descriptor set layout creation failed ({})",
+                static_cast<int>(result));
+            return false;
+        }
 
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         layoutInfo.setLayoutCount = 1;
         layoutInfo.pSetLayouts = &_postSetLayout;
-        vkCreatePipelineLayout(_device, &layoutInfo, nullptr, &_postPipelineLayout);
+        result = vkCreatePipelineLayout(
+            _device, &layoutInfo, nullptr, &_postPipelineLayout);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "VulkanGraphicsDevice: post pipeline layout creation failed ({})",
+                static_cast<int>(result));
+            vkDestroyDescriptorSetLayout(_device, _postSetLayout, nullptr);
+            _postSetLayout = VK_NULL_HANDLE;
+            return false;
+        }
 
         VkShaderModuleCreateInfo vertexInfo{
             VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         vertexInfo.codeSize =
             sizeof(vulkan_generated::kPostFullscreenVert);
         vertexInfo.pCode = vulkan_generated::kPostFullscreenVert;
-        vkCreateShaderModule(
+        result = vkCreateShaderModule(
             _device, &vertexInfo, nullptr, &_postVertModule);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "VulkanGraphicsDevice: post vertex shader module creation failed ({})",
+                static_cast<int>(result));
+            vkDestroyPipelineLayout(_device, _postPipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(_device, _postSetLayout, nullptr);
+            _postPipelineLayout = VK_NULL_HANDLE;
+            _postSetLayout = VK_NULL_HANDLE;
+            return false;
+        }
 
         // Linear clamp-to-edge sampler for all post inputs (kernel taps at the
         // frame border must not wrap — mirrors the Metal _postSampler).
@@ -86,9 +112,22 @@ namespace visutwin::canvas
         samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        vkCreateSampler(_device, &samplerInfo, nullptr, &_postSampler);
+        result = vkCreateSampler(
+            _device, &samplerInfo, nullptr, &_postSampler);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "VulkanGraphicsDevice: post sampler creation failed ({})",
+                static_cast<int>(result));
+            vkDestroyShaderModule(_device, _postVertModule, nullptr);
+            vkDestroyPipelineLayout(_device, _postPipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(_device, _postSetLayout, nullptr);
+            _postVertModule = VK_NULL_HANDLE;
+            _postPipelineLayout = VK_NULL_HANDLE;
+            _postSetLayout = VK_NULL_HANDLE;
+            return false;
+        }
 
-        return _postVertModule != VK_NULL_HANDLE;
+        return true;
     }
 
     VkShaderModule VulkanGraphicsDevice::postFragmentModule(const PostPassKind kind)
@@ -132,7 +171,14 @@ namespace visutwin::canvas
         VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         info.codeSize = wordCount * sizeof(uint32_t);
         info.pCode = words;
-        vkCreateShaderModule(_device, &info, nullptr, &_postFragModules[index]);
+        const VkResult result = vkCreateShaderModule(
+            _device, &info, nullptr, &_postFragModules[index]);
+        if (result != VK_SUCCESS) {
+            _postFragModules[index] = VK_NULL_HANDLE;
+            spdlog::error(
+                "VulkanGraphicsDevice: post fragment shader module creation failed ({})",
+                static_cast<int>(result));
+        }
         return _postFragModules[index];
     }
 

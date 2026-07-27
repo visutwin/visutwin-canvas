@@ -488,6 +488,7 @@ namespace visutwin::canvas
         VkShaderModule _vsmBlurVertModule = VK_NULL_HANDLE;
         VkShaderModule _vsmBlurFragModule = VK_NULL_HANDLE;
         std::unordered_map<uint64_t, VkPipeline> _vsmBlurPipelines;
+        bool _vsmBlurResourcesAttempted = false;
 
         // ── Post-processing framework (vulkanPostProcess.cpp) ────────────
         // Shared layout: bindings 0-3 combined samplers + binding 4 params UBO

@@ -40,7 +40,14 @@ namespace visutwin::canvas
         VkDescriptorSetLayoutCreateInfo sli{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         sli.bindingCount = 2;
         sli.pBindings = bindings.data();
-        if (vkCreateDescriptorSetLayout(_device, &sli, nullptr, &setLayout) != VK_SUCCESS) return;
+        VkResult result =
+            vkCreateDescriptorSetLayout(_device, &sli, nullptr, &setLayout);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "Vulkan environment descriptor set layout creation failed ({})",
+                static_cast<int>(result));
+            return;
+        }
 
         VkPushConstantRange push{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 48};
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
@@ -49,20 +56,47 @@ namespace visutwin::canvas
         pli.pSetLayouts = &setLayout;
         pli.pushConstantRangeCount = 1;
         pli.pPushConstantRanges = &push;
-        vkCreatePipelineLayout(_device, &pli, nullptr, &pipelineLayout);
+        result = vkCreatePipelineLayout(
+            _device, &pli, nullptr, &pipelineLayout);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "Vulkan environment pipeline layout creation failed ({})",
+                static_cast<int>(result));
+            vkDestroyDescriptorSetLayout(_device, setLayout, nullptr);
+            return;
+        }
 
-        auto makeModule = [&](const uint32_t* words, const size_t count) {
+        auto makeModule = [&](const uint32_t* words,
+                              const size_t count) -> VkShaderModule {
             VkShaderModule module = VK_NULL_HANDLE;
             VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
             info.codeSize = count * sizeof(uint32_t);
             info.pCode = words;
-            vkCreateShaderModule(_device, &info, nullptr, &module);
+            const VkResult moduleResult =
+                vkCreateShaderModule(_device, &info, nullptr, &module);
+            if (moduleResult != VK_SUCCESS) {
+                spdlog::error(
+                    "Vulkan environment shader module creation failed ({})",
+                    static_cast<int>(moduleResult));
+                return VK_NULL_HANDLE;
+            }
             return module;
         };
         VkShaderModule vert = makeModule(vulkan_generated::kPostFullscreenVert,
             vulkan_generated::kPostFullscreenVertWordCount);
+        if (vert == VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(_device, pipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(_device, setLayout, nullptr);
+            return;
+        }
         VkShaderModule frag = makeModule(vulkan_generated::kEnvReprojectFrag,
             vulkan_generated::kEnvReprojectFragWordCount);
+        if (frag == VK_NULL_HANDLE) {
+            vkDestroyShaderModule(_device, vert, nullptr);
+            vkDestroyPipelineLayout(_device, pipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(_device, setLayout, nullptr);
+            return;
+        }
 
         VkPipelineShaderStageCreateInfo stages[2]{};
         stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -95,17 +129,51 @@ namespace visutwin::canvas
         gpi.pMultisampleState = &ms; gpi.pColorBlendState = &cb;
         gpi.pDynamicState = &ds; gpi.layout = pipelineLayout;
         VkPipeline pipeline = VK_NULL_HANDLE;
-        vkCreateGraphicsPipelines(_device, VK_NULL_HANDLE, 1, &gpi, nullptr, &pipeline);
+        result = vkCreateGraphicsPipelines(
+            _device, VK_NULL_HANDLE, 1, &gpi, nullptr, &pipeline);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "Vulkan environment graphics pipeline creation failed ({})",
+                static_cast<int>(result));
+            vkDestroyShaderModule(_device, vert, nullptr);
+            vkDestroyShaderModule(_device, frag, nullptr);
+            vkDestroyPipelineLayout(_device, pipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(_device, setLayout, nullptr);
+            return;
+        }
 
         VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2};
         VkDescriptorPoolCreateInfo dpi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         dpi.maxSets = 1; dpi.poolSizeCount = 1; dpi.pPoolSizes = &poolSize;
         VkDescriptorPool pool = VK_NULL_HANDLE;
-        vkCreateDescriptorPool(_device, &dpi, nullptr, &pool);
+        result = vkCreateDescriptorPool(_device, &dpi, nullptr, &pool);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "Vulkan environment descriptor pool creation failed ({})",
+                static_cast<int>(result));
+            vkDestroyPipeline(_device, pipeline, nullptr);
+            vkDestroyShaderModule(_device, vert, nullptr);
+            vkDestroyShaderModule(_device, frag, nullptr);
+            vkDestroyPipelineLayout(_device, pipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(_device, setLayout, nullptr);
+            return;
+        }
         VkDescriptorSet set = VK_NULL_HANDLE;
         VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         dai.descriptorPool = pool; dai.descriptorSetCount = 1; dai.pSetLayouts = &setLayout;
-        vkAllocateDescriptorSets(_device, &dai, &set);
+        result = vkAllocateDescriptorSets(_device, &dai, &set);
+        if (result != VK_SUCCESS) {
+            spdlog::error(
+                "Vulkan environment descriptor set allocation failed ({})",
+                static_cast<int>(result));
+            vkDestroyDescriptorPool(_device, pool, nullptr);
+            vkDestroyPipeline(_device, pipeline, nullptr);
+            vkDestroyShaderModule(_device, vert, nullptr);
+            vkDestroyShaderModule(_device, frag, nullptr);
+            vkDestroyPipelineLayout(_device, pipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(_device, setLayout, nullptr);
+            return;
+        }
         std::array<VkDescriptorImageInfo, 2> images{{
             {_envSampler, src2d ? src2d->imageView() : _whiteImageView,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
@@ -129,7 +197,25 @@ namespace visutwin::canvas
                 info.image = dst->image(); info.viewType = VK_IMAGE_VIEW_TYPE_2D;
                 info.format = dst->format();
                 info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, face, 1};
-                vkCreateImageView(_device, &info, nullptr, &views[face]);
+                result =
+                    vkCreateImageView(_device, &info, nullptr, &views[face]);
+                if (result != VK_SUCCESS) {
+                    spdlog::error(
+                        "Vulkan environment cubemap face view creation failed ({})",
+                        static_cast<int>(result));
+                    for (VkImageView view : views) {
+                        if (view != VK_NULL_HANDLE) {
+                            vkDestroyImageView(_device, view, nullptr);
+                        }
+                    }
+                    vkDestroyDescriptorPool(_device, pool, nullptr);
+                    vkDestroyPipeline(_device, pipeline, nullptr);
+                    vkDestroyShaderModule(_device, vert, nullptr);
+                    vkDestroyShaderModule(_device, frag, nullptr);
+                    vkDestroyPipelineLayout(_device, pipelineLayout, nullptr);
+                    vkDestroyDescriptorSetLayout(_device, setLayout, nullptr);
+                    return;
+                }
             }
         } else {
             views.push_back(dst->imageView());
