@@ -704,14 +704,13 @@ namespace visutwin::canvas
         // directly (vkCmdBeginRendering etc.).  MoltenVK 1.3+ supports this
         // on Apple Silicon.
         //
-        // The feature struct is `static` because we hand its address to
-        // DeviceBuilder::add_pNext() which keeps the pointer alive until the
-        // build() call — vkb's set_required_features_13() vets support but
-        // doesn't propagate the struct into VkDeviceCreateInfo::pNext, which
-        // leaves dynamicRendering disabled at the device level (validation:
-        // VUID-vkCmdBeginRendering-dynamicRendering-06446).  add_pNext pins
-        // the feature on so the device creation honours it.
-        static VkPhysicalDeviceVulkan13Features features13{
+        // DeviceBuilder retains these pNext pointers only through the
+        // synchronous build() call below, so local storage is sufficient and
+        // keeps concurrent device initialization independent. vkb's
+        // set_required_features_13() vets support but does not propagate the
+        // struct into VkDeviceCreateInfo::pNext; add_pNext enables the
+        // features on the created device.
+        VkPhysicalDeviceVulkan13Features features13{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
         features13.dynamicRendering = VK_TRUE;
         features13.synchronization2 = VK_TRUE;
@@ -748,13 +747,13 @@ namespace visutwin::canvas
 
         // Enable anisotropic filtering when the hardware has it (MoltenVK on
         // Apple GPUs does). Requested via a Vulkan-1.0 features struct chained
-        // like features13; static for the same pointer-lifetime reason.
+        // alongside features13 for the duration of build().
         VkPhysicalDeviceFeatures supported{};
         vkGetPhysicalDeviceFeatures(_physicalDevice, &supported);
         _samplerAnisotropyEnabled = supported.samplerAnisotropy == VK_TRUE;
         _maxSamplerAnisotropy = _samplerAnisotropyEnabled
             ? std::min(16.0f, props.limits.maxSamplerAnisotropy) : 1.0f;
-        static VkPhysicalDeviceFeatures2 features2{
+        VkPhysicalDeviceFeatures2 features2{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
         features2.features.samplerAnisotropy = _samplerAnisotropyEnabled ? VK_TRUE : VK_FALSE;
 
