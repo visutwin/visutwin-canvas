@@ -121,10 +121,10 @@ namespace visutwin::canvas
         }
 
         int w = 0, h = 0;
-        if (!SDL_GetWindowSize(_window, &w, &h)) {
+        if (!SDL_GetWindowSizeInPixels(_window, &w, &h)) {
             throw std::runtime_error(
                 std::string(
-                    "VulkanGraphicsDevice: failed to query window size: ") +
+                    "VulkanGraphicsDevice: failed to query window size in pixels: ") +
                 SDL_GetError());
         }
         _width = w;
@@ -849,11 +849,10 @@ namespace visutwin::canvas
         _swapchainImageViews = std::move(viewsResult.value());
 
         // Adopt the actual swapchain extent as the device size.  The requested
-        // width/height can be stale or zero — SDL_GetWindowSize may report 0×0
-        // before the window is first shown — but the surface clamps the
-        // swapchain to its real size.  size() (and therefore the renderer's
-        // viewport/scissor) must reflect that, or every draw collapses to a
-        // 1×1 viewport.
+        // width/height can be stale or zero before the window is first shown,
+        // but the surface clamps the swapchain to its real size. size() (and
+        // therefore the renderer's viewport/scissor) must reflect that, or
+        // every draw collapses to a 1×1 viewport.
         _width = static_cast<int>(_swapchainExtent.width);
         _height = static_cast<int>(_swapchainExtent.height);
         return true;
