@@ -356,7 +356,7 @@ namespace visutwin::canvas
         // know which image the next acquire will hand us — so a per-frame
         // slot can collide with a still-pending present.  Per-image, the
         // semaphore's life is tied to the image it gates and validation is
-        // happy (VUID-vkQueueSubmit-pSignalSemaphores-00067).
+        // valid when submitted through vkQueueSubmit2.
         std::vector<VkSemaphore> _renderFinishedSemaphores;
 
         // Layout that the currently-acquired swapchain image is in.  Set to

@@ -130,25 +130,33 @@ namespace visutwin::canvas
         vkDev->enqueueUpload([destinationBuffer, stagingBuffer, size](VkCommandBuffer cmd) {
             // Queue-wide ordering: prior in-flight frames finish their index
             // reads before the copy; later reads see the copied data.
-            VkBufferMemoryBarrier pre{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-            pre.srcAccessMask = VK_ACCESS_INDEX_READ_BIT;
-            pre.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            VkBufferMemoryBarrier2 pre{
+                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+            pre.srcStageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+            pre.srcAccessMask = VK_ACCESS_2_INDEX_READ_BIT;
+            pre.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            pre.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
             pre.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             pre.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             pre.buffer = destinationBuffer;
             pre.size = VK_WHOLE_SIZE;
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &pre, 0, nullptr);
+            VkDependencyInfo dependency{
+                VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dependency.bufferMemoryBarrierCount = 1;
+            dependency.pBufferMemoryBarriers = &pre;
+            vkCmdPipelineBarrier2(cmd, &dependency);
 
             VkBufferCopy copy{};
             copy.size = size;
             vkCmdCopyBuffer(cmd, stagingBuffer, destinationBuffer, 1, &copy);
 
-            VkBufferMemoryBarrier post = pre;
-            post.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            post.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, nullptr, 1, &post, 0, nullptr);
+            VkBufferMemoryBarrier2 post = pre;
+            post.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            post.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            post.dstStageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+            post.dstAccessMask = VK_ACCESS_2_INDEX_READ_BIT;
+            dependency.pBufferMemoryBarriers = &post;
+            vkCmdPipelineBarrier2(cmd, &dependency);
         }, [allocator = _allocator, stagingBuffer, stagingAlloc] {
             vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
         });

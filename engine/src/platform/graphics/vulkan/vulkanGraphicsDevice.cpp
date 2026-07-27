@@ -1332,16 +1332,28 @@ namespace visutwin::canvas
         // frame an implicit queue-order dependency without blocking the CPU.
         flushUploads();
 
-        // Submit
-        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = &frame.imageAvailable;
-        submitInfo.pWaitDstStageMask = &waitStage;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &cmd;
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = &renderFinished;
+        // Submit. The acquire wait covers the whole command buffer because a
+        // no-draw frame can transition directly to PRESENT without reaching
+        // COLOR_ATTACHMENT_OUTPUT.
+        VkSemaphoreSubmitInfo acquireWait{
+            VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+        acquireWait.semaphore = frame.imageAvailable;
+        acquireWait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        VkCommandBufferSubmitInfo commandInfo{
+            VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+        commandInfo.commandBuffer = cmd;
+        VkSemaphoreSubmitInfo renderFinishedSignal{
+            VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+        renderFinishedSignal.semaphore = renderFinished;
+        renderFinishedSignal.stageMask =
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        VkSubmitInfo2 submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+        submitInfo.waitSemaphoreInfoCount = 1;
+        submitInfo.pWaitSemaphoreInfos = &acquireWait;
+        submitInfo.commandBufferInfoCount = 1;
+        submitInfo.pCommandBufferInfos = &commandInfo;
+        submitInfo.signalSemaphoreInfoCount = 1;
+        submitInfo.pSignalSemaphoreInfos = &renderFinishedSignal;
         // Keep the fence signaled throughout command recording. Reset it only
         // at the last possible moment, when a submission is ready. If reset or
         // submit fails, recovery restores a signaled fence before slot reuse.
@@ -1356,7 +1368,7 @@ namespace visutwin::canvas
             submitResult = *_submitResultOverride;
             _submitResultOverride.reset();
         } else {
-            submitResult = vkQueueSubmit(
+            submitResult = vkQueueSubmit2(
                 _graphicsQueue, 1, &submitInfo, frame.inFlightFence);
         }
         if (submitResult != VK_SUCCESS) {
@@ -1699,10 +1711,14 @@ namespace visutwin::canvas
             return;
         }
 
-        VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffer;
-        if (vkQueueSubmit(_graphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS) {
+        VkCommandBufferSubmitInfo commandInfo{
+            VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+        commandInfo.commandBuffer = commandBuffer;
+        VkSubmitInfo2 submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+        submitInfo.commandBufferInfoCount = 1;
+        submitInfo.pCommandBufferInfos = &commandInfo;
+        if (vkQueueSubmit2(
+                _graphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS) {
             vkDestroyFence(_device, fence, nullptr);
             vkFreeCommandBuffers(_device, _uploadCommandPool, 1, &commandBuffer);
             for (auto& retire : retirements) retire();
@@ -2073,7 +2089,7 @@ namespace visutwin::canvas
                 // until the next pass that uses it (which will start with that
                 // same layout).  Transitioning internal depth to
                 // SHADER_READ_ONLY is illegal because its image lacks
-                // SAMPLED_BIT (VUID-VkImageMemoryBarrier-oldLayout-01211).
+                // SAMPLED_BIT (the image-barrier oldLayout usage rule).
                 if (da.texture && da.texture->image() != VK_NULL_HANDLE) {
                     // Mirror the per-face handling in startRenderPass for
                     // layered (omni cubemap) depth textures.
@@ -2313,16 +2329,23 @@ namespace visutwin::canvas
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     layout, 0, 1, &set, 0, nullptr);
                 vkCmdDispatch(cmd, groups, 1, 1);
-                VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-                barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                VkBufferMemoryBarrier2 barrier{
+                    VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+                barrier.srcStageMask =
+                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+                barrier.dstStageMask =
+                    VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+                barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
                 barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 barrier.buffer = particleBuffer;
                 barrier.size = VK_WHOLE_SIZE;
-                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 0, nullptr,
-                    1, &barrier, 0, nullptr);
+                VkDependencyInfo dependency{
+                    VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                dependency.bufferMemoryBarrierCount = 1;
+                dependency.pBufferMemoryBarriers = &barrier;
+                vkCmdPipelineBarrier2(cmd, &dependency);
             },
             [device = _device, allocator = _vmaAllocator, pool,
              paramsBuffer, paramsAllocation] {
@@ -2534,12 +2557,19 @@ namespace visutwin::canvas
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                         pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
                     vkCmdDispatch(cmd, dispatchX, dispatchY, dispatchZ);
-                    VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-                    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-                    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-                    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier,
-                        0, nullptr, 0, nullptr);
+                    VkMemoryBarrier2 barrier{
+                        VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+                    barrier.srcStageMask =
+                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                    barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+                    barrier.dstStageMask =
+                        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                    barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+                    VkDependencyInfo dependency{
+                        VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                    dependency.memoryBarrierCount = 1;
+                    dependency.pMemoryBarriers = &barrier;
+                    vkCmdPipelineBarrier2(cmd, &dependency);
                     for (uint32_t i = 0; i < textures.size(); ++i) {
                         if (types[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
                             textures[i]->transitionLayout(cmd,
@@ -3689,12 +3719,14 @@ namespace visutwin::canvas
                 static_cast<int>(resetResult));
             return;
         }
-        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        VkSubmitInfo consumeAcquire{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        consumeAcquire.waitSemaphoreCount = 1;
-        consumeAcquire.pWaitSemaphores = &frame.imageAvailable;
-        consumeAcquire.pWaitDstStageMask = &waitStage;
-        const VkResult recoverySubmit = vkQueueSubmit(
+        VkSemaphoreSubmitInfo acquireWait{
+            VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+        acquireWait.semaphore = frame.imageAvailable;
+        acquireWait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        VkSubmitInfo2 consumeAcquire{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+        consumeAcquire.waitSemaphoreInfoCount = 1;
+        consumeAcquire.pWaitSemaphoreInfos = &acquireWait;
+        const VkResult recoverySubmit = vkQueueSubmit2(
             _graphicsQueue, 1, &consumeAcquire, frame.inFlightFence);
         if (recoverySubmit != VK_SUCCESS) {
             _renderingDisabled = true;

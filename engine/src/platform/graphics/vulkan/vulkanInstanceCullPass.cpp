@@ -177,38 +177,54 @@ namespace visutwin::canvas
         _device->enqueueUpload(
             [pipeline, layout, set, args, output, initial, params](VkCommandBuffer cmd) {
                 vkCmdUpdateBuffer(cmd, args, 0, sizeof(initial), &initial);
-                VkBufferMemoryBarrier before{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-                before.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-                before.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
-                    VK_ACCESS_SHADER_WRITE_BIT;
+                VkBufferMemoryBarrier2 before{
+                    VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+                before.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                before.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                before.dstStageMask =
+                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                before.dstAccessMask =
+                    VK_ACCESS_2_SHADER_READ_BIT |
+                    VK_ACCESS_2_SHADER_WRITE_BIT;
                 before.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 before.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 before.buffer = args;
                 before.size = VK_WHOLE_SIZE;
-                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
-                    1, &before, 0, nullptr);
+                VkDependencyInfo dependency{
+                    VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                dependency.bufferMemoryBarrierCount = 1;
+                dependency.pBufferMemoryBarriers = &before;
+                vkCmdPipelineBarrier2(cmd, &dependency);
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     layout, 0, 1, &set, 0, nullptr);
                 vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_COMPUTE_BIT,
                     0, sizeof(params), &params);
                 vkCmdDispatch(cmd, (params.instanceCount + 63) / 64, 1, 1);
-                std::array<VkBufferMemoryBarrier, 2> after{};
-                after[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-                after[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-                after[0].dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+                std::array<VkBufferMemoryBarrier2, 2> after{};
+                after[0] = {
+                    VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+                after[0].srcStageMask =
+                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                after[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+                after[0].dstStageMask =
+                    VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+                after[0].dstAccessMask =
+                    VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
                 after[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 after[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 after[0].buffer = output;
                 after[0].size = VK_WHOLE_SIZE;
                 after[1] = after[0];
-                after[1].dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+                after[1].dstStageMask =
+                    VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+                after[1].dstAccessMask =
+                    VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
                 after[1].buffer = args;
-                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
-                        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                    0, 0, nullptr, after.size(), after.data(), 0, nullptr);
+                dependency.bufferMemoryBarrierCount =
+                    static_cast<uint32_t>(after.size());
+                dependency.pBufferMemoryBarriers = after.data();
+                vkCmdPipelineBarrier2(cmd, &dependency);
             },
             [device = _device->device(), pool] {
                 vkDestroyDescriptorPool(device, pool, nullptr);

@@ -116,30 +116,43 @@ namespace visutwin::canvas
             // pre-barrier makes already-submitted frames finish reading the
             // buffer before the copy overwrites it; the post-barrier orders
             // the copy against subsequent vertex reads.
-            VkBufferMemoryBarrier pre{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-            pre.srcAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
-                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-            pre.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            VkBufferMemoryBarrier2 pre{
+                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+            pre.srcStageMask =
+                VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT |
+                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            pre.srcAccessMask =
+                VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT |
+                VK_ACCESS_2_SHADER_READ_BIT |
+                VK_ACCESS_2_SHADER_WRITE_BIT;
+            pre.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            pre.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
             pre.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             pre.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             pre.buffer = destinationBuffer;
             pre.size = VK_WHOLE_SIZE;
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &pre, 0, nullptr);
+            VkDependencyInfo dependency{
+                VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dependency.bufferMemoryBarrierCount = 1;
+            dependency.pBufferMemoryBarriers = &pre;
+            vkCmdPipelineBarrier2(cmd, &dependency);
 
             VkBufferCopy copy{};
             copy.size = dataSize;
             vkCmdCopyBuffer(cmd, stagingBuffer, destinationBuffer, 1, &copy);
 
-            VkBufferMemoryBarrier post = pre;
-            post.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            post.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
-                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                0, 0, nullptr, 1, &post, 0, nullptr);
+            VkBufferMemoryBarrier2 post = pre;
+            post.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            post.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            post.dstStageMask =
+                VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT |
+                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            post.dstAccessMask =
+                VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT |
+                VK_ACCESS_2_SHADER_READ_BIT |
+                VK_ACCESS_2_SHADER_WRITE_BIT;
+            dependency.pBufferMemoryBarriers = &post;
+            vkCmdPipelineBarrier2(cmd, &dependency);
         }, [allocator = _allocator, stagingBuffer, stagingAlloc] {
             vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
         });
