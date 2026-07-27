@@ -52,7 +52,7 @@ VisuTwin Canvas ports PlayCanvas's architecture, class hierarchy, and algorithms
 ## Supported Platforms
 
 - macOS (Apple Silicon and Intel) with Metal or Vulkan
-- Vulkan backend in development (macOS/Linux/Windows, optional build feature)
+- Vulkan 1.3 backend for macOS/Linux/Windows (optional build feature)
 
 ## Build
 
@@ -209,7 +209,7 @@ visutwin-canvas/
 │   │   ├── platform/
 │   │   │   ├── graphics/          # Graphics abstraction layer
 │   │   │   │   ├── metal/         # Metal backend (+ 11 compute/post passes)
-│   │   │   │   └── vulkan/        # Vulkan backend (WIP)
+│   │   │   │   └── vulkan/        # Vulkan 1.3 backend
 │   │   │   └── input/             # Keyboard, mouse, gamepad, touch
 │   │   ├── scene/                 # Scene graph, renderer, materials, lighting
 │   │   │   ├── composition/       # Layer composition, render actions
@@ -253,7 +253,7 @@ Sibling repositories (separate CMake projects): `visutwin-geo` (geospatial — W
 | Scene / Graphics | ~55% | Environment atlas, HDR cubemap, GPU profiler, 11 Metal compute/post passes |
 | Scene / GSplat | ~55% | Classic path + view-dependent SH (bands 1–3) + compressed PLY; SOG/unified octree deferred |
 | Graphics / Metal | ~55% | Buffers, textures, pipelines, compressed formats (ASTC/BC), compute |
-| Graphics / Vulkan | ~10% | File structure in place, minimal implementation |
+| Graphics / Vulkan | ~50% | Vulkan 1.3 dynamic rendering, buffers/textures, MRT, PBR draw binding, compute/particles/culling, post-processing, environment baking, async uploads, and validation smoke coverage |
 | Framework / ECS | ~70% | Engine, Entity, ComponentSystem, Script |
 | Framework / Components | ~45% | 13 types: Camera, Render, Light, Script, Animation, Anim (state graph), Screen, Element, Button, Collision, RigidBody, GSplat, ParticleSystem |
 | Framework / Animation | ~70% | GPU skinning, morph targets, state graph + blend trees, morph-weight animation |
@@ -263,8 +263,8 @@ Sibling repositories (separate CMake projects): `visutwin-geo` (geospatial — W
 
 ### Known Limitations
 
-- Metal is the primary graphics backend; Vulkan is in early development
-- Vulkan trails Metal on most recently added features
+- Metal remains the primary graphics backend; Vulkan is functional but does not yet have complete feature parity
+- Vulkan still trails Metal in some platform-specific tooling and recently added rendering paths
 - No audio subsystem; no Sprite / layout / scroll-view UI components
 - Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported
 - Reflection probes support runtime scene-capture baking (dynamic cubemap) as well as supplied cubemaps; per-level GGX cube prefilter is deferred (roughness uses hardware trilinear cube mips)
