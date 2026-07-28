@@ -107,7 +107,7 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 reflectionProbePosition;
     vec4 reflectionProbeParams;
     mat4 viewProjection;      // world → clip, for the SSR screen-space march
-    vec4 cameraNearFar;       // near, far, ssrGrabsBound(0/1), pad
+    vec4 cameraNearFar;       // near, far, colourGrabBound, depthGrabBound
 } lighting;
 
 struct ClusterLight {
@@ -1081,6 +1081,9 @@ void main() {
     vec3 diffuseAlbedo = albedo.rgb * (1.0 - metallic);
 
     vec3 color = vec3(0.0);
+    // Dynamic refraction replaces the surface's diffuse with the refracted scene
+    // but must keep specular, so the specular share is tracked separately.
+    vec3 directSpecular = vec3(0.0);
 
     uint count = min(lighting.lightCount.x, 8u);
     for (uint i = 0u; i < count; ++i) {
@@ -1172,6 +1175,7 @@ void main() {
                 ? ltcEvaluateDisk(N, V, fragWorldPos, ltcMInv, p0, p1, p2)
                 : ltcEvaluateRect(N, V, fragWorldPos, ltcMInv, p0, p1, p2, p3);
             color += areaRadiance * ltcSpec * specFres;
+            directSpecular += areaRadiance * ltcSpec * specFres;
 
             if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
                 // Clearcoat LTC specular with a fixed F0 of 0.04.
@@ -1252,6 +1256,7 @@ void main() {
 
         vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.w * atten;
         color += (kD * diffuseAlbedo / PI + specular) * radiance * NdotL;
+        directSpecular += specular * radiance * NdotL;
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
             float ccRough = clamp(material.clearCoatRoughness, 0.04, 1.0);
             float ccD = distributionGGX(NdotH, ccRough);
@@ -1388,7 +1393,8 @@ void main() {
     // Screen-space reflections: march the reflection ray against the scene depth
     // grab and sample the scene color grab at the hit, blending OVER the
     // probe/env-atlas specular where the ray lands on on-screen geometry.
-    if (vtFeatureEnabled(VT_FEATURE_SSR_BIT) && lighting.cameraNearFar.z > 0.5) {
+    if (vtFeatureEnabled(VT_FEATURE_SSR_BIT) &&
+        lighting.cameraNearFar.z > 0.5 && lighting.cameraNearFar.w > 0.5) {
         float ssrNear = lighting.cameraNearFar.x;
         float ssrFar = lighting.cameraNearFar.y;
         vec3 ssrR = reflect(-V, N);
@@ -1440,13 +1446,90 @@ void main() {
         }
     }
     if (vtFeatureEnabled(VT_FEATURE_TRANSMISSION_BIT)) {
-        float transmission = clamp(material.transmissionFactor, 0.0, 1.0);
-        vec3 transmitted = indirect;
-        if (material.attenuationParams.w > 0.0) {
-            transmitted *= pow(max(material.attenuationParams.rgb, vec3(1e-4)),
-                vec3(material.thickness / material.attenuationParams.w));
+        if (vtFeatureEnabled(VT_FEATURE_DYNAMIC_REFRACTION_BIT) &&
+            lighting.cameraNearFar.z > 0.5 && material.transmissionFactor > 0.0) {
+            // Dynamic grab-pass refraction (upstream refractionDynamic.js):
+            // sample the mid-frame scene colour grab at the screen position of
+            // the refracted exit point instead of the environment atlas.
+            float ior = max(material.refractionIndex, 1.001);
+            float thickness = max(material.thickness, 0.0);
+
+            // Dispersion (KHR_materials_dispersion): spread the refraction eta
+            // per channel and sample R/G/B separately.
+            float dispersion = max(material.dispersionParams.x, 0.0);
+            float eta = 1.0 / ior;
+            float halfSpread = (ior - 1.0) * 0.025 * dispersion;
+            int refrSamples = (dispersion > 0.0) ? 3 : 1;
+
+            // Mip range of the grab chain; higher IOR and rougher surfaces read
+            // blurrier scene colour (upstream iorToRoughness).
+            float grabMips =
+                log2(max(float(textureSize(ssrSceneColor, 0).x), 2.0));
+            float gloss = 1.0 - roughness;
+
+            vec3 refrColor = vec3(0.0);
+            for (int ch = 0; ch < refrSamples; ++ch) {
+                float etaCh = (refrSamples == 1)
+                    ? eta : (eta + halfSpread * float(ch - 1));
+                vec3 refrDir = refract(-V, N, etaCh);
+
+                // Refraction vector scaled by volume thickness; total internal
+                // reflection falls back to the unshifted surface point.
+                // DEVIATION: upstream scales by the model matrix' per-axis
+                // scale, unavailable here, so thickness is in world units.
+                vec3 refractionVector = (dot(refrDir, refrDir) > 0.0)
+                    ? normalize(refrDir) * thickness : vec3(0.0);
+
+                vec4 projected = lighting.viewProjection *
+                    vec4(fragWorldPos + refractionVector, 1.0);
+                float invW = 1.0 / max(projected.w, 1e-6);
+                // No Y flip: Vulkan clip space is already Y-down.
+                vec2 grabUv = clamp(projected.xy * invW * 0.5 + 0.5, 0.001, 0.999);
+
+                float iorCh = 1.0 / etaCh;
+                float iorToRoughness = clamp(1.0 - gloss, 0.0, 1.0) *
+                    clamp(iorCh * 2.0 - 2.0, 0.0, 1.0);
+                float refractionLod = grabMips * iorToRoughness;
+                // The Vulkan forward pass always tonemaps, so the grab is
+                // display-encoded unconditionally.
+                vec3 sampleColor = srgbToLinear(
+                    textureLod(ssrSceneColor, grabUv, refractionLod).rgb);
+                if (refrSamples == 1) {
+                    refrColor = sampleColor;
+                } else {
+                    refrColor[ch] = sampleColor[ch];
+                }
+            }
+
+            // Volume transmittance (KHR_materials_volume Beer's law). Distance 0
+            // keeps the legacy baseColor^thickness tint.
+            if (material.attenuationParams.w > 0.0) {
+                vec3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
+                refrColor *= exp(-(-log(attColor) / material.attenuationParams.w) *
+                    thickness);
+            } else {
+                refrColor *= pow(max(albedo.rgb, vec3(0.0)), vec3(thickness + 1.0));
+            }
+
+            // Fresnel: grazing angles reflect more, normal incidence transmits.
+            float F0ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
+            float fresnel = F0ior + (1.0 - F0ior) * pow(1.0 - NdotV, 5.0);
+            float transmission = material.transmissionFactor * (1.0 - fresnel);
+
+            // Replace surface diffuse with the refracted scene, keep specular.
+            // Emissive is added after this block, so it survives on its own.
+            vec3 specPart = directSpecular + indirectSpecular;
+            color = mix(color, refrColor + specPart, clamp(transmission, 0.0, 1.0));
+        } else {
+            float transmission = clamp(material.transmissionFactor, 0.0, 1.0);
+            vec3 transmitted = indirect;
+            if (material.attenuationParams.w > 0.0) {
+                // Same Beer's law as the dynamic path: a^(t/d) == exp(-(-ln a/d)*t).
+                transmitted *= pow(max(material.attenuationParams.rgb, vec3(1e-4)),
+                    vec3(material.thickness / material.attenuationParams.w));
+            }
+            color = mix(color, transmitted, transmission);
         }
-        color = mix(color, transmitted, transmission);
     }
 
     // Emissive.

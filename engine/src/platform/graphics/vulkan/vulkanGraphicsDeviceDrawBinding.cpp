@@ -1369,10 +1369,11 @@ namespace visutwin::canvas
             std::memset(_lightingUbo.viewProjection, 0,
                 sizeof(_lightingUbo.viewProjection));
         }
-        // The march needs both grabs; without them it must stay disabled or it
-        // would sample the 1×1 white fallbacks and reflect flat white.
-        _lightingUbo.cameraNearFar[2] =
-            (_sceneColorGrabTexture && _sceneDepthGrabTexture) ? 1.0f : 0.0f;
+        // Grab availability, tracked separately: dynamic refraction needs only
+        // the colour grab, while the SSR march needs the depth copy too. Without
+        // them the shader would sample the 1×1 white fallbacks.
+        _lightingUbo.cameraNearFar[2] = _sceneColorGrabTexture ? 1.0f : 0.0f;
+        _lightingUbo.cameraNearFar[3] = _sceneDepthGrabTexture ? 1.0f : 0.0f;
 
         // Directional cascaded shadows.  The cascade matrices, split distances,
         // and parameters all come straight from the renderer's ShadowParams;
