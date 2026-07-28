@@ -22,6 +22,26 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     // (1 - moments.z) fallback in calculateEVSM(); cleared pixels are (0,0,0,0)
     // and synthesize "fully lit" at sample time.
     const float ndcZ = rd.position.z;            // Metal: depth ∈ [0, 1]
+
+    // Rasterization of degenerate triangles, which animated (skinned/morphed) meshes can
+    // generate, can supply depth outside of the [0, 1] range or even NaN.  The exponential
+    // warp below turns those into huge values, which the VSM blur then spreads over a large
+    // area, generating visible artifacts.  The depth range is not clipped for the other
+    // shadow types, as they either store depth in the depth buffer, which clamps it, or the
+    // error stays confined to individual texels and so is not noticeable.
+    //
+    // DEVIATION: upstream writes this as `if (!(depth >= 0.0 && depth <= 1.0)) discard;`,
+    // relying on every comparison against NaN being false.  MetalShader compiles with
+    // setFastMathEnabled(true), which tags the compares `fast` (implying nnan) and so lets
+    // the compiler assume the NaN case cannot happen — the NaN half of that guard is not
+    // guaranteed to survive optimization.  The bit-pattern test below is integer-only
+    // (exponent all ones + non-zero mantissa), which fast math cannot elide.
+    const uint zBits = as_type<uint>(ndcZ);
+    const bool zIsNan = (zBits & 0x7F800000u) == 0x7F800000u && (zBits & 0x007FFFFFu) != 0u;
+    if (zIsNan || ndcZ < 0.0 || ndcZ > 1.0) {
+        discard_fragment();
+    }
+
     const float warpedZ = exp(VSM_EXPONENT * (2.0 * ndcZ - 1.0));
     return float4(warpedZ, warpedZ * warpedZ, 1.0, 1.0);
 #else
