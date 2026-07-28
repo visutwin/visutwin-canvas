@@ -891,7 +891,7 @@ namespace visutwin::canvas
             const bool hideShadowMaps =
                 _depthOnlyPass || shadowIsActiveAttachment;
 
-            std::array<VkDescriptorImageInfo, 8> sceneInfos{};
+            std::array<VkDescriptorImageInfo, 10> sceneInfos{};
             sceneInfos[0].sampler = _envSampler;
             sceneInfos[0].imageView = resolveView(_envAtlasTexture);
 
@@ -923,6 +923,11 @@ namespace visutwin::canvas
             sceneInfos[6].imageView = resolveCubeView(_skyboxCubeTexture);
             sceneInfos[7].sampler = _envSampler;
             sceneInfos[7].imageView = resolveCubeView(_reflectionProbeTexture);
+            // LTC LUTs: linear clamp-to-edge, which _envSampler already is.
+            sceneInfos[8].sampler = _envSampler;
+            sceneInfos[8].imageView = resolveView(_areaLightLut1);
+            sceneInfos[9].sampler = _envSampler;
+            sceneInfos[9].imageView = resolveView(_areaLightLut2);
             for (auto& sceneInfo : sceneInfos) {
                 sceneInfo.imageLayout =
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1490,6 +1495,12 @@ namespace visutwin::canvas
             dst.coneParams[3] = src.castShadows
                 ? static_cast<float>(src.shadowMapIndex)
                 : -1.0f;
+            // Area lights never cast shadows, so the shadow-slot component is
+            // free to carry the LTC shape (0=rect, 1=disk, 2=sphere) — the same
+            // packing the Metal path uses.
+            if (src.type == GpuLightType::AreaRect) {
+                dst.coneParams[3] = static_cast<float>(src.areaShape);
+            }
             dst.areaRightHalfWidth[0] = src.areaRight.getX();
             dst.areaRightHalfWidth[1] = src.areaRight.getY();
             dst.areaRightHalfWidth[2] = src.areaRight.getZ();

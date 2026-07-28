@@ -253,7 +253,7 @@ def validate(module: str, reflection: dict) -> None:
         (1, 4, "CombinedImageSampler"),
         (1, 5, "CombinedImageSampler"),
         (1, 19, "CombinedImageSampler"),
-        *( (3, binding, "CombinedImageSampler") for binding in range(8) ),
+        *( (3, binding, "CombinedImageSampler") for binding in range(10) ),
         (5, 0, "StorageBuffer"),
         (5, 1, "StorageBuffer"),
     }

@@ -58,7 +58,7 @@ namespace visutwin::canvas
                 const bool validMaterialTexture =
                     reflected.set == 1 && reflected.binding < 20 && sampler;
                 const bool validSceneTexture =
-                    reflected.set == 3 && reflected.binding < 8 && sampler;
+                    reflected.set == 3 && reflected.binding < 10 && sampler;
                 const bool validGeometry =
                     reflected.set == 4 &&
                     ((reflected.binding < 2 &&
@@ -344,7 +344,7 @@ namespace visutwin::canvas
         // binding 6 = high-res skybox cubemap.  All are combined image
         // samplers; the sampler-cube vs sampler-2D distinction is a
         // shader-side concern, not a layout one.
-        std::array<VkDescriptorSetLayoutBinding, 8> sceneBindings{};
+        std::array<VkDescriptorSetLayoutBinding, 10> sceneBindings{};
         for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
             sceneBindings[i].binding = i;
             sceneBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

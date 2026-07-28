@@ -55,6 +55,14 @@ namespace visutwin::canvas
             const Vector3& boxMax, bool boxProjection, float intensity,
             float maxLod) override;
 
+        // LTC lookup tables for area lights, bound at set 3 bindings 8/9.
+        // Non-owning — the renderer creates them lazily and keeps them alive.
+        void setAreaLightLuts(Texture* lut1, Texture* lut2) override
+        {
+            _areaLightLut1 = lut1;
+            _areaLightLut2 = lut2;
+        }
+
         // ── Shader creation ──────────────────────────────────────────────
         std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
             const std::string& sourceCode = "") override;
@@ -512,6 +520,11 @@ namespace visutwin::canvas
         // High-res skybox cubemap bound at set 3 binding 6 (white-cube fallback).
         Texture* _skyboxCubeTexture = nullptr;
         Texture* _reflectionProbeTexture = nullptr;
+
+        // LTC area-light LUTs (set 3 bindings 8/9). Read through _envSampler,
+        // which is the linear clamp-to-edge filtering the tables require.
+        Texture* _areaLightLut1 = nullptr;
+        Texture* _areaLightLut2 = nullptr;
 
         // ── VSM blur pass (lazy) ─────────────────────────────────────────
         void ensureVsmBlurResources();
