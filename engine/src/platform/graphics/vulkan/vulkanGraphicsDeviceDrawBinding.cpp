@@ -891,7 +891,7 @@ namespace visutwin::canvas
             const bool hideShadowMaps =
                 _depthOnlyPass || shadowIsActiveAttachment;
 
-            std::array<VkDescriptorImageInfo, 10> sceneInfos{};
+            std::array<VkDescriptorImageInfo, 14> sceneInfos{};
             sceneInfos[0].sampler = _envSampler;
             sceneInfos[0].imageView = resolveView(_envAtlasTexture);
 
@@ -919,19 +919,24 @@ namespace visutwin::canvas
             sceneInfos[5].sampler = _shadowSampler;
             sceneInfos[5].imageView = _depthOnlyPass
                 ? _whiteCubeImageView : resolveCubeView(_omniShadowCube1);
-            sceneInfos[6].sampler = _envSampler;
+            // Bindings 6-11 are separate images (no sampler in the descriptor);
+            // they read through the two shared samplers written at 12-13.
             sceneInfos[6].imageView = resolveCubeView(_skyboxCubeTexture);
-            sceneInfos[7].sampler = _envSampler;
             sceneInfos[7].imageView = resolveCubeView(_reflectionProbeTexture);
-            // LTC LUTs: linear clamp-to-edge, which _envSampler already is.
-            sceneInfos[8].sampler = _envSampler;
             sceneInfos[8].imageView = resolveView(_areaLightLut1);
-            sceneInfos[9].sampler = _envSampler;
             sceneInfos[9].imageView = resolveView(_areaLightLut2);
+            sceneInfos[10].imageView = resolveView(_sceneColorGrabTexture.get());
+            sceneInfos[11].imageView = resolveView(_sceneDepthGrabTexture.get());
             for (auto& sceneInfo : sceneInfos) {
                 sceneInfo.imageLayout =
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
+            // Sampler-only descriptors: linear clamp for the LUTs/cubes/color
+            // grab, nearest clamp for the depth copy.
+            sceneInfos[12] = {};
+            sceneInfos[12].sampler = _envSampler;
+            sceneInfos[13] = {};
+            sceneInfos[13].sampler = _shadowSampler;
 
             const VkDescriptorSet sceneSet = getOrCreateImageDescriptorSet(
                 _renderPipeline->sceneSetLayout(), sceneInfos);
@@ -1229,7 +1234,10 @@ namespace visutwin::canvas
                 VK_IMAGE_ASPECT_DEPTH_BIT);
             _depthImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
         }
-        dst->transitionLayout(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        // The copy is read as an ordinary sampled texture (its view carries the
+        // colour aspect), so it must end in the generic shader-read layout —
+        // the depth-specific one would not match the descriptor.
+        dst->transitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         setSceneDepthGrabMap(_sceneDepthGrabTexture.get());
     }
 
@@ -1348,7 +1356,23 @@ namespace visutwin::canvas
             std::memset(_lightingUbo.ambientSH, 0,
                 sizeof(_lightingUbo.ambientSH));
         }
-        (void)viewProjection;
+        // SSR projects each marched world position to screen UV with this.
+        // Packed column-major for the GLSL mat4, mirroring MetalUniformBinder.
+        if (viewProjection) {
+            for (int col = 0; col < 4; ++col) {
+                for (int row = 0; row < 4; ++row) {
+                    _lightingUbo.viewProjection[col * 4 + row] =
+                        viewProjection->getElement(row, col);
+                }
+            }
+        } else {
+            std::memset(_lightingUbo.viewProjection, 0,
+                sizeof(_lightingUbo.viewProjection));
+        }
+        // The march needs both grabs; without them it must stay disabled or it
+        // would sample the 1×1 white fallbacks and reflect flat white.
+        _lightingUbo.cameraNearFar[2] =
+            (_sceneColorGrabTexture && _sceneDepthGrabTexture) ? 1.0f : 0.0f;
 
         // Directional cascaded shadows.  The cascade matrices, split distances,
         // and parameters all come straight from the renderer's ShadowParams;

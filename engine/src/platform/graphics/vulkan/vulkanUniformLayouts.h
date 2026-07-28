@@ -91,6 +91,13 @@ namespace visutwin::canvas
         float reflectionProbeBoxMax[4] = {};
         float reflectionProbePosition[4] = {};
         float reflectionProbeParams[4] = {};
+
+        // Screen-space reflections: the camera view-projection used to project a
+        // marched world-space position to screen UV, and the clip planes needed
+        // to linearize the sampled scene depth.  z = 1 when both the scene color
+        // and depth grabs are bound (0 disables the march).
+        float viewProjection[16] = {};
+        float cameraNearFar[4]   = {0.1f, 1000.0f, 0.0f, 0.0f};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

@@ -71,6 +71,8 @@ def resources(reflection: dict) -> list[tuple[int, int, str, int]]:
         ("ssbos", "StorageBuffer"),
         ("storage_buffers", "StorageBuffer"),
         ("storage_images", "StorageImage"),
+        ("separate_images", "SampledImage"),
+        ("separate_samplers", "Sampler"),
     ):
         for item in reflection.get(kind, []):
             result.append(
@@ -253,7 +255,9 @@ def validate(module: str, reflection: dict) -> None:
         (1, 4, "CombinedImageSampler"),
         (1, 5, "CombinedImageSampler"),
         (1, 19, "CombinedImageSampler"),
-        *( (3, binding, "CombinedImageSampler") for binding in range(10) ),
+        *( (3, binding, "CombinedImageSampler") for binding in range(6) ),
+        *( (3, binding, "SampledImage") for binding in range(6, 12) ),
+        *( (3, binding, "Sampler") for binding in range(12, 14) ),
         (5, 0, "StorageBuffer"),
         (5, 1, "StorageBuffer"),
     }
@@ -268,7 +272,7 @@ def validate(module: str, reflection: dict) -> None:
         for set_index, binding, kind, size in bindings
         if kind == "UniformBuffer"
     }
-    if block_sizes != {(0, 0): 384, (2, 0): 1744}:
+    if block_sizes != {(0, 0): 384, (2, 0): 1824}:
         raise RuntimeError(
             f"{module}: uniform block reflection mismatch: {block_sizes}"
         )
@@ -383,7 +387,8 @@ def main() -> None:
         "",
         "namespace visutwin::canvas::vulkan_generated {",
         "enum class ReflectedDescriptorKind : uint8_t {",
-        "    UniformBuffer, CombinedImageSampler, StorageBuffer, StorageImage",
+        "    UniformBuffer, CombinedImageSampler, StorageBuffer, StorageImage,",
+        "    SampledImage, Sampler",
         "};",
         "struct ReflectedBinding {",
         "    uint8_t set;",

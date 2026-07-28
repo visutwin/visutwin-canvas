@@ -106,6 +106,8 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 reflectionProbeBoxMax;
     vec4 reflectionProbePosition;
     vec4 reflectionProbeParams;
+    mat4 viewProjection;      // world → clip, for the SSR screen-space march
+    vec4 cameraNearFar;       // near, far, ssrGrabsBound(0/1), pad
 } lighting;
 
 struct ClusterLight {
@@ -134,12 +136,33 @@ layout(set = 3, binding = 2) uniform sampler2D localShadowMap0;
 layout(set = 3, binding = 3) uniform sampler2D localShadowMap1;
 layout(set = 3, binding = 4) uniform samplerCube omniShadowCube0;
 layout(set = 3, binding = 5) uniform samplerCube omniShadowCube1;
-layout(set = 3, binding = 6) uniform samplerCube skyboxCube;
-layout(set = 3, binding = 7) uniform samplerCube reflectionProbeCube;
-// LTC area-light lookup tables (64×64 RGBA16F, linear clamp-to-edge).
+// Bindings 6-11 are declared as separate images sharing two sampler objects.
+// A combined image sampler costs a per-stage sampler slot, and this device caps
+// those at 16 (a hard Metal limit MoltenVK inherits) — six more combined
+// bindings would exceed it. Separate images cost none, so only the two sampler
+// descriptors below are charged. The aliases keep every call site unchanged.
+layout(set = 3, binding = 6) uniform textureCube skyboxCubeImage;
+layout(set = 3, binding = 7) uniform textureCube reflectionProbeCubeImage;
+// LTC area-light lookup tables (64×64 RGBA16F).
 // 8 = inverse LTC matrix columns, 9 = Fresnel/geometry magnitudes.
-layout(set = 3, binding = 8) uniform sampler2D areaLightLut1;
-layout(set = 3, binding = 9) uniform sampler2D areaLightLut2;
+layout(set = 3, binding = 8) uniform texture2D areaLightLut1Image;
+layout(set = 3, binding = 9) uniform texture2D areaLightLut2Image;
+// Mid-frame scene grabs for screen-space reflections. The depth grab is a copy:
+// the live depth buffer is still attached while the reflective surface draws, so
+// it cannot be sampled directly.
+layout(set = 3, binding = 10) uniform texture2D ssrSceneColorImage;
+layout(set = 3, binding = 11) uniform texture2D ssrSceneDepthImage;
+layout(set = 3, binding = 12) uniform sampler linearClampSampler;
+layout(set = 3, binding = 13) uniform sampler nearestClampSampler;
+
+#define skyboxCube        samplerCube(skyboxCubeImage, linearClampSampler)
+#define reflectionProbeCube samplerCube(reflectionProbeCubeImage, linearClampSampler)
+#define areaLightLut1     sampler2D(areaLightLut1Image, linearClampSampler)
+#define areaLightLut2     sampler2D(areaLightLut2Image, linearClampSampler)
+#define ssrSceneColor     sampler2D(ssrSceneColorImage, linearClampSampler)
+// Point-sampled: depth formats commonly lack linear filter support, and
+// interpolating depth across a silhouette invents surfaces that aren't there.
+#define ssrSceneDepth     sampler2D(ssrSceneDepthImage, nearestClampSampler)
 
 const float PI = 3.14159265359;
 
@@ -893,6 +916,17 @@ float ltcEvaluateDisk(vec3 N, vec3 V, vec3 P, mat3 mInv,
     return isnan(result) ? 0.0 : result;
 }
 
+// Gloss-aware Schlick Fresnel (parity with common-brdf.metal getFresnel). The
+// glossSq term scales F90 by roughness so rough surfaces don't show excessive
+// grazing-angle reflectance.
+vec3 ssrFresnel(float cosTheta, float gloss, vec3 specularity) {
+    float f = pow(1.0 - clamp(cosTheta, 0.0, 1.0), 5.0);
+    float glossSq = gloss * gloss;
+    float specIntensity = max(specularity.r, max(specularity.g, specularity.b));
+    return specularity +
+        (max(vec3(glossSq * specIntensity), specularity) - specularity) * f;
+}
+
 // GGX normal distribution.
 float distributionGGX(float NdotH, float roughness) {
     float a = roughness * roughness;
@@ -1279,6 +1313,11 @@ void main() {
     // a flat ambient term plus a Fresnel-weighted specular floor so metals
     // aren't pitch black.
     vec3 indirect;
+    // Mirrors the specular part of the indirect contribution exactly as it lands
+    // in `color` below, AO factor included. SSR replaces that term where the
+    // reflection ray hits on-screen geometry, so it only has to add the
+    // difference rather than restructure the accumulation.
+    vec3 indirectSpecular = vec3(0.0);
     if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
         lighting.envParams.y > 0.5) {
         float intensity = max(lighting.envParams.x, 0.0);
@@ -1303,6 +1342,7 @@ void main() {
         vec3 kD = (vec3(1.0) - Fr) * (1.0 - metallic);
 
         indirect = kD * irradiance * diffuseAlbedo + prefiltered * Fr;
+        indirectSpecular = prefiltered * Fr;
     } else if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
         vec3 shN = N;
         vec3 irradiance =
@@ -1318,11 +1358,13 @@ void main() {
         indirect = max(irradiance, vec3(0.0)) * diffuseAlbedo;
     } else {
         indirect = lighting.ambient.rgb * diffuseAlbedo + lighting.ambient.rgb * F0;
+        indirectSpecular = lighting.ambient.rgb * F0;
     }
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
         indirect += srgbToLinear(texture(lightMap, fragUV1).rgb) * diffuseAlbedo;
     }
     color += indirect * ao;
+    indirectSpecular *= ao;
     if (vtFeatureEnabled(VT_FEATURE_REFLECTION_PROBE_BIT)) {
         vec3 probeDirection = reflect(-V, N);
         if (lighting.reflectionProbeParams.x > 0.5) {
@@ -1336,9 +1378,66 @@ void main() {
             probeDirection = fragWorldPos + probeDirection * distance -
                 lighting.reflectionProbePosition.xyz;
         }
-        color += textureLod(reflectionProbeCube, probeDirection,
+        vec3 probeSpecular = textureLod(reflectionProbeCube, probeDirection,
             roughness * lighting.reflectionProbeParams.z).rgb *
             F0 * lighting.reflectionProbeParams.y;
+        color += probeSpecular;
+        // The probe replaces the environment specular rather than adding to it.
+        indirectSpecular = probeSpecular;
+    }
+    // Screen-space reflections: march the reflection ray against the scene depth
+    // grab and sample the scene color grab at the hit, blending OVER the
+    // probe/env-atlas specular where the ray lands on on-screen geometry.
+    if (vtFeatureEnabled(VT_FEATURE_SSR_BIT) && lighting.cameraNearFar.z > 0.5) {
+        float ssrNear = lighting.cameraNearFar.x;
+        float ssrFar = lighting.cameraNearFar.y;
+        vec3 ssrR = reflect(-V, N);
+
+        const int SSR_STEPS = 48;
+        const float SSR_MAX_DIST = 60.0;
+        float ssrStep = SSR_MAX_DIST / float(SSR_STEPS);
+        const float ssrThickness = 1.5;   // view-space hit tolerance (world units)
+
+        vec2 ssrHitUv = vec2(0.0);
+        float ssrHit = 0.0;
+        for (int i = 1; i <= SSR_STEPS; ++i) {
+            vec3 samplePos = fragWorldPos + ssrR * (ssrStep * float(i));
+            vec4 clip = lighting.viewProjection * vec4(samplePos, 1.0);
+            if (clip.w <= 0.0) break;                     // behind the camera
+            // Vulkan clip space is already Y-down, so NDC maps straight to UV
+            // (the Metal path flips Y here).
+            vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+            float marchedZ = clip.w;                      // view-space distance
+            float rawDepth = texture(ssrSceneDepth, uv).r;
+            float sceneZ = (ssrNear * ssrFar) /
+                max(ssrFar - rawDepth * (ssrFar - ssrNear), 1e-6);
+            float diff = marchedZ - sceneZ;               // >0 = behind the surface
+            if (diff > 0.0 && diff < ssrThickness) {
+                ssrHitUv = uv;
+                ssrHit = 1.0;
+                break;
+            }
+        }
+
+        if (ssrHit > 0.0) {
+            // The Vulkan forward pass always tonemaps and gamma-encodes, so the
+            // grab is display-encoded unconditionally (the Metal path has to
+            // check its HDR camera-frame flag before decoding).
+            vec3 ssrColor = srgbToLinear(texture(ssrSceneColor, ssrHitUv).rgb);
+            // Fade at screen edges (reflections pop as rays exit the frame) and
+            // on rough surfaces (this port marches sharp — no roughness cone).
+            vec2 eLo = smoothstep(vec2(0.0), vec2(0.12), ssrHitUv);
+            vec2 eHi = 1.0 - smoothstep(vec2(0.88), vec2(1.0), ssrHitUv);
+            float edgeFade = eLo.x * eLo.y * eHi.x * eHi.y;
+            float gloss = 1.0 - roughness;
+            float roughFade = clamp(gloss * 1.2 - 0.2, 0.0, 1.0);
+            vec3 ssrFres = ssrFresnel(NdotV, gloss, F0);
+            vec3 replaced = mix(indirectSpecular, ssrColor * ssrFres,
+                edgeFade * roughFade);
+            color += replaced - indirectSpecular;
+            indirectSpecular = replaced;
+        }
     }
     if (vtFeatureEnabled(VT_FEATURE_TRANSMISSION_BIT)) {
         float transmission = clamp(material.transmissionFactor, 0.0, 1.0);

@@ -37,7 +37,7 @@ namespace visutwin::canvas
             static_assert(kForwardSkyVertPushConstantSize == 128);
             static_assert(kForwardColorVertPushConstantSize == 128);
             static_assert(kForwardPointVertPushConstantSize == 128);
-            static_assert(sizeof(VulkanLightingUBO) == 1744);
+            static_assert(sizeof(VulkanLightingUBO) == 1824);
             static_assert(
                 offsetof(MaterialUniforms, emissiveTransform1) +
                     sizeof(float) * 4 ==
@@ -49,6 +49,10 @@ namespace visutwin::canvas
                     reflected.kind == ReflectedDescriptorKind::UniformBuffer;
                 const bool sampler = reflected.kind ==
                     ReflectedDescriptorKind::CombinedImageSampler;
+                const bool separateImage = reflected.kind ==
+                    ReflectedDescriptorKind::SampledImage;
+                const bool separateSampler = reflected.kind ==
+                    ReflectedDescriptorKind::Sampler;
                 const bool validMaterial =
                     reflected.set == 0 && reflected.binding == 0 && uniform &&
                     reflected.blockSize == sizeof(MaterialUniforms);
@@ -58,7 +62,8 @@ namespace visutwin::canvas
                 const bool validMaterialTexture =
                     reflected.set == 1 && reflected.binding < 20 && sampler;
                 const bool validSceneTexture =
-                    reflected.set == 3 && reflected.binding < 10 && sampler;
+                    reflected.set == 3 && reflected.binding < 14 &&
+                    (sampler || separateImage || separateSampler);
                 const bool validGeometry =
                     reflected.set == 4 &&
                     ((reflected.binding < 2 &&
@@ -344,10 +349,16 @@ namespace visutwin::canvas
         // binding 6 = high-res skybox cubemap.  All are combined image
         // samplers; the sampler-cube vs sampler-2D distinction is a
         // shader-side concern, not a layout one.
-        std::array<VkDescriptorSetLayoutBinding, 10> sceneBindings{};
+        // Bindings 0-5 stay combined image samplers; 6-11 are separate images that
+        // share the two sampler descriptors at 12-13. Combined bindings each cost
+        // a per-stage sampler slot, and this device allows only 16 across all sets.
+        std::array<VkDescriptorSetLayoutBinding, 14> sceneBindings{};
         for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
             sceneBindings[i].binding = i;
-            sceneBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            sceneBindings[i].descriptorType = i < 6
+                ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                : (i < 12 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                          : VK_DESCRIPTOR_TYPE_SAMPLER);
             sceneBindings[i].descriptorCount = 1;
             sceneBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         }

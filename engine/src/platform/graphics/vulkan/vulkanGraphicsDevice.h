@@ -55,6 +55,14 @@ namespace visutwin::canvas
             const Vector3& boxMax, bool boxProjection, float intensity,
             float maxLod) override;
 
+        // SSR linearizes the sampled scene depth from the camera clip planes.
+        void setCameraClipPlanes(float nearClip, float farClip) override
+        {
+            _lightingUbo.cameraNearFar[0] = nearClip;
+            _lightingUbo.cameraNearFar[1] = farClip;
+            _lightingNeedsUpload = true;
+        }
+
         // LTC lookup tables for area lights, bound at set 3 bindings 8/9.
         // Non-owning — the renderer creates them lazily and keeps them alive.
         void setAreaLightLuts(Texture* lut1, Texture* lut2) override
@@ -311,7 +319,10 @@ namespace visutwin::canvas
         static constexpr uint32_t kMaxFramesInFlight = 2;
 
         static constexpr uint32_t kInitialDescriptorSets = 256;
-        static constexpr uint32_t kMaxCachedImageBindings = 8;
+        // Set 3 is the widest image set (12 images + 2 samplers). Must not be less
+        // than any set's binding count: getOrCreateImageDescriptorSet returns NULL
+        // past this, which silently skips the draw.
+        static constexpr uint32_t kMaxCachedImageBindings = 16;
 
         struct ImageDescriptorKey {
             VkDescriptorSetLayout layout = VK_NULL_HANDLE;

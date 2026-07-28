@@ -55,13 +55,20 @@ namespace visutwin::canvas
     {
         // Every cached image set has at most seven combined samplers. Post
         // passes additionally consume one ordinary UBO descriptor per set.
-        std::array<VkDescriptorPoolSize, 3> poolSizes{};
+        std::array<VkDescriptorPoolSize, 5> poolSizes{};
         poolSizes[0] = {
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             maxSets * kMaxCachedImageBindings
         };
         poolSizes[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxSets};
         poolSizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxSets * 2};
+        // Set 3 splits its later bindings into separate images plus shared
+        // samplers to stay under the per-stage sampler limit.
+        poolSizes[3] = {
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            maxSets * kMaxCachedImageBindings
+        };
+        poolSizes[4] = {VK_DESCRIPTOR_TYPE_SAMPLER, maxSets * 4};
 
         VkDescriptorPoolCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         info.maxSets = maxSets;
@@ -163,12 +170,19 @@ namespace visutwin::canvas
         const bool materialSet =
             layout == _renderPipeline->textureSetLayout() &&
             key.count == materialBindings.size();
+        // Set 3's layout is mixed: 0-5 combined, 6-11 separate images, 12-13
+        // samplers. Writing the wrong type there is undefined behaviour, so the
+        // mapping has to mirror VulkanRenderPipeline's scene layout exactly.
+        const bool sceneSet = layout == _renderPipeline->sceneSetLayout();
         for (uint32_t i = 0; i < key.count; ++i) {
             writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[i].dstSet = set;
             writes[i].dstBinding = materialSet ? materialBindings[i] : i;
-            writes[i].descriptorType =
-                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[i].descriptorType = sceneSet
+                ? (i < 6 ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                         : (i < 12 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                                   : VK_DESCRIPTOR_TYPE_SAMPLER))
+                : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[i].descriptorCount = 1;
             writes[i].pImageInfo = &imageInfos[i];
         }
