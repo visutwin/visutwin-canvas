@@ -480,8 +480,12 @@ namespace visutwin::canvas
             const auto& offset = haltonSequence[static_cast<size_t>(_device->renderVersion() % haltonSequence.size())];
             jitterX = jitter * (offset[0] * 2.0f - 1.0f) / static_cast<float>(viewportW);
             jitterY = jitter * (offset[1] * 2.0f - 1.0f) / static_cast<float>(viewportH);
-            projMatrix.setElement(2, 0, jitterX);
-            projMatrix.setElement(2, 1, jitterY);
+
+            // Accumulate, do not assign: these are the same two elements that carry an
+            // off-center projection offset (Camera::setProjectionOffset), so overwriting them
+            // here would silently cancel the shift lens whenever TAA is enabled.
+            projMatrix.setElement(2, 0, projMatrix.getElement(2, 0) + jitterX);
+            projMatrix.setElement(2, 1, projMatrix.getElement(2, 1) + jitterY);
         }
         const auto viewProjection = projMatrix * viewMatrix;
         camera->storeShaderMatrices(viewProjection, jitterX, jitterY, _device->renderVersion());

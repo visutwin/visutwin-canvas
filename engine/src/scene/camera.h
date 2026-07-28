@@ -11,6 +11,7 @@
 
 #include "constants.h"
 #include "core/math/matrix4.h"
+#include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "core/math/vector4.h"
 #include "graphics/renderPassColorGrab.h"
@@ -42,7 +43,15 @@ namespace visutwin::canvas
         ~Camera();
 
         float fov() const { return _fov; }
-        void setFov(float value) { _fov = value; }
+        // Guarded like setAspectRatio(): the outline renderer and the planar-reflection cameras
+        // mirror the scene camera by re-assigning an unchanged fov every frame.
+        void setFov(const float value)
+        {
+            if (_fov != value) {
+                _fov = value;
+                _projMatDirty = true;
+            }
+        }
 
         ProjectionType projection() const { return _projection; }
         void setProjection(ProjectionType value);
@@ -61,6 +70,22 @@ namespace visutwin::canvas
 
         float orthoHeight() const { return _orthoHeight; }
         void setOrthoHeight(const float value) { _orthoHeight = value; _projMatDirty = true; }
+
+        /**
+         * The offset of the projection window from the view direction, creating an off-center
+         * (asymmetric) projection — a "shift lens". Expressed in half-frustum units: an offset of
+         * (0, 1) moves the projection window up by half the frustum height. Applies to both
+         * perspective and orthographic projections. Defaults to (0, 0).
+         *
+         * A typical use is perspective correction in architectural views — keep the camera level
+         * so vertical lines stay parallel, and shift the window up to frame a tall subject:
+         *
+         *     const float fovY = camera->fov() * DEG_TO_RAD;
+         *     const float shift = std::tan(pitch * DEG_TO_RAD) / std::tan(fovY * 0.5f);
+         *     camera->setProjectionOffset(Vector2(0.0f, shift));
+         */
+        const Vector2& projectionOffset() const { return _projectionOffset; }
+        void setProjectionOffset(const Vector2& value) { _projectionOffset = value; _projMatDirty = true; }
 
         bool horizontalFov() const { return _horizontalFov; }
 
@@ -151,15 +176,22 @@ namespace visutwin::canvas
                 xNear = xFar = _orthoHeight * _aspectRatio;
             }
 
+            // Centre of the projection window, displaced for off-center projections. The offset is
+            // in half-frustum units, so it scales with the half-extent at each depth slice.
+            const float cxNear = _projectionOffset.x * xNear;
+            const float cyNear = _projectionOffset.y * yNear;
+            const float cxFar = _projectionOffset.x * xFar;
+            const float cyFar = _projectionOffset.y * yFar;
+
             return {{
-                Vector3( xNear, -yNear, -nearDist),  // 0: near bottom-right
-                Vector3( xNear,  yNear, -nearDist),  // 1: near top-right
-                Vector3(-xNear,  yNear, -nearDist),  // 2: near top-left
-                Vector3(-xNear, -yNear, -nearDist),  // 3: near bottom-left
-                Vector3( xFar,  -yFar,  -farDist),   // 4: far bottom-right
-                Vector3( xFar,   yFar,  -farDist),   // 5: far top-right
-                Vector3(-xFar,   yFar,  -farDist),   // 6: far top-left
-                Vector3(-xFar,  -yFar,  -farDist),   // 7: far bottom-left
+                Vector3(cxNear + xNear, cyNear - yNear, -nearDist),  // 0: near bottom-right
+                Vector3(cxNear + xNear, cyNear + yNear, -nearDist),  // 1: near top-right
+                Vector3(cxNear - xNear, cyNear + yNear, -nearDist),  // 2: near top-left
+                Vector3(cxNear - xNear, cyNear - yNear, -nearDist),  // 3: near bottom-left
+                Vector3(cxFar  + xFar,  cyFar  - yFar,  -farDist),   // 4: far bottom-right
+                Vector3(cxFar  + xFar,  cyFar  + yFar,  -farDist),   // 5: far top-right
+                Vector3(cxFar  - xFar,  cyFar  + yFar,  -farDist),   // 6: far top-left
+                Vector3(cxFar  - xFar,  cyFar  - yFar,  -farDist),   // 7: far bottom-left
             }};
         }
     private:
@@ -177,6 +209,9 @@ namespace visutwin::canvas
         float _orthoHeight = 10.0f;
 
         ProjectionType _projection = ProjectionType::Perspective;
+
+        // Off-center projection offset, in half-frustum units. See setProjectionOffset().
+        Vector2 _projectionOffset;
 
         bool _horizontalFov = false;
 

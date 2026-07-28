@@ -50,14 +50,32 @@ namespace visutwin::canvas
     void Camera::evaluateProjectionMatrix()
     {
         if (_projMatDirty) {
+            const float offsetX = _projectionOffset.x;
+            const float offsetY = _projectionOffset.y;
+
             if (_projection == ProjectionType::Perspective) {
                 _projMat = Matrix4::perspective(fov(), aspectRatio(), nearClip(), farClip(), horizontalFov());
+
+                // Off-center projection: the offset IS the frustum off-center term, i.e.
+                // (right + left) / (right - left) and (top + bottom) / (top - bottom), which
+                // Matrix4::frustum writes to these same two elements.
+                _projMat.setElement(2, 0, offsetX);
+                _projMat.setElement(2, 1, offsetY);
                 _projMatSkybox = _projMat;
             } else {
                 const auto y = _orthoHeight;
                 const auto x = y * aspectRatio();
                 _projMat = Matrix4::ortho(-x, x, -y, y, nearClip(), farClip());
+
+                // Off-center projection: translate the ortho window by the offset in half-window
+                // units. Negated so the window shifts the same visual direction as the
+                // perspective case above (Matrix4::ortho stores -(r+l)/(r-l) here).
+                _projMat.setElement(3, 0, -offsetX);
+                _projMat.setElement(3, 1, -offsetY);
+
                 _projMatSkybox = Matrix4::perspective(fov(), aspectRatio(), nearClip(), farClip());
+                _projMatSkybox.setElement(2, 0, offsetX);
+                _projMatSkybox.setElement(2, 1, offsetY);
             }
 
             _projMatDirty = false;
