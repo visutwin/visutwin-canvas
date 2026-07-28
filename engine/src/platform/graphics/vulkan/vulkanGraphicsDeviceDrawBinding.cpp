@@ -1367,6 +1367,18 @@ namespace visutwin::canvas
         _lightingUbo.shadowParams2[2] = static_cast<float>(toneMapping);
         _lightingUbo.shadowParams2[3] = enableNormalMaps ? 1.0f : 0.0f;
 
+        // Directional PCSS.  The shader reads these only when specialized with
+        // VT_FEATURE_PCSS_SHADOWS, which the renderer enables from the same
+        // shadow type — mirrors MetalUniformBinder.
+        _lightingUbo.pcssParams[0] = static_cast<float>(shadowParams.pcssSamples);
+        _lightingUbo.pcssParams[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
+        _lightingUbo.pcssParams[2] = shadowParams.penumbraSize;
+        _lightingUbo.pcssParams[3] = shadowParams.penumbraFalloff;
+        std::memcpy(_lightingUbo.pcssCascadeRadii, shadowParams.pcssCascadeRadii,
+            sizeof(_lightingUbo.pcssCascadeRadii));
+        std::memcpy(_lightingUbo.pcssCascadeDepthRanges, shadowParams.pcssCascadeDepthRanges,
+            sizeof(_lightingUbo.pcssCascadeDepthRanges));
+
         // Local light shadows (spot 2D + omni cubemap), up to 2 casters.  Each
         // light's coneParams[3] carries its slot index (set in the light loop
         // below).  Reset the texture pointers every frame; only active slots
@@ -1379,10 +1391,14 @@ namespace visutwin::canvas
             float* matDst    = (i == 0) ? _lightingUbo.localShadowMatrix0 : _lightingUbo.localShadowMatrix1;
             float* paramsDst = (i == 0) ? _lightingUbo.localShadowParams0 : _lightingUbo.localShadowParams1;
             float* omniDst   = (i == 0) ? _lightingUbo.omniShadowParams0  : _lightingUbo.omniShadowParams1;
+            float* pcssDst   = (i == 0) ? _lightingUbo.localShadowPcss0   : _lightingUbo.localShadowPcss1;
 
             if (i >= shadowParams.localShadowCount) {
                 std::memset(matDst, 0, 16 * sizeof(float));
                 paramsDst[0] = 0.0001f; paramsDst[1] = 0.0f; paramsDst[2] = 1.0f; paramsDst[3] = 0.0f;
+                // Clear the search area so a slot freed this frame cannot leave
+                // the shader running PCSS against a stale radius.
+                pcssDst[0] = 0.0f;
                 continue;
             }
 
@@ -1413,6 +1429,13 @@ namespace visutwin::canvas
             paramsDst[1] = ls.normalBias;
             paramsDst[2] = ls.intensity;
             paramsDst[3] = ls.isOmni ? 1.0f : 0.0f;
+
+            // Local PCSS: a non-zero search area switches this slot to the
+            // contact-hardening path at runtime (no extra shader variant).
+            pcssDst[0] = ls.pcssSearchArea;
+            pcssDst[1] = ls.nearClip;
+            pcssDst[2] = ls.farClip;
+            pcssDst[3] = 0.0f;
         }
 
         // Ambient is authored in sRGB; shade in linear space like the Metal path.

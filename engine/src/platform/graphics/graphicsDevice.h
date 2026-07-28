@@ -845,7 +845,10 @@ namespace visutwin::canvas
 
         int _samples = 0;
 
-        float _maxPixelRatio;
+        // Never assigned elsewhere; resizeCanvas clamps it with min(_, 1.0f), so
+        // an uninitialized read could scale the backbuffer to 0×0 and (on Vulkan)
+        // wedge swapchain recreation permanently.
+        float _maxPixelRatio = 1.0f;
 
         int _shaderSwitchesPerFrame = 0;
         int _drawCallsPerFrame = 0;

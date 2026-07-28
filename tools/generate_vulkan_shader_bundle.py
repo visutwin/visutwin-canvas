@@ -268,7 +268,7 @@ def validate(module: str, reflection: dict) -> None:
         for set_index, binding, kind, size in bindings
         if kind == "UniformBuffer"
     }
-    if block_sizes != {(0, 0): 384, (2, 0): 1664}:
+    if block_sizes != {(0, 0): 384, (2, 0): 1744}:
         raise RuntimeError(
             f"{module}: uniform block reflection mismatch: {block_sizes}"
         )

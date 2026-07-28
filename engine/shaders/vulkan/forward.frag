@@ -84,12 +84,17 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 shadowCascadeDistances; // per-cascade far split (view-space depth)
     vec4 shadowParams;        // enabled, numCascades, depthBias, strength
     vec4 shadowParams2;       // normalBias, cascadeBlend, toneMapping, enableNormalMaps
+    vec4 pcssParams;          // filterSamples, blockerSamples, penumbraSize, penumbraFalloff
+    vec4 pcssCascadeRadii;       // per-cascade shadow-camera ortho half-extent
+    vec4 pcssCascadeDepthRanges; // per-cascade caster depth span (far - near)
     mat4 localShadowMatrix0;  // spot slot 0: world → shadow UV + depth
     mat4 localShadowMatrix1;  // spot slot 1
     vec4 localShadowParams0;  // depthBias, normalBias, intensity, isOmni
     vec4 localShadowParams1;
     vec4 omniShadowParams0;   // near, far, depthBias, intensity
     vec4 omniShadowParams1;
+    vec4 localShadowPcss0;    // searchArea UV (0 = off), near, far, pad
+    vec4 localShadowPcss1;
     vec4 skyParams2;          // xyz sky dome center, w flags: bit0 cubemap, bit1 dome
     vec4 ambientSH[9];
     vec4 clusterBoundsMin;
@@ -132,6 +137,8 @@ layout(set = 3, binding = 5) uniform samplerCube omniShadowCube1;
 layout(set = 3, binding = 6) uniform samplerCube skyboxCube;
 layout(set = 3, binding = 7) uniform samplerCube reflectionProbeCube;
 
+const float PI = 3.14159265359;
+
 // 3×3 percentage-closer filter: average binary depth comparisons over the
 // texel neighbourhood.  `receiver` is the (biased) light-space depth of the
 // shaded point; a texel is lit when its stored occluder depth is no nearer.
@@ -145,6 +152,190 @@ float pcf3x3(sampler2D tex, vec2 uv, float receiver) {
         }
     }
     return sum / 9.0;
+}
+
+// ── PCSS: contact-hardening soft shadows (parity with common-shadow-pcss.metal) ──
+// Vogel-disk blocker search sizes a per-fragment penumbra, then a second disk
+// pass filters at that radius.  Every shadow map here is already bound through
+// a NEAREST clamp-to-edge non-comparison sampler, which is exactly the raw
+// sampler the Metal chunk uses.  The directional path is selected by the
+// VT_FEATURE_PCSS_SHADOWS specialization constant (mirroring Metal's variant);
+// the spot/omni paths branch at runtime on a non-zero search area, mirroring
+// Metal's uniform branch.
+
+// Metal uses fmod here; for the non-negative gl_FragCoord.xy inputs GLSL's
+// floor-based mod is identical.
+float pcssFractSinRand(vec2 uv) {
+    const float a = 12.9898, b = 78.233, c = 43758.5453;
+    float dt = dot(uv, vec2(a, b));
+    return fract(sin(mod(dt, PI)) * c);
+}
+
+// Vogel disk: point `id` of `invCount` = 1/count, rotated by `initialAngle`.
+vec2 pcssDiskSample(float id, float invCount, float initialAngle) {
+    const float GOLDEN_ANGLE = 2.399963;
+    float r = sqrt((id + 0.5) * invCount);
+    float theta = id * GOLDEN_ANGLE + initialAngle;
+    return vec2(r * cos(theta), r * sin(theta));
+}
+
+// Directional PCSS.  `orthoRadius` / `depthRange` are the cascade's shadow-camera
+// world half-extent and caster depth span; `receiverDepth` arrives biased.
+float getShadowPCSSDirectional(vec2 uv, float receiverDepth,
+                               float orthoRadius, float depthRange) {
+    // Clamp so cleared texels (depth 1) are not treated as blockers when the
+    // receiver sits outside the tightened cascade depth range.
+    float receiverDepthClamped = min(receiverDepth, 0.9999);
+    float initialAngle = pcssFractSinRand(gl_FragCoord.xy) * 2.0 * PI;
+
+    // A zero filter count would divide the accumulated visibility by zero and
+    // poison the frame with NaN; the renderer always sends 16.
+    int shadowSamples = max(int(lighting.pcssParams.x), 1);
+    int blockerSamples = int(lighting.pcssParams.y);
+    float penumbraSize = lighting.pcssParams.z;
+    float penumbraFalloff = lighting.pcssParams.w;
+
+    float worldPerUv = 2.0 * orthoRadius;
+
+    float filterRadius;
+    if (blockerSamples > 0) {
+        // The blocker search radius bounds the largest possible penumbra.
+        float searchWidthUv = (penumbraSize * depthRange) / worldPerUv;
+        float invBlockers = 1.0 / float(blockerSamples);
+        float blockerSum = 0.0;
+        int numBlockers = 0;
+        for (int i = 0; i < blockerSamples; ++i) {
+            vec2 sampleUv = uv +
+                pcssDiskSample(float(i), invBlockers, initialAngle) * searchWidthUv;
+            float occluder = texture(shadowMap, sampleUv).r;
+            if (occluder < receiverDepthClamped) {
+                blockerSum += occluder;
+                numBlockers++;
+            }
+        }
+        if (numBlockers < 1) {
+            return 1.0;
+        }
+        float avgBlockerDepth = blockerSum / float(numBlockers);
+
+        // World-space penumbra with shape control: reaches penumbraSize *
+        // depthRange when the blocker sits at the far end of the caster range.
+        float worldDist = max((receiverDepth - avgBlockerDepth) * depthRange, 0.0);
+        float t = clamp(worldDist / depthRange, 0.0, 1.0);
+        float shape = 1.0 - pow(1.0 - t, penumbraFalloff);
+        filterRadius = (shape * penumbraSize * depthRange) / worldPerUv;
+    } else {
+        // Constant filter size — no contact hardening.
+        filterRadius = penumbraSize / worldPerUv;
+    }
+
+    float invSamples = 1.0 / float(shadowSamples);
+    float sum = 0.0;
+    for (int i = 0; i < shadowSamples; ++i) {
+        vec2 sampleUv = uv +
+            pcssDiskSample(float(i), invSamples, initialAngle) * filterRadius;
+        sum += step(receiverDepthClamped, texture(shadowMap, sampleUv).r);
+    }
+    return sum * invSamples;
+}
+
+// Local-light PCSS works in linear view distance, so every tap is linearized.
+const int PCSS_LOCAL_SAMPLE_COUNT = 16;
+
+float pcssLinearizeDepth(float z, float nearClip, float farClip) {
+    return (nearClip * farClip) / max(farClip - z * (farClip - nearClip), 1e-6);
+}
+
+// Stored omni depth (far*(d-near)/((far-near)*d)) → normalized distance d/far.
+float pcssCubeStoredToLinear(float stored, float nearClip, float farClip) {
+    float d = (farClip * nearClip) / max(farClip - stored * (farClip - nearClip), 1e-6);
+    return d / farClip;
+}
+
+// Vogel sphere (upstream vogelSphere: radius = weight = i/count).
+vec3 pcssVogelSphere(int sampleIndex, int count, float phi) {
+    const float GOLDEN_ANGLE = 2.4;
+    float theta = float(sampleIndex) * GOLDEN_ANGLE + phi;
+    float weight = float(sampleIndex) / float(count);
+    return vec3(cos(theta) * weight, weight, sin(theta) * weight);
+}
+
+// Spot PCSS.  `searchArea` is the blocker-search radius in shadow-map UV
+// (penumbraSize / resolution * fovRatio, packed CPU-side); `receiverZ` arrives
+// with the depth bias already applied.
+float getShadowPCSSSpot(sampler2D tex, vec2 uv, float receiverZ,
+                        float searchArea, float nearClip, float farClip) {
+    float receiverDepth = pcssLinearizeDepth(receiverZ, nearClip, farClip);
+    float initialAngle = pcssFractSinRand(gl_FragCoord.xy) * 2.0 * PI;
+    const float invCount = 1.0 / float(PCSS_LOCAL_SAMPLE_COUNT);
+
+    float blockerSum = 0.0;
+    int numBlockers = 0;
+    for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
+        vec2 sampleUv = uv +
+            pcssDiskSample(float(i), invCount, initialAngle) * searchArea;
+        float depthLin = pcssLinearizeDepth(texture(tex, sampleUv).r, nearClip, farClip);
+        if (depthLin < receiverDepth) {
+            blockerSum += depthLin;
+            numBlockers++;
+        }
+    }
+    if (numBlockers < 1) {
+        return 1.0;
+    }
+    float avgBlockerDepth = blockerSum / float(numBlockers);
+
+    // upstream: filterRadius = (receiver - avgBlocker) / 3 * searchArea
+    float filterRadius = ((receiverDepth - avgBlockerDepth) / 3.0) * searchArea;
+
+    float sum = 0.0;
+    for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
+        vec2 sampleUv = uv +
+            pcssDiskSample(float(i), invCount, initialAngle) * filterRadius;
+        float depthLin = pcssLinearizeDepth(texture(tex, sampleUv).r, nearClip, farClip);
+        sum += step(receiverDepth, depthLin);
+    }
+    return sum * invCount;
+}
+
+// Omni PCSS: Vogel-sphere direction perturbation on the depth cube, blocker
+// search and filter in normalized linear distance.  `lightDir` is the
+// unnormalized light → fragment vector.
+float getShadowPCSSOmni(samplerCube tex, vec3 lightDir, float searchArea,
+                        float nearClip, float farClip, float bias) {
+    float receiverDepth = length(lightDir) / farClip - bias;
+    vec3 lightDirNorm = normalize(lightDir);
+    float phi = pcssFractSinRand(gl_FragCoord.xy) * 2.0 * PI;
+    const float invCount = 1.0 / float(PCSS_LOCAL_SAMPLE_COUNT);
+
+    float blockerSum = 0.0;
+    int numBlockers = 0;
+    for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
+        vec3 sampleDir = normalize(lightDirNorm +
+            pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * searchArea);
+        float depthLin = pcssCubeStoredToLinear(texture(tex, sampleDir).r, nearClip, farClip);
+        if (depthLin < receiverDepth) {
+            blockerSum += depthLin;
+            numBlockers++;
+        }
+    }
+    if (numBlockers < 1) {
+        return 1.0;
+    }
+    float avgBlockerDepth = blockerSum / float(numBlockers);
+
+    // upstream: filterRadius = (receiver - blocker) / blocker * searchArea
+    float filterRadius =
+        ((receiverDepth - avgBlockerDepth) / max(avgBlockerDepth, 1e-4)) * searchArea;
+
+    float sum = 0.0;
+    for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
+        vec3 sampleDir = normalize(lightDirNorm +
+            pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * filterRadius);
+        float depthLin = pcssCubeStoredToLinear(texture(tex, sampleDir).r, nearClip, farClip);
+        sum += step(receiverDepth, depthLin);
+    }
+    return sum * invCount;
 }
 
 // ── EVSM_16F sampling (parity with common.metal getShadowVSM16) ──
@@ -211,9 +402,17 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
     }
 
     // PCF (mode 1) or EVSM Chebyshev (mode 2), scaled by shadow strength.
+    // PCSS replaces the PCF tap when the shader is specialized for it — a light
+    // has exactly one shadow type, so VSM and PCSS are mutually exclusive and
+    // the ordering here matches the Metal chunk's #if/#elif chain.
     float visible;
     if (lighting.shadowParams.x > 1.5) {
         visible = sampleShadowVSM16(coord.xy, coord.z, max(lighting.shadowParams.z, 1e-4));
+    } else if (vtFeatureEnabled(VT_FEATURE_PCSS_SHADOWS_BIT)) {
+        visible = getShadowPCSSDirectional(coord.xy,
+            coord.z - lighting.shadowParams.z,
+            lighting.pcssCascadeRadii[cascade],
+            lighting.pcssCascadeDepthRanges[cascade]);
     } else {
         float receiver = coord.z - lighting.shadowParams.z;
         visible = pcf3x3(shadowMap, coord.xy, receiver);
@@ -245,9 +444,19 @@ float sampleSpotShadow(int slot, vec3 worldPos, vec3 N, vec3 L) {
     }
 
     float receiver = coord.z - sp.x;
-    float visible = (slot == 0)
-        ? pcf3x3(localShadowMap0, coord.xy, receiver)
-        : pcf3x3(localShadowMap1, coord.xy, receiver);
+    // PCSS is a runtime branch here (no extra specialization): a non-zero
+    // search area means this slot's light uses SHADOW_PCSS_32F.
+    vec4 pc = (slot == 0) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
+    float visible;
+    if (pc.x > 0.0) {
+        visible = (slot == 0)
+            ? getShadowPCSSSpot(localShadowMap0, coord.xy, receiver, pc.x, pc.y, pc.z)
+            : getShadowPCSSSpot(localShadowMap1, coord.xy, receiver, pc.x, pc.y, pc.z);
+    } else {
+        visible = (slot == 0)
+            ? pcf3x3(localShadowMap0, coord.xy, receiver)
+            : pcf3x3(localShadowMap1, coord.xy, receiver);
+    }
     // Local shadows blend toward (1 - intensity) when occluded.
     return mix(1.0 - clamp(sp.z, 0.0, 1.0), 1.0, visible);
 }
@@ -261,13 +470,24 @@ float sampleOmniShadow(int slot, vec3 worldPos, vec3 lightPos) {
     float nearV = op.x, farV = op.y, bias = op.z, intensity = op.w;
 
     vec3 dir = worldPos - lightPos;
-    float d = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
-    float denom = (farV - nearV) * d;
-    float compareValue = farV * (d - nearV) / max(denom, 1e-6) - bias;
 
-    float occluder = (slot == 0) ? texture(omniShadowCube0, dir).r
-                                 : texture(omniShadowCube1, dir).r;
-    float visible = (compareValue <= occluder) ? 1.0 : 0.0;
+    // PCSS is a runtime branch here (no extra specialization): a non-zero
+    // search area means this slot's light uses SHADOW_PCSS_32F.
+    vec4 pc = (slot == 0) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
+    float visible;
+    if (pc.x > 0.0) {
+        visible = (slot == 0)
+            ? getShadowPCSSOmni(omniShadowCube0, dir, pc.x, pc.y, pc.z, bias)
+            : getShadowPCSSOmni(omniShadowCube1, dir, pc.x, pc.y, pc.z, bias);
+    } else {
+        float d = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
+        float denom = (farV - nearV) * d;
+        float compareValue = farV * (d - nearV) / max(denom, 1e-6) - bias;
+
+        float occluder = (slot == 0) ? texture(omniShadowCube0, dir).r
+                                     : texture(omniShadowCube1, dir).r;
+        visible = (compareValue <= occluder) ? 1.0 : 0.0;
+    }
     return mix(1.0 - clamp(intensity, 0.0, 1.0), 1.0, visible);
 }
 
@@ -403,8 +623,6 @@ const uint FLAG_HAS_OCCLUSION  = 1u << 9;
 const uint FLAG_OCCLUSION_UV1  = 1u << 10;
 const uint FLAG_HAS_EMISSIVE   = 1u << 11;
 const uint FLAG_EMISSIVE_UV1   = 1u << 12;
-
-const float PI = 3.14159265359;
 
 vec2 applyUvTransform(vec2 uv, vec4 row0, vec4 row1) {
     vec3 h = vec3(uv, 1.0);

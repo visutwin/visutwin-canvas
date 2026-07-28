@@ -52,6 +52,14 @@ namespace visutwin::canvas
         // x=normalBias, y=cascadeBlend, z=toneMapping mode, w=enableNormalMaps
         float shadowParams2[4]         = {0.0f, 0.0f, 0.0f, 0.0f};
 
+        // Directional PCSS (SHADOW_PCSS_32F), read only when the shader is
+        // specialized with VT_FEATURE_PCSS_SHADOWS.  The world-space penumbra
+        // math needs each cascade's ortho half-extent and caster depth span.
+        // x=filterSamples, y=blockerSamples, z=penumbraSize, w=penumbraFalloff
+        float pcssParams[4]            = {16.0f, 16.0f, 1.0f, 1.0f};
+        float pcssCascadeRadii[4]       = {1.0f, 1.0f, 1.0f, 1.0f};
+        float pcssCascadeDepthRanges[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+
         // Local light shadows (spot 2D + omni cubemap), up to 2 casters.
         // Spot slots use a per-light VP matrix (world → shadow UV + depth);
         // omni slots use a distance compare against the cubemap (no matrix).
@@ -63,6 +71,11 @@ namespace visutwin::canvas
         // Omni cubemap params.  x=near, y=far, z=depthBias, w=intensity
         float omniShadowParams0[4]     = {0.01f, 100.0f, 0.0001f, 1.0f};
         float omniShadowParams1[4]     = {0.01f, 100.0f, 0.0001f, 1.0f};
+        // Local-light PCSS, per slot.  Unlike the directional path this is a
+        // runtime branch (no shader variant): x = blocker-search radius in
+        // shadow-map UV, 0 = PCSS off for that slot.  y=near, z=far, w=pad.
+        float localShadowPcss0[4]      = {0.0f, 0.01f, 100.0f, 0.0f};
+        float localShadowPcss1[4]      = {0.0f, 0.01f, 100.0f, 0.0f};
 
         // xyz = sky dome center (world), w = flags: bit0 = has skybox cubemap,
         // bit1 = dome projection (view dir from dome center, not camera).
