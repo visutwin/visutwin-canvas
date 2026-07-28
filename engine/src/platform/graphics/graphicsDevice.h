@@ -674,6 +674,15 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> renderTarget() const { return _renderTarget; }
         void setRenderTarget(const std::shared_ptr<RenderTarget>& target) { _renderTarget = target; }
         bool insideRenderPass() const { return _insideRenderPass; }
+
+        /**
+         * False when the device cannot record any work for the current frame,
+         * so no render pass can accomplish anything — a Vulkan frame skipped at
+         * swapchain acquire, for instance. Known from frameStart onwards, which
+         * lets RenderPass::render() skip a doomed pass whole rather than run
+         * before()/after() around an execute() that cannot happen.
+         */
+        virtual bool frameRenderable() const { return true; }
         Texture* sceneDepthMap() const { return _sceneDepthMap; }
         void setSceneDepthMap(Texture* depthMap) { _sceneDepthMap = depthMap; }
 

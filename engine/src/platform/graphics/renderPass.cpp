@@ -27,7 +27,20 @@ namespace visutwin::canvas
             // null means backbuffer (real pass), "uninitialized" means no pass.
             const bool realPass = _renderTargetInitialized;
 
+            // Nothing this frame can be recorded, so the pass cannot achieve
+            // anything. Skip it whole rather than running before()/after()
+            // around an execute() that cannot happen: that keeps paired
+            // notifications (a subclass firing "prerender" from before() and
+            // "postrender" from after()) balanced — both are simply absent for
+            // a frame that draws nothing — instead of emitting a prerender
+            // whose postrender reports on rendering that never occurred.
+            if (realPass && !_device->frameRenderable()) {
+                return;
+            }
+
             log(_device, _device->_renderPassIndex);
+
+            _executeSkipped = !_executeEnabled;
 
             before();
 
@@ -41,6 +54,11 @@ namespace visutwin::canvas
 
                 if (passReady) {
                     execute();
+                } else {
+                    // The device declined to begin the pass — e.g. a Vulkan
+                    // frame skipped at swapchain acquire. after() still runs,
+                    // so record that execute() was skipped on purpose.
+                    _executeSkipped = true;
                 }
 
                 if (realPass && !_skipEnd && passReady) {

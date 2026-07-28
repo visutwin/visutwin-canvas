@@ -272,7 +272,11 @@ namespace visutwin::canvas
             return;
         }
         if (_swapchainRecreationPending) {
-            if (!recreateSwapchain() || _swapchainRecreationPending) {
+            const SwapchainRecreation outcome = recreateSwapchain();
+            if (outcome != SwapchainRecreation::Recreated) {
+                if (outcome == SwapchainRecreation::Deferred) {
+                    reportSwapchainDeferred();
+                }
                 return;
             }
         }
@@ -306,10 +310,7 @@ namespace visutwin::canvas
             // Recreate directly — setResolution(_width, _height) would
             // early-return on the unchanged size and never rebuild the
             // swapchain, wedging every subsequent frame.
-            if (!recreateSwapchain()) {
-                return;
-            }
-            if (_swapchainRecreationPending) {
+            if (recreateSwapchain() != SwapchainRecreation::Recreated) {
                 return;
             }
             result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
@@ -618,16 +619,44 @@ namespace visutwin::canvas
         }
 
         // The failed frame acquired an image but never presented it. Rebuilding
-        // releases that image and gives the next frame a clean WSI state.
-        if (!recreateSwapchain()) {
+        // releases that image and gives the next frame a clean WSI state. A
+        // deferred rebuild is fine here — the pending flag makes a later frame
+        // retry — so only a hard failure disables rendering.
+        if (recreateSwapchain() == SwapchainRecreation::Failed) {
             _renderingDisabled = true;
         }
     }
 
-    bool VulkanGraphicsDevice::recreateSwapchain()
+    void VulkanGraphicsDevice::reportSwapchainDeferred()
+    {
+        // Runs once per skipped frame, so log the first occurrence and then
+        // only occasionally — a wedged device would otherwise emit thousands of
+        // lines per second, which is how this failure mode used to hide.
+        constexpr uint64_t kRepeatInterval = 600;
+        ++_swapchainDeferredFrames;
+        if (_swapchainDeferredFrames != 1 &&
+            _swapchainDeferredFrames % kRepeatInterval != 0) {
+            return;
+        }
+
+        int pixelWidth = 0;
+        int pixelHeight = 0;
+        const bool havePixels = _window != nullptr &&
+            SDL_GetWindowSizeInPixels(_window, &pixelWidth, &pixelHeight);
+        spdlog::warn(
+            "VulkanGraphicsDevice: swapchain rebuild deferred — no frame has "
+            "rendered for {} frame(s). Device size {}x{}, window pixels {}x{} "
+            "({}). A zero device size never recovers on its own.",
+            _swapchainDeferredFrames, _width, _height,
+            pixelWidth, pixelHeight,
+            havePixels ? "queried" : "query failed");
+    }
+
+    VulkanGraphicsDevice::SwapchainRecreation
+    VulkanGraphicsDevice::recreateSwapchain()
     {
         if (_device == VK_NULL_HANDLE) {
-            return false;
+            return SwapchainRecreation::Failed;
         }
 
         int drawableWidth = 0;
@@ -639,8 +668,10 @@ namespace visutwin::canvas
         if (_width <= 0 || _height <= 0 ||
             (drawableSizeAvailable &&
              (drawableWidth <= 0 || drawableHeight <= 0))) {
+            // Nothing to build against yet (minimized, or a resize not yet
+            // applied). Stay pending so a later frame retries.
             _swapchainRecreationPending = true;
-            return true;
+            return SwapchainRecreation::Deferred;
         }
 
         RetiredSwapchain retired{};
@@ -681,7 +712,7 @@ namespace visutwin::canvas
             spdlog::error(
                 "VulkanGraphicsDevice: swapchain recreation failed; "
                 "rendering disabled");
-            return false;
+            return SwapchainRecreation::Failed;
         }
 
         _retiredSwapchains.push_back(std::move(retired));
@@ -694,7 +725,7 @@ namespace visutwin::canvas
                 "VulkanGraphicsDevice: swapchain depth recreation failed: {}; "
                 "rendering disabled",
                 error.what());
-            return false;
+            return SwapchainRecreation::Failed;
         }
         // Image count may differ in the new swapchain — per-image
         // semaphores must match it.
@@ -703,10 +734,11 @@ namespace visutwin::canvas
             spdlog::error(
                 "VulkanGraphicsDevice: presentation semaphore recreation "
                 "failed; rendering disabled");
-            return false;
+            return SwapchainRecreation::Failed;
         }
         _swapchainRecreationPending = false;
-        return true;
+        _swapchainDeferredFrames = 0;
+        return SwapchainRecreation::Recreated;
     }
 
     std::pair<int, int> VulkanGraphicsDevice::size() const

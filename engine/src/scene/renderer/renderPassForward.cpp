@@ -152,7 +152,10 @@ namespace visutwin::canvas
             spdlog::error("RenderPassForward parity violation: after() called before before()");
             assert(_beforeCalled && "RenderPassForward::after requires before()");
         }
-        if (!_executeCalled) {
+        // A skipped execute is legitimate (the device could not begin the pass,
+        // or execution is disabled), and render() still calls after() — only a
+        // genuinely missed execute() is a parity violation.
+        if (!_executeCalled && !executeSkipped()) {
             spdlog::error("RenderPassForward parity violation: after() called before execute()");
             assert(_executeCalled && "RenderPassForward::after requires execute()");
         }

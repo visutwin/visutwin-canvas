@@ -130,8 +130,20 @@ namespace visutwin::canvas
 
         std::string _name;
 
+        /**
+         * True when render() deliberately skipped execute() for the current
+         * pass — either because execution is disabled, or because the device
+         * could not begin the pass (a Vulkan frame skipped at swapchain
+         * acquire, for instance). after() still runs in that case, so
+         * subclasses doing lifecycle parity checks must treat a skipped
+         * execute as legitimate rather than as a missed call.
+         */
+        bool executeSkipped() const { return _executeSkipped; }
+
     private:
         std::shared_ptr<GraphicsDevice> _device;
+
+        bool _executeSkipped = false;
 
         std::shared_ptr<RenderPassOptions> _options;
 

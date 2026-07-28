@@ -109,6 +109,10 @@ namespace visutwin::canvas
         void setResolution(int width, int height) override;
         std::pair<int, int> size() const override;
 
+        // False for a frame skipped at acquire: the command buffer is not
+        // recording, so every pass this frame is a no-op.
+        bool frameRenderable() const override { return _frameActive; }
+
         // ── Vulkan accessors (for internal use by Vulkan subsystems) ─────
         [[nodiscard]] VkDevice device() const { return _device; }
         [[nodiscard]] VkPhysicalDevice physicalDevice() const { return _physicalDevice; }
@@ -202,10 +206,19 @@ namespace visutwin::canvas
         [[nodiscard]] bool createSwapchainSemaphores();
         void destroySwapchainSemaphores();
 
+        // Outcome of a swapchain rebuild attempt.  Deferred is NOT a success:
+        // the window has no usable size yet, _swapchainRecreationPending stays
+        // set, and no frame can render until a later attempt succeeds.
+        enum class SwapchainRecreation { Recreated, Deferred, Failed };
+
         // Rebuilds the swapchain against oldSwapchain without idling the
         // device. Old resources are retired after the frame fences that can
         // reference them have completed.
-        [[nodiscard]] bool recreateSwapchain();
+        [[nodiscard]] SwapchainRecreation recreateSwapchain();
+
+        // Throttled warning naming the sizes involved, so a device stuck in the
+        // Deferred state reports itself instead of silently dropping frames.
+        void reportSwapchainDeferred();
         void collectRetiredSwapchains(bool force);
 
         // A failed queue submission leaves its reset fence unsignaled and its
@@ -261,6 +274,9 @@ namespace visutwin::canvas
         std::vector<VkImage> _swapchainImages;
         std::vector<VkImageView> _swapchainImageViews;
         bool _swapchainRecreationPending = false;
+        // Consecutive frames lost to a deferred rebuild; drives the throttle in
+        // reportSwapchainDeferred and resets on a successful recreate.
+        uint64_t _swapchainDeferredFrames = 0;
 
         struct RetiredSwapchain
         {
