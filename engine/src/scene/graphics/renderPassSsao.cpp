@@ -116,12 +116,20 @@ namespace visutwin::canvas
         const float aspect = width / height;
         const float spiralTurns = 10.0f;
         const float step = (1.0f / (static_cast<float>(_sampleCount) - 0.5f)) * spiralTurns * 2.0f * PI;
-        const float effectiveRadius = _radius / scale();
+
+        // The radius is in world space and so is independent of the render target scale, which
+        // keeps the AO look consistent when rendering at a lower resolution.
+        const float worldRadius = _radius;
 
         const float bias = 0.001f;
-        const float peak = 0.1f * effectiveRadius;
+        const float peak = 0.1f * worldRadius;
         const float computedIntensity = 2.0f * (peak * 2.0f * PI) * _intensity / static_cast<float>(_sampleCount);
-        const float projectionScale = 0.5f * (_sourceTexture ? static_cast<float>(_sourceTexture->height()) : height);
+
+        // Scale the projection by the actual (possibly scaled) render target height, so the
+        // sampling disk covers the same screen area regardless of the scale.  The shader divides
+        // projectionScaleRadius by view-space Z to get a disk radius in target pixels, which it
+        // then converts to UV via invResolution — both must refer to the same render target.
+        const float projectionScale = 0.5f * height;
 
         const float minAngleSin = std::sin(_minAngle * DEG_TO_RAD);
 
@@ -141,13 +149,13 @@ namespace visutwin::canvas
         params.spiralTurns = spiralTurns;
         params.angleIncCos = std::cos(step);
         params.angleIncSin = std::sin(step);
-        params.invRadiusSquared = 1.0f / (effectiveRadius * effectiveRadius);
+        params.invRadiusSquared = 1.0f / (worldRadius * worldRadius);
         params.minHorizonAngleSineSquared = minAngleSin * minAngleSin;
         params.bias = bias;
         params.peak2 = peak * peak;
         params.intensity = computedIntensity;
         params.power = _power;
-        params.projectionScaleRadius = projectionScale * effectiveRadius;
+        params.projectionScaleRadius = projectionScale * worldRadius;
         params.randomize = _blueNoiseValue;
         params.cameraNear = camera->nearClip();
         params.cameraFar = camera->farClip();
