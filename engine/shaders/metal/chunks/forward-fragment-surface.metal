@@ -66,6 +66,16 @@
     alpha *= saturate(rd.vertexColor.a);
 #endif
 
+#if VT_FEATURE_DEBUG_PASS
+    // DEBUGPASS_LIGHTING (upstream debug-process-frontend.js): neutralize albedo before it feeds
+    // diffuseColor/F0, so the lit output below shows the lighting alone rather than the texture.
+    // Unlike the other debug modes this one does not replace the output — it falls through to the
+    // regular lit path in the tail chunk.
+    if (lighting.flagsAndPad.y == VT_DEBUGPASS_LIGHTING) {
+        baseLinear = float3(0.5);
+    }
+#endif
+
 #if VT_FEATURE_ALPHA_TEST
     if (alpha < material.alphaCutoff) {
         discard_fragment();

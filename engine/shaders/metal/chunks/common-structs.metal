@@ -182,6 +182,21 @@ struct ClusteredLight {
     float4 shadowData;        // x=castShadows, y=bias, z=intensity, w=atlasSlice
 };
 
+// Debug shader passes. Must match scene/constants.h :: DebugShaderPass. The active mode arrives
+// in LightingData::flagsAndPad.y, so all modes share one compiled variant (VT_FEATURE_DEBUG_PASS)
+// and switching between them needs no recompile.
+constant uint VT_DEBUGPASS_NONE        = 0u;
+constant uint VT_DEBUGPASS_ALBEDO      = 1u;
+constant uint VT_DEBUGPASS_WORLDNORMAL = 2u;
+constant uint VT_DEBUGPASS_OPACITY     = 3u;
+constant uint VT_DEBUGPASS_SPECULARITY = 4u;
+constant uint VT_DEBUGPASS_GLOSS       = 5u;
+constant uint VT_DEBUGPASS_METALNESS   = 6u;
+constant uint VT_DEBUGPASS_AO          = 7u;
+constant uint VT_DEBUGPASS_EMISSION    = 8u;
+constant uint VT_DEBUGPASS_LIGHTING    = 9u;
+constant uint VT_DEBUGPASS_UV0         = 10u;
+
 struct LightingData {
     float4 ambientColor;
     uint4 lightCountAndFlags;

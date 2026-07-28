@@ -97,6 +97,28 @@ namespace visutwin::canvas
         TONEMAP_NONE = 6,
     };
 
+    // Debug shader passes (upstream SHADERPASS_ALBEDO and friends). Replaces the forward pass
+    // output with a single surface quantity, to inspect what the material frontend produced.
+    //
+    // DEVIATION: upstream allocates a distinct named shader pass — and so a distinct compiled
+    // shader — per debug mode. Here a single VT_FEATURE_DEBUG_PASS variant carries all of them
+    // and the mode is a runtime uniform, so switching modes needs no shader recompile, and a
+    // build that never enables a debug pass pays nothing (the block compiles out entirely).
+    enum class DebugShaderPass
+    {
+        DEBUGPASS_NONE = 0,          // normal forward rendering
+        DEBUGPASS_ALBEDO = 1,        // base color, gamma encoded
+        DEBUGPASS_WORLDNORMAL = 2,   // world-space normal, remapped to [0, 1]
+        DEBUGPASS_OPACITY = 3,
+        DEBUGPASS_SPECULARITY = 4,   // F0
+        DEBUGPASS_GLOSS = 5,
+        DEBUGPASS_METALNESS = 6,
+        DEBUGPASS_AO = 7,            // occlusion map only, not SSAO
+        DEBUGPASS_EMISSION = 8,      // gamma encoded
+        DEBUGPASS_LIGHTING = 9,      // full lighting over a neutral 0.5 albedo
+        DEBUGPASS_UV0 = 10,          // uv0 in the red/green channels
+    };
+
     enum class AspectRatioMode
     {
         ASPECT_AUTO,    // Automatically set an aspect ratio to current render target's width divided by height

@@ -394,6 +394,9 @@ namespace visutwin::canvas
         // When active, fragment shader outputs distance-from-plane instead of PBR.
         options.planarReflectionDepthPass = _planarReflectionDepthPass;
 
+        // Debug surface-quantity output, set by the renderer from the camera's debugShaderPass.
+        options.debugPass = _debugPassEnabled;
+
         // Local light shadows: enabled when any local light has castShadows.
         // Set by the renderer before the draw loop.
         options.localShadows = _localShadowsEnabled && !options.skybox;
@@ -465,6 +468,7 @@ namespace visutwin::canvas
         set(ShaderFeature::PlanarReflection, options.planarReflection);
         set(ShaderFeature::PlanarReflectionDepthPass,
             options.planarReflectionDepthPass);
+        set(ShaderFeature::DebugPass, options.debugPass);
         set(ShaderFeature::LocalShadows, options.localShadows);
         set(ShaderFeature::OmniShadows, options.omniShadows);
         set(ShaderFeature::DynamicBatch, options.dynamicBatch);

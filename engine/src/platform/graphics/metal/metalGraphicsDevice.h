@@ -80,6 +80,7 @@ namespace visutwin::canvas
         void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod) override;
         void setCameraClipPlanes(float nearClip, float farClip) override;
+        void setDebugShaderPass(uint32_t mode) override;
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) override;

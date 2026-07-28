@@ -362,6 +362,12 @@ namespace visutwin::canvas
         _lightingUniforms.cameraNearFar[1] = farClip;
     }
 
+    void MetalUniformBinder::setDebugShaderPass(const uint32_t mode)
+    {
+        // flagsAndPad[0] is the bitfield; [1] carries the debug pass mode as a plain value.
+        _lightingUniforms.flagsAndPad[1] = mode;
+    }
+
     void MetalUniformBinder::setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
         const Vector3& boxMax, const bool boxProjection, const float intensity, const float maxLod)
     {

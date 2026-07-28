@@ -453,6 +453,13 @@ namespace visutwin::canvas
             (void)nearClip; (void)farClip;
         }
 
+        /// Which debug surface quantity the forward shader should output, as a DebugShaderPass
+        /// value. Only read by shaders compiled with VT_FEATURE_DEBUG_PASS.
+        virtual void setDebugShaderPass(uint32_t mode)
+        {
+            (void)mode;
+        }
+
         /// Set the LTC lookup textures for area lights (bound at fragment slots 20/21
         /// when VT_FEATURE_AREA_LIGHTS is active). Pass nullptrs to unbind.
         virtual void setAreaLightLuts(Texture* lut1, Texture* lut2) { (void)lut1; (void)lut2; }

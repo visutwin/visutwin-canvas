@@ -62,6 +62,7 @@ namespace visutwin::canvas
         void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod);
         void setCameraClipPlanes(float nearClip, float farClip);
+        void setDebugShaderPass(uint32_t mode);
 
         /// Pack atmosphere uniforms (Nishita scattering) into AtmosphereUniforms.
         void setAtmosphereUniforms(const void* data, size_t size);

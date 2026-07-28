@@ -1292,6 +1292,11 @@ namespace visutwin::canvas
         _uniformBinder.setCameraClipPlanes(nearClip, farClip);
     }
 
+    void MetalGraphicsDevice::setDebugShaderPass(const uint32_t mode)
+    {
+        _uniformBinder.setDebugShaderPass(mode);
+    }
+
     void MetalGraphicsDevice::setEnvironmentUniforms(Texture* envAtlas, const float skyboxIntensity,
         const float skyboxMip, const Vector3& skyDomeCenter, const bool isDome,
         Texture* skyboxCubeMap)

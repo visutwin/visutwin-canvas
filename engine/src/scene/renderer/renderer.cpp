@@ -311,6 +311,11 @@ namespace visutwin::canvas
         // with distance-from-reflection-plane (setShaderPass).
         programLibrary->setPlanarReflectionDepthPass(camera && camera->planarReflectionDepthPass());
 
+        // Debug surface-quantity output (setDebugShaderPass). One variant covers every mode;
+        // the mode itself rides in a uniform, uploaded below.
+        programLibrary->setDebugPassEnabled(
+            camera && camera->debugShaderPass() != DebugShaderPass::DEBUGPASS_NONE);
+
         // Tell ProgramLibrary whether any local light casts shadows AND has
         // an allocated shadow map. Only enable VT_FEATURE_LOCAL_SHADOWS / VT_FEATURE_OMNI_SHADOWS
         // when actual shadow textures exist, so the shader doesn't compile with
@@ -870,6 +875,7 @@ namespace visutwin::canvas
             // Camera clip planes for SSR depth-grab linearization.
             if (camera) {
                 _device->setCameraClipPlanes(camera->nearClip(), camera->farClip());
+                _device->setDebugShaderPass(static_cast<uint32_t>(camera->debugShaderPass()));
             }
         }
 

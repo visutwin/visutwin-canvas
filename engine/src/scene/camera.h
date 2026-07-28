@@ -257,8 +257,23 @@ namespace visutwin::canvas
         // instead of PBR lighting. Used by the depth camera in blurred planar reflections.
         // camera.setShaderPass('planar_reflection_depth').
         bool _planarReflectionDepthPass = false;
+
+        // Debug shader pass selection. See setDebugShaderPass().
+        DebugShaderPass _debugShaderPass = DebugShaderPass::DEBUGPASS_NONE;
     public:
         void setPlanarReflectionDepthPass(bool v) { _planarReflectionDepthPass = v; }
         [[nodiscard]] bool planarReflectionDepthPass() const { return _planarReflectionDepthPass; }
+
+        /**
+         * Replaces this camera's forward output with a single surface quantity, for inspecting
+         * what the material frontend produced. DEBUGPASS_NONE (the default) renders normally.
+         *
+         * Only affects lit materials: unlit ones return their base color before any of these
+         * quantities exist. Values are written directly, so they read exactly when the camera has
+         * no postprocessing — with a CameraFrame pass active the compose stage still applies
+         * tonemapping and gamma on top.
+         */
+        void setDebugShaderPass(const DebugShaderPass value) { _debugShaderPass = value; }
+        [[nodiscard]] DebugShaderPass debugShaderPass() const { return _debugShaderPass; }
     };
 }

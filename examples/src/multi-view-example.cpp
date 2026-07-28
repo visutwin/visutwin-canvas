@@ -391,6 +391,40 @@ int main()
     uint64_t prevCounter = SDL_GetPerformanceCounter();
     float time = 0.0f;
 
+    // Debug shader passes on the top viewport, matching where upstream demonstrates them.
+    // Switching costs no shader recompile — the mode is a runtime uniform.
+    struct DebugPassEntry
+    {
+        DebugShaderPass pass;
+        const char* name;
+    };
+    constexpr DebugPassEntry debugPasses[] = {
+        {DebugShaderPass::DEBUGPASS_NONE, "none (forward)"},
+        {DebugShaderPass::DEBUGPASS_ALBEDO, "albedo"},
+        {DebugShaderPass::DEBUGPASS_WORLDNORMAL, "world normal"},
+        {DebugShaderPass::DEBUGPASS_OPACITY, "opacity"},
+        {DebugShaderPass::DEBUGPASS_SPECULARITY, "specularity"},
+        {DebugShaderPass::DEBUGPASS_GLOSS, "gloss"},
+        {DebugShaderPass::DEBUGPASS_METALNESS, "metalness"},
+        {DebugShaderPass::DEBUGPASS_AO, "ao"},
+        {DebugShaderPass::DEBUGPASS_EMISSION, "emission"},
+        {DebugShaderPass::DEBUGPASS_LIGHTING, "lighting"},
+        {DebugShaderPass::DEBUGPASS_UV0, "uv0"},
+    };
+    size_t debugPassIndex = 0;
+    bool debugPassAutoCycle = true;
+    float debugPassTimer = 0.0f;
+    constexpr float debugPassInterval = 2.5f;
+
+    const auto applyDebugPass = [&]() {
+        if (topCam && topCam->camera()) {
+            topCam->camera()->setDebugShaderPass(debugPasses[debugPassIndex].pass);
+        }
+        spdlog::info("Top viewport debug pass: {}", debugPasses[debugPassIndex].name);
+    };
+    applyDebugPass();
+    spdlog::info("Press D to step the top viewport's debug shader pass (stops auto-cycling)");
+
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -398,6 +432,10 @@ int main()
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
                 running = false;
+            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_D) {
+                debugPassAutoCycle = false;
+                debugPassIndex = (debugPassIndex + 1) % std::size(debugPasses);
+                applyDebugPass();
             }
         }
 
@@ -405,6 +443,15 @@ int main()
         const float dt = static_cast<float>(static_cast<double>(nowCounter - prevCounter) / static_cast<double>(perfFreq));
         prevCounter = nowCounter;
         time += dt;
+
+        if (debugPassAutoCycle) {
+            debugPassTimer += dt;
+            if (debugPassTimer >= debugPassInterval) {
+                debugPassTimer = 0.0f;
+                debugPassIndex = (debugPassIndex + 1) % std::size(debugPasses);
+                applyDebugPass();
+            }
+        }
 
         // upstream-style animated control-room cameras/lights.
         leftCamEntity->setLocalPosition(100.0f * std::sin(time * 0.2f), 35.0f, 100.0f * std::cos(time * 0.2f));

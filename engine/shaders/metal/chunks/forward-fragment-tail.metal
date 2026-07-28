@@ -294,6 +294,45 @@
     }
 #endif
 
+#if VT_FEATURE_DEBUG_PASS
+    // Debug surface-quantity output (upstream debug-output.js). Replaces the shaded result with
+    // one input to the lighting equation. DEBUGPASS_LIGHTING is deliberately absent here: it is
+    // handled in the surface chunk by neutralizing albedo, then falls through to the normal path
+    // below so it still receives fog and tonemapping.
+    //
+    // Colour quantities (albedo, emission) are gamma encoded to match how they would be displayed;
+    // the rest are written raw, as they are already display values. NOTE: when the camera runs a
+    // CameraFrame pass, compose still applies tonemapping and gamma on top of whatever is returned
+    // here, so debug values only read exactly with postprocessing off.
+    {
+        const uint debugPass = lighting.flagsAndPad.y;
+        if (debugPass != VT_DEBUGPASS_NONE && debugPass != VT_DEBUGPASS_LIGHTING) {
+            switch (debugPass) {
+                case VT_DEBUGPASS_ALBEDO:
+                    return float4(linearToSrgb(max(baseLinear, float3(0.0))), 1.0);
+                case VT_DEBUGPASS_WORLDNORMAL:
+                    return float4(N * 0.5 + 0.5, 1.0);
+                case VT_DEBUGPASS_OPACITY:
+                    return float4(float3(alpha), 1.0);
+                case VT_DEBUGPASS_SPECULARITY:
+                    return float4(F0, 1.0);
+                case VT_DEBUGPASS_GLOSS:
+                    return float4(float3(gloss), 1.0);
+                case VT_DEBUGPASS_METALNESS:
+                    return float4(float3(metallic), 1.0);
+                case VT_DEBUGPASS_AO:
+                    return float4(float3(ao), 1.0);
+                case VT_DEBUGPASS_EMISSION:
+                    return float4(linearToSrgb(max(emissiveLinear, float3(0.0))), 1.0);
+                case VT_DEBUGPASS_UV0:
+                    return float4(rd.uv0, 0.0, 1.0);
+                default:
+                    break;
+            }
+        }
+    }
+#endif
+
 #if VT_FEATURE_FOG
     if (lighting.fogStartEndType.z > 0.5) {
         const float viewDistance = distance(rd.worldPos, cameraPosition);

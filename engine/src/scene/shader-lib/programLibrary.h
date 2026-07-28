@@ -55,6 +55,11 @@ namespace visutwin::canvas
         // to emit distance-from-reflection-plane. Set per-camera by the renderer.
         void setPlanarReflectionDepthPass(bool value) { _planarReflectionDepthPass = value; }
 
+        // when true, forward shaders compile with VT_FEATURE_DEBUG_PASS, which adds the debug
+        // surface-quantity output. Which quantity is a runtime uniform, so this is a single
+        // variant for all debug modes. Set per-camera by the renderer.
+        void setDebugPassEnabled(bool value) { _debugPassEnabled = value; }
+
         // Set when any local light (spot/point) has castShadows enabled.
         // When true, forward shaders compile with VT_FEATURE_LOCAL_SHADOWS.
         void setLocalShadowsEnabled(bool value) { _localShadowsEnabled = value; }
@@ -156,6 +161,7 @@ namespace visutwin::canvas
             bool instancing = false;    // Hardware instancing — per-instance transform + color via [[instance_id]]
             bool planarReflection = false;  // Planar reflection — screen-space UV sampling + Fresnel blend
             bool planarReflectionDepthPass = false;  // Depth pass: output distance-from-plane instead of PBR
+            bool debugPass = false;         // Debug surface-quantity output (mode chosen at runtime)
             bool localShadows = false;      // Local light (spot/point) shadow mapping — 2D depth textures
             bool omniShadows = false;       // Omni light cubemap shadow mapping — depthcube textures
             bool vsmShadows = false;        // Directional EVSM_16F: moments texture sampled via Chebyshev.
@@ -184,6 +190,7 @@ namespace visutwin::canvas
         std::unordered_map<std::string, std::vector<std::string>> _registeredPrograms;
         bool _skyCubemapAvailable = false;
         bool _planarReflectionDepthPass = false;
+        bool _debugPassEnabled = false;
         bool _localShadowsEnabled = false;
         bool _omniShadowsEnabled = false;
         bool _vsmShadowsEnabled = false;
