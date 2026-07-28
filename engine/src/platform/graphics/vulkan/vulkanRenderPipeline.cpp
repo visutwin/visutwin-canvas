@@ -60,7 +60,8 @@ namespace visutwin::canvas
                     reflected.set == 2 && reflected.binding == 0 && uniform &&
                     reflected.blockSize == sizeof(VulkanLightingUBO);
                 const bool validMaterialTexture =
-                    reflected.set == 1 && reflected.binding < 20 && sampler;
+                    reflected.set == 1 && reflected.binding < 26 &&
+                    (sampler || separateImage || separateSampler);
                 const bool validSceneTexture =
                     reflected.set == 3 && reflected.binding < 14 &&
                     (sampler || separateImage || separateSampler);
@@ -303,7 +304,9 @@ namespace visutwin::canvas
         materialBinding.binding = 0;
         materialBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         materialBinding.descriptorCount = 1;
-        materialBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        // Vertex too: displacement reads its scale/bias from this block.
+        materialBinding.stageFlags =
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo materialLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         materialLayoutInfo.bindingCount = 1;
@@ -314,13 +317,26 @@ namespace visutwin::canvas
         // Set 1: only statically-used material slots. Binding numbers remain
         // the engine texture-slot numbers, but unused gaps consume no sampler
         // descriptors (important on MoltenVK's 16-sampler stage limit).
-        constexpr std::array<uint32_t, 6> textureSlots = {0, 1, 3, 4, 5, 19};
+        // 17 (height/parallax), 23 (detail normal) and 25 (displacement) are
+        // separate images sharing the sampler at 24, so they cost no additional
+        // per-stage sampler slots. 25 is sampled in the vertex stage.
+        constexpr std::array<uint32_t, 10> textureSlots =
+            {0, 1, 3, 4, 5, 17, 19, 23, 24, 25};
         std::array<VkDescriptorSetLayoutBinding, textureSlots.size()> texBindings{};
         for (uint32_t i = 0; i < texBindings.size(); i++) {
-            texBindings[i].binding = textureSlots[i];
-            texBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            const uint32_t binding = textureSlots[i];
+            texBindings[i].binding = binding;
+            texBindings[i].descriptorType =
+                binding == 24 ? VK_DESCRIPTOR_TYPE_SAMPLER
+                              : (binding == 17 || binding == 23 || binding == 25
+                                     ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                                     : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
             texBindings[i].descriptorCount = 1;
-            texBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            texBindings[i].stageFlags = binding == 25
+                ? VK_SHADER_STAGE_VERTEX_BIT
+                : (binding == 24
+                       ? (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+                       : VK_SHADER_STAGE_FRAGMENT_BIT);
         }
 
         VkDescriptorSetLayoutCreateInfo textureLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};

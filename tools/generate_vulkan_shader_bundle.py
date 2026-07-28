@@ -221,6 +221,12 @@ def validate(module: str, reflection: dict) -> None:
                 f"{module}: reflected push constants are not 128 bytes"
             )
         geometry_expected = {
+            # Displacement is wired into the standard vertex path only.
+            "ForwardVert": [
+                (0, 0, "UniformBuffer", 384),
+                (1, 24, "Sampler", 0),
+                (1, 25, "SampledImage", 0),
+            ],
             "ForwardDynamicBatchVert": [(4, 0, "StorageBuffer", 0)],
             "ForwardSkinnedVert": [(4, 0, "StorageBuffer", 0)],
             "ForwardMorphedVert": [
@@ -255,6 +261,9 @@ def validate(module: str, reflection: dict) -> None:
         (1, 4, "CombinedImageSampler"),
         (1, 5, "CombinedImageSampler"),
         (1, 19, "CombinedImageSampler"),
+        (1, 17, "SampledImage"),
+        (1, 23, "SampledImage"),
+        (1, 24, "Sampler"),
         *( (3, binding, "CombinedImageSampler") for binding in range(6) ),
         *( (3, binding, "SampledImage") for binding in range(6, 12) ),
         *( (3, binding, "Sampler") for binding in range(12, 14) ),

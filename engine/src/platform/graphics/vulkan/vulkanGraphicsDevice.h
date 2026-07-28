@@ -484,6 +484,10 @@ namespace visutwin::canvas
 
         // ── Default resources ────────────────────────────────────────────
         VkSampler _defaultSampler = VK_NULL_HANDLE;
+        // Shared by the separate material images (height/detail-normal in the
+        // fragment stage, displacement in the vertex stage). Linear + repeat,
+        // matching the Metal displacement sampler.
+        VkSampler _materialExtraSampler = VK_NULL_HANDLE;
         VkImage _whiteImage = VK_NULL_HANDLE;
         VmaAllocation _whiteAllocation = VK_NULL_HANDLE;
         VkImageView _whiteImageView = VK_NULL_HANDLE;

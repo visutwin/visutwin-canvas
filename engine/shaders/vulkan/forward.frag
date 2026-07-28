@@ -61,6 +61,13 @@ layout(set = 1, binding = 3) uniform sampler2D metalRoughMap;    // 3 (glTF: G=r
 layout(set = 1, binding = 4) uniform sampler2D occlusionMap;     // 4 (R = AO)
 layout(set = 1, binding = 5) uniform sampler2D emissiveMap;      // 5
 layout(set = 1, binding = 19) uniform sampler2D lightMap;        // 19
+// 17 and 23 are separate images reading through the shared sampler at 24, so
+// they cost no extra per-stage sampler slot (the device allows only 16).
+layout(set = 1, binding = 17) uniform texture2D heightMapImage;   // 17 (parallax)
+layout(set = 1, binding = 23) uniform texture2D detailNormalImage;// 23
+layout(set = 1, binding = 24) uniform sampler materialExtraSampler;
+#define heightMap    sampler2D(heightMapImage, materialExtraSampler)
+#define detailNormal sampler2D(detailNormalImage, materialExtraSampler)
 
 // Set 2 (dynamic UBO): per-pass lighting. Matches VulkanLightingUBO.
 struct Light {
@@ -165,6 +172,49 @@ layout(set = 3, binding = 13) uniform sampler nearestClampSampler;
 #define ssrSceneDepth     sampler2D(ssrSceneDepthImage, nearestClampSampler)
 
 const float PI = 3.14159265359;
+
+// ── Ordered dither (parity with common-dither.metal, upstream bayer.js) ──
+// 2x2 bayer matrix [1 2][3 0], p in [0,1]
+float bayer2(vec2 p) { return mod(2.0 * p.y + p.x + 1.0, 4.0); }
+
+// 8x8 matrix, p = pixel coordinate
+float bayer8(vec2 p) {
+    vec2 p1 = mod(p, 2.0);
+    vec2 p2 = floor(0.5 * mod(p, 4.0));
+    vec2 p4 = floor(0.25 * mod(p, 8.0));
+    return 4.0 * (4.0 * bayer2(p1) + bayer2(p2)) + bayer2(p4);
+}
+
+// ── Parallax occlusion mapping (parity with common-parallax.metal) ──
+vec2 parallaxOcclusionMap(vec2 uv, vec3 viewDirTS, float heightScale) {
+    // Adaptive step count: more steps at grazing angles, where parallax shows most.
+    const int minSteps = 8;
+    const int maxSteps = 32;
+    int numSteps = int(mix(float(maxSteps), float(minSteps), abs(viewDirTS.z)));
+    float layerDepth = 1.0 / float(numSteps);
+
+    vec2 deltaUV = viewDirTS.xy * heightScale /
+        (abs(viewDirTS.z) + 1e-5) / float(numSteps);
+
+    vec2 curUV = uv;
+    float curLayerDepth = 0.0;
+    float curHeight = 1.0 - texture(heightMap, curUV).r;
+
+    for (int i = 0; i < maxSteps; ++i) {
+        if (curLayerDepth >= curHeight) break;
+        curUV -= deltaUV;
+        curHeight = 1.0 - texture(heightMap, curUV).r;
+        curLayerDepth += layerDepth;
+    }
+
+    // Interpolate between the last two layers for a smooth result.
+    vec2 prevUV = curUV + deltaUV;
+    float afterDepth = curHeight - curLayerDepth;
+    float beforeDepth =
+        (1.0 - texture(heightMap, prevUV).r) - (curLayerDepth - layerDepth);
+    float weight = afterDepth / (afterDepth - beforeDepth + 1e-6);
+    return mix(curUV, prevUV, weight);
+}
 
 // 3×3 percentage-closer filter: average binary depth comparisons over the
 // texel neighbourhood.  `receiver` is the (biased) light-space depth of the
@@ -650,6 +700,7 @@ const uint FLAG_HAS_OCCLUSION  = 1u << 9;
 const uint FLAG_OCCLUSION_UV1  = 1u << 10;
 const uint FLAG_HAS_EMISSIVE   = 1u << 11;
 const uint FLAG_EMISSIVE_UV1   = 1u << 12;
+const uint FLAG_HAS_HEIGHTMAP  = 1u << 17;
 
 vec2 applyUvTransform(vec2 uv, vec4 row0, vec4 row1) {
     vec3 h = vec3(uv, 1.0);
@@ -998,6 +1049,31 @@ void main() {
         ((material.flags & FLAG_EMISSIVE_UV1) != 0u) ? fragUV1 : fragUV0,
         material.emissiveTransform0, material.emissiveTransform1);
 
+    // Parallax occlusion mapping offsets all material UVs before any sampling.
+    // The flags bit matters as well as the feature gate: an unbound image reads
+    // as white here, which would offset UVs on a material that has no height map.
+    if (vtFeatureEnabled(VT_FEATURE_PARALLAX_BIT) &&
+        (material.flags & FLAG_HAS_HEIGHTMAP) != 0u &&
+        material.heightMapFactor > 0.0) {
+        vec3 nGeom = normalize(fragWorldNormal);
+        vec3 vPar = normalize(lighting.cameraPosExposure.xyz - fragWorldPos);
+        vec3 tPar = fragWorldTangent.xyz;
+        if (dot(tPar, tPar) >= 1e-6) {
+            tPar = normalize(tPar);
+            vec3 bPar = normalize(cross(nGeom, tPar)) * fragWorldTangent.w;
+            // dot(basis, V) transforms the world view vector into tangent space.
+            vec3 viewDirTS = normalize(
+                vec3(dot(tPar, vPar), dot(bPar, vPar), dot(nGeom, vPar)));
+            vec2 uvDelta = parallaxOcclusionMap(
+                uvBase, viewDirTS, material.heightMapFactor) - uvBase;
+            uvBase       += uvDelta;
+            uvNormal     += uvDelta;
+            uvMetalRough += uvDelta;
+            uvOcclusion  += uvDelta;
+            uvEmissive   += uvDelta;
+        }
+    }
+
     vec4 baseSample = vtFeatureEnabled(VT_FEATURE_BASE_COLOR_MAP_BIT)
         ? texture(baseColorMap, uvBase) : vec4(1.0);
     // fragColor is vec4(1) except for the vertex-color / point-cloud vertex
@@ -1007,6 +1083,26 @@ void main() {
     if (vtFeatureEnabled(VT_FEATURE_ALPHA_TEST_BIT) &&
         albedo.a < material.alphaCutoff) {
         discard;
+    }
+
+    // Opacity dithering (upstream opacity-dither.js, BAYER8 variant): screen-space
+    // ordered dither turns partial opacity into a discard pattern so transparency
+    // renders in the opaque pass with correct depth. DEVIATION: no blue-noise /
+    // IGN variants and no per-frame jitter (static pattern; upstream jitters for
+    // TAA convergence).
+    if (vtFeatureEnabled(VT_FEATURE_OPACITY_DITHER_BIT)) {
+        if (albedo.a <= 0.0) {
+            discard;
+        }
+        if (albedo.a < 1.0) {
+            float ditherNoise = bayer8(floor(mod(gl_FragCoord.xy, 8.0))) / 64.0;
+            // The threshold is authored in perceptual (sRGB) space — linearize.
+            ditherNoise = pow(ditherNoise, 2.2);
+            if (albedo.a < ditherNoise) {
+                discard;
+            }
+        }
+        albedo.a = 1.0;
     }
 
     // Point-cloud (unlit) path: the point vertex variant writes a zero world
@@ -1054,15 +1150,32 @@ void main() {
     }
 
     // Tangent-space normal mapping (shadowParams2.w = global enable toggle).
-    if (vtFeatureEnabled(VT_FEATURE_NORMAL_MAP_BIT) &&
-        lighting.shadowParams2.w > 0.5) {
+    // The detail map overlays the base map, so both share one TBN transform.
+    bool haveNormalMap = vtFeatureEnabled(VT_FEATURE_NORMAL_MAP_BIT) &&
+        lighting.shadowParams2.w > 0.5;
+    bool haveDetailNormal = vtFeatureEnabled(VT_FEATURE_DETAIL_NORMALS_BIT) &&
+        lighting.shadowParams2.w > 0.5;
+    if (haveNormalMap || haveDetailNormal) {
+        vec3 tn = vec3(0.0, 0.0, 1.0);
+        if (haveNormalMap) {
+            tn = texture(normalMap, uvNormal).xyz * 2.0 - 1.0;
+            tn.xy *= material.normalScale;
+        }
+        if (haveDetailNormal) {
+            // UDN blend: the detail map's xy perturbation is scaled by
+            // detailNormalScale and added on top of the base normal (or the flat
+            // normal when no base map is bound).
+            vec2 uvDetail = applyUvTransform(fragUV0,
+                material.detailNormalTransform0, material.detailNormalTransform1);
+            vec3 detailSample = texture(detailNormal, uvDetail).xyz * 2.0 - 1.0;
+            detailSample.xy *= material.detailDisplacementParams.x;
+            tn = normalize(vec3(tn.xy + detailSample.xy, tn.z));
+        }
         vec3 T = normalize(fragWorldTangent.xyz);
         // Re-orthonormalize (Gram-Schmidt) and build the bitangent with the
         // handedness sign carried in tangent.w.
         T = normalize(T - N * dot(N, T));
         vec3 B = cross(N, T) * fragWorldTangent.w;
-        vec3 tn = texture(normalMap, uvNormal).xyz * 2.0 - 1.0;
-        tn.xy *= material.normalScale;
         N = normalize(mat3(T, B, N) * tn);
     }
 
@@ -1255,7 +1368,19 @@ void main() {
         vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
 
         vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.w * atten;
-        color += (kD * diffuseAlbedo / PI + specular) * radiance * NdotL;
+        // Oren-Nayar rough diffuse (fast qualitative form): retro-reflection for
+        // rough surfaces instead of plain Lambert.
+        float diffuseTerm = 1.0;
+        if (vtFeatureEnabled(VT_FEATURE_OREN_NAYAR_BIT)) {
+            float sigma2 = roughness * roughness;
+            float onA = 1.0 - 0.5 * sigma2 / (sigma2 + 0.33);
+            float onB = 0.45 * sigma2 / (sigma2 + 0.09);
+            float sTerm = dot(L, V) - NdotL * NdotV;
+            float tTerm = sTerm <= 0.0 ? 1.0 : max(max(NdotL, NdotV), 1e-4);
+            diffuseTerm = onA + onB * sTerm / tTerm;
+        }
+        color += (kD * diffuseAlbedo / PI * diffuseTerm + specular) *
+            radiance * NdotL;
         directSpecular += specular * radiance * NdotL;
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
             float ccRough = clamp(material.clearCoatRoughness, 0.04, 1.0);

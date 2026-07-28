@@ -165,8 +165,8 @@ namespace visutwin::canvas
         }
 
         std::array<VkWriteDescriptorSet, kMaxCachedImageBindings> writes{};
-        constexpr std::array<uint32_t, 6> materialBindings =
-            {0, 1, 3, 4, 5, 19};
+        constexpr std::array<uint32_t, 10> materialBindings =
+            {0, 1, 3, 4, 5, 17, 19, 23, 24, 25};
         const bool materialSet =
             layout == _renderPipeline->textureSetLayout() &&
             key.count == materialBindings.size();
@@ -178,11 +178,22 @@ namespace visutwin::canvas
             writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[i].dstSet = set;
             writes[i].dstBinding = materialSet ? materialBindings[i] : i;
-            writes[i].descriptorType = sceneSet
-                ? (i < 6 ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-                         : (i < 12 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
-                                   : VK_DESCRIPTOR_TYPE_SAMPLER))
-                : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            if (sceneSet) {
+                writes[i].descriptorType =
+                    i < 6 ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                          : (i < 12 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                                    : VK_DESCRIPTOR_TYPE_SAMPLER);
+            } else if (materialSet) {
+                const uint32_t binding = materialBindings[i];
+                writes[i].descriptorType =
+                    binding == 24 ? VK_DESCRIPTOR_TYPE_SAMPLER
+                                  : (binding == 17 || binding == 23 || binding == 25
+                                         ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                                         : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            } else {
+                writes[i].descriptorType =
+                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            }
             writes[i].descriptorCount = 1;
             writes[i].pImageInfo = &imageInfos[i];
         }

@@ -811,20 +811,32 @@ namespace visutwin::canvas
         // Set 1: material textures. Cache identical image/sampler tuples for
         // the lifetime of this frame slot instead of allocating per draw.
         {
-            constexpr std::array<int, 6> materialSlots = {0, 1, 3, 4, 5, 19};
+            // 17/23/25 are separate images and 24 is their shared sampler, so
+            // the descriptor for each carries only the half it owns.
+            constexpr std::array<int, 10> materialSlots =
+                {0, 1, 3, 4, 5, 17, 19, 23, 24, 25};
+            const auto isSeparateImageSlot = [](const int slot) {
+                return slot == 17 || slot == 23 || slot == 25;
+            };
             std::array<VkDescriptorImageInfo, materialSlots.size()> imageInfos{};
-            for (auto& imageInfo : imageInfos) {
-                imageInfo.sampler = _defaultSampler;
-                imageInfo.imageView = _whiteImageView;
-                imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            for (size_t i = 0; i < imageInfos.size(); ++i) {
+                const int slot = materialSlots[i];
+                imageInfos[i].sampler = (slot == 24) ? _materialExtraSampler
+                    : (isSeparateImageSlot(slot) ? VK_NULL_HANDLE : _defaultSampler);
+                imageInfos[i].imageView =
+                    (slot == 24) ? VK_NULL_HANDLE : _whiteImageView;
+                imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
 
             if (_material) {
                 std::vector<TextureSlot> texSlots;
                 _material->getTextureSlots(texSlots);
                 for (const auto& ts : texSlots) {
+                    // The displacement map arrives on the >=100 sentinel slot
+                    // that routes it to the vertex stage (mirrors Metal).
+                    const int slot = (ts.slot >= 100) ? 25 : ts.slot;
                     const auto slotIt = std::find(
-                        materialSlots.begin(), materialSlots.end(), ts.slot);
+                        materialSlots.begin(), materialSlots.end(), slot);
                     if (slotIt == materialSlots.end() || ts.texture == nullptr) {
                         continue;
                     }
@@ -834,7 +846,10 @@ namespace visutwin::canvas
                         const size_t descriptorIndex =
                             static_cast<size_t>(slotIt - materialSlots.begin());
                         imageInfos[descriptorIndex].imageView = vkTex->imageView();
-                        if (vkTex->sampler() != VK_NULL_HANDLE) {
+                        // Separate images must leave the sampler half null; they
+                        // read through the shared sampler at binding 24.
+                        if (!isSeparateImageSlot(slot) &&
+                            vkTex->sampler() != VK_NULL_HANDLE) {
                             imageInfos[descriptorIndex].sampler = vkTex->sampler();
                         }
                     }

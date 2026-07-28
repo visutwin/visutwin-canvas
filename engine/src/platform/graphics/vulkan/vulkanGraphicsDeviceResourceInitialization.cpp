@@ -191,6 +191,23 @@ namespace visutwin::canvas
                 "VulkanGraphicsDevice: environment sampler creation failed");
         }
 
+        // Shared sampler for the separate material images (height, detail
+        // normal, displacement). Linear + repeat like the Metal equivalents.
+        VkSamplerCreateInfo extraSamplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        extraSamplerInfo.magFilter = VK_FILTER_LINEAR;
+        extraSamplerInfo.minFilter = VK_FILTER_LINEAR;
+        extraSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        extraSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        extraSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        extraSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        extraSamplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+        if (vkCreateSampler(
+                _device, &extraSamplerInfo, nullptr,
+                &_materialExtraSampler) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: material sampler creation failed");
+        }
+
         // Shadow-map sampler: clamp-to-edge, NEAREST filter, no mips.  A plain
         // (non-comparison) sampler — the shader does the depth compare manually
         // and averages a 3×3 PCF kernel at discrete texel offsets, so no linear
@@ -550,6 +567,10 @@ namespace visutwin::canvas
             if (_envSampler != VK_NULL_HANDLE) {
                 vkDestroySampler(_device, _envSampler, nullptr);
                 _envSampler = VK_NULL_HANDLE;
+            }
+            if (_materialExtraSampler != VK_NULL_HANDLE) {
+                vkDestroySampler(_device, _materialExtraSampler, nullptr);
+                _materialExtraSampler = VK_NULL_HANDLE;
             }
             if (_defaultSampler != VK_NULL_HANDLE) {
                 vkDestroySampler(_device, _defaultSampler, nullptr);
