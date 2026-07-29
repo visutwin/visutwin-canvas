@@ -83,17 +83,35 @@
 #endif
 
 #if VT_FEATURE_OPACITY_DITHER
-    // Opacity dithering (upstream opacity-dither.js, BAYER8 variant): screen-space
-    // ordered dither turns partial opacity into a discard pattern so transparency
-    // renders in the opaque pass with correct depth. DEVIATION: no blue-noise /
-    // IGN variants and no per-frame jitter (static pattern; upstream jitters
-    // for TAA convergence).
+    // Opacity dithering (upstream opacity-dither.js): screen-space ordered dither turns partial
+    // opacity into a discard pattern so transparency renders in the opaque pass with correct
+    // depth. The matrix is chosen per material via flags bits 25-27 (DitherMode), a runtime value
+    // rather than a shader variant. DEVIATION: no blue-noise / IGN variants and no per-frame
+    // jitter (static pattern; upstream jitters for TAA convergence).
     {
         if (alpha <= 0.0) {
             discard_fragment();
         }
         if (alpha < 1.0) {
-            float ditherNoise = bayer8(floor(fmod(rd.position.xy, 8.0))) / 64.0;
+            const uint ditherMode = (material.flags >> 25) & 0x7u;
+
+            // Each matrix is normalized by its cell count, so the threshold stays in [0, 1).
+            float ditherNoise = 0.0;
+            switch (ditherMode) {
+                case VT_DITHER_BAYER2:
+                    ditherNoise = bayer2(floor(fmod(rd.position.xy, 2.0))) / 4.0;
+                    break;
+                case VT_DITHER_BAYER4:
+                    ditherNoise = bayer4(floor(fmod(rd.position.xy, 4.0))) / 16.0;
+                    break;
+                case VT_DITHER_BAYER16:
+                    ditherNoise = bayer16(floor(fmod(rd.position.xy, 16.0))) / 256.0;
+                    break;
+                default:  // VT_DITHER_BAYER8
+                    ditherNoise = bayer8(floor(fmod(rd.position.xy, 8.0))) / 64.0;
+                    break;
+            }
+
             // The threshold is authored in perceptual (sRGB) space — linearize.
             ditherNoise = pow(ditherNoise, 2.2);
             if (alpha < ditherNoise) {

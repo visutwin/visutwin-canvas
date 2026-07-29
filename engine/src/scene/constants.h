@@ -97,6 +97,20 @@ namespace visutwin::canvas
         TONEMAP_NONE = 6,
     };
 
+    // Opacity dither matrices (upstream DITHER_*). Selects the ordered-dither threshold pattern
+    // used to render partial opacity in the opaque pass.
+    //
+    // DEVIATION: upstream also offers DITHER_BLUENOISE and DITHER_IGNNOISE; only the Bayer
+    // matrices are ported, and the pattern is static (upstream jitters it per frame for TAA).
+    enum class DitherMode
+    {
+        DITHER_NONE = 0,
+        DITHER_BAYER2 = 1,
+        DITHER_BAYER4 = 2,
+        DITHER_BAYER8 = 3,
+        DITHER_BAYER16 = 4,
+    };
+
     // Debug shader passes (upstream SHADERPASS_ALBEDO and friends). Replaces the forward pass
     // output with a single surface quantity, to inspect what the material frontend produced.
     //

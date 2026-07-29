@@ -246,6 +246,11 @@ namespace visutwin::canvas
         }
         if (_displacementMap)  uniforms.flags |= (1u << 24);  // bit 24: hasDisplacementMap
 
+        // bits 25-27: opacity dither matrix (DitherMode). Which matrix is a runtime value rather
+        // than a shader variant, so changing it costs no recompile — VT_FEATURE_OPACITY_DITHER
+        // only gates whether the dither block exists at all.
+        uniforms.flags |= (static_cast<uint32_t>(_opacityDitherMode) & 0x7u) << 25;
+
         // Re-apply setParameter() overrides last: the typed writes above
         // (baseColor/metallic/roughness/normalScale/emissive) would otherwise
         // silently discard them, breaking the documented dual-binding contract.

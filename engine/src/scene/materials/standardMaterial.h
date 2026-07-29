@@ -68,12 +68,25 @@ namespace visutwin::canvas
         bool useScreenSpaceReflection() const { return _useSSR; }
         void setUseScreenSpaceReflection(const bool value) { _useSSR = value; _dirtyShader = true; }
 
-        // Opacity dithering (upstream opacityDither, BAYER8): render partial opacity in
-        // the OPAQUE pass by discarding fragments against an 8x8 Bayer threshold —
-        // no sorting artifacts and depth writes stay valid. Leave the material
-        // non-transparent when using this.
-        bool opacityDither() const { return _opacityDither; }
-        void setOpacityDither(const bool value) { _opacityDither = value; _dirtyShader = true; }
+        // Opacity dithering (upstream opacityDither): render partial opacity in the OPAQUE pass
+        // by discarding fragments against an ordered Bayer threshold — no sorting artifacts and
+        // depth writes stay valid. Leave the material non-transparent when using this.
+        //
+        // Larger matrices resolve more opacity levels (2x2 gives 4, 16x16 gives 256) at the cost
+        // of a coarser, more visible pattern over the surface.
+        DitherMode opacityDitherMode() const { return _opacityDitherMode; }
+        void setOpacityDitherMode(const DitherMode value)
+        {
+            _opacityDitherMode = value;
+            _dirtyShader = true;
+        }
+
+        bool opacityDither() const { return _opacityDitherMode != DitherMode::DITHER_NONE; }
+        // Convenience for the common case: enable dithering with the default 8x8 matrix.
+        void setOpacityDither(const bool value)
+        {
+            setOpacityDitherMode(value ? DitherMode::DITHER_BAYER8 : DitherMode::DITHER_NONE);
+        }
         Texture* glossMap() const { return _glossMap; }
         void setGlossMap(Texture* texture) { _glossMap = texture; _dirtyShader = true; }
 
@@ -292,7 +305,7 @@ namespace visutwin::canvas
         bool _glossInvert = false;
         bool _useDynamicRefraction = false;
         bool _useSSR = false;
-        bool _opacityDither = false;
+        DitherMode _opacityDitherMode = DitherMode::DITHER_NONE;
         Texture* _glossMap = nullptr;
 
         Color _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);

@@ -182,6 +182,14 @@ struct ClusteredLight {
     float4 shadowData;        // x=castShadows, y=bias, z=intensity, w=atlasSlice
 };
 
+// Opacity dither matrices. Must match scene/constants.h :: DitherMode. The active mode arrives
+// per material in MaterialData::flags bits 25-27.
+constant uint VT_DITHER_NONE    = 0u;
+constant uint VT_DITHER_BAYER2  = 1u;
+constant uint VT_DITHER_BAYER4  = 2u;
+constant uint VT_DITHER_BAYER8  = 3u;
+constant uint VT_DITHER_BAYER16 = 4u;
+
 // Debug shader passes. Must match scene/constants.h :: DebugShaderPass. The active mode arrives
 // in LightingData::flagsAndPad.y, so all modes share one compiled variant (VT_FEATURE_DEBUG_PASS)
 // and switching between them needs no recompile.

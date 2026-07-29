@@ -250,7 +250,28 @@ int main()
         engine.get(), blendMaterial.get(), "sphere", Vector3(5.2f, 1.0f, 2.5f), Vector3(2.0f, 2.0f, 2.0f)
     ));
 
+    // Dither matrix selection, applied to the dithered sphere so the patterns can be compared
+    // side by side against the alpha-blended one.
+    struct DitherEntry
+    {
+        DitherMode mode;
+        const char* name;
+    };
+    constexpr DitherEntry ditherModes[] = {
+        {DitherMode::DITHER_BAYER2, "Bayer2 (4 levels)"},
+        {DitherMode::DITHER_BAYER4, "Bayer4 (16 levels)"},
+        {DitherMode::DITHER_BAYER8, "Bayer8 (64 levels)"},
+        {DitherMode::DITHER_BAYER16, "Bayer16 (256 levels)"},
+    };
+    size_t ditherModeIndex = 2;  // Bayer8, the default
+
+    const auto applyDitherMode = [&]() {
+        ditherMaterial->setOpacityDitherMode(ditherModes[ditherModeIndex].mode);
+        spdlog::info("Dither matrix: {}", ditherModes[ditherModeIndex].name);
+    };
+
     spdlog::info("PCSS demo: penumbraSize 0.04; 1 = PCF, 2 = PCSS, Space = auto-cycle, Esc = quit");
+    spdlog::info("Dither: M cycles the matrix on the left sphere (Bayer 2/4/8/16)");
 
     bool running = true;
     bool usePcss = true;
@@ -281,6 +302,9 @@ int main()
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_2) {
                 autoCycle = false;
                 applyShadowType(false);  // start with PCF
+            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_M) {
+                ditherModeIndex = (ditherModeIndex + 1) % std::size(ditherModes);
+                applyDitherMode();
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_SPACE) {
                 autoCycle = true;
                 cycleTimer = 0.0f;
