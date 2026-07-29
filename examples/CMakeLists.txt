@@ -331,3 +331,9 @@ add_executable(visutwin-morph-anim MACOSX_BUNDLE
 target_link_libraries(visutwin-morph-anim PRIVATE visutwin-canvas)
 target_compile_definitions(visutwin-morph-anim PRIVATE ASSET_DIR="${VISUTWIN_ASSET_DIR}")
 visutwin_set_macos_bundle(visutwin-morph-anim com.visutwin.morph-anim)
+
+add_executable(visutwin-dual-source-blending MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/dual-source-blending-example.cpp
+)
+target_link_libraries(visutwin-dual-source-blending PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-dual-source-blending com.visutwin.dual-source-blending)

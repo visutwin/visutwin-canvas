@@ -740,6 +740,12 @@ namespace visutwin::canvas
             const std::shared_ptr<VertexFormat>& format,
             int numVertices, void* nativeBuffer) { (void)nativeBuffer; return nullptr; }
 
+        /// True when the backend supports dual-source blending — the BLENDMODE_SRC1_* factors,
+        /// which read a second color output written by the fragment shader. Check this before
+        /// building a blend state that uses them; on a backend without support the pipeline
+        /// would be invalid.
+        virtual bool supportsDualSourceBlending() const { return false; }
+
         /// True when this backend can create an InstanceCuller via createInstanceCuller().
         /// Used by MeshInstance::enableGpuInstanceCulling() to decide whether to allocate
         /// the per-instance culler resources or fall back to CPU-only path.

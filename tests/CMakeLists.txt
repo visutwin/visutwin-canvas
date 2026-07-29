@@ -14,6 +14,14 @@ target_link_libraries(visutwin-stencil-parameters-tests PRIVATE visutwin-canvas)
 
 add_test(NAME stencil-parameters COMMAND visutwin-stencil-parameters-tests)
 
+add_executable(visutwin-blend-state-tests
+    blendStateTests.cpp
+)
+
+target_link_libraries(visutwin-blend-state-tests PRIVATE visutwin-canvas)
+
+add_test(NAME blend-state COMMAND visutwin-blend-state-tests)
+
 add_executable(visutwin-camera-projection-tests
     cameraProjectionTests.cpp
 )

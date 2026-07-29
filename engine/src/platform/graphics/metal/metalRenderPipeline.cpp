@@ -34,7 +34,7 @@ namespace visutwin::canvas
     };
 
     // Blend factor mapping
-    const MTL::BlendFactor MetalRenderPipeline::blendFactor[13] = {
+    const MTL::BlendFactor MetalRenderPipeline::blendFactor[17] = {
         MTL::BlendFactorZero,                       // BLENDMODE_ZERO
         MTL::BlendFactorOne,                        // BLENDMODE_ONE
         MTL::BlendFactorSourceColor,                // BLENDMODE_SRC_COLOR
@@ -47,7 +47,12 @@ namespace visutwin::canvas
         MTL::BlendFactorDestinationAlpha,            // BLENDMODE_DST_ALPHA
         MTL::BlendFactorOneMinusDestinationAlpha,   // BLENDMODE_ONE_MINUS_DST_ALPHA
         MTL::BlendFactorBlendColor,                 // BLENDMODE_CONSTANT
-        MTL::BlendFactorOneMinusBlendColor          // BLENDMODE_ONE_MINUS_CONSTANT
+        MTL::BlendFactorOneMinusBlendColor,         // BLENDMODE_ONE_MINUS_CONSTANT
+        // Dual-source: these sample the fragment shader's second color output (index 1).
+        MTL::BlendFactorSource1Color,               // BLENDMODE_SRC1_COLOR
+        MTL::BlendFactorOneMinusSource1Color,       // BLENDMODE_ONE_MINUS_SRC1_COLOR
+        MTL::BlendFactorSource1Alpha,               // BLENDMODE_SRC1_ALPHA
+        MTL::BlendFactorOneMinusSource1Alpha        // BLENDMODE_ONE_MINUS_SRC1_ALPHA
     };
 
     MetalRenderPipeline::MetalRenderPipeline(const MetalGraphicsDevice* device): MetalPipeline(device)

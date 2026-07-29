@@ -9,20 +9,22 @@ namespace visutwin::canvas
 {
     // masks (to only keep relevant bits)
     const uint32_t opMask = 0b111;
-    const uint32_t factorMask = 0b1111;
+    // 5 bits: the dual-source factors run up to BLENDMODE_ONE_MINUS_SRC1_ALPHA (16), which no
+    // longer fits the 4 bits this used to be. Widening shifts every field that follows.
+    const uint32_t factorMask = 0b11111;
 
     // Shifts values to where individual parts are stored
     constexpr uint32_t colorOpShift = 0;             // 00 - 02 (3bits)
-    constexpr uint32_t colorSrcFactorShift = 3;      // 03 - 06 (4bits)
-    constexpr uint32_t colorDstFactorShift = 7;      // 07 - 10 (4bits)
-    constexpr uint32_t alphaOpShift = 11;            // 11 - 13 (3bits)
-    constexpr uint32_t alphaSrcFactorShift = 14;     // 14 - 17 (4bits)
-    constexpr uint32_t alphaDstFactorShift = 18;     // 18 - 21 (4bits)
-    constexpr uint32_t redWriteShift = 22;           // 22 (1 bit)
-    constexpr uint32_t greenWriteShift = 23;         // 23 (1 bit)
-    constexpr uint32_t blueWriteShift = 24;          // 24 (1 bit)
-    constexpr uint32_t alphaWriteShift = 25;         // 25 (1 bit)
-    constexpr uint32_t blendShift = 26;              // 26 (1 bit)
+    constexpr uint32_t colorSrcFactorShift = 3;      // 03 - 07 (5bits)
+    constexpr uint32_t colorDstFactorShift = 8;      // 08 - 12 (5bits)
+    constexpr uint32_t alphaOpShift = 13;            // 13 - 15 (3bits)
+    constexpr uint32_t alphaSrcFactorShift = 16;     // 16 - 20 (5bits)
+    constexpr uint32_t alphaDstFactorShift = 21;     // 21 - 25 (5bits)
+    constexpr uint32_t redWriteShift = 26;           // 26 (1 bit)
+    constexpr uint32_t greenWriteShift = 27;         // 27 (1 bit)
+    constexpr uint32_t blueWriteShift = 28;          // 28 (1 bit)
+    constexpr uint32_t alphaWriteShift = 29;         // 29 (1 bit)
+    constexpr uint32_t blendShift = 30;              // 30 (1 bit)
 
     BlendState::BlendState()
     {
@@ -86,6 +88,15 @@ namespace visutwin::canvas
     int BlendState::alphaDstFactor() const
     {
         return getField(_target0, alphaDstFactorShift, factorMask);
+    }
+
+    bool BlendState::usesDualSourceBlending() const
+    {
+        const auto usesSecondarySource = [](const int factor) {
+            return factor >= BLENDMODE_SRC1_COLOR && factor <= BLENDMODE_ONE_MINUS_SRC1_ALPHA;
+        };
+        return usesSecondarySource(colorSrcFactor()) || usesSecondarySource(colorDstFactor()) ||
+            usesSecondarySource(alphaSrcFactor()) || usesSecondarySource(alphaDstFactor());
     }
 
     // --- Setters ---

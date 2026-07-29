@@ -124,6 +124,9 @@ namespace visutwin::canvas
             int numVertices, void* nativeBuffer) override;
 
         bool supportsGpuInstanceCulling() const override { return true; }
+
+        // Dual-source blending is core Metal — supported on every device that runs this backend.
+        bool supportsDualSourceBlending() const override { return true; }
         std::unique_ptr<InstanceCuller> createInstanceCuller() override;
 
         // Encode all per-frame cull dispatches into one asynchronously submitted

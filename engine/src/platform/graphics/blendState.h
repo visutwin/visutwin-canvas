@@ -24,6 +24,15 @@ namespace visutwin::canvas
     constexpr int BLENDMODE_CONSTANT = 11;
     constexpr int BLENDMODE_ONE_MINUS_CONSTANT = 12;
 
+    // Dual-source blending factors: these read the fragment shader's SECOND color output rather
+    // than the first. Only usable when GraphicsDevice::supportsDualSourceBlending() is true and
+    // the fragment shader declares two outputs on color attachment 0 (index 0 and index 1) —
+    // see ShaderMaterial. A blend state using any of these reports usesDualSourceBlending().
+    constexpr int BLENDMODE_SRC1_COLOR = 13;
+    constexpr int BLENDMODE_ONE_MINUS_SRC1_COLOR = 14;
+    constexpr int BLENDMODE_SRC1_ALPHA = 15;
+    constexpr int BLENDMODE_ONE_MINUS_SRC1_ALPHA = 16;
+
     // Blend equation constants
     constexpr int BLENDEQUATION_ADD = 0;
     constexpr int BLENDEQUATION_SUBTRACT = 1;
@@ -60,6 +69,9 @@ namespace visutwin::canvas
         int alphaOp() const;
         int alphaSrcFactor() const;
         int alphaDstFactor() const;
+
+        // True if any of the four factors reads the fragment shader's secondary color output.
+        bool usesDualSourceBlending() const;
 
         // Setters for configuring blend state
         void setEnabled(bool value);

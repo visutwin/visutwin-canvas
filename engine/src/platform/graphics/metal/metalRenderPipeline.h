@@ -81,6 +81,6 @@ namespace visutwin::canvas
         // Mapping tables
         static const MTL::PrimitiveType primitiveTopology[5];
         static const MTL::BlendOperation blendOperation[5];
-        static const MTL::BlendFactor blendFactor[13];
+        static const MTL::BlendFactor blendFactor[17];
     };
 }

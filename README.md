@@ -142,6 +142,7 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | procedural-sky | Nishita atmosphere / procedural sky with animated sun |
 | post-processing | Compose chain: bloom, DOF, vignette, color grading, fringing |
 | custom-shader | ShaderMaterial with a user-supplied Metal toon shader |
+| dual-source-blending | Blending against a second fragment output (BLENDMODE_SRC1_*) |
 | mesh-decals | Decal projection |
 | shadow-cascades | Cascaded shadow maps |
 | clustered-lighting | Many local lights via 3D cluster grid (+ atlas spot shadows) |
