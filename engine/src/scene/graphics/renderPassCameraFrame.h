@@ -24,6 +24,8 @@ namespace visutwin::canvas
     class RenderPassPrepass;
     class RenderPassColorGrab;
     class RenderPassSsao;
+    class RenderPassVolumetricFog;
+    class RenderPassVolumetricFogCombine;
     class RenderPassTAA;
     class RenderPassDownsample;
     class RenderPassBloom;
@@ -121,6 +123,7 @@ namespace visutwin::canvas
         };
         ScenePassesInfo setupScenePass(const CameraFrameOptions& options);
         void setupSsaoPass(const CameraFrameOptions& options);
+        void setupVolumetricFogPass(const CameraFrameOptions& options);
         Texture* setupTaaPass(const CameraFrameOptions& options);
         void setupSceneHalfPass(const CameraFrameOptions& options, Texture* sourceTexture);
         void setupBloomPass(const CameraFrameOptions& options, Texture* inputTexture);
@@ -161,6 +164,8 @@ namespace visutwin::canvas
         std::shared_ptr<RenderPassColorGrab> _colorGrabPass;
         std::shared_ptr<RenderPassForward> _scenePassTransparent;
         std::shared_ptr<RenderPassSsao> _ssaoPass;
+        std::shared_ptr<RenderPassVolumetricFog> _volumetricFogPass;
+        std::shared_ptr<RenderPassVolumetricFogCombine> _volumetricFogCombinePass;
         std::shared_ptr<RenderPassTAA> _taaPass;
         std::shared_ptr<RenderPassDownsample> _scenePassHalf;
         std::shared_ptr<RenderPassBloom> _bloomPass;

@@ -61,6 +61,55 @@ namespace visutwin::canvas
         std::string_view type = "combine";
     };
 
+    // Volumetric fog settings matching upstream CameraFrame.volumetricFog.
+    //
+    // The fog is ray-marched at a reduced resolution: each pixel walks from the camera to the
+    // scene surface accumulating in-scattered light from the directional light (Henyey-Greenstein
+    // phase function, sampled against the shadow cascades) plus a constant ambient term, while
+    // tracking transmittance through Beer-Lambert absorption. The result is upsampled with a
+    // depth-aware filter and composited as `scene * transmittance + inscatter`.
+    struct VolumetricFogSettings
+    {
+        bool enabled = false;
+
+        // Resolution of the fog texture relative to the scene render target.
+        float scale = 0.5f;
+
+        // Number of ray-march samples per pixel. More steps means less banding at higher cost.
+        int steps = 24;
+
+        // Fog colour tint applied to the in-scattered light.
+        float tint[3] = {1.0f, 1.0f, 1.0f};
+
+        // Density at (and below) heightBase.
+        float density = 0.01f;
+
+        // World height at which the exponential falloff starts. Below it density is constant.
+        float heightBase = 0.0f;
+        float heightFalloff = 0.05f;
+
+        // Scales absorption without affecting how much light scatters in. Higher values make the
+        // fog occlude the scene more for the same amount of glow.
+        float extinction = 1.0f;
+
+        // Henyey-Greenstein asymmetry, -1..1. Positive values scatter forward, so the fog
+        // brightens strongly around the light direction.
+        float anisotropy = 0.6f;
+
+        // Overall brightness of the in-scattered directional light.
+        float intensity = 1.0f;
+
+        // Ambient in-scattering, added at every step regardless of the light.
+        float ambientColor[3] = {1.0f, 1.0f, 1.0f};
+        float ambientIntensity = 0.02f;
+
+        // How far along the ray to march, in world units.
+        float maxDistance = 300.0f;
+
+        // 0 = ignore shadows, 1 = fully shadowed fog (light shafts).
+        float shadowIntensity = 1.0f;
+    };
+
     // Rendering settings matching upstream CameraFrame.rendering
     struct RenderingSettings
     {
@@ -134,7 +183,8 @@ namespace visutwin::canvas
 
         void* onPostprocessing() const
         {
-            return (_dof.enabled || _taa.enabled || _ssao.enabled || _rendering.bloomIntensity > 0.0f || _rendering.vignetteEnabled)
+            return (_dof.enabled || _taa.enabled || _ssao.enabled || _volumetricFog.enabled ||
+                    _rendering.bloomIntensity > 0.0f || _rendering.vignetteEnabled)
                 ? const_cast<CameraComponent*>(this) : nullptr;
         }
 
@@ -173,6 +223,10 @@ namespace visutwin::canvas
             _ssao = value;
         }
 
+        const VolumetricFogSettings& volumetricFog() const { return _volumetricFog; }
+        VolumetricFogSettings& volumetricFog() { return _volumetricFog; }
+        void setVolumetricFog(const VolumetricFogSettings& value) { _volumetricFog = value; }
+
         const RenderingSettings& rendering() const { return _rendering; }
         RenderingSettings& rendering() { return _rendering; }
         void setRendering(const RenderingSettings& value) { _rendering = value; }
@@ -203,6 +257,7 @@ namespace visutwin::canvas
         DofSettings _dof;
         TaaSettings _taa;
         SsaoSettings _ssao;
+        VolumetricFogSettings _volumetricFog;
         RenderingSettings _rendering;
         std::shared_ptr<Texture> _dofSceneColorTexture;
         std::shared_ptr<RenderTarget> _dofSceneRenderTarget;

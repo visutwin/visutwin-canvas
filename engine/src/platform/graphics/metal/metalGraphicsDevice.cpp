@@ -17,6 +17,7 @@
 #include "metalEquirectToCubePass.h"
 #include "metalInstanceCullPass.h"
 #include "metalSsaoPass.h"
+#include "metalVolumetricFogPass.h"
 #include "metalTaaPass.h"
 #include "metalTexture.h"
 #include "metalComputePipeline.h"
@@ -595,6 +596,24 @@ namespace visutwin::canvas
         if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
         if (!_ssaoPass) _ssaoPass = std::make_unique<MetalSsaoPass>(this, _composePass.get());
         _ssaoPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
+            _bindGroupFormats, _postSampler, _defaultDepthStencilState);
+    }
+
+    void MetalGraphicsDevice::executeVolumetricFogPass(const VolumetricFogPassParams& params)
+    {
+        if (!_renderPassEncoder) return;
+        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
+        if (!_volumetricFogPass) _volumetricFogPass = std::make_unique<MetalVolumetricFogPass>(this, _composePass.get());
+        _volumetricFogPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
+            _bindGroupFormats, _postSampler, _defaultDepthStencilState);
+    }
+
+    void MetalGraphicsDevice::executeVolumetricFogCombinePass(const VolumetricFogCombineParams& params)
+    {
+        if (!_renderPassEncoder) return;
+        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
+        if (!_volumetricFogPass) _volumetricFogPass = std::make_unique<MetalVolumetricFogPass>(this, _composePass.get());
+        _volumetricFogPass->executeCombine(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
             _bindGroupFormats, _postSampler, _defaultDepthStencilState);
     }
 

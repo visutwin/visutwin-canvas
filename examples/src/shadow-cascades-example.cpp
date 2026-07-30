@@ -229,6 +229,25 @@ int main()
         auto rendering = cameraComp->rendering();
         rendering.toneMapping = TONEMAP_ACES;
         cameraComp->setRendering(rendering);
+
+        // Volumetric fog: the low sun and cascaded shadows give pronounced light shafts.
+        auto fog = cameraComp->volumetricFog();
+        fog.enabled = true;
+        fog.density = 0.0025f;
+        fog.heightBase = 0.0f;
+        fog.heightFalloff = 0.010f;
+        fog.anisotropy = 0.75f;      // strong forward scattering, so the sun glows through
+        fog.intensity = 3.0f;
+        // The ambient term has to be in the same ballpark as the sky it replaces: extinction
+        // removes the background light, and only in-scattering puts light back.
+        fog.ambientColor[0] = 0.55f;
+        fog.ambientColor[1] = 0.62f;
+        fog.ambientColor[2] = 0.75f;
+        fog.ambientIntensity = 0.45f;
+        fog.maxDistance = 900.0f;
+        fog.steps = 32;
+        fog.scale = 0.5f;
+        cameraComp->setVolumetricFog(fog);
     }
 
     camera->setPosition(Vector3(300.0f, 160.0f, 25.0f));

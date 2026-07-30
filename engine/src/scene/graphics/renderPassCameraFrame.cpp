@@ -14,6 +14,7 @@
 #include "renderPassDownsample.h"
 #include "renderPassPrepass.h"
 #include "renderPassSsao.h"
+#include "renderPassVolumetricFog.h"
 #include "renderPassTAA.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/constants.h"
@@ -462,7 +463,8 @@ namespace visutwin::canvas
         // mesh submission not yet ported), so the depth texture is empty when SSAO runs.
         // Moving SSAO after the scene passes ensures it reads valid depth from the
         // opaque+transparent scene render. This produces correct AO from final scene depth.
-        return {_prePass, _scenePass, _colorGrabPass, _scenePassTransparent, _ssaoPass, _taaPass, _scenePassHalf,
+        return {_prePass, _scenePass, _colorGrabPass, _scenePassTransparent, _ssaoPass,
+            _volumetricFogPass, _volumetricFogCombinePass, _taaPass, _scenePassHalf,
             _bloomPass, _dofPass, _composePass, _afterPass};
     }
 
@@ -471,6 +473,7 @@ namespace visutwin::canvas
         setupScenePrepass(options);
         setupSsaoPass(options);
         const auto scenePassesInfo = setupScenePass(options);
+        setupVolumetricFogPass(options);
         auto* sceneTextureWithTaa = setupTaaPass(options);
         setupSceneHalfPass(options, sceneTextureWithTaa);
         setupBloomPass(options, _sceneTextureHalf.get());
@@ -551,6 +554,41 @@ namespace visutwin::canvas
         } else {
             _ssaoPass.reset();
         }
+    }
+
+    // Volumetric fog: a reduced-resolution ray-march followed by a depth-aware upsample blended
+    // into the scene target. Placed after the scene passes (so the depth buffer is valid, same
+    // reason as SSAO) and before TAA/bloom/DOF, so those see the fogged scene - matching where
+    // upstream blends its combine pass.
+    void RenderPassCameraFrame::setupVolumetricFogPass(const CameraFrameOptions& options)
+    {
+        (void)options;
+        const auto* cameraComponent = _cameraComponent;
+        const bool enabled = cameraComponent && _sceneTexture && _sceneRenderTarget &&
+            cameraComponent->volumetricFog().enabled;
+
+        if (!enabled) {
+            _volumetricFogPass.reset();
+            _volumetricFogCombinePass.reset();
+            return;
+        }
+
+        // Reuse the passes across frames: each owns a Texture + RenderTarget, so recreating them
+        // per frame would leak GPU memory (same constraint as the SSAO pass).
+        if (!_volumetricFogPass) {
+            _volumetricFogPass = std::make_shared<RenderPassVolumetricFog>(
+                device(), _sceneTexture.get(), _cameraComponent);
+        }
+        _volumetricFogPass->setSettings(_cameraComponent->volumetricFog());
+        _volumetricFogPass->setScene(_scene);
+
+        if (!_volumetricFogCombinePass) {
+            _volumetricFogCombinePass = std::make_shared<RenderPassVolumetricFogCombine>(
+                device(), _cameraComponent, _volumetricFogPass->fogTexture());
+            auto combineOptions = std::make_shared<RenderPassOptions>();
+            _volumetricFogCombinePass->init(_sceneRenderTarget, combineOptions);
+        }
+        _volumetricFogCombinePass->setFogTexture(_volumetricFogPass->fogTexture());
     }
 
     Texture* RenderPassCameraFrame::setupTaaPass(const CameraFrameOptions& options)

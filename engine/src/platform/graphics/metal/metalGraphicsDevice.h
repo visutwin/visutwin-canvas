@@ -37,6 +37,7 @@ namespace visutwin::canvas
     class MetalMarchingCubesPass;
     class MetalParticleComputePass;
     class MetalSsaoPass;
+    class MetalVolumetricFogPass;
     class MetalTaaPass;
     class MetalInstanceCullPass;
     class MetalVsmBlurPass;
@@ -61,6 +62,7 @@ namespace visutwin::canvas
         friend class MetalMarchingCubesPass;
         friend class MetalParticleComputePass;
         friend class MetalSsaoPass;
+        friend class MetalVolumetricFogPass;
         friend class MetalTaaPass;
         friend class MetalInstanceCullPass;
         friend class MetalVsmBlurPass;
@@ -80,6 +82,8 @@ namespace visutwin::canvas
         void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod) override;
         void setCameraClipPlanes(float nearClip, float farClip) override;
+        void executeVolumetricFogPass(const VolumetricFogPassParams& params) override;
+        void executeVolumetricFogCombinePass(const VolumetricFogCombineParams& params) override;
         void setDebugShaderPass(uint32_t mode) override;
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
@@ -306,6 +310,7 @@ namespace visutwin::canvas
         std::unique_ptr<MetalComposePass> _composePass;
         std::unique_ptr<MetalDofBlurPass> _dofBlurPass;
         std::unique_ptr<MetalSsaoPass> _ssaoPass;
+        std::unique_ptr<MetalVolumetricFogPass> _volumetricFogPass;
         std::unique_ptr<MetalDepthAwareBlurPass> _blurPassH;
         std::unique_ptr<MetalDepthAwareBlurPass> _blurPassV;
         std::unique_ptr<MetalVsmBlurPass> _vsmBlurPassH;

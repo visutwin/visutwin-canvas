@@ -250,6 +250,60 @@ namespace visutwin::canvas
         float cameraFar = 1000.0f;
     };
 
+    // Ray-marched volumetric fog. Writes in-scattered light (rgb) and transmittance (a) into a
+    // reduced-resolution texture. See CameraComponent::VolumetricFogSettings.
+    struct VolumetricFogPassParams
+    {
+        Texture* depthTexture = nullptr;
+
+        // Camera basis for reconstructing a world-space ray per pixel.
+        Matrix4 invView = Matrix4::identity();
+        float cameraPosition[3] = {0.0f, 0.0f, 0.0f};
+        float cameraForward[3] = {0.0f, 0.0f, -1.0f};
+        // tan(fovY/2) * aspect and tan(fovY/2) - scales NDC to the near plane.
+        float projScaleX = 1.0f;
+        float projScaleY = 1.0f;
+
+        float cameraNear = 0.1f;
+        float cameraFar = 1000.0f;
+
+        float tint[3] = {1.0f, 1.0f, 1.0f};
+        float lightColor[3] = {0.0f, 0.0f, 0.0f};    // already scaled by intensity and exposure
+        float lightDirection[3] = {0.0f, 1.0f, 0.0f};  // world direction TOWARDS the light
+        float ambient[3] = {0.0f, 0.0f, 0.0f};
+
+        float density = 0.01f;
+        float heightBase = 0.0f;
+        float heightFalloff = 0.05f;
+        float maxDistance = 300.0f;
+
+        float anisotropy = 0.6f;
+        float stepCount = 24.0f;
+        float noiseOffset = 0.0f;      // cycles per frame so TAA can converge the dither
+        float shadowIntensity = 1.0f;
+        float extinction = 1.0f;
+
+        // Directional shadow cascades. When shadowTexture is null the march is unshadowed.
+        Texture* shadowTexture = nullptr;
+        std::array<Matrix4, 4> shadowMatrixPalette = {};
+        float shadowCascadeDistances[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        float shadowCascadeCount = 1.0f;
+        float shadowBias = 0.0f;
+        float shadowDistance = 0.0f;
+    };
+
+    // Depth-aware upsample of the fog texture, blended over the scene as
+    // `scene * transmittance + inscatter`.
+    struct VolumetricFogCombineParams
+    {
+        Texture* depthTexture = nullptr;
+        Texture* fogTexture = nullptr;
+        float fogTextureWidth = 1.0f;
+        float fogTextureHeight = 1.0f;
+        float cameraNear = 0.1f;
+        float cameraFar = 1000.0f;
+    };
+
     struct CoCPassParams
     {
         Texture* depthTexture = nullptr;
@@ -772,6 +826,8 @@ namespace visutwin::canvas
             const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
             bool highQuality, bool historyValid) {}
         virtual void executeSsaoPass(const SsaoPassParams& params) {}
+        virtual void executeVolumetricFogPass(const VolumetricFogPassParams& params) { (void)params; }
+        virtual void executeVolumetricFogCombinePass(const VolumetricFogCombineParams& params) { (void)params; }
         virtual void executeCoCPass(const CoCPassParams& params) {}
         virtual void executeDofBlurPass(const DofBlurPassParams& params) {}
         virtual void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) {}
