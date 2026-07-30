@@ -332,6 +332,21 @@ namespace visutwin::canvas
         _frameStartCalled = true;
         renderComposition();
         _renderCompositionCalled = true;
+
+        // Stats: _tick fills them before update/render, but apps that drive update()/render()
+        // themselves (all the examples) never reach that path, which would leave every counter at
+        // zero and let the renderer's per-frame counters accumulate instead of being reset. This
+        // has to run AFTER renderComposition (the counters are only populated by it) and BEFORE
+        // "postrender" (the MiniStats HUD reads them from that hook).
+        if (!_statsFilledThisFrame && _stats) {
+            const double now = static_cast<double>(SDL_GetTicks());
+            const double elapsed = _lastRenderTime > 0.0 ? now - _lastRenderTime : 0.0;
+            _lastRenderTime = now;
+            fillFrameStatsBasic(now, static_cast<float>(elapsed / 1000.0),
+                static_cast<float>(elapsed));
+            fillFrameStats();
+        }
+
         fire("postrender");
 
         if (_graphicsDevice->insideRenderPass()) {
@@ -341,6 +356,9 @@ namespace visutwin::canvas
 
         _graphicsDevice->frameEnd();
         _frameEndCalled = true;
+
+        // Next frame fills its own stats, whichever path drives it.
+        _statsFilledThisFrame = false;
 
         if (!(_frameStartCalled && _renderCompositionCalled && _frameEndCalled)) {
             spdlog::error("Frame parity violation: expected frameStart -> render passes -> frameEnd sequence");
@@ -388,6 +406,7 @@ namespace visutwin::canvas
 
     void Engine::fillFrameStatsBasic(double now, float dt, float ms)
     {
+        _statsFilledThisFrame = true;
         if (_stats) {
             auto& stats = _stats->frame();
             stats.dt = dt;

@@ -31,7 +31,10 @@
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/components/script/scriptComponentSystem.h"
+#include "framework/extras/miniStats.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
+#include "platform/graphics/metal/metalGraphicsDevice.h"
+#include "viz/overlay/imguiOverlay.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 
@@ -154,6 +157,12 @@ int main()
     engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
 
     engine->start();
+
+    // ImGui overlay + MiniStats HUD. The HUD hooks the engine's "postrender" event, so nothing
+    // else has to be called per frame.
+    ImGuiOverlay overlay;
+    overlay.init(static_cast<MetalGraphicsDevice*>(graphicsDevice.get()), window);
+    MiniStats miniStats(engine, &overlay);
 
     auto scene = engine->scene();
 
@@ -292,6 +301,7 @@ int main()
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            overlay.processEvent(event);
             if (event.type == SDL_EVENT_QUIT) {
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {

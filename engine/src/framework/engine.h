@@ -53,6 +53,10 @@ namespace visutwin::canvas
         const std::shared_ptr<GraphicsDevice>& graphicsDevice() const { return _graphicsDevice; }
         const std::shared_ptr<ForwardRenderer>& renderer() const { return _renderer; }
 
+        /// Per-frame CPU timings, draw-call and primitive counts. Populated every frame; read by
+        /// the MiniStats HUD.
+        const std::shared_ptr<ApplicationStats>& stats() const { return _stats; }
+
         // Controls how the canvas fills the window and resizes when the window changes
         void setCanvasFillMode(FillMode mode, int width = 0, int height = 0);
 
@@ -208,6 +212,12 @@ namespace visutwin::canvas
         bool _inTools = false;
 
         // Runtime parity checks for frame lifecycle ordering.
+        // True once the frame's stats have been filled. _tick fills them before update/render;
+        // apps driving update()/render() directly get them filled from render() instead.
+        bool _statsFilledThisFrame = false;
+        // Wall-clock time of the previous render(), for deriving frame time on that path.
+        double _lastRenderTime = 0.0;
+
         bool _frameStartCalled = false;
         bool _renderCompositionCalled = false;
         bool _frameEndCalled = false;

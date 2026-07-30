@@ -168,6 +168,8 @@ if(NOT VISUTWIN_BACKEND_METAL)
     list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/metal/.*")
     # The current ImGui overlay is implemented with imgui_impl_metal.
     list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/viz/overlay/imguiOverlay\\.cpp$")
+    # The MiniStats HUD draws through that overlay, so it goes with it.
+    list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/framework/extras/miniStats\\.cpp$")
 endif()
 if(NOT VISUTWIN_BACKEND_VULKAN)
     list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/vulkan/.*")
