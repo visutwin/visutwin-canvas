@@ -7,9 +7,16 @@
 #include <cstring>
 
 #include "graphicsDevice.h"
+#include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
 {
+    void logUnsupportedDeviceFeature(const char* name)
+    {
+        spdlog::warn("GraphicsDevice::{} is not implemented by the active backend — "
+            "the feature it drives will be missing from the rendered output", name);
+    }
+
     namespace
     {
         struct QuadVertex

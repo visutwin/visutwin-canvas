@@ -711,12 +711,29 @@ namespace visutwin::canvas
         // pass attached at draw time (VUID-vkCmdDrawIndexed-colorAttachmentCount-06179).
         VkPipelineColorBlendAttachmentState blendAttachment{};
         if (blendState && blendState->enabled()) {
+            // VK_BLEND_FACTOR_SRC1_* is only legal when the dualSrcBlend feature was
+            // enabled at device creation; a pipeline using it otherwise is invalid.
+            // Callers are expected to gate on supportsDualSourceBlending(), so reaching
+            // here means a caller bug — say so loudly and degrade to the single-source
+            // equivalent rather than handing the driver an invalid pipeline.
+            const bool dualSrcOk = !blendState->usesDualSourceBlending() ||
+                _device->supportsDualSourceBlending();
+            if (!dualSrcOk) {
+                spdlog::error("Vulkan: blend state uses dual-source factors but the device "
+                    "has no dualSrcBlend support — degrading to single-source blending. "
+                    "Check GraphicsDevice::supportsDualSourceBlending() before building "
+                    "a BLENDMODE_SRC1_* blend state.");
+            }
+            const auto mapFactor = [dualSrcOk](const int factor) {
+                return vulkanMapBlendFactor(dualSrcOk ? factor : blendFactorWithoutSrc1(factor));
+            };
+
             blendAttachment.blendEnable = VK_TRUE;
-            blendAttachment.srcColorBlendFactor = vulkanMapBlendFactor(blendState->colorSrcFactor());
-            blendAttachment.dstColorBlendFactor = vulkanMapBlendFactor(blendState->colorDstFactor());
+            blendAttachment.srcColorBlendFactor = mapFactor(blendState->colorSrcFactor());
+            blendAttachment.dstColorBlendFactor = mapFactor(blendState->colorDstFactor());
             blendAttachment.colorBlendOp = vulkanMapBlendOp(blendState->colorOp());
-            blendAttachment.srcAlphaBlendFactor = vulkanMapBlendFactor(blendState->alphaSrcFactor());
-            blendAttachment.dstAlphaBlendFactor = vulkanMapBlendFactor(blendState->alphaDstFactor());
+            blendAttachment.srcAlphaBlendFactor = mapFactor(blendState->alphaSrcFactor());
+            blendAttachment.dstAlphaBlendFactor = mapFactor(blendState->alphaDstFactor());
             blendAttachment.alphaBlendOp = vulkanMapBlendOp(blendState->alphaOp());
         }
         if (!blendState || blendState->redWrite()) {

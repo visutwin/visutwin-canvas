@@ -6,6 +6,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
@@ -36,6 +37,31 @@ namespace visutwin::canvas
     class Texture;
     class Material;
     struct RenderTargetOptions;
+
+    /// Emit a one-time warning that the active backend does not implement a device
+    /// entry point. See VT_DEVICE_FEATURE_UNSUPPORTED.
+    void logUnsupportedDeviceFeature(const char* name);
+
+    /**
+     * @brief Marks a GraphicsDevice entry point a backend has not implemented.
+     *
+     * The base-class bodies of the optional device virtuals are empty, so a backend
+     * that never overrides one drops the feature without any diagnostic — the scene
+     * renders, just missing volumetric fog, or the atmosphere, or clustered local
+     * shadows. Placing this in the base body turns each such gap into a single
+     * warning naming the entry point, on the first call and never again (these sit
+     * on per-frame and per-draw paths).
+     *
+     * The guard is a function-local static, so each call site warns independently
+     * and only once process-wide, regardless of how many devices exist.
+     */
+#define VT_DEVICE_FEATURE_UNSUPPORTED(name)                                        \
+    do {                                                                           \
+        static std::atomic_flag vtFeatureWarned = ATOMIC_FLAG_INIT;                \
+        if (!vtFeatureWarned.test_and_set(std::memory_order_relaxed)) {            \
+            ::visutwin::canvas::logUnsupportedDeviceFeature(name);                  \
+        }                                                                          \
+    } while (false)
 
     enum class GpuLightType : uint32_t
     {
@@ -485,26 +511,43 @@ namespace visutwin::canvas
         // Submits a graphical primitive to the hardware for immediate rendering
         virtual void draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer = nullptr,
             int numInstances = 1, int indirectSlot = -1, bool first = true, bool last = true) = 0;
-        virtual void setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model) {}
+        virtual void setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model)
+        {
+            (void)viewProjection; (void)model;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setTransformUniforms");
+        }
         virtual void setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,
             const Vector3& cameraPosition, bool enableNormalMaps, float exposure,
             const FogParams& fogParams = FogParams{}, const ShadowParams& shadowParams = ShadowParams{},
             int toneMapping = 0, const Vector3* ambientSH = nullptr,
-            const Matrix4* viewProjection = nullptr) {}
+            const Matrix4* viewProjection = nullptr)
+        {
+            (void)ambientColor; (void)lights; (void)cameraPosition; (void)enableNormalMaps;
+            (void)exposure; (void)fogParams; (void)shadowParams; (void)toneMapping;
+            (void)ambientSH; (void)viewProjection;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setLightingUniforms");
+        }
         virtual void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
-            Texture* skyboxCubeMap = nullptr) {}
+            Texture* skyboxCubeMap = nullptr)
+        {
+            (void)envAtlas; (void)skyboxIntensity; (void)skyboxMip;
+            (void)skyDomeCenter; (void)isDome; (void)skyboxCubeMap;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setEnvironmentUniforms");
+        }
 
         virtual void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod)
         {
             (void)cubemap; (void)boxMin; (void)boxMax; (void)boxProjection; (void)intensity; (void)maxLod;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setReflectionProbeUniforms");
         }
 
         /// Camera clip planes for SSR depth linearization.
         virtual void setCameraClipPlanes(float nearClip, float farClip)
         {
             (void)nearClip; (void)farClip;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setCameraClipPlanes");
         }
 
         /// Which debug surface quantity the forward shader should output, as a DebugShaderPass
@@ -512,18 +555,31 @@ namespace visutwin::canvas
         virtual void setDebugShaderPass(uint32_t mode)
         {
             (void)mode;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setDebugShaderPass");
         }
 
         /// Set the LTC lookup textures for area lights (bound at fragment slots 20/21
         /// when VT_FEATURE_AREA_LIGHTS is active). Pass nullptrs to unbind.
-        virtual void setAreaLightLuts(Texture* lut1, Texture* lut2) { (void)lut1; (void)lut2; }
+        virtual void setAreaLightLuts(Texture* lut1, Texture* lut2)
+        {
+            (void)lut1; (void)lut2;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setAreaLightLuts");
+        }
 
         /// Bind the clustered spot-shadow atlas (depth texture2d_array) for the frame.
-        virtual void setClusterShadowAtlas(Texture* atlas) { (void)atlas; }
+        virtual void setClusterShadowAtlas(Texture* atlas)
+        {
+            (void)atlas;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setClusterShadowAtlas");
+        }
 
         /// Set atmosphere uniforms for Nishita sky scattering.
         /// data must point to an AtmosphereUniforms-compatible struct (96 bytes).
-        virtual void setAtmosphereUniforms(const void* data, size_t size) { (void)data; (void)size; }
+        virtual void setAtmosphereUniforms(const void* data, size_t size)
+        {
+            (void)data; (void)size;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setAtmosphereUniforms");
+        }
 
         /// Enable/disable atmosphere scattering for the current frame.
         void setAtmosphereEnabled(bool value) { _atmosphereEnabled = value; }
@@ -551,12 +607,20 @@ namespace visutwin::canvas
         // hardware polygon-offset depth bias for shadow rendering.
         // Applied via setDepthState().
         // depthBias/slopeScale are in hardware depth-buffer units; clamp limits the maximum.
-        virtual void setDepthBias(float depthBias, float slopeScale, float clamp) {}
+        virtual void setDepthBias(float depthBias, float slopeScale, float clamp)
+        {
+            (void)depthBias; (void)slopeScale; (void)clamp;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setDepthBias");
+        }
 
         /// Set the indirect draw buffer for the next draw call (GPU-driven instancing).
         /// The buffer is consumed (reset to nullptr) after one indirect draw.
         /// nativeBuffer is a backend-specific GPU buffer handle.
-        virtual void setIndirectDrawBuffer(void* nativeBuffer) { (void)nativeBuffer; }
+        virtual void setIndirectDrawBuffer(void* nativeBuffer)
+        {
+            (void)nativeBuffer;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setIndirectDrawBuffer");
+        }
 
         /// Bind the dynamic batch matrix palette for the next draw call.
         /// data: float4x4 array (16 floats per bone), size: byte count.
@@ -565,6 +629,7 @@ namespace visutwin::canvas
         {
             (void)data;
             (void)size;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setDynamicBatchPalette");
         }
 
         /// Bind morph target state for the next draw call (consumed by one draw).
@@ -576,6 +641,7 @@ namespace visutwin::canvas
             (void)deltaBuffer;
             (void)params;
             (void)paramsSize;
+            VT_DEVICE_FEATURE_UNSUPPORTED("setMorphState");
         }
 
         /// GPU pass profiler (nullptr when the backend/device doesn't support one).
@@ -585,7 +651,11 @@ namespace visutwin::canvas
         /// Advance a GPU particle emitter one simulation step (compute dispatch on
         /// its own command buffer, ordered before this frame's render encoding).
         virtual void simulateParticles(const std::shared_ptr<VertexBuffer>& particles,
-            const GpuParticleSimParams& params) { (void)particles; (void)params; }
+            const GpuParticleSimParams& params)
+        {
+            (void)particles; (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("simulateParticles");
+        }
 
         /// Bind particle emitter state for the next draw call (consumed by one draw).
         /// particles: GpuParticle pool (vertex slot 7); params: GpuParticleRenderParams
@@ -750,13 +820,21 @@ namespace visutwin::canvas
         /// Scene color grab (dynamic refraction): copy the current scene color into a
         /// mipmapped texture bound at fragment slot 22. Backend-implemented; the base
         /// class only stores the published texture.
-        virtual void grabSceneColor(RenderTarget* source) { (void)source; }
+        virtual void grabSceneColor(RenderTarget* source)
+        {
+            (void)source;
+            VT_DEVICE_FEATURE_UNSUPPORTED("grabSceneColor");
+        }
         Texture* sceneColorMap() const { return _sceneColorMap; }
         void setSceneColorMap(Texture* colorMap) { _sceneColorMap = colorMap; }
 
         /// Copy the post-opaque scene depth into a sampleable texture (for SSR),
         /// avoiding the feedback of sampling the still-attached depth buffer.
-        virtual void grabSceneDepth(RenderTarget* source) { (void)source; }
+        virtual void grabSceneDepth(RenderTarget* source)
+        {
+            (void)source;
+            VT_DEVICE_FEATURE_UNSUPPORTED("grabSceneDepth");
+        }
         Texture* sceneDepthGrabMap() const { return _sceneDepthGrabMap; }
         void setSceneDepthGrabMap(Texture* depthMap) { _sceneDepthGrabMap = depthMap; }
 
@@ -764,7 +842,11 @@ namespace visutwin::canvas
         /// pass on its own command buffer. Used after reflection-probe scene
         /// capture, where the forward pass fills only level 0 of each cube face
         /// and the probe shader samples coarser mips for higher roughness.
-        virtual void generateCubemapMips(Texture* cubemap) { (void)cubemap; }
+        virtual void generateCubemapMips(Texture* cubemap)
+        {
+            (void)cubemap;
+            VT_DEVICE_FEATURE_UNSUPPORTED("generateCubemapMips");
+        }
 
         // DEVIATION: planar reflection texture, set by application-level code.
         // Upstream handles this in the planarRenderer script; we promote it to
@@ -820,24 +902,82 @@ namespace visutwin::canvas
         virtual void endGpuCullBatch() {}
 
         virtual std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) = 0;
-        virtual void executeComposePass(const ComposePassParams& params) {}
+        virtual void executeComposePass(const ComposePassParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("executeComposePass");
+        }
         virtual void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
             const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
             const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
-            bool highQuality, bool historyValid) {}
-        virtual void executeSsaoPass(const SsaoPassParams& params) {}
-        virtual void executeVolumetricFogPass(const VolumetricFogPassParams& params) { (void)params; }
-        virtual void executeVolumetricFogCombinePass(const VolumetricFogCombineParams& params) { (void)params; }
-        virtual void executeCoCPass(const CoCPassParams& params) {}
-        virtual void executeDofBlurPass(const DofBlurPassParams& params) {}
-        virtual void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) {}
-        virtual void executeVsmBlurPass(const VsmBlurPassParams& params, bool horizontal) {}
-        virtual void generateEnvReproject(const EnvReprojectPassParams& params) { (void)params; }
-        virtual void generateEnvConvolve(const EnvConvolvePassParams& params) { (void)params; }
-        virtual void generateEnvAtlas(const EnvAtlasBakeParams& params) { (void)params; }
-        virtual void generateEquirectToCubemap(const EquirectToCubeParams& params) { (void)params; }
+            bool highQuality, bool historyValid)
+        {
+            (void)sourceTexture; (void)historyTexture; (void)depthTexture;
+            (void)viewProjectionPrevious; (void)viewProjectionInverse;
+            (void)jitters; (void)cameraParams; (void)highQuality; (void)historyValid;
+            VT_DEVICE_FEATURE_UNSUPPORTED("executeTAAPass");
+        }
+        virtual void executeSsaoPass(const SsaoPassParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("executeSsaoPass");
+        }
+        virtual void executeVolumetricFogPass(const VolumetricFogPassParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("executeVolumetricFogPass");
+        }
+        virtual void executeVolumetricFogCombinePass(const VolumetricFogCombineParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("executeVolumetricFogCombinePass");
+        }
+        virtual void executeCoCPass(const CoCPassParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("executeCoCPass");
+        }
+        virtual void executeDofBlurPass(const DofBlurPassParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("executeDofBlurPass");
+        }
+        virtual void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal)
+        {
+            (void)params; (void)horizontal;
+            VT_DEVICE_FEATURE_UNSUPPORTED("executeDepthAwareBlurPass");
+        }
+        virtual void executeVsmBlurPass(const VsmBlurPassParams& params, bool horizontal)
+        {
+            (void)params; (void)horizontal;
+            VT_DEVICE_FEATURE_UNSUPPORTED("executeVsmBlurPass");
+        }
+        virtual void generateEnvReproject(const EnvReprojectPassParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("generateEnvReproject");
+        }
+        virtual void generateEnvConvolve(const EnvConvolvePassParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("generateEnvConvolve");
+        }
+        virtual void generateEnvAtlas(const EnvAtlasBakeParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("generateEnvAtlas");
+        }
+        virtual void generateEquirectToCubemap(const EquirectToCubeParams& params)
+        {
+            (void)params;
+            VT_DEVICE_FEATURE_UNSUPPORTED("generateEquirectToCubemap");
+        }
         virtual bool supportsCompute() const { return false; }
-        virtual void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") {}
+        virtual void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "")
+        {
+            (void)computes; (void)label;
+            VT_DEVICE_FEATURE_UNSUPPORTED("computeDispatch");
+        }
 
         void addTexture(const std::shared_ptr<Texture>& texture)
         {

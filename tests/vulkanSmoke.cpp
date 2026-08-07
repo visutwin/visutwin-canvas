@@ -81,10 +81,70 @@ namespace visutwin::canvas
                 1, std::memory_order_relaxed);
         }
     };
+
+    // Every BlendState factor must map to the Vulkan factor that means the same thing.
+    // This is checked in isolation because the dual-source factors have no end-to-end
+    // coverage yet: nothing on the Vulkan side can emit a second colour output while
+    // ShaderMaterial remains MSL-only, so a wrong mapping would not show up in any
+    // rendered frame. It previously did not: the SRC1_* factors were unmapped and fell
+    // through to VK_BLEND_FACTOR_ONE, blending plausibly but incorrectly.
+    bool checkBlendFactorMapping()
+    {
+        const std::pair<int, VkBlendFactor> expected[] = {
+            {BLENDMODE_ZERO,                 VK_BLEND_FACTOR_ZERO},
+            {BLENDMODE_ONE,                  VK_BLEND_FACTOR_ONE},
+            {BLENDMODE_SRC_COLOR,            VK_BLEND_FACTOR_SRC_COLOR},
+            {BLENDMODE_ONE_MINUS_SRC_COLOR,  VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR},
+            {BLENDMODE_DST_COLOR,            VK_BLEND_FACTOR_DST_COLOR},
+            {BLENDMODE_ONE_MINUS_DST_COLOR,  VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR},
+            {BLENDMODE_SRC_ALPHA,            VK_BLEND_FACTOR_SRC_ALPHA},
+            {BLENDMODE_SRC_ALPHA_SATURATE,   VK_BLEND_FACTOR_SRC_ALPHA_SATURATE},
+            {BLENDMODE_ONE_MINUS_SRC_ALPHA,  VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA},
+            {BLENDMODE_DST_ALPHA,            VK_BLEND_FACTOR_DST_ALPHA},
+            {BLENDMODE_ONE_MINUS_DST_ALPHA,  VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA},
+            {BLENDMODE_CONSTANT,             VK_BLEND_FACTOR_CONSTANT_COLOR},
+            {BLENDMODE_ONE_MINUS_CONSTANT,   VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR},
+            {BLENDMODE_SRC1_COLOR,           VK_BLEND_FACTOR_SRC1_COLOR},
+            {BLENDMODE_ONE_MINUS_SRC1_COLOR, VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR},
+            {BLENDMODE_SRC1_ALPHA,           VK_BLEND_FACTOR_SRC1_ALPHA},
+            {BLENDMODE_ONE_MINUS_SRC1_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA},
+        };
+        for (const auto& [factor, want] : expected) {
+            if (vulkanMapBlendFactor(factor) != want) {
+                spdlog::error("Vulkan smoke: blend factor {} mapped to {}, expected {}",
+                    factor, static_cast<int>(vulkanMapBlendFactor(factor)),
+                    static_cast<int>(want));
+                return false;
+            }
+        }
+
+        // The dualSrcBlend-less degradation must land on the same-coloured
+        // single-source factor, and must leave every other factor alone.
+        const std::pair<int, int> degraded[] = {
+            {BLENDMODE_SRC1_COLOR,           BLENDMODE_SRC_COLOR},
+            {BLENDMODE_ONE_MINUS_SRC1_COLOR, BLENDMODE_ONE_MINUS_SRC_COLOR},
+            {BLENDMODE_SRC1_ALPHA,           BLENDMODE_SRC_ALPHA},
+            {BLENDMODE_ONE_MINUS_SRC1_ALPHA, BLENDMODE_ONE_MINUS_SRC_ALPHA},
+            {BLENDMODE_ONE,                  BLENDMODE_ONE},
+            {BLENDMODE_DST_COLOR,            BLENDMODE_DST_COLOR},
+        };
+        for (const auto& [factor, want] : degraded) {
+            if (blendFactorWithoutSrc1(factor) != want) {
+                spdlog::error("Vulkan smoke: blendFactorWithoutSrc1({}) = {}, expected {}",
+                    factor, blendFactorWithoutSrc1(factor), want);
+                return false;
+            }
+        }
+        return true;
+    }
 }
 
 int main()
 {
+    if (!checkBlendFactorMapping()) {
+        return 1;
+    }
+
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         spdlog::error("Vulkan smoke: SDL_Init failed: {}", SDL_GetError());
         return 1;

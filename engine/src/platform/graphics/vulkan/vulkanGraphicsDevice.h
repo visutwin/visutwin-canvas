@@ -167,6 +167,13 @@ namespace visutwin::canvas
         // Anisotropic filtering: 1.0 when the device lacks samplerAnisotropy.
         [[nodiscard]] float maxSamplerAnisotropy() const { return _maxSamplerAnisotropy; }
 
+        // True when the optional dualSrcBlend device feature was available and
+        // enabled at device creation, so VK_BLEND_FACTOR_SRC1_* may be used.
+        [[nodiscard]] bool supportsDualSourceBlending() const override
+        {
+            return _dualSrcBlendEnabled;
+        }
+
         // Expires when the device is destroyed. Resource destructors that can
         // outlive the device (shaders/textures held by static caches torn down
         // at process exit) must lock this before touching VkDevice — a dead
@@ -219,6 +226,13 @@ namespace visutwin::canvas
         void destroyDepthResources();
         void createPerFrameResources();
         void destroyPerFrameResources();
+
+        // Destroy the four constructor-created samplers, nulling each handle so
+        // the call is idempotent. Both teardown paths — the destructor and
+        // cleanupPartialInitialization() — go through here: when each kept its
+        // own list they drifted, and _materialExtraSampler leaked on every
+        // normal device teardown.
+        void destroySamplers() noexcept;
         [[nodiscard]] bool createSwapchainSemaphores();
         void destroySwapchainSemaphores();
 
@@ -528,6 +542,8 @@ namespace visutwin::canvas
         // Anisotropic-filtering support, resolved at device creation.
         bool _samplerAnisotropyEnabled = false;
         float _maxSamplerAnisotropy = 1.0f;
+        bool _dualSrcBlendEnabled = false;
+        uint32_t _maxDualSrcDrawBuffers = 0;
 
         // Dies with the device — see aliveToken().
         std::shared_ptr<bool> _aliveToken = std::make_shared<bool>(true);

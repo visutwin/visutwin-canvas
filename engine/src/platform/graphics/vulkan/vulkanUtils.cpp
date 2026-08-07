@@ -313,7 +313,29 @@ namespace visutwin::canvas
         case BLENDMODE_ONE_MINUS_DST_ALPHA:   return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
         case BLENDMODE_CONSTANT:              return VK_BLEND_FACTOR_CONSTANT_COLOR;
         case BLENDMODE_ONE_MINUS_CONSTANT:    return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
-        default:                              return VK_BLEND_FACTOR_ONE;
+        // Dual-source factors read the fragment shader's second colour output
+        // (location 0, index 1). Only legal when the dualSrcBlend device feature
+        // was enabled — VulkanRenderPipeline checks that before mapping.
+        case BLENDMODE_SRC1_COLOR:            return VK_BLEND_FACTOR_SRC1_COLOR;
+        case BLENDMODE_ONE_MINUS_SRC1_COLOR:  return VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;
+        case BLENDMODE_SRC1_ALPHA:            return VK_BLEND_FACTOR_SRC1_ALPHA;
+        case BLENDMODE_ONE_MINUS_SRC1_ALPHA:  return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+        default:
+            // Silently substituting ONE for an unmapped factor produced blending
+            // that looked plausible but was wrong; name the offender instead.
+            spdlog::warn("Vulkan: unmapped blend factor {}, falling back to ONE", factor);
+            return VK_BLEND_FACTOR_ONE;
+        }
+    }
+
+    int blendFactorWithoutSrc1(const int factor)
+    {
+        switch (factor) {
+        case BLENDMODE_SRC1_COLOR:           return BLENDMODE_SRC_COLOR;
+        case BLENDMODE_ONE_MINUS_SRC1_COLOR: return BLENDMODE_ONE_MINUS_SRC_COLOR;
+        case BLENDMODE_SRC1_ALPHA:           return BLENDMODE_SRC_ALPHA;
+        case BLENDMODE_ONE_MINUS_SRC1_ALPHA: return BLENDMODE_ONE_MINUS_SRC_ALPHA;
+        default:                             return factor;
         }
     }
 

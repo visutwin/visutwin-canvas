@@ -51,6 +51,11 @@ namespace visutwin::canvas
     VkPrimitiveTopology vulkanMapPrimitiveType(PrimitiveType type);
     VkBlendFactor vulkanMapBlendFactor(int factor);
     VkBlendOp vulkanMapBlendOp(int op);
+
+    // Nearest single-source equivalent of a BLENDMODE_SRC1_* factor, used to degrade
+    // a dual-source blend state on a device without the dualSrcBlend feature. Any
+    // other factor passes through unchanged.
+    int blendFactorWithoutSrc1(int factor);
     VkCompareOp vulkanMapStencilCompare(StencilCompareFunction function);
     VkStencilOp vulkanMapStencilOperation(StencilOperation operation);
     bool vulkanFormatHasStencil(VkFormat format);

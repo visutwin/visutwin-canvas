@@ -449,6 +449,22 @@ namespace visutwin::canvas
         spdlog::info("VulkanGraphicsDevice initialized ({}x{})", _width, _height);
     }
 
+    void VulkanGraphicsDevice::destroySamplers() noexcept
+    {
+        if (_device == VK_NULL_HANDLE) return;
+
+        // Keep this list exhaustive: it is the ONLY place the constructor's
+        // samplers are released, so a new sampler that is not added here leaks
+        // on every device teardown.
+        for (VkSampler* sampler : {&_shadowSampler, &_envSampler,
+                 &_materialExtraSampler, &_defaultSampler}) {
+            if (*sampler != VK_NULL_HANDLE) {
+                vkDestroySampler(_device, *sampler, nullptr);
+                *sampler = VK_NULL_HANDLE;
+            }
+        }
+    }
+
     VulkanGraphicsDevice::~VulkanGraphicsDevice()
     {
         flushUploads();
@@ -486,12 +502,7 @@ namespace visutwin::canvas
             vkDestroyDescriptorPool(_device, _persistentDescriptorPool, nullptr);
         _uniformRing.reset();
 
-        if (_shadowSampler != VK_NULL_HANDLE)
-            vkDestroySampler(_device, _shadowSampler, nullptr);
-        if (_envSampler != VK_NULL_HANDLE)
-            vkDestroySampler(_device, _envSampler, nullptr);
-        if (_defaultSampler != VK_NULL_HANDLE)
-            vkDestroySampler(_device, _defaultSampler, nullptr);
+        destroySamplers();
         if (_whiteImageView != VK_NULL_HANDLE)
             vkDestroyImageView(_device, _whiteImageView, nullptr);
         if (_whiteImage != VK_NULL_HANDLE)
@@ -560,22 +571,7 @@ namespace visutwin::canvas
                     _device, _persistentDescriptorPool, nullptr);
                 _persistentDescriptorPool = VK_NULL_HANDLE;
             }
-            if (_shadowSampler != VK_NULL_HANDLE) {
-                vkDestroySampler(_device, _shadowSampler, nullptr);
-                _shadowSampler = VK_NULL_HANDLE;
-            }
-            if (_envSampler != VK_NULL_HANDLE) {
-                vkDestroySampler(_device, _envSampler, nullptr);
-                _envSampler = VK_NULL_HANDLE;
-            }
-            if (_materialExtraSampler != VK_NULL_HANDLE) {
-                vkDestroySampler(_device, _materialExtraSampler, nullptr);
-                _materialExtraSampler = VK_NULL_HANDLE;
-            }
-            if (_defaultSampler != VK_NULL_HANDLE) {
-                vkDestroySampler(_device, _defaultSampler, nullptr);
-                _defaultSampler = VK_NULL_HANDLE;
-            }
+            destroySamplers();
             if (_whiteImageView != VK_NULL_HANDLE) {
                 vkDestroyImageView(_device, _whiteImageView, nullptr);
                 _whiteImageView = VK_NULL_HANDLE;
@@ -743,9 +739,26 @@ namespace visutwin::canvas
         _samplerAnisotropyEnabled = supported.samplerAnisotropy == VK_TRUE;
         _maxSamplerAnisotropy = _samplerAnisotropyEnabled
             ? std::min(16.0f, props.limits.maxSamplerAnisotropy) : 1.0f;
+
+        // Dual-source blending (the BLENDMODE_SRC1_* factors) is an optional
+        // Vulkan feature and must be enabled at device creation before
+        // VK_BLEND_FACTOR_SRC1_* may appear in any pipeline. Opt in whenever the
+        // hardware offers it; supportsDualSourceBlending() reports the result so
+        // callers can check before building such a blend state.
+        _dualSrcBlendEnabled = supported.dualSrcBlend == VK_TRUE;
+        _maxDualSrcDrawBuffers = _dualSrcBlendEnabled
+            ? props.limits.maxFragmentDualSrcAttachments : 0;
+        if (_dualSrcBlendEnabled) {
+            spdlog::info("Vulkan dual-source blending: enabled "
+                "(maxFragmentDualSrcAttachments={})", _maxDualSrcDrawBuffers);
+        } else {
+            spdlog::info("Vulkan dual-source blending: unsupported by this device");
+        }
+
         VkPhysicalDeviceFeatures2 features2{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
         features2.features.samplerAnisotropy = _samplerAnisotropyEnabled ? VK_TRUE : VK_FALSE;
+        features2.features.dualSrcBlend = _dualSrcBlendEnabled ? VK_TRUE : VK_FALSE;
 
         vkb::DeviceBuilder deviceBuilder{vkbPhysical};
         deviceBuilder.add_pNext(&features13);
