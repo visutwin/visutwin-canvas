@@ -160,9 +160,19 @@ int main()
 
     // ImGui overlay + MiniStats HUD. The HUD hooks the engine's "postrender" event, so nothing
     // else has to be called per frame.
+    // The overlay is implemented with imgui_impl_metal, so it only works on a Metal
+    // device. Both backends can be compiled in and picked at runtime (VISUTWIN_BACKEND),
+    // and the unchecked static_cast here handed ImGui_ImplMetal_Init a Vulkan device —
+    // a segfault at startup that made this example unusable on Vulkan.
     ImGuiOverlay overlay;
-    overlay.init(static_cast<MetalGraphicsDevice*>(graphicsDevice.get()), window);
-    MiniStats miniStats(engine, &overlay);
+    auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(graphicsDevice.get());
+    if (metalDevice) {
+        overlay.init(metalDevice, window);
+    } else {
+        spdlog::warn("ImGui overlay and the MiniStats HUD need a Metal device; "
+            "skipping them on this backend.");
+    }
+    MiniStats miniStats(engine, metalDevice ? &overlay : nullptr);
 
     auto scene = engine->scene();
 

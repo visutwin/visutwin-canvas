@@ -22,6 +22,8 @@
 #include "framework/engine.h"
 #include "log.h"
 #include "framework/appOptions.h"
+#include <vector>
+
 #include "framework/assets/asset.h"
 #include "framework/components/animation/animationComponent.h"
 #include "framework/components/animation/animationComponentSystem.h"
@@ -48,9 +50,19 @@ using namespace visutwin::canvas;
 
 const std::string rootPath = ASSET_DIR;
 
+// An Asset owns the textures, materials and meshes it loaded, and the entity that
+// instantiateRenderEntity() returns only holds RAW pointers into them (Material
+// stores Texture* — see the "remains valid until its Asset is" note in asset.h).
+// Keeping the Asset in a local unique_ptr therefore freed every texture the moment
+// loadGlb() returned, and the next frame's bindMaterialTextures dereferenced them:
+// an intermittent use-after-free that crashed roughly 3 runs in 5 on both backends.
+// Every other example keeps its Assets at file scope; these live just as long.
+std::vector<std::unique_ptr<Asset>> loadedAssets;
+
 Entity* loadGlb(Engine* engine, const char* name, const std::string& path)
 {
-    const auto asset = std::make_unique<Asset>(name, AssetType::CONTAINER, path, AssetData{});
+    auto& asset = loadedAssets.emplace_back(
+        std::make_unique<Asset>(name, AssetType::CONTAINER, path, AssetData{}));
     const auto resource = asset->resource();
     if (!resource) {
         spdlog::error("Failed to load {}", path);

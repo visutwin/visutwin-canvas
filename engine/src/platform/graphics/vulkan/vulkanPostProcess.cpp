@@ -329,8 +329,16 @@ namespace visutwin::canvas
                     vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
                     view = vkTex->imageView();
                     if (vkTex->isDepth()) {
-                        imageLayout =
-                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+                        // Depth reaches a post pass in one of two read-only layouts:
+                        // endRenderPass leaves a texture-backed depth attachment in
+                        // SHADER_READ_ONLY_OPTIMAL, while grabSceneDepth leaves its copy
+                        // in DEPTH_STENCIL_READ_ONLY_OPTIMAL. Hard-coding the latter made
+                        // every post draw that samples depth a layout mismatch. Use the
+                        // layout the texture is actually tracked in.
+                        const VkImageLayout tracked = vkTex->layout(0, 0);
+                        imageLayout = tracked == VK_IMAGE_LAYOUT_UNDEFINED
+                            ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                            : tracked;
                     }
                 }
             }

@@ -893,11 +893,20 @@ namespace visutwin::canvas
         // Set 3: scene textures.  Binding 0 = environment atlas (or white
         // fallback) read through the dedicated clamp-to-edge env sampler.
         {
+            // These set-3 slots are declared sampler2D, so their view must be a plain
+            // 2D view. Under clustered lighting a shadow-casting spot's "shadow map" is
+            // a slice of the ClusterShadowAtlas — a real texture2d_array now that
+            // VulkanTexture honours arrayLength — whose view is VIEW_TYPE_2D_ARRAY and
+            // cannot legally bind here. Vulkan has no clustered-atlas sampler yet
+            // (setClusterShadowAtlas is still unimplemented), so fall back to the white
+            // texture: those lights read unshadowed, which is what they already did when
+            // the atlas was silently collapsed to a single layer.
             auto resolveView = [this](Texture* tex) -> VkImageView {
                 if (tex) {
                     auto* vkTex =
                         static_cast<gpu::VulkanTexture*>(tex->impl());
-                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE &&
+                        vkTex->arrayLayers() <= 1) {
                         return vkTex->imageView();
                     }
                 }

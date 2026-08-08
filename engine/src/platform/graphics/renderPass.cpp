@@ -13,8 +13,18 @@ namespace visutwin::canvas
     void RenderPass::frameUpdate() const
     {
         if (_options != nullptr && _renderTarget != nullptr) {
-            if (const auto* resizeSource = _options->resizeSource != nullptr ? _options->resizeSource.get() : _device->backBuffer()->getColorBuffer(0))
-            {
+            // With no explicit resizeSource the pass follows the back buffer. Only the
+            // Metal backend publishes a back-buffer RenderTarget, so on Vulkan this is
+            // null and dereferencing it segfaulted the whole camera-frame subtree —
+            // taking post-processing, DOF and bloom down with it on the first frame.
+            // Falling through with a null source skips the resize, which is the
+            // documented contract: RenderPassCameraFrame::frameUpdate() resizes its own
+            // scene targets from the device size precisely for this case.
+            const auto& backBuffer = _device->backBuffer();
+            const Texture* resizeSource = _options->resizeSource != nullptr
+                ? _options->resizeSource.get()
+                : (backBuffer != nullptr ? backBuffer->getColorBuffer(0) : nullptr);
+            if (resizeSource) {
                 const auto width = std::floor(resizeSource->width() * scaleX());
                 const auto height = std::floor(resizeSource->height() * scaleY());
                 _renderTarget->resize(width, height);

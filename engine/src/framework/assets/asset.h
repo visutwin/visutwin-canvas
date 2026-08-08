@@ -97,6 +97,14 @@ namespace visutwin::canvas
         void unload();
 
         /// Synchronous load — blocks until the resource is ready.
+        ///
+        /// The returned Resource is a BORROWED pointer owned by this Asset, and so is
+        /// everything reachable through it: an entity from
+        /// ContainerResource::instantiateRenderEntity() keeps raw Texture* in its
+        /// materials, not owning handles. The Asset must therefore outlive every entity
+        /// built from it — letting one die at the end of a loader function frees the
+        /// textures out from under the next frame's draw, which surfaces as an
+        /// intermittent crash in the backend's material texture binding.
         std::optional<Resource> resource();
 
         /**
