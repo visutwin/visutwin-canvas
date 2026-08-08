@@ -174,6 +174,13 @@ namespace visutwin::canvas
             return _dualSrcBlendEnabled;
         }
 
+        // Engine-supplied shader source must be GLSL; createShader compiles it
+        // with shaderc at runtime and rejects MSL outright.
+        [[nodiscard]] ShaderLanguage shaderLanguage() const override
+        {
+            return ShaderLanguage::Glsl;
+        }
+
         // Expires when the device is destroyed. Resource destructors that can
         // outlive the device (shaders/textures held by static caches torn down
         // at process exit) must lock this before touching VkDevice — a dead

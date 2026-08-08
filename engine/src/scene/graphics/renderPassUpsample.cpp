@@ -67,6 +67,51 @@ fragment float4 upsampleFragment(
     return float4(value, 1.0);
 }
 )";
+
+        // GLSL port for the Vulkan backend — same tent weights. The quad source arrives
+        // via setQuadTextureBinding(0), bound at set 1 / binding 0; UVs need no flip
+        // because the Vulkan backend renders through a negative-height viewport.
+        constexpr const char* UPSAMPLE_GLSL_SOURCE = R"(
+#version 450
+
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 2) in vec2 vertexUv0;
+layout(location = 0) out vec2 vUv;
+void main() {
+    vUv = vertexUv0;
+    gl_Position = vec4(vertexPosition, 1.0);
+}
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 fragColor;
+void main() {
+    // 3x3 tent filter upsample, same weights as the MSL variant above.
+    vec2 texel = 1.0 / vec2(textureSize(sourceTexture, 0));
+    vec2 uv = clamp(vUv, vec2(0.0), vec2(1.0));
+    float x = texel.x;
+    float y = texel.y;
+
+    vec3 a = texture(sourceTexture, uv + vec2(-x,  y)).rgb;
+    vec3 b = texture(sourceTexture, uv + vec2(0.0, y)).rgb;
+    vec3 c = texture(sourceTexture, uv + vec2( x,  y)).rgb;
+    vec3 d = texture(sourceTexture, uv + vec2(-x, 0.0)).rgb;
+    vec3 e = texture(sourceTexture, uv                ).rgb;
+    vec3 f = texture(sourceTexture, uv + vec2( x, 0.0)).rgb;
+    vec3 g = texture(sourceTexture, uv + vec2(-x, -y)).rgb;
+    vec3 h = texture(sourceTexture, uv + vec2(0.0, -y)).rgb;
+    vec3 i = texture(sourceTexture, uv + vec2( x, -y)).rgb;
+
+    vec3 value = e * 0.25;
+    value += (b + d + f + h) * 0.125;
+    value += (a + c + g + i) * 0.0625;
+    fragColor = vec4(value, 1.0);
+}
+#endif
+)";
     }
 
     RenderPassUpsample::RenderPassUpsample(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture)
@@ -80,7 +125,10 @@ fragment float4 upsampleFragment(
             shaderDefinition.name = CACHE_KEY;
             shaderDefinition.vshader = "upsampleVertex";
             shaderDefinition.fshader = "upsampleFragment";
-            cached = createShader(device.get(), shaderDefinition, UPSAMPLE_SOURCE);
+            cached = createShader(device.get(), shaderDefinition,
+                device->shaderLanguage() == ShaderLanguage::Glsl
+                    ? UPSAMPLE_GLSL_SOURCE
+                    : UPSAMPLE_SOURCE);
             device->setCachedShader(CACHE_KEY, cached);
         }
         setShader(cached);

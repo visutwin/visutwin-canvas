@@ -43,6 +43,20 @@ namespace visutwin::canvas
     void logUnsupportedDeviceFeature(const char* name);
 
     /**
+     * @brief Shader source language a backend's createShader() accepts.
+     *
+     * Engine code that carries its own shader source (the post-processing quad
+     * passes, the outline extras) keeps one string per language and selects with
+     * GraphicsDevice::shaderLanguage(). Handing a backend the wrong language is a
+     * hard error, not a fallback.
+     */
+    enum class ShaderLanguage
+    {
+        Msl,
+        Glsl,
+    };
+
+    /**
      * @brief Marks a GraphicsDevice entry point a backend has not implemented.
      *
      * The base-class bodies of the optional device virtuals are empty, so a backend
@@ -588,6 +602,14 @@ namespace visutwin::canvas
         /// Enable/disable atmosphere scattering for the current frame.
         void setAtmosphereEnabled(bool value) { _atmosphereEnabled = value; }
         bool atmosphereEnabled() const { return _atmosphereEnabled; }
+
+        /// Source language this device's createShader() accepts for engine-supplied
+        /// shader source. Metal is the default because MSL was the only language
+        /// before the Vulkan backend existed.
+        [[nodiscard]] virtual ShaderLanguage shaderLanguage() const
+        {
+            return ShaderLanguage::Msl;
+        }
 
         /// Create a backend-specific shader from a definition and optional source code.
         /// Backends override this to return their own Shader subclass (e.g., MetalShader).

@@ -856,6 +856,31 @@ namespace visutwin::canvas
                 }
             }
 
+            // Quad passes (bloom downsample, outline extend/blend) carry no
+            // material — their inputs arrive through setQuadTextureBinding.
+            // Mirror the Metal backend, which binds those to fragment texture
+            // slots 0..7: here the same indices are set-1 bindings, so a quad
+            // shader declares its source at (set = 1, binding = 0). Only the
+            // slots this layout actually has are reachable.
+            for (size_t slotIndex = 0; slotIndex < materialSlots.size(); ++slotIndex) {
+                const int slot = materialSlots[slotIndex];
+                if (slot < 0 || slot >= static_cast<int>(quadTextureBindings().size())) {
+                    continue;
+                }
+                Texture* quadTexture = quadTextureBinding(static_cast<size_t>(slot));
+                if (!quadTexture) {
+                    continue;
+                }
+                auto* vkTex = static_cast<gpu::VulkanTexture*>(quadTexture->impl());
+                if (!vkTex || vkTex->imageView() == VK_NULL_HANDLE) {
+                    continue;
+                }
+                imageInfos[slotIndex].imageView = vkTex->imageView();
+                if (!isSeparateImageSlot(slot) && vkTex->sampler() != VK_NULL_HANDLE) {
+                    imageInfos[slotIndex].sampler = vkTex->sampler();
+                }
+            }
+
             const VkDescriptorSet texSet = getOrCreateImageDescriptorSet(
                 _renderPipeline->textureSetLayout(), imageInfos);
             if (texSet == VK_NULL_HANDLE) {

@@ -127,6 +127,80 @@ fragment float4 outlineBlendFragment(
 }
 )";
 
+        // GLSL ports for the Vulkan backend (runtime shaderc). Identical taps and
+        // weights; the source texture arrives via setQuadTextureBinding(0), which the
+        // Vulkan draw path binds at set 1 / binding 0. The quad's UVs need no flip —
+        // the Vulkan backend uses a negative-height viewport, so NDC +Y is up as on Metal.
+        constexpr const char* OUTLINE_EXTEND_GLSL_TEMPLATE = R"(
+#version 450
+
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 2) in vec2 vertexUv0;
+layout(location = 0) out vec2 vUv;
+void main() {
+    vUv = vertexUv0;
+    gl_Position = vec4(vertexPosition, 1.0);
+}
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 fragColor;
+void main() {
+    vec2 texel = 1.0 / vec2(textureSize(sourceTexture, 0));
+    vec2 offset = vec2(%DIR_X%, %DIR_Y%) * texel * 0.5;
+    float srcMultiplier = %SRC_MULT%;
+
+    vec4 texelValue = texture(sourceTexture, vUv);
+    vec4 firstTexel = texelValue;
+    float diff = texelValue.a * srcMultiplier;
+
+    vec4 pixel = texture(sourceTexture, vUv + offset * -2.0);
+    texelValue = max(texelValue, pixel);
+    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
+
+    pixel = texture(sourceTexture, vUv + offset * -1.0);
+    texelValue = max(texelValue, pixel);
+    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
+
+    pixel = texture(sourceTexture, vUv + offset * 1.0);
+    texelValue = max(texelValue, pixel);
+    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
+
+    pixel = texture(sourceTexture, vUv + offset * 2.0);
+    texelValue = max(texelValue, pixel);
+    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
+
+    fragColor = vec4(texelValue.rgb, min(diff, 1.0));
+}
+#endif
+)";
+
+        constexpr const char* OUTLINE_BLEND_GLSL_SOURCE = R"(
+#version 450
+
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 2) in vec2 vertexUv0;
+layout(location = 0) out vec2 vUv;
+void main() {
+    vUv = vertexUv0;
+    gl_Position = vec4(vertexPosition, 1.0);
+}
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 fragColor;
+void main() {
+    fragColor = texture(sourceTexture, vUv);
+}
+#endif
+)";
+
         std::shared_ptr<Shader> buildExtendShader(GraphicsDevice* device,
             const char* cacheKey, const char* dirX, const char* dirY, const char* srcMult)
         {
@@ -134,7 +208,10 @@ fragment float4 outlineBlendFragment(
             if (cached) {
                 return cached;
             }
-            std::string source = OUTLINE_EXTEND_TEMPLATE;
+            std::string source =
+                device->shaderLanguage() == ShaderLanguage::Glsl
+                    ? OUTLINE_EXTEND_GLSL_TEMPLATE
+                    : OUTLINE_EXTEND_TEMPLATE;
             const auto replaceAll = [&source](const std::string& token, const std::string& value) {
                 for (size_t pos = source.find(token); pos != std::string::npos; pos = source.find(token)) {
                     source.replace(pos, token.size(), value);
@@ -200,7 +277,10 @@ fragment float4 outlineBlendFragment(
                 definition.name = "OutlineBlend";
                 definition.vshader = "outlineBlendVertex";
                 definition.fshader = "outlineBlendFragment";
-                cached = createShader(device.get(), definition, OUTLINE_BLEND_SOURCE);
+                cached = createShader(device.get(), definition,
+                    device->shaderLanguage() == ShaderLanguage::Glsl
+                        ? OUTLINE_BLEND_GLSL_SOURCE
+                        : OUTLINE_BLEND_SOURCE);
                 device->setCachedShader("OutlineBlend", cached);
             }
             _blendPass->setShader(cached);

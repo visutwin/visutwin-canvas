@@ -124,6 +124,94 @@ fragment float4 downsampleFragment(
     return float4(value, 1.0);
 }
 )";
+
+        // GLSL ports of the two variants above for the Vulkan backend, which compiles
+        // engine-supplied source with shaderc at runtime. Same weights and same clamps —
+        // only the binding syntax differs.
+        //
+        // The quad vertex buffer already holds NDC positions with Metal-oriented UVs, and
+        // the Vulkan backend renders through a negative-height viewport (so NDC +Y is up
+        // on both backends). uv0 therefore passes straight through with no flip.
+        //
+        // The source texture arrives via setQuadTextureBinding(0), which the Vulkan draw
+        // path binds at set 1 / binding 0 (the slot Metal uses for fragment texture 0).
+        constexpr const char* DOWNSAMPLE_GLSL_SIMPLE = R"(
+#version 450
+
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 2) in vec2 vertexUv0;
+layout(location = 0) out vec2 vUv;
+void main() {
+    vUv = vertexUv0;
+    gl_Position = vec4(vertexPosition, 1.0);
+}
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 fragColor;
+void main() {
+    // Single bilinear tap (2x2 averaged by the hardware sampler), then clamp away
+    // negative/invalid values so bloom & DOF cannot propagate NaN/Inf.
+    vec3 value = texture(sourceTexture, clamp(vUv, vec2(0.0), vec2(1.0))).rgb;
+    fragColor = vec4(max(value, vec3(0.0)), 1.0);
+}
+#endif
+)";
+
+        constexpr const char* DOWNSAMPLE_GLSL_KARIS = R"(
+#version 450
+
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 2) in vec2 vertexUv0;
+layout(location = 0) out vec2 vUv;
+void main() {
+    vUv = vertexUv0;
+    gl_Position = vec4(vertexPosition, 1.0);
+}
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 fragColor;
+void main() {
+    // 13-tap Karis partial-average, same weights as the MSL variant above.
+    vec2 texel = 1.0 / vec2(textureSize(sourceTexture, 0));
+    vec2 uv = clamp(vUv, vec2(0.0), vec2(1.0));
+    float x = texel.x;
+    float y = texel.y;
+
+    vec3 e = texture(sourceTexture, uv).rgb;
+
+    // outer ring (corners + mid-edges) at 2*texel offset
+    vec3 a = texture(sourceTexture, vec2(uv.x - 2.0 * x, uv.y + 2.0 * y)).rgb;
+    vec3 b = texture(sourceTexture, vec2(uv.x,           uv.y + 2.0 * y)).rgb;
+    vec3 c = texture(sourceTexture, vec2(uv.x + 2.0 * x, uv.y + 2.0 * y)).rgb;
+    vec3 d = texture(sourceTexture, vec2(uv.x - 2.0 * x, uv.y             )).rgb;
+    vec3 f = texture(sourceTexture, vec2(uv.x + 2.0 * x, uv.y             )).rgb;
+    vec3 g = texture(sourceTexture, vec2(uv.x - 2.0 * x, uv.y - 2.0 * y)).rgb;
+    vec3 h = texture(sourceTexture, vec2(uv.x,           uv.y - 2.0 * y)).rgb;
+    vec3 i = texture(sourceTexture, vec2(uv.x + 2.0 * x, uv.y - 2.0 * y)).rgb;
+
+    // inner diamond at texel offset (contributes half the total weight)
+    vec3 j = texture(sourceTexture, vec2(uv.x - x, uv.y + y)).rgb;
+    vec3 k = texture(sourceTexture, vec2(uv.x + x, uv.y + y)).rgb;
+    vec3 l = texture(sourceTexture, vec2(uv.x - x, uv.y - y)).rgb;
+    vec3 m = texture(sourceTexture, vec2(uv.x + x, uv.y - y)).rgb;
+
+    vec3 value = e * 0.125;
+    value += (a + c + g + i) * 0.03125;
+    value += (b + d + f + h) * 0.0625;
+    value += (j + k + l + m) * 0.125;
+
+    fragColor = vec4(max(value, vec3(0.0)), 1.0);
+}
+#endif
+)";
     }
 
     RenderPassDownsample::RenderPassDownsample(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture)
@@ -141,7 +229,10 @@ fragment float4 downsampleFragment(
         // the AGX compiled-variants footprint limit. Two cache entries because the two
         // filter variants (simple vs Karis) share symbol names but different bodies.
         const char* cacheKey = options.boxFilter ? "DownsampleQuad:Box" : "DownsampleQuad:Karis";
-        const char* sourceText = options.boxFilter ? DOWNSAMPLE_SOURCE_SIMPLE : DOWNSAMPLE_SOURCE_KARIS;
+        const bool glsl = device->shaderLanguage() == ShaderLanguage::Glsl;
+        const char* sourceText = options.boxFilter
+            ? (glsl ? DOWNSAMPLE_GLSL_SIMPLE : DOWNSAMPLE_SOURCE_SIMPLE)
+            : (glsl ? DOWNSAMPLE_GLSL_KARIS : DOWNSAMPLE_SOURCE_KARIS);
         auto cached = device->getCachedShader(cacheKey);
         if (!cached) {
             ShaderDefinition shaderDefinition;

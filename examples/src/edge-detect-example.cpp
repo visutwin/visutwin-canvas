@@ -480,12 +480,14 @@ int main()
         ShaderDefinition computeDef;
         computeDef.name = "EdgeDetectCompute";
         computeDef.cshader = "edgeDetectKernel";
+        // Both backends can be compiled in and selected at runtime (VISUTWIN_BACKEND),
+        // so the source must be chosen from the live device, not from a build-time
+        // #ifdef — that handed Metal the GLSL and failed every compile in a dual
+        // backend build.
         const char* computeSource =
-#ifdef VISUTWIN_HAS_VULKAN
-            EDGE_DETECT_COMPUTE_SOURCE_VULKAN;
-#else
-            EDGE_DETECT_COMPUTE_SOURCE_METAL;
-#endif
+            graphicsDevice->shaderLanguage() == ShaderLanguage::Glsl
+                ? EDGE_DETECT_COMPUTE_SOURCE_VULKAN
+                : EDGE_DETECT_COMPUTE_SOURCE_METAL;
         computeShader = createShader(graphicsDevice.get(), computeDef, computeSource);
         if (computeShader) {
             compute = std::make_unique<Compute>(graphicsDevice.get(), computeShader, "EdgeDetect");
