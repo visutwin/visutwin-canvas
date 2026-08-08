@@ -25,6 +25,8 @@ layout(location = 6) out vec4 fragColor;
 void main() {
     vec4 worldPos = pc.model * vec4(inPosition, 1.0);
     gl_Position = pc.viewProjection * worldPos;
+    // GL [-1,1] -> Vulkan [0,1] clip z. See forward.vert for why.
+    gl_Position.z = 0.5 * (gl_Position.z + gl_Position.w);
     gl_PointSize = 1.0;
 
     fragViewDepth = gl_Position.w;

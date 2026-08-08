@@ -82,6 +82,14 @@ void main() {
     }
     vec4 worldPos = pc.model * vec4(localPos, 1.0);
     gl_Position = pc.viewProjection * worldPos;
+    // Engine projections are GL-style: Matrix4::frustum/ortho produce NDC z in
+    // [-1,1], while Vulkan clips clip-space z to [0,w]. Remap here, exactly as
+    // the Metal chunks (forward-vertex.metal) and this backend's gsplat.vert /
+    // particle.vert already do. Without it Vulkan silently drops everything with
+    // NDC z < 0 -- the near half of every orthographic shadow volume -- and the
+    // depth it does store disagrees with the 0.5*z+0.5 that
+    // shadowRendererDirectional bakes into the shadow sample matrix.
+    gl_Position.z = 0.5 * (gl_Position.z + gl_Position.w);
 
     // clip.w == view-space Z for a standard perspective projection — used for
     // cascaded-shadow cascade selection in the fragment stage.

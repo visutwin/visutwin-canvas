@@ -48,6 +48,8 @@ void main() {
     applyMorph(position, normal);
     vec4 worldPos = pc.model * vec4(position, 1.0);
     gl_Position = pc.viewProjection * worldPos;
+    // GL [-1,1] -> Vulkan [0,1] clip z. See forward.vert for why.
+    gl_Position.z = 0.5 * (gl_Position.z + gl_Position.w);
     mat3 normalMatrix = mat3(pc.model);
     fragWorldPos = worldPos.xyz;
     fragWorldNormal = normalize(normalMatrix * normal);

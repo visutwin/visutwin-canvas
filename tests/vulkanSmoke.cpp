@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <cstdint>
 #include <exception>
@@ -840,6 +841,379 @@ void main() {
             device->draw(triangle);
             device->endRenderPass(&mrtPass);
             device->frameEnd();
+
+        // ------------------------------------------------------------------
+        // Depth-convention probe.
+        //
+        // Matrix4::frustum/ortho produce OpenGL-style clip space (NDC z in
+        // [-1,1]); Vulkan clips to [0,1] and this device sets depthClampEnable
+        // = VK_FALSE with no depth-clip-control extension. The Metal shader
+        // chunks remap with clip.z = 0.5*(clip.z+clip.w), and so do this
+        // backend's gsplat.vert and particle.vert — but the whole forward*.vert
+        // family does not. If that is a real defect, a fragment at NDC z = -0.5
+        // is silently dropped here while it would survive on Metal.
+        //
+        // Draw one full-viewport triangle per z into a 1x1-sampled target and
+        // read the pixel back: black means the fragment never landed.
+        {
+            const auto probeAtNdcZ = [&](const float ndcZ) -> std::array<uint8_t, 4> {
+                TextureOptions probeOptions{};
+                probeOptions.name = "vulkan-smoke-depth-probe";
+                probeOptions.width = 4;
+                probeOptions.height = 4;
+                probeOptions.mipmaps = false;
+                Texture probeColor(device.get(), probeOptions);
+
+                RenderTargetOptions probeTargetOptions{};
+                probeTargetOptions.graphicsDevice = device.get();
+                probeTargetOptions.colorBuffer = &probeColor;
+                probeTargetOptions.depth = true;
+                probeTargetOptions.name = "vulkan-smoke-depth-probe-target";
+                auto probeTarget = device->createRenderTarget(probeTargetOptions);
+
+                RenderPass probePass(sharedDevice);
+                probePass.init(probeTarget);
+                const Color black(0.0f, 0.0f, 0.0f, 1.0f);
+                probePass.setClearColor(&black);
+                probePass.setClearDepth(&clearDepth);
+
+                // gl_Position.z is the literal NDC z (w = 1), so this bypasses the
+                // projection entirely and tests only the clip rule.
+                const std::string probeSource = std::string(R"(
+#version 450
+#ifdef VT_VERTEX_SHADER
+layout(location=0) in vec3 vertexPosition;
+// x4 so the smoke test's centred triangle covers the whole 4x4 target.
+void main() { gl_Position = vec4(vertexPosition.xy * 4.0, )") + std::to_string(ndcZ) + R"(, 1.0); }
+#endif
+#ifdef VT_FRAGMENT_SHADER
+layout(location=0) out vec4 color0;
+void main() { color0 = vec4(1.0, 1.0, 1.0, 1.0); }
+#endif
+)";
+                auto probeShader = device->createShader(
+                    ShaderDefinition{.name = "vulkan-smoke-depth-probe"}, probeSource);
+
+                device->frameStart();
+                device->startRenderPass(&probePass);
+                device->setShader(probeShader);
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(Matrix4::identity(), Matrix4::identity());
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&probePass);
+                device->frameEnd();
+
+                // Copy texel (0,0) back to host memory.
+                std::array<uint8_t, 4> pixel{0, 0, 0, 0};
+                auto* vkProbe = dynamic_cast<gpu::VulkanTexture*>(probeColor.impl());
+                if (!vkProbe || vkProbe->image() == VK_NULL_HANDLE) {
+                    return pixel;
+                }
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = 4 * 4 * 4;
+                bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                VmaAllocationCreateInfo allocInfo{};
+                allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+                allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VkBuffer hostBuffer = VK_NULL_HANDLE;
+                VmaAllocation hostAllocation = nullptr;
+                VmaAllocationInfo hostMapped{};
+                if (vmaCreateBuffer(device->vmaAllocator(), &bufferInfo, &allocInfo,
+                        &hostBuffer, &hostAllocation, &hostMapped) != VK_SUCCESS) {
+                    return pixel;
+                }
+                device->enqueueUpload([vkProbe, hostBuffer](VkCommandBuffer cmd) {
+                    vkProbe->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+                    VkBufferImageCopy region{};
+                    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    region.imageSubresource.layerCount = 1;
+                    region.imageExtent = {4, 4, 1};
+                    vkCmdCopyImageToBuffer(cmd, vkProbe->image(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, hostBuffer, 1, &region);
+                    vkProbe->transitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+                });
+                device->flushUploads();
+                vkQueueWaitIdle(device->graphicsQueue());
+                if (hostMapped.pMappedData) {
+                    // Centre texel (2,2) of the 4x4 copy — a corner texel can fall
+                    // outside the triangle and read black for the wrong reason.
+                    const size_t centreOffset = (2 * 4 + 2) * 4;
+                    std::memcpy(pixel.data(),
+                        static_cast<const uint8_t*>(hostMapped.pMappedData) + centreOffset,
+                        pixel.size());
+                }
+                vmaDestroyBuffer(device->vmaAllocator(), hostBuffer, hostAllocation);
+                return pixel;
+            };
+
+            const auto inRange = probeAtNdcZ(0.5f);
+            const auto negative = probeAtNdcZ(-0.5f);
+            spdlog::info("Vulkan smoke: depth probe ndcZ=+0.5 -> rgba({},{},{},{})",
+                inRange[0], inRange[1], inRange[2], inRange[3]);
+            spdlog::info("Vulkan smoke: depth probe ndcZ=-0.5 -> rgba({},{},{},{})",
+                negative[0], negative[1], negative[2], negative[3]);
+
+            // Positive control. Without it a black result is meaningless — the first
+            // version of this probe read a corner texel the triangle never covered
+            // and reported "clipped" for both z values.
+            if (inRange[0] != 255) {
+                spdlog::error("Vulkan smoke: depth probe drew nothing at ndcZ=+0.5 — "
+                    "the probe or its readback is broken, not the depth range");
+                result = 1;
+            }
+            // Documents the current convention rather than asserting it is correct:
+            // GL-style clip z from Matrix4::frustum/ortho loses everything below 0
+            // here, while Metal's chunks (and this backend's gsplat/particle shaders)
+            // remap first. See the depth-convention note in the Vulkan port memo.
+            if (negative[0] != 0) {
+                spdlog::info("Vulkan smoke: negative NDC z now survives — the forward "
+                    "vertex shaders must have gained the [-1,1] -> [0,1] remap");
+            }
+
+            // --------------------------------------------------------------
+            // Shadow depth-contract check, in pixels.
+            //
+            // This is the invariant that the missing clip-z remap actually broke.
+            // A shadow caster is rasterized through an ORTHOGRAPHIC projection, and
+            // the depth it leaves behind (gl_FragCoord.z) is later compared against
+            // coord.z built on the CPU by shadowRendererDirectional, whose
+            // viewportMatrix bakes z*0.5 + 0.5 onto the same GL-style NDC z.
+            // So the contract is:  stored gl_FragCoord.z  ==  0.5*gl_ndc_z + 0.5.
+            //
+            // Ortho is linear, so ndc z = 0 sits at the MIDPOINT of [near, far]:
+            // a caster in the near half has negative GL ndc z. Before the remap it
+            // was clipped outright (nothing stored); with the remap it stores
+            // exactly the value the receiver side expects. Both halves are checked.
+            const Matrix4 shadowOrtho = Matrix4::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 100.0f);
+
+            const auto storedDepthAtViewDepth = [&](const float viewDepth) -> float {
+                TextureOptions depthProbeOptions{};
+                depthProbeOptions.name = "vulkan-smoke-shadow-depth-probe";
+                depthProbeOptions.width = 4;
+                depthProbeOptions.height = 4;
+                depthProbeOptions.mipmaps = false;
+                Texture probeColor(device.get(), depthProbeOptions);
+
+                RenderTargetOptions probeTargetOptions{};
+                probeTargetOptions.graphicsDevice = device.get();
+                probeTargetOptions.colorBuffer = &probeColor;
+                probeTargetOptions.depth = true;
+                probeTargetOptions.name = "vulkan-smoke-shadow-depth-probe-target";
+                auto probeTarget = device->createRenderTarget(probeTargetOptions);
+
+                RenderPass probePass(sharedDevice);
+                probePass.init(probeTarget);
+                const Color black(0.0f, 0.0f, 0.0f, 1.0f);
+                probePass.setClearColor(&black);
+                probePass.setClearDepth(&clearDepth);
+
+                // Writes the rasterized depth as colour so it can be read back.
+                constexpr const char* depthOutSource = R"(
+#version 450
+layout(push_constant) uniform PushConstants { mat4 viewProjection; mat4 model; } pc;
+#ifdef VT_VERTEX_SHADER
+layout(location=0) in vec3 vertexPosition;
+void main() {
+    gl_Position = pc.viewProjection * (pc.model * vec4(vertexPosition, 1.0));
+    gl_Position.z = 0.5 * (gl_Position.z + gl_Position.w);
+}
+#endif
+#ifdef VT_FRAGMENT_SHADER
+layout(location=0) out vec4 color0;
+void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0); }
+#endif
+)";
+                auto probeShader = device->createShader(
+                    ShaderDefinition{.name = "vulkan-smoke-shadow-depth"}, depthOutSource);
+
+                // Scale the centred triangle out to cover the whole ortho window and
+                // push it to `viewDepth` in front of the camera (which looks down -Z).
+                Matrix4 model = Matrix4::identity();
+                model.setElement(0, 0, 80.0f);
+                model.setElement(1, 1, 80.0f);
+                model.setElement(3, 2, -viewDepth);
+
+                device->frameStart();
+                device->startRenderPass(&probePass);
+                device->setShader(probeShader);
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(shadowOrtho, model);
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&probePass);
+                device->frameEnd();
+
+                std::array<uint8_t, 4> pixel{0, 0, 0, 0};
+                auto* vkProbe = dynamic_cast<gpu::VulkanTexture*>(probeColor.impl());
+                if (!vkProbe || vkProbe->image() == VK_NULL_HANDLE) return -1.0f;
+
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = 4 * 4 * 4;
+                bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                VmaAllocationCreateInfo allocInfo{};
+                allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+                allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VkBuffer hostBuffer = VK_NULL_HANDLE;
+                VmaAllocation hostAllocation = nullptr;
+                VmaAllocationInfo hostMapped{};
+                if (vmaCreateBuffer(device->vmaAllocator(), &bufferInfo, &allocInfo,
+                        &hostBuffer, &hostAllocation, &hostMapped) != VK_SUCCESS) {
+                    return -1.0f;
+                }
+                device->enqueueUpload([vkProbe, hostBuffer](VkCommandBuffer cmd) {
+                    vkProbe->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+                    VkBufferImageCopy region{};
+                    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    region.imageSubresource.layerCount = 1;
+                    region.imageExtent = {4, 4, 1};
+                    vkCmdCopyImageToBuffer(cmd, vkProbe->image(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, hostBuffer, 1, &region);
+                    vkProbe->transitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+                });
+                device->flushUploads();
+                vkQueueWaitIdle(device->graphicsQueue());
+                if (hostMapped.pMappedData) {
+                    const size_t centreOffset = (2 * 4 + 2) * 4;
+                    std::memcpy(pixel.data(),
+                        static_cast<const uint8_t*>(hostMapped.pMappedData) + centreOffset,
+                        pixel.size());
+                }
+                vmaDestroyBuffer(device->vmaAllocator(), hostBuffer, hostAllocation);
+                return static_cast<float>(pixel[0]) / 255.0f;
+            };
+
+            // The check above validates the remap FORMULA against the receiver side,
+            // but it applies that formula in its own inline shader. This second probe
+            // closes the gap: it renders through the BUNDLED forward program (empty
+            // source + a non-"program-shadow" name resolves to kForwardVert/kForwardFrag,
+            // the same modules every mesh uses) and reads the D32_SFLOAT depth
+            // attachment back, so it fails if forward.vert ever loses the remap again.
+            const auto forwardStoredDepth = [&](const float viewDepth) -> float {
+                TextureOptions depthOptions{};
+                depthOptions.name = "vulkan-smoke-forward-depth";
+                depthOptions.width = 4;
+                depthOptions.height = 4;
+                depthOptions.mipmaps = false;
+                depthOptions.format = PixelFormat::PIXELFORMAT_DEPTH;
+                Texture depthTexture(device.get(), depthOptions);
+
+                TextureOptions colorOpts{};
+                colorOpts.name = "vulkan-smoke-forward-depth-color";
+                colorOpts.width = 4;
+                colorOpts.height = 4;
+                colorOpts.mipmaps = false;
+                Texture colorTexture(device.get(), colorOpts);
+
+                RenderTargetOptions targetOptions{};
+                targetOptions.graphicsDevice = device.get();
+                targetOptions.colorBuffer = &colorTexture;
+                targetOptions.depthBuffer = &depthTexture;
+                targetOptions.name = "vulkan-smoke-forward-depth-target";
+                auto target = device->createRenderTarget(targetOptions);
+
+                RenderPass pass(sharedDevice);
+                pass.init(target);
+                const Color black(0.0f, 0.0f, 0.0f, 1.0f);
+                pass.setClearColor(&black);
+                pass.setClearDepth(&clearDepth);
+
+                Matrix4 model = Matrix4::identity();
+                model.setElement(0, 0, 80.0f);
+                model.setElement(1, 1, 80.0f);
+                model.setElement(3, 2, -viewDepth);
+
+                device->frameStart();
+                device->startRenderPass(&pass);
+                device->setShader(shader);            // bundled forward program
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(shadowOrtho, model);
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&pass);
+                device->frameEnd();
+
+                auto* vkDepth = dynamic_cast<gpu::VulkanTexture*>(depthTexture.impl());
+                if (!vkDepth || vkDepth->image() == VK_NULL_HANDLE) return -1.0f;
+
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = 4 * 4 * sizeof(float);
+                bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                VmaAllocationCreateInfo allocInfo{};
+                allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+                allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VkBuffer hostBuffer = VK_NULL_HANDLE;
+                VmaAllocation hostAllocation = nullptr;
+                VmaAllocationInfo hostMapped{};
+                if (vmaCreateBuffer(device->vmaAllocator(), &bufferInfo, &allocInfo,
+                        &hostBuffer, &hostAllocation, &hostMapped) != VK_SUCCESS) {
+                    return -1.0f;
+                }
+                device->enqueueUpload([vkDepth, hostBuffer](VkCommandBuffer cmd) {
+                    vkDepth->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+                    VkBufferImageCopy region{};
+                    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                    region.imageSubresource.layerCount = 1;
+                    region.imageExtent = {4, 4, 1};
+                    vkCmdCopyImageToBuffer(cmd, vkDepth->image(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, hostBuffer, 1, &region);
+                    vkDepth->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
+                });
+                device->flushUploads();
+                vkQueueWaitIdle(device->graphicsQueue());
+                float depthValue = -1.0f;
+                if (hostMapped.pMappedData) {
+                    const size_t centreOffset = (2 * 4 + 2) * sizeof(float);
+                    std::memcpy(&depthValue,
+                        static_cast<const uint8_t*>(hostMapped.pMappedData) + centreOffset,
+                        sizeof(float));
+                }
+                vmaDestroyBuffer(device->vmaAllocator(), hostBuffer, hostAllocation);
+                return depthValue;
+            };
+
+            // Near half (GL ndc z < 0 — the range the missing remap used to clip)
+            // and far half, against what the receiver side computes on the CPU.
+            for (const float viewDepth : {25.0f, 75.0f}) {
+                const Vector4 clip = shadowOrtho * Vector4(0.0f, 0.0f, -viewDepth, 1.0f);
+                const float glNdcZ = clip.getZ() / clip.getW();
+                const float expected = 0.5f * glNdcZ + 0.5f;   // what viewportMatrix bakes
+                const float stored = storedDepthAtViewDepth(viewDepth);
+                spdlog::info("Vulkan smoke: shadow depth contract, viewDepth {} "
+                    "(GL ndc z {:+.4f}): stored {:.4f}, receiver expects {:.4f}",
+                    viewDepth, glNdcZ, stored, expected);
+                // 8-bit colour readback, so one LSB of slack.
+                if (stored < 0.0f || std::abs(stored - expected) > 2.0f / 255.0f) {
+                    spdlog::error("Vulkan smoke: caster depth does not match what the "
+                        "shadow sample matrix expects at viewDepth {} (stored {}, expected {})",
+                        viewDepth, stored, expected);
+                    result = 1;
+                }
+
+                // Same assertion, but through the real forward vertex shader and its
+                // D32_SFLOAT depth attachment — full float, so a tight tolerance.
+                const float forwardDepth = forwardStoredDepth(viewDepth);
+                spdlog::info("Vulkan smoke: bundled forward program at viewDepth {}: "
+                    "depth attachment {:.5f}, receiver expects {:.5f}",
+                    viewDepth, forwardDepth, expected);
+                if (forwardDepth < 0.0f || std::abs(forwardDepth - expected) > 1e-4f) {
+                    spdlog::error("Vulkan smoke: forward.vert stored depth {} at viewDepth {}, "
+                        "but the shadow sample matrix expects {} — the GL->Vulkan clip-z "
+                        "remap is missing or wrong", forwardDepth, viewDepth, expected);
+                    result = 1;
+                }
+            }
+        }
         }
 
         // A zero-sized drawable must defer swapchain recreation and skip

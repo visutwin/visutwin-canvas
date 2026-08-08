@@ -28,6 +28,10 @@ layout(location = 6) out vec4 fragColor;
 
 void main() {
     vec4 worldPos = pc.model * vec4(inPosition, 1.0);
+    // Deliberately no GL->Vulkan clip-z remap here (the other forward*.vert all
+    // have one): .xyww already forces z == w, i.e. the far plane, and
+    // 0.5*(w + w) == w leaves that unchanged. The skybox lands on the far plane
+    // under either convention.
     gl_Position = (pc.viewProjection * worldPos).xyww;
 
     // Skybox never samples shadows, but the fragment stage declares this

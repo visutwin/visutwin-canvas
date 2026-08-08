@@ -104,6 +104,61 @@ fragment float4 fragmentShader(Varyings in [[stage_in]])
 }
 )MSL";
 
+// The same toon shader in GLSL, for the Vulkan backend.
+//
+// Differences from the MSL above, all forced by the backend rather than by choice:
+//  - transforms arrive in a 128-byte vertex push constant (viewProjection, model),
+//    not in buffer(1)/buffer(2) uniform blocks;
+//  - there is no normalMatrix/normalSign, so the normal is transformed by mat3(model),
+//    exactly as engine/shaders/vulkan/forward.vert does;
+//  - NO clip.z remap. forward.vert assigns gl_Position straight from the projection,
+//    so a custom shader must do the same or it depth-tests inconsistently against
+//    every other draw on this backend.
+static const char* kToonShaderSourceGlsl = R"GLSL(
+#version 450
+
+layout(push_constant) uniform PushConstants {
+    mat4 viewProjection;
+    mat4 model;
+} pc;
+
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 1) in vec3 vertexNormal;
+layout(location = 0) out vec3 worldNormal;
+void main() {
+    vec4 world = pc.model * vec4(vertexPosition, 1.0);
+    gl_Position = pc.viewProjection * world;
+    worldNormal = normalize(mat3(pc.model) * vertexNormal);
+}
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(location = 0) in vec3 worldNormal;
+layout(location = 0) out vec4 fragColor;
+void main() {
+    vec3 N = normalize(worldNormal);
+    vec3 L = normalize(vec3(0.4, 0.75, 0.5));
+
+    // Quantise diffuse into 4 cel bands.
+    float ndl = max(dot(N, L), 0.0);
+    float bands = 4.0;
+    float toon = clamp(floor(ndl * bands) / (bands - 1.0), 0.0, 1.0);
+
+    // Warm lit colour, cool shadow colour.
+    vec3 warm = vec3(0.95, 0.55, 0.25);
+    vec3 cool = vec3(0.10, 0.14, 0.30);
+    vec3 color = mix(cool, warm, toon);
+
+    // Bold dark ink rim from the upward-facing gradient for a cel outline feel.
+    float rim = smoothstep(0.35, 0.0, abs(N.y));
+    color *= (1.0 - 0.35 * rim);
+
+    fragColor = vec4(color, 1.0);
+}
+#endif
+)GLSL";
+
 Entity* createShape(Engine* engine, Material* material, const char* type,
                     const Vector3& position, float scale)
 {
@@ -176,7 +231,8 @@ int main()
 
     // The custom toon material — bypasses the PBR pipeline entirely.
     auto toonMaterial = std::make_shared<ShaderMaterial>(
-        graphicsDevice, "toon", "vertexShader", "fragmentShader", kToonShaderSource);
+        graphicsDevice, "toon", "vertexShader", "fragmentShader",
+        ShaderSourceSet{.msl = kToonShaderSource, .glsl = kToonShaderSourceGlsl});
 
     std::vector<Entity*> shapes;
     shapes.push_back(createShape(engine.get(), toonMaterial.get(), "sphere",   Vector3(-3.2f, 0.0f, 0.0f), 1.7f));

@@ -138,6 +138,61 @@ fragment DualSourceOut fragmentShader(Varyings in [[stage_in]])
 }
 )MSL";
 
+// GLSL equivalents for the Vulkan backend. Transforms come from the 128-byte vertex
+// push constant, and gl_Position is assigned without a clip.z remap to match
+// engine/shaders/vulkan/forward.vert.
+static const char* kPanelShaderSourceGlsl = R"GLSL(
+#version 450
+
+layout(push_constant) uniform PushConstants {
+    mat4 viewProjection;
+    mat4 model;
+} pc;
+
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+void main() {
+    gl_Position = pc.viewProjection * (pc.model * vec4(vertexPosition, 1.0));
+}
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(location = 0) out vec4 fragColor;
+void main() {
+    fragColor = vec4(PANEL_COLOR, 1.0);
+}
+#endif
+)GLSL";
+
+// The dual-source overlay. In GLSL the second output is selected with the `index`
+// layout qualifier on the same location — the direct analogue of MSL's
+// [[color(0), index(1)]]. This compiles only because the device enabled the optional
+// dualSrcBlend feature; VulkanGraphicsDevice::supportsDualSourceBlending() reports it.
+static const char* kDualSourceShaderSourceGlsl = R"GLSL(
+#version 450
+
+layout(push_constant) uniform PushConstants {
+    mat4 viewProjection;
+    mat4 model;
+} pc;
+
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+void main() {
+    gl_Position = pc.viewProjection * (pc.model * vec4(vertexPosition, 1.0));
+}
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(location = 0, index = 0) out vec4 fragColor;     // source0 - added unconditionally
+layout(location = 0, index = 1) out vec4 fragSecondary; // source1 - scales the destination
+void main() {
+    fragColor     = vec4(0.45, 0.02, 0.02, 0.0);
+    fragSecondary = vec4(0.0, 0.85, 0.18, 1.0);
+}
+#endif
+)GLSL";
+
 Entity* addQuad(const std::shared_ptr<Engine>& engine, Material* material,
     const Vector3& position, const Vector3& scale)
 {
@@ -226,17 +281,27 @@ int main()
 
     // Two background panels: black on the left, white on the right. The colour is baked into
     // each shader so the framebuffer contents under the overlay are exactly known.
-    const auto panelSource = [](const char* color) {
-        return std::string("#define PANEL_COLOR float3") + color + "\n" + kPanelShaderSource;
+    // The colour is baked in by #define, so each language needs its own vector syntax.
+    // GLSL requires the #version directive to stay first, so the #define is injected
+    // after it rather than prepended.
+    const auto panelSources = [](const char* mslColor, const char* glslColor) {
+        std::string glsl = kPanelShaderSourceGlsl;
+        const std::string versionLine = "#version 450\n";
+        const auto pos = glsl.find(versionLine);
+        const std::string define = std::string("#define PANEL_COLOR vec3") + glslColor + "\n";
+        glsl.insert(pos + versionLine.size(), define);
+        return ShaderSourceSet{
+            .msl = std::string("#define PANEL_COLOR float3") + mslColor + "\n" + kPanelShaderSource,
+            .glsl = glsl};
     };
 
     auto blackMaterial = std::make_shared<ShaderMaterial>(
         graphicsDevice, "panel-black", "vertexShader", "fragmentShader",
-        panelSource("(0.0, 0.0, 0.0)"));
+        panelSources("(0.0, 0.0, 0.0)", "(0.0, 0.0, 0.0)"));
 
     auto whiteMaterial = std::make_shared<ShaderMaterial>(
         graphicsDevice, "panel-white", "vertexShader", "fragmentShader",
-        panelSource("(1.0, 1.0, 1.0)"));
+        panelSources("(1.0, 1.0, 1.0)", "(1.0, 1.0, 1.0)"));
 
     addQuad(engine, blackMaterial.get(), Vector3(-2.0f, 0.0f, 0.0f), Vector3(4.0f, 1.0f, 6.0f));
     addQuad(engine, whiteMaterial.get(), Vector3(2.0f, 0.0f, 0.0f), Vector3(4.0f, 1.0f, 6.0f));
@@ -244,7 +309,8 @@ int main()
     // The dual-source overlay, spanning both panels.
     //   colour = source0 * ONE + destination * source1
     auto overlayMaterial = std::make_shared<ShaderMaterial>(
-        graphicsDevice, "dual-source-overlay", "vertexShader", "fragmentShader", kDualSourceShaderSource);
+        graphicsDevice, "dual-source-overlay", "vertexShader", "fragmentShader",
+        ShaderSourceSet{.msl = kDualSourceShaderSource, .glsl = kDualSourceShaderSourceGlsl});
 
     auto blend = std::make_shared<BlendState>();
     blend->setEnabled(true);

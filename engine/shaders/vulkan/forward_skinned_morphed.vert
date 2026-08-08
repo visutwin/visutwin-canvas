@@ -59,6 +59,8 @@ void main() {
     mat4 modelSkin = pc.model * skin;
     vec4 worldPos = modelSkin * vec4(position, 1.0);
     gl_Position = pc.viewProjection * worldPos;
+    // GL [-1,1] -> Vulkan [0,1] clip z. See forward.vert for why.
+    gl_Position.z = 0.5 * (gl_Position.z + gl_Position.w);
     mat3 normalMatrix = mat3(modelSkin);
     fragWorldPos = worldPos.xyz;
     fragWorldNormal = normalize(normalMatrix * normal);
