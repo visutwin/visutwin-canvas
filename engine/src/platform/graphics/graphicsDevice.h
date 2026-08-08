@@ -554,8 +554,12 @@ namespace visutwin::canvas
         /// value. Only read by shaders compiled with VT_FEATURE_DEBUG_PASS.
         virtual void setDebugShaderPass(uint32_t mode)
         {
-            (void)mode;
-            VT_DEVICE_FEATURE_UNSUPPORTED("setDebugShaderPass");
+            // The renderer calls this for every camera every frame, so warn only when
+            // a debug pass is actually selected — otherwise every scene reports a gap
+            // it is not using, and the diagnostic drowns out the real ones.
+            if (mode != 0) {
+                VT_DEVICE_FEATURE_UNSUPPORTED("setDebugShaderPass");
+            }
         }
 
         /// Set the LTC lookup textures for area lights (bound at fragment slots 20/21

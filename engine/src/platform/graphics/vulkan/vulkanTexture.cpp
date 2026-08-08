@@ -146,7 +146,13 @@ namespace visutwin::canvas::gpu
         _aspect = aspectForFormat(_format);
         const bool isDepth = formatIsDepth(_format);
         const bool isCubemap = _owner->isCubemap();
-        _arrayLayers = isCubemap ? 6u : 1u;
+        // Array textures (the clustered spot-shadow atlas is one) carry their slice
+        // count in arrayLength. Ignoring it created a single-layer VkImage, and every
+        // per-slice render target then tried to carve an attachment view at
+        // baseArrayLayer >= 1 — invalid, and the slices had nowhere to render.
+        _arrayLayers = isCubemap
+            ? 6u
+            : std::max(1u, _owner->getArrayLength());
         _mipLevels = std::max(1u, _owner->getNumLevels());
 
         VkFormatProperties formatProperties{};
@@ -246,7 +252,12 @@ namespace visutwin::canvas::gpu
         // VulkanRenderTarget, so this sampling view is always the full image.
         VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         viewInfo.image = _image;
-        viewInfo.viewType = isCubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+        // A VIEW_TYPE_2D view may only cover one layer, so a multi-layer image
+        // needs the array view type to match layerCount below.
+        viewInfo.viewType = isCubemap
+            ? VK_IMAGE_VIEW_TYPE_CUBE
+            : (_arrayLayers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
+                                : VK_IMAGE_VIEW_TYPE_2D);
         viewInfo.format = _format;
         viewInfo.subresourceRange.aspectMask = _aspect;
         viewInfo.subresourceRange.baseMipLevel = 0;

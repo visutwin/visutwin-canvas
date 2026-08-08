@@ -862,14 +862,36 @@ namespace visutwin::canvas
                 skyDomeCenter, isDome,
                 _scene ? _scene->skybox() : nullptr);
 
+            // A dynamic probe captures the scene into the very cubemap the scene
+            // samples for reflections, so during its own face passes the probe
+            // texture is simultaneously the render target and a bound sampler —
+            // feedback. Skip the binding for those passes: the cube's other faces
+            // hold last frame's capture, which is not worth a read-write hazard.
+            // Vulkan reports this as a layout conflict (the face is in
+            // COLOR_ATTACHMENT_OPTIMAL while the descriptor wants SHADER_READ_ONLY);
+            // Metal reads it silently, which is undefined rather than correct.
             if (_scene && _scene->reflectionProbe()) {
                 Texture* probe = _scene->reflectionProbe();
-                // maxLod = highest mip index (roughness → LOD in the shader).
-                const int levels = std::max(1, static_cast<int>(probe->getNumLevels()));
-                _device->setReflectionProbeUniforms(probe,
-                    _scene->reflectionProbeBoxMin(), _scene->reflectionProbeBoxMax(),
-                    _scene->reflectionProbeBoxProjection(), _scene->reflectionProbeIntensity(),
-                    static_cast<float>(levels - 1));
+                const bool probeIsRenderTarget =
+                    activeTarget && activeTarget->colorBuffer() == probe;
+                // Unbind rather than skip: the binding is device state that would
+                // otherwise persist from the previous pass, which is exactly the
+                // texture we must not sample here. Zero intensity also neutralizes
+                // the shader term, since VT_FEATURE_REFLECTION_PROBE stays enabled
+                // for the frame.
+                if (probeIsRenderTarget) {
+                    _device->setReflectionProbeUniforms(nullptr,
+                        _scene->reflectionProbeBoxMin(), _scene->reflectionProbeBoxMax(),
+                        _scene->reflectionProbeBoxProjection(), 0.0f, 0.0f);
+                } else {
+                    // maxLod = highest mip index (roughness → LOD in the shader).
+                    const int levels = std::max(1, static_cast<int>(probe->getNumLevels()));
+                    _device->setReflectionProbeUniforms(probe,
+                        _scene->reflectionProbeBoxMin(), _scene->reflectionProbeBoxMax(),
+                        _scene->reflectionProbeBoxProjection(),
+                        _scene->reflectionProbeIntensity(),
+                        static_cast<float>(levels - 1));
+                }
             }
 
             // Camera clip planes for SSR depth-grab linearization.
