@@ -143,20 +143,6 @@ add_executable(visutwin-anisotropy MACOSX_BUNDLE
 target_link_libraries(visutwin-anisotropy PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-anisotropy com.visutwin.anisotropy)
 
-add_executable(visutwin-sheen MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/sheen-example.cpp
-    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
-)
-target_link_libraries(visutwin-sheen PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-sheen com.visutwin.sheen)
-
-add_executable(visutwin-iridescence MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/iridescence-example.cpp
-    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
-)
-target_link_libraries(visutwin-iridescence PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-iridescence com.visutwin.iridescence)
-
 add_executable(visutwin-procedural-sky MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/procedural-sky-example.cpp
     ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
@@ -256,13 +242,6 @@ add_executable(visutwin-reflection-planar-blurred MACOSX_BUNDLE
 target_link_libraries(visutwin-reflection-planar-blurred PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-reflection-planar-blurred com.visutwin.reflection-planar-blurred)
 
-add_executable(visutwin-animation MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/animation-example.cpp
-    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
-)
-target_link_libraries(visutwin-animation PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-animation com.visutwin.animation)
-
 add_executable(visutwin-anim-stategraph MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/anim-stategraph-example.cpp
     ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
@@ -275,12 +254,6 @@ add_executable(visutwin-lightmap-bake MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-lightmap-bake PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-lightmap-bake com.visutwin.lightmap-bake)
-
-add_executable(visutwin-ssr MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/ssr-example.cpp
-)
-target_link_libraries(visutwin-ssr PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-ssr com.visutwin.ssr)
 
 add_executable(visutwin-reflection-probe MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/reflection-probe-example.cpp
@@ -306,12 +279,6 @@ add_executable(visutwin-gsplat MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-gsplat PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-gsplat com.visutwin.gsplat)
-
-add_executable(visutwin-light-probes MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/light-probes-example.cpp
-)
-target_link_libraries(visutwin-light-probes PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-light-probes com.visutwin.light-probes)
 
 add_executable(visutwin-area-light MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/area-light-example.cpp
@@ -355,21 +322,9 @@ add_executable(visutwin-pcss-local MACOSX_BUNDLE
 target_link_libraries(visutwin-pcss-local PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-pcss-local com.visutwin.pcss-local)
 
-add_executable(visutwin-material-stubs MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/material-stubs-example.cpp
-)
-target_link_libraries(visutwin-material-stubs PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-material-stubs com.visutwin.material-stubs)
-
 add_executable(visutwin-morph-anim MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/morph-anim-example.cpp
 )
 target_link_libraries(visutwin-morph-anim PRIVATE visutwin-canvas)
 target_compile_definitions(visutwin-morph-anim PRIVATE ASSET_DIR="${VISUTWIN_ASSET_DIR}")
 visutwin_set_macos_bundle(visutwin-morph-anim com.visutwin.morph-anim)
-
-add_executable(visutwin-dual-source-blending MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/dual-source-blending-example.cpp
-)
-target_link_libraries(visutwin-dual-source-blending PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-dual-source-blending com.visutwin.dual-source-blending)

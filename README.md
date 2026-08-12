@@ -126,23 +126,18 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 
 ## Examples
 
-37 example applications in `examples/`:
+44 example applications in `examples/`:
 
 | Example | Description |
 |---------|-------------|
 | orbit | Orbital camera with GLB model and environment lighting |
 | taa | Temporal anti-aliasing with a PBR scene |
 | glb-loader | Loading and rendering GLB models |
-| material-test | PBR material properties (metalness, gloss, normal maps) |
-| material-stubs | Spec-gloss, Oren-Nayar, detail normals, displacement |
 | clearcoat | Clearcoat dual-specular layer showcase |
 | anisotropy | Anisotropic specular highlights |
-| sheen | Fabric/velvet sheen layer |
-| iridescence | Thin-film iridescence (soap-bubble color shift) |
 | procedural-sky | Nishita atmosphere / procedural sky with animated sun |
 | post-processing | Compose chain: bloom, DOF, vignette, color grading, fringing |
 | custom-shader | ShaderMaterial with a user-supplied Metal toon shader |
-| dual-source-blending | Blending against a second fragment output (BLENDMODE_SRC1_*) |
 | mesh-decals | Decal projection |
 | shadow-cascades | Cascaded shadow maps |
 | clustered-lighting | Many local lights via 3D cluster grid (+ atlas spot shadows) |
@@ -157,19 +152,16 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | pcss-local | Spot/omni PCSS contact-hardening shadows |
 | ambient-occlusion | Screen-space ambient occlusion (PlayCanvas port, laboratory scene) |
 | ambient-occlusion-davinci | Screen-space ambient occlusion (da Vinci workshop + colour LUT) |
-| light-probes | Ambient SH light probes |
 | area-light | LTC area lights (rect / disk / sphere) |
 | reflection-planar-blurred | Planar reflections with blur |
 | reflection-probe | Box-projected cubemap reflection probe |
 | reflection-probe-dynamic | Runtime scene-capture reflection probe (live cubemap) |
 | refraction | Dynamic grab-pass refraction + dispersion + volume |
-| ssr | Screen-space reflections on a glossy floor |
 | edge-detect | Post-processing edge detection |
 | shader-chunks | ShaderChunks registry overrides (global + per-material) |
 | gsplat | Gaussian splatting (classic path) |
 | gsplat-tier2 | Splatting with view-dependent SH + compressed PLY |
 | particles | GPU particle system (fire / smoke / sparks) |
-| animation | Skeletal animation playback (GPU skinning) |
 | anim-stategraph | Animation state graph with blend trees |
 | morph-anim | Morph-weight animation + skinned culling |
 | instancing-basic | GPU instancing |
@@ -233,7 +225,7 @@ visutwin-canvas/
 │   └── shaders/metal/
 │       ├── chunks/                # 24 composable Metal shader micro-chunks
 │       └── embedded/              # Standalone shaders embedded at build time
-├── examples/                      # 37 example applications
+├── examples/                      # 44 example applications
 ├── tools/                         # Build and utility tools
 └── assets/                        # Example assets (some procedural, some user-provided)
 ```
