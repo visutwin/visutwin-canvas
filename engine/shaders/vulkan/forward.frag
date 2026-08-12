@@ -208,6 +208,13 @@ const float PI = 3.14159265359;
 // 2x2 bayer matrix [1 2][3 0], p in [0,1]
 float bayer2(vec2 p) { return mod(2.0 * p.y + p.x + 1.0, 4.0); }
 
+// 4x4 matrix, p = pixel coordinate
+float bayer4(vec2 p) {
+    vec2 p1 = mod(p, 2.0);
+    vec2 p2 = floor(0.5 * mod(p, 4.0));
+    return 4.0 * bayer2(p1) + bayer2(p2);
+}
+
 // 8x8 matrix, p = pixel coordinate
 float bayer8(vec2 p) {
     vec2 p1 = mod(p, 2.0);
@@ -215,6 +222,22 @@ float bayer8(vec2 p) {
     vec2 p4 = floor(0.25 * mod(p, 8.0));
     return 4.0 * (4.0 * bayer2(p1) + bayer2(p2)) + bayer2(p4);
 }
+
+// 16x16 matrix, p = pixel coordinate
+float bayer16(vec2 p) {
+    vec2 p1 = mod(p, 2.0);
+    vec2 p2 = floor(0.5 * mod(p, 4.0));
+    vec2 p4 = floor(0.25 * mod(p, 8.0));
+    vec2 p8 = floor(0.125 * mod(p, 16.0));
+    return 4.0 * (4.0 * (4.0 * bayer2(p1) + bayer2(p2)) + bayer2(p4)) + bayer2(p8);
+}
+
+// Opacity dither matrices. Must match scene/constants.h :: DitherMode; the
+// active mode arrives per material in MaterialData::flags bits 25-27.
+const uint VT_DITHER_BAYER2  = 1u;
+const uint VT_DITHER_BAYER4  = 2u;
+const uint VT_DITHER_BAYER8  = 3u;
+const uint VT_DITHER_BAYER16 = 4u;
 
 // ── Parallax occlusion mapping (parity with common-parallax.metal) ──
 vec2 parallaxOcclusionMap(vec2 uv, vec3 viewDirTS, float heightScale) {
@@ -1277,17 +1300,33 @@ void main() {
         discard;
     }
 
-    // Opacity dithering (upstream opacity-dither.js, BAYER8 variant): screen-space
-    // ordered dither turns partial opacity into a discard pattern so transparency
-    // renders in the opaque pass with correct depth. DEVIATION: no blue-noise /
-    // IGN variants and no per-frame jitter (static pattern; upstream jitters for
-    // TAA convergence).
+    // Opacity dithering (upstream opacity-dither.js): screen-space ordered
+    // dither turns partial opacity into a discard pattern so transparency
+    // renders in the opaque pass with correct depth. The matrix is chosen per
+    // material via flags bits 25-27 (DitherMode) — a runtime value, not a shader
+    // variant, so switching matrices needs no recompile. DEVIATION: no
+    // blue-noise / IGN variants and no per-frame jitter (static pattern;
+    // upstream jitters for TAA convergence).
     if (vtFeatureEnabled(VT_FEATURE_OPACITY_DITHER_BIT)) {
         if (albedo.a <= 0.0) {
             discard;
         }
         if (albedo.a < 1.0) {
-            float ditherNoise = bayer8(floor(mod(gl_FragCoord.xy, 8.0))) / 64.0;
+            uint ditherMode = (material.flags >> 25) & 0x7u;
+
+            // Each matrix is normalized by its cell count, so the threshold
+            // stays in [0, 1).
+            float ditherNoise;
+            if (ditherMode == VT_DITHER_BAYER2) {
+                ditherNoise = bayer2(floor(mod(gl_FragCoord.xy, 2.0))) / 4.0;
+            } else if (ditherMode == VT_DITHER_BAYER4) {
+                ditherNoise = bayer4(floor(mod(gl_FragCoord.xy, 4.0))) / 16.0;
+            } else if (ditherMode == VT_DITHER_BAYER16) {
+                ditherNoise = bayer16(floor(mod(gl_FragCoord.xy, 16.0))) / 256.0;
+            } else {  // VT_DITHER_BAYER8
+                ditherNoise = bayer8(floor(mod(gl_FragCoord.xy, 8.0))) / 64.0;
+            }
+
             // The threshold is authored in perceptual (sRGB) space — linearize.
             ditherNoise = pow(ditherNoise, 2.2);
             if (albedo.a < ditherNoise) {
