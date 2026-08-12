@@ -78,6 +78,9 @@ namespace visutwin::canvas
             _clusterShadowAtlas = atlas;
         }
 
+        /// Nishita atmosphere parameters (96-byte AtmosphereUniforms block).
+        void setAtmosphereUniforms(const void* data, size_t size) override;
+
         // ── Shader creation ──────────────────────────────────────────────
         std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
             const std::string& sourceCode = "") override;

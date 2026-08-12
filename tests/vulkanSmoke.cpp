@@ -24,6 +24,7 @@
 #include "platform/graphics/renderPass.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
+#include "platform/graphics/uniformBinder.h"
 #include "platform/graphics/stencilParameters.h"
 #include "platform/graphics/texture.h"
 #include "platform/graphics/vertexBuffer.h"
@@ -1476,6 +1477,187 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                     "the receiver (unshadowed {}, shadowed {}) — the atlas at set 3 "
                     "binding 14 is unbound, sampling the wrong slice, or the depth "
                     "comparison is inverted", unshadowed, shadowed);
+                result = 1;
+            }
+        }
+
+        // ── Nishita atmosphere (VT_FEATURE_ATMOSPHERE, bit 29) ────────────
+        //
+        // Renders the sky through the bundled skybox+atmosphere variant and
+        // asserts physical properties of the result rather than exact values:
+        // scattering is a 32x8-step ray march, so a golden RGB would be a
+        // brittle test of the arithmetic rather than of the port.
+        //
+        // Blue-dominance doubles as proof that the atmosphere branch actually
+        // ran: every other sky path here is flat (with no cubemap or env atlas
+        // bound they resolve to a neutral fallback), so only real scattering
+        // separates the channels. Verified by disabling the branch — the probe
+        // then reads a flat 1.0 in all three channels and this test fails.
+        {
+            Material skyMaterial;
+            skyMaterial.setIsSkybox(true);
+
+            ProgramLibrary skyPrograms(sharedDevice);
+            skyPrograms.setAtmosphereEnabled(true);
+            auto skyShader = skyPrograms.getForwardShader(&skyMaterial, false);
+            const auto* vkSkyShader =
+                dynamic_cast<VulkanShader*>(skyShader.get());
+            const uint64_t skyFeatures =
+                shaderFeatureBit(ShaderFeature::Skybox) |
+                shaderFeatureBit(ShaderFeature::Atmosphere);
+            if (!vkSkyShader ||
+                (vkSkyShader->featureMask() & skyFeatures) != skyFeatures) {
+                spdlog::error("Vulkan smoke: skybox variant lacks the ATMOSPHERE "
+                    "feature bit — the sky probe below would measure the wrong shader");
+                result = 1;
+            }
+
+            // The VIEW RAY IS FIXED AT +Z and the planet/sun are moved instead.
+            // forward_sky.vert derives the ray from the fragment's world
+            // position, so with an identity view-projection the screen position
+            // and the view direction are the same quantity — a quad covering the
+            // screen cannot also point somewhere specific. Rotating the world
+            // around a fixed ray decouples them:
+            //   "up" = -normalize(planetCentre), because the camera sits at the
+            //   origin and the surface is one radius away along that axis.
+            // So planetCentre (0,0,-R) means up = +Z: looking along +Z is the
+            // zenith. planetCentre (0,-R,0) means up = +Y: looking along +Z is
+            // tangent to the surface, i.e. the horizon.
+            constexpr float kPlanetRadius = 6371000.0f;
+
+            const auto skyColorWith = [&](const Vector3& planetCentre,
+                                          const Vector3& sunDir) -> std::array<float, 3> {
+                UniformBinder::AtmosphereUniforms atmo{};
+                atmo.planetCenterAndRadius = {planetCentre.getX(), planetCentre.getY(),
+                    planetCentre.getZ(), kPlanetRadius};
+                atmo.sunDirection = {sunDir.getX(), sunDir.getY(), sunDir.getZ(), 0.0f};
+                TextureOptions colorOpts{};
+                colorOpts.name = "vulkan-smoke-atmosphere-color";
+                colorOpts.width = 4;
+                colorOpts.height = 4;
+                colorOpts.mipmaps = false;
+                Texture colorTexture(device.get(), colorOpts);
+
+                RenderTargetOptions targetOptions{};
+                targetOptions.graphicsDevice = device.get();
+                targetOptions.colorBuffer = &colorTexture;
+                targetOptions.depth = true;
+                targetOptions.name = "vulkan-smoke-atmosphere-target";
+                auto target = device->createRenderTarget(targetOptions);
+
+                RenderPass pass(sharedDevice);
+                pass.init(target);
+                const Color black(0.0f, 0.0f, 0.0f, 1.0f);
+                pass.setClearColor(&black);
+                pass.setClearDepth(&clearDepth);
+
+                // With an identity view-projection, forward_sky.vert's `.xyww`
+                // leaves w = 1, so NDC xy == world xy. Scaling the ±0.5 triangle
+                // by 4 covers the whole target, and z = 1 puts the centre texel's
+                // world position at (0, 0, 1) — the fixed +Z view ray.
+                Matrix4 model = Matrix4::identity();
+                model.setElement(0, 0, 4.0f);
+                model.setElement(1, 1, 4.0f);
+                model.setElement(3, 2, 1.0f);
+
+                device->frameStart();
+                device->startRenderPass(&pass);
+                device->setShader(skyShader);
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(Matrix4::identity(), model);
+                device->setAtmosphereUniforms(&atmo, sizeof(atmo));
+                // Camera at the origin, exposure 1, LINEAR tonemap: the readback
+                // is then the scattering result under a plain gamma encode.
+                device->setLightingUniforms(Color(0.0f, 0.0f, 0.0f, 1.0f), {},
+                    Vector3(0.0f, 0.0f, 0.0f), false, 1.0f);
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&pass);
+                device->frameEnd();
+
+                std::array<float, 3> rgb{-1.0f, -1.0f, -1.0f};
+                auto* vkColor =
+                    dynamic_cast<gpu::VulkanTexture*>(colorTexture.impl());
+                if (!vkColor || vkColor->image() == VK_NULL_HANDLE) return rgb;
+
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = 4 * 4 * 4;
+                bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                VmaAllocationCreateInfo allocInfo{};
+                allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+                allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VkBuffer hostBuffer = VK_NULL_HANDLE;
+                VmaAllocation hostAllocation = nullptr;
+                VmaAllocationInfo hostMapped{};
+                if (vmaCreateBuffer(device->vmaAllocator(), &bufferInfo, &allocInfo,
+                        &hostBuffer, &hostAllocation, &hostMapped) != VK_SUCCESS) {
+                    return rgb;
+                }
+                device->enqueueUpload([vkColor, hostBuffer](VkCommandBuffer cmd) {
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+                    VkBufferImageCopy region{};
+                    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    region.imageSubresource.layerCount = 1;
+                    region.imageExtent = {4, 4, 1};
+                    vkCmdCopyImageToBuffer(cmd, vkColor->image(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, hostBuffer, 1, &region);
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+                });
+                device->flushUploads();
+                vkQueueWaitIdle(device->graphicsQueue());
+                if (hostMapped.pMappedData) {
+                    std::array<uint8_t, 4> pixel{0, 0, 0, 0};
+                    const size_t centreOffset = (2 * 4 + 2) * 4;
+                    std::memcpy(pixel.data(),
+                        static_cast<const uint8_t*>(hostMapped.pMappedData) + centreOffset,
+                        pixel.size());
+                    rgb = {pixel[0] / 255.0f, pixel[1] / 255.0f, pixel[2] / 255.0f};
+                }
+                vmaDestroyBuffer(device->vmaAllocator(), hostBuffer, hostAllocation);
+                return rgb;
+            };
+
+            // Sun overhead in both cases: along the local "up" axis.
+            const auto zenith = skyColorWith(
+                Vector3(0.0f, 0.0f, -kPlanetRadius), Vector3(0.0f, 0.0f, 1.0f));
+            const auto horizon = skyColorWith(
+                Vector3(0.0f, -kPlanetRadius, 0.0f), Vector3(0.0f, 1.0f, 0.0f));
+            spdlog::info("Vulkan smoke: atmosphere zenith rgb({:.3f}, {:.3f}, {:.3f}), "
+                "horizon rgb({:.3f}, {:.3f}, {:.3f})",
+                zenith[0], zenith[1], zenith[2],
+                horizon[0], horizon[1], horizon[2]);
+
+            if (zenith[0] < 0.0f || horizon[0] < 0.0f) {
+                spdlog::error("Vulkan smoke: atmosphere readback failed");
+                result = 1;
+            } else if (zenith[2] <= 0.02f) {
+                // Positive control: a black sky means the march produced nothing
+                // (bad uniform offsets, NaN guard tripping) and every ratio test
+                // below would pass vacuously.
+                spdlog::error("Vulkan smoke: atmosphere produced no sky at the "
+                    "zenith (blue {}) — VT_FEATURE_ATMOSPHERE is not reaching the "
+                    "shader or the uniform block is misaligned", zenith[2]);
+                result = 1;
+            } else if (zenith[2] <= zenith[0]) {
+                // Rayleigh scatters short wavelengths hardest, so an overhead-sun
+                // zenith is blue-dominant. Equal channels mean the sky fell
+                // through to a flat non-atmosphere path.
+                spdlog::error("Vulkan smoke: zenith is not blue-dominant "
+                    "(r {}, b {}) — the atmosphere branch did not run, or the "
+                    "Rayleigh coefficients are mis-ordered", zenith[0], zenith[2]);
+                result = 1;
+            } else if (horizon[0] / std::max(horizon[2], 1e-4f) <=
+                       zenith[0] / std::max(zenith[2], 1e-4f)) {
+                // Longer horizon path scatters more blue out, reddening the ratio.
+                spdlog::error("Vulkan smoke: horizon is not redder than the zenith "
+                    "(horizon r/b {}, zenith r/b {}) — the ray march is not "
+                    "integrating path length", horizon[0] / std::max(horizon[2], 1e-4f),
+                    zenith[0] / std::max(zenith[2], 1e-4f));
                 result = 1;
             }
         }

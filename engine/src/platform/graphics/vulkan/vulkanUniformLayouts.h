@@ -99,6 +99,23 @@ namespace visutwin::canvas
         // the SSR march needs both.
         float viewProjection[16] = {};
         float cameraNearFar[4]   = {0.1f, 1000.0f, 0.0f, 0.0f};
+
+        // Nishita atmosphere (96 bytes = 6 vec4), layout-identical to
+        // UniformBinder::AtmosphereUniforms and Metal's AtmosphereData.
+        //
+        // DEVIATION: Metal binds this as its own fragment buffer at slot 9.
+        // Here it rides the lighting UBO instead — the block is scene-global and
+        // uploaded only when dirty (once per pass, not per draw), so the 96
+        // bytes cost nothing measurable, and a separate binding would mean a new
+        // descriptor set layout, pool sizing, and another entry in all three
+        // layout validators. Defaults mirror AtmosphereUniforms so a device that
+        // never receives setAtmosphereUniforms still holds sane values.
+        float atmoPlanetCenterAndRadius[4]  = {0.0f, 0.0f, 0.0f, 6371000.0f};
+        float atmoRadiusAndSunIntensity[4]  = {6471000.0f, 22.0f, 0.9998f, 0.0f};
+        float atmoRayleighCoeffAndScale[4]  = {5.5e-6f, 13.0e-6f, 22.4e-6f, 8500.0f};
+        float atmoMieCoeffAndScale[4]       = {21.0e-6f, 1200.0f, 0.758f, 0.0f};
+        float atmoSunDirection[4]           = {0.0f, 1.0f, 0.0f, 0.0f};
+        float atmoCameraAltitudeAndParams[4] = {0.0f, 32.0f, 8.0f, 0.0f};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

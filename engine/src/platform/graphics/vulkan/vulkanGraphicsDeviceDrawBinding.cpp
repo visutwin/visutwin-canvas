@@ -1405,6 +1405,24 @@ namespace visutwin::canvas
         _lightingNeedsUpload = true;
     }
 
+    void VulkanGraphicsDevice::setAtmosphereUniforms(
+        const void* data, const size_t size)
+    {
+        // The six atmosphere vec4s are contiguous at the tail of the UBO and
+        // laid out exactly like UniformBinder::AtmosphereUniforms, so the
+        // caller's block copies straight in. A short block writes only its
+        // prefix and leaves the remaining defaults, matching the Metal binder.
+        constexpr size_t kAtmosphereBytes =
+            sizeof(VulkanLightingUBO) -
+            offsetof(VulkanLightingUBO, atmoPlanetCenterAndRadius);
+        static_assert(kAtmosphereBytes == 96);
+        if (!data || size == 0 || size > kAtmosphereBytes) {
+            return;
+        }
+        std::memcpy(&_lightingUbo.atmoPlanetCenterAndRadius, data, size);
+        _lightingNeedsUpload = true;
+    }
+
     void VulkanGraphicsDevice::setLightingUniforms(const Color& ambientColor,
         const std::vector<GpuLightData>& lights, const Vector3& cameraPosition,
         bool enableNormalMaps, float exposure, const FogParams& fogParams,
