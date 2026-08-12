@@ -1883,6 +1883,250 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 }
             }
         }
+
+        // ── Shadow catcher (bit 30) ──────────────────────────────────────
+        //
+        // The catcher replaces the shaded result with the accumulated
+        // DIRECTIONAL shadow factor as grayscale, so a ground plane can catch
+        // shadows from virtual geometry over a real backdrop.
+        //
+        // The expectation is EXACT rather than "darker than": an occluder makes
+        // the PCF visibility 0, and the shader ends with mix(1, visible,
+        // strength), so a strength of 0.75 must read exactly 0.25. That number
+        // also pins down the second half of the contract — the catcher returns
+        // RAW, with no tonemap or gamma, and 0.25 gamma-encoded would be 0.53.
+        {
+            constexpr float kShadowStrength = 0.75f;
+            constexpr float kExpectedLit = 1.0f;
+            constexpr float kExpectedShadowed = 1.0f - kShadowStrength;
+            constexpr uint32_t kShadowMapSize = 64;
+            constexpr float kOccluderViewDepth = 20.0f;
+            constexpr float kReceiverViewDepth = 60.0f;
+
+            TextureOptions shadowOptions{};
+            shadowOptions.name = "vulkan-smoke-catcher-shadowmap";
+            shadowOptions.width = kShadowMapSize;
+            shadowOptions.height = kShadowMapSize;
+            shadowOptions.format = PixelFormat::PIXELFORMAT_DEPTH;
+            shadowOptions.mipmaps = false;
+            shadowOptions.minFilter = FilterMode::FILTER_NEAREST;
+            shadowOptions.magFilter = FilterMode::FILTER_NEAREST;
+            Texture catcherShadowMap(device.get(), shadowOptions);
+            catcherShadowMap.setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+            catcherShadowMap.setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+
+            const Matrix4 lightOrtho =
+                Matrix4::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 100.0f);
+            // world → shadow UV + [0,1] depth, the remap the renderer bakes into
+            // viewportMatrix. NOTE setElement/getElement take (col, row).
+            Matrix4 shadowMatrix = Matrix4::identity();
+            {
+                Matrix4 remap = Matrix4::identity();
+                remap.setElement(0, 0, 0.5f);
+                remap.setElement(1, 1, 0.5f);
+                remap.setElement(2, 2, 0.5f);
+                remap.setElement(3, 0, 0.5f);
+                remap.setElement(3, 1, 0.5f);
+                remap.setElement(3, 2, 0.5f);
+                shadowMatrix = remap * lightOrtho;
+            }
+
+            // Depth-only pass: an occluder covering the whole map.
+            {
+                RenderTargetOptions shadowRtOptions{};
+                shadowRtOptions.graphicsDevice = device.get();
+                shadowRtOptions.depthBuffer = &catcherShadowMap;
+                shadowRtOptions.name = "vulkan-smoke-catcher-shadow-target";
+                auto shadowTarget = device->createRenderTarget(shadowRtOptions);
+
+                RenderPass shadowPass(sharedDevice);
+                shadowPass.init(shadowTarget);
+                shadowPass.setClearDepth(&clearDepth);
+
+                Matrix4 occluderModel = Matrix4::identity();
+                occluderModel.setElement(0, 0, 80.0f);
+                occluderModel.setElement(1, 1, 80.0f);
+                occluderModel.setElement(3, 2, -kOccluderViewDepth);
+
+                device->frameStart();
+                device->startRenderPass(&shadowPass);
+                device->setShader(shader);
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(lightOrtho, occluderModel);
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&shadowPass);
+                device->frameEnd();
+            }
+
+            StandardMaterial catcherMaterial;
+            catcherMaterial.setShadowCatcher(true);
+            // Deliberately saturated red: if the catcher did NOT override the
+            // output, the surface colour would leak into the read and the
+            // grayscale equality below would fail on the green/blue channels.
+            catcherMaterial.setDiffuse(Color(1.0f, 0.0f, 0.0f, 1.0f));
+
+            ProgramLibrary catcherPrograms(sharedDevice);
+            auto catcherShader =
+                catcherPrograms.getForwardShader(&catcherMaterial, false);
+            const auto* vkCatcherShader =
+                dynamic_cast<VulkanShader*>(catcherShader.get());
+            if (!vkCatcherShader ||
+                (vkCatcherShader->featureMask() &
+                    shaderFeatureBit(ShaderFeature::ShadowCatcher)) == 0) {
+                spdlog::error("Vulkan smoke: shadow-catcher variant lacks the "
+                    "SHADOW_CATCHER feature bit");
+                result = 1;
+            }
+
+            // `shadowsOn` toggles only ShadowParams::enabled, so the lit and
+            // shadowed runs are otherwise identical draws.
+            const auto catcherPixel = [&](const bool shadowsOn) -> std::array<float, 3> {
+                TextureOptions colorOpts{};
+                colorOpts.name = "vulkan-smoke-catcher-color";
+                colorOpts.width = 4;
+                colorOpts.height = 4;
+                colorOpts.mipmaps = false;
+                Texture colorTexture(device.get(), colorOpts);
+
+                RenderTargetOptions targetOptions{};
+                targetOptions.graphicsDevice = device.get();
+                targetOptions.colorBuffer = &colorTexture;
+                targetOptions.depth = true;
+                targetOptions.name = "vulkan-smoke-catcher-target";
+                auto target = device->createRenderTarget(targetOptions);
+
+                RenderPass pass(sharedDevice);
+                pass.init(target);
+                const Color black(0.0f, 0.0f, 0.0f, 1.0f);
+                pass.setClearColor(&black);
+                pass.setClearDepth(&clearDepth);
+
+                Matrix4 receiverModel = Matrix4::identity();
+                receiverModel.setElement(0, 0, 80.0f);
+                receiverModel.setElement(1, 1, 80.0f);
+                receiverModel.setElement(3, 2, -kReceiverViewDepth);
+
+                // One directional light pointing along -Z, i.e. straight at the
+                // receiver, so it is lit and the shadow term is what varies.
+                std::vector<GpuLightData> lights(1);
+                lights[0].type = GpuLightType::Directional;
+                lights[0].direction = Vector3(0.0f, 0.0f, -1.0f);
+                lights[0].color = Color(1.0f, 1.0f, 1.0f, 1.0f);
+                lights[0].intensity = 1.0f;
+                lights[0].castShadows = true;
+
+                ShadowParams shadowParams;
+                shadowParams.enabled = shadowsOn;
+                shadowParams.shadowMap = &catcherShadowMap;
+                shadowParams.numCascades = 1;
+                shadowParams.bias = 0.0005f;
+                shadowParams.normalBias = 0.0f;
+                shadowParams.strength = kShadowStrength;
+                for (int col = 0; col < 4; ++col) {
+                    for (int row = 0; row < 4; ++row) {
+                        shadowParams.shadowMatrixPalette[col * 4 + row] =
+                            shadowMatrix.getElement(col, row);
+                    }
+                }
+
+                device->frameStart();
+                device->startRenderPass(&pass);
+                device->setShader(catcherShader);
+                device->setMaterial(&catcherMaterial);
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(lightOrtho, receiverModel);
+                device->setLightingUniforms(Color(0.0f, 0.0f, 0.0f, 1.0f), lights,
+                    Vector3(0.0f, 0.0f, 0.0f), false, 1.0f, FogParams{}, shadowParams);
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&pass);
+                device->frameEnd();
+
+                std::array<float, 3> rgb{-1.0f, -1.0f, -1.0f};
+                auto* vkColor =
+                    dynamic_cast<gpu::VulkanTexture*>(colorTexture.impl());
+                if (!vkColor || vkColor->image() == VK_NULL_HANDLE) return rgb;
+
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = 4 * 4 * 4;
+                bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                VmaAllocationCreateInfo allocInfo{};
+                allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+                allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VkBuffer hostBuffer = VK_NULL_HANDLE;
+                VmaAllocation hostAllocation = nullptr;
+                VmaAllocationInfo hostMapped{};
+                if (vmaCreateBuffer(device->vmaAllocator(), &bufferInfo, &allocInfo,
+                        &hostBuffer, &hostAllocation, &hostMapped) != VK_SUCCESS) {
+                    return rgb;
+                }
+                device->enqueueUpload([vkColor, hostBuffer](VkCommandBuffer cmd) {
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+                    VkBufferImageCopy region{};
+                    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    region.imageSubresource.layerCount = 1;
+                    region.imageExtent = {4, 4, 1};
+                    vkCmdCopyImageToBuffer(cmd, vkColor->image(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, hostBuffer, 1, &region);
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+                });
+                device->flushUploads();
+                vkQueueWaitIdle(device->graphicsQueue());
+                if (hostMapped.pMappedData) {
+                    std::array<uint8_t, 4> pixel{0, 0, 0, 0};
+                    const size_t centreOffset = (2 * 4 + 2) * 4;
+                    std::memcpy(pixel.data(),
+                        static_cast<const uint8_t*>(hostMapped.pMappedData) + centreOffset,
+                        pixel.size());
+                    rgb = {pixel[0] / 255.0f, pixel[1] / 255.0f, pixel[2] / 255.0f};
+                }
+                vmaDestroyBuffer(device->vmaAllocator(), hostBuffer, hostAllocation);
+                device->setMaterial(nullptr);
+                return rgb;
+            };
+
+            const auto lit = catcherPixel(false);
+            const auto shadowed = catcherPixel(true);
+            spdlog::info("Vulkan smoke: shadow catcher unshadowed {:.3f} "
+                "(expect {:.3f}), shadowed {:.3f} (expect {:.3f}); shadowed rgb "
+                "({:.3f}, {:.3f}, {:.3f})", lit[0], kExpectedLit, shadowed[0],
+                kExpectedShadowed, shadowed[0], shadowed[1], shadowed[2]);
+
+            const float tolerance = 2.0f / 255.0f;
+            if (lit[0] < 0.0f || shadowed[0] < 0.0f) {
+                spdlog::error("Vulkan smoke: shadow catcher readback failed");
+                result = 1;
+            } else if (std::abs(lit[0] - kExpectedLit) > tolerance) {
+                spdlog::error("Vulkan smoke: shadow catcher wrote {} with shadows "
+                    "off but must write 1.0 (fully lit) — the catcher is not "
+                    "overriding the shaded output", lit[0]);
+                result = 1;
+            } else if (std::abs(shadowed[0] - kExpectedShadowed) > tolerance) {
+                // 0.53 here instead of 0.25 means the value went through the
+                // gamma encode that the catcher path must skip.
+                spdlog::error("Vulkan smoke: shadow catcher wrote {} under a full "
+                    "occluder but mix(1, 0, strength {}) gives {} — the shadow "
+                    "factor is wrong, or the output was tonemapped/gamma-encoded "
+                    "when it must stay raw", shadowed[0], kShadowStrength,
+                    kExpectedShadowed);
+                result = 1;
+            } else if (std::abs(shadowed[0] - shadowed[1]) > tolerance ||
+                       std::abs(shadowed[0] - shadowed[2]) > tolerance) {
+                spdlog::error("Vulkan smoke: shadow catcher output is not grayscale "
+                    "({}, {}, {}) — the red surface colour leaked through",
+                    shadowed[0], shadowed[1], shadowed[2]);
+                result = 1;
+            }
+        }
         }
         }
 

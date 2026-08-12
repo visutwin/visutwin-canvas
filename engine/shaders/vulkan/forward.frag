@@ -1403,6 +1403,11 @@ void main() {
     // but must keep specular, so the specular share is tracked separately.
     vec3 directSpecular = vec3(0.0);
 
+    // Shadow catcher accumulates directional shadow factors multiplicatively:
+    // 1.0 = fully lit, 0.0 = fully shadowed. Mirrors the declaration in
+    // forward-fragment-surface.metal.
+    float dShadowCatcher = 1.0;
+
     uint count = min(lighting.lightCount.x, 8u);
     for (uint i = 0u; i < count; ++i) {
         Light light = lighting.lights[i];
@@ -1414,6 +1419,13 @@ void main() {
             L = normalize(-light.directionType.xyz);
             // Directional light is the CSM shadow caster.
             atten = sampleDirectionalShadow(fragWorldPos, fragViewDepth, N, L);
+            // Shadow catcher only tracks directional shadows, and accumulates
+            // here — before the NdotL early-out below — so back-facing texels
+            // still report the shadow they receive (parity with
+            // forward-fragment-lights.metal, which does the same).
+            if (vtFeatureEnabled(VT_FEATURE_SHADOW_CATCHER_BIT)) {
+                dShadowCatcher *= atten;
+            }
         } else if (type == 3u && vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT)) {
             // LTC area light (upstream ltc.js): diffuse and specular are both
             // LTC integrals, so this accumulates in full and skips the shared
@@ -1660,6 +1672,21 @@ void main() {
                     radiance * nl;
             }
         }
+    }
+
+    // Shadow catcher REPLACES the shaded result with the accumulated shadow
+    // factor as grayscale, so a ground plane can receive shadows from virtual
+    // geometry over a real backdrop (AR compositing). Returns raw — deliberately
+    // no fog, exposure, tonemap or gamma — because the value is a blend
+    // coefficient, not a colour: with multiplicative blending (src * dst), white
+    // leaves the framebuffer untouched and darker values darken it where shadows
+    // fall. Encoding it would bend the shadow response.
+    //
+    // Placed here to mirror forward-fragment-tail.metal, which returns at the
+    // top of the tail — after the light loop, before any indirect composition.
+    if (vtFeatureEnabled(VT_FEATURE_SHADOW_CATCHER_BIT)) {
+        outColor = vec4(vec3(dShadowCatcher), 1.0);
+        return;
     }
 
     // Indirect lighting.  With an environment atlas: image-based diffuse
