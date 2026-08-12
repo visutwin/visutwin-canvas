@@ -126,6 +126,13 @@ namespace visutwin::canvas
         float reflectionFadeColor[4]    = {0.5f, 0.5f, 0.5f, 0.0f};
         // x = planeDistance, y = heightRange (depth-pass distance normalization)
         float reflectionDepthParams[4]  = {0.0f, 10.0f, 0.0f, 0.0f};
+
+        // Mirrors Metal's LightingData::flagsAndPad so the two stay 1:1.
+        // [0] is the bitfield (Metal uses bit 5 for the HDR camera-frame pass;
+        // this backend always tonemaps in the forward pass, so it is unused
+        // here). [1] carries the DebugShaderPass mode as a plain value — one
+        // compiled variant serves every mode, so switching needs no recompile.
+        uint32_t flagsAndPad[4] = {};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

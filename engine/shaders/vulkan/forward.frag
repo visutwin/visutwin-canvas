@@ -130,7 +130,23 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 reflectionFadeColor;         // xyz = colour reflections fade into
     vec4 reflectionDepthParams;       // x = planeDistance, y = heightRange,
                                       // z = colour map bound, w = depth map bound
+    uvec4 flagsAndPad;                // [1] = DebugShaderPass mode (see below)
 } lighting;
+
+// Debug shader passes. Must match scene/constants.h :: DebugShaderPass. The
+// active mode arrives in flagsAndPad[1], so all modes share one compiled
+// variant (VT_FEATURE_DEBUG_PASS) and switching needs no recompile.
+const uint VT_DEBUGPASS_NONE        = 0u;
+const uint VT_DEBUGPASS_ALBEDO      = 1u;
+const uint VT_DEBUGPASS_WORLDNORMAL = 2u;
+const uint VT_DEBUGPASS_OPACITY     = 3u;
+const uint VT_DEBUGPASS_SPECULARITY = 4u;
+const uint VT_DEBUGPASS_GLOSS       = 5u;
+const uint VT_DEBUGPASS_METALNESS   = 6u;
+const uint VT_DEBUGPASS_AO          = 7u;
+const uint VT_DEBUGPASS_EMISSION    = 8u;
+const uint VT_DEBUGPASS_LIGHTING    = 9u;
+const uint VT_DEBUGPASS_UV0         = 10u;
 
 struct ClusterLight {
     vec4 positionRange;
@@ -1295,6 +1311,16 @@ void main() {
     // variants, which feed the mesh's per-vertex color through.
     vec4 albedo = material.baseColor * baseSample * fragColor;
 
+    // DEBUGPASS_LIGHTING (upstream debug-process-frontend.js): neutralize albedo
+    // before it feeds diffuseAlbedo/F0 so the lit result shows the lighting
+    // alone rather than the texture. Unlike every other debug mode this one does
+    // NOT replace the output — it falls through to the normal lit path, and so
+    // still receives fog and tonemapping. Mirrors forward-fragment-surface.metal.
+    if (vtFeatureEnabled(VT_FEATURE_DEBUG_PASS_BIT) &&
+        lighting.flagsAndPad[1] == VT_DEBUGPASS_LIGHTING) {
+        albedo.rgb = vec3(0.5);
+    }
+
     if (vtFeatureEnabled(VT_FEATURE_ALPHA_TEST_BIT) &&
         albedo.a < material.alphaCutoff) {
         discard;
@@ -2038,6 +2064,52 @@ void main() {
         // Glossier surfaces show more reflection.
         float reflGloss = 1.0 - roughness;
         color = mix(color, reflColor, reflGloss * reflIntensityParam);
+    }
+
+    // Debug surface-quantity output (upstream debug-output.js). Replaces the
+    // shaded result with one input to the lighting equation. DEBUGPASS_LIGHTING
+    // is deliberately absent here — it is handled above by neutralizing albedo,
+    // then falls through so it still gets fog and tonemapping.
+    //
+    // Colour quantities (albedo, emission) are gamma encoded to match how they
+    // would be displayed; the rest are written raw, as they are already display
+    // values. NOTE: when the camera runs a CameraFrame pass, compose applies
+    // tonemapping and gamma on top of whatever is returned here, so debug values
+    // only read back exactly with postprocessing off.
+    if (vtFeatureEnabled(VT_FEATURE_DEBUG_PASS_BIT)) {
+        uint debugPass = lighting.flagsAndPad[1];
+        if (debugPass != VT_DEBUGPASS_NONE && debugPass != VT_DEBUGPASS_LIGHTING) {
+            if (debugPass == VT_DEBUGPASS_ALBEDO) {
+                outColor = vec4(pow(max(albedo.rgb, vec3(0.0)) + 0.0000001,
+                    vec3(1.0 / 2.2)), 1.0);
+                return;
+            } else if (debugPass == VT_DEBUGPASS_WORLDNORMAL) {
+                outColor = vec4(N * 0.5 + 0.5, 1.0);
+                return;
+            } else if (debugPass == VT_DEBUGPASS_OPACITY) {
+                outColor = vec4(vec3(albedo.a), 1.0);
+                return;
+            } else if (debugPass == VT_DEBUGPASS_SPECULARITY) {
+                outColor = vec4(F0, 1.0);
+                return;
+            } else if (debugPass == VT_DEBUGPASS_GLOSS) {
+                outColor = vec4(vec3(1.0 - roughness), 1.0);
+                return;
+            } else if (debugPass == VT_DEBUGPASS_METALNESS) {
+                outColor = vec4(vec3(metallic), 1.0);
+                return;
+            } else if (debugPass == VT_DEBUGPASS_AO) {
+                outColor = vec4(vec3(ao), 1.0);
+                return;
+            } else if (debugPass == VT_DEBUGPASS_EMISSION) {
+                outColor = vec4(pow(max(emissive, vec3(0.0)) + 0.0000001,
+                    vec3(1.0 / 2.2)), 1.0);
+                return;
+            } else if (debugPass == VT_DEBUGPASS_UV0) {
+                outColor = vec4(fragUV0, 0.0, 1.0);
+                return;
+            }
+        }
     }
 
     // Fog (linear or exponential) toward the fog color.

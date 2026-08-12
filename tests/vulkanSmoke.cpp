@@ -2127,6 +2127,236 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 result = 1;
             }
         }
+
+        // ── Debug shader passes (bit 49 + setDebugShaderPass) ─────────────
+        //
+        // Every mode replaces the shaded output with one input to the lighting
+        // equation, so each has an exactly derivable expected value from the
+        // material properties below. One compiled variant serves all modes —
+        // only the uniform changes between these draws.
+        //
+        // Unlike the opacity-dither probe, every texel here is written by the
+        // draw (no discard), which is the configuration this readback harness
+        // has been reliable in.
+        {
+            constexpr float kDiffuseR = 0.25f, kDiffuseG = 0.5f, kDiffuseB = 0.75f;
+            constexpr float kMetalness = 0.25f;
+            constexpr float kGloss = 0.75f;
+            constexpr float kOpacity = 0.6f;
+            constexpr float kEmissiveR = 0.1f, kEmissiveG = 0.2f, kEmissiveB = 0.3f;
+
+            StandardMaterial debugMaterial;
+            debugMaterial.setDiffuse(Color(kDiffuseR, kDiffuseG, kDiffuseB, 1.0f));
+            debugMaterial.setMetalness(kMetalness);
+            debugMaterial.setGloss(kGloss);
+            debugMaterial.setOpacity(kOpacity);
+            debugMaterial.setEmissive(Color(kEmissiveR, kEmissiveG, kEmissiveB, 1.0f));
+
+            ProgramLibrary debugPrograms(sharedDevice);
+            debugPrograms.setDebugPassEnabled(true);
+            auto debugShader = debugPrograms.getForwardShader(&debugMaterial, false);
+            const auto* vkDebugShader =
+                dynamic_cast<VulkanShader*>(debugShader.get());
+            if (!vkDebugShader ||
+                (vkDebugShader->featureMask() &
+                    shaderFeatureBit(ShaderFeature::DebugPass)) == 0) {
+                spdlog::error("Vulkan smoke: debug-pass variant lacks the "
+                    "DEBUG_PASS feature bit");
+                result = 1;
+            }
+
+            const auto debugPixel = [&](const DebugShaderPass mode) -> std::array<float, 3> {
+                TextureOptions colorOpts{};
+                colorOpts.name = "vulkan-smoke-debugpass-color";
+                colorOpts.width = 4;
+                colorOpts.height = 4;
+                colorOpts.mipmaps = false;
+                Texture colorTexture(device.get(), colorOpts);
+
+                RenderTargetOptions targetOptions{};
+                targetOptions.graphicsDevice = device.get();
+                targetOptions.colorBuffer = &colorTexture;
+                targetOptions.depth = true;
+                targetOptions.name = "vulkan-smoke-debugpass-target";
+                auto target = device->createRenderTarget(targetOptions);
+
+                RenderPass pass(sharedDevice);
+                pass.init(target);
+                const Color black(0.0f, 0.0f, 0.0f, 1.0f);
+                pass.setClearColor(&black);
+                pass.setClearDepth(&clearDepth);
+
+                // Quad facing +Z covering the target, so the world normal is a
+                // known (0, 0, 1) for the WORLDNORMAL mode.
+                Matrix4 model = Matrix4::identity();
+                model.setElement(0, 0, 8.0f);
+                model.setElement(1, 1, 8.0f);
+
+                device->frameStart();
+                device->startRenderPass(&pass);
+                device->setShader(debugShader);
+                device->setMaterial(&debugMaterial);
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(Matrix4::identity(), model);
+                device->setDebugShaderPass(static_cast<uint32_t>(mode));
+                // White ambient: DEBUGPASS_LIGHTING neutralizes albedo, so
+                // without any light reaching the surface it would render
+                // identically to DEBUGPASS_NONE and that comparison would prove
+                // nothing. The surface-quantity modes are unaffected — they
+                // return before the shaded result is used.
+                device->setLightingUniforms(Color(1.0f, 1.0f, 1.0f, 1.0f), {},
+                    Vector3(0.0f, 0.0f, 1.0f), false, 1.0f);
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&pass);
+                device->frameEnd();
+                vkQueueWaitIdle(device->graphicsQueue());
+
+                std::array<float, 3> rgb{-1.0f, -1.0f, -1.0f};
+                auto* vkColor =
+                    dynamic_cast<gpu::VulkanTexture*>(colorTexture.impl());
+                if (!vkColor || vkColor->image() == VK_NULL_HANDLE) return rgb;
+
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = 4 * 4 * 4;
+                bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                VmaAllocationCreateInfo allocInfo{};
+                allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+                allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VkBuffer hostBuffer = VK_NULL_HANDLE;
+                VmaAllocation hostAllocation = nullptr;
+                VmaAllocationInfo hostMapped{};
+                if (vmaCreateBuffer(device->vmaAllocator(), &bufferInfo, &allocInfo,
+                        &hostBuffer, &hostAllocation, &hostMapped) != VK_SUCCESS) {
+                    return rgb;
+                }
+                device->enqueueUpload([vkColor, hostBuffer](VkCommandBuffer cmd) {
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+                    VkBufferImageCopy region{};
+                    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    region.imageSubresource.layerCount = 1;
+                    region.imageExtent = {4, 4, 1};
+                    vkCmdCopyImageToBuffer(cmd, vkColor->image(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, hostBuffer, 1, &region);
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+                });
+                device->flushUploads();
+                vkQueueWaitIdle(device->graphicsQueue());
+                if (hostMapped.pMappedData) {
+                    std::array<uint8_t, 4> pixel{0, 0, 0, 0};
+                    const size_t centreOffset = (2 * 4 + 2) * 4;
+                    std::memcpy(pixel.data(),
+                        static_cast<const uint8_t*>(hostMapped.pMappedData) + centreOffset,
+                        pixel.size());
+                    rgb = {pixel[0] / 255.0f, pixel[1] / 255.0f, pixel[2] / 255.0f};
+                }
+                vmaDestroyBuffer(device->vmaAllocator(), hostBuffer, hostAllocation);
+                device->setMaterial(nullptr);
+                device->setDebugShaderPass(0u);
+                return rgb;
+            };
+
+            const auto gamma = [](const float linear) {
+                return std::pow(std::max(linear, 0.0f) + 0.0000001f, 1.0f / 2.2f);
+            };
+            // F0 = mix(0.04, albedo, metalness), the standard dielectric blend.
+            const auto f0 = [&](const float albedo) {
+                return 0.04f * (1.0f - kMetalness) + albedo * kMetalness;
+            };
+
+            struct DebugExpectation {
+                DebugShaderPass mode;
+                const char* name;
+                std::array<float, 3> expected;
+            };
+            const DebugExpectation expectations[] = {
+                {DebugShaderPass::DEBUGPASS_ALBEDO, "ALBEDO",
+                 {gamma(kDiffuseR), gamma(kDiffuseG), gamma(kDiffuseB)}},
+                {DebugShaderPass::DEBUGPASS_WORLDNORMAL, "WORLDNORMAL",
+                 {0.5f, 0.5f, 1.0f}},
+                {DebugShaderPass::DEBUGPASS_OPACITY, "OPACITY",
+                 {kOpacity, kOpacity, kOpacity}},
+                {DebugShaderPass::DEBUGPASS_SPECULARITY, "SPECULARITY",
+                 {f0(kDiffuseR), f0(kDiffuseG), f0(kDiffuseB)}},
+                {DebugShaderPass::DEBUGPASS_GLOSS, "GLOSS",
+                 {kGloss, kGloss, kGloss}},
+                {DebugShaderPass::DEBUGPASS_METALNESS, "METALNESS",
+                 {kMetalness, kMetalness, kMetalness}},
+                {DebugShaderPass::DEBUGPASS_AO, "AO", {1.0f, 1.0f, 1.0f}},
+                // NOT gamma(kEmissive...): StandardMaterial::updateUniforms
+                // stores emissive as pow(authored, 2.2) — it treats setEmissive
+                // as a display-space colour, unlike setDiffuse which is stored
+                // raw. The shader's gamma encode therefore round-trips back to
+                // exactly the authored value.
+                {DebugShaderPass::DEBUGPASS_EMISSION, "EMISSION",
+                 {kEmissiveR, kEmissiveG, kEmissiveB}},
+            };
+
+            constexpr float kTolerance = 3.0f / 255.0f;
+            for (const auto& [mode, name, expected] : expectations) {
+                const auto actual = debugPixel(mode);
+                spdlog::info("Vulkan smoke: debug pass {} -> ({:.3f}, {:.3f}, {:.3f}), "
+                    "expect ({:.3f}, {:.3f}, {:.3f})", name, actual[0], actual[1],
+                    actual[2], expected[0], expected[1], expected[2]);
+                if (actual[0] < 0.0f) {
+                    spdlog::error("Vulkan smoke: debug pass {} readback failed", name);
+                    result = 1;
+                    continue;
+                }
+                for (size_t c = 0; c < 3; ++c) {
+                    if (std::abs(actual[c] - expected[c]) > kTolerance) {
+                        spdlog::error("Vulkan smoke: debug pass {} channel {} wrote {} "
+                            "but the material gives {} — the mode is not reaching the "
+                            "shader through flagsAndPad[1], or it maps to the wrong "
+                            "surface quantity", name, c, actual[c], expected[c]);
+                        result = 1;
+                        break;
+                    }
+                }
+            }
+
+            // UV0 writes uv in red/green and a hard 0 in blue; the interpolated
+            // uv at the centre texel is not worth pinning down exactly, but the
+            // zero blue channel is unique among the modes.
+            const auto uv0 = debugPixel(DebugShaderPass::DEBUGPASS_UV0);
+            spdlog::info("Vulkan smoke: debug pass UV0 -> ({:.3f}, {:.3f}, {:.3f})",
+                uv0[0], uv0[1], uv0[2]);
+            if (uv0[0] < 0.0f || uv0[2] > kTolerance) {
+                spdlog::error("Vulkan smoke: debug pass UV0 blue channel is {} but "
+                    "must be 0", uv0[2]);
+                result = 1;
+            }
+
+            // DEBUGPASS_LIGHTING does not replace the output — it neutralizes
+            // albedo to 0.5 and falls through the lit path. With no lights the
+            // visible difference is that the diffuse tint is gone, so it must
+            // differ from a NONE render of the same tinted material.
+            const auto none = debugPixel(DebugShaderPass::DEBUGPASS_NONE);
+            const auto lightingPass = debugPixel(DebugShaderPass::DEBUGPASS_LIGHTING);
+            spdlog::info("Vulkan smoke: debug pass NONE -> ({:.3f}, {:.3f}, {:.3f}), "
+                "LIGHTING -> ({:.3f}, {:.3f}, {:.3f})", none[0], none[1], none[2],
+                lightingPass[0], lightingPass[1], lightingPass[2]);
+            if (none[0] < 0.0f || lightingPass[0] < 0.0f) {
+                spdlog::error("Vulkan smoke: debug pass NONE/LIGHTING readback failed");
+                result = 1;
+            } else {
+                float maxDelta = 0.0f;
+                for (size_t c = 0; c < 3; ++c) {
+                    maxDelta = std::max(maxDelta, std::abs(none[c] - lightingPass[c]));
+                }
+                if (maxDelta <= kTolerance) {
+                    spdlog::error("Vulkan smoke: DEBUGPASS_LIGHTING rendered identically "
+                        "to DEBUGPASS_NONE (max channel delta {}) — albedo is not being "
+                        "neutralized before it feeds the lighting", maxDelta);
+                    result = 1;
+                }
+            }
+        }
         }
         }
 

@@ -81,6 +81,16 @@ namespace visutwin::canvas
         /// Nishita atmosphere parameters (96-byte AtmosphereUniforms block).
         void setAtmosphereUniforms(const void* data, size_t size) override;
 
+        /// Debug surface-quantity output (DebugShaderPass). One compiled variant
+        /// covers every mode; the mode rides the lighting UBO as a plain value.
+        void setDebugShaderPass(const uint32_t mode) override
+        {
+            if (_lightingUbo.flagsAndPad[1] != mode) {
+                _lightingUbo.flagsAndPad[1] = mode;
+                _lightingNeedsUpload = true;
+            }
+        }
+
         // ── Shader creation ──────────────────────────────────────────────
         std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
             const std::string& sourceCode = "") override;

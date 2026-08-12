@@ -37,7 +37,7 @@ namespace visutwin::canvas
             static_assert(kForwardSkyVertPushConstantSize == 128);
             static_assert(kForwardColorVertPushConstantSize == 128);
             static_assert(kForwardPointVertPushConstantSize == 128);
-            static_assert(sizeof(VulkanLightingUBO) == 1984);
+            static_assert(sizeof(VulkanLightingUBO) == 2000);
             static_assert(
                 offsetof(MaterialUniforms, emissiveTransform1) +
                     sizeof(float) * 4 ==
