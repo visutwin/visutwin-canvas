@@ -33,6 +33,7 @@
 #include "platform/graphics/vulkan/vulkanTexture.h"
 #include "platform/graphics/vulkan/vulkanUniformRingBuffer.h"
 #include "platform/graphics/vulkan/vulkanUtils.h"
+#include "scene/lighting/worldClusters.h"
 #include "scene/materials/material.h"
 #include "scene/mesh.h"
 #include "scene/shader-lib/programLibrary.h"
@@ -1213,6 +1214,271 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                     result = 1;
                 }
             }
+
+        // ── Clustered spot-shadow atlas (set 3 binding 14) ────────────────
+        //
+        // Renders an occluder into ONE SLICE of a two-layer depth array, then
+        // shades a receiver through the bundled clustered forward variant and
+        // reads the pixel back. Asserts the shadowed result is darker than the
+        // same draw with castShadows off — a positive/negative pair, so it
+        // isolates the shadow term from every other lighting contribution.
+        //
+        // The occluder goes in slice 1 with slice 0 left at the far clear: an
+        // implementation that ignores shadowData.w and always samples slice 0
+        // reads "no occluder" and fails here.
+        //
+        // Scope: this proves the atlas reaches the shader, that the array
+        // descriptor is valid, and that the depth comparison and slice index
+        // work. The occluder covers the whole slice, so it does NOT constrain
+        // shadow UV orientation — a U or V flip would still pass.
+        {
+            constexpr uint32_t kAtlasSize = 64;
+            constexpr float kOccluderViewDepth = 20.0f;
+            constexpr float kReceiverViewDepth = 60.0f;
+
+            TextureOptions atlasOptions{};
+            atlasOptions.name = "vulkan-smoke-cluster-atlas";
+            atlasOptions.width = kAtlasSize;
+            atlasOptions.height = kAtlasSize;
+            atlasOptions.format = PixelFormat::PIXELFORMAT_DEPTH;
+            atlasOptions.arrayLength = 2;
+            atlasOptions.mipmaps = false;
+            atlasOptions.minFilter = FilterMode::FILTER_NEAREST;
+            atlasOptions.magFilter = FilterMode::FILTER_NEAREST;
+            Texture atlas(device.get(), atlasOptions);
+            atlas.setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+            atlas.setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+
+            const Matrix4 lightOrtho =
+                Matrix4::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 100.0f);
+
+            // world -> atlas UV + [0,1] depth, the same remap the renderer bakes
+            // into viewportMatrix (xy and z each *0.5 + 0.5). forward.vert stores
+            // 0.5*z_gl + 0.5, so the z rows must agree or nothing ever compares
+            // equal.
+            Matrix4 lightShadowMatrix = Matrix4::identity();
+            {
+                // NOTE: setElement/getElement both take (col, row) — the
+                // translation column is 3, not row 3.
+                Matrix4 remap = Matrix4::identity();
+                remap.setElement(0, 0, 0.5f);
+                remap.setElement(1, 1, 0.5f);
+                remap.setElement(2, 2, 0.5f);
+                remap.setElement(3, 0, 0.5f);
+                remap.setElement(3, 1, 0.5f);
+                remap.setElement(3, 2, 0.5f);
+                lightShadowMatrix = remap * lightOrtho;
+            }
+
+            // Depth-only pass into array layer 1 (RenderTargetOptions::face
+            // selects the slice, exactly as LightTextureAtlas does).
+            {
+                RenderTargetOptions sliceOptions{};
+                sliceOptions.graphicsDevice = device.get();
+                sliceOptions.depthBuffer = &atlas;
+                sliceOptions.face = 1;
+                sliceOptions.name = "vulkan-smoke-cluster-atlas-slice1";
+                auto sliceTarget = device->createRenderTarget(sliceOptions);
+
+                RenderPass slicePass(sharedDevice);
+                slicePass.init(sliceTarget);
+                slicePass.setClearDepth(&clearDepth);
+
+                Matrix4 occluderModel = Matrix4::identity();
+                occluderModel.setElement(0, 0, 80.0f);
+                occluderModel.setElement(1, 1, 80.0f);
+                occluderModel.setElement(3, 2, -kOccluderViewDepth);
+
+                device->frameStart();
+                device->startRenderPass(&slicePass);
+                device->setShader(shader);
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(lightOrtho, occluderModel);
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&slicePass);
+                device->frameEnd();
+            }
+
+            // Clustered forward variant: one 1×1×1 cell holding one light.
+            Material clusterMaterial;
+            ProgramLibrary clusterPrograms(sharedDevice);
+            clusterPrograms.setClusteredLightingEnabled(true);
+            auto clusterShader =
+                clusterPrograms.getForwardShader(&clusterMaterial, false);
+            const auto* vkClusterShader =
+                dynamic_cast<VulkanShader*>(clusterShader.get());
+            if (!vkClusterShader ||
+                (vkClusterShader->featureMask() &
+                    shaderFeatureBit(ShaderFeature::LightClustering)) == 0) {
+                spdlog::error("Vulkan smoke: clustered forward variant lacks the "
+                    "LIGHT_CLUSTERING feature bit — the shadow probe below would "
+                    "be measuring the wrong shader");
+                result = 1;
+            }
+
+            // Receiver sits behind the occluder along the light axis, inside the
+            // single grid cell. A point light (params.y = 0) keeps spot-cone
+            // attenuation out of the measurement; the shadow block keys only on
+            // shadowData.x, exactly as it does on Metal.
+            const Vector3 receiverWorld(0.0f, 0.0f, -kReceiverViewDepth);
+
+            const auto shadedLuminance = [&](const bool castShadows) -> float {
+                // Built through the real WorldClusters so this covers the engine's
+                // own GPU packing — including the shadow-matrix transpose, which
+                // is where this feature was actually broken. Hand-packing the
+                // struct here would have let that bug through.
+                ClusterLightData light;
+                light.position = Vector3(0.0f, 0.0f, 0.0f);
+                light.direction = Vector3(0.0f, 0.0f, -1.0f);   // toward receiver
+                light.color = Color(1.0f, 1.0f, 1.0f, 1.0f);
+                // Tuned so the unshadowed read lands mid-range: an intensity that
+                // saturates to 1.0 would hide the shadow difference entirely.
+                light.intensity = 0.8f;
+                light.range = 400.0f;
+                light.innerConeAngle = 40.0f;
+                light.outerConeAngle = 60.0f;
+                light.isSpot = true;
+                light.falloffModeLinear = true;
+                light.castShadows = castShadows;
+                light.shadowMatrix = lightShadowMatrix;
+                light.shadowBias = 0.0005f;
+                light.shadowIntensity = 1.0f;
+                light.atlasSlice = 1;
+
+                WorldClusters clusters;
+                clusters.update({light},
+                    BoundingBox(Vector3(0.0f, 0.0f, -50.0f),
+                        Vector3(60.0f, 60.0f, 60.0f)));
+
+                TextureOptions colorOpts{};
+                colorOpts.name = "vulkan-smoke-cluster-shadow-color";
+                colorOpts.width = 4;
+                colorOpts.height = 4;
+                colorOpts.mipmaps = false;
+                Texture colorTexture(device.get(), colorOpts);
+
+                RenderTargetOptions targetOptions{};
+                targetOptions.graphicsDevice = device.get();
+                targetOptions.colorBuffer = &colorTexture;
+                targetOptions.depth = true;
+                targetOptions.name = "vulkan-smoke-cluster-shadow-target";
+                auto target = device->createRenderTarget(targetOptions);
+
+                RenderPass pass(sharedDevice);
+                pass.init(target);
+                const Color black(0.0f, 0.0f, 0.0f, 1.0f);
+                pass.setClearColor(&black);
+                pass.setClearDepth(&clearDepth);
+
+                Matrix4 receiverModel = Matrix4::identity();
+                receiverModel.setElement(0, 0, 80.0f);
+                receiverModel.setElement(1, 1, 80.0f);
+                receiverModel.setElement(3, 2, -kReceiverViewDepth);
+
+                // Grid params exactly as renderer.cpp feeds them.
+                const Vector3& bMin = clusters.boundsMin();
+                const Vector3 bRange = clusters.boundsRange();
+                const Vector3 cellsBySize = clusters.cellsCountByBoundsSize();
+                const auto& cfg = clusters.config();
+                const float boundsMin[3] = {bMin.getX(), bMin.getY(), bMin.getZ()};
+                const float boundsRange[3] = {
+                    bRange.getX(), bRange.getY(), bRange.getZ()};
+                const float cellsBySizeArr[3] = {
+                    cellsBySize.getX(), cellsBySize.getY(), cellsBySize.getZ()};
+
+                device->frameStart();
+                device->startRenderPass(&pass);
+                device->setShader(clusterShader);
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(lightOrtho, receiverModel);
+                device->setClusterShadowAtlas(&atlas);
+                device->setClusterBuffers(clusters.lightData(),
+                    clusters.lightDataSize(),
+                    clusters.cellData(), clusters.cellDataSize());
+                device->setClusterGridParams(boundsMin, boundsRange, cellsBySizeArr,
+                    cfg.cellsX, cfg.cellsY, cfg.cellsZ, cfg.maxLightsPerCell,
+                    clusters.lightCount());
+                // No ambient and no non-clustered lights: whatever reaches the
+                // pixel came from the clustered light, so the two runs differ
+                // only by the shadow term.
+                device->setLightingUniforms(Color(0.0f, 0.0f, 0.0f, 1.0f), {},
+                    Vector3(0.0f, 0.0f, 0.0f), false, 1.0f);
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&pass);
+                device->frameEnd();
+
+                auto* vkColor =
+                    dynamic_cast<gpu::VulkanTexture*>(colorTexture.impl());
+                if (!vkColor || vkColor->image() == VK_NULL_HANDLE) return -1.0f;
+
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = 4 * 4 * 4;
+                bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                VmaAllocationCreateInfo allocInfo{};
+                allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+                allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VkBuffer hostBuffer = VK_NULL_HANDLE;
+                VmaAllocation hostAllocation = nullptr;
+                VmaAllocationInfo hostMapped{};
+                if (vmaCreateBuffer(device->vmaAllocator(), &bufferInfo, &allocInfo,
+                        &hostBuffer, &hostAllocation, &hostMapped) != VK_SUCCESS) {
+                    return -1.0f;
+                }
+                device->enqueueUpload([vkColor, hostBuffer](VkCommandBuffer cmd) {
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+                    VkBufferImageCopy region{};
+                    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    region.imageSubresource.layerCount = 1;
+                    region.imageExtent = {4, 4, 1};
+                    vkCmdCopyImageToBuffer(cmd, vkColor->image(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, hostBuffer, 1, &region);
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+                });
+                device->flushUploads();
+                vkQueueWaitIdle(device->graphicsQueue());
+                std::array<uint8_t, 4> pixel{0, 0, 0, 0};
+                if (hostMapped.pMappedData) {
+                    const size_t centreOffset = (2 * 4 + 2) * 4;
+                    std::memcpy(pixel.data(),
+                        static_cast<const uint8_t*>(hostMapped.pMappedData) + centreOffset,
+                        pixel.size());
+                }
+                vmaDestroyBuffer(device->vmaAllocator(), hostBuffer, hostAllocation);
+                device->setClusterShadowAtlas(nullptr);
+                return static_cast<float>(pixel[0]) / 255.0f;
+            };
+
+            const float unshadowed = shadedLuminance(false);
+            const float shadowed = shadedLuminance(true);
+            spdlog::info("Vulkan smoke: clustered shadow atlas, receiver luminance "
+                "castShadows=off {:.4f}, castShadows=on {:.4f}", unshadowed, shadowed);
+
+            // Positive control first: if the light never reached the receiver at
+            // all, both reads are black and the darkening assertion below would
+            // "pass" for the wrong reason (the lesson from the NDC-z probe).
+            if (unshadowed <= 0.05f) {
+                spdlog::error("Vulkan smoke: clustered light did not light the "
+                    "receiver (unshadowed luminance {}); the shadow comparison "
+                    "below would be meaningless", unshadowed);
+                result = 1;
+            } else if (shadowed >= unshadowed - 0.05f) {
+                spdlog::error("Vulkan smoke: clustered spot shadow did not darken "
+                    "the receiver (unshadowed {}, shadowed {}) — the atlas at set 3 "
+                    "binding 14 is unbound, sampling the wrong slice, or the depth "
+                    "comparison is inverted", unshadowed, shadowed);
+                result = 1;
+            }
+        }
         }
         }
 

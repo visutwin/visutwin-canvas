@@ -71,6 +71,13 @@ namespace visutwin::canvas
             _areaLightLut2 = lut2;
         }
 
+        // Clustered spot-shadow atlas (Depth texture2d_array), bound at set 3
+        // binding 14. Non-owning — LightTextureAtlas keeps it alive.
+        void setClusterShadowAtlas(Texture* atlas) override
+        {
+            _clusterShadowAtlas = atlas;
+        }
+
         // ── Shader creation ──────────────────────────────────────────────
         std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
             const std::string& sourceCode = "") override;
@@ -240,6 +247,7 @@ namespace visutwin::canvas
         // own list they drifted, and _materialExtraSampler leaked on every
         // normal device teardown.
         void destroySamplers() noexcept;
+        void destroyFallbackImages() noexcept;
         [[nodiscard]] bool createSwapchainSemaphores();
         void destroySwapchainSemaphores();
 
@@ -564,6 +572,9 @@ namespace visutwin::canvas
         Texture* _areaLightLut1 = nullptr;
         Texture* _areaLightLut2 = nullptr;
 
+        // Clustered spot-shadow depth array (set 3 binding 14).
+        Texture* _clusterShadowAtlas = nullptr;
+
         // ── VSM blur pass (lazy) ─────────────────────────────────────────
         void ensureVsmBlurResources();
         VkPipeline getVsmBlurPipeline(VkFormat colorFormat, VkFormat depthFormat);
@@ -631,6 +642,13 @@ namespace visutwin::canvas
         VkImage _whiteCubeImage = VK_NULL_HANDLE;
         VmaAllocation _whiteCubeAllocation = VK_NULL_HANDLE;
         VkImageView _whiteCubeImageView = VK_NULL_HANDLE;
+
+        // 1×1 single-layer white 2D array: fallback for the clustered shadow
+        // atlas slot, for the same reason as the cube above — a VIEW_TYPE_2D
+        // view cannot back a texture2DArray descriptor.
+        VkImage _whiteArrayImage = VK_NULL_HANDLE;
+        VmaAllocation _whiteArrayAllocation = VK_NULL_HANDLE;
+        VkImageView _whiteArrayImageView = VK_NULL_HANDLE;
 
         int _width = 0;
         int _height = 0;

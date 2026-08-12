@@ -895,12 +895,9 @@ namespace visutwin::canvas
         {
             // These set-3 slots are declared sampler2D, so their view must be a plain
             // 2D view. Under clustered lighting a shadow-casting spot's "shadow map" is
-            // a slice of the ClusterShadowAtlas — a real texture2d_array now that
-            // VulkanTexture honours arrayLength — whose view is VIEW_TYPE_2D_ARRAY and
-            // cannot legally bind here. Vulkan has no clustered-atlas sampler yet
-            // (setClusterShadowAtlas is still unimplemented), so fall back to the white
-            // texture: those lights read unshadowed, which is what they already did when
-            // the atlas was silently collapsed to a single layer.
+            // a slice of the ClusterShadowAtlas, whose view is VIEW_TYPE_2D_ARRAY and
+            // cannot legally bind here — those lights are sampled from binding 14
+            // instead, indexed by slice. Falling back to white keeps this slot valid.
             auto resolveView = [this](Texture* tex) -> VkImageView {
                 if (tex) {
                     auto* vkTex =
@@ -940,7 +937,22 @@ namespace visutwin::canvas
             const bool hideShadowMaps =
                 _depthOnlyPass || shadowIsActiveAttachment;
 
-            std::array<VkDescriptorImageInfo, 14> sceneInfos{};
+            // Resolve an array view, falling back to the single-layer white array
+            // so an unbound clustered atlas reads unshadowed (and never mixes a
+            // 2D view into a texture2DArray descriptor, which is invalid).
+            auto resolveArrayView = [this](Texture* tex) -> VkImageView {
+                if (tex) {
+                    auto* vkTex =
+                        static_cast<gpu::VulkanTexture*>(tex->impl());
+                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE &&
+                        vkTex->arrayLayers() > 1) {
+                        return vkTex->imageView();
+                    }
+                }
+                return _whiteArrayImageView;
+            };
+
+            std::array<VkDescriptorImageInfo, 15> sceneInfos{};
             sceneInfos[0].sampler = _envSampler;
             sceneInfos[0].imageView = resolveView(_envAtlasTexture);
 
@@ -976,6 +988,11 @@ namespace visutwin::canvas
             sceneInfos[9].imageView = resolveView(_areaLightLut2);
             sceneInfos[10].imageView = resolveView(_sceneColorGrabTexture.get());
             sceneInfos[11].imageView = resolveView(_sceneDepthGrabTexture.get());
+            // Binding 14: clustered spot-shadow atlas. Hidden during a depth-only
+            // pass because that is exactly when a slice of this atlas is the
+            // attachment being written — sampling it there would be feedback.
+            sceneInfos[14].imageView = _depthOnlyPass
+                ? _whiteArrayImageView : resolveArrayView(_clusterShadowAtlas);
             for (auto& sceneInfo : sceneInfos) {
                 sceneInfo.imageLayout =
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

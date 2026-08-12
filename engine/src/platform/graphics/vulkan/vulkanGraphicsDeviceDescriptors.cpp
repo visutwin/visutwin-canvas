@@ -170,19 +170,15 @@ namespace visutwin::canvas
         const bool materialSet =
             layout == _renderPipeline->textureSetLayout() &&
             key.count == materialBindings.size();
-        // Set 3's layout is mixed: 0-5 combined, 6-11 separate images, 12-13
-        // samplers. Writing the wrong type there is undefined behaviour, so the
-        // mapping has to mirror VulkanRenderPipeline's scene layout exactly.
+        // Set 3's layout is mixed; vulkanSceneDescriptorType is the single
+        // source of truth shared with VulkanRenderPipeline's layout creation.
         const bool sceneSet = layout == _renderPipeline->sceneSetLayout();
         for (uint32_t i = 0; i < key.count; ++i) {
             writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[i].dstSet = set;
             writes[i].dstBinding = materialSet ? materialBindings[i] : i;
             if (sceneSet) {
-                writes[i].descriptorType =
-                    i < 6 ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-                          : (i < 12 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
-                                    : VK_DESCRIPTOR_TYPE_SAMPLER);
+                writes[i].descriptorType = vulkanSceneDescriptorType(i);
             } else if (materialSet) {
                 const uint32_t binding = materialBindings[i];
                 writes[i].descriptorType =

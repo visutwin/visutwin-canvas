@@ -235,9 +235,14 @@ namespace visutwin::canvas
             gpu.shadowData[3] = static_cast<float>(ld.atlasSlice);
             if (hasShadow) {
                 // Column-major float4x4 for the GPU (dest[col*4+row] = M(row,col)).
+                // Matrix4::getElement takes (col, row), so M(row,col) is
+                // getElement(col, row) — the arguments are NOT in source order.
+                // This was uploading the transpose, which put every receiver's
+                // shadow coordinate outside [0,1] so the clustered shadow test
+                // silently fell through to unshadowed on both backends.
                 for (int col = 0; col < 4; ++col) {
                     for (int row = 0; row < 4; ++row) {
-                        gpu.shadowMatrix[col * 4 + row] = ld.shadowMatrix.getElement(row, col);
+                        gpu.shadowMatrix[col * 4 + row] = ld.shadowMatrix.getElement(col, row);
                     }
                 }
             }

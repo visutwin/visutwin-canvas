@@ -63,7 +63,7 @@ namespace visutwin::canvas
                     reflected.set == 1 && reflected.binding < 26 &&
                     (sampler || separateImage || separateSampler);
                 const bool validSceneTexture =
-                    reflected.set == 3 && reflected.binding < 14 &&
+                    reflected.set == 3 && reflected.binding < 15 &&
                     (sampler || separateImage || separateSampler);
                 const bool validGeometry =
                     reflected.set == 4 &&
@@ -368,13 +368,12 @@ namespace visutwin::canvas
         // Bindings 0-5 stay combined image samplers; 6-11 are separate images that
         // share the two sampler descriptors at 12-13. Combined bindings each cost
         // a per-stage sampler slot, and this device allows only 16 across all sets.
-        std::array<VkDescriptorSetLayoutBinding, 14> sceneBindings{};
+        // Binding 14 (clustered shadow atlas) is a separate image like 6-11; it
+        // sits after the samplers only so those keep their existing bindings.
+        std::array<VkDescriptorSetLayoutBinding, 15> sceneBindings{};
         for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
             sceneBindings[i].binding = i;
-            sceneBindings[i].descriptorType = i < 6
-                ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-                : (i < 12 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
-                          : VK_DESCRIPTOR_TYPE_SAMPLER);
+            sceneBindings[i].descriptorType = vulkanSceneDescriptorType(i);
             sceneBindings[i].descriptorCount = 1;
             sceneBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         }

@@ -160,6 +160,17 @@ namespace visutwin::canvas
         vkCmdPipelineBarrier2(cmd, &dependency);
     }
 
+    VkDescriptorType vulkanSceneDescriptorType(const uint32_t binding)
+    {
+        if (binding < 6) {
+            return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        }
+        if (binding == 12 || binding == 13) {
+            return VK_DESCRIPTOR_TYPE_SAMPLER;
+        }
+        return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    }
+
     VkFormat vulkanMapPixelFormat(PixelFormat format)
     {
         switch (format) {

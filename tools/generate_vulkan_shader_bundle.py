@@ -267,6 +267,8 @@ def validate(module: str, reflection: dict) -> None:
         *( (3, binding, "CombinedImageSampler") for binding in range(6) ),
         *( (3, binding, "SampledImage") for binding in range(6, 12) ),
         *( (3, binding, "Sampler") for binding in range(12, 14) ),
+        # 14 = clustered spot-shadow atlas (texture2DArray, separate image).
+        (3, 14, "SampledImage"),
         (5, 0, "StorageBuffer"),
         (5, 1, "StorageBuffer"),
     }

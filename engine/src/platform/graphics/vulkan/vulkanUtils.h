@@ -43,6 +43,19 @@ namespace visutwin::canvas
         uint32_t arrayLayers = 1,
         VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
 
+    // Descriptor type of scene-set (set 3) binding `binding`.
+    //
+    // The set is deliberately mixed: bindings 0-5 are combined image samplers,
+    // 6-11 and 14 are separate sampled images, 12-13 are the two shared samplers
+    // they read through. Combined bindings each cost one of the device's 16
+    // per-stage sampler slots (a Metal limit MoltenVK inherits) and set 1 already
+    // claims six, so anything added here must be a separate image.
+    //
+    // Both the layout creation and the descriptor writes have to agree with this
+    // exactly — writing the wrong descriptor type is undefined behaviour — so it
+    // lives here rather than being spelled out at each site.
+    VkDescriptorType vulkanSceneDescriptorType(uint32_t binding);
+
     // Enum mapping functions.
     VkFormat vulkanMapPixelFormat(PixelFormat format);
     VkFilter vulkanMapFilterMode(FilterMode mode);

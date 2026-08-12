@@ -161,6 +161,11 @@ layout(set = 3, binding = 10) uniform texture2D ssrSceneColorImage;
 layout(set = 3, binding = 11) uniform texture2D ssrSceneDepthImage;
 layout(set = 3, binding = 12) uniform sampler linearClampSampler;
 layout(set = 3, binding = 13) uniform sampler nearestClampSampler;
+// Clustered spot-shadow atlas: one depth slice per shadow-casting clustered
+// spot, indexed by ClusterLight.shadowData.w. Declared after the samplers so
+// the two sampler descriptors keep their existing bindings; a separate image
+// again costs no per-stage sampler slot.
+layout(set = 3, binding = 14) uniform texture2DArray clusterShadowAtlasImage;
 
 #define skyboxCube        samplerCube(skyboxCubeImage, linearClampSampler)
 #define reflectionProbeCube samplerCube(reflectionProbeCubeImage, linearClampSampler)
@@ -170,6 +175,9 @@ layout(set = 3, binding = 13) uniform sampler nearestClampSampler;
 // Point-sampled: depth formats commonly lack linear filter support, and
 // interpolating depth across a silhouette invents surfaces that aren't there.
 #define ssrSceneDepth     sampler2D(ssrSceneDepthImage, nearestClampSampler)
+// Point-sampled for the same reason as every other shadow map here: manual
+// depth comparison per tap, so filtering must not blend across occluders.
+#define clusterShadowAtlas sampler2DArray(clusterShadowAtlasImage, nearestClampSampler)
 
 const float PI = 3.14159265359;
 
@@ -225,6 +233,30 @@ float pcf3x3(sampler2D tex, vec2 uv, float receiver) {
     for (int y = -1; y <= 1; ++y) {
         for (int x = -1; x <= 1; ++x) {
             float occluder = texture(tex, uv + vec2(x, y) * texel).r;
+            sum += (receiver <= occluder) ? 1.0 : 0.0;
+        }
+    }
+    return sum / 9.0;
+}
+
+// Array-slice variant of pcf3x3, for the clustered spot-shadow atlas.
+//
+// Takes no sampler argument: clusterShadowAtlas is a sampler-constructor macro
+// over a separate image, and GLSL only allows such a constructor at its point of
+// use, not as a call argument. There is exactly one array shadow map, so naming
+// it directly costs nothing.
+//
+// DEVIATION: Metal's getShadowPCF3x3Array reconstructs a 3×3 kernel from four
+// hardware `sample_compare` taps; this backend has no comparison samplers bound
+// anywhere, so it does the nine comparisons directly — same kernel, uniform
+// weights instead of the bilinear ones.
+float pcf3x3Array(vec2 uv, float slice, float receiver) {
+    vec2 texel = 1.0 / vec2(textureSize(clusterShadowAtlas, 0).xy);
+    float sum = 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            float occluder =
+                texture(clusterShadowAtlas, vec3(uv + vec2(x, y) * texel, slice)).r;
             sum += (receiver <= occluder) ? 1.0 : 0.0;
         }
     }
@@ -1421,6 +1453,25 @@ void main() {
                     atten *= clamp((cone - cl.directionSpot.w) /
                         max(cl.params.x - cl.directionSpot.w, 1e-4), 0.0, 1.0);
                 }
+                if (atten < 1e-5) continue;
+
+                // Clustered spot shadow: each shadow-casting light owns one
+                // slice of the atlas. shadowData = {castShadows, bias,
+                // intensity, slice}. Mirrors forward-fragment-clustered.metal:
+                // depth bias only (no normal bias) and an intensity blend.
+                if (cl.shadowData.x > 0.5) {
+                    vec4 sc = cl.shadowMatrix * vec4(fragWorldPos, 1.0);
+                    if (sc.w > 0.0) {
+                        vec3 scoord = sc.xyz / sc.w;
+                        if (all(greaterThanEqual(scoord, vec3(0.0))) &&
+                            all(lessThanEqual(scoord, vec3(1.0)))) {
+                            float vis = pcf3x3Array(scoord.xy, cl.shadowData.w,
+                                scoord.z - cl.shadowData.y);
+                            atten *= mix(1.0, vis, clamp(cl.shadowData.z, 0.0, 1.0));
+                        }
+                    }
+                }
+
                 float nl = max(dot(N, L), 0.0);
                 vec3 H = normalize(L + V);
                 float nh = max(dot(N, H), 0.0);
