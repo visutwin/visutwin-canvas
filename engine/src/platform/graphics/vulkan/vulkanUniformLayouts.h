@@ -116,6 +116,16 @@ namespace visutwin::canvas
         float atmoMieCoeffAndScale[4]       = {21.0e-6f, 1200.0f, 0.758f, 0.0f};
         float atmoSunDirection[4]           = {0.0f, 1.0f, 0.0f, 0.0f};
         float atmoCameraAltitudeAndParams[4] = {0.0f, 32.0f, 8.0f, 0.0f};
+
+        // Blurred planar reflection. Defaults match ReflectionBlurParams and
+        // UniformBinder::LightingUniforms so an unset device behaves the same.
+        // xy = 1/viewport, zw = viewport (screen-space UV for the reflection).
+        float screenInvResolution[4]    = {0.0f, 0.0f, 0.0f, 0.0f};
+        // x = intensity, y = blurAmount, z = fadeStrength, w = angleFade
+        float reflectionParams[4]       = {1.0f, 0.0f, 1.0f, 0.5f};
+        float reflectionFadeColor[4]    = {0.5f, 0.5f, 0.5f, 0.0f};
+        // x = planeDistance, y = heightRange (depth-pass distance normalization)
+        float reflectionDepthParams[4]  = {0.0f, 10.0f, 0.0f, 0.0f};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

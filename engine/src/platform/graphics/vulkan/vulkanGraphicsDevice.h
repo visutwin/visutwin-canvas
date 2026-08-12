@@ -351,10 +351,12 @@ namespace visutwin::canvas
         static constexpr uint32_t kMaxFramesInFlight = 2;
 
         static constexpr uint32_t kInitialDescriptorSets = 256;
-        // Set 3 is the widest image set (12 images + 2 samplers). Must not be less
+        // Set 3 is the widest image set (15 images + 2 samplers). Must not be less
         // than any set's binding count: getOrCreateImageDescriptorSet returns NULL
-        // past this, which silently skips the draw.
-        static constexpr uint32_t kMaxCachedImageBindings = 16;
+        // past this, which silently skips the draw — with no error, so a too-small
+        // value looks like "the feature does nothing". Raise it whenever set 3
+        // grows; the only cost is descriptor-pool sizing and the cache key width.
+        static constexpr uint32_t kMaxCachedImageBindings = 20;
 
         struct ImageDescriptorKey {
             VkDescriptorSetLayout layout = VK_NULL_HANDLE;

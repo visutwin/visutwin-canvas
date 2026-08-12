@@ -37,7 +37,7 @@ namespace visutwin::canvas
             static_assert(kForwardSkyVertPushConstantSize == 128);
             static_assert(kForwardColorVertPushConstantSize == 128);
             static_assert(kForwardPointVertPushConstantSize == 128);
-            static_assert(sizeof(VulkanLightingUBO) == 1920);
+            static_assert(sizeof(VulkanLightingUBO) == 1984);
             static_assert(
                 offsetof(MaterialUniforms, emissiveTransform1) +
                     sizeof(float) * 4 ==
@@ -63,7 +63,7 @@ namespace visutwin::canvas
                     reflected.set == 1 && reflected.binding < 26 &&
                     (sampler || separateImage || separateSampler);
                 const bool validSceneTexture =
-                    reflected.set == 3 && reflected.binding < 15 &&
+                    reflected.set == 3 && reflected.binding < 17 &&
                     (sampler || separateImage || separateSampler);
                 const bool validGeometry =
                     reflected.set == 4 &&
@@ -368,9 +368,10 @@ namespace visutwin::canvas
         // Bindings 0-5 stay combined image samplers; 6-11 are separate images that
         // share the two sampler descriptors at 12-13. Combined bindings each cost
         // a per-stage sampler slot, and this device allows only 16 across all sets.
-        // Binding 14 (clustered shadow atlas) is a separate image like 6-11; it
-        // sits after the samplers only so those keep their existing bindings.
-        std::array<VkDescriptorSetLayoutBinding, 15> sceneBindings{};
+        // Bindings 14-16 (clustered shadow atlas, planar reflection colour and
+        // depth) are separate images like 6-11; they sit after the samplers only
+        // so those keep their existing bindings.
+        std::array<VkDescriptorSetLayoutBinding, 17> sceneBindings{};
         for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
             sceneBindings[i].binding = i;
             sceneBindings[i].descriptorType = vulkanSceneDescriptorType(i);

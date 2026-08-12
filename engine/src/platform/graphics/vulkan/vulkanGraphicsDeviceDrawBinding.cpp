@@ -952,7 +952,7 @@ namespace visutwin::canvas
                 return _whiteArrayImageView;
             };
 
-            std::array<VkDescriptorImageInfo, 15> sceneInfos{};
+            std::array<VkDescriptorImageInfo, 17> sceneInfos{};
             sceneInfos[0].sampler = _envSampler;
             sceneInfos[0].imageView = resolveView(_envAtlasTexture);
 
@@ -993,6 +993,14 @@ namespace visutwin::canvas
             // attachment being written — sampling it there would be feedback.
             sceneInfos[14].imageView = _depthOnlyPass
                 ? _whiteArrayImageView : resolveArrayView(_clusterShadowAtlas);
+            // Bindings 15/16: planar reflection colour + distance-from-plane.
+            // Both are ordinary offscreen colour targets rendered by the
+            // reflection cameras earlier in the frame graph. Metal gates on
+            // get_width() > 0; here the white fallback would pass that test and
+            // paint the surface white, so availability rides
+            // reflectionDepthParams.zw instead (same pattern as the grab flags).
+            sceneInfos[15].imageView = resolveView(reflectionMap());
+            sceneInfos[16].imageView = resolveView(reflectionDepthMap());
             for (auto& sceneInfo : sceneInfos) {
                 sceneInfo.imageLayout =
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1412,8 +1420,13 @@ namespace visutwin::canvas
         // laid out exactly like UniformBinder::AtmosphereUniforms, so the
         // caller's block copies straight in. A short block writes only its
         // prefix and leaves the remaining defaults, matching the Metal binder.
+        // Sized from the block's own span (first member through last), NOT from
+        // "offset to end of struct" — that was only equivalent while atmosphere
+        // was the final member, and silently would have started copying over
+        // whatever got appended after it.
         constexpr size_t kAtmosphereBytes =
-            sizeof(VulkanLightingUBO) -
+            offsetof(VulkanLightingUBO, atmoCameraAltitudeAndParams) +
+            sizeof(VulkanLightingUBO::atmoCameraAltitudeAndParams) -
             offsetof(VulkanLightingUBO, atmoPlanetCenterAndRadius);
         static_assert(kAtmosphereBytes == 96);
         if (!data || size == 0 || size > kAtmosphereBytes) {
@@ -1458,6 +1471,37 @@ namespace visutwin::canvas
         // them the shader would sample the 1×1 white fallbacks.
         _lightingUbo.cameraNearFar[2] = _sceneColorGrabTexture ? 1.0f : 0.0f;
         _lightingUbo.cameraNearFar[3] = _sceneDepthGrabTexture ? 1.0f : 0.0f;
+
+        // Blurred planar reflection. The screen resolution feeds the
+        // screen-space UV; zw of reflectionDepthParams flag which of the two
+        // reflection textures are actually bound, because an unbound separate
+        // image samples as opaque white rather than reading as absent.
+        {
+            const float viewportWidth = static_cast<float>(vw());
+            const float viewportHeight = static_cast<float>(vh());
+            _lightingUbo.screenInvResolution[0] =
+                viewportWidth > 0.0f ? 1.0f / viewportWidth : 0.0f;
+            _lightingUbo.screenInvResolution[1] =
+                viewportHeight > 0.0f ? 1.0f / viewportHeight : 0.0f;
+            _lightingUbo.screenInvResolution[2] = viewportWidth;
+            _lightingUbo.screenInvResolution[3] = viewportHeight;
+
+            const auto& rbp = reflectionBlurParams();
+            _lightingUbo.reflectionParams[0] = rbp.intensity;
+            _lightingUbo.reflectionParams[1] = rbp.blurAmount;
+            _lightingUbo.reflectionParams[2] = rbp.fadeStrength;
+            _lightingUbo.reflectionParams[3] = rbp.angleFade;
+            _lightingUbo.reflectionFadeColor[0] = rbp.fadeColor.r;
+            _lightingUbo.reflectionFadeColor[1] = rbp.fadeColor.g;
+            _lightingUbo.reflectionFadeColor[2] = rbp.fadeColor.b;
+            _lightingUbo.reflectionFadeColor[3] = 0.0f;
+            _lightingUbo.reflectionDepthParams[0] = rbp.planeDistance;
+            _lightingUbo.reflectionDepthParams[1] =
+                rbp.heightRange > 0.001f ? rbp.heightRange : 0.001f;
+            _lightingUbo.reflectionDepthParams[2] = reflectionMap() ? 1.0f : 0.0f;
+            _lightingUbo.reflectionDepthParams[3] =
+                reflectionDepthMap() ? 1.0f : 0.0f;
+        }
 
         // Directional cascaded shadows.  The cascade matrices, split distances,
         // and parameters all come straight from the renderer's ShadowParams;

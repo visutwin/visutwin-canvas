@@ -36,6 +36,7 @@
 #include "platform/graphics/vulkan/vulkanUtils.h"
 #include "scene/lighting/worldClusters.h"
 #include "scene/materials/material.h"
+#include "scene/materials/standardMaterial.h"
 #include "scene/mesh.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "spdlog/spdlog.h"
@@ -1659,6 +1660,227 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                     "integrating path length", horizon[0] / std::max(horizon[2], 1e-4f),
                     zenith[0] / std::max(zenith[2], 1e-4f));
                 result = 1;
+            }
+        }
+
+        // ── Blurred planar reflection (bits 33/34) ────────────────────────
+        //
+        // Two independent checks:
+        //   1. The lit path picks up the reflection texture. The reflection map
+        //      is filled with saturated GREEN, so "green rises sharply when the
+        //      map is bound" is unambiguous — no other input to this draw is
+        //      green, and the comparison run differs only by the bound map.
+        //   2. The depth-pass variant writes |worldY + planeDistance| /
+        //      heightRange as grayscale, which is exact and checkable on the CPU.
+        {
+            // 4x4 pure green reflection source. Solid, so the Poisson taps all
+            // read the same value and the blur radius cannot change the result —
+            // this test is about the plumbing, not the filter kernel.
+            TextureOptions reflOptions{};
+            reflOptions.name = "vulkan-smoke-planar-reflection";
+            reflOptions.width = 4;
+            reflOptions.height = 4;
+            reflOptions.mipmaps = false;
+            Texture reflectionTexture(device.get(), reflOptions);
+            std::array<uint8_t, 4 * 4 * 4> reflPixels{};
+            for (size_t i = 0; i < reflPixels.size(); i += 4) {
+                reflPixels[i + 0] = 0;
+                reflPixels[i + 1] = 255;
+                reflPixels[i + 2] = 0;
+                reflPixels[i + 3] = 255;
+            }
+            reflectionTexture.setLevelData(0, reflPixels.data(), reflPixels.size());
+            reflectionTexture.upload();
+
+            // Must be a StandardMaterial: ProgramLibrary sets the
+            // PLANAR_REFLECTION feature bit from StandardMaterial::reflectionMap(),
+            // so a plain Material compiles a variant without the feature and the
+            // reflection silently never runs.
+            StandardMaterial groundMaterial;
+            groundMaterial.setDiffuse(Color(0.5f, 0.0f, 0.0f, 1.0f));
+            // Mirror-smooth: the reflection is blended by gloss (1 - roughness),
+            // so the default would multiply it out to nothing. Set through
+            // setGloss, not setRoughnessFactor — StandardMaterial::updateUniforms
+            // overwrites the base-Material factors.
+            groundMaterial.setGloss(1.0f);
+            groundMaterial.setReflectionMap(&reflectionTexture);
+
+            ProgramLibrary planarPrograms(sharedDevice);
+            auto litShader = planarPrograms.getForwardShader(&groundMaterial, false);
+            planarPrograms.setPlanarReflectionDepthPass(true);
+            auto depthPassShader =
+                planarPrograms.getForwardShader(&groundMaterial, false);
+
+            const auto* vkDepthPassShader =
+                dynamic_cast<VulkanShader*>(depthPassShader.get());
+            if (!vkDepthPassShader ||
+                (vkDepthPassShader->featureMask() &
+                    shaderFeatureBit(ShaderFeature::PlanarReflectionDepthPass)) == 0) {
+                spdlog::error("Vulkan smoke: depth-pass variant lacks the "
+                    "PLANAR_REFLECTION_DEPTH_PASS feature bit");
+                result = 1;
+            }
+
+            constexpr float kGroundWorldY = 2.0f;
+            constexpr float kPlaneDistance = 1.0f;
+            constexpr float kHeightRange = 8.0f;
+
+            // Renders a ground quad facing the camera and returns its centre
+            // pixel. `bindReflection` toggles only the reflection map, so the
+            // two runs are otherwise identical.
+            const auto groundPixel = [&](const std::shared_ptr<Shader>& shader,
+                                         const bool bindReflection) -> std::array<float, 3> {
+                TextureOptions colorOpts{};
+                colorOpts.name = "vulkan-smoke-planar-color";
+                colorOpts.width = 4;
+                colorOpts.height = 4;
+                colorOpts.mipmaps = false;
+                Texture colorTexture(device.get(), colorOpts);
+
+                RenderTargetOptions targetOptions{};
+                targetOptions.graphicsDevice = device.get();
+                targetOptions.colorBuffer = &colorTexture;
+                targetOptions.depth = true;
+                targetOptions.name = "vulkan-smoke-planar-target";
+                auto target = device->createRenderTarget(targetOptions);
+
+                RenderPass pass(sharedDevice);
+                pass.init(target);
+                const Color black(0.0f, 0.0f, 0.0f, 1.0f);
+                pass.setClearColor(&black);
+                pass.setClearDepth(&clearDepth);
+
+                // A GROUND PLANE VIEWED TOP-DOWN, so world Y is constant across
+                // every covered texel and the depth-pass expectation is exact.
+                //
+                // The model lays the quad flat: local (x, y, 0) → world
+                // (4x, kGroundWorldY, 4y), with local +Z becoming world up so the
+                // surface normal is (0, 1, 0). The view-projection then maps world
+                // XZ onto screen XY at a fixed clip z. Without this the quad's
+                // world Y would vary with screen Y — the same coupling that makes
+                // an identity view-projection useless for directional probes.
+                Matrix4 model = Matrix4::identity();
+                model.setElement(0, 0, 4.0f); model.setElement(0, 1, 0.0f); model.setElement(0, 2, 0.0f);
+                model.setElement(1, 0, 0.0f); model.setElement(1, 1, 0.0f); model.setElement(1, 2, 4.0f);
+                model.setElement(2, 0, 0.0f); model.setElement(2, 1, 1.0f); model.setElement(2, 2, 0.0f);
+                model.setElement(3, 1, kGroundWorldY);
+
+                Matrix4 viewProjection = Matrix4::identity();
+                viewProjection.setElement(1, 1, 0.0f);   // clip.y comes from world z
+                viewProjection.setElement(2, 1, 1.0f);
+                viewProjection.setElement(2, 2, 0.0f);
+                viewProjection.setElement(3, 2, 0.5f);   // fixed depth inside [0,1]
+
+                ReflectionBlurParams blur;
+                blur.intensity = 1.0f;
+                blur.blurAmount = 0.0f;       // sharp: the source is solid anyway
+                blur.fadeStrength = 0.0f;     // no distance fade
+                // fresnelFade = pow(|N·V|, angleFade): a grazing view plus a
+                // large exponent keeps most of the reflection. (Straight-down
+                // views fade to fadeColor for ANY exponent, since |N·V| = 1.)
+                blur.angleFade = 1.0f;
+                blur.fadeColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
+                blur.planeDistance = kPlaneDistance;
+                blur.heightRange = kHeightRange;
+
+                device->frameStart();
+                device->startRenderPass(&pass);
+                device->setShader(shader);
+                // Without this the draw packs DEFAULT MaterialUniforms — gloss
+                // would be 0 and the reflection blend a no-op.
+                device->setMaterial(&groundMaterial);
+                device->setVertexBuffer(vertexBuffer);
+                device->setTransformUniforms(viewProjection, model);
+                device->setReflectionMap(
+                    bindReflection ? &reflectionTexture : nullptr);
+                device->setReflectionDepthMap(nullptr);   // uniform-blur fallback
+                device->setReflectionBlurParams(blur);
+                // Camera off to the side so the view is grazing (|N·V| small).
+                device->setLightingUniforms(Color(0.0f, 0.0f, 0.0f, 1.0f), {},
+                    Vector3(0.0f, kGroundWorldY + 0.5f, 10.0f), false, 1.0f);
+                device->setBlendState(nullptr);
+                device->setDepthState(defaultDepth);
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->setStencilState();
+                device->draw(triangle);
+                device->endRenderPass(&pass);
+                device->frameEnd();
+
+                std::array<float, 3> rgb{-1.0f, -1.0f, -1.0f};
+                auto* vkColor =
+                    dynamic_cast<gpu::VulkanTexture*>(colorTexture.impl());
+                if (!vkColor || vkColor->image() == VK_NULL_HANDLE) return rgb;
+
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = 4 * 4 * 4;
+                bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                VmaAllocationCreateInfo allocInfo{};
+                allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+                allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VkBuffer hostBuffer = VK_NULL_HANDLE;
+                VmaAllocation hostAllocation = nullptr;
+                VmaAllocationInfo hostMapped{};
+                if (vmaCreateBuffer(device->vmaAllocator(), &bufferInfo, &allocInfo,
+                        &hostBuffer, &hostAllocation, &hostMapped) != VK_SUCCESS) {
+                    return rgb;
+                }
+                device->enqueueUpload([vkColor, hostBuffer](VkCommandBuffer cmd) {
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+                    VkBufferImageCopy region{};
+                    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    region.imageSubresource.layerCount = 1;
+                    region.imageExtent = {4, 4, 1};
+                    vkCmdCopyImageToBuffer(cmd, vkColor->image(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, hostBuffer, 1, &region);
+                    vkColor->transitionLayout(cmd,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+                });
+                device->flushUploads();
+                vkQueueWaitIdle(device->graphicsQueue());
+                if (hostMapped.pMappedData) {
+                    std::array<uint8_t, 4> pixel{0, 0, 0, 0};
+                    const size_t centreOffset = (2 * 4 + 2) * 4;
+                    std::memcpy(pixel.data(),
+                        static_cast<const uint8_t*>(hostMapped.pMappedData) + centreOffset,
+                        pixel.size());
+                    rgb = {pixel[0] / 255.0f, pixel[1] / 255.0f, pixel[2] / 255.0f};
+                }
+                vmaDestroyBuffer(device->vmaAllocator(), hostBuffer, hostAllocation);
+                device->setReflectionMap(nullptr);
+                device->setMaterial(nullptr);
+                return rgb;
+            };
+
+            const auto withRefl = groundPixel(litShader, true);
+            const auto withoutRefl = groundPixel(litShader, false);
+            const auto depthPass = groundPixel(depthPassShader, false);
+            spdlog::info("Vulkan smoke: planar reflection ground rgb({:.3f}, {:.3f}, "
+                "{:.3f}) with map vs ({:.3f}, {:.3f}, {:.3f}) without; depth pass "
+                "grey {:.3f}", withRefl[0], withRefl[1], withRefl[2],
+                withoutRefl[0], withoutRefl[1], withoutRefl[2], depthPass[0]);
+
+            if (withRefl[0] < 0.0f || withoutRefl[0] < 0.0f || depthPass[0] < 0.0f) {
+                spdlog::error("Vulkan smoke: planar reflection readback failed");
+                result = 1;
+            } else if (withRefl[1] <= withoutRefl[1] + 0.1f) {
+                spdlog::error("Vulkan smoke: binding the planar reflection map did "
+                    "not add its colour to the surface (green {} vs {}) — set 3 "
+                    "binding 15 is unbound or the reflection block did not run",
+                    withRefl[1], withoutRefl[1]);
+                result = 1;
+            } else {
+                // Depth pass: |worldY + planeDistance| / heightRange, then the
+                // grayscale goes out raw (no tonemap or gamma on this path).
+                const float expected =
+                    std::abs(kGroundWorldY + kPlaneDistance) / kHeightRange;
+                if (std::abs(depthPass[0] - expected) > 2.0f / 255.0f) {
+                    spdlog::error("Vulkan smoke: planar depth pass wrote {} but the "
+                        "plane maths gives {} — the depth-pass variant is not "
+                        "running or reflectionDepthParams are misaligned",
+                        depthPass[0], expected);
+                    result = 1;
+                }
             }
         }
         }

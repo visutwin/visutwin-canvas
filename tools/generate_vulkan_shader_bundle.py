@@ -267,8 +267,11 @@ def validate(module: str, reflection: dict) -> None:
         *( (3, binding, "CombinedImageSampler") for binding in range(6) ),
         *( (3, binding, "SampledImage") for binding in range(6, 12) ),
         *( (3, binding, "Sampler") for binding in range(12, 14) ),
-        # 14 = clustered spot-shadow atlas (texture2DArray, separate image).
+        # 14 = clustered spot-shadow atlas (texture2DArray, separate image),
+        # 15/16 = planar reflection colour and distance-from-plane maps.
         (3, 14, "SampledImage"),
+        (3, 15, "SampledImage"),
+        (3, 16, "SampledImage"),
         (5, 0, "StorageBuffer"),
         (5, 1, "StorageBuffer"),
     }
@@ -283,7 +286,7 @@ def validate(module: str, reflection: dict) -> None:
         for set_index, binding, kind, size in bindings
         if kind == "UniformBuffer"
     }
-    if block_sizes != {(0, 0): 384, (2, 0): 1920}:
+    if block_sizes != {(0, 0): 384, (2, 0): 1984}:
         raise RuntimeError(
             f"{module}: uniform block reflection mismatch: {block_sizes}"
         )

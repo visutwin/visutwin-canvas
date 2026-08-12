@@ -124,6 +124,12 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 atmoMieCoeffAndScale;        // x = Mie coefficient, y = scale height (m), z = HG g
     vec4 atmoSunDirection;            // xyz = normalized sun direction (camera-local)
     vec4 atmoCameraAltitudeAndParams; // x = altitude (m), y = primary steps, z = secondary steps
+    // Blurred planar reflection.
+    vec4 screenInvResolution;         // xy = 1/viewport, zw = viewport
+    vec4 reflectionParams;            // x = intensity, y = blur, z = fadeStrength, w = angleFade
+    vec4 reflectionFadeColor;         // xyz = colour reflections fade into
+    vec4 reflectionDepthParams;       // x = planeDistance, y = heightRange,
+                                      // z = colour map bound, w = depth map bound
 } lighting;
 
 struct ClusterLight {
@@ -175,6 +181,10 @@ layout(set = 3, binding = 13) uniform sampler nearestClampSampler;
 // the two sampler descriptors keep their existing bindings; a separate image
 // again costs no per-stage sampler slot.
 layout(set = 3, binding = 14) uniform texture2DArray clusterShadowAtlasImage;
+// Blurred planar reflection: the mirrored scene colour rendered by the
+// reflection camera, and the distance-from-plane map from the depth camera.
+layout(set = 3, binding = 15) uniform texture2D planarReflectionImage;
+layout(set = 3, binding = 16) uniform texture2D planarReflectionDepthImage;
 
 #define skyboxCube        samplerCube(skyboxCubeImage, linearClampSampler)
 #define reflectionProbeCube samplerCube(reflectionProbeCubeImage, linearClampSampler)
@@ -187,6 +197,10 @@ layout(set = 3, binding = 14) uniform texture2DArray clusterShadowAtlasImage;
 // Point-sampled for the same reason as every other shadow map here: manual
 // depth comparison per tap, so filtering must not blend across occluders.
 #define clusterShadowAtlas sampler2DArray(clusterShadowAtlasImage, nearestClampSampler)
+// Linear-filtered: both are ordinary colour renders, and the Poisson taps below
+// want interpolation between texels.
+#define planarReflection      sampler2D(planarReflectionImage, linearClampSampler)
+#define planarReflectionDepth sampler2D(planarReflectionDepthImage, linearClampSampler)
 
 const float PI = 3.14159265359;
 
@@ -1357,6 +1371,19 @@ void main() {
         N = normalize(mat3(T, B, N) * tn);
     }
 
+    // Planar reflection DEPTH PASS: this camera exists only to produce the
+    // per-pixel distance-from-plane map that scales the reflection blur, so all
+    // lighting is skipped and the distance is written as grayscale. Placed here
+    // rather than at the tail (where forward-fragment-tail.metal has it) because
+    // nothing below affects the result — the surface setup above is the last
+    // thing it shares with the lit path.
+    if (vtFeatureEnabled(VT_FEATURE_PLANAR_REFLECTION_DEPTH_PASS_BIT)) {
+        float distFromPlane = abs(fragWorldPos.y + lighting.reflectionDepthParams.x) /
+            lighting.reflectionDepthParams.y;
+        outColor = vec4(vec3(distFromPlane), 1.0);
+        return;
+    }
+
     vec3 V = normalize(lighting.cameraPosExposure.xyz - fragWorldPos);
     float NdotV = max(dot(N, V), 1e-4);
 
@@ -1860,6 +1887,92 @@ void main() {
         emissive *= texture(emissiveMap, uvEmissive).rgb;
     }
     color += emissive;
+
+    // ── Blurred planar reflection (parity with forward-fragment-tail.metal) ──
+    // DEVIATION (inherited from the Metal chunk): upstream implements planar
+    // reflection as a ShaderMaterial script; here it is a shader feature fed by
+    // LightingData. The reflection camera renders the mirrored scene into
+    // binding 15; the optional depth camera writes a per-pixel
+    // distance-from-plane into binding 16, which scales the blur radius so
+    // objects touching the ground reflect sharply and distant ones smear.
+    if (vtFeatureEnabled(VT_FEATURE_PLANAR_REFLECTION_BIT) &&
+        lighting.reflectionDepthParams.z > 0.5) {
+        // Screen-space UV. gl_FragCoord and the sampler UV are both top-left
+        // origin here, and the reflection target was rendered through the same
+        // negative-height viewport as the main pass, so this matches the Metal
+        // path texel for texel — including its Y flip, which mirrors the image
+        // rather than correcting any coordinate convention.
+        vec2 reflUV = gl_FragCoord.xy * lighting.screenInvResolution.xy;
+        reflUV.y = 1.0 - reflUV.y;
+
+        float reflIntensityParam = lighting.reflectionParams.x;
+        float blurAmount         = lighting.reflectionParams.y;
+        float fadeStrength       = lighting.reflectionParams.z;
+        float angleFade          = lighting.reflectionParams.w;
+        vec3  fadeColor          = lighting.reflectionFadeColor.xyz;
+
+        // Metal gates the depth map on get_width(); an unbound separate image
+        // samples as white here, so the flag comes from the uniform instead.
+        bool hasDepthMap = lighting.reflectionDepthParams.w > 0.5;
+        float distFromPlane = hasDepthMap
+            ? texture(planarReflectionDepth, reflUV).r : 0.0;
+
+        vec3 reflColor;
+        if (blurAmount > 0.001) {
+            // 32-tap Poisson disk, offsets distributed in a unit circle.
+            const int NUM_TAPS = 32;
+            const vec2 poissonTaps[NUM_TAPS] = vec2[NUM_TAPS](
+                vec2(-0.220147, 0.976896), vec2(-0.735514, 0.693436),
+                vec2(-0.200476, 0.310353), vec2( 0.180822, 0.454146),
+                vec2( 0.292754, 0.937414), vec2( 0.564255, 0.207879),
+                vec2( 0.178031, 0.024583), vec2( 0.613912,-0.205936),
+                vec2(-0.385540,-0.070092), vec2( 0.962838, 0.378319),
+                vec2(-0.886362, 0.032122), vec2(-0.466531,-0.741458),
+                vec2( 0.006773,-0.574796), vec2(-0.739828,-0.410584),
+                vec2( 0.590785,-0.697557), vec2(-0.081436,-0.963262),
+                vec2( 1.000000,-0.100160), vec2( 0.622430, 0.680868),
+                vec2(-0.545396, 0.538133), vec2( 0.330651,-0.468300),
+                vec2(-0.168019,-0.623054), vec2( 0.427100, 0.698100),
+                vec2(-0.827445,-0.304350), vec2( 0.765140, 0.556640),
+                vec2(-0.403340, 0.198600), vec2( 0.114050,-0.891450),
+                vec2(-0.956940, 0.258450), vec2( 0.310545,-0.142367),
+                vec2(-0.143134, 0.619453), vec2( 0.870890,-0.227634),
+                vec2(-0.627623, 0.019867), vec2( 0.487623, 0.012367)
+            );
+
+            float reflTexWidth = float(textureSize(planarReflection, 0).x);
+            float area = hasDepthMap
+                ? distFromPlane * 80.0 * blurAmount / reflTexWidth
+                : blurAmount * 80.0 / reflTexWidth;
+
+            reflColor = vec3(0.0);
+            for (int i = 0; i < NUM_TAPS; ++i) {
+                reflColor += texture(planarReflection,
+                    reflUV + poissonTaps[i] * area).rgb;
+            }
+            reflColor /= float(NUM_TAPS);
+        } else {
+            reflColor = texture(planarReflection, reflUV).rgb;
+        }
+
+        // Intensity fades toward fadeColor.
+        reflColor = mix(fadeColor, reflColor, reflIntensityParam);
+
+        // Fresnel fade: straight down → fadeColor, grazing → full reflection.
+        float NdotVAbs = abs(dot(N, V));
+        float fresnelFade = pow(NdotVAbs, max(angleFade, 0.01));
+
+        // Distance fade, approximated from the camera-to-fragment distance.
+        float viewDist = distance(fragWorldPos, lighting.cameraPosExposure.xyz);
+        float distanceFade = 1.0 - exp(-viewDist * fadeStrength * 0.1);
+
+        // Either fade can pull the result toward fadeColor.
+        reflColor = mix(reflColor, fadeColor, max(distanceFade, fresnelFade));
+
+        // Glossier surfaces show more reflection.
+        float reflGloss = 1.0 - roughness;
+        color = mix(color, reflColor, reflGloss * reflIntensityParam);
+    }
 
     // Fog (linear or exponential) toward the fog color.
     float fogType = vtFeatureEnabled(VT_FEATURE_FOG_BIT)
