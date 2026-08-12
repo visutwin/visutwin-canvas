@@ -1,0 +1,50 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Examples (Metal)",
+      "binaryDir": "${sourceDir}/build",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "environment": {
+        "PATH": "/opt/homebrew/bin:$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "23",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_MANIFEST_DIR": "${sourceDir}/.."
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Examples (Metal, Release)",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "vulkan",
+      "displayName": "Examples (Vulkan)",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-vulkan",
+      "cacheVariables": {
+        "VISUTWIN_BACKEND_VULKAN": "ON",
+        "VCPKG_MANIFEST_FEATURES": "vulkan"
+      }
+    },
+    {
+      "name": "vulkan_release",
+      "displayName": "Examples (Vulkan, Release)",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-vulkan-release",
+      "cacheVariables": {
+        "VISUTWIN_BACKEND_VULKAN": "ON",
+        "VCPKG_MANIFEST_FEATURES": "vulkan",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ]
+}

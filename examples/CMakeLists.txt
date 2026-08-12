@@ -1,3 +1,27 @@
+# Dual-mode listfile, same idiom as engine/CMakeLists.txt: normally pulled in by
+# the root project via add_subdirectory, but ALSO openable on its own so an IDE
+# can show just the examples instead of the engine, tools and tests as well.
+#
+# Standalone, this mirrors how visutwin-geo consumes the engine: point
+# VISUTWIN_ROOT_DIR at the canvas tree and add_subdirectory its engine/ with an
+# explicit binary dir (required — the source sits outside CMAKE_SOURCE_DIR).
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    cmake_minimum_required(VERSION 3.28)
+    project(visutwin-canvas-examples LANGUAGES CXX)
+    set(CMAKE_CXX_STANDARD 23)
+    set(CMAKE_CXX_STANDARD_REQUIRED True)
+    set(CMAKE_CXX_EXTENSIONS OFF)
+    set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+    get_filename_component(VISUTWIN_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+    add_subdirectory("${VISUTWIN_ROOT_DIR}/engine"
+        "${CMAKE_BINARY_DIR}/_deps/visutwin-canvas-engine")
+endif()
+
+if(NOT DEFINED VISUTWIN_ROOT_DIR)
+    get_filename_component(VISUTWIN_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+endif()
+
 # Asset directory selection:
 #   assets-private/ — private test assets (gitignored, not for public distribution)
 #   assets/         — freely licensed assets for open-source examples
