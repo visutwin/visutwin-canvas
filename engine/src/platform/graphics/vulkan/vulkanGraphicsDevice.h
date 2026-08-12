@@ -24,6 +24,7 @@
 
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
+#include "vulkanGpuProfiler.h"
 #include "vulkanUniformLayouts.h"
 
 namespace visutwin::canvas
@@ -589,6 +590,10 @@ namespace visutwin::canvas
 
         // Clustered spot-shadow depth array (set 3 binding 14).
         Texture* _clusterShadowAtlas = nullptr;
+
+        // Typed handle for the profiler the base class exposes as _gpuProfiler;
+        // null when the device/queue has no timestamp support.
+        std::shared_ptr<gpu::VulkanGpuProfiler> _vulkanGpuProfiler;
 
         // ── VSM blur pass (lazy) ─────────────────────────────────────────
         void ensureVsmBlurResources();

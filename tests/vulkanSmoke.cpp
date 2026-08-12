@@ -2357,6 +2357,139 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 }
             }
         }
+
+        // ── GPU profiler (VkQueryPool timestamps) ─────────────────────────
+        //
+        // Checks CPU-side state only — no pixel readback — so this is immune to
+        // the readback nondeterminism noted elsewhere in this file.
+        {
+            const auto& profiler = device->gpuProfiler();
+            if (!profiler) {
+                // A device whose queue family reports no timestamp bits legitimately
+                // has no profiler. Say so loudly rather than silently passing: on
+                // this machine it IS supported, so a null here is a regression.
+                spdlog::error("Vulkan smoke: gpuProfiler() is null — the Vulkan "
+                    "backend did not create a profiler (queue timestamp support "
+                    "missing, or it was never wired up)");
+                result = 1;
+            } else {
+                // RenderPass::_name is protected and set by subclasses, so name
+                // the passes the same way the engine's real passes do.
+                struct NamedPass final : RenderPass
+                {
+                    using RenderPass::RenderPass;
+                    void setDebugName(std::string value) { _name = std::move(value); }
+                };
+
+                TextureOptions colorOpts{};
+                colorOpts.name = "vulkan-smoke-profiler-color";
+                colorOpts.width = 64;
+                colorOpts.height = 64;
+                colorOpts.mipmaps = false;
+                Texture profilerColor(device.get(), colorOpts);
+
+                RenderTargetOptions targetOptions{};
+                targetOptions.graphicsDevice = device.get();
+                targetOptions.colorBuffer = &profilerColor;
+                targetOptions.depth = true;
+                targetOptions.name = "vulkan-smoke-profiler-target";
+                auto profilerTarget = device->createRenderTarget(targetOptions);
+
+                const std::array<const char*, 2> passNames = {
+                    "smoke-profiler-pass-a", "smoke-profiler-pass-b"
+                };
+
+                profiler->setEnabled(true);
+
+                // Results lag GPU execution by NUM_SLOTS frames, so a handful of
+                // frames are needed before anything resolves.
+                constexpr int kFrames = 10;
+                for (int frame = 0; frame < kFrames; ++frame) {
+                    device->frameStart();
+                    for (const char* passName : passNames) {
+                        NamedPass pass(sharedDevice);
+                        pass.init(profilerTarget);
+                        pass.setDebugName(passName);
+                        const Color black(0.0f, 0.0f, 0.0f, 1.0f);
+                        pass.setClearColor(&black);
+                        pass.setClearDepth(&clearDepth);
+
+                        device->startRenderPass(&pass);
+                        device->setShader(shader);
+                        device->setVertexBuffer(vertexBuffer);
+                        device->setTransformUniforms(Matrix4::identity(),
+                            Matrix4::identity());
+                        device->setBlendState(nullptr);
+                        device->setDepthState(defaultDepth);
+                        device->setCullMode(CullMode::CULLFACE_NONE);
+                        device->setStencilState();
+                        device->draw(triangle);
+                        device->endRenderPass(&pass);
+                    }
+                    device->frameEnd();
+                }
+
+                const auto& timings = profiler->passTimings();
+                double summed = 0.0;
+                for (const auto& timing : timings) {
+                    summed += timing.milliseconds;
+                }
+                spdlog::info("Vulkan smoke: GPU profiler resolved {} pass timings, "
+                    "frame total {:.4f} ms", timings.size(),
+                    profiler->frameMilliseconds());
+                for (const auto& timing : timings) {
+                    spdlog::info("Vulkan smoke:   pass '{}' {:.4f} ms",
+                        timing.name, timing.milliseconds);
+                }
+
+                if (timings.size() != passNames.size()) {
+                    spdlog::error("Vulkan smoke: GPU profiler resolved {} passes but "
+                        "each frame recorded {} — timestamps are not being written "
+                        "per pass, or the slot never resolved", timings.size(),
+                        passNames.size());
+                    result = 1;
+                } else {
+                    for (size_t i = 0; i < timings.size(); ++i) {
+                        if (timings[i].name != passNames[i]) {
+                            spdlog::error("Vulkan smoke: GPU profiler pass {} is named "
+                                "'{}' but the pass was '{}' — names are misordered "
+                                "against their timestamps", i, timings[i].name,
+                                passNames[i]);
+                            result = 1;
+                        }
+                    }
+                    // A resolved-but-zero timing means the query never completed
+                    // (availability bit clear), which is the failure mode that
+                    // would otherwise look like "profiling works, scene is free".
+                    const bool anyPositive = std::any_of(timings.begin(), timings.end(),
+                        [](const GpuProfiler::PassTiming& t) { return t.milliseconds > 0.0; });
+                    if (!anyPositive) {
+                        spdlog::error("Vulkan smoke: every GPU pass timing resolved to "
+                            "0 ms — the timestamp queries are not completing");
+                        result = 1;
+                    }
+                    // Loose sanity bound: a 64x64 triangle cannot take 100 ms. A
+                    // wrong timestampPeriod or a start/end swap lands far outside.
+                    for (const auto& timing : timings) {
+                        if (timing.milliseconds < 0.0 || timing.milliseconds > 100.0) {
+                            spdlog::error("Vulkan smoke: GPU pass '{}' resolved to {} ms, "
+                                "which is not plausible for a 64x64 triangle — check the "
+                                "tick-to-nanosecond conversion", timing.name,
+                                timing.milliseconds);
+                            result = 1;
+                        }
+                    }
+                    if (std::abs(profiler->frameMilliseconds() - summed) > 1e-6) {
+                        spdlog::error("Vulkan smoke: GPU profiler frame total {} does not "
+                            "equal the sum of its pass timings {}",
+                            profiler->frameMilliseconds(), summed);
+                        result = 1;
+                    }
+                }
+
+                profiler->setEnabled(false);
+            }
+        }
         }
         }
 

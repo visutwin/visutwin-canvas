@@ -449,6 +449,15 @@ namespace visutwin::canvas
         renderingInfo.pDepthAttachment = hasDepth ? &depthInfo : nullptr;
         renderingInfo.pStencilAttachment = hasStencil ? &stencilInfo : nullptr;
 
+        // GPU profiler: bracket the pass. The timestamps sit OUTSIDE
+        // vkCmdBeginRendering/EndRendering, so the measured span includes the
+        // pass's load/store clear work (a documented deviation from Metal's
+        // stage-boundary sampling).
+        if (_vulkanGpuProfiler) {
+            _vulkanGpuProfiler->beginPass(cmd,
+                renderPass ? renderPass->name() : std::string("backbuffer"));
+        }
+
         vkCmdBeginRendering(cmd, &renderingInfo);
 
         _activeOffscreenTarget = offscreen;
@@ -490,6 +499,10 @@ namespace visutwin::canvas
         VkCommandBuffer cmd = frame.commandBuffer;
         vkCmdEndRendering(cmd);
         _dynamicRenderingActive = false;
+
+        if (_vulkanGpuProfiler) {
+            _vulkanGpuProfiler->endPass(cmd);
+        }
 
         // Offscreen attachments are usually sampled by a later pass — transition
         // each one back to SHADER_READ_ONLY so the descriptor binding that the

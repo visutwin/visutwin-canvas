@@ -527,6 +527,15 @@ namespace visutwin::canvas
                 sizeof(VulkanLightingUBO));
         }
 
+        // GPU pass profiler. Disabled by default (sampling costs a little), so
+        // creating it here is cheap — it only allocates its query pools.
+        // Null when the queue family reports no valid timestamp bits, which
+        // leaves the base gpuProfiler() accessor returning null exactly as it
+        // does on a backend without profiling.
+        _vulkanGpuProfiler = gpu::VulkanGpuProfiler::create(
+            _device, _physicalDevice, _graphicsQueueFamily);
+        _gpuProfiler = _vulkanGpuProfiler;
+
         spdlog::info("VulkanGraphicsDevice initialized ({}x{})", _width, _height);
     }
 
@@ -601,6 +610,9 @@ namespace visutwin::canvas
             vkDestroyShaderModule(_device, _vsmBlurFragModule, nullptr);
 
         _renderPipeline.reset();
+        // Owns VkQueryPools — must die before the VkDevice.
+        _vulkanGpuProfiler.reset();
+        _gpuProfiler.reset();
 
         if (_persistentDescriptorPool != VK_NULL_HANDLE)
             vkDestroyDescriptorPool(_device, _persistentDescriptorPool, nullptr);
@@ -661,6 +673,8 @@ namespace visutwin::canvas
 
         // Objects with destructors that call VkDevice/VMA must die first.
         _renderPipeline.reset();
+        _vulkanGpuProfiler.reset();
+        _gpuProfiler.reset();
 
         if (_device != VK_NULL_HANDLE) {
             if (_persistentDescriptorPool != VK_NULL_HANDLE) {

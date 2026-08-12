@@ -364,6 +364,13 @@ namespace visutwin::canvas
         }
         _lightingNeedsUpload = true;
 
+        // GPU profiler: rotate frame slot, reset its query pool on this command
+        // buffer, and resolve the slot from 2 frames ago. Must come after
+        // vkBeginCommandBuffer — the reset is a recorded command.
+        if (_vulkanGpuProfiler) {
+            _vulkanGpuProfiler->beginFrame(frame.commandBuffer);
+        }
+
         // Recycle all pools and cached sets owned by this frame slot. The
         // fence wait above guarantees none of them are still in GPU use.
         for (auto& pool : frame.descriptorPools) {
