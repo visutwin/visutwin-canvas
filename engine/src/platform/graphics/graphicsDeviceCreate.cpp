@@ -34,6 +34,7 @@ namespace visutwin::canvas
             spdlog::warn("VISUTWIN_BACKEND='{}' not recognised — using requested backend", env);
             return requested;
         }
+
     }
 
     std::unique_ptr<GraphicsDevice> createGraphicsDevice(const GraphicsDeviceOptions& options)
@@ -41,28 +42,38 @@ namespace visutwin::canvas
         const Backend backend = applyEnvOverride(options.backend);
         if (backend != options.backend) {
             spdlog::info("Backend overridden by VISUTWIN_BACKEND env var: {} → {}",
-                static_cast<int>(options.backend), static_cast<int>(backend));
+                backendName(options.backend), backendName(backend));
         }
 
+        std::unique_ptr<GraphicsDevice> device;
         switch (backend)
         {
         case Backend::Metal:
 #ifdef VISUTWIN_HAS_METAL
-            return std::make_unique<MetalGraphicsDevice>(options);
+            device = std::make_unique<MetalGraphicsDevice>(options);
+            break;
 #else
             spdlog::error("Metal backend not available on this platform");
             return nullptr;
 #endif
         case Backend::Vulkan:
 #ifdef VISUTWIN_HAS_VULKAN
-            return std::make_unique<VulkanGraphicsDevice>(options);
+            device = std::make_unique<VulkanGraphicsDevice>(options);
+            break;
 #else
             spdlog::error("Vulkan backend not available on this platform");
             return nullptr;
 #endif
         default:
-            spdlog::error("Unknown backend: {}", static_cast<int>(backend));
+            spdlog::error("Unknown backend: {}", backendName(backend));
             return nullptr;
         }
+
+        // Only after construction succeeded — a device that threw or returned
+        // null must not leave a misleading tag on the window.
+        if (device && options.window) {
+            applyBackendWindowTitle(options.window, backend);
+        }
+        return device;
     }
 }

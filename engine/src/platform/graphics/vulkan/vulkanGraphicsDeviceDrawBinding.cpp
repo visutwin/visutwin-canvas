@@ -950,6 +950,33 @@ namespace visutwin::canvas
             const bool hideShadowMaps =
                 _depthOnlyPass || shadowIsActiveAttachment;
 
+            // Same hazard, generalized: a texture that is a colour attachment of
+            // the ACTIVE pass must not also be bound as a sampled image. The
+            // planar reflection maps hit this because they are device-level
+            // state bound for every pass — including the reflection cameras'
+            // own passes, which render into them. The descriptor claims
+            // SHADER_READ_ONLY while the image is still COLOR_ATTACHMENT_OPTIMAL,
+            // which is a layout mismatch (and reads a target being written).
+            //
+            // Unbind rather than skip: descriptor state persists from the
+            // previous pass, so leaving the binding alone would keep the
+            // hazardous texture attached.
+            auto isActiveColorAttachment = [this](Texture* tex) {
+                if (!tex || !_activeOffscreenTarget) {
+                    return false;
+                }
+                auto* vkTex = static_cast<gpu::VulkanTexture*>(tex->impl());
+                if (!vkTex) {
+                    return false;
+                }
+                for (const auto& att : _activeOffscreenTarget->colorAttachments()) {
+                    if (att.texture == vkTex) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
             // Resolve an array view, falling back to the single-layer white array
             // so an unbound clustered atlas reads unshadowed (and never mixes a
             // 2D view into a texture2DArray descriptor, which is invalid).
@@ -1012,8 +1039,10 @@ namespace visutwin::canvas
             // get_width() > 0; here the white fallback would pass that test and
             // paint the surface white, so availability rides
             // reflectionDepthParams.zw instead (same pattern as the grab flags).
-            sceneInfos[15].imageView = resolveView(reflectionMap());
-            sceneInfos[16].imageView = resolveView(reflectionDepthMap());
+            sceneInfos[15].imageView = isActiveColorAttachment(reflectionMap())
+                ? _whiteImageView : resolveView(reflectionMap());
+            sceneInfos[16].imageView = isActiveColorAttachment(reflectionDepthMap())
+                ? _whiteImageView : resolveView(reflectionDepthMap());
             for (auto& sceneInfo : sceneInfos) {
                 sceneInfo.imageLayout =
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

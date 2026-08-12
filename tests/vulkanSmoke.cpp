@@ -190,6 +190,50 @@ int main()
             result = 1;
         }
 
+        // createGraphicsDevice tags the window title with the backend actually
+        // used, so a running window says which one it is. The helper is tested
+        // directly rather than through createGraphicsDevice: calling that would
+        // pull the Metal backend into this Vulkan-only test, and the Metal
+        // objects need the metal-cpp *_PRIVATE_IMPLEMENTATION TU that every
+        // example provides but this test deliberately does not.
+        {
+            const std::string baseTitle = "VisuTwin Vulkan validation smoke";
+            SDL_SetWindowTitle(window, baseTitle.c_str());
+
+            applyBackendWindowTitle(window, Backend::Vulkan);
+            const std::string tagged = SDL_GetWindowTitle(window);
+
+            // Switching backend must REPLACE the tag, not stack another on.
+            applyBackendWindowTitle(window, Backend::Metal);
+            const std::string switched = SDL_GetWindowTitle(window);
+
+            // A bracketed suffix that is not a backend name must survive.
+            SDL_SetWindowTitle(window, "Example [WIP]");
+            applyBackendWindowTitle(window, Backend::Vulkan);
+            const std::string preserved = SDL_GetWindowTitle(window);
+
+            spdlog::info("Vulkan smoke: window titles '{}' / '{}' / '{}'",
+                tagged, switched, preserved);
+            if (tagged != baseTitle + " [Vulkan]") {
+                spdlog::error("Vulkan smoke: window title is '{}' but should be "
+                    "'{} [Vulkan]'", tagged, baseTitle);
+                result = 1;
+            }
+            if (switched != baseTitle + " [Metal]") {
+                spdlog::error("Vulkan smoke: window title is '{}' after switching "
+                    "backend but should be '{} [Metal]' — the tag stacked instead "
+                    "of being replaced", switched, baseTitle);
+                result = 1;
+            }
+            if (preserved != "Example [WIP] [Vulkan]") {
+                spdlog::error("Vulkan smoke: window title is '{}' but should be "
+                    "'Example [WIP] [Vulkan]' — a non-backend bracketed suffix "
+                    "was stripped", preserved);
+                result = 1;
+            }
+            SDL_SetWindowTitle(window, baseTitle.c_str());
+        }
+
         GraphicsDeviceOptions options{};
         options.backend = Backend::Vulkan;
         options.window = window;

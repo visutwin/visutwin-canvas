@@ -34,5 +34,19 @@ namespace visutwin::canvas
 #endif
     };
 
+    /// Human-readable backend name ("Metal", "Vulkan", "WebGPU").
+    const char* backendName(Backend backend);
+
+    /// Appends " [Metal]" / " [Vulkan]" to the window title. Idempotent: a tag
+    /// left by a previous backend is replaced rather than stacked, and only a
+    /// suffix naming a known backend is stripped, so "Example [WIP]" survives.
+    /// createGraphicsDevice calls this; exposed so it can be tested and so an
+    /// app can re-apply it after changing its own title.
+    void applyBackendWindowTitle(SDL_Window* window, Backend backend);
+
+    /// Creates the device and, when options.window is set, tags the window
+    /// title with the backend actually used — e.g. "My Example [Vulkan]".
+    /// The backend can differ from the one requested (VISUTWIN_BACKEND), so
+    /// the title is the quickest way to tell which one a window is running.
     std::unique_ptr<GraphicsDevice> createGraphicsDevice(const GraphicsDeviceOptions& options);
 }
