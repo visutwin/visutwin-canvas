@@ -57,21 +57,7 @@ const auto envAtlas = std::make_unique<Asset>(
 const auto laboratory = std::make_unique<Asset>(
     "laboratory",
     AssetType::CONTAINER,
-    rootPath + "/models/da_vinci_workshop.glb"
-);
-
-const auto leonardoBust = std::make_unique<Asset>(
-    "leonardo",
-    AssetType::CONTAINER,
-    rootPath + "/models/leonardo_da_vinci.glb"
-);
-
-// 3D color LUT: 256x16 Unreal-format strip (teal-orange look) — no mipmaps.
-const auto colorLutAsset = std::make_unique<Asset>(
-    "lut-teal-orange",
-    AssetType::TEXTURE,
-    rootPath + "/textures/lut-teal-orange.tga",
-    AssetData{ .mipmaps = false }
+    rootPath + "/models/laboratory.glb"
 );
 
 BoundingBox calcEntityAABB(Entity* entity)
@@ -131,13 +117,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Ambient Occlusion Example Started ***");
+    spdlog::info("*** Ambient Occlusion Example Started ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Ambient Occlusion Example", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+        "Ambient Occlusion Example", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) {
         std::cerr << "SDL Window Creation Failed" << std::endl;
@@ -189,7 +175,7 @@ int main()
 
     // setup skydome
     scene->setSkyboxMip(2);
-    scene->setExposure(1.5f);
+    scene->setExposure(2.5f);
     scene->setToneMapping(TONEMAP_NEUTRAL);
 
     const auto envAtlasResource = envAtlas->resource();
@@ -200,7 +186,7 @@ int main()
     }
     scene->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
 
-    // create laboratory entity — auto-scale to fit scene
+    // create laboratory entity (scale 100)
     const auto labResource = laboratory->resource();
     if (!labResource) {
         spdlog::error("Failed to load laboratory model");
@@ -208,24 +194,8 @@ int main()
         return -1;
     }
     auto labEntity = std::get<ContainerResource*>(*labResource)->instantiateRenderEntity();
+    labEntity->setLocalScale(100, 100, 100);
     engine->root()->addChild(labEntity);
-
-    // Normalize model so its longest extent is ~100 units
-    {
-        const auto bbox = calcEntityAABB(labEntity);
-        const auto& he = bbox.halfExtents();
-        const auto& ct = bbox.center();
-        const float maxExtent = std::max({he.getX(), he.getY(), he.getZ()}) * 2.0f;
-        if (maxExtent > 0.001f) {
-            const float s = 100.0f / maxExtent;
-            labEntity->setLocalScale(s, s, s);
-            labEntity->setLocalPosition(
-                -ct.getX() * s,
-                -ct.getY() * s + he.getY() * s + (-40.0f),
-                -ct.getZ() * s);
-            spdlog::info("Laboratory model: extent={:.1f}, scale={:.3f}", maxExtent, s);
-        }
-    }
 
     // set up materials — enable shadows, disable baked AO, disable blending
     for (auto* render : RenderComponent::instances()) {
@@ -248,156 +218,40 @@ int main()
         }
     }
 
-    // add Leonardo da Vinci bust next to the workshop
-    Entity* leoEntity = nullptr;
+    // add lights to the torches
     {
-        const auto leoResource = leonardoBust->resource();
-        if (leoResource) {
-            leoEntity = std::get<ContainerResource*>(*leoResource)->instantiateRenderEntity();
-            engine->root()->addChild(leoEntity);
-
-            // Scale bust to same normalized size as the workshop (100 units)
-            const auto leoBbox = calcEntityAABB(leoEntity);
-            const auto& leoHe = leoBbox.halfExtents();
-            const auto& leoCt = leoBbox.center();
-            const float leoMaxExtent = std::max({leoHe.getX(), leoHe.getY(), leoHe.getZ()}) * 2.0f;
-            if (leoMaxExtent > 0.001f) {
-                const float leoScale = 150.0f / leoMaxExtent;
-                leoEntity->setLocalScale(leoScale, leoScale, leoScale);
-
-                // Place to the right of the workshop, sitting on the ground plane
-                const auto labBbox = calcEntityAABB(labEntity);
-                const float offsetX = labBbox.center().getX() + labBbox.halfExtents().getX() + 100.0f;
-                leoEntity->setLocalPosition(
-                    offsetX - leoCt.getX() * leoScale,
-                    -leoCt.getY() * leoScale + leoHe.getY() * leoScale + (-40.0f),
-                    -leoCt.getZ() * leoScale);
-
-                // Rotate 45 degrees to face toward the Mona Lisa portrait
-                leoEntity->setLocalEulerAngles(0.0f, 135.0f, 0.0f);
-
-                spdlog::info("Leonardo bust: extent={:.1f}, scale={:.3f}", leoMaxExtent, leoScale);
+        auto torches = labEntity->find([](GraphNode* node) {
+            return node->name().find("Fackel") != std::string::npos;
+        });
+        spdlog::info("Found {} torch nodes", torches.size());
+        for (auto* torch : torches) {
+            auto* torchLight = new Entity();
+            torchLight->setEngine(engine.get());
+            auto* torchLightComp = static_cast<LightComponent*>(torchLight->addComponent<LightComponent>());
+            if (torchLightComp) {
+                torchLightComp->setType(LightType::LIGHTTYPE_OMNI);
+                torchLightComp->setColor(Color(1.0f, 0.75f, 0.0f));
+                torchLightComp->setIntensity(3.0f);
+                torchLightComp->setRange(100.0f);
+                torchLightComp->setCastShadows(true);
+                torchLightComp->setShadowBias(0.2f);
+                torchLightComp->setShadowNormalBias(0.2f);
             }
-
-            // Enable shadows on the bust
-            for (auto* render : RenderComponent::instances()) {
-                if (!render || !render->entity()) continue;
-                auto* owner = render->entity();
-                if (owner != leoEntity && !owner->isDescendantOf(leoEntity)) continue;
-                render->setCastShadows(true);
-                render->setReceiveShadows(true);
+            // Position at the torch's first child mesh center
+            if (!torch->children().empty()) {
+                // GraphNode owns its children by unique_ptr in this engine.
+                auto* firstChild = torch->children()[0].get();
+                auto* childRender = static_cast<Entity*>(firstChild)->findComponent<RenderComponent>();
+                if (childRender && !childRender->meshInstances().empty()) {
+                    torchLight->setLocalPosition(childRender->meshInstances()[0]->aabb().center());
+                } else {
+                    torchLight->setLocalPosition(static_cast<Entity*>(torch)->position());
+                }
+            } else {
+                torchLight->setLocalPosition(static_cast<Entity*>(torch)->position());
             }
-        } else {
-            spdlog::warn("Leonardo bust model not found — skipping");
+            engine->root()->addChild(torchLight);
         }
-    }
-
-    // Center both objects on the ground plane (X=0, Z=0)
-    {
-        auto combined = calcEntityAABB(labEntity);
-        if (leoEntity) combined.add(calcEntityAABB(leoEntity));
-        const float shiftX = -combined.center().getX();
-        const float shiftZ = -combined.center().getZ();
-        if (std::abs(shiftX) > 0.01f || std::abs(shiftZ) > 0.01f) {
-            auto lp = labEntity->position();
-            labEntity->setLocalPosition(lp.getX() + shiftX, lp.getY(), lp.getZ() + shiftZ);
-            if (leoEntity) {
-                auto leoP = leoEntity->position();
-                leoEntity->setLocalPosition(leoP.getX() + shiftX, leoP.getY(), leoP.getZ() + shiftZ);
-            }
-        }
-    }
-
-    // add fill point lights around the model
-    {
-        const auto bbox = calcEntityAABB(labEntity);
-        const auto& ct = bbox.center();
-        const float r = bbox.halfExtents().length() * 0.6f;
-        const float h = ct.getY() + bbox.halfExtents().getY() * 0.5f;
-
-        struct LightDef { float dx; float dz; Color color; };
-        const LightDef fills[] = {
-            { -r,  r, Color(1.0f, 0.85f, 0.6f) },
-            {  r, -r, Color(0.6f, 0.8f, 1.0f)  },
-        };
-        for (auto& def : fills) {
-            auto* pl = new Entity();
-            pl->setEngine(engine.get());
-            auto* lc = static_cast<LightComponent*>(pl->addComponent<LightComponent>());
-            if (lc) {
-                lc->setType(LightType::LIGHTTYPE_OMNI);
-                lc->setColor(def.color);
-                lc->setIntensity(1.0f);
-                lc->setRange(r * 4.0f);
-                lc->setCastShadows(false);
-            }
-            pl->setLocalPosition(ct.getX() + def.dx, h, ct.getZ() + def.dz);
-            engine->root()->addChild(pl);
-        }
-    }
-
-    // add a spotlight on the Leonardo portrait (museum-style exhibition light)
-    // Light direction is entity's -Y axis. No rotation = straight down.
-    // Small X rotation tilts the beam forward for dramatic angle.
-    LightComponent* spotComp = nullptr;
-    if (leoEntity) {
-        const auto leoBbox = calcEntityAABB(leoEntity);
-        const auto& leoCt = leoBbox.center();
-        const float leoHeight = leoBbox.halfExtents().getY() * 2.0f;
-
-        auto* spot = new Entity();
-        spot->setEngine(engine.get());
-        spotComp = static_cast<LightComponent*>(spot->addComponent<LightComponent>());
-        if (spotComp) {
-            spotComp->setType(LightType::LIGHTTYPE_SPOT);
-            spotComp->setColor(Color(1.0f, 0.95f, 0.8f));  // warm white
-            spotComp->setIntensity(8.0f);
-            spotComp->setRange(leoHeight * 6.0f);
-            spotComp->setInnerConeAngle(10.0f);
-            spotComp->setOuterConeAngle(20.0f);
-            spotComp->setCastShadows(true);
-            spotComp->setShadowBias(0.3f);
-            spotComp->setShadowNormalBias(0.05f);
-            spotComp->setShadowResolution(2048);
-        }
-        // Position above the bust; -Y axis points straight down (no rotation needed).
-        // Tilt 15° on X to angle slightly forward for a museum look.
-        // Position above-front-right of the bust, aimed at its center.
-        // Light direction = entity -Y axis.
-        const float spotOffset = leoHeight * 1.0f;
-        const float spotX = leoCt.getX() + spotOffset * 0.5f;
-        const float spotY = leoCt.getY() + leoHeight * 1.5f;
-        const float spotZ = leoCt.getZ() + spotOffset * 0.5f;
-        spot->setLocalPosition(spotX, spotY, spotZ);
-
-        // Aim -Y axis at bust center using quaternion from axis-angle.
-        // Direction from spot to target (normalized):
-        // Aim at the top of the bust (portrait/face area)
-        const float targetY = leoCt.getY() + leoHeight * 0.5f;
-        float dirX = leoCt.getX() - spotX;
-        float dirY = targetY - spotY;
-        float dirZ = leoCt.getZ() - spotZ;
-        const float dirLen = std::sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
-        if (dirLen > 0.001f) {
-            dirX /= dirLen; dirY /= dirLen; dirZ /= dirLen;
-            // Rotate from=(0,-1,0) to dir. Quaternion(x,y,z,w) order.
-            // cross(from, dir) = cross((0,-1,0), (dx,dy,dz)) = (-dz, 0, dx)
-            // dot(from, dir) = -dy
-            const float dot = -dirY;
-            const float axX = -dirZ;
-            const float axZ = dirX;
-            const float s = std::sqrt((1.0f + dot) * 2.0f);
-            const float invS = 1.0f / s;
-            // Quaternion(x, y, z, w)
-            spot->setLocalRotation(Quaternion(axX * invS, 0.0f, axZ * invS, s * 0.5f));
-        }
-        engine->root()->addChild(spot);
-
-        spdlog::info("Spotlight: pos=({:.0f},{:.0f},{:.0f}) -> target=({:.0f},{:.0f},{:.0f}) dir=({:.2f},{:.2f},{:.2f})",
-            spotX, spotY, spotZ, leoCt.getX(), leoCt.getY(), leoCt.getZ(), dirX, dirY, dirZ);
-        engine->root()->addChild(spot);
-        spdlog::info("Spotlight on Leonardo: pos=({:.0f}, {:.0f}, {:.0f}), range={:.0f}",
-            leoCt.getX(), leoCt.getY() + leoHeight * 1.5f, leoCt.getZ(), leoHeight * 4.0f);
     }
 
     // add a ground plane
@@ -457,46 +311,26 @@ int main()
         ssao.randomize = false;
         cameraComp->setSsao(ssao);
 
-        // tone mapping + color finishing (fringing, grading, enhance, 3D LUT)
+        // tone mapping
         auto rendering = cameraComp->rendering();
         rendering.toneMapping = TONEMAP_NEUTRAL;
-        rendering.fringingIntensity = 40.0f;         // visible chromatic aberration at edges
-        rendering.gradingEnabled = true;
-        rendering.gradingBrightness = 1.05f;
-        rendering.gradingContrast = 1.1f;
-        rendering.gradingSaturation = 1.15f;
-        rendering.gradingTint[0] = 1.02f;            // subtle warm tint
-        rendering.gradingTint[1] = 1.0f;
-        rendering.gradingTint[2] = 0.96f;
-        rendering.colorEnhanceVibrance = 0.3f;
-        rendering.colorEnhanceShadows = 0.15f;       // lift shadows slightly
-        if (const auto lutResource = colorLutAsset->resource();
-            lutResource && std::holds_alternative<Texture*>(*lutResource)) {
-            rendering.colorLUT = std::get<Texture*>(*lutResource);
-            rendering.colorLUTIntensity = 0.8f;      // teal-orange look
-        }
         cameraComp->setRendering(rendering);
     }
 
     camera->setPosition(Vector3(-60.0f, 30.0f, 60.0f));
     engine->root()->addChild(camera);
 
-    // Setup orbit camera controls — focus on combined scene bounds
-    auto sceneBbox = calcEntityAABB(labEntity);
-    if (leoEntity) {
-        const auto leoBbox = calcEntityAABB(leoEntity);
-        sceneBbox.add(leoBbox);
-    }
+    // Setup orbit camera controls focused on laboratory
+    const auto labBbox = calcEntityAABB(labEntity);
     auto* cameraControls = camera->script()->create<CameraControls>();
-    const float sceneRadius = std::max(sceneBbox.halfExtents().length(), 1.0f);
+    const float sceneRadius = std::max(labBbox.halfExtents().length(), 1.0f);
 
-    cameraControls->setFocusPoint(sceneBbox.center());
+    cameraControls->setFocusPoint(labBbox.center());
     cameraControls->setEnableFly(false);
     cameraControls->setMoveSpeed(2 * sceneRadius);
     cameraControls->setMoveFastSpeed(4 * sceneRadius);
     cameraControls->setMoveSlowSpeed(sceneRadius);
     cameraControls->setOrbitDistance(std::max(sceneRadius * 2.0f, 200.0f));
-    cameraControls->setAutoFarClip(true, 10.0f, 1000.0f);
     cameraControls->storeResetState();
 
     bool running = true;
@@ -602,14 +436,9 @@ int main()
 
             // Camera controls
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F && cameraControls) {
-                cameraControls->focus(sceneBbox.center(), std::max(sceneRadius * 2.0f, 200.0f));
+                cameraControls->focus(labBbox.center(), std::max(sceneRadius * 2.0f, 200.0f));
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_R && cameraControls) {
                 cameraControls->reset();
-
-            // Spotlight toggle
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_L && spotComp) {
-                spotComp->setEnabled(!spotComp->enabled());
-                spdlog::info("Spotlight: {}", spotComp->enabled() ? "ON" : "OFF");
 
             // Zoom
             } else if (event.type == SDL_EVENT_MOUSE_WHEEL && cameraControls) {
@@ -631,7 +460,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Ambient Occlusion Example Finished ***");
+    spdlog::info("*** Ambient Occlusion Example Finished ***");
 
     return 0;
 }

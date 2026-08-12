@@ -106,13 +106,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Lights Example Started ***");
+    spdlog::info("*** Lights Example Started ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Lights Example", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Lights Example", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) {
@@ -418,7 +418,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Lights Example Finished ***");
+    spdlog::info("*** Lights Example Finished ***");
 
     return 0;
 }

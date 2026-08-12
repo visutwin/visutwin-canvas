@@ -89,7 +89,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Clustered Lighting", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Clustered Lighting", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
     if (!window) { shutdown(); return -1; }
     renderer = SDL_CreateRenderer(window, nullptr);
@@ -281,7 +281,7 @@ int main()
     cameraControls->setOrbitDistance(85.0f);
     cameraControls->storeResetState();
 
-    spdlog::info("*** VisuTwin Clustered Lighting Example ***");
+    spdlog::info("*** Clustered Lighting Example ***");
     spdlog::info("{} clustered local lights + 12 atlas shadow-casting spots.", lights.size());
     spdlog::info("Orbit: LMB/RMB, Wheel zoom, R reset, Esc quit.");
 
@@ -326,6 +326,6 @@ int main()
     }
 
     shutdown();
-    spdlog::info("*** VisuTwin Clustered Lighting Example Finished ***");
+    spdlog::info("*** Clustered Lighting Example Finished ***");
     return 0;
 }

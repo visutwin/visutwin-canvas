@@ -104,7 +104,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Morph Weights + Skinned Culling", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Morph Weights + Skinned Culling", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) {

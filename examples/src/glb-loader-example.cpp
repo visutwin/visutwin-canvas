@@ -155,7 +155,7 @@ int main()
     windowFlags |= useVulkan ? SDL_WINDOW_VULKAN : SDL_WINDOW_METAL;
 
     window = SDL_CreateWindow(
-        "VisuTwin GLB Loader Reference",
+        "GLB Loader Reference",
         WINDOW_WIDTH, WINDOW_HEIGHT,
         windowFlags
     );

@@ -88,7 +88,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Sheen (Fabric) Material", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Sheen (Fabric) Material", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) { shutdown(); return -1; }

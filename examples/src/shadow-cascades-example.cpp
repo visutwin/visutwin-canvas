@@ -104,13 +104,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Shadow Cascades Example Started ***");
+    spdlog::info("*** Shadow Cascades Example Started ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Shadow Cascades Example", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+        "Shadow Cascades Example", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) {
         std::cerr << "SDL Window Creation Failed" << std::endl;
@@ -392,7 +392,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Shadow Cascades Example Finished ***");
+    spdlog::info("*** Shadow Cascades Example Finished ***");
 
     return 0;
 }

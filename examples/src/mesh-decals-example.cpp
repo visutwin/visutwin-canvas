@@ -178,13 +178,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Mesh-Decals Example ***");
+    spdlog::info("*** Mesh-Decals Example ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Mesh Decals",
+        "Mesh Decals",
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
     if (!window) {
@@ -497,6 +497,6 @@ int main()
     }
 
     shutdown();
-    spdlog::info("*** VisuTwin Mesh-Decals Example Finished ***");
+    spdlog::info("*** Mesh-Decals Example Finished ***");
     return 0;
 }

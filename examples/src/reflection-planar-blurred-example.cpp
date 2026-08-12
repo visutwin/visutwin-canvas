@@ -180,13 +180,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Blurred Planar Reflection Example ***");
+    spdlog::info("*** Blurred Planar Reflection Example ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Blurred Planar Reflection",
+        "Blurred Planar Reflection",
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );

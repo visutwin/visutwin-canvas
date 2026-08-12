@@ -81,13 +81,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Dynamic Batching Example Started ***");
+    spdlog::info("*** Dynamic Batching Example Started ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Dynamic Batching Example", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Dynamic Batching Example", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) {
@@ -327,7 +327,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Dynamic Batching Example Finished ***");
+    spdlog::info("*** Dynamic Batching Example Finished ***");
 
     return 0;
 }

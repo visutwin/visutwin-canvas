@@ -93,7 +93,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Transform Gizmo (Translate/Rotate/Scale)",
+        "Transform Gizmo (Translate/Rotate/Scale)",
         WINDOW_WIDTH,
         WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE

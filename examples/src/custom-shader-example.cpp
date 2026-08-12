@@ -191,7 +191,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Custom Shader (Toon)", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Custom Shader (Toon)", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
     if (!window) { shutdown(); return -1; }
     renderer = SDL_CreateRenderer(window, nullptr);
@@ -242,7 +242,7 @@ int main()
         engine->root()->addChild(s);
     }
 
-    spdlog::info("*** VisuTwin Custom Shader (Toon) Example ***");
+    spdlog::info("*** Custom Shader (Toon) Example ***");
     spdlog::info("ShaderMaterial with a user-supplied Metal toon shader (4-band cel shading). Esc quits.");
 
     bool running = true;
@@ -277,6 +277,6 @@ int main()
     }
 
     shutdown();
-    spdlog::info("*** VisuTwin Custom Shader (Toon) Example Finished ***");
+    spdlog::info("*** Custom Shader (Toon) Example Finished ***");
     return 0;
 }

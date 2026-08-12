@@ -192,13 +192,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin 2D-Cartesian Blend-Tree Example ***");
+    spdlog::info("*** 2D-Cartesian Blend-Tree Example ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin — 2D Cartesian Blend Tree",
+        "2D Cartesian Blend Tree",
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
@@ -544,7 +544,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin 2D-Cartesian Blend-Tree Example Finished ***");
+    spdlog::info("*** 2D-Cartesian Blend-Tree Example Finished ***");
 
     return 0;
 }

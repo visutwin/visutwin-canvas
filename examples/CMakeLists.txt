@@ -109,12 +109,24 @@ add_executable(visutwin-orbit MACOSX_BUNDLE
 target_link_libraries(visutwin-orbit PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-orbit com.visutwin.orbit)
 
+# Port of the upstream PlayCanvas ambient-occlusion example (laboratory scene).
+# PlayCanvas ports are the primary examples, so this one owns the plain name.
 add_executable(visutwin-ambient-occlusion MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/ambient-occlusion-example.cpp
     ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
 )
 target_link_libraries(visutwin-ambient-occlusion PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-ambient-occlusion com.visutwin.ambient-occlusion)
+
+# The original VisuTwin variant of the same feature: da Vinci workshop scene,
+# with a Leonardo bust and a 3D colour LUT on top of the AO demonstration.
+add_executable(visutwin-ambient-occlusion-davinci MACOSX_BUNDLE
+    ${VISUTWIN_ROOT_DIR}/examples/src/ambient-occlusion-example-davinci.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
+)
+target_link_libraries(visutwin-ambient-occlusion-davinci PRIVATE visutwin-canvas)
+visutwin_set_macos_bundle(visutwin-ambient-occlusion-davinci
+    com.visutwin.ambient-occlusion-davinci)
 
 # --- Tier 1: PlayCanvas-parity examples for already-supported engine features ---
 add_executable(visutwin-clearcoat MACOSX_BUNDLE

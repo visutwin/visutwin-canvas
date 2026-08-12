@@ -89,7 +89,7 @@ int main()
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
-    window = SDL_CreateWindow("VisuTwin Dynamic Reflection Probe", WINDOW_WIDTH, WINDOW_HEIGHT,
+    window = SDL_CreateWindow("Dynamic Reflection Probe", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
     if (!window) { shutdown(); return -1; }
     renderer = SDL_CreateRenderer(window, nullptr);

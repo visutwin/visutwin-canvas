@@ -106,7 +106,7 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Gaussian Splatting Example ***");
+    spdlog::info("*** Gaussian Splatting Example ***");
 
 #ifdef VISUTWIN_HAS_METAL
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
@@ -114,7 +114,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin — Gaussian Splatting",
+        "Gaussian Splatting",
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
 #ifdef VISUTWIN_HAS_VULKAN
@@ -305,7 +305,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Gaussian Splatting Example Finished ***");
+    spdlog::info("*** Gaussian Splatting Example Finished ***");
 
     return 0;
 }

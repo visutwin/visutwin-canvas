@@ -100,13 +100,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Post-Processing Example Started ***");
+    spdlog::info("*** Post-Processing Example Started ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Post-Processing Example", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Post-Processing Example", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) { std::cerr << "SDL Window Creation Failed" << std::endl; shutdown(); return -1; }
@@ -480,7 +480,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Post-Processing Example Finished ***");
+    spdlog::info("*** Post-Processing Example Finished ***");
 
     return 0;
 }

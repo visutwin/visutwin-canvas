@@ -103,13 +103,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Visualization Engine Started *** ");
+    spdlog::info("*** Visualization Engine Started *** ");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin - Procedural Sky (Nishita Atmosphere)", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Procedural Sky (Nishita Atmosphere)", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) {
@@ -304,6 +304,6 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Visualization Engine Finished *** ");
+    spdlog::info("*** Visualization Engine Finished *** ");
     return 0;
 }

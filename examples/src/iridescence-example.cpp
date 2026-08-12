@@ -99,7 +99,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Thin-Film Iridescence", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Thin-Film Iridescence", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) { shutdown(); return -1; }

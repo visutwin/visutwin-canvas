@@ -70,13 +70,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Instancing-Basic Example ***");
+    spdlog::info("*** Instancing-Basic Example ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Instancing Basic",
+        "Instancing Basic",
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
@@ -284,7 +284,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Instancing-Basic Example Finished ***");
+    spdlog::info("*** Instancing-Basic Example Finished ***");
 
     return 0;
 }

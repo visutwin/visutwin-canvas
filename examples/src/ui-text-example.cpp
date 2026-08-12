@@ -149,7 +149,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin UI Text (Screen + Element)",
+        "UI Text (Screen + Element)",
         WINDOW_WIDTH,
         WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
@@ -262,7 +262,7 @@ int main()
     // live-updating line. All are Text ElementComponents; the placement is done
     // in UI pixels each frame so they track window resizes.
     auto* titleElement = createTextElement(
-        engine.get(), screenEntity, "VisuTwin Canvas", 48,
+        engine.get(), screenEntity, "Canvas", 48,
         Color(1.0f, 1.0f, 1.0f, 1.0f), Vector2(0.5f, 0.5f),
         Vector4(0.5f, 1.0f, 0.5f, 1.0f), 600.0f, fontResource);
 
@@ -286,7 +286,7 @@ int main()
         Color(1.0f, 1.0f, 0.4f, 1.0f), Vector2(0.5f, 0.5f),
         Vector4(0.5f, 0.0f, 0.5f, 0.0f), 500.0f, fontResource);
 
-    spdlog::info("VisuTwin UI Text example: a screen-space Screen with 5 Text ElementComponents "
+    spdlog::info("UI Text example: a screen-space Screen with 5 Text ElementComponents "
                  "(48px title, 22px subtitle, warm 28px, cool 18px, and a live frame/FPS counter) "
                  "over a rotating 3D box. ESC to quit.");
 

@@ -88,7 +88,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Anisotropic Specular", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Anisotropic Specular", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) { std::cerr << "SDL Window Creation Failed" << std::endl; shutdown(); return -1; }

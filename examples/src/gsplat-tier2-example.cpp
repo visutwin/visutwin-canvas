@@ -86,7 +86,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin GSplat Tier 2 (SH + Compressed)", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "GSplat Tier 2 (SH + Compressed)", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
 #ifdef VISUTWIN_HAS_VULKAN
         | SDL_WINDOW_VULKAN

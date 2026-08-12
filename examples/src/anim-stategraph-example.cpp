@@ -164,13 +164,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Animation Example — A Windy Day ***");
+    spdlog::info("*** Animation Example — A Windy Day ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin — A Windy Day",
+        "A Windy Day",
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
@@ -501,7 +501,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Animation Example Finished ***");
+    spdlog::info("*** Animation Example Finished ***");
 
     return 0;
 }

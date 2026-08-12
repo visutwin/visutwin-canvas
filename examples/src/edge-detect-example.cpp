@@ -216,7 +216,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     SDL_Window* window = SDL_CreateWindow(
-        "VisuTwin Compute Edge Detect",
+        "Compute Edge Detect",
         WINDOW_WIDTH,
         WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE

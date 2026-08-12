@@ -155,7 +155,8 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | ui-text | Screen-space UI text (Screen + Element components) |
 | pcss-dither | PCSS soft shadows + opacity dither |
 | pcss-local | Spot/omni PCSS contact-hardening shadows |
-| ambient-occlusion | Screen-space ambient occlusion |
+| ambient-occlusion | Screen-space ambient occlusion (PlayCanvas port, laboratory scene) |
+| ambient-occlusion-davinci | Screen-space ambient occlusion (da Vinci workshop + colour LUT) |
 | light-probes | Ambient SH light probes |
 | area-light | LTC area lights (rect / disk / sphere) |
 | reflection-planar-blurred | Planar reflections with blur |

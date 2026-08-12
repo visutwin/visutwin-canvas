@@ -102,13 +102,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Depth-of-Field Example Started ***");
+    spdlog::info("*** Depth-of-Field Example Started ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin Depth-of-Field Example", WINDOW_WIDTH, WINDOW_HEIGHT,
+        "Depth-of-Field Example", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) { std::cerr << "SDL Window Creation Failed" << std::endl; shutdown(); return -1; }
@@ -396,7 +396,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin Depth-of-Field Example Finished ***");
+    spdlog::info("*** Depth-of-Field Example Finished ***");
 
     return 0;
 }

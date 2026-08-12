@@ -121,13 +121,13 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin TAA Example Started ***");
+    spdlog::info("*** TAA Example Started ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "VisuTwin TAA Example", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+        "TAA Example", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) {
         std::cerr << "SDL Window Creation Failed" << std::endl;
@@ -423,7 +423,7 @@ int main()
 
     shutdown();
 
-    spdlog::info("*** VisuTwin TAA Example Finished ***");
+    spdlog::info("*** TAA Example Finished ***");
 
     return 0;
 }

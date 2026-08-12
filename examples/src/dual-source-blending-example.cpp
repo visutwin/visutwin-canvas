@@ -227,12 +227,12 @@ int main()
         SDL_Quit();
     };
 
-    spdlog::info("*** VisuTwin Dual-Source Blending Example Started ***");
+    spdlog::info("*** Dual-Source Blending Example Started ***");
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
     SDL_Init(SDL_INIT_VIDEO);
 
-    window = SDL_CreateWindow("VisuTwin Dual-Source Blending", WINDOW_WIDTH, WINDOW_HEIGHT,
+    window = SDL_CreateWindow("Dual-Source Blending", WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
     if (!window) {
         std::cerr << "SDL Window Creation Failed" << std::endl;
