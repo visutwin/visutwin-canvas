@@ -7,7 +7,8 @@
 //
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
+// Declarations only — STB_IMAGE_WRITE_IMPLEMENTATION lives in the engine's
+// platform/graphics/screenshot.cpp, which this tool links against.
 #include "stb_image_write.h"
 
 #define NS_PRIVATE_IMPLEMENTATION

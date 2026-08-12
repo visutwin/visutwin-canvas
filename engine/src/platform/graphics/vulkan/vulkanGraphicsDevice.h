@@ -238,6 +238,14 @@ namespace visutwin::canvas
         void onFrameStart() override;
         void onFrameEnd() override;
 
+        // Backbuffer capture. recordScreenshotCopy appends a swapchain →
+        // host-visible-buffer copy to the frame's command buffer (leaving the
+        // image in TRANSFER_SRC for the caller's present transition);
+        // writeScreenshotFromBuffer reads it back once the frame fence signals.
+        void recordScreenshotCopy(VkCommandBuffer cmd, VkBuffer& outBuffer,
+            VmaAllocation& outAllocation);
+        void writeScreenshotFromBuffer(VmaAllocation allocation);
+
         void initialize(const GraphicsDeviceOptions& options);
         // Used only when initialize() throws. The most-derived destructor is
         // not invoked for a failed constructor, so every acquired native handle

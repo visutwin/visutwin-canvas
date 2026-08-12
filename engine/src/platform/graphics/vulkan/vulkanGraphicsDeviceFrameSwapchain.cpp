@@ -25,6 +25,7 @@
 #include "core/math/vector3.h"
 #include "platform/graphics/compute.h"
 #include "platform/graphics/renderPass.h"
+#include "platform/graphics/screenshot.h"
 #include "platform/graphics/shaderFeatures.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/material.h"
@@ -402,6 +403,79 @@ namespace visutwin::canvas
         _uniformOverflowWarned = false;
     }
 
+    void VulkanGraphicsDevice::recordScreenshotCopy(VkCommandBuffer cmd,
+        VkBuffer& outBuffer, VmaAllocation& outAllocation)
+    {
+        outBuffer = VK_NULL_HANDLE;
+        outAllocation = nullptr;
+
+        const VkDeviceSize size = static_cast<VkDeviceSize>(_swapchainExtent.width)
+            * _swapchainExtent.height * 4u;
+        if (size == 0) {
+            _pendingScreenshotPath.clear();
+            return;
+        }
+
+        VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bufferInfo.size = size;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo allocationInfo{};
+        allocationInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        allocationInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        if (vmaCreateBuffer(_vmaAllocator, &bufferInfo, &allocationInfo,
+                &outBuffer, &outAllocation, nullptr) != VK_SUCCESS) {
+            spdlog::error("Screenshot: failed to allocate readback buffer");
+            outBuffer = VK_NULL_HANDLE;
+            _pendingScreenshotPath.clear();
+            return;
+        }
+
+        // The swapchain image is still in whatever layout the last pass left it
+        // in; the caller emits the PRESENT transition after this, reading the
+        // TRANSFER_SRC layout left behind here.
+        vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
+            _swapchainImageLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        _swapchainImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+        VkBufferImageCopy region{};
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.layerCount = 1;
+        region.imageExtent = {_swapchainExtent.width, _swapchainExtent.height, 1};
+        vkCmdCopyImageToBuffer(cmd, _swapchainImages[_swapchainImageIndex],
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, outBuffer, 1, &region);
+
+        VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+        VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dependency.memoryBarrierCount = 1;
+        dependency.pMemoryBarriers = &barrier;
+        vkCmdPipelineBarrier2(cmd, &dependency);
+    }
+
+    void VulkanGraphicsDevice::writeScreenshotFromBuffer(VmaAllocation allocation)
+    {
+        VmaAllocationInfo info{};
+        vmaGetAllocationInfo(_vmaAllocator, allocation, &info);
+        if (!info.pMappedData) {
+            spdlog::error("Screenshot: readback buffer is not mapped");
+            _pendingScreenshotPath.clear();
+            return;
+        }
+        vmaInvalidateAllocation(_vmaAllocator, allocation, 0, VK_WHOLE_SIZE);
+
+        // Most macOS/MoltenVK surfaces are BGRA8; PNG wants RGBA.
+        const bool swap = _swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM
+            || _swapchainFormat == VK_FORMAT_B8G8R8A8_SRGB;
+        writeScreenshotPng(_pendingScreenshotPath, _swapchainExtent.width,
+            _swapchainExtent.height, _swapchainExtent.width * 4u,
+            static_cast<const uint8_t*>(info.pMappedData), swap);
+        _pendingScreenshotPath.clear();
+    }
+
     void VulkanGraphicsDevice::onFrameEnd()
     {
         if (!_frameActive) {
@@ -413,6 +487,29 @@ namespace visutwin::canvas
 
         auto& frame = _frames[_frameIndex];
         VkCommandBuffer cmd = frame.commandBuffer;
+
+        // Backbuffer capture, recorded before the present transition so it reads
+        // the finished image. The buffer is read back after the frame fence is
+        // waited on further down; a null handle means no capture this frame.
+        VkBuffer screenshotBuffer = VK_NULL_HANDLE;
+        VmaAllocation screenshotAllocation = nullptr;
+        if (screenshotPending()) {
+            recordScreenshotCopy(cmd, screenshotBuffer, screenshotAllocation);
+        }
+        // Freed however this function exits — several submission-failure paths
+        // return early.
+        struct ScreenshotBufferGuard
+        {
+            VmaAllocator allocator;
+            VkBuffer& buffer;
+            VmaAllocation& allocation;
+            ~ScreenshotBufferGuard()
+            {
+                if (buffer != VK_NULL_HANDLE) {
+                    vmaDestroyBuffer(allocator, buffer, allocation);
+                }
+            }
+        } screenshotGuard{_vmaAllocator, screenshotBuffer, screenshotAllocation};
 
         // Transition swapchain image → presentable, using whatever layout
         // the image was left in by the last render pass (or UNDEFINED if no
@@ -496,6 +593,14 @@ namespace visutwin::canvas
         } else if (presentResult != VK_SUCCESS) {
             spdlog::warn("VulkanGraphicsDevice: vkQueuePresentKHR failed ({})",
                 static_cast<int>(presentResult));
+        }
+
+        // Write the captured backbuffer out. The copy is part of the submission
+        // above, so wait for its fence first. Blocking is acceptable: it happens
+        // on the single frame a capture was asked for.
+        if (screenshotBuffer != VK_NULL_HANDLE) {
+            vkWaitForFences(_device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+            writeScreenshotFromBuffer(screenshotAllocation);
         }
 
         ++_frameNumber;

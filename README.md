@@ -97,6 +97,27 @@ cmake --build build-vulkan --target visutwin-vulkan-smoke
 ctest --test-dir build-vulkan -R vulkan-validation-smoke --output-on-failure
 ```
 
+### Runtime environment variables
+
+Every application built on the engine honours these, so any example can be
+switched or captured without being recompiled:
+
+| Variable | Effect |
+|----------|--------|
+| `VISUTWIN_BACKEND` | `metal` or `vulkan` (lower case) — overrides the backend the application requested |
+| `VISUTWIN_SCREENSHOT` | Path to write a PNG of the backbuffer |
+| `VISUTWIN_SCREENSHOT_FRAME` | Which frame to capture (default 60, giving async asset loads time to land) |
+
+The screenshot is taken from the finished backbuffer just before present, so it
+captures exactly what is displayed — including post-processing — on both
+backends. `tools/run_example.py <binary> <logfile> <seconds>` runs an example
+under a pty for a fixed time so spdlog output is not lost to block buffering:
+
+```bash
+VISUTWIN_SCREENSHOT=shot.png python3 tools/run_example.py \
+    examples/build-release/visutwin-anisotropy.app/Contents/MacOS/visutwin-anisotropy run.log 20
+```
+
 ### Dependencies
 
 All dependencies are managed via vcpkg (see `vcpkg.json`):

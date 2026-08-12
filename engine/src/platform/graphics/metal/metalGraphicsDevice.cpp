@@ -20,6 +20,7 @@
 #include "metalVolumetricFogPass.h"
 #include "metalTaaPass.h"
 #include "metalTexture.h"
+#include "platform/graphics/screenshot.h"
 #include "metalComputePipeline.h"
 #include "metalIndexBuffer.h"
 #include "metalShader.h"
@@ -372,6 +373,53 @@ namespace visutwin::canvas
         }
     }
 
+    void MetalGraphicsDevice::captureDrawable(CA::MetalDrawable* drawable)
+    {
+        MTL::Texture* source = drawable ? drawable->texture() : nullptr;
+        if (!source || !_commandQueue) {
+            _pendingScreenshotPath.clear();
+            return;
+        }
+
+        const NS::UInteger width = source->width();
+        const NS::UInteger height = source->height();
+
+        // The drawable is private storage on Apple Silicon, so getBytes cannot
+        // read it directly -- blit into a shared staging texture first.
+        auto* descriptor = MTL::TextureDescriptor::texture2DDescriptor(
+            source->pixelFormat(), width, height, false);
+        descriptor->setStorageMode(MTL::StorageModeShared);
+        descriptor->setUsage(MTL::TextureUsageShaderRead);
+        MTL::Texture* staging = _device->newTexture(descriptor);
+        if (!staging) {
+            spdlog::error("Screenshot: failed to allocate staging texture");
+            _pendingScreenshotPath.clear();
+            return;
+        }
+
+        MTL::CommandBuffer* buffer = _commandQueue->commandBuffer();
+        MTL::BlitCommandEncoder* blit = buffer->blitCommandEncoder();
+        blit->copyFromTexture(source, 0, 0, MTL::Origin(0, 0, 0),
+            MTL::Size(width, height, 1), staging, 0, 0, MTL::Origin(0, 0, 0));
+        blit->endEncoding();
+        buffer->commit();
+        buffer->waitUntilCompleted();
+
+        const NS::UInteger rowPitch = width * 4;
+        std::vector<uint8_t> pixels(static_cast<size_t>(rowPitch) * height);
+        staging->getBytes(pixels.data(), rowPitch,
+            MTL::Region::Make2D(0, 0, width, height), 0);
+        staging->release();
+
+        // The drawable is BGRA8; PNG wants RGBA.
+        const bool swap = source->pixelFormat() == MTL::PixelFormatBGRA8Unorm
+            || source->pixelFormat() == MTL::PixelFormatBGRA8Unorm_sRGB;
+        writeScreenshotPng(_pendingScreenshotPath, static_cast<uint32_t>(width),
+            static_cast<uint32_t>(height), static_cast<uint32_t>(rowPitch),
+            pixels.data(), swap);
+        _pendingScreenshotPath.clear();
+    }
+
     void MetalGraphicsDevice::onFrameEnd()
     {
         // Always commit an end-of-frame command buffer with ring buffer completion
@@ -406,6 +454,17 @@ namespace visutwin::canvas
                     presentedDrawable->release();
                 });
             }
+            // Backbuffer capture. This is the only point in the frame where the
+            // drawable holds the finished image and is still reachable —
+            // _frameDrawable is cleared immediately below. It runs BEFORE
+            // endBuffer is committed so the copy is ordered ahead of the
+            // present, not after it (a presented drawable may be recycled).
+            // Blocking here is acceptable: it happens on the single frame a
+            // capture was asked for.
+            if (screenshotPending() && _frameDrawable) {
+                captureDrawable(_frameDrawable);
+            }
+
             endBuffer->commit();
         } else {
             // Balance the beginFrame() waits even if Metal cannot allocate the

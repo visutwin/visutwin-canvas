@@ -54,6 +54,11 @@ namespace visutwin::canvas
             bool cachedWrap = false;
             FontResource* cachedFont = nullptr;
             bool activeFrame = false;
+            // Decided once, when the visual is created: a text element under a
+            // ScreenComponent is UI (pixel coords on LAYERID_UI, depth test off,
+            // drawn by the app's ortho overlay camera); one without a Screen
+            // ancestor is a world-space label that simply follows its entity.
+            bool worldSpace = false;
         };
 
         bool computeElementRect(const ElementComponent* element, SDL_FRect& outRect) const;

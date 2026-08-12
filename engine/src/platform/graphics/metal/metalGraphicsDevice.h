@@ -223,6 +223,10 @@ namespace visutwin::canvas
         void onFrameStart() override;
         void onFrameEnd() override;
 
+        // Blits the finished drawable into a shared-storage staging texture and
+        // writes it out as a PNG. Blocks until the copy completes.
+        void captureDrawable(CA::MetalDrawable* drawable);
+
         int submitVertexBuffer(const std::shared_ptr<VertexBuffer>& vertexBuffer, int slot);
         MTL::DepthStencilState* resolveDepthStencilState(const DepthState* depthState,
             StencilParameters* stencilFront, StencilParameters* stencilBack);

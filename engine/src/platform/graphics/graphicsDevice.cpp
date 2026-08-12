@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 11.09.2025.
 //
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include "graphicsDevice.h"
@@ -71,6 +72,27 @@ namespace visutwin::canvas
             map->clear();
         }
         _mapsToClear.clear();
+
+        // Env-var driven capture, so any example can be screenshotted without
+        // being modified. Resolved once; the request is raised on the target
+        // frame and cleared by the backend once written.
+        if (!_screenshotEnvChecked) {
+            _screenshotEnvChecked = true;
+            if (const char* path = std::getenv("VISUTWIN_SCREENSHOT"); path && *path) {
+                _screenshotEnvPath = path;
+                if (const char* frame = std::getenv("VISUTWIN_SCREENSHOT_FRAME"); frame && *frame) {
+                    _screenshotEnvFrame = std::strtoull(frame, nullptr, 10);
+                }
+                spdlog::info("Screenshot armed: '{}' at frame {}", _screenshotEnvPath,
+                    _screenshotEnvFrame);
+            }
+        }
+        ++_frameCounter;
+        if (!_screenshotEnvPath.empty() && _frameCounter >= _screenshotEnvFrame) {
+            requestScreenshot(_screenshotEnvPath);
+            _screenshotEnvPath.clear();
+        }
+
         onFrameEnd();
     }
 

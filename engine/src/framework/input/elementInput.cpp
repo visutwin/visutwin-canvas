@@ -199,12 +199,34 @@ namespace visutwin::canvas
                     }
 
                     const FontGlyph& g = gIt->second;
-                    x += (prev >= 0 ? font->kerningValue(prev, code) * scale : 0.0f);
+                    const float kerning =
+                        (prev >= 0 ? font->kerningValue(prev, code) : 0.0f);
 
-                    const float gx0 = x + g.xoffset * scale;
-                    const float gyTop = yTop - static_cast<float>(li) * lineStep - g.yoffset * scale;
-                    const float gx1 = gx0 + g.width * scale;
-                    const float gyBot = gyTop - g.height * scale;
+                    // Glyph placement mirrors upstream text-element.js exactly:
+                    //
+                    //   left   = pen - (xoffset - kerning) * scale
+                    //   bottom = penY - yoffset * scale
+                    //   right/top = left/bottom + quadsize      (a SQUARE cell)
+                    //
+                    // Two things here are easy to get wrong. The offsets are
+                    // SUBTRACTED, not added: in an MSDF atlas every glyph sits in
+                    // a fixed cell (64x64 here) and xoffset/yoffset say where the
+                    // pen sits INSIDE that cell, so the cell is pulled back to
+                    // line the glyph up. Adding them instead displaces every
+                    // character by a different amount — proportional fonts come
+                    // out visibly scrambled, while a monospace font (courier,
+                    // which every earlier example used) hides it because the
+                    // offsets are then all equal.
+                    //
+                    // And the quad is square — (width + height) / 2 — not
+                    // width x height, so a non-square atlas cell cannot skew it.
+                    const float quadSize = (g.width + g.height) * 0.5f * scale;
+                    const float penY = yTop - static_cast<float>(li) * lineStep;
+
+                    const float gx0 = x - (g.xoffset - kerning) * scale;
+                    const float gx1 = gx0 + quadSize;
+                    const float gyBot = penY - g.yoffset * scale;
+                    const float gyTop = gyBot + quadSize;
 
                     const float atlasW = static_cast<float>(std::max(font->atlasWidth, 1));
                     const float atlasH = static_cast<float>(std::max(font->atlasHeight, 1));
@@ -226,7 +248,7 @@ namespace visutwin::canvas
                     indices.insert(indices.end(), {vbase + 0u, vbase + 2u, vbase + 1u, vbase + 0u, vbase + 3u, vbase + 2u});
                     vbase += 4u;
 
-                    x += g.xadvance * scale;
+                    x += (g.xadvance + kerning) * scale;
                     prev = code;
                 }
             }
@@ -395,6 +417,19 @@ namespace visutwin::canvas
             break;
         }
 
+        // A text element is UI when it has a ScreenComponent ancestor. Without
+        // one it is a world-space label — which is how upstream PlayCanvas
+        // examples annotate a 3D scene (text entities added straight to the root).
+        const auto hasScreenAncestor = [](const Entity* entity) {
+            for (const GraphNode* node = entity; node; node = node->parent()) {
+                const auto* asEntity = dynamic_cast<const Entity*>(node);
+                if (asEntity && const_cast<Entity*>(asEntity)->findComponent<ScreenComponent>()) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
         for (auto& [_, visual] : _textVisuals) {
             visual.activeFrame = false;
         }
@@ -411,12 +446,17 @@ namespace visutwin::canvas
             visual.activeFrame = true;
 
             if (!visual.entity) {
+                visual.worldSpace = !hasScreenAncestor(element->entity());
                 visual.entity = new Entity();
                 visual.entity->setEngine(_engine.get());
-                visual.entity->setLocalPosition(0.0f, 0.0f, 5.0f);
+                visual.entity->setLocalPosition(0.0f, 0.0f,
+                    visual.worldSpace ? 0.0f : 5.0f);
                 visual.render = static_cast<RenderComponent*>(visual.entity->addComponent<RenderComponent>());
                 if (visual.render) {
-                    visual.render->setLayers({LAYERID_UI});
+                    // World-space labels belong to the scene camera's layer; UI
+                    // text is drawn by the separate ortho overlay camera.
+                    visual.render->setLayers(
+                        {visual.worldSpace ? LAYERID_WORLD : LAYERID_UI});
                 }
                 visual.material = std::make_shared<StandardMaterial>();
                 visual.material->setUseLighting(false);
@@ -428,14 +468,25 @@ namespace visutwin::canvas
                 auto alphaBlend = std::make_shared<BlendState>(BlendState::alphaBlend());
                 visual.material->setBlendState(alphaBlend);
                 auto textDepth = std::make_shared<DepthState>(DepthState::noWrite());
-                textDepth->setDepthTest(false);
+                // UI text is an overlay and must never be occluded; a world-space
+                // label is part of the scene, so geometry in front of it should
+                // hide it. Depth WRITES stay off either way — the text is
+                // transparent and must not punch holes in the depth buffer.
+                textDepth->setDepthTest(visual.worldSpace);
                 visual.material->setDepthState(textDepth);
                 visual.material->setDiffuseMap(element->fontResource()->texture);
                 visual.material->setOpacityMap(element->fontResource()->texture);
                 if (visual.render) {
                     visual.render->setMaterial(visual.material.get());
                 }
-                _engine->root()->addChild(visual.entity);
+                // Parenting to the element entity is what gives world-space
+                // labels their full transform — position, ROTATION and scale —
+                // instead of the position-only screen mapping below.
+                if (visual.worldSpace) {
+                    element->entity()->addChild(visual.entity);
+                } else {
+                    _engine->root()->addChild(visual.entity);
+                }
             }
 
             const bool needsRebuild = element->textDirty() ||
@@ -474,7 +525,8 @@ namespace visutwin::canvas
             static std::unordered_set<const ElementComponent*> logged;
             if (logged.find(element) == logged.end()) {
                 const Vector3 pos = element->entity()->position();
-                spdlog::info("UI text element '{}': glyphs={}, meshBuilt={}, size=({}, {}), worldPos=({}, {}, {})",
+                spdlog::info("{} text element '{}': glyphs={}, meshBuilt={}, size=({}, {}), pos=({}, {}, {})",
+                    visual.worldSpace ? "World-space" : "UI",
                     element->text(),
                     element->fontResource()->glyphs.size(),
                     visual.mesh ? "true" : "false",
@@ -492,10 +544,17 @@ namespace visutwin::canvas
             visual.material->setOpacity(element->opacity());
 
             if (visual.entity) {
-                const Vector3 pos = element->entity()->position();
-                const float worldX = pos.getX() - uiWidth * 0.5f;
-                const float worldY = uiHeight * 0.5f - pos.getY();
-                visual.entity->setLocalPosition(worldX, worldY, 5.0f);
+                if (!visual.worldSpace) {
+                    // UI: map the element's pixel position into the ortho
+                    // overlay camera's centred coordinate system.
+                    const Vector3 pos = element->entity()->position();
+                    const float worldX = pos.getX() - uiWidth * 0.5f;
+                    const float worldY = uiHeight * 0.5f - pos.getY();
+                    visual.entity->setLocalPosition(worldX, worldY, 5.0f);
+                }
+                // World-space: the visual is a child of the element entity, so
+                // its identity local transform already tracks it. Writing a
+                // position here would fight the parent transform.
                 visual.entity->setEnabled(element->enabled() && element->entity()->enabled());
             }
         }

@@ -520,6 +520,21 @@ namespace visutwin::canvas
         // Function which executes at the end of the frame
         void frameEnd();
 
+        /**
+         * Capture the backbuffer to a PNG at the end of the CURRENT frame.
+         *
+         * Backends implement captureBackbuffer(); this just records the request
+         * so the capture happens at the one point in the frame where the
+         * rendered image is complete and still readable (before present).
+         *
+         * VISUTWIN_SCREENSHOT=<path> requests one automatically, so every
+         * example can be captured without touching its source;
+         * VISUTWIN_SCREENSHOT_FRAME=<n> picks the frame (default 60, which
+         * gives async asset loads time to land).
+         */
+        void requestScreenshot(const std::string& path) { _pendingScreenshotPath = path; }
+        bool screenshotPending() const { return !_pendingScreenshotPath.empty(); }
+
         std::shared_ptr<RenderTarget> backBuffer() const { return _backBuffer; }
 
         // Submits a graphical primitive to the hardware for immediate rendering
@@ -1055,6 +1070,14 @@ namespace visutwin::canvas
 
         // GPU pass profiler — assigned by backends that support one.
         std::shared_ptr<GpuProfiler> _gpuProfiler;
+
+        // Backbuffer capture (see requestScreenshot). Empty when idle.
+        std::string _pendingScreenshotPath;
+        // Env-var driven auto-capture, resolved once on the first frame.
+        bool _screenshotEnvChecked = false;
+        std::string _screenshotEnvPath;
+        uint64_t _screenshotEnvFrame = 60;
+        uint64_t _frameCounter = 0;
 
     private:
         friend class Engine;
