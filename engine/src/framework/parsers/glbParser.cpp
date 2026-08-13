@@ -362,27 +362,105 @@ namespace visutwin::canvas
             return true;
         }
 
+        // Apply glTF sparse-accessor overrides (indices + values bufferViews) on top
+        // of `out`, which already holds the base data (zeros when the accessor has no
+        // base bufferView, as is typical for sparse morph-target deltas).
+        bool applySparseOverrides(const tinygltf::Model& model, const tinygltf::Accessor& accessor,
+            const int numComponents, std::vector<float>& out)
+        {
+            const auto& sparse = accessor.sparse;
+            const auto sparseCount = static_cast<size_t>(sparse.count);
+            if (sparseCount == 0) {
+                return true;
+            }
+
+            const auto viewBytes = [&](const int viewIndex, const size_t byteOffset,
+                const size_t byteLength) -> const uint8_t* {
+                if (viewIndex < 0 || viewIndex >= static_cast<int>(model.bufferViews.size())) {
+                    return nullptr;
+                }
+                const auto& view = model.bufferViews[static_cast<size_t>(viewIndex)];
+                if (view.buffer < 0 || view.buffer >= static_cast<int>(model.buffers.size())) {
+                    return nullptr;
+                }
+                const auto& buffer = model.buffers[static_cast<size_t>(view.buffer)];
+                const size_t bufferSize = buffer.data.size();
+                if (view.byteOffset > bufferSize || byteOffset > bufferSize - view.byteOffset) {
+                    return nullptr;
+                }
+                const size_t offset = view.byteOffset + byteOffset;
+                if (byteLength > bufferSize - offset) {
+                    return nullptr;
+                }
+                return buffer.data.data() + offset;
+            };
+
+            const int idxBytes = componentBytes(sparse.indices.componentType);
+            if (idxBytes != 1 && idxBytes != 2 && idxBytes != 4) {
+                return false;
+            }
+            const auto* idxPtr = viewBytes(sparse.indices.bufferView, sparse.indices.byteOffset,
+                sparseCount * static_cast<size_t>(idxBytes));
+            const auto* valPtr = viewBytes(sparse.values.bufferView, sparse.values.byteOffset,
+                sparseCount * static_cast<size_t>(numComponents) * sizeof(float));
+            if (!idxPtr || !valPtr) {
+                return false;
+            }
+
+            const auto* values = reinterpret_cast<const float*>(valPtr);
+            const size_t elementCount = out.size() / static_cast<size_t>(numComponents);
+            for (size_t i = 0; i < sparseCount; ++i) {
+                size_t index = 0;
+                switch (idxBytes) {
+                    case 1: index = idxPtr[i]; break;
+                    case 2: index = reinterpret_cast<const uint16_t*>(idxPtr)[i]; break;
+                    default: index = reinterpret_cast<const uint32_t*>(idxPtr)[i]; break;
+                }
+                if (index >= elementCount) {
+                    return false;
+                }
+                for (int c = 0; c < numComponents; ++c) {
+                    out[index * static_cast<size_t>(numComponents) + static_cast<size_t>(c)] =
+                        values[i * static_cast<size_t>(numComponents) + static_cast<size_t>(c)];
+                }
+            }
+            return true;
+        }
+
         // Read all float data from an accessor into a flat vector.
         // Works for SCALAR, VEC2, VEC3, VEC4 — all written as sequential floats.
+        // Supports sparse accessors, including the base-less form (bufferView absent,
+        // base = zeros) that morph-target deltas commonly use.
         bool readFloatArray(const tinygltf::Model& model, const tinygltf::Accessor& accessor, std::vector<float>& out)
         {
             if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
                 return false;
             }
-            const auto* base = getAccessorBase(model, accessor);
-            if (!base) {
+            const int numComponents = tinygltf::GetNumComponentsInType(accessor.type);
+            if (numComponents <= 0) {
                 return false;
             }
-            const auto stride = accessorStride(model, accessor);
-            const int numComponents = tinygltf::GetNumComponentsInType(accessor.type);
             const size_t count = static_cast<size_t>(accessor.count);
-            out.resize(count * static_cast<size_t>(numComponents));
+            out.assign(count * static_cast<size_t>(numComponents), 0.0f);
 
-            for (size_t i = 0; i < count; ++i) {
-                const auto* ptr = reinterpret_cast<const float*>(base + i * static_cast<size_t>(stride));
-                for (int c = 0; c < numComponents; ++c) {
-                    out[i * static_cast<size_t>(numComponents) + static_cast<size_t>(c)] = ptr[c];
+            if (accessor.bufferView >= 0) {
+                const auto* base = getAccessorBase(model, accessor);
+                if (!base) {
+                    return false;
                 }
+                const auto stride = accessorStride(model, accessor);
+                for (size_t i = 0; i < count; ++i) {
+                    const auto* ptr = reinterpret_cast<const float*>(base + i * static_cast<size_t>(stride));
+                    for (int c = 0; c < numComponents; ++c) {
+                        out[i * static_cast<size_t>(numComponents) + static_cast<size_t>(c)] = ptr[c];
+                    }
+                }
+            } else if (!accessor.sparse.isSparse) {
+                return false;
+            }
+
+            if (accessor.sparse.isSparse) {
+                return applySparseOverrides(model, accessor, numComponents, out);
             }
             return true;
         }
@@ -1280,6 +1358,55 @@ namespace visutwin::canvas
     }
 
     /**
+     * Apply KHR_materials_clearcoat to a StandardMaterial. glTF stores coat
+     * roughness while the material stores gloss, so the factor routes through
+     * setClearCoatGloss + setClearCoatGlossInvert(true). DEVIATION: the shader
+     * samples the intensity/roughness maps from the G channel (no per-map
+     * channel selection); glTF puts intensity in R — fine for the common
+     * greyscale masks (e.g. ClearCoatTest.glb), wrong for packed RGB masks.
+     */
+    static void applyClearcoat(
+        const tinygltf::Material& srcMaterial,
+        StandardMaterial* material,
+        const std::function<std::shared_ptr<Texture>(int)>& getOrCreateTexture)
+    {
+        const auto it = srcMaterial.extensions.find("KHR_materials_clearcoat");
+        if (it == srcMaterial.extensions.end() || !it->second.IsObject()) {
+            return;
+        }
+        const auto& cc = it->second;
+
+        const auto readNumber = [&cc](const char* key, const float fallback) {
+            if (cc.Has(key)) {
+                const auto n = cc.Get(key);
+                if (n.IsNumber()) return static_cast<float>(n.GetNumberAsDouble());
+            }
+            return fallback;
+        };
+        const auto textureIndex = [&cc](const char* key) {
+            if (cc.Has(key)) {
+                const auto t = cc.Get(key);
+                if (t.IsObject() && t.Has("index")) return t.Get("index").GetNumberAsInt();
+            }
+            return -1;
+        };
+
+        material->setClearCoat(readNumber("clearcoatFactor", 0.0f));
+        material->setClearCoatGloss(readNumber("clearcoatRoughnessFactor", 0.0f));
+        material->setClearCoatGlossInvert(true);
+
+        if (const int idx = textureIndex("clearcoatTexture"); idx >= 0) {
+            if (const auto tex = getOrCreateTexture(idx)) material->setClearCoatMap(tex.get());
+        }
+        if (const int idx = textureIndex("clearcoatRoughnessTexture"); idx >= 0) {
+            if (const auto tex = getOrCreateTexture(idx)) material->setClearCoatGlossMap(tex.get());
+        }
+        if (const int idx = textureIndex("clearcoatNormalTexture"); idx >= 0) {
+            if (const auto tex = getOrCreateTexture(idx)) material->setClearCoatNormalMap(tex.get());
+        }
+    }
+
+    /**
      * Apply KHR_materials_pbrSpecularGlossiness extension to a StandardMaterial.
      * Maps diffuseTexture → baseColorTexture and specular/glossiness factors.
      */
@@ -1620,6 +1747,7 @@ namespace visutwin::canvas
                 // Handle KHR_materials_pbrSpecularGlossiness extension
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
                 applyVolumeExtensions(srcMaterial, material.get());
+                applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto baseColorTexture = getOrCreateTexture(pbr.baseColorTexture.index)) {
@@ -1663,6 +1791,9 @@ namespace visutwin::canvas
                     );
                     emissiveColor.gamma();
                     material->setEmissiveFactor(emissiveColor);
+                    // StandardMaterial::updateUniforms overrides emissiveFactor with
+                    // _emissive * _emissiveIntensity — mirror into the authoritative slot.
+                    material->setEmissive(emissiveColor);
                 }
                 if (srcMaterial.emissiveTexture.index >= 0) {
                     if (auto emissiveTexture = getOrCreateTexture(srcMaterial.emissiveTexture.index)) {
@@ -2585,6 +2716,7 @@ namespace visutwin::canvas
                 // Handle KHR_materials_pbrSpecularGlossiness extension
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
                 applyVolumeExtensions(srcMaterial, material.get());
+                applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {
@@ -2614,6 +2746,9 @@ namespace visutwin::canvas
                         static_cast<float>(srcMaterial.emissiveFactor[2]), 1.0f);
                     emissiveColor.gamma();
                     material->setEmissiveFactor(emissiveColor);
+                    // StandardMaterial::updateUniforms overrides emissiveFactor with
+                    // _emissive * _emissiveIntensity — mirror into the authoritative slot.
+                    material->setEmissive(emissiveColor);
                 }
 
                 uint64_t variant = 1;
@@ -3133,6 +3268,7 @@ namespace visutwin::canvas
                 // Handle KHR_materials_pbrSpecularGlossiness extension
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
                 applyVolumeExtensions(srcMaterial, material.get());
+                applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {
@@ -3172,6 +3308,9 @@ namespace visutwin::canvas
                         static_cast<float>(srcMaterial.emissiveFactor[2]), 1.0f);
                     emissiveColor.gamma();
                     material->setEmissiveFactor(emissiveColor);
+                    // StandardMaterial::updateUniforms overrides emissiveFactor with
+                    // _emissive * _emissiveIntensity — mirror into the authoritative slot.
+                    material->setEmissive(emissiveColor);
                 }
 
                 uint64_t variant = 1;

@@ -249,10 +249,10 @@ int main()
     engine->start();
 
     auto scene = engine->scene();
+    // Match upstream blend-trees-2d-cartesian: exposure 2, full-intensity skybox,
+    // default linear tone mapping (no ACES — it darkens midtones noticeably).
     scene->setSkyboxMip(2);
-    scene->setSkyboxIntensity(0.7f);
-    scene->setExposure(1.0f);
-    scene->setToneMapping(TONEMAP_ACES);
+    scene->setExposure(2.0f);
 
     // Load environment atlas for IBL
     const auto envAtlasResource = envAtlas->resource();
@@ -383,9 +383,12 @@ int main()
         if (groundTexRes && std::holds_alternative<Texture*>(*groundTexRes)) {
             groundMaterial->setDiffuseMap(std::get<Texture*>(*groundTexRes));
         } else {
-            groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
             spdlog::warn("Ground texture failed to load — using flat grey");
         }
+        // Darken the ground so it stays below 1.0 under exposure 2 + linear
+        // tonemap — a blown-out white ground clips the soft shadow away
+        // (shadow only removes the directional term; IBL keeps the rest lit).
+        groundMaterial->setDiffuse(Color(0.32f, 0.32f, 0.32f, 1.0f));
 
         auto* ground = new Entity();
         ground->setEngine(engine.get());
@@ -395,6 +398,10 @@ int main()
         if (groundRender) {
             groundRender->setMaterial(groundMaterial.get());
             groundRender->setType("plane");
+            // NOTE: the ground must stay a shadow CASTER — the directional
+            // shadow camera tightens its far plane to the caster AABB union,
+            // and a receiver-only ground would fall beyond it (shadow clips
+            // along a light-space plane through the character).
         }
         engine->root()->addChild(ground);
         // Keep the material alive for the lifetime of the app.
@@ -418,27 +425,19 @@ int main()
     auto* keyLightComp = static_cast<LightComponent*>(keyLight->addComponent<LightComponent>());
     if (keyLightComp) {
         keyLightComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        keyLightComp->setColor(Color(1.0f, 0.97f, 0.92f));
         keyLightComp->setIntensity(1.5f);
         keyLightComp->setCastShadows(true);
+        // Upstream shadow settings: distance 6, bias 0.02, normalOffsetBias 0.02,
+        // single cascade (PlayCanvas default) — the tight fit keeps the whole
+        // character silhouette in one cascade instead of splitting it.
         keyLightComp->setShadowResolution(2048);
-        keyLightComp->setShadowDistance(std::max(radius * 4.0f, 100.0f));
-        keyLightComp->setShadowBias(0.3f);
-        keyLightComp->setShadowNormalBias(0.05f);
+        keyLightComp->setShadowDistance(20.0f);
+        keyLightComp->setNumCascades(1);
+        keyLightComp->setShadowBias(0.02f);
+        keyLightComp->setShadowNormalBias(0.02f);
     }
     keyLight->setLocalEulerAngles(45.0f, 30.0f, 0.0f);
     engine->root()->addChild(keyLight);
-
-    auto* fillLight = new Entity();
-    fillLight->setEngine(engine.get());
-    auto* fillLightComp = static_cast<LightComponent*>(fillLight->addComponent<LightComponent>());
-    if (fillLightComp) {
-        fillLightComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        fillLightComp->setColor(Color(0.65f, 0.75f, 1.0f));
-        fillLightComp->setIntensity(0.5f);
-    }
-    fillLight->setLocalEulerAngles(-20.0f, -150.0f, 0.0f);
-    engine->root()->addChild(fillLight);
 
     // -----------------------------------------------------------------------
     // Camera with orbit controls
@@ -449,7 +448,7 @@ int main()
     cameraEntity->addComponent<ScriptComponent>();
 
     if (cameraComp && cameraComp->camera()) {
-        cameraComp->camera()->setClearColor(Color(0.05f, 0.05f, 0.08f, 1.0f));
+        cameraComp->camera()->setClearColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
         cameraComp->camera()->setFov(55.0f);
         cameraComp->camera()->setNearClip(std::max(0.01f, radius * 0.005f));
         cameraComp->camera()->setFarClip(std::max(500.0f, radius * 20.0f));

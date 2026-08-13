@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// LTC area-light demo (parity with PlayCanvas graphics/area-lights): a colored
-// linearly-transformed-cosines area light illuminates the statue.glb hero standing on
-// a seaside-rocks textured floor, lit by the helipad environment atlas. The light
-// auto-cycles shape rect -> disk -> sphere and slowly tilts so the characteristic LTC
-// stretched reflection sweeps across the glossy floor; Space pauses/resumes the tilt.
+// LTC area-light demo (parity with PlayCanvas graphics/area-lights): three animated
+// area lights — a white rect, a yellow sphere and a large blue "sky" disk — illuminate
+// the statue.glb hero standing on a seaside-rocks textured floor, lit by the helipad
+// environment atlas. Each light carries an emissive primitive matching its shape.
+//
+// DEVIATION: upstream builds these as spot/omni/directional lights with an area SHAPE
+// (cone clipping, shadows, no distance falloff on the directional). This engine has a
+// single positional LIGHTTYPE_AREA_RECT type (two-sided, range-windowed, no shadows),
+// so all three are area lights; the directional disk is emulated by placing a large
+// disk far away along the animated direction (same angular size as upstream's).
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -81,20 +86,9 @@ Texture* requireTexture(const std::unique_ptr<Asset>& asset, const char* label)
     return std::get<Texture*>(*resource);
 }
 
-Entity* createEntity(Engine* engine, Material* material, const char* type,
-    const Vector3& position, const Vector3& scale)
+float lerp(const float a, const float b, const float t)
 {
-    auto* entity = new Entity();
-    entity->setEngine(engine);
-    entity->setLocalPosition(position.getX(), position.getY(), position.getZ());
-    entity->setLocalScale(scale.getX(), scale.getY(), scale.getZ());
-
-    auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
-    if (render) {
-        render->setMaterial(material);
-        render->setType(type);
-    }
-    return entity;
+    return a + (b - a) * t;
 }
 
 int main()
@@ -121,7 +115,7 @@ int main()
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "LTC Area Light", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+        "Area Lights", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
     );
     if (!window) {
         shutdown();
@@ -161,7 +155,6 @@ int main()
 
     auto scene = engine->scene();
     scene->setToneMapping(TONEMAP_ACES);
-    scene->setAmbientLight(0.06f, 0.06f, 0.07f);
 
     // Skydome + image-based lighting from the helipad environment atlas (darkened),
     // matching the PlayCanvas counterpart.
@@ -175,16 +168,8 @@ int main()
     }
     scene->setEnvAtlas(std::get<Texture*>(*helipadResource));
 
-    auto* camera = new Entity();
-    camera->setEngine(engine.get());
-    camera->addComponent<CameraComponent>();
-    // Elevated view looking down at the statue on the floor (PlayCanvas: pos (0,2.5,12), lookAt origin).
-    camera->setLocalPosition(0.0f, 2.5f, 12.0f);
-    camera->setLocalEulerAngles(-12.0f, 0.0f, 0.0f);
-    engine->root()->addChild(camera);
-
     // Seaside-rocks textured ground plane (color + normal + gloss), metallic PBR so the
-    // LTC area light produces a glossy stretched reflection across it. Textures tiled 7x7.
+    // LTC area lights produce glossy stretched reflections across it. Textures tiled 7x7.
     Texture* floorColor = requireTexture(floorColorTex, "floor-color");
     Texture* floorNormal = requireTexture(floorNormalTex, "floor-normal");
     Texture* floorGloss = requireTexture(floorGlossTex, "floor-gloss");
@@ -203,11 +188,18 @@ int main()
     floorMaterial->setGlossMap(floorGloss);
     floorMaterial->setDiffuseMapTiling(Vector2(7.0f, 7.0f));
     floorMaterial->setNormalMapTiling(Vector2(7.0f, 7.0f));
-    engine->root()->addChild(createEntity(
-        engine.get(), floorMaterial.get(), "plane", Vector3(0.0f, 0.0f, 0.0f), Vector3(20.0f, 20.0f, 20.0f)
-    ));
+    floorMaterial->setMetalnessMapTiling(Vector2(7.0f, 7.0f));
 
-    // Statue hero standing on the floor, lit by the area light (parity with orbit-example).
+    auto* floor = new Entity();
+    floor->setEngine(engine.get());
+    floor->setLocalScale(20.0f, 20.0f, 20.0f);
+    if (auto* render = static_cast<RenderComponent*>(floor->addComponent<RenderComponent>())) {
+        render->setMaterial(floorMaterial.get());
+        render->setType("plane");
+    }
+    engine->root()->addChild(floor);
+
+    // Statue hero standing on the floor (PlayCanvas scale 0.4).
     const auto statueResource = statue->resource();
     if (!statueResource) {
         spdlog::error("Failed to load statue model");
@@ -215,71 +207,132 @@ int main()
         return -1;
     }
     auto* statueEntity = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
-    statueEntity->setLocalScale(0.4f, 0.4f, 0.4f); // match PlayCanvas area-lights framing
-    statueEntity->setLocalPosition(0.0f, 0.0f, 0.0f);
+    statueEntity->setLocalScale(0.4f, 0.4f, 0.4f);
     engine->root()->addChild(statueEntity);
 
-    // The rect area light: a near-vertical warm billboard behind the scene facing the
-    // camera. Entity -Y is the emission direction, X is the rect width axis.
-    auto* areaLight = new Entity();
-    areaLight->setEngine(engine.get());
-    auto* lightComponent = static_cast<LightComponent*>(areaLight->addComponent<LightComponent>());
-    if (lightComponent) {
-        lightComponent->setType(LightType::LIGHTTYPE_AREA_RECT);
-        lightComponent->setColor(Color(1.0f, 0.7f, 0.35f, 1.0f));
-        lightComponent->setIntensity(1.5f);
-        lightComponent->setRange(30.0f);
-        lightComponent->setAreaWidth(9.6f);
-        lightComponent->setAreaHeight(1.6f);
+    // Camera matching PlayCanvas: pos (0, 2.5, 12), lookAt origin, fov 60, gray clear.
+    auto* camera = new Entity();
+    camera->setEngine(engine.get());
+    auto* cameraComp = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
+    if (cameraComp) {
+        cameraComp->camera()->setClearColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
+        cameraComp->camera()->setFov(60.0f);
+        cameraComp->camera()->setFarClip(100000.0f);
     }
-    // Positioned above and in front of the statue so it lights the hero and casts the
-    // stretched LTC reflection onto the floor toward the camera.
-    areaLight->setLocalPosition(0.0f, 5.0f, 3.5f);
-    engine->root()->addChild(areaLight);
+    camera->setLocalPosition(0.0f, 2.5f, 12.0f);
+    // lookAt(0,0,0) from (0,2.5,12): pitch = -atan2(2.5, 12).
+    camera->setLocalEulerAngles(-11.77f, 0.0f, 0.0f);
+    engine->root()->addChild(camera);
 
-    // Emissive slab so the panel itself is visible where the light comes from.
-    auto panelMaterial = std::make_shared<StandardMaterial>();
-    panelMaterial->setName("panel-emissive");
-    panelMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
-    panelMaterial->setEmissive(Color(1.0f, 0.7f, 0.35f, 1.0f));
-    panelMaterial->setEmissiveIntensity(3.0f);
-    auto* panel = createEntity(
-        engine.get(), panelMaterial.get(), "box", Vector3(0.0f, 0.0f, 0.0f), Vector3(9.6f, 0.05f, 1.6f)
-    );
-    areaLight->addChild(panel);
+    // Helper mirroring upstream createAreaLight: a parent entity carrying the area
+    // light plus an emissive primitive matching the light-source shape.
+    const auto createAreaLight = [&](const AreaLightShape shape, const Vector3& position,
+        const float size, const Color& color, const float intensity, const float range,
+        std::shared_ptr<StandardMaterial>& outMaterial) -> Entity* {
+        auto* lightParent = new Entity();
+        lightParent->setEngine(engine.get());
+        lightParent->setLocalPosition(position.getX(), position.getY(), position.getZ());
+        engine->root()->addChild(lightParent);
 
-    spdlog::info("LTC area light: 9.6m x 1.6m warm panel over floor strips roughness 0.05 -> 0.75");
-    spdlog::info("Auto-cycles shape rect -> disk -> sphere every 4s. Keys: Space = pause/resume tilt, Esc = quit");
-
-    // Shape cycle: rect -> disk -> sphere (disk inscribed in the panel quad;
-    // sphere radius = max half-extent). The emissive slab is resized to match.
-    const auto applyShape = [&](const int shapeIdx) {
-        static const char* names[3] = {"RECT", "DISK", "SPHERE"};
-        if (!lightComponent) return;
-        lightComponent->setAreaShape(static_cast<AreaLightShape>(shapeIdx));
-        if (shapeIdx == 2) {
-            panel->setLocalScale(4.8f, 4.8f, 4.8f);  // sphere: uniform blob
-        } else {
-            panel->setLocalScale(9.6f, 0.05f, 1.6f);
+        auto* lightEntity = new Entity();
+        lightEntity->setEngine(engine.get());
+        if (auto* light = static_cast<LightComponent*>(lightEntity->addComponent<LightComponent>())) {
+            light->setType(LightType::LIGHTTYPE_AREA_RECT);
+            light->setAreaShape(shape);
+            light->setColor(color);
+            light->setIntensity(intensity);
+            light->setRange(range);
+            light->setAreaWidth(size);
+            light->setAreaHeight(size);
         }
-        spdlog::info("Area light shape: {}", names[shapeIdx]);
+        lightParent->addChild(lightEntity);
+
+        // Emissive primitive that is the light source color (upstream: emissive
+        // material with lighting off; plane for rect, sphere, flattened cone for disk).
+        auto brightMaterial = std::make_shared<StandardMaterial>();
+        // The unlit path outputs base color (not emissive), so the source color
+        // rides in diffuse.
+        brightMaterial->setDiffuse(color);
+        brightMaterial->setEmissive(color);
+        brightMaterial->setUseLighting(false);
+        brightMaterial->setCullMode(
+            shape == AreaLightShape::LIGHTSHAPE_RECT ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK
+        );
+        outMaterial = brightMaterial;
+
+        auto* brightShape = new Entity();
+        brightShape->setEngine(engine.get());
+        if (auto* render = static_cast<RenderComponent*>(brightShape->addComponent<RenderComponent>())) {
+            render->setMaterial(brightMaterial.get());
+            render->setType(
+                shape == AreaLightShape::LIGHTSHAPE_SPHERE ? "sphere" :
+                shape == AreaLightShape::LIGHTSHAPE_DISK ? "cone" : "plane"
+            );
+        }
+        brightShape->setLocalScale(
+            size, shape == AreaLightShape::LIGHTSHAPE_DISK ? 0.001f : size, size
+        );
+        lightParent->addChild(brightShape);
+
+        return lightParent;
     };
-    applyShape(0);
+
+    // Emulated-directional disk: upstream places a disk of angular diameter
+    // scale/range = 0.2 rad at distance far=5000; we reproduce the same angular
+    // size at a nearer distance the positional area light can handle.
+    constexpr float kDiskDistance = 100.0f;
+    constexpr float kDiskSize = 0.2f * kDiskDistance;
+
+    // Three lights matching upstream: white rect, yellow sphere, blue "sky" disk.
+    std::shared_ptr<StandardMaterial> rectMat, sphereMat, diskMat;
+    Entity* light1 = createAreaLight(
+        AreaLightShape::LIGHTSHAPE_RECT, Vector3(-3.0f, 4.0f, 0.0f), 4.0f,
+        Color(1.0f, 1.0f, 1.0f, 1.0f), 2.0f, 10.0f, rectMat
+    );
+    Entity* light2 = createAreaLight(
+        AreaLightShape::LIGHTSHAPE_SPHERE, Vector3(5.0f, 2.0f, -2.0f), 2.0f,
+        Color(1.0f, 1.0f, 0.0f, 1.0f), 2.0f, 10.0f, sphereMat
+    );
+    Entity* light3 = createAreaLight(
+        AreaLightShape::LIGHTSHAPE_DISK, Vector3(0.0f, 0.0f, 0.0f), kDiskSize,
+        Color(0.7f, 0.7f, 1.0f, 1.0f), 10.0f, 1000.0f, diskMat
+    );
+
+    spdlog::info("Area lights: white rect + yellow sphere + blue sky disk over statue");
+    spdlog::info("Keys: Space = pause/resume animation, Esc = quit");
 
     bool running = true;
     bool animate = true;
-    float animTime = 0.0f;
-    float shapeTimer = 0.0f;
-    int shapeIdx = 0;
+    float time = 0.0f;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
     uint64_t prevCounter = SDL_GetPerformanceCounter();
 
-    const auto poseLight = [&](const float t) {
-        // Slow tilt oscillation around X: sweeps the reflection toward/away from camera.
-        const float tilt = 82.0f + 8.0f * std::sin(t * 0.5f);
-        areaLight->setLocalEulerAngles(tilt, 0.0f, 0.0f);
+    // Per-frame animation mirroring the upstream update callback.
+    const auto animateLights = [&](const float t) {
+        const float factor1 = (std::sin(t) + 1.0f) * 0.5f;
+        const float factor2 = (std::sin(t * 0.6f) + 1.0f) * 0.5f;
+        const float factor3 = (std::sin(t * 0.4f) + 1.0f) * 0.5f;
+
+        light1->setLocalEulerAngles(lerp(-90.0f, 110.0f, factor1), 0.0f, 90.0f);
+        light1->setLocalPosition(-4.0f, lerp(2.0f, 4.0f, factor3), lerp(-2.0f, 2.0f, factor2));
+
+        light2->setLocalPosition(5.0f, lerp(1.0f, 3.0f, factor1), lerp(-2.0f, 2.0f, factor2));
+
+        light3->setLocalEulerAngles(
+            lerp(230.0f, 310.0f, factor2), lerp(-30.0f, 0.0f, factor3), 90.0f
+        );
+        // Upstream: position = camera + lightY * far (the disk hangs in the sky
+        // along its emission axis). Matrix4::getElement takes (col, row); Y axis = col 1.
+        const auto& wt = light3->worldTransform();
+        const Vector3 dir(wt.getElement(1, 0), wt.getElement(1, 1), wt.getElement(1, 2));
+        const Vector3 camPos = camera->position();
+        light3->setLocalPosition(
+            camPos.getX() + dir.getX() * kDiskDistance,
+            camPos.getY() + dir.getY() * kDiskDistance,
+            camPos.getZ() + dir.getZ() * kDiskDistance
+        );
     };
-    poseLight(0.0f);
+    animateLights(0.0f);
 
     while (running) {
         SDL_Event event;
@@ -290,7 +343,7 @@ int main()
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_SPACE) {
                 animate = !animate;
-                spdlog::info("Tilt {}", animate ? "resumed" : "paused");
+                spdlog::info("Animation {}", animate ? "resumed" : "paused");
             }
         }
 
@@ -299,15 +352,8 @@ int main()
         prevCounter = nowCounter;
 
         if (animate) {
-            animTime += static_cast<float>(dtSeconds);
-            poseLight(animTime);
-        }
-
-        shapeTimer += static_cast<float>(dtSeconds);
-        if (shapeTimer >= 4.0f) {
-            shapeTimer = 0.0f;
-            shapeIdx = (shapeIdx + 1) % 3;
-            applyShape(shapeIdx);
+            time += static_cast<float>(dtSeconds);
+            animateLights(time);
         }
 
         engine->update(static_cast<float>(dtSeconds));

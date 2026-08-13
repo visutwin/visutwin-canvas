@@ -36,6 +36,7 @@ their original `<name>.txt` license sibling next to the file.
 ### models/ — complete
 - `a_beautiful_game.glb` — ABeautifulGame chess set from Khronos glTF-Sample-Assets (CC-0, ASWF)
 - `antique_camera.glb` — AntiqueCamera from Khronos glTF-Sample-Assets (CC-BY 4.0, UX3D)
+- `ClearCoatTest.glb` — ClearCoatTest from Khronos glTF-Sample-Assets (CC-BY 4.0, Analytical Graphics/Ed Mackey)
 - `box_textured.glb` — BoxTextured from Khronos glTF-Sample-Assets (CC-BY 4.0, Cesium)
 - `fox.glb` — Fox animated model from Khronos glTF-Sample-Assets (mesh CC-0, animation CC-BY 4.0)
 - `toy_car.glb` — ToyCar from Khronos glTF-Sample-Assets (CC-0)

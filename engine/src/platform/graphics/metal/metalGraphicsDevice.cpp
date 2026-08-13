@@ -135,6 +135,22 @@ namespace visutwin::canvas
         // afterPass) need the drawable to be loadable across command buffers.  Setting
         // framebufferOnly to false allows LoadActionLoad to reliably load previous content.
         _metalLayer->setFramebufferOnly(false);
+        // Frame pacing (options.vsync, default true): lock the render loop to
+        // the display cadence so the wall-clock dt the app measures is even
+        // (the browser's rAF gives upstream examples this for free; jittery
+        // dt shows as animation judder even at high fps).
+        //  - displaySync must be forced ON: SDL's renderer (whose layer we
+        //    borrow) may have disabled it, letting presents outrun the
+        //    refresh rate entirely (measured 140+ fps on a 120 Hz panel).
+        //  - Two drawables (not the default three) stop the CPU from
+        //    bursting several frames ahead and then stalling a whole vsync
+        //    (measured dt alternating ~2 ms / ~33 ms).
+        // vsync=false leaves sync off and keeps three drawables for
+        // maximum CPU/GPU overlap (uncapped-fps benchmarking).
+        _metalLayer->setDisplaySyncEnabled(options.vsync);
+        if (options.vsync) {
+            _metalLayer->setMaximumDrawableCount(2);
+        }
 
         _commandQueue = _device->newCommandQueue();
         assert(_commandQueue && "Failed to create Metal command queue");

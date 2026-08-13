@@ -27,6 +27,12 @@ namespace visutwin::canvas
 
         SDL_Window* window{nullptr};
 
+        /// Sync presentation to the display refresh (Metal: CAMetalLayer
+        /// displaySyncEnabled + a 2-deep drawable queue). Keeps the frame
+        /// loop's measured dt even, which animations need to look smooth.
+        /// Disable only for uncapped-fps benchmarking.
+        bool vsync{true};
+
 #ifdef VISUTWIN_DEBUG_GPU_VALIDATION
         bool enableValidation{true};
 #else

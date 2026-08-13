@@ -50,6 +50,7 @@ visutwin_set_macos_bundle(visutwin-taa com.visutwin.taa)
 
 add_executable(visutwin-area-picker MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/area-picker-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
 )
 target_link_libraries(visutwin-area-picker PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-area-picker com.visutwin.area-picker)

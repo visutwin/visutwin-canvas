@@ -71,6 +71,12 @@ models/SunglassesKhronos.glb
   Author:   Khronos Group
   License:  CC-BY 4.0
 
+models/ClearCoatTest.glb
+  Original: ClearCoatTest (Khronos glTF sample asset)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   Analytical Graphics, Inc. (Ed Mackey)
+  License:  CC-BY 4.0
+
 ------------------------------------------------------------------------
 
 All other assets in this directory are CC-0 (public domain) and require
