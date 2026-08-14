@@ -45,6 +45,7 @@ namespace visutwin::canvas
         bool taaEnabled = false;
         bool bloomEnabled = false;
         float bloomIntensity = 0.01f;
+        int bloomBlurLevel = 16;
         float sharpness = 0.0f;
         std::string_view ssaoType = SSAOTYPE_NONE;
         bool ssaoBlurEnabled = true;
@@ -97,6 +98,13 @@ namespace visutwin::canvas
         void update(const CameraFrameOptions& options);
         bool needsReset(const CameraFrameOptions& options) const;
         CameraFrameOptions sanitizeOptions(const CameraFrameOptions& options) const;
+
+        /**
+         * Overlays the camera component's TAA/DOF/SSAO/rendering settings onto `options`.
+         * Used by both the constructor and the per-frame rebuild so no setting is silently
+         * dropped after the first frame.
+         */
+        void applyCameraSettings(CameraFrameOptions& options) const;
 
         // DEVIATION: upstream RenderPassCameraFrame uses addLayers() to self-build
         // render actions from the LayerComposition.  This version receives sourceActions

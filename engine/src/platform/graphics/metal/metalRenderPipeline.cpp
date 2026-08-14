@@ -5,6 +5,8 @@
 //
 #include "metalRenderPipeline.h"
 
+#include <algorithm>
+
 #include "metalRenderTarget.h"
 #include "metalShader.h"
 #include "core/utils.h"
@@ -203,6 +205,9 @@ namespace visutwin::canvas
                 rtFormatKey = rtFormatKey * 31u + static_cast<uint32_t>(depthAtt->pixelFormat)
                             + (depthAtt->hasStencil ? 7u : 0u);
             }
+            // The PSO's raster sample count must match the attachments, so MSAA targets
+            // need their own pipelines.
+            rtFormatKey = rtFormatKey * 31u + static_cast<uint32_t>(std::max(metalTarget->samples(), 1));
         }
         _lookupHashes[7] = static_cast<int>(rtFormatKey);
         _lookupHashes[8] = bindGroupFormats.size() > 0 && bindGroupFormats[0] ? bindGroupFormats[0]->key() : 0;
@@ -337,6 +342,11 @@ namespace visutwin::canvas
                     pipelineDescriptor->setStencilAttachmentPixelFormat(depthAtt->pixelFormat);
                 }
             }
+
+            // Must match the sample count of the attachments this pipeline renders into,
+            // or pipeline creation fails outright on an MSAA target.
+            pipelineDescriptor->setRasterSampleCount(
+                static_cast<NS::UInteger>(std::max(metalTarget->samples(), 1)));
         } else {
             // Back buffer: BGRA8 color + Depth32Float (always attached by startRenderPass)
             auto* colorAttachment = pipelineDescriptor->colorAttachments()->object(0);

@@ -19,6 +19,8 @@
 
 namespace visutwin::canvas
 {
+    std::vector<MeshInstance*> BatchManager::_batchMeshInstances;
+
 
     /**
      * Consistent vertex layout used by all parsers (GLB, Assimp, OBJ, STL).
@@ -163,6 +165,7 @@ namespace visutwin::canvas
                     }
                 }
 
+                _batchMeshInstances.push_back(batch->meshInstance.get());
                 _batches.push_back(std::move(batch));
             }
         }
@@ -195,6 +198,13 @@ namespace visutwin::canvas
                         worldLayer->removeMeshInstances({batch->meshInstance.get()});
                     }
                 }
+            }
+
+            if (batch->meshInstance) {
+                _batchMeshInstances.erase(
+                    std::remove(_batchMeshInstances.begin(), _batchMeshInstances.end(),
+                                batch->meshInstance.get()),
+                    _batchMeshInstances.end());
             }
 
             // Restore visibility of original mesh instances.
@@ -392,6 +402,10 @@ namespace visutwin::canvas
 
         // Use identity transform — geometry is already in world space.
         batch->node.setPosition(Vector3(0, 0, 0));
+        // The batch node is a standalone root with no parent, so its hierarchy-enabled
+        // flag would stay false and the shadow caster filter (which tests
+        // node()->enabled()) would drop the batch.
+        batch->node.setEnabledInHierarchy(true);
 
         Material* sharedMaterial = meshInstances[0]->material();
         batch->meshInstance = std::make_unique<MeshInstance>(
@@ -572,6 +586,8 @@ namespace visutwin::canvas
 
         // Identity transform — per-instance transforms come from palette.
         batch->node.setPosition(Vector3(0, 0, 0));
+        // Standalone root node — see createBatch().
+        batch->node.setEnabledInHierarchy(true);
 
         Material* sharedMaterial = meshInstances[0]->material();
         batch->meshInstance = std::make_unique<MeshInstance>(

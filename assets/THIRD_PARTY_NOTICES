@@ -77,6 +77,29 @@ models/ClearCoatTest.glb
   Author:   Analytical Graphics, Inc. (Ed Mackey)
   License:  CC-BY 4.0
 
+models/apartment.glb
+  Original: Mirror's Edge Apartment - Interior Scene
+  Source:   https://sketchfab.com/3d-models/mirrors-edge-apartment-interior-scene-9804e9f2fe284070b081c96ceaf8af96
+  Author:   Aurelien Martel
+  License:  CC-BY-NC 4.0 (ATTRIBUTION - NONCOMMERCIAL)
+            https://creativecommons.org/licenses/by-nc/4.0/
+            NOTE: this is the only NON-COMMERCIAL asset in the repository.
+            Used by examples/src/depth-of-field-example.cpp.
+
+models/love.glb
+  Original: Love neon sign 02
+  Source:   https://sketchfab.com/3d-models/love-neon-sign-02-9add8bfcb25943d0aae87e0af07c8e4d
+  Author:   daysena
+  License:  CC-BY 4.0
+
+models/cat.glb
+  Original: Egyptian Cat Statue
+  Source:   https://sketchfab.com/3d-models/egyptian-cat-statue-02b0456362f9442da46d39fb34b3ee5b
+  Author:   Ankledot
+  License:  CC-BY 4.0
+  Modifications: EXT_texture_webp images re-encoded as png (the loader has no
+                 webp decoder)
+
 ------------------------------------------------------------------------
 
 All other assets in this directory are CC-0 (public domain) and require

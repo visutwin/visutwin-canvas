@@ -137,6 +137,10 @@ namespace visutwin::canvas
         // assume the user wants to use its content, and so store it by default
         if (_renderTarget && _renderTarget->hasDepthBuffer()) {
             _depthStencilOps->storeDepth = true;
+            // Multisampled: the user-supplied depth texture is the RESOLVE target — the
+            // pass renders into the multisampled buffer, so without a resolve every later
+            // pass that samples scene depth (DOF, SSAO, the depth grab) reads stale data.
+            _depthStencilOps->resolveDepth = _samples > 1;
         }
 
         // color

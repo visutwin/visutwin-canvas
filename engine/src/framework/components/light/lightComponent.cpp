@@ -57,7 +57,7 @@ namespace visutwin::canvas
         _light->setNumCascades(_numCascades);
         _light->setCascadeDistribution(_cascadeDistribution);
         _light->setCascadeBlend(_cascadeBlend);
-        _light->setShadowBias(_shadowBias);
+        _light->setShadowBias(toLightShadowBias(_shadowBias));
         _light->setNormalBias(_shadowNormalBias);
         _light->setShadowIntensity(_shadowStrength);
         _light->setRange(_range);
@@ -66,6 +66,14 @@ namespace visutwin::canvas
 
         if (_castShadows) {
             _light->setShadowUpdateMode(ShadowUpdateType::SHADOWUPDATE_REALTIME);
+        }
+    }
+
+    void LightComponent::setShadowBias(const float value)
+    {
+        _shadowBias = value;
+        if (_light) {
+            _light->setShadowBias(toLightShadowBias(value));
         }
     }
 

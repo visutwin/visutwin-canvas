@@ -73,6 +73,18 @@ namespace visutwin::canvas
 
         Material* material() const { return _material; }
 
+        /**
+         * Replaces the material of this instance (upstream `meshInstance.material = ...`),
+         * e.g. to render a loaded model with a custom ShaderMaterial. Drops any
+         * shared ownership taken from the source container — the caller owns the
+         * new material and must keep it alive.
+         */
+        void setMaterial(Material* material)
+        {
+            _material = material;
+            _materialOwned.reset();
+        }
+
         GraphNode* node() const { return _node; }
 
         bool castShadow() const { return _castShadow; }

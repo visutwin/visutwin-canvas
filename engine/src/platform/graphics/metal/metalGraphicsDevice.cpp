@@ -155,6 +155,16 @@ namespace visutwin::canvas
         _commandQueue = _device->newCommandQueue();
         assert(_commandQueue && "Failed to create Metal command queue");
 
+        // Highest MSAA sample count this GPU accepts, used to clamp
+        // RenderTargetOptions::samples. Left at the base-class default of 1 the clamp
+        // silently disabled every multisampled target.
+        for (const int candidate : {8, 4, 2}) {
+            if (_device->supportsTextureSampleCount(static_cast<NS::UInteger>(candidate))) {
+                setMaxSamples(candidate);
+                break;
+            }
+        }
+
         auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init();
         samplerDesc->setMinFilter(MTL::SamplerMinMagFilterLinear);
         samplerDesc->setMagFilter(MTL::SamplerMinMagFilterLinear);
@@ -2027,6 +2037,9 @@ namespace visutwin::canvas
                 const bool resolveDepth = depthMsaa && canResolve && depthOps && depthOps->resolveDepth;
                 if (resolveDepth) {
                     depthAttachment->setResolveTexture(depthAttachmentData->depthTexture);
+                    // Sample0 is the only filter guaranteed everywhere; Min/Max need
+                    // MTLDevice::supportsDepthResolveFilter and buy nothing here.
+                    depthAttachment->setDepthResolveFilter(MTL::MultisampleDepthResolveFilterSample0);
                 }
                 depthAttachment->setStoreAction(resolveColorStoreAction(depthOps ? depthOps->storeDepth : true, resolveDepth));
 

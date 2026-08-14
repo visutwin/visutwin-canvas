@@ -16,11 +16,10 @@ namespace visutwin::canvas
 {
     Entity* GlbContainerResource::instantiateRenderEntity()
     {
-        auto* root = new Entity();
-
         // container resource instantiateRenderEntity() produces an entity hierarchy
         // with render components / mesh instances populated from parsed glTF payload and node transforms.
         if (_nodePayloads.empty()) {
+            auto* root = new Entity();
             if (_meshPayloads.empty()) {
                 return root;
             }
@@ -92,6 +91,39 @@ namespace visutwin::canvas
             nodeEntities[i] = nodeEntity;
         }
 
+        // Collect the scene's root nodes (explicit list when the parser recorded one,
+        // otherwise every node nothing else parents).
+        std::vector<Entity*> sceneRoots;
+        if (_rootNodeIndices.empty()) {
+            std::vector<bool> isChild(nodeEntities.size(), false);
+            for (const auto& nodePayload : _nodePayloads) {
+                for (const auto childIndex : nodePayload.children) {
+                    if (childIndex >= 0 && childIndex < static_cast<int>(isChild.size())) {
+                        isChild[static_cast<size_t>(childIndex)] = true;
+                    }
+                }
+            }
+            for (size_t i = 0; i < nodeEntities.size(); ++i) {
+                if (nodeEntities[i] && !isChild[i]) {
+                    sceneRoots.push_back(nodeEntities[i]);
+                }
+            }
+        } else {
+            for (const auto rootIndex : _rootNodeIndices) {
+                if (rootIndex >= 0 && rootIndex < static_cast<int>(nodeEntities.size()) &&
+                    nodeEntities[static_cast<size_t>(rootIndex)]) {
+                    sceneRoots.push_back(nodeEntities[static_cast<size_t>(rootIndex)]);
+                }
+            }
+        }
+
+        // A scene with a single root node IS the returned hierarchy root — no wrapper
+        // entity (upstream glb-parser.js `createScenes`). This matters to callers:
+        // setLocalScale() on the result then REPLACES the root node's own scale the way
+        // it does upstream, instead of multiplying with it. Only multi-root scenes (and
+        // the node-less fallback above) get a wrapper.
+        Entity* root = sceneRoots.size() == 1 ? sceneRoots.front() : new Entity();
+
         // Resolve skins: one SkinInstance per skin, shared by every mesh instance of
         // every node that references it. Bones resolve by glTF node index directly
         // (DEVIATION: upstream resolves by bone name via findByName).
@@ -144,31 +176,11 @@ namespace visutwin::canvas
             }
         }
 
-        if (_rootNodeIndices.empty()) {
-            std::vector<bool> isChild(nodeEntities.size(), false);
-            for (const auto& nodePayload : _nodePayloads) {
-                for (const auto childIndex : nodePayload.children) {
-                    if (childIndex >= 0 && childIndex < static_cast<int>(isChild.size())) {
-                        isChild[static_cast<size_t>(childIndex)] = true;
-                    }
-                }
-            }
-
-            for (size_t i = 0; i < nodeEntities.size(); ++i) {
-                auto* nodeEntity = nodeEntities[i];
-                if (nodeEntity && !isChild[i]) {
-                    root->addChild(nodeEntity);
-                }
-            }
-        } else {
-            for (const auto rootIndex : _rootNodeIndices) {
-                if (rootIndex < 0 || rootIndex >= static_cast<int>(nodeEntities.size())) {
-                    continue;
-                }
-                auto* nodeEntity = nodeEntities[static_cast<size_t>(rootIndex)];
-                if (nodeEntity) {
-                    root->addChild(nodeEntity);
-                }
+        // Multi-root scenes hang every root node off the wrapper; a single-root scene
+        // already IS `root`.
+        if (sceneRoots.size() != 1) {
+            for (auto* sceneRoot : sceneRoots) {
+                root->addChild(sceneRoot);
             }
         }
 

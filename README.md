@@ -158,14 +158,14 @@ Additionally, `metal-cpp` (Apple) and `stb` (Sean Barrett) are vendored in `engi
 | anisotropy | Anisotropic specular highlights |
 | procedural-sky | Nishita atmosphere / procedural sky with animated sun |
 | post-processing | Compose chain: bloom, DOF, vignette, color grading, fringing |
-| custom-shader | ShaderMaterial with a user-supplied Metal toon shader |
+| custom-shader | ShaderMaterial toon shader (MSL + GLSL) over the statue model |
 | mesh-decals | Decal projection |
 | shadow-cascades | Cascaded shadow maps |
-| clustered-lighting | Many local lights via 3D cluster grid (+ atlas spot shadows) |
+| clustered-lighting | 46 local lights (30 omni + 16 spot) via the 3D cluster grid |
 | lights | Directional / omni / spot / area light types |
 | transform-rotate | Rotate gizmo |
 | transform-scale | Scale gizmo |
-| depth-of-field | Bokeh depth-of-field with interactive focus |
+| depth-of-field | Bokeh depth-of-field over an apartment interior, interactive focus |
 | dynamic-batching | Dynamic mesh batching of many shared-material objects |
 | blend-trees-2d | 2D-cartesian animation blend tree |
 | ui-text | Screen-space UI text (Screen + Element components) |

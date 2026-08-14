@@ -118,6 +118,15 @@ namespace visutwin::canvas
         float bloomIntensity = 0.0f;  // 0 = disabled
         int toneMapping = TONEMAP_LINEAR;
 
+        // MSAA sample count of the offscreen scene target (1 = off). Clamped to the
+        // device maximum; changing it rebuilds the camera frame's render targets.
+        int samples = 1;
+
+        // Number of downsample levels in the bloom chain (upstream CameraFrame.bloom.
+        // blurLevel). Fewer levels = tighter, sharper glow; the chain also stops early
+        // once a mip would go below 2 px.
+        int bloomBlurLevel = 16;
+
         // Vignette
         bool vignetteEnabled = false;
         float vignetteInner = 0.5f;

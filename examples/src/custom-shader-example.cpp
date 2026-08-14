@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Custom shader material example — mirrors PlayCanvas shaders/shader-toon.
-// Demonstrates ShaderMaterial: a user-supplied Metal vertex + fragment shader
-// (bypassing the standard PBR chunk pipeline) implementing cel/toon shading —
-// quantised N·L bands plus a warm/cool gradient. Three primitives rotate so the
-// banding sweeps across their surfaces.
+// Custom shader material example — port of PlayCanvas shaders/shader-toon.
+// A ShaderMaterial carrying a user-supplied toon shader (quantised N·L into 6 bands
+// over a single warm-grey ramp) replaces the materials of every mesh instance in the
+// loaded statue model, which rotates at 60°/s.
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -14,6 +13,7 @@
 
 #include <SDL3/SDL.h>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <QuartzCore/QuartzCore.hpp>
@@ -21,8 +21,11 @@
 #include "framework/engine.h"
 #include "log.h"
 #include "framework/appOptions.h"
+#include "framework/assets/asset.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/camera/cameraComponentSystem.h"
+#include "framework/components/light/lightComponent.h"
+#include "framework/components/light/lightComponentSystem.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/constants.h"
@@ -38,9 +41,17 @@ SDL_Renderer* renderer;
 
 using namespace visutwin::canvas;
 
+const std::string rootPath = ASSET_DIR;
+
+const auto statueAsset = std::make_unique<Asset>(
+    "statue",
+    AssetType::CONTAINER,
+    rootPath + "/models/statue.glb"
+);
+
 // Self-contained toon shader. It declares the same vertex-input attributes and
-// per-draw uniform buffers the forward pass binds (SceneData @1, ModelData @2),
-// so the standard mesh vertex layout feeds it directly.
+// per-draw uniform buffers the forward pass binds (SceneData @1, ModelData @2), plus
+// its own custom block at @3 in place of MaterialData — see ToonMaterial below.
 static const char* kToonShaderSource = R"MSL(
 #include <metal_stdlib>
 using namespace metal;
@@ -62,45 +73,46 @@ struct ModelData {
     float3    _pad;
 };
 
+// Replaces MaterialData at buffer(3) — the port's equivalent of upstream's
+// material.setParameter('uLightPos', ...).
+struct ToonData { float4 lightPos; };
+
 struct Varyings {
     float4 position [[position]];
-    float3 worldNormal;
+    float  vertOutTexCoord;
+    float2 texCoord;
 };
 
 vertex Varyings vertexShader(VertexData v [[stage_in]],
                              constant SceneData &scene [[buffer(1)]],
-                             constant ModelData &model [[buffer(2)]])
+                             constant ModelData &model [[buffer(2)]],
+                             constant ToonData  &toon  [[buffer(3)]])
 {
     Varyings out;
     float4 world = model.modelMatrix * float4(v.position, 1.0);
-    float4 clip  = scene.projViewMatrix * world;
+    float3 worldNormal = normalize((model.normalMatrix * float4(v.normal, 0.0)).xyz) * model.normalSign;
+
+    // Vector to the light source.
+    float3 lightDir = normalize(toon.lightPos.xyz - world.xyz);
+
+    // Dot product gives us diffuse intensity, used as the 1D colour ramp
+    // coordinate in the fragment shader.
+    out.vertOutTexCoord = max(0.0, dot(worldNormal, lightDir));
+    out.texCoord = v.uv0;
+
+    float4 clip = scene.projViewMatrix * world;
     clip.z = 0.5 * (clip.z + clip.w);   // GL [-1,1] -> Metal [0,1]
     out.position = clip;
-    out.worldNormal = normalize((model.normalMatrix * float4(v.normal, 0.0)).xyz) * model.normalSign;
     return out;
 }
 
 fragment float4 fragmentShader(Varyings in [[stage_in]])
 {
-    float3 N = normalize(in.worldNormal);
-    float3 L = normalize(float3(0.4, 0.75, 0.5));
-
-    // Quantise diffuse into 4 cel bands.
-    float ndl   = max(dot(N, L), 0.0);
-    float bands = 4.0;
-    float toon  = floor(ndl * bands) / (bands - 1.0);
-    toon = clamp(toon, 0.0, 1.0);
-
-    // Warm lit colour, cool shadow colour.
-    float3 warm = float3(0.95, 0.55, 0.25);
-    float3 cool = float3(0.10, 0.14, 0.30);
-    float3 color = mix(cool, warm, toon);
-
-    // Bold dark ink rim from the upward-facing gradient for a cel outline feel.
-    float rim = smoothstep(0.35, 0.0, abs(N.y));
-    color *= (1.0 - 0.35 * rim);
-
-    return float4(color, 1.0);
+    float v = in.vertOutTexCoord;
+    v = float(int(v * 6.0)) / 6.0;
+    float3 linearColor = float3(0.218, 0.190, 0.156) * v;
+    // gammaCorrectOutput: nothing else in the pipeline encodes a custom shader's output.
+    return float4(pow(linearColor + 0.0000001, float3(1.0 / 2.2)), 1.0);
 }
 )MSL";
 
@@ -111,6 +123,8 @@ fragment float4 fragmentShader(Varyings in [[stage_in]])
 //    not in buffer(1)/buffer(2) uniform blocks;
 //  - there is no normalMatrix/normalSign, so the normal is transformed by mat3(model),
 //    exactly as engine/shaders/vulkan/forward.vert does;
+//  - the custom uniform block is set 0 / binding 0 (the per-draw material UBO, bound
+//    to both stages) rather than buffer(3);
 //  - NO clip.z remap. forward.vert assigns gl_Position straight from the projection,
 //    so a custom shader must do the same or it depth-tests inconsistently against
 //    every other draw on this backend.
@@ -122,56 +136,64 @@ layout(push_constant) uniform PushConstants {
     mat4 model;
 } pc;
 
+layout(set = 0, binding = 0) uniform ToonData {
+    vec4 uLightPos;
+} toon;
+
 #ifdef VT_VERTEX_SHADER
 layout(location = 0) in vec3 vertexPosition;
 layout(location = 1) in vec3 vertexNormal;
-layout(location = 0) out vec3 worldNormal;
+layout(location = 0) out float vertOutTexCoord;
 void main() {
     vec4 world = pc.model * vec4(vertexPosition, 1.0);
+    vec3 worldNormal = normalize(mat3(pc.model) * vertexNormal);
+    vec3 lightDir = normalize(toon.uLightPos.xyz - world.xyz);
+    vertOutTexCoord = max(0.0, dot(worldNormal, lightDir));
     gl_Position = pc.viewProjection * world;
-    worldNormal = normalize(mat3(pc.model) * vertexNormal);
 }
 #endif
 
 #ifdef VT_FRAGMENT_SHADER
-layout(location = 0) in vec3 worldNormal;
+layout(location = 0) in float vertOutTexCoord;
 layout(location = 0) out vec4 fragColor;
 void main() {
-    vec3 N = normalize(worldNormal);
-    vec3 L = normalize(vec3(0.4, 0.75, 0.5));
-
-    // Quantise diffuse into 4 cel bands.
-    float ndl = max(dot(N, L), 0.0);
-    float bands = 4.0;
-    float toon = clamp(floor(ndl * bands) / (bands - 1.0), 0.0, 1.0);
-
-    // Warm lit colour, cool shadow colour.
-    vec3 warm = vec3(0.95, 0.55, 0.25);
-    vec3 cool = vec3(0.10, 0.14, 0.30);
-    vec3 color = mix(cool, warm, toon);
-
-    // Bold dark ink rim from the upward-facing gradient for a cel outline feel.
-    float rim = smoothstep(0.35, 0.0, abs(N.y));
-    color *= (1.0 - 0.35 * rim);
-
-    fragColor = vec4(color, 1.0);
+    float v = vertOutTexCoord;
+    v = float(int(v * 6.0)) / 6.0;
+    vec3 linearColor = vec3(0.218, 0.190, 0.156) * v;
+    fragColor = vec4(pow(linearColor + 0.0000001, vec3(1.0 / 2.2)), 1.0);
 }
 #endif
 )GLSL";
 
-Entity* createShape(Engine* engine, Material* material, const char* type,
-                    const Vector3& position, float scale)
+// ShaderMaterial carrying one custom uniform. The engine has no named-parameter path
+// for user shaders (upstream's setParameter('uLightPos', ...)), so the material
+// supplies its whole uniform block instead: customUniformData() replaces MaterialData
+// at buffer(3) / set 0 with these bytes.
+class ToonMaterial final : public ShaderMaterial
 {
-    auto* entity = new Entity();
-    entity->setEngine(engine);
-    entity->setLocalPosition(position.getX(), position.getY(), position.getZ());
-    entity->setLocalScale(scale, scale, scale);
-    if (auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>())) {
-        render->setMaterial(material);
-        render->setType(type);
+public:
+    using ShaderMaterial::ShaderMaterial;
+
+    void setLightPosition(const Vector3& position)
+    {
+        _data.lightPos[0] = position.getX();
+        _data.lightPos[1] = position.getY();
+        _data.lightPos[2] = position.getZ();
+        _data.lightPos[3] = 1.0f;
     }
-    return entity;
-}
+
+    const void* customUniformData(size_t& outSize) const override
+    {
+        outSize = sizeof(_data);
+        return &_data;
+    }
+
+private:
+    struct alignas(16) ToonData
+    {
+        float lightPos[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    } _data;
+};
 
 int main()
 {
@@ -209,6 +231,7 @@ int main()
     createOptions.graphicsDevice = graphicsDevice;
     createOptions.registerComponentSystem<RenderComponentSystem>();
     createOptions.registerComponentSystem<CameraComponentSystem>();
+    createOptions.registerComponentSystem<LightComponentSystem>();
 
     auto engine = std::make_shared<Engine>(window);
     engine->init(createOptions);
@@ -217,38 +240,70 @@ int main()
     engine->start();
 
     auto scene = engine->scene();
-    // The toon shader outputs final colour directly; keep tonemap neutral-ish.
-    scene->setToneMapping(TONEMAP_NONE);
+    scene->setAmbientLight(0.2f, 0.2f, 0.2f);
 
+    // Camera. Upstream translates it without rotating, so it looks straight down -Z.
     auto* camera = new Entity();
     camera->setEngine(engine.get());
     if (auto* cameraComponent = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>())) {
-        cameraComponent->camera()->setClearColor(Color(0.12f, 0.13f, 0.16f, 1.0f));
+        cameraComponent->camera()->setClearColor(Color(0.4f, 0.45f, 0.5f, 1.0f));
     }
-    camera->setLocalPosition(0.0f, 1.0f, 9.0f);
-    camera->setLocalEulerAngles(-6.0f, 0.0f, 0.0f);
+    const Vector3 cameraPosition(0.0f, 7.0f, 24.0f);
+    camera->setLocalPosition(cameraPosition);
     engine->root()->addChild(camera);
 
-    // The custom toon material — bypasses the PBR pipeline entirely.
-    auto toonMaterial = std::make_shared<ShaderMaterial>(
+    // Omni light. The toon shader does its own lighting, so this entity only supplies
+    // the light position the material passes to the shader.
+    auto* light = new Entity();
+    light->setEngine(engine.get());
+    if (auto* lc = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
+        lc->setType(LightType::LIGHTTYPE_OMNI);
+        lc->setColor(Color(1.0f, 1.0f, 1.0f));
+        lc->setRange(10.0f);
+    }
+    const Vector3 lightPosition(0.0f, 1.0f, 0.0f);
+    light->setLocalPosition(lightPosition);
+    engine->root()->addChild(light);
+
+    // Custom toon material — bypasses the PBR pipeline entirely.
+    auto toonMaterial = std::make_shared<ToonMaterial>(
         graphicsDevice, "toon", "vertexShader", "fragmentShader",
         ShaderSourceSet{.msl = kToonShaderSource, .glsl = kToonShaderSourceGlsl});
 
-    std::vector<Entity*> shapes;
-    shapes.push_back(createShape(engine.get(), toonMaterial.get(), "sphere",   Vector3(-3.2f, 0.0f, 0.0f), 1.7f));
-    shapes.push_back(createShape(engine.get(), toonMaterial.get(), "torus",    Vector3( 0.0f, 0.0f, 0.0f), 1.7f));
-    shapes.push_back(createShape(engine.get(), toonMaterial.get(), "cylinder", Vector3( 3.2f, 0.0f, 0.0f), 1.5f));
-    for (auto* s : shapes) {
-        engine->root()->addChild(s);
+    // DEVIATION: upstream's shader compares a WORLD-space normal (matrix_normal is the
+    // world normal matrix, despite the "eye coordinates" comment) against a light
+    // direction built from a VIEW-space vertex position. With its unrotated camera the
+    // view matrix is a pure translation, so that mix is exactly a world-space light at
+    // lightPosition + cameraPosition — which is what this port feeds the shader, keeping
+    // the lighting identical while the shader stays consistently world-space.
+    toonMaterial->setLightPosition(lightPosition + cameraPosition);
+
+    const auto statueResource = statueAsset->resource();
+    if (!statueResource) {
+        spdlog::error("Failed to load models/statue.glb");
+        shutdown();
+        return -1;
+    }
+    auto* statue = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
+    engine->root()->addChild(statue);
+
+    // Set the new material on every mesh in the model.
+    int meshInstanceCount = 0;
+    for (auto* render : statue->findComponents<RenderComponent>()) {
+        for (auto* meshInstance : render->meshInstances()) {
+            meshInstance->setMaterial(toonMaterial.get());
+            ++meshInstanceCount;
+        }
     }
 
     spdlog::info("*** Custom Shader (Toon) Example ***");
-    spdlog::info("ShaderMaterial with a user-supplied Metal toon shader (4-band cel shading). Esc quits.");
+    spdlog::info("ShaderMaterial toon shader applied to {} mesh instances. Esc quits.",
+                 meshInstanceCount);
 
     bool running = true;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
     uint64_t prevCounter = SDL_GetPerformanceCounter();
-    float time = 0.0f;
+    float angle = 0.0f;
 
     while (running) {
         SDL_Event event;
@@ -264,13 +319,10 @@ int main()
         const float dt = static_cast<float>(static_cast<double>(nowCounter - prevCounter) /
                                             static_cast<double>(perfFreq));
         prevCounter = nowCounter;
-        time += dt;
 
-        // Rotate the shapes so the cel bands sweep across their surfaces.
-        for (size_t i = 0; i < shapes.size(); ++i) {
-            const float speed = 20.0f + static_cast<float>(i) * 10.0f;
-            shapes[i]->setLocalEulerAngles(time * speed * 0.5f, time * speed, 0.0f);
-        }
+        // Rotate the statue.
+        angle += 60.0f * dt;
+        statue->setLocalEulerAngles(0.0f, angle, 0.0f);
 
         engine->update(dt);
         engine->render();

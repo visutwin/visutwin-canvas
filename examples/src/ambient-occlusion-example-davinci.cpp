@@ -218,7 +218,9 @@ int main()
         const float maxExtent = std::max({he.getX(), he.getY(), he.getZ()}) * 2.0f;
         if (maxExtent > 0.001f) {
             const float s = 100.0f / maxExtent;
-            labEntity->setLocalScale(s, s, s);
+            // Compose with the model's own root scale — the AABB was measured with it.
+            const float s0 = labEntity->localScale().getX();
+            labEntity->setLocalScale(s0 * s, s0 * s, s0 * s);
             labEntity->setLocalPosition(
                 -ct.getX() * s,
                 -ct.getY() * s + he.getY() * s + (-40.0f),
@@ -263,7 +265,8 @@ int main()
             const float leoMaxExtent = std::max({leoHe.getX(), leoHe.getY(), leoHe.getZ()}) * 2.0f;
             if (leoMaxExtent > 0.001f) {
                 const float leoScale = 150.0f / leoMaxExtent;
-                leoEntity->setLocalScale(leoScale, leoScale, leoScale);
+                const float leoScale0 = leoEntity->localScale().getX();
+                leoEntity->setLocalScale(leoScale0 * leoScale, leoScale0 * leoScale, leoScale0 * leoScale);
 
                 // Place to the right of the workshop, sitting on the ground plane
                 const auto labBbox = calcEntityAABB(labEntity);
@@ -273,8 +276,11 @@ int main()
                     -leoCt.getY() * leoScale + leoHe.getY() * leoScale + (-40.0f),
                     -leoCt.getZ() * leoScale);
 
-                // Rotate 45 degrees to face toward the Mona Lisa portrait
-                leoEntity->setLocalEulerAngles(0.0f, 135.0f, 0.0f);
+                // Rotate 45 degrees to face toward the Mona Lisa portrait. Compose with
+                // the model's own root orientation (instantiateRenderEntity returns the
+                // glTF root node itself for single-root scenes) instead of replacing it.
+                leoEntity->setRotation(Quaternion::fromEulerAngles(0.0f, 135.0f, 0.0f) *
+                                       leoEntity->rotation());
 
                 spdlog::info("Leonardo bust: extent={:.1f}, scale={:.3f}", leoMaxExtent, leoScale);
             }

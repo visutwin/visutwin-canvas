@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Depth-of-field showcase (port of upstream graphics/depth-of-field).
+// Depth-of-field showcase — port of upstream graphics/depth-of-field.
 //
-// A long receding row of colored spheres marches away from the camera down a
-// floor, so the bokeh depth-of-field blur is obvious: objects at the focus
-// distance are razor-sharp while both nearer AND farther objects dissolve into
-// blur (when near-blur is on). A statue hero sits at the focus plane. DOF is
-// configured entirely through CameraComponent::dof().
+// An apartment interior lit purely by the helipad environment atlas, with an
+// Egyptian cat statue on the floor at the focus plane and an emissive neon "love"
+// sign blooming on the far wall. Bokeh DOF keeps the cat razor-sharp while the
+// near furniture and the far end of the room dissolve into blur.
 //
-// The focus distance is driven interactively so the sharp plane visibly sweeps
-// up and down the row; DOF, near-blur and quality are all toggleable and every
-// change is logged.
+// Upstream drives DOF from a control panel; this port maps the same settings onto
+// keys (listed at startup), all going through CameraComponent::dof().
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -23,6 +21,7 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <QuartzCore/QuartzCore.hpp>
@@ -37,7 +36,6 @@
 #include "framework/constants.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/camera/cameraComponentSystem.h"
-#include "framework/components/light/lightComponent.h"
 #include "framework/components/light/lightComponentSystem.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
@@ -56,7 +54,7 @@ using namespace visutwin::canvas;
 
 const std::string rootPath = ASSET_DIR;
 
-// Environment atlas for IBL / skybox.
+// Environment atlas — the scene's only light source (IBL + skydome).
 const auto envAtlas = std::make_unique<Asset>(
     "helipad-env-atlas",
     AssetType::TEXTURE,
@@ -67,25 +65,61 @@ const auto envAtlas = std::make_unique<Asset>(
     }
 );
 
-// Statue hero — sits on the focus plane at the head of the row.
-const auto statue = std::make_unique<Asset>(
-    "statue",
-    AssetType::CONTAINER,
-    rootPath + "/models/statue.glb"
-);
+const auto apartment = std::make_unique<Asset>(
+    "apartment", AssetType::CONTAINER, rootPath + "/models/apartment.glb");
 
-Entity* createEntity(Engine* engine, Material* material, const char* type,
-    const Vector3& position, const Vector3& scale)
+const auto love = std::make_unique<Asset>(
+    "love", AssetType::CONTAINER, rootPath + "/models/love.glb");
+
+const auto cat = std::make_unique<Asset>(
+    "cat", AssetType::CONTAINER, rootPath + "/models/cat.glb");
+
+// World-space AABB of every mesh instance under `entity`.
+BoundingBox entityAabb(Entity* entity)
 {
-    auto* entity = new Entity();
-    entity->setEngine(engine);
-    entity->setLocalPosition(position.getX(), position.getY(), position.getZ());
-    entity->setLocalScale(scale.getX(), scale.getY(), scale.getZ());
-    if (auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>())) {
-        render->setMaterial(material);
-        render->setType(type);
+    BoundingBox bbox;
+    bbox.setCenter(0.0f, 0.0f, 0.0f);
+    bbox.setHalfExtents(0.0f, 0.0f, 0.0f);
+    if (!entity) {
+        return bbox;
     }
-    return entity;
+
+    bool any = false;
+    for (auto* render : entity->findComponents<RenderComponent>()) {
+        for (auto* meshInstance : render->meshInstances()) {
+            if (!meshInstance) {
+                continue;
+            }
+            if (!any) {
+                bbox = meshInstance->aabb();
+                any = true;
+            } else {
+                bbox.add(meshInstance->aabb());
+            }
+        }
+    }
+
+    if (!any) {
+        bbox.setCenter(entity->position());
+        bbox.setHalfExtents(0.5f, 0.5f, 0.5f);
+    }
+    return bbox;
+}
+
+// Runs `fn` for every material under `entity`.
+template <typename Fn>
+void forEachMaterial(Entity* entity, Fn&& fn)
+{
+    if (!entity) {
+        return;
+    }
+    for (auto* render : entity->findComponents<RenderComponent>()) {
+        for (auto* meshInstance : render->meshInstances()) {
+            if (auto* material = meshInstance ? meshInstance->material() : nullptr) {
+                fn(material);
+            }
+        }
+    }
 }
 
 int main()
@@ -140,153 +174,125 @@ int main()
 
     auto scene = engine->scene();
 
-    // Skydome + IBL from the env atlas.
-    scene->setSkyboxMip(1);
-    scene->setExposure(1.4f);
-    scene->setToneMapping(TONEMAP_ACES);
-    scene->setAmbientLight(0.15f, 0.15f, 0.18f);
-
-    // Shadow-casting directional key light.
-    auto* light = new Entity();
-    light->setEngine(engine.get());
-    if (auto* lightComp = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
-        lightComp->setColor(Color(1.0f, 0.96f, 0.88f, 1.0f));
-        lightComp->setIntensity(1.5f);
-        lightComp->setCastShadows(true);
-        lightComp->setShadowResolution(2048);
-        lightComp->setShadowDistance(220.0f);
-        lightComp->setShadowBias(0.2f);
-        lightComp->setShadowNormalBias(0.05f);
-    }
-    light->setLocalEulerAngles(50, 25, 0);
-    engine->root()->addChild(light);
-
-    // Env atlas (skybox + specular/diffuse IBL).
+    // Skydome + IBL from the env atlas — there is no other light in the scene.
     const auto envAtlasResource = envAtlas->resource();
-    if (envAtlasResource) {
-        scene->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+    if (!envAtlasResource) {
+        spdlog::error("Failed to load the environment atlas — the scene has no other light");
+        shutdown();
+        return -1;
+    }
+    scene->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+    scene->setExposure(1.2f);
+
+    // ── Apartment interior ──────────────────────────────────────────────────
+    const auto apartmentResource = apartment->resource();
+    if (!apartmentResource) {
+        spdlog::error("Failed to load models/apartment.glb");
+        shutdown();
+        return -1;
+    }
+    auto* apartmentEntity = std::get<ContainerResource*>(*apartmentResource)->instantiateRenderEntity();
+    apartmentEntity->setLocalScale(30.0f, 30.0f, 30.0f);
+    engine->root()->addChild(apartmentEntity);
+
+    // ── Neon "love" sign on the far wall ────────────────────────────────────
+    const auto loveResource = love->resource();
+    if (!loveResource) {
+        spdlog::error("Failed to load models/love.glb");
+        shutdown();
+        return -1;
+    }
+    auto* loveEntity = std::get<ContainerResource*>(*loveResource)->instantiateRenderEntity();
+    loveEntity->setLocalPosition(-335.0f, 180.0f, 0.0f);
+    loveEntity->setLocalScale(130.0f, 130.0f, 130.0f);
+    engine->root()->addChild(loveEntity);
+
+    // Make the neon tube emissive enough to bloom.
+    if (auto* neon = dynamic_cast<Entity*>(loveEntity->findByName("s.0009_Standard_FF00BB_0"))) {
+        forEachMaterial(neon, [](Material* material) {
+            if (auto* standard = dynamic_cast<StandardMaterial*>(material)) {
+                standard->setEmissiveIntensity(200.0f);
+            }
+        });
     } else {
-        spdlog::warn("Failed to load environment atlas — continuing without IBL");
+        spdlog::warn("Neon mesh 's.0009_Standard_FF00BB_0' not found — the sign will not bloom");
     }
 
-    // Materials kept alive for the lifetime of the program.
-    std::vector<std::shared_ptr<StandardMaterial>> materials;
+    // The sign's glass uses transmission; dynamic refraction is not wanted here.
+    forEachMaterial(loveEntity, [](Material* material) {
+        if (auto* standard = dynamic_cast<StandardMaterial*>(material)) {
+            standard->setUseDynamicRefraction(false);
+        }
+    });
 
-    // Long floor stretching down the row.
-    auto floorMat = std::make_shared<StandardMaterial>();
-    floorMat->setDiffuse(Color(0.10f, 0.10f, 0.12f, 1.0f));
-    floorMat->setMetalness(0.0f);
-    floorMat->setGloss(0.5f);
-    materials.push_back(floorMat);
-    engine->root()->addChild(createEntity(
-        engine.get(), floorMat.get(), "plane", Vector3(0.0f, 0.0f, -100.0f), Vector3(40.0f, 1.0f, 260.0f)
-    ));
-
-    // ── A long receding row of spheres marching away from the camera ────────
-    // The camera sits near z = +CAMERA_Z looking down -Z. Objects at increasing
-    // depth reveal the DOF blur falloff on both sides of the focus plane.
-    const Color rowColors[] = {
-        Color(0.90f, 0.20f, 0.20f, 1.0f),
-        Color(0.95f, 0.55f, 0.15f, 1.0f),
-        Color(0.90f, 0.85f, 0.20f, 1.0f),
-        Color(0.30f, 0.85f, 0.30f, 1.0f),
-        Color(0.20f, 0.70f, 0.90f, 1.0f),
-        Color(0.30f, 0.40f, 0.95f, 1.0f),
-        Color(0.65f, 0.30f, 0.90f, 1.0f),
-        Color(0.90f, 0.35f, 0.75f, 1.0f),
-    };
-    constexpr int rowCount = 11;
-    constexpr float rowSpacing = 18.0f;   // world units between objects
-    constexpr float rowStartZ = 0.0f;     // first object sits at z = 0
-    for (int i = 0; i < rowCount; ++i) {
-        auto mat = std::make_shared<StandardMaterial>();
-        mat->setDiffuse(rowColors[i % (sizeof(rowColors) / sizeof(rowColors[0]))]);
-        mat->setMetalness(0.1f);
-        mat->setGloss(0.6f);
-        materials.push_back(mat);
-
-        const float z = rowStartZ - static_cast<float>(i) * rowSpacing;
-        // Alternate spheres and boxes, staggered left/right so more are visible.
-        const bool isBox = (i % 2) == 1;
-        const float xOffset = (i % 2 == 0) ? -3.0f : 3.0f;
-        engine->root()->addChild(createEntity(
-            engine.get(), mat.get(), isBox ? "box" : "sphere",
-            Vector3(xOffset, 4.0f, z), Vector3(6.0f, 6.0f, 6.0f)
-        ));
+    // ── Cat statue: the focal object ────────────────────────────────────────
+    const auto catResource = cat->resource();
+    if (!catResource) {
+        spdlog::error("Failed to load models/cat.glb");
+        shutdown();
+        return -1;
     }
+    auto* catEntity = std::get<ContainerResource*>(*catResource)->instantiateRenderEntity();
+    catEntity->setLocalPosition(-80.0f, 80.0f, -20.0f);
+    catEntity->setLocalScale(80.0f, 80.0f, 80.0f);
+    engine->root()->addChild(catEntity);
 
-    // Statue hero placed mid-row, on the initial focus plane.
-    const float statueZ = rowStartZ - 4.0f * rowSpacing;
-    const auto statueResource = statue->resource();
-    if (statueResource) {
-        auto* statueEntity = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
-        statueEntity->setLocalScale(0.6f, 0.6f, 0.6f);
-        statueEntity->setLocalPosition(0.0f, 0.0f, statueZ);
-        engine->root()->addChild(statueEntity);
-    } else {
-        spdlog::warn("Failed to load statue model — the row of objects alone shows the DOF effect");
-    }
-
-    // Camera looks straight down the row along -Z.
-    constexpr float cameraZ = 30.0f;
-    constexpr float cameraY = 8.0f;
-    const Vector3 cameraPos(0.0f, cameraY, cameraZ);
-    const Vector3 focusPoint(0.0f, 4.0f, statueZ);
-
+    // ── Camera ──────────────────────────────────────────────────────────────
     auto* camera = new Entity();
     camera->setEngine(engine.get());
     auto* cameraComp = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
     camera->addComponent<ScriptComponent>();
 
     if (cameraComp && cameraComp->camera()) {
-        cameraComp->camera()->setNearClip(0.5f);
-        cameraComp->camera()->setFarClip(500.0f);
-        cameraComp->camera()->setFov(55.0f);
+        cameraComp->camera()->setNearClip(0.1f);
+        cameraComp->camera()->setFarClip(1500.0f);
+        cameraComp->camera()->setFov(80.0f);
     }
 
-    // ── Depth of field: focus the statue, blur near and far objects ─────────
-    // Initial focus distance = distance from the camera to the statue plane.
-    float focusDistance = cameraZ - statueZ; // ~102 world units
     if (cameraComp) {
+        // Bokeh depth of field, upstream's defaults.
         auto dof = cameraComp->dof();
         dof.enabled = true;
         dof.nearBlur = true;               // blur nearer-than-focus too
-        dof.focusDistance = focusDistance; // sharp plane distance from camera
-        dof.focusRange = 20.0f;            // depth window kept in focus
+        dof.focusDistance = 200.0f;        // sharp plane distance from camera
+        dof.focusRange = 100.0f;           // depth window kept in focus
         dof.blurRadius = 5.0f;             // bokeh circle-of-confusion size
         dof.blurRings = 4;                 // concentric bokeh sample rings
         dof.blurRingPoints = 5;            // samples per ring
         dof.highQuality = true;
         cameraComp->setDof(dof);
 
-        // TAA steadies the bokeh under motion.
-        auto taa = cameraComp->taa();
-        taa.enabled = true;
-        taa.highQuality = true;
-        taa.jitter = 1.0f;
-        cameraComp->setTaa(taa);
-
         auto rendering = cameraComp->rendering();
         rendering.toneMapping = TONEMAP_ACES;
-        rendering.sharpness = 0.4f;
+        rendering.samples = 4;             // 4x MSAA on the offscreen scene target
+        rendering.bloomIntensity = 0.03f;
+        rendering.bloomBlurLevel = 7;      // tighter glow than the 16-level default
+        rendering.vignetteEnabled = true;
+        rendering.vignetteInner = 0.5f;
+        rendering.vignetteOuter = 1.0f;
+        rendering.vignetteCurvature = 0.5f;
+        rendering.vignetteIntensity = 0.5f;
         cameraComp->setRendering(rendering);
     }
 
-    camera->setPosition(cameraPos.getX(), cameraPos.getY(), cameraPos.getZ());
+    camera->setLocalPosition(-50.0f, 100.0f, 220.0f);
     engine->root()->addChild(camera);
 
-    const float sceneRadius = 60.0f;
-    const float orbitDist = cameraZ - statueZ;
+    // Upstream's orbit camera aims at the focus entity's AABB centre on initialize
+    // (its own lookAt(0, 0, 100) never survives), keeping the camera position and
+    // deriving the orbit distance from it — which is exactly what setFocusPoint does.
+    const BoundingBox catBbox = entityAabb(catEntity);
+    const Vector3 focusPoint = catBbox.center();
+    const float sceneRadius = std::max(catBbox.halfExtents().length(), 1.0f);
 
     auto* cameraControls = camera->script()->create<CameraControls>();
     cameraControls->setFocusPoint(focusPoint);
     cameraControls->setEnableFly(false);
-    cameraControls->setAutoFarClip(true);
     cameraControls->setMoveSpeed(2 * sceneRadius);
     cameraControls->setMoveFastSpeed(4 * sceneRadius);
     cameraControls->setMoveSlowSpeed(sceneRadius);
-    cameraControls->setOrbitDistance(orbitDist);
     cameraControls->storeResetState();
+    const float orbitDistance = camera->position().distance(focusPoint);
 
     // ── State logging ──────────────────────────────────────────────────────
     auto logDof = [&](const char* reason) {
@@ -339,7 +345,7 @@ int main()
                 logDof("focus-closer");
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_RIGHTBRACKET && cameraComp) {
                 auto d = cameraComp->dof();
-                d.focusDistance = std::min(480.0f, d.focusDistance + 10.0f);
+                d.focusDistance = std::min(1400.0f, d.focusDistance + 10.0f);
                 cameraComp->setDof(d);
                 logDof("focus-farther");
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_COMMA && cameraComp) {
@@ -349,7 +355,7 @@ int main()
                 logDof("range-narrow");
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_PERIOD && cameraComp) {
                 auto d = cameraComp->dof();
-                d.focusRange = std::min(200.0f, d.focusRange + 5.0f);
+                d.focusRange = std::min(500.0f, d.focusRange + 5.0f);
                 cameraComp->setDof(d);
                 logDof("range-widen");
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_MINUS && cameraComp) {
@@ -374,7 +380,7 @@ int main()
                 logDof("high-quality");
 
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F && cameraControls) {
-                cameraControls->focus(focusPoint, orbitDist);
+                cameraControls->focus(focusPoint, orbitDistance);
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_R && cameraControls) {
                 cameraControls->reset();
             } else if (event.type == SDL_EVENT_MOUSE_WHEEL && cameraControls) {

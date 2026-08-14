@@ -3,8 +3,8 @@
 //
 // Dynamic batching example — port of PlayCanvas graphics/batching-dynamic.
 //
-// Creates several hundred small procedural primitives that share a pair of
-// materials and are all tagged into a SINGLE dynamic BatchGroup. The engine
+// 500 procedural primitives orbit the origin in a spiral, sharing a pair of
+// materials and all tagged into a SINGLE dynamic BatchGroup. The engine
 // merges them into a handful of batched draw calls (one per material) instead
 // of hundreds of individual draws. Because the group is DYNAMIC, every object
 // can be moved every frame — the BatchManager rebuilds the per-frame matrix
@@ -17,11 +17,10 @@
 
 #include <SDL3/SDL.h>
 #include <iostream>
+#include <algorithm>
 #include <cmath>
 #include <random>
 #include <vector>
-
-#include <framework/assets/asset.h>
 
 #include <QuartzCore/QuartzCore.hpp>
 
@@ -48,18 +47,18 @@ SDL_Renderer* renderer;
 
 using namespace visutwin::canvas;
 
-const std::string rootPath = ASSET_DIR;
-
-// Optional image-based lighting so the metallic primitives get nice reflections.
-const auto envAtlas = std::make_unique<Asset>(
-    "helipad-env-atlas",
-    AssetType::TEXTURE,
-    rootPath + "/cubemaps/helipad-env-atlas.png",
-    AssetData{
-        .type = TextureType::TEXTURETYPE_RGBP,
-        .mipmaps = false
+// Aim an entity's -Z axis at a target (equivalent of upstream Entity::lookAt).
+void setLookAt(Entity* entity, const Vector3& target)
+{
+    if (!entity) {
+        return;
     }
-);
+    const Vector3 position = entity->position();
+    const Vector3 dir = (target - position).normalized();
+    const float pitchDeg = std::asin(std::clamp(dir.getY(), -1.0f, 1.0f)) * RAD_TO_DEG;
+    const float yawDeg = std::atan2(-dir.getX(), -dir.getZ()) * RAD_TO_DEG;
+    entity->setLocalEulerAngles(pitchDeg, yawDeg, 0.0f);
+}
 
 int main()
 {
@@ -136,18 +135,11 @@ int main()
 
     engine->start();
 
+    // Upstream leaves every scene default in place: no environment atlas, black
+    // ambient, linear tone mapping. The single directional light below (parented to
+    // the camera) is the only illumination, which is what gives the primitives their
+    // strong shaded/unshaded contrast against the flat clear colour.
     auto scene = engine->scene();
-    scene->setSkyboxMip(2);
-    scene->setExposure(1.2f);
-    scene->setToneMapping(TONEMAP_ACES);
-    scene->setAmbientLight(0.25f, 0.28f, 0.35f);
-
-    const auto envAtlasResource = envAtlas->resource();
-    if (envAtlasResource && std::holds_alternative<Texture*>(*envAtlasResource)) {
-        scene->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
-    } else {
-        spdlog::warn("Environment atlas failed to load — continuing without IBL");
-    }
 
     // -----------------------------------------------------------------------
     // Two shared materials — batching produces (at least) one draw call per
@@ -204,7 +196,6 @@ int main()
             // these in a small number of draw calls (one per material).
             render->setBatchGroupId(kBatchGroupId);
         }
-        entity->setLocalScale(0.6f, 0.6f, 0.6f);
         engine->root()->addChild(entity);
         entities.push_back(entity);
     }
@@ -220,6 +211,10 @@ int main()
             groundRender->setType("box");
             groundRender->setMaterial(material2);
             groundRender->setReceiveShadows(true);
+            // Left as a caster, like upstream (RenderComponent::castShadows defaults to
+            // true on both engines). The directional shadow camera fits its depth range
+            // to CASTERS, so a receiver-only ground would sit outside that range and
+            // catch no shadows at all.
         }
         ground->setLocalScale(150.0f, 1.0f, 150.0f);
         ground->setLocalPosition(0.0f, -26.0f, 0.0f);
@@ -227,30 +222,17 @@ int main()
     }
 
     // -----------------------------------------------------------------------
-    // Camera on an orbiting pivot. The camera child looks at the pivot origin;
-    // rotating the pivot each frame orbits the whole scene.
+    // Camera — orbits the origin in the y = 0 plane, always looking at it.
     // -----------------------------------------------------------------------
-    auto* cameraPivot = new Entity();
-    cameraPivot->setEngine(engine.get());
-    engine->root()->addChild(cameraPivot);
-
     auto* camera = new Entity();
     camera->setEngine(engine.get());
     auto* cameraComp = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
     if (cameraComp && cameraComp->camera()) {
         cameraComp->camera()->setClearColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
-        cameraComp->camera()->setFarClip(500.0f);
-        auto rendering = cameraComp->rendering();
-        rendering.toneMapping = TONEMAP_ACES;
-        cameraComp->setRendering(rendering);
     }
-    constexpr float kCamHeight = 15.0f;
     constexpr float kCamDist = 70.0f;
-    camera->setLocalPosition(0.0f, kCamHeight, kCamDist);
-    // Pitch down to keep the origin centred (camera looks down local -Z).
-    const float pitchDeg = -std::atan2(kCamHeight, kCamDist) * 180.0f / static_cast<float>(M_PI);
-    camera->setLocalEulerAngles(pitchDeg, 0.0f, 0.0f);
-    cameraPivot->addChild(camera);
+    camera->setLocalPosition(0.0f, 0.0f, kCamDist);
+    engine->root()->addChild(camera);
 
     // Directional light parented to the camera so it rotates with the view.
     auto* light = new Entity();
@@ -258,8 +240,6 @@ int main()
     auto* lightComp = static_cast<LightComponent*>(light->addComponent<LightComponent>());
     if (lightComp) {
         lightComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        lightComp->setColor(Color(1.0f, 0.95f, 0.85f));
-        lightComp->setIntensity(1.2f);
         lightComp->setCastShadows(true);
         lightComp->setShadowBias(0.2f);
         lightComp->setShadowNormalBias(0.06f);
@@ -314,12 +294,12 @@ int main()
                 radius * std::cos(fi + time * speed),
                 radius * std::cos(fi + 2.0f * time * speed)
             );
-            // A little per-object spin for extra visible motion.
-            entities[i]->setLocalEulerAngles(time * 20.0f * speed, fi * 7.0f, 0.0f);
+            setLookAt(entities[i], Vector3(0.0f, 0.0f, 0.0f));
         }
 
-        // Orbit the camera pivot around the scene.
-        cameraPivot->setLocalEulerAngles(0.0f, time * 15.0f, 0.0f);
+        // Orbit the camera around the scene.
+        camera->setLocalPosition(70.0f * std::sin(time), 0.0f, 70.0f * std::cos(time));
+        setLookAt(camera, Vector3(0.0f, 0.0f, 0.0f));
 
         engine->update(dt);   // BatchManager::updateAll() runs inside here.
         engine->render();

@@ -218,7 +218,11 @@ int main()
         const float maxExtent = std::max({he.getX(), he.getY(), he.getZ()}) * 2.0f;
         const float targetHeight = 6.0f;
         const float s = (maxExtent > 0.001f) ? (targetHeight / maxExtent) : 3.0f;
-        robotArm->setLocalScale(s, s, s);
+        // The AABB was measured with the model's own root scale applied, so compose
+        // with it rather than replacing it (instantiateRenderEntity returns the glTF
+        // root node itself for single-root scenes).
+        const float s0 = robotArm->localScale().getX();
+        robotArm->setLocalScale(s0 * s, s0 * s, s0 * s);
         // Recenter horizontally and lift so the scaled AABB minimum sits at y = 0.
         const float minY = (ct.getY() - he.getY()) * s;
         robotArm->setLocalPosition(-ct.getX() * s, -minY, -ct.getZ() * s);

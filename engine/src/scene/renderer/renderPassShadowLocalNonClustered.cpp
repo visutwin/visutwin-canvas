@@ -5,7 +5,10 @@
 //
 #include "renderPassShadowLocalNonClustered.h"
 
+#include <vector>
+
 #include "framework/components/render/renderComponent.h"
+#include "framework/batching/batchManager.h"
 #include "framework/batching/skinBatchInstance.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
@@ -75,7 +78,13 @@ namespace visutwin::canvas
         // hardware polygon-offset depth bias during shadow rendering.
         // Applied via setDepthState().
         {
-            const float bias = _light->shadowBias() * -1000.0f;
+            // See renderPassShadowDirectional: the internal bias is negative, so this is a
+            // positive (acne-removing) polygon offset. Upstream skips the hardware offset for
+            // non-clustered omni lights (they store distance, not depth) and for PCSS, which
+            // biases in the shader.
+            const bool skipHardwareBias = _light->shadowType() == SHADOW_PCSS_32F ||
+                _light->type() == LightType::LIGHTTYPE_OMNI;
+            const float bias = skipHardwareBias ? 0.0f : _light->shadowBias() * -1000.0f;
             _graphicsDevice->setDepthBias(bias, bias, 0.0f);
         }
 
@@ -85,13 +94,25 @@ namespace visutwin::canvas
         const Frustum shadowFrustum = (_shadowCamera && _shadowCamera->node())
             ? buildCameraFrustum(_shadowCamera, _shadowCamera->node()) : Frustum{};
 
+        // Casters: every RenderComponent's mesh instances, PLUS the batch mesh
+        // instances, which belong to no RenderComponent (BatchManager registers them
+        // straight with the scene layers) and would otherwise cast no shadow.
+        std::vector<MeshInstance*> casters;
         for (auto* renderComponent : RenderComponent::instances()) {
             if (!shouldRenderShadowRenderComponent(renderComponent, nullptr)) {
                 continue;
             }
-
             for (auto* meshInstance : renderComponent->meshInstances()) {
-                if (!meshInstance->visible()) {
+                casters.push_back(meshInstance);
+            }
+        }
+        for (auto* meshInstance : BatchManager::batchMeshInstances()) {
+            casters.push_back(meshInstance);
+        }
+
+        {
+            for (auto* meshInstance : casters) {
+                if (!meshInstance || !meshInstance->visible()) {
                     continue;
                 }
                 if (!shouldRenderShadowMeshInstance(meshInstance, _shadowCamera, shadowFrustum)) {

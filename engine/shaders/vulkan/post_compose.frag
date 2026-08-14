@@ -168,15 +168,7 @@ vec3 applyDofSinglePass(vec3 sharpColor, vec2 uv, vec2 invRes,
 void main() {
     vec2 invRes = pc.p0.xy;
     vec2 uv = gl_FragCoord.xy * invRes;
-    vec3 result;
-    if (pc.p6.x > 0.0) {
-        vec2 offset = (uv - 0.5) * pc.p6.x;
-        result = vec3(texture(sceneTex, uv + offset).r,
-                      texture(sceneTex, uv).g,
-                      texture(sceneTex, uv - offset).b);
-    } else {
-        result = texture(sceneTex, uv).rgb;
-    }
+    vec3 result = texture(sceneTex, uv).rgb;
 
     // 1. CAS
     if (pc.p0.z > 0.0) {
@@ -195,7 +187,19 @@ void main() {
             pc.p2.y, pc.p2.z, pc.p2.w, pc.p3.x, pc.p3.y);
     }
 
-    // 4. Bloom
+    // 4. Fringing (chromatic aberration). Sits between DOF and bloom, matching upstream
+    // compose.js and metalComposePass: red and blue are RE-SAMPLED from the scene
+    // texture, so running it after bloom would keep bloom in green only. The offset is
+    // the SQUARED distance from centre, as upstream — a linear offset smears the whole
+    // mid-field instead of just the corners.
+    if (pc.p6.x > 0.0) {
+        vec2 centerDistance = uv - 0.5;
+        vec2 offset = pc.p6.x * centerDistance * centerDistance;
+        result.r = texture(sceneTex, uv - offset).r;
+        result.b = texture(sceneTex, uv + offset).b;
+    }
+
+    // 5. Bloom
     if (pc.p1.z > 0.5) {
         result += texture(bloomTex, uv).rgb * max(pc.p1.w, 0.0);
     }
@@ -220,7 +224,7 @@ void main() {
         result = mix(vec3(luma), result, pc.p7.x) * pc.p7.yzw;
     }
 
-    // 5. Tonemapping. Every curve consumes exposure-scaled color (Metal
+    // 6. Tonemapping. Every curve consumes exposure-scaled color (Metal
     // passes exposure into each curve); TONEMAP_NONE applies neither the
     // curve nor exposure — matching metalComposePass exactly.
     result = max(result, vec3(0.0));
@@ -244,12 +248,12 @@ void main() {
         result = mix(result, graded2, clamp(pc.p10.x, 0.0, 1.0));
     }
 
-    // 6. Vignette (tonemapped linear space, before gamma)
+    // 7. Vignette (tonemapped linear space, before gamma)
     if (pc.p3.z > 0.5) {
         result = applyVignette(result, uv, pc.p3.w, pc.p4.x, pc.p4.y, pc.p4.z, pc.p5.rgb);
     }
 
-    // 7. Display gamma (linear UNORM swapchain, matching Metal BGRA8Unorm)
+    // 8. Display gamma (linear UNORM swapchain, matching Metal BGRA8Unorm)
     result = pow(max(result, vec3(0.0)) + 0.0000001, vec3(1.0 / 2.2));
     outColor = vec4(result, 1.0);
 }

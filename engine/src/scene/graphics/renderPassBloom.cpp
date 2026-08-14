@@ -4,6 +4,8 @@
 //
 #include "renderPassBloom.h"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -144,6 +146,9 @@ namespace visutwin::canvas
         const int maxNumPasses = calcMipLevels(mutableThis->_sourceTexture->width(), mutableThis->_sourceTexture->height(), 1);
         const int numPasses = std::clamp(maxNumPasses, 1, mutableThis->_blurLevel);
         if (static_cast<int>(mutableThis->_renderTargets.size()) != numPasses) {
+            spdlog::debug("[Bloom] chain rebuilt: {} passes (blurLevel {}, max for {}x{} = {})",
+                numPasses, mutableThis->_blurLevel, mutableThis->_sourceTexture->width(),
+                mutableThis->_sourceTexture->height(), maxNumPasses);
             mutableThis->destroyRenderPasses();
             mutableThis->destroyRenderTargets(1);
             mutableThis->createRenderTargets(numPasses);

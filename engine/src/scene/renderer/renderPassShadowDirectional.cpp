@@ -6,8 +6,10 @@
 #include "renderPassShadowDirectional.h"
 
 #include <string>
+#include <vector>
 
 #include "framework/components/render/renderComponent.h"
+#include "framework/batching/batchManager.h"
 #include "framework/batching/skinBatchInstance.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/blendState.h"
@@ -71,7 +73,15 @@ namespace visutwin::canvas
         // The slope-based bias automatically adds more offset on steep geometry, preventing
         // acne without requiring excessive fixed bias that would erase self-shadows.
         {
-            const float bias = _light->shadowBias() * -1000.0f;
+            // Light::shadowBias() is upstream's NEGATIVE internal value (LightComponent
+            // remaps its 0..1 authoring value with -0.01 * clamp), so this product is
+            // POSITIVE: it offsets casters away from the light, which is the direction
+            // that removes acne.
+            //
+            // PCSS applies its own bias in the shader (upstream light.js does the same
+            // skip); a hardware offset on top of it eats valid contact shadows.
+            const float bias = (_light->shadowType() == SHADOW_PCSS_32F)
+                ? 0.0f : _light->shadowBias() * -1000.0f;
             _graphicsDevice->setDepthBias(bias, bias, 0.0f);
         }
 
@@ -109,13 +119,25 @@ namespace visutwin::canvas
             const Frustum shadowFrustum = (shadowCam && shadowCam->node())
                 ? buildCameraFrustum(shadowCam, shadowCam->node()) : Frustum{};
 
+            // Casters: every RenderComponent's mesh instances, PLUS the batch mesh
+            // instances, which belong to no RenderComponent (BatchManager registers
+            // them straight with the scene layers) and would otherwise cast no shadow.
+            std::vector<MeshInstance*> casters;
             for (auto* renderComponent : RenderComponent::instances()) {
                 if (!shouldRenderShadowRenderComponent(renderComponent, _camera)) {
                     continue;
                 }
-
                 for (auto* meshInstance : renderComponent->meshInstances()) {
-                    if (!meshInstance->visible()) {
+                    casters.push_back(meshInstance);
+                }
+            }
+            for (auto* meshInstance : BatchManager::batchMeshInstances()) {
+                casters.push_back(meshInstance);
+            }
+
+            {
+                for (auto* meshInstance : casters) {
+                    if (!meshInstance || !meshInstance->visible()) {
                         continue;
                     }
                     if (!shouldRenderShadowMeshInstance(meshInstance, shadowCam, shadowFrustum)) {

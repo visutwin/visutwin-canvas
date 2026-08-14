@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Clustered lighting example — mirrors PlayCanvas graphics/clustered-lighting.
-// Many colored local lights (omni + spot) light a field of objects, plus a few
-// objects. With Scene::setClusteredLightingEnabled(true) the renderer buckets the
-// shadow-casting spots. The unshadowed lights are bucketed into a 3D world-space grid
-// (WorldClusters); shadow-casting spots render into a per-light depth-array shadow atlas.
+// Clustered lighting example — port of PlayCanvas graphics/clustered-lighting.
+//
+// A high-polycount cylinder stands on a large normal-mapped ground plane. 30 omni
+// lights ride a sine wave around the cylinder and 16 spot lights orbit at its base,
+// all with emissive marker geometry, plus one rotating shadow-casting directional
+// light. With Scene::setClusteredLightingEnabled(true) the unshadowed local lights
+// are bucketed into a 3D world-space grid (WorldClusters) so all 46 are evaluated
+// in a single forward pass.
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -13,9 +16,13 @@
 #define CA_PRIVATE_IMPLEMENTATION
 
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <memory>
 #include <random>
+#include <string>
 #include <vector>
 
 #include <QuartzCore/QuartzCore.hpp>
@@ -24,6 +31,7 @@
 #include "framework/engine.h"
 #include "log.h"
 #include "framework/appOptions.h"
+#include "framework/assets/asset.h"
 #include "framework/constants.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/camera/cameraComponentSystem.h"
@@ -33,8 +41,10 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/components/script/scriptComponentSystem.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
+#include "platform/graphics/vertexFormat.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/mesh.h"
 
 constexpr int WINDOW_WIDTH = 1100;
 constexpr int WINDOW_HEIGHT = 750;
@@ -44,31 +54,130 @@ SDL_Renderer* renderer;
 
 using namespace visutwin::canvas;
 
-// A local light + a small emissive marker sphere/cone so its position is visible.
-struct DemoLight
-{
-    Entity* light = nullptr;
-    Entity* marker = nullptr;
-    float phase = 0.0f;
-    float radius = 0.0f;
-    float height = 0.0f;
-    bool spot = false;
-};
+const std::string rootPath = ASSET_DIR;
 
-Entity* createPrimitive(Engine* engine, const char* type, StandardMaterial* material,
-                        const Vector3& pos, const Vector3& scale)
+// Tiling normal map shared by the ground plane and the cylinder (upstream uses the
+// same material for both).
+// NOTE: AssetData::mipmaps defaults to false here (upstream defaults to true) — without
+// mips the tiled normal map aliases into per-pixel noise across the 150-unit ground.
+const auto normalMapAsset = std::make_unique<Asset>(
+    "normal-map",
+    AssetType::TEXTURE,
+    rootPath + "/textures/normal-map.png",
+    AssetData{ .mipmaps = true }
+);
+
+// Aim an entity's -Z axis at a target (equivalent of upstream Entity::lookAt).
+void setLookAt(Entity* entity, const Vector3& target)
 {
-    auto* entity = new Entity();
-    entity->setEngine(engine);
-    entity->setLocalPosition(pos.getX(), pos.getY(), pos.getZ());
-    entity->setLocalScale(scale.getX(), scale.getY(), scale.getZ());
-    if (auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>())) {
-        render->setMaterial(material);
-        render->setType(type);
-        render->setCastShadows(true);
-        render->setReceiveShadows(true);
+    if (!entity) {
+        return;
     }
-    return entity;
+
+    const Vector3 position = entity->position();
+    const Vector3 dir = (target - position).normalized();
+    const float pitchDeg = std::asin(std::clamp(dir.getY(), -1.0f, 1.0f)) * RAD_TO_DEG;
+    const float yawDeg = std::atan2(-dir.getX(), -dir.getZ()) * RAD_TO_DEG;
+    entity->setLocalEulerAngles(pitchDeg, yawDeg, 0.0f);
+}
+
+// DEVIATION: RenderComponent's built-in "cylinder" primitive is fixed at 20 sides.
+// Upstream builds the cylinder from CylinderGeometry({ capSegments: 200 }), so the
+// high-poly mesh is generated here instead (a 20-sided cylinder at this scale reads
+// as a faceted prism under 30 moving lights).
+std::shared_ptr<Mesh> createHighPolyCylinder(const std::shared_ptr<GraphicsDevice>& device, int sides)
+{
+    constexpr float PI_F = 3.14159265358979323846f;
+    constexpr float radius = 0.5f;
+    constexpr float halfHeight = 0.5f;
+
+    // Interleaved standard vertex: position(3) normal(3) uv0(2) tangent(4) uv1(2) = 14 floats.
+    std::vector<float> vertices;
+    std::vector<uint32_t> indices;
+
+    const auto pushVertex = [&](const Vector3& p, const Vector3& n, const Vector3& t,
+                                float u, float v) {
+        vertices.insert(vertices.end(), {
+            p.getX(), p.getY(), p.getZ(),
+            n.getX(), n.getY(), n.getZ(),
+            u, v,
+            t.getX(), t.getY(), t.getZ(), 1.0f,
+            u, v
+        });
+    };
+
+    // --- Side wall (seam vertex duplicated so UVs wrap cleanly) ---
+    for (int i = 0; i <= sides; ++i) {
+        const float theta = static_cast<float>(i) / static_cast<float>(sides) * 2.0f * PI_F;
+        const float c = std::cos(theta);
+        const float s = std::sin(theta);
+        const Vector3 n(c, 0.0f, s);
+        const Vector3 t(-s, 0.0f, c);
+        const float u = static_cast<float>(i) / static_cast<float>(sides);
+        pushVertex(Vector3(radius * c, -halfHeight, radius * s), n, t, u, 0.0f);
+        pushVertex(Vector3(radius * c, halfHeight, radius * s), n, t, u, 1.0f);
+    }
+    for (int i = 0; i < sides; ++i) {
+        const uint32_t b0 = static_cast<uint32_t>(i * 2);
+        const uint32_t t0 = b0 + 1u;
+        const uint32_t b1 = b0 + 2u;
+        const uint32_t t1 = b0 + 3u;
+        indices.insert(indices.end(), {b0, t0, b1, b1, t0, t1});
+    }
+
+    // --- Caps ---
+    const auto addCap = [&](float y, float ny) {
+        const uint32_t center = static_cast<uint32_t>(vertices.size() / 14u);
+        const Vector3 n(0.0f, ny, 0.0f);
+        const Vector3 t(1.0f, 0.0f, 0.0f);
+        pushVertex(Vector3(0.0f, y, 0.0f), n, t, 0.5f, 0.5f);
+        for (int i = 0; i <= sides; ++i) {
+            const float theta = static_cast<float>(i) / static_cast<float>(sides) * 2.0f * PI_F;
+            const float c = std::cos(theta);
+            const float s = std::sin(theta);
+            pushVertex(Vector3(radius * c, y, radius * s), n, t,
+                       0.5f + 0.5f * c, 0.5f + 0.5f * s);
+        }
+        for (int i = 0; i < sides; ++i) {
+            const uint32_t r0 = center + 1u + static_cast<uint32_t>(i);
+            const uint32_t r1 = r0 + 1u;
+            if (ny > 0.0f) {
+                indices.insert(indices.end(), {center, r1, r0});
+            } else {
+                indices.insert(indices.end(), {center, r0, r1});
+            }
+        }
+    };
+    addCap(halfHeight, 1.0f);
+    addCap(-halfHeight, -1.0f);
+
+    const int vertexCount = static_cast<int>(vertices.size() / 14u);
+
+    auto vertexFormat = std::make_shared<VertexFormat>(
+        56, VertexFormat::standardElements(), true, false);
+
+    VertexBufferOptions vbOptions;
+    vbOptions.data.resize(vertices.size() * sizeof(float));
+    std::memcpy(vbOptions.data.data(), vertices.data(), vbOptions.data.size());
+    auto vertexBuffer = device->createVertexBuffer(vertexFormat, vertexCount, vbOptions);
+
+    std::vector<uint8_t> indexBytes(indices.size() * sizeof(uint32_t));
+    std::memcpy(indexBytes.data(), indices.data(), indexBytes.size());
+    auto indexBuffer = device->createIndexBuffer(
+        INDEXFORMAT_UINT32, static_cast<int>(indices.size()), indexBytes);
+
+    auto mesh = std::make_shared<Mesh>();
+    mesh->setVertexBuffer(vertexBuffer);
+    mesh->setIndexBuffer(indexBuffer);
+    Primitive prim;
+    prim.type = PRIMITIVE_TRIANGLES;
+    prim.indexed = true;
+    prim.base = 0;
+    prim.count = static_cast<int>(indices.size());
+    mesh->setPrimitive(prim);
+    mesh->setAabb(BoundingBox(Vector3(0.0f, 0.0f, 0.0f),
+                              Vector3(radius, halfHeight, radius)));
+    return mesh;
 }
 
 int main()
@@ -117,149 +226,145 @@ int main()
     engine->start();
 
     auto scene = engine->scene();
-    // Enable clustered lighting: unshadowed local lights are bucketed into a 3D grid so many
-    // can be evaluated cheaply; shadow-casting local lights still cast real shadows.
+
+    // Enable clustered lighting: the unshadowed local lights are bucketed into a 3D
+    // world-space grid so many of them can be evaluated cheaply in one pass.
     scene->setClusteredLightingEnabled(true);
+    // The cluster grid defaults already match upstream's tuning for this scene
+    // (ClusterConfig: 12x16x12 cells, 48 lights per cell).
     scene->setToneMapping(TONEMAP_ACES);
-    scene->setExposure(1.0f);
-    scene->setAmbientLight(0.06f, 0.06f, 0.08f);
+
+    const auto normalMapResource = normalMapAsset->resource();
+    if (!normalMapResource) {
+        spdlog::error("Failed to load textures/normal-map.png");
+        shutdown();
+        return -1;
+    }
+    auto* normalMap = std::get<Texture*>(*normalMapResource);
+
+    // --- Shared material: tiled normal map, mildly glossy metal ---
+    auto material = std::make_shared<StandardMaterial>();
+    material->setNormalMap(normalMap);
+    material->setNormalMapTiling(Vector2(5.0f, 5.0f));
+    material->setBumpiness(1.0f);
+    material->setGloss(0.5f);
+    material->setMetalness(0.3f);
 
     // --- Ground plane ---
-    auto* groundMaterial = new StandardMaterial();
-    groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.55f));
-    groundMaterial->setMetalness(0.0f);
-    groundMaterial->setGloss(0.35f);
-    auto* ground = createPrimitive(engine.get(), "plane", groundMaterial,
-        Vector3(0.0f, 0.0f, 0.0f), Vector3(120.0f, 1.0f, 120.0f));
+    auto* ground = new Entity();
+    ground->setEngine(engine.get());
+    ground->setLocalScale(150.0f, 150.0f, 150.0f);
+    if (auto* render = static_cast<RenderComponent*>(ground->addComponent<RenderComponent>())) {
+        render->setMaterial(material.get());
+        render->setType("plane");
+        render->setCastShadows(false);
+        render->setReceiveShadows(true);
+    }
     engine->root()->addChild(ground);
 
-    // --- A field of receiver objects (boxes + spheres) to catch the light ---
-    auto* objMaterial = new StandardMaterial();
-    objMaterial->setDiffuse(Color(0.8f, 0.8f, 0.8f));
-    objMaterial->setMetalness(0.0f);
-    objMaterial->setGloss(0.4f);
-    for (int gx = -4; gx <= 4; ++gx) {
-        for (int gz = -4; gz <= 4; ++gz) {
-            const float x = static_cast<float>(gx) * 9.0f;
-            const float z = static_cast<float>(gz) * 9.0f;
-            const bool box = ((gx + gz) & 1) == 0;
-            engine->root()->addChild(createPrimitive(engine.get(),
-                box ? "box" : "sphere", objMaterial,
-                Vector3(x, 1.5f, z), Vector3(2.4f, box ? 3.0f : 2.4f, 2.4f)));
-        }
+    // --- High polycount cylinder ---
+    auto cylinderMesh = createHighPolyCylinder(graphicsDevice, 200);
+    auto* cylinder = new Entity();
+    cylinder->setEngine(engine.get());
+    cylinder->setLocalPosition(0.0f, 50.0f, 0.0f);
+    cylinder->setLocalScale(50.0f, 100.0f, 50.0f);
+    if (auto* render = static_cast<RenderComponent*>(cylinder->addComponent<RenderComponent>())) {
+        render->setMaterial(material.get());
+        auto meshInstance = std::make_unique<MeshInstance>(
+            cylinderMesh.get(), material.get(), cylinder);
+        meshInstance->setCastShadow(true);
+        meshInstance->setReceiveShadow(true);
+        render->setCastShadows(true);
+        render->setReceiveShadows(true);
+        render->addMeshInstance(std::move(meshInstance));
     }
+    engine->root()->addChild(cylinder);
 
-    // --- Many colored local lights (no shadows) with emissive markers ---
-    std::mt19937 rng(1234);
-    std::uniform_real_distribution<float> col(0.2f, 1.0f);
-    std::uniform_real_distribution<float> ang(0.0f, 6.2831853f);
-    std::uniform_real_distribution<float> rad(12.0f, 46.0f);
-    std::uniform_real_distribution<float> omniH(3.0f, 11.0f);
-    std::uniform_real_distribution<float> spotH(14.0f, 22.0f);
+    std::mt19937 rng(1234u);
+    std::uniform_real_distribution<float> rand01(0.0f, 1.0f);
 
-    std::vector<DemoLight> lights;
-    auto addLight = [&](bool spot) {
-        DemoLight dl;
-        dl.spot = spot;
-        dl.phase = ang(rng);
-        dl.radius = rad(rng);
-        // Vary heights so orbiting lights don't all pile into the same grid cell
-        // (each cluster cell holds a bounded number of lights).
-        dl.height = spot ? spotH(rng) : omniH(rng);
+    // Materials are kept alive for the lifetime of the app.
+    std::vector<std::shared_ptr<StandardMaterial>> markerMaterials;
 
-        const Color color(col(rng), col(rng), col(rng), 1.0f);
+    // --- 30 omni lights that do not cast shadows, each with an emissive sphere ---
+    std::vector<Entity*> pointLights;
+    for (int i = 0; i < 30; ++i) {
+        const Color color(rand01(rng), rand01(rng), rand01(rng), 1.0f);
 
-        auto* light = new Entity();
-        light->setEngine(engine.get());
-        if (auto* lc = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
-            lc->setType(spot ? LightType::LIGHTTYPE_SPOT : LightType::LIGHTTYPE_OMNI);
+        auto* lightPoint = new Entity();
+        lightPoint->setEngine(engine.get());
+        if (auto* lc = static_cast<LightComponent*>(lightPoint->addComponent<LightComponent>())) {
+            lc->setType(LightType::LIGHTTYPE_OMNI);
             lc->setColor(color);
             lc->setIntensity(2.0f);
-            lc->setRange(spot ? 30.0f : 14.0f);
+            lc->setRange(12.0f);
             lc->setCastShadows(false);
-            if (spot) {
-                lc->setInnerConeAngle(20.0f);
-                lc->setOuterConeAngle(35.0f);
-            }
+            lc->setFalloffMode(LightFalloff::LIGHTFALLOFF_INVERSESQUARED);
         }
-        if (spot) {
-            light->setLocalEulerAngles(90.0f, 0.0f, 0.0f); // point downward
+
+        auto markerMaterial = std::make_shared<StandardMaterial>();
+        markerMaterial->setEmissive(color);
+        markerMaterial->setEmissiveIntensity(10.0f);
+        markerMaterials.push_back(markerMaterial);
+
+        if (auto* render = static_cast<RenderComponent*>(lightPoint->addComponent<RenderComponent>())) {
+            render->setMaterial(markerMaterial.get());
+            render->setType("sphere");
+            render->setCastShadows(true);
         }
-        engine->root()->addChild(light);
-        dl.light = light;
+        lightPoint->setLocalScale(5.0f, 5.0f, 5.0f);
 
-        // Emissive marker so the light position is visible.
-        auto* markerMat = new StandardMaterial();
-        markerMat->setDiffuse(Color(0.0f, 0.0f, 0.0f));
-        markerMat->setEmissive(color);
-        markerMat->setEmissiveIntensity(4.0f);
-        dl.marker = createPrimitive(engine.get(), spot ? "cone" : "sphere", markerMat,
-            Vector3(0.0f, dl.height, 0.0f), Vector3(0.7f, 0.7f, 0.7f));
-        engine->root()->addChild(dl.marker);
-
-        lights.push_back(dl);
-    };
-
-    for (int i = 0; i < 16; ++i) addLight(false); // omni
-    for (int i = 0; i < 4; ++i)  addLight(true);  // spot
-
-    // --- Many SHADOW-CASTING spot lights ---
-    // Each renders into its own slice of the clustered shadow atlas (a depth
-    // texture2d_array) and is sampled directly by the clustered fragment shader —
-    // so the count is NOT bounded by the 8-slot main light array. Here we place 12
-    // (> 8) angled shadow-casting spots so their objects drop shadows on the ground.
-    auto addShadowSpot = [&](const Vector3& pos, float pitchDeg, float yawDeg, const Color& color) {
-        auto* light = new Entity();
-        light->setEngine(engine.get());
-        if (auto* lc = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
-            lc->setType(LightType::LIGHTTYPE_SPOT);
-            lc->setColor(color);
-            lc->setIntensity(8.0f);
-            lc->setRange(90.0f);
-            lc->setInnerConeAngle(26.0f);
-            lc->setOuterConeAngle(42.0f);
-            lc->setCastShadows(true);
-            lc->setShadowResolution(1024);
-        }
-        light->setLocalPosition(pos.getX(), pos.getY(), pos.getZ());
-        // Tilted off vertical (90° = straight down) so each object drops a shadow
-        // that stretches across the ground instead of hiding directly beneath it.
-        light->setLocalEulerAngles(pitchDeg, yawDeg, 0.0f);
-        engine->root()->addChild(light);
-
-        auto* markerMat = new StandardMaterial();
-        markerMat->setDiffuse(Color(0.0f, 0.0f, 0.0f));
-        markerMat->setEmissive(color);
-        markerMat->setEmissiveIntensity(5.0f);
-        engine->root()->addChild(createPrimitive(engine.get(), "cone", markerMat,
-            pos, Vector3(1.2f, 1.2f, 1.2f)));
-    };
-    {
-        const Color spotCols[4] = {
-            Color(1.0f, 1.0f, 1.0f), Color(1.0f, 0.85f, 0.6f),
-            Color(0.6f, 0.85f, 1.0f), Color(0.8f, 1.0f, 0.7f)
-        };
-        int si = 0;
-        for (int cx = 0; cx < 4; ++cx) {
-            for (int cz = 0; cz < 3; ++cz) {
-                const float x = -27.0f + static_cast<float>(cx) * 18.0f;
-                const float z = -18.0f + static_cast<float>(cz) * 18.0f;
-                // All angled the same way so shadows stretch consistently toward the camera.
-                addShadowSpot(Vector3(x, 30.0f, z + 6.0f), 58.0f, 0.0f, spotCols[si++ % 4]);
-            }
-        }
+        engine->root()->addChild(lightPoint);
+        pointLights.push_back(lightPoint);
     }
 
-    // --- A single dim directional fill so shadowed areas aren't pure black ---
+    // --- 16 spot lights, each with an emissive cone ---
+    std::vector<Entity*> spotLights;
+    for (int i = 0; i < 16; ++i) {
+        const Color color(rand01(rng), rand01(rng), rand01(rng), 1.0f);
+
+        auto* lightSpot = new Entity();
+        lightSpot->setEngine(engine.get());
+        if (auto* lc = static_cast<LightComponent*>(lightSpot->addComponent<LightComponent>())) {
+            lc->setType(LightType::LIGHTTYPE_SPOT);
+            lc->setColor(color);
+            lc->setIntensity(2.0f);
+            lc->setInnerConeAngle(5.0f);
+            lc->setOuterConeAngle(6.0f + rand01(rng) * 40.0f);
+            lc->setRange(25.0f);
+            lc->setCastShadows(false);
+        }
+
+        auto markerMaterial = std::make_shared<StandardMaterial>();
+        markerMaterial->setEmissive(color);
+        markerMaterial->setEmissiveIntensity(10.0f);
+        markerMaterials.push_back(markerMaterial);
+
+        if (auto* render = static_cast<RenderComponent*>(lightSpot->addComponent<RenderComponent>())) {
+            render->setMaterial(markerMaterial.get());
+            render->setType("cone");
+        }
+        lightSpot->setLocalScale(5.0f, 5.0f, 5.0f);
+
+        lightSpot->setLocalPosition(100.0f, 50.0f, 70.0f);
+        setLookAt(lightSpot, Vector3(100.0f, 60.0f, 70.0f));
+        engine->root()->addChild(lightSpot);
+        spotLights.push_back(lightSpot);
+    }
+
+    // --- A single shadow-casting directional light ---
     auto* dirLight = new Entity();
     dirLight->setEngine(engine.get());
     if (auto* lc = static_cast<LightComponent*>(dirLight->addComponent<LightComponent>())) {
         lc->setType(LightType::LIGHTTYPE_DIRECTIONAL);
         lc->setColor(Color(1.0f, 1.0f, 1.0f));
-        lc->setIntensity(0.2f);
-        lc->setCastShadows(false);
+        lc->setIntensity(0.15f);
+        lc->setRange(300.0f);
+        lc->setShadowDistance(600.0f);
+        lc->setCastShadows(true);
+        lc->setShadowBias(0.2f);
+        lc->setShadowNormalBias(0.05f);
     }
-    dirLight->setLocalEulerAngles(60.0f, 30.0f, 0.0f);
     engine->root()->addChild(dirLight);
 
     // --- Camera ---
@@ -268,21 +373,24 @@ int main()
     auto* cameraComp = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
     camera->addComponent<ScriptComponent>();
     if (cameraComp && cameraComp->camera()) {
-        cameraComp->camera()->setClearColor(Color(0.02f, 0.02f, 0.03f, 1.0f));
-        cameraComp->camera()->setFarClip(400.0f);
+        cameraComp->camera()->setClearColor(Color(0.05f, 0.05f, 0.05f, 1.0f));
+        cameraComp->camera()->setNearClip(0.1f);
+        cameraComp->camera()->setFarClip(500.0f);
     }
-    camera->setPosition(Vector3(0.0f, 45.0f, 70.0f));
+    camera->setLocalPosition(140.0f, 140.0f, 140.0f);
     engine->root()->addChild(camera);
 
     auto* cameraControls = camera->script()->create<CameraControls>();
-    cameraControls->setFocusPoint(Vector3(0.0f, 2.0f, 0.0f));
+    // setFocusPoint derives the orbit distance and angles from the current camera
+    // position, so the upstream pose is preserved exactly.
+    cameraControls->setFocusPoint(Vector3(0.0f, 40.0f, 0.0f));
     cameraControls->setEnableFly(false);
-    cameraControls->setMoveSpeed(40.0f);
-    cameraControls->setOrbitDistance(85.0f);
+    cameraControls->setMoveSpeed(60.0f);
     cameraControls->storeResetState();
 
     spdlog::info("*** Clustered Lighting Example ***");
-    spdlog::info("{} clustered local lights + 12 atlas shadow-casting spots.", lights.size());
+    spdlog::info("{} omni + {} spot clustered lights, 1 shadow-casting directional.",
+                 pointLights.size(), spotLights.size());
     spdlog::info("Orbit: LMB/RMB, Wheel zoom, R reset, Esc quit.");
 
     bool running = true;
@@ -310,16 +418,27 @@ int main()
         prevCounter = nowCounter;
         time += dt;
 
-        // Orbit the lights around the field so the clustering updates every frame.
-        for (auto& dl : lights) {
-            const float a = dl.phase + time * (dl.spot ? 0.25f : 0.4f);
-            const float x = std::cos(a) * dl.radius;
-            const float z = std::sin(a) * dl.radius;
-            dl.light->setLocalPosition(x, dl.height, z);
-            if (dl.marker) {
-                dl.marker->setLocalPosition(x, dl.height, z);
-            }
+        // Move the omni lights along sine-based waves around the cylinder.
+        for (size_t i = 0; i < pointLights.size(); ++i) {
+            const float angle = static_cast<float>(i) / static_cast<float>(pointLights.size()) *
+                                2.0f * 3.14159265358979323846f;
+            const float y = std::sin(time * 0.5f + 7.0f * angle) * 30.0f + 70.0f;
+            pointLights[i]->setLocalPosition(30.0f * std::sin(angle), y, 30.0f * std::cos(angle));
         }
+
+        // Rotate the spot lights around the base of the cylinder, aimed at its centre.
+        for (size_t i = 0; i < spotLights.size(); ++i) {
+            const float angle = static_cast<float>(i) / static_cast<float>(spotLights.size()) *
+                                2.0f * 3.14159265358979323846f;
+            spotLights[i]->setLocalPosition(40.0f * std::sin(time + angle), 5.0f,
+                                            40.0f * std::cos(time + angle));
+            setLookAt(spotLights[i], Vector3(0.0f, 0.0f, 0.0f));
+            // Lights emit along their local -Y, so tilt the aimed -Z axis onto it.
+            spotLights[i]->rotateLocal(90.0f, 0.0f, 0.0f);
+        }
+
+        // Rotate the directional light.
+        dirLight->setLocalEulerAngles(25.0f, -30.0f * time, 0.0f);
 
         engine->update(dt);
         engine->render();

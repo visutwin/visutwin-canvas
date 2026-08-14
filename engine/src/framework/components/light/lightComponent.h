@@ -62,8 +62,22 @@ namespace visutwin::canvas
         bool castShadows() const { return _castShadows; }
         void setCastShadows(const bool castShadows) { _castShadows = castShadows; }
 
+        /**
+         * Shadow depth bias as a 0..1 authoring value (upstream LightComponent scale;
+         * its default is 0.05). It is remapped to the internal light bias as
+         * `-0.01 * clamp(value, 0, 1)` — the negative internal convention is what makes
+         * `shadowBias * -1000` a POSITIVE hardware polygon offset, i.e. one that pushes
+         * casters AWAY from the light and removes acne. Passing the raw value through
+         * inverted that and made a larger bias produce MORE shadow.
+         */
         float shadowBias() const { return _shadowBias; }
-        void setShadowBias(const float value) { _shadowBias = value; }
+        void setShadowBias(const float value);
+
+        /** The remapped value handed to the internal Light (upstream light.shadowBias). */
+        static float toLightShadowBias(float value)
+        {
+            return -0.01f * (value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value));
+        }
 
         float shadowNormalBias() const { return _shadowNormalBias; }
         void setShadowNormalBias(const float value) { _shadowNormalBias = value; }
@@ -159,7 +173,7 @@ namespace visutwin::canvas
         LightFalloff _falloffMode = LightFalloff::LIGHTFALLOFF_LINEAR;
         uint32_t _mask = MASK_AFFECT_DYNAMIC;
         bool _castShadows = false;
-        float _shadowBias = 0.001f;
+        float _shadowBias = 0.05f;   // upstream LightComponent default
         float _shadowNormalBias = 0.0f;
         float _shadowStrength = 1.0f;
         float _shadowDistance = 40.0f;

@@ -1043,6 +1043,8 @@ namespace visutwin::canvas
         virtual void onFrameStart() {}
         virtual void onFrameEnd() {}
         void setBackBuffer(const std::shared_ptr<RenderTarget>& target) { _backBuffer = target; }
+        /** Highest MSAA sample count the backend supports; RenderTarget clamps to it. */
+        void setMaxSamples(const int value) { _maxSamples = value > 1 ? value : 1; }
         void recordDrawCall(int count = 1) { _drawCallsPerFrame += count; }
 
         void clearVertexBuffer();

@@ -424,15 +424,18 @@ fragment float4 composeFragment(
     //     result = mix(result, blurColor, cocAmount * clamp(uniforms.dofIntensity, 0.0, 1.0));
     // }
 
-    // 4. Bloom
+    // 4. Fringing (chromatic aberration). BEFORE bloom, as upstream compose.js orders
+    // it: applyFringing re-samples the scene texture for the red and blue channels, so
+    // running it after bloom would throw away the bloom already added to those two
+    // channels and leave it only in green — a green cast over everything that blooms.
+    if (uniforms.fringingIntensity > 0.0) {
+        result = applyFringing(result, uv, uniforms.fringingIntensity, sceneTexture, linearSampler);
+    }
+
+    // 4b. Bloom
     if (uniforms.bloomEnabled != 0u && bloomTexture.get_width() > 0) {
         const float3 bloomColor = bloomTexture.sample(linearSampler, uv).rgb;
         result += bloomColor * max(uniforms.bloomIntensity, 0.0);
-    }
-
-    // 4b. Fringing (chromatic aberration)
-    if (uniforms.fringingIntensity > 0.0) {
-        result = applyFringing(result, uv, uniforms.fringingIntensity, sceneTexture, linearSampler);
     }
 
     // 4c. Color enhance (HDR)

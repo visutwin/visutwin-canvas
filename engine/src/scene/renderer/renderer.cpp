@@ -805,7 +805,12 @@ namespace visutwin::canvas
                     } else {
                         ls.viewProjection = sceneLight->shadowViewProjection();
                     }
-                    ls.bias = sceneLight->shadowBias();
+                    // Our local-shadow shader subtracts this from the receiver depth,
+                    // so it needs a POSITIVE value while Light::shadowBias() is upstream's
+                    // negative internal one — hence the negation. The per-type scaling
+                    // mirrors upstream Light::_getUniformBiasValues (spot x20, omni raw).
+                    ls.bias = isOmni ? -sceneLight->shadowBias()
+                                     : -sceneLight->shadowBias() * 20.0f;
                     ls.normalBias = sceneLight->normalBias();
                     ls.intensity = sceneLight->shadowIntensity();
                     ls.nearClip = 0.01f;
@@ -947,7 +952,8 @@ namespace visutwin::canvas
                     lcd.castShadows = true;
                     lcd.shadowMatrix = dispatchEntry.sceneLight->shadowViewProjection();
                     lcd.atlasSlice = dispatchEntry.sceneLight->atlasSlice();
-                    lcd.shadowBias = dispatchEntry.sceneLight->shadowBias();
+                    // Same convention as the non-clustered local path above.
+                    lcd.shadowBias = -dispatchEntry.sceneLight->shadowBias() * 20.0f;
                     lcd.shadowIntensity = dispatchEntry.sceneLight->shadowIntensity();
                 }
                 clusterLocalLights.push_back(lcd);

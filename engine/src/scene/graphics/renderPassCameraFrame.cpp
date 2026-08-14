@@ -4,6 +4,8 @@
 //
 #include "renderPassCameraFrame.h"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cassert>
 
@@ -47,49 +49,7 @@ namespace visutwin::canvas
         // skip the start/execute/end sequence, which is the correct behavior.
 
         CameraFrameOptions options = defaultOptions;
-        if (_cameraComponent) {
-            const auto& taa = _cameraComponent->taa();
-            const auto& dof = _cameraComponent->dof();
-            const auto& ssao = _cameraComponent->ssao();
-            const auto& rendering = _cameraComponent->rendering();
-            options.taaEnabled = taa.enabled;
-            options.dofEnabled = dof.enabled;
-            options.dofNearBlur = dof.nearBlur;
-            options.dofHighQuality = dof.highQuality;
-            if (ssao.enabled) {
-                options.ssaoType = (ssao.type == SSAOTYPE_LIGHTING) ? SSAOTYPE_LIGHTING : SSAOTYPE_COMBINE;
-            } else {
-                options.ssaoType = SSAOTYPE_NONE;
-            }
-            options.ssaoBlurEnabled = ssao.blurEnabled;
-            options.bloomEnabled = rendering.bloomIntensity > 0.0f;
-            options.bloomIntensity = rendering.bloomIntensity;
-            options.sharpness = rendering.sharpness;
-            options.vignetteEnabled = rendering.vignetteEnabled;
-            options.vignetteInner = rendering.vignetteInner;
-            options.vignetteOuter = rendering.vignetteOuter;
-            options.vignetteCurvature = rendering.vignetteCurvature;
-            options.vignetteIntensity = rendering.vignetteIntensity;
-
-            options.fringingIntensity = rendering.fringingIntensity;
-            options.gradingEnabled = rendering.gradingEnabled;
-            options.gradingBrightness = rendering.gradingBrightness;
-            options.gradingContrast = rendering.gradingContrast;
-            options.gradingSaturation = rendering.gradingSaturation;
-            options.gradingTint[0] = rendering.gradingTint[0];
-            options.gradingTint[1] = rendering.gradingTint[1];
-            options.gradingTint[2] = rendering.gradingTint[2];
-            options.colorEnhanceShadows = rendering.colorEnhanceShadows;
-            options.colorEnhanceHighlights = rendering.colorEnhanceHighlights;
-            options.colorEnhanceVibrance = rendering.colorEnhanceVibrance;
-            options.colorEnhanceDehaze = rendering.colorEnhanceDehaze;
-            options.colorEnhanceMidtones = rendering.colorEnhanceMidtones;
-            options.colorLUT = rendering.colorLUT;
-            options.colorLUT2 = rendering.colorLUT2;
-            options.colorLUTIntensity = rendering.colorLUTIntensity;
-            options.colorLUTIntensity2 = rendering.colorLUTIntensity2;
-            options.colorLUTBlend = rendering.colorLUTBlend;
-        }
+        applyCameraSettings(options);
 
         _options = sanitizeOptions(options);
         setupRenderPasses(_options);
@@ -150,6 +110,59 @@ namespace visutwin::canvas
             sanitized.prepassEnabled = true;
         }
         return sanitized;
+    }
+
+    void RenderPassCameraFrame::applyCameraSettings(CameraFrameOptions& options) const
+    {
+        if (!_cameraComponent) {
+            return;
+        }
+
+        const auto& taa = _cameraComponent->taa();
+        const auto& dof = _cameraComponent->dof();
+        const auto& ssao = _cameraComponent->ssao();
+        const auto& rendering = _cameraComponent->rendering();
+
+        options.taaEnabled = taa.enabled;
+        options.dofEnabled = dof.enabled;
+        options.dofNearBlur = dof.nearBlur;
+        options.dofHighQuality = dof.highQuality;
+        if (ssao.enabled) {
+            options.ssaoType = (ssao.type == SSAOTYPE_LIGHTING) ? SSAOTYPE_LIGHTING : SSAOTYPE_COMBINE;
+        } else {
+            options.ssaoType = SSAOTYPE_NONE;
+        }
+        options.ssaoBlurEnabled = ssao.blurEnabled;
+
+        options.samples = std::max(rendering.samples, 1);
+        options.bloomEnabled = rendering.bloomIntensity > 0.0f;
+        options.bloomIntensity = rendering.bloomIntensity;
+        options.bloomBlurLevel = std::max(rendering.bloomBlurLevel, 1);
+        options.sharpness = rendering.sharpness;
+        options.vignetteEnabled = rendering.vignetteEnabled;
+        options.vignetteInner = rendering.vignetteInner;
+        options.vignetteOuter = rendering.vignetteOuter;
+        options.vignetteCurvature = rendering.vignetteCurvature;
+        options.vignetteIntensity = rendering.vignetteIntensity;
+
+        options.fringingIntensity = rendering.fringingIntensity;
+        options.gradingEnabled = rendering.gradingEnabled;
+        options.gradingBrightness = rendering.gradingBrightness;
+        options.gradingContrast = rendering.gradingContrast;
+        options.gradingSaturation = rendering.gradingSaturation;
+        options.gradingTint[0] = rendering.gradingTint[0];
+        options.gradingTint[1] = rendering.gradingTint[1];
+        options.gradingTint[2] = rendering.gradingTint[2];
+        options.colorEnhanceShadows = rendering.colorEnhanceShadows;
+        options.colorEnhanceHighlights = rendering.colorEnhanceHighlights;
+        options.colorEnhanceVibrance = rendering.colorEnhanceVibrance;
+        options.colorEnhanceDehaze = rendering.colorEnhanceDehaze;
+        options.colorEnhanceMidtones = rendering.colorEnhanceMidtones;
+        options.colorLUT = rendering.colorLUT;
+        options.colorLUT2 = rendering.colorLUT2;
+        options.colorLUTIntensity = rendering.colorLUTIntensity;
+        options.colorLUTIntensity2 = rendering.colorLUTIntensity2;
+        options.colorLUTBlend = rendering.colorLUTBlend;
     }
 
     bool RenderPassCameraFrame::needsReset(const CameraFrameOptions& options) const
@@ -214,29 +227,10 @@ namespace visutwin::canvas
 
         // Also apply any option changes from CameraComponent (e.g. TAA/SSAO toggled).
         if (_cameraComponent) {
-            CameraFrameOptions options;
-            const auto& taa = _cameraComponent->taa();
-            const auto& dof = _cameraComponent->dof();
-            const auto& ssao = _cameraComponent->ssao();
-            const auto& rendering = _cameraComponent->rendering();
-            options.taaEnabled = taa.enabled;
-            options.dofEnabled = dof.enabled;
-            options.dofNearBlur = dof.nearBlur;
-            options.dofHighQuality = dof.highQuality;
-            if (ssao.enabled) {
-                options.ssaoType = (ssao.type == SSAOTYPE_LIGHTING) ? SSAOTYPE_LIGHTING : SSAOTYPE_COMBINE;
-            } else {
-                options.ssaoType = SSAOTYPE_NONE;
-            }
-            options.ssaoBlurEnabled = ssao.blurEnabled;
-            options.bloomEnabled = rendering.bloomIntensity > 0.0f;
-            options.bloomIntensity = rendering.bloomIntensity;
-            options.sharpness = rendering.sharpness;
-            options.vignetteEnabled = rendering.vignetteEnabled;
-            options.vignetteInner = rendering.vignetteInner;
-            options.vignetteOuter = rendering.vignetteOuter;
-            options.vignetteCurvature = rendering.vignetteCurvature;
-            options.vignetteIntensity = rendering.vignetteIntensity;
+            // Start from the current options so fields the camera does not own
+            // (formats, layer ids, sceneColorMap) survive the rebuild.
+            CameraFrameOptions options = _options;
+            applyCameraSettings(options);
             auto sanitized = sanitizeOptions(options);
 
             if (needsReset(sanitized)) {
@@ -412,8 +406,15 @@ namespace visutwin::canvas
         sceneTargetOptions.depthBuffer = _sceneDepthTexture.get();
         sceneTargetOptions.stencil = options.stencil;
         sceneTargetOptions.samples = options.samples;
+        // MSAA is only useful if the multisampled buffers are resolved into the
+        // single-sample colour/depth textures every later pass samples.
+        sceneTargetOptions.autoResolve = options.samples > 1;
         sceneTargetOptions.name = "CameraFrameSceneTarget";
         _sceneRenderTarget = gd->createRenderTarget(sceneTargetOptions);
+        if (_sceneRenderTarget && _sceneRenderTarget->samples() > 1) {
+            spdlog::debug("[CameraFrame] scene target MSAA: {} samples (requested {}, device max {})",
+                _sceneRenderTarget->samples(), options.samples, gd->maxSamples());
+        }
 
         if (_sceneHalfEnabled) {
             // Create half-resolution color texture explicitly (same lifetime fix as _sceneTexture).
@@ -630,7 +631,6 @@ namespace visutwin::canvas
 
     void RenderPassCameraFrame::setupBloomPass(const CameraFrameOptions& options, Texture* inputTexture)
     {
-        (void)options;
         if (_bloomEnabled && inputTexture) {
             // Reuse existing bloom pass to avoid per-frame Metal texture allocation.
             // The pass creates Texture + RenderTarget objects in its constructor and
@@ -639,6 +639,8 @@ namespace visutwin::canvas
             if (!_bloomPass) {
                 _bloomPass = std::make_shared<RenderPassBloom>(device(), inputTexture, _hdrFormat);
             }
+            // Applied every rebuild — the pass itself is reused across frames.
+            _bloomPass->setBlurLevel(options.bloomBlurLevel);
         } else {
             _bloomPass.reset();
         }

@@ -72,6 +72,17 @@ namespace visutwin::canvas
 
         const std::vector<std::unique_ptr<Batch>>& batches() const { return _batches; }
 
+        /**
+         * Every live batch MeshInstance, across all BatchManagers.
+         *
+         * Batch mesh instances belong to no RenderComponent — they are registered
+         * straight with the scene layers — so passes that sweep
+         * RenderComponent::instances() (the shadow passes) would otherwise never see
+         * them and batched geometry would cast no shadows. Maintained by
+         * prepare()/destroy().
+         */
+        static const std::vector<MeshInstance*>& batchMeshInstances() { return _batchMeshInstances; }
+
         /** Get a batch group by id. Returns nullptr if not found. */
         const BatchGroup* getGroupById(int groupId) const;
 
@@ -98,5 +109,7 @@ namespace visutwin::canvas
         GraphicsDevice* _device;
         std::unordered_map<int, BatchGroup> _groups;
         std::vector<std::unique_ptr<Batch>> _batches;
+
+        static std::vector<MeshInstance*> _batchMeshInstances;
     };
 }

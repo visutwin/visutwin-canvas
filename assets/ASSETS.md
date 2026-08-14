@@ -21,6 +21,7 @@ their original `<name>.txt` license sibling next to the file.
 - `seaside-rocks01-height.jpg` — Rock026 from ambientCG (CC-0)
 - `playcanvas.png` / `playcanvas-grey.png` — PlayCanvas logo textures (CC-0)
 - `snowflake.png`, `spark.png`, `particles-numbers.png` — particle sprites from PlayCanvas (CC-0)
+- `normal-map.png` — tiling normal map from PlayCanvas examples (CC-0)
 
 ### fonts/ — complete
 - `courier.json` + `courier.png` — Courier MSDF bitmap-font atlas from PlayCanvas (CC-0)
@@ -58,6 +59,9 @@ Mirrored from PlayCanvas examples (for visual parity):
 - `pbr-house.glb` — House 03 PBR, Sketchfab (**CC-BY 4.0**, see .txt)
 - `house.glb` — House scene w/ generated UV1 for lightmapping, Sketchfab (**CC-BY 4.0**, see .txt)
 - `SunglassesKhronos.glb` — Sunglasses from Khronos glTF-Sample-Assets (**CC-BY 4.0**)
+- `apartment.glb` — Mirror's Edge Apartment by Aurélien Martel, Sketchfab (**CC-BY-NC 4.0 — NON-COMMERCIAL ONLY**, see .txt)
+- `love.glb` — Love neon sign 02 by daysena, Sketchfab (**CC-BY 4.0**, see .txt)
+- `cat.glb` — Egyptian Cat Statue by Ankledot, Sketchfab (**CC-BY 4.0**, webp textures re-encoded to png, see .txt)
 - `biker.compressed.ply` — SuperSplat compressed gsplat from PlayCanvas (CC-0)
 - `skull.compressed.ply` — SuperSplat compressed gsplat w/ SH from PlayCanvas (CC-0)
 
