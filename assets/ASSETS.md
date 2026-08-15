@@ -1,8 +1,14 @@
 # Public Example Assets
 
-All assets in this directory are safe for open-source distribution.
-Most are CC-0 (public domain). Several models are CC-BY 4.0 and require
-attribution — see THIRD_PARTY_NOTICES for details.
+Most assets in this directory are CC-0 (public domain). Several models are
+CC-BY 4.0 and require attribution — see THIRD_PARTY_NOTICES for details.
+
+One exception to be aware of before a public release: the three
+`cubemaps/*-env-atlas.png` files are mirrored byte-for-byte from the PlayCanvas
+example set, which documents no license for them individually. Their original
+HDR provenance is therefore unconfirmed. They are kept because exact visual
+parity with the upstream examples depends on them; substitute CC-0 atlases
+(see `tools/generate-env-atlas`) if that provenance matters for a given release.
 
 Many assets are mirrored from the PlayCanvas engine example set so the
 VisuTwin examples can visually match their PlayCanvas counterparts. Assets
@@ -66,10 +72,21 @@ Mirrored from PlayCanvas examples (for visual parity):
 - `skull.compressed.ply` — SuperSplat compressed gsplat w/ SH from PlayCanvas (CC-0)
 
 ### cubemaps/ — complete
-- `helipad-env-atlas.png` — 512x512 RGBP atlas generated from cannon-2k.hdr (CC-0, derived)
-- `table-mountain-env-atlas.png` — 512x512 RGBP atlas generated from kloofendal-2k.hdr (CC-0, derived)
+- `helipad-env-atlas.png` — 512x512 RGBP atlas mirrored from the PlayCanvas example set
+- `table-mountain-env-atlas.png` — 512x512 RGBP atlas mirrored from the PlayCanvas example set
+- `morning-env-atlas.png` — 512x512 RGBP atlas mirrored from the PlayCanvas example set
 
-Generated with `tools/generate-env-atlas` using the engine's EnvLighting CPU pipeline.
+All three are byte-identical to the PlayCanvas example assets, so the examples
+light identically to their upstream counterparts. The PlayCanvas repository is
+MIT-licensed and ships no separate attribution file for these atlases, so the
+original HDR sources are not documented upstream — see THIRD_PARTY_NOTICES.
+
+Previously `helipad-env-atlas.png` and `table-mountain-env-atlas.png` were
+locally generated with `tools/generate-env-atlas` (from Poly Haven `cannon-2k.hdr`
+and `kloofendal-2k.hdr`, CC-0) and only borrowed the upstream filenames — they
+were entirely different environments, which made every example that used them
+light differently from upstream. That tool still works if CC-0-only atlases are
+ever needed again.
 
 ## Sources
 

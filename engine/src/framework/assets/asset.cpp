@@ -119,7 +119,11 @@ namespace visutwin::canvas
                 int height = 0;
                 int channels = 0;
                 // upstream texture loading keeps source orientation; env-atlas UV layout depends on this.
-                stbi_set_flip_vertically_on_load(false);
+                // MUST be the _thread variant: glbParser calls stbi_set_flip_vertically_on_load_thread(true),
+                // and once stb's thread-local flag has been set it permanently overrides the global one on
+                // that thread. Clearing only the global here left every texture loaded after a GLB on the
+                // same thread flipped — which silently turned the environment atlas upside down.
+                stbi_set_flip_vertically_on_load_thread(false);
 
                 const bool isHdr = _file.size() >= 4 &&
                     _file.compare(_file.size() - 4, 4, ".hdr") == 0;

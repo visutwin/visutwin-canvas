@@ -142,7 +142,8 @@ void main()
         camera->setLocalEulerAngles(pitchDeg, yawDeg, 0.0f);
     }
 
-    void setRenderLayersRecursive(GraphNode* node, const std::vector<int>& layers)
+    // Mirrors upstream's instantiateRenderEntity({ castShadows, receiveShadows, layers }).
+    void applyRenderOptionsRecursive(GraphNode* node, const std::vector<int>& layers)
     {
         if (!node) {
             return;
@@ -151,32 +152,14 @@ void main()
         if (auto* entity = dynamic_cast<Entity*>(node)) {
             if (auto* render = entity->findComponent<RenderComponent>()) {
                 render->setLayers(layers);
+                render->setCastShadows(true);
+                render->setReceiveShadows(true);
             }
         }
 
         for (const auto& child : node->children()) {
-            setRenderLayersRecursive(child.get(), layers);
+            applyRenderOptionsRecursive(child.get(), layers);
         }
-    }
-
-    BoundingBox calcEntityAABB(Entity* entity)
-    {
-        BoundingBox bbox;
-        bbox.setCenter(0, 0, 0);
-        bbox.setHalfExtents(0, 0, 0);
-        if (!entity) return bbox;
-        bool hasAny = false;
-        for (auto* render : RenderComponent::instances()) {
-            if (!render || !render->entity()) continue;
-            auto* owner = render->entity();
-            if (owner != entity && !owner->isDescendantOf(entity)) continue;
-            for (auto* mi : render->meshInstances()) {
-                if (!mi) continue;
-                if (!hasAny) { bbox = mi->aabb(); hasAny = true; }
-                else { bbox.add(mi->aabb()); }
-            }
-        }
-        return bbox;
     }
 
     struct RenderableStats
@@ -347,22 +330,13 @@ int main()
         return -1;
     }
     boardEntity->setEngine(engine.get());
-    setRenderLayersRecursive(boardEntity, {LAYERID_RT});
+    applyRenderOptionsRecursive(boardEntity, {LAYERID_RT});
     engine->root()->addChild(boardEntity);
 
-    // Normalize board so longest extent is ~50 units, centered at origin
-    {
-        const auto bbox = calcEntityAABB(boardEntity);
-        const auto& he = bbox.halfExtents();
-        const auto& ct = bbox.center();
-        const float maxExtent = std::max({he.getX(), he.getY(), he.getZ()}) * 2.0f;
-        if (maxExtent > 0.001f) {
-            const float s = 100.0f / maxExtent;
-            boardEntity->setLocalScale(s, s, s);
-            boardEntity->setLocalPosition(-ct.getX() * s, -ct.getY() * s, -ct.getZ() * s);
-            spdlog::info("Board model: extent={:.1f}, scale={:.3f}", maxExtent, s);
-        }
-    }
+    // The board keeps its authored transform, exactly like upstream. The model is
+    // ~340 units across, so the orbiting render-target camera at radius 100 sits
+    // among the pieces — that close-up is the shot the example is built around.
+    // Re-scaling it to fit the frame turns it into a distant speck on white.
 
     RenderableStats boardStats;
     gatherRenderableStats(boardEntity, boardStats);
@@ -381,6 +355,10 @@ int main()
         return -1;
     }
 
+    // Directional light on the default WORLD layer, as upstream declares it. Note it
+    // therefore does NOT reach the board, which lives on the RT layer only — the board
+    // is lit purely by the environment atlas. Putting the light on LAYERID_RT would
+    // add a key light upstream does not have.
     auto* rtLight = new Entity();
     rtLight->setEngine(engine.get());
     auto* rtLightComp = static_cast<LightComponent*>(rtLight->addComponent<LightComponent>());
@@ -388,7 +366,6 @@ int main()
         rtLightComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
         rtLightComp->setColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
         rtLightComp->setIntensity(1.0f);
-        rtLightComp->setLayers({LAYERID_RT});
     }
     rtLight->setLocalEulerAngles(45.0f, 45.0f, 0.0f);
     engine->root()->addChild(rtLight);
@@ -440,23 +417,19 @@ int main()
         rtCamera->camera()->setFarClip(500.0f);
         rtCamera->camera()->setClearColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
     }
-    rtCameraEntity->setLocalPosition(60.0f, 30.0f, 60.0f);
+    rtCameraEntity->setLocalPosition(100.0f, 35.0f, 0.0f);
     setLookAt(rtCameraEntity, Vector3(0.0f, 0.0f, 0.0f));
     engine->root()->addChild(rtCameraEntity);
 
+    // Main camera: keeps its default layer set so the environment skybox fills the
+    // background behind the two display quads (upstream relies on the same default).
     auto* mainCameraEntity = new Entity();
     mainCameraEntity->setEngine(engine.get());
     auto* mainCamera = static_cast<CameraComponent*>(mainCameraEntity->addComponent<CameraComponent>());
     if (mainCamera && mainCamera->camera()) {
-        mainCamera->setLayers({LAYERID_WORLD});
-        mainCamera->camera()->setClearColor(Color(0.0f, 0.0f, 0.0f, 1.0f));
-        mainCamera->camera()->setNearClip(0.1f);
-        mainCamera->camera()->setFarClip(200.0f);
-        mainCamera->camera()->setProjection(ProjectionType::Perspective);
-        mainCamera->camera()->setFov(60.0f);
+        mainCamera->camera()->setClearColor(Color(0.2f, 0.2f, 0.3f, 1.0f));
     }
-    mainCameraEntity->setLocalPosition(0.0f, 0.0f, 12.0f);
-    setLookAt(mainCameraEntity, Vector3(0.0f, 0.0f, 0.0f));
+    mainCameraEntity->setLocalPosition(0.0f, 0.0f, 0.0f);
     engine->root()->addChild(mainCameraEntity);
 
     auto displayOriginalPass = std::make_shared<RenderPassDownsample>(graphicsDevice, sourceTexture.get());
@@ -529,7 +502,7 @@ int main()
             }
         }
 
-        const float cameraAngle = -time * 0.2f;
+        const float cameraAngle = time * 0.2f;
         rtCameraEntity->setLocalPosition(100.0f * std::sin(cameraAngle), 35.0f, 100.0f * std::cos(cameraAngle));
         setLookAt(rtCameraEntity, Vector3(0.0f, 0.0f, 0.0f));
 

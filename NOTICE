@@ -65,3 +65,10 @@ Sources and licenses:
 
 For public/open-source distribution, substitute these with original assets
 or confirmed CC-0/public domain alternatives.
+
+The same caveat applies to the three environment atlases that live in the
+public assets/ directory — assets/cubemaps/{helipad,table-mountain,morning}-env-atlas.png.
+They are mirrored byte-for-byte from the PlayCanvas example set so the VisuTwin
+examples light identically to their upstream counterparts. PlayCanvas ships no
+per-asset license for them, so their original HDR provenance is unconfirmed.
+CC-0 replacements can be produced with tools/generate-env-atlas.
