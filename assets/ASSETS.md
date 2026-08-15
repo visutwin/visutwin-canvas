@@ -68,8 +68,21 @@ Mirrored from PlayCanvas examples (for visual parity):
 - `apartment.glb` — Mirror's Edge Apartment by Aurélien Martel, Sketchfab (**CC-BY-NC 4.0 — NON-COMMERCIAL ONLY**, see .txt)
 - `love.glb` — Love neon sign 02 by daysena, Sketchfab (**CC-BY 4.0**, see .txt)
 - `cat.glb` — Egyptian Cat Statue by Ankledot, Sketchfab (**CC-BY 4.0**, webp textures re-encoded to png, see .txt)
-- `biker.compressed.ply` — SuperSplat compressed gsplat from PlayCanvas (CC-0)
-- `skull.compressed.ply` — SuperSplat compressed gsplat w/ SH from PlayCanvas (CC-0)
+- `tamiya-dt03.compressed.ply` — Tamiya DT-03 by Simon Bethke, SuperSplat
+  (**CC-BY 4.0**, see .txt). Used by `gsplat-example`. Downloaded as a 154 MB
+  uncompressed 3DGS PLY and converted with `tools/ply_to_compressed_ply.py`
+  (thinned to 500k splats, SH dropped) — rerun that script to regenerate.
+- `sh_sphere.ply`, `compressed_rings.ply`, `torus_splats.ply` — procedurally
+  generated splat test assets (Apache-2.0, generated). Used by `gsplat-tier2`.
+
+Removed 2026-08-15: `biker.compressed.ply` and `skull.compressed.ply`, both
+mirrored from the PlayCanvas example set. PlayCanvas ships a `.txt` attribution
+sibling only for the splats whose licence it knows (`apartment`,
+`knock-community-hall` — both CC-BY-4.0 with named authors) and has none for
+those two, so their provenance was unconfirmed; `biker` was additionally a
+capture of a person. `gsplat-example` now uses the CC-BY-4.0 `tamiya-dt03`
+capture instead. Recoverable from git history if their licence is ever
+established.
 
 ### cubemaps/ — complete
 - `helipad-env-atlas.png` — 512x512 RGBP atlas mirrored from the PlayCanvas example set

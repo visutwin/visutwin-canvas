@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Gaussian splatting example — loads a 3DGS PLY (synthetic rainbow torus),
-// rendered via the classic gsplat path: instanced screen-space EWA quads with a
-// background CPU depth sorter for back-to-front blending.
+// Gaussian splatting example — port of upstream's gaussian-splatting/simple:
+// a captured splat on a shadow-receiving ground plane under a PCSS directional
+// light, viewed with an orbit camera. Rendered via the classic gsplat path:
+// instanced screen-space EWA quads with a background CPU depth sorter for
+// back-to-front blending.
+//
+// DEVIATION: upstream uses its own `biker` capture, whose licence PlayCanvas does
+// not document. This uses a CC-BY-4.0 capture instead (see tamiya-dt03.txt), so
+// the splat's own transform is fitted to that model rather than copied from
+// upstream; the surrounding scene matches upstream value for value.
 //
 #ifdef VISUTWIN_HAS_METAL
 #define NS_PRIVATE_IMPLEMENTATION
@@ -38,9 +45,9 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/components/script/scriptComponentSystem.h"
 #include "framework/entity.h"
-#include "core/shape/boundingBox.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "scene/constants.h"
+#include "scene/materials/standardMaterial.h"
 
 constexpr int WINDOW_WIDTH = 1200;
 constexpr int WINDOW_HEIGHT = 800;
@@ -52,42 +59,18 @@ using namespace visutwin::canvas;
 
 const std::string rootPath = ASSET_DIR;
 
-const std::string splatPath = rootPath + "/models/biker.compressed.ply";
+const std::string splatPath = rootPath + "/models/tamiya-dt03.compressed.ply";
 
-BoundingBox calcEntityAABB(Entity* entity)
-{
-    BoundingBox bbox;
-    bbox.setCenter(0.0f, 0.0f, 0.0f);
-    bbox.setHalfExtents(0.0f, 0.0f, 0.0f);
+// Upstream's scene layout, kept as-is (the ground is 10x10 centred on the origin,
+// so its top surface is at y = -0.45 + 0.5 = 0.05 and the subject stands on it).
+constexpr float GROUND_TOP = 0.05f;
+constexpr float SUBJECT_X = -1.5f;
 
-    if (!entity) {
-        return bbox;
-    }
-
-    bool hasAny = false;
-    for (auto* render : RenderComponent::instances()) {
-        if (!render || !render->entity()) {
-            continue;
-        }
-        auto* owner = render->entity();
-        if (owner != entity && !owner->isDescendantOf(entity)) {
-            continue;
-        }
-        for (auto* mi : render->meshInstances()) {
-            if (!mi) {
-                continue;
-            }
-            bbox.add(mi->aabb());
-            hasAny = true;
-        }
-    }
-
-    if (!hasAny) {
-        bbox.setCenter(entity->position());
-        bbox.setHalfExtents(0.5f, 0.5f, 0.5f);
-    }
-    return bbox;
-}
+// Fitted to this capture: a 180-degree flip about X puts it the right way up (raw
+// 3DGS captures are Y-down, which is why upstream flips its biker too), and the
+// scale brings the ~17.6-unit capture down to a ~2.6-unit subject so the orbit
+// framing carries over. Offsets centre it and rest it on the ground.
+constexpr float SPLAT_SCALE = 0.148f;
 
 int main()
 {
@@ -173,11 +156,11 @@ int main()
     engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
     engine->start();
 
+    // Upstream sets no environment at all — the splat carries its own colour and
+    // the ground is lit by the directional light alone. Tone mapping is ACES and
+    // exposure stays at the default 1.
     auto scene = engine->scene();
-    scene->setSkyboxMip(2);
-    scene->setSkyboxIntensity(0.4f);
-    scene->setExposure(2.0f);
-    scene->setToneMapping(TONEMAP_NEUTRAL);
+    scene->setToneMapping(TONEMAP_ACES);
 
     // -----------------------------------------------------------------------
     // Load the Gaussian splat PLY
@@ -198,44 +181,68 @@ int main()
     auto* gsplatComponent = static_cast<GSplatComponent*>(modelEntity->addComponent<GSplatComponent>());
     gsplatComponent->setResource(splatResource);
 
-    // Auto-frame the model
-    const BoundingBox modelBounds = calcEntityAABB(modelEntity);
-    const Vector3 center = modelBounds.center();
-    const Vector3 halfExt = modelBounds.halfExtents();
-    const float radius = std::max(halfExt.length(), 0.5f);
-    spdlog::info("Model bounds: center=({:.2f}, {:.2f}, {:.2f}), half=({:.2f}, {:.2f}, {:.2f}), radius={:.2f}",
-        center.getX(), center.getY(), center.getZ(),
-        halfExt.getX(), halfExt.getY(), halfExt.getZ(), radius);
+    // Flip upright and stand it on the ground at upstream's subject offset.
+    // DEVIATION: upstream sets castShadows on the gsplat component; GSplatComponent
+    // has no such option here, so the splat lights nothing and casts no shadow (the
+    // ground still catches the light itself). Upstream notes gsplats are unlit there too.
+    modelEntity->setLocalEulerAngles(180.0f, 0.0f, 0.0f);
+    modelEntity->setLocalScale(SPLAT_SCALE, SPLAT_SCALE, SPLAT_SCALE);
+    modelEntity->setLocalPosition(SUBJECT_X - 0.049f, GROUND_TOP + 0.443f, -0.031f);
+
+    // Orbit target: upstream pivots one unit above its subject's base — scaled here
+    // to this subject's height so the same framing reads the same.
+    const Vector3 pivot(SUBJECT_X, GROUND_TOP + 0.5f, 0.0f);
+    constexpr float ORBIT_DISTANCE = 4.0f;   // upstream ORBIT_DISTANCE
+    constexpr float ORBIT_YAW = 32.0f;     // upstream ORBIT_INITIAL_YAW
+    constexpr float ORBIT_PITCH = -10.0f;  // upstream ORBIT_INITIAL_PITCH
 
     // -----------------------------------------------------------------------
     // Lights
     // -----------------------------------------------------------------------
+    // Single shadow-casting directional light, upstream's values verbatim.
+    // DEVIATION: LightComponent has no shadowIntensity / shadowSamples /
+    // shadowBlockerSamples setters, so upstream's 0.5 shadow intensity and its
+    // 16/16 PCSS sample counts fall back to the engine defaults.
     auto* keyLight = new Entity();
     keyLight->setEngine(engine.get());
     auto* keyLightComp = static_cast<LightComponent*>(keyLight->addComponent<LightComponent>());
     if (keyLightComp) {
         keyLightComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        keyLightComp->setColor(Color(1.0f, 0.97f, 0.92f));
-        keyLightComp->setIntensity(1.5f);
+        keyLightComp->setColor(Color(1.0f, 1.0f, 1.0f));
+        keyLightComp->setIntensity(1.0f);
         keyLightComp->setCastShadows(true);
+        keyLightComp->setShadowType(ShadowType::SHADOW_PCSS_32F);
         keyLightComp->setShadowResolution(2048);
-        keyLightComp->setShadowDistance(std::max(radius * 4.0f, 100.0f));
-        keyLightComp->setShadowBias(0.3f);
+        keyLightComp->setShadowDistance(10.0f);
+        keyLightComp->setShadowBias(0.2f);
         keyLightComp->setShadowNormalBias(0.05f);
+        keyLightComp->setPenumbraSize(0.05f);
+        keyLightComp->setPenumbraFalloff(4.0f);
     }
-    keyLight->setLocalEulerAngles(45.0f, 30.0f, 0.0f);
+    keyLight->setLocalEulerAngles(55.0f, 0.0f, 20.0f);
     engine->root()->addChild(keyLight);
 
-    auto* fillLight = new Entity();
-    fillLight->setEngine(engine.get());
-    auto* fillLightComp = static_cast<LightComponent*>(fillLight->addComponent<LightComponent>());
-    if (fillLightComp) {
-        fillLightComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        fillLightComp->setColor(Color(0.65f, 0.75f, 1.0f));
-        fillLightComp->setIntensity(0.5f);
+    // Ground plane to receive the shadow — upstream's box, material and transform.
+    // GOTCHA: on StandardMaterial the diffuse/metalness/gloss setters are the ones
+    // updateUniforms() reads; setBaseColorFactor and friends get overwritten.
+    auto groundMaterial = std::make_shared<StandardMaterial>();
+    groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.4f));
+    groundMaterial->setGloss(0.2f);
+    groundMaterial->setMetalness(0.5f);
+    groundMaterial->setUseMetalness(true);
+
+    auto* ground = new Entity();
+    ground->setEngine(engine.get());
+    auto* groundRender = static_cast<RenderComponent*>(ground->addComponent<RenderComponent>());
+    if (groundRender) {
+        groundRender->setType("box");
+        groundRender->setMaterial(groundMaterial.get());
+        groundRender->setCastShadows(false);
+        groundRender->setReceiveShadows(true);
     }
-    fillLight->setLocalEulerAngles(-20.0f, -150.0f, 0.0f);
-    engine->root()->addChild(fillLight);
+    ground->setLocalScale(10.0f, 1.0f, 10.0f);
+    ground->setLocalPosition(0.0f, -0.45f, 0.0f);
+    engine->root()->addChild(ground);
 
     // -----------------------------------------------------------------------
     // Camera with orbit controls
@@ -246,30 +253,30 @@ int main()
     cameraEntity->addComponent<ScriptComponent>();
 
     if (cameraComp && cameraComp->camera()) {
-        cameraComp->camera()->setClearColor(Color(0.05f, 0.05f, 0.08f, 1.0f));
-        cameraComp->camera()->setFov(55.0f);
-        cameraComp->camera()->setNearClip(std::max(0.01f, radius * 0.005f));
-        cameraComp->camera()->setFarClip(std::max(500.0f, radius * 20.0f));
+        cameraComp->camera()->setClearColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
     }
 
-    const float camDistance = std::max(radius * 2.8f, 5.0f);
-    cameraEntity->setLocalPosition(center + Vector3(0.0f, radius * 0.5f, camDistance));
+    // Place the camera at upstream's initial orbit pose, then hand that pose to
+    // CameraControls: setFocusPoint derives the orbit distance and angles from the
+    // camera's CURRENT position without moving it, so the exact pose survives.
+    const float yawRad = ORBIT_YAW * DEG_TO_RAD;
+    const float pitchRad = ORBIT_PITCH * DEG_TO_RAD;
+    cameraEntity->setLocalPosition(
+        pivot.getX() + ORBIT_DISTANCE * std::cos(pitchRad) * std::sin(yawRad),
+        pivot.getY() - ORBIT_DISTANCE * std::sin(pitchRad),
+        pivot.getZ() + ORBIT_DISTANCE * std::cos(pitchRad) * std::cos(yawRad));
     engine->root()->addChild(cameraEntity);
 
     auto* cameraControls = cameraEntity->script()->create<CameraControls>();
-    cameraControls->setFocusPoint(center);
+    cameraControls->setFocusPoint(pivot);
     cameraControls->setEnableFly(false);
-    cameraControls->setMoveSpeed(radius);
-    cameraControls->setMoveFastSpeed(radius * 2.0f);
-    cameraControls->setMoveSlowSpeed(radius * 0.5f);
-    cameraControls->setOrbitDistance(camDistance);
     cameraControls->storeResetState();
 
     spdlog::info("Controls: LMB/RMB orbit, Shift/MMB pan, Wheel zoom, F focus, R reset, Esc quit");
 
     // -----------------------------------------------------------------------
-    // Main loop — engine->update(dt) advances the animation, which drives the
-    // joint entities; GPU skinning follows the bones each frame.
+    // Main loop — the splat sorter runs on its own thread; engine->update(dt)
+    // feeds it the current camera so the back-to-front order stays correct.
     // -----------------------------------------------------------------------
     bool running = true;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
@@ -283,7 +290,7 @@ int main()
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F && cameraControls) {
-                cameraControls->focus(center, camDistance);
+                cameraControls->focus(pivot, ORBIT_DISTANCE);
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_R && cameraControls) {
                 cameraControls->reset();
             } else if (event.type == SDL_EVENT_MOUSE_WHEEL && cameraControls) {

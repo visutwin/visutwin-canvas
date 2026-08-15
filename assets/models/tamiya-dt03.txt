@@ -1,0 +1,18 @@
+Model Information:
+* title:	Tamiya DT-03
+* source:	https://superspl.at/scene/fcfb205b
+* author:	Simon Bethke (https://superspl.at/user/simonbethke)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Tamiya DT-03" (https://superspl.at/scene/fcfb205b) by Simon Bethke (https://superspl.at/user/simonbethke) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+Modifications:
+The published scene was downloaded as an uncompressed 3DGS PLY (1,680,237 splats,
+154 MB) and converted to the SuperSplat compressed PLY format with
+tools/ply_to_compressed_ply.py: splats below 0.02 alpha were dropped, the cloud
+was thinned to 500,000 splats, and spherical harmonics were discarded. Geometry
+and colour are otherwise unchanged.
