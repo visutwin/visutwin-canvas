@@ -262,7 +262,7 @@ namespace visutwin::canvas
         // flag to match. BLEND enables standard src-alpha blending, disables depth-write, and
         // marks the material as transparent (rendered in the back-to-front sublayer).
         // OPAQUE/MASK disable blending, re-enable depth-write, and clear the transparent flag.
-        // Matches PlayCanvas material.blendType setter semantics.
+        // Matches upstream material.blendType setter semantics.
         void setAlphaMode(AlphaMode mode);
 
         float alphaCutoff() const { return _alphaCutoff; }

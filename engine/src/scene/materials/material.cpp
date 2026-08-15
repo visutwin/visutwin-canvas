@@ -234,7 +234,7 @@ namespace visutwin::canvas
         uniforms.baseColor[1] = _baseColorFactor.g;
         uniforms.baseColor[2] = _baseColorFactor.b;
         uniforms.baseColor[3] = _baseColorFactor.a;
-        // Emissive is authored in sRGB (convention matches PlayCanvas material.emissive and the
+        // Emissive is authored in sRGB (convention matches upstream material.emissive and the
         // .gamma() conversion the glTF parser applies to glTF's linear emissiveFactor). The GPU
         // wants linear HDR, and a StandardMaterial subclass may multiply by emissiveIntensity > 1.
         // Linearize FIRST here so the intensity scaling (applied by StandardMaterial::updateUniforms

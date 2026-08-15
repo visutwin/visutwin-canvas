@@ -314,7 +314,7 @@ namespace visutwin::canvas
         // mip chain so the hardware sampler picks the right LOD per dest rect;
         // sampling the 4K equirect into tiny rects without mip selection
         // aliases the smaller mips and dims high-roughness specular reflections
-        // on curved surfaces (matches PlayCanvas EnvLighting.generateAtlas
+        // on curved surfaces (matches upstream EnvLighting.generateAtlas
         // which is called with the 128-cube `lighting` source).
         opts.reprojectSource = cubemap;
         opts.reprojectSourceIsCubemap = true;

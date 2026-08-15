@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Dynamic batching example — port of PlayCanvas graphics/batching-dynamic.
+// Dynamic batching example — port of upstream graphics/batching-dynamic.
 //
 // 500 procedural primitives orbit the origin in a spiral, sharing a pair of
 // materials and all tagged into a SINGLE dynamic BatchGroup. The engine

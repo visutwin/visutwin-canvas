@@ -72,7 +72,7 @@ SDL_Renderer* renderer;
 
 const std::string rootPath = ASSET_DIR;
 
-// Environment atlas for IBL (matches PlayCanvas reflection-planar-blurred).
+// Environment atlas for IBL (matches upstream reflection-planar-blurred).
 const auto envAtlas = std::make_unique<Asset>(
     "morning-env-atlas",
     AssetType::TEXTURE,
@@ -83,7 +83,7 @@ const auto envAtlas = std::make_unique<Asset>(
     }
 );
 
-// GLB model to reflect (SunglassesKhronos — same hero model as PlayCanvas).
+// GLB model to reflect (SunglassesKhronos — same hero model as upstream).
 const auto statueAsset = std::make_unique<Asset>(
     "sunglasses",
     AssetType::CONTAINER,

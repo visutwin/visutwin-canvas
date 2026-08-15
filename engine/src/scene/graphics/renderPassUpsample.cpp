@@ -41,7 +41,7 @@ fragment float4 upsampleFragment(
     texture2d<float> sourceTexture [[texture(0)]],
     sampler linearSampler [[sampler(0)]])
 {
-    // 3x3 tent filter upsample (matches PlayCanvas upsample.js / LearnOpenGL Phys-Based Bloom).
+    // 3x3 tent filter upsample (matches upstream upsample.js / LearnOpenGL Phys-Based Bloom).
     // Combined with additive blending during upsampling, this spreads each mip's contribution
     // across a wider area and accumulates all mip levels into bloom_rt[0], producing a much
     // smoother and brighter glow than a single bilinear read.

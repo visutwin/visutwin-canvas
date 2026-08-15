@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// 2D-cartesian animation blend-tree example — mirrors PlayCanvas's
+// 2D-cartesian animation blend-tree example — mirrors upstream's
 // `animation/blend-trees-2d-cartesian` example. The skinned bitmoji character is
 // driven through an AnimComponent state graph whose single "Emote" state hosts a
 // BLEND_2D_CARTESIAN blend tree. FOUR leaf clips sit at 2D points on the blend
@@ -31,7 +31,7 @@
 //
 // DEVIATION / NOTE: this is a valid 2D-cartesian blend demonstration, but the
 // clip set here is forward-locomotion + a dance emote (idle/walk/run/win-dance),
-// NOT PlayCanvas's directional strafe set (idle/eager/walk/dance arranged around
+// NOT upstream's directional strafe set (idle/eager/walk/dance arranged around
 // the origin). So the 2D axes are illustrative of the blend feature rather than
 // semantically directional (there is no left/right strafe clip). The blending
 // math (AnimBlendTreeCartesian2D) is exercised identically regardless.
@@ -428,7 +428,7 @@ int main()
         keyLightComp->setIntensity(1.5f);
         keyLightComp->setCastShadows(true);
         // Upstream shadow settings: distance 6, bias 0.02, normalOffsetBias 0.02,
-        // single cascade (PlayCanvas default) — the tight fit keeps the whole
+        // single cascade (upstream default) — the tight fit keeps the whole
         // character silhouette in one cascade instead of splitting it.
         keyLightComp->setShadowResolution(2048);
         keyLightComp->setShadowDistance(20.0f);

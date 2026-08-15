@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Clearcoat material demo (parity with PlayCanvas materials/clear-coat): the
+// Clearcoat material demo (parity with upstream materials/clear-coat): the
 // Khronos ClearCoatTest.glb sample asset — six labelled columns of sphere/plane
 // pairs comparing Base / Coating / Coated variants (partial coat masks, rough
 // coat variations, base/coat/shared normal maps) — lit by the morning env atlas

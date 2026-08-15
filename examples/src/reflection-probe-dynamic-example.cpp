@@ -49,7 +49,7 @@ SDL_Renderer* renderer = nullptr;
 const std::string rootPath = ASSET_DIR;
 
 // Helipad environment atlas — the skybox/IBL backdrop the chrome sphere reflects
-// (matching the PlayCanvas reflection-cubemap example). Loaded as an RGBP-packed
+// (matching the upstream reflection-cubemap example). Loaded as an RGBP-packed
 // equirect environment atlas.
 const auto helipad = std::make_unique<Asset>(
     "helipad-env-atlas",
@@ -119,7 +119,7 @@ int main()
     scene->setToneMapping(TONEMAP_ACES);
     scene->setAmbientLight(0.05f, 0.05f, 0.06f);
 
-    // Helipad environment atlas + skybox backdrop (matches the PlayCanvas
+    // Helipad environment atlas + skybox backdrop (matches the upstream
     // reflection-cubemap example: setSkyboxMip(0), setSkyboxIntensity(2.0)).
     // Installed BEFORE the render loop so the skybox is present when the dynamic
     // probe captures its cube faces — the chrome sphere then reflects BOTH the

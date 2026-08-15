@@ -159,7 +159,7 @@ namespace visutwin::canvas
 
         // StandardMaterial always owns the emissive contribution: write _emissive * _emissiveIntensity
         // (linearized) directly, overriding whatever base Material::updateUniforms wrote from
-        // _emissiveFactor. This matches PlayCanvas semantics (StandardMaterial.emissive is the
+        // _emissiveFactor. This matches upstream semantics (StandardMaterial.emissive is the
         // authoritative emissive color) and prevents common authoring glitches — e.g. specular-
         // glossiness GLB exporters that write emissiveFactor=(1,1,1) as a sentinel when no
         // emissive texture is present, which would otherwise produce fully-white glowing surfaces.

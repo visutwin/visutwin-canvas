@@ -418,7 +418,7 @@ namespace visutwin::canvas
         }
 
         // A text element is UI when it has a ScreenComponent ancestor. Without
-        // one it is a world-space label — which is how upstream PlayCanvas
+        // one it is a world-space label — which is how upstream
         // examples annotate a 3D scene (text entities added straight to the root).
         const auto hasScreenAncestor = [](const Entity* entity) {
             for (const GraphNode* node = entity; node; node = node->parent()) {

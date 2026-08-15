@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Lights example (parity with PlayCanvas graphics/lights): a procedural scene —
+// Lights example (parity with upstream graphics/lights): a procedural scene —
 // a large ground plane with a cluster of primitive objects — lit by ONE of each
 // light type the engine supports:
 //   * DIRECTIONAL (cyan)   — the key light, casts cascaded shadows.

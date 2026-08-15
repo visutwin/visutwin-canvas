@@ -128,7 +128,7 @@ vec3 sampleStripLut(sampler2D lut, vec3 color) {
     return mix(texture(lut, uv0).rgb, texture(lut, uv1).rgb, fract(blue));
 }
 
-// Single-pass DOF from the depth buffer (far blur only, PlayCanvas-style CoC).
+// Single-pass DOF from the depth buffer (far blur only, upstream-style CoC).
 vec3 applyDofSinglePass(vec3 sharpColor, vec2 uv, vec2 invRes,
     float focusDistance, float focusRange, float blurRadius,
     float cameraNear, float cameraFar)

@@ -2,7 +2,7 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // Procedural sky (Nishita single-scattering atmosphere) demo — port in spirit of
-// PlayCanvas graphics/procedural-sky. The scene renders the physically-based
+// upstream graphics/procedural-sky. The scene renders the physically-based
 // atmosphere as the sky (SKYTYPE_ATMOSPHERE + Scene::setAtmosphereEnabled), a
 // statue + procedural ground/boxes lit by a single directional "sun" light, and
 // an orbit camera. The sun direction is animated over time (a sunrise -> noon ->

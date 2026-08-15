@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Lightmapper demo (port of PlayCanvas "lights-baked-a-o"): the house.glb scene
+// Lightmapper demo (port of upstream "lights-baked-a-o"): the house.glb scene
 // — which ships with a generated UV1 channel unwrapped for lightmapping and
 // stripped textures — is lit by a directional sun and baked (on the CPU) into
 // per-mesh lightmaps with hard shadows + ambient occlusion. The whole house

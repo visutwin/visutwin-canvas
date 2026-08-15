@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Custom shader material example — port of PlayCanvas shaders/shader-toon.
+// Custom shader material example — port of upstream shaders/shader-toon.
 // A ShaderMaterial carrying a user-supplied toon shader (quantised N·L into 6 bands
 // over a single warm-grey ramp) replaces the materials of every mesh instance in the
 // loaded statue model, which rotates at 60°/s.

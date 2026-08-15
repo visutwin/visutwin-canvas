@@ -342,7 +342,7 @@ float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
     float rawDepth = depthTexture.sample(s, uv);
     float linearDepth = (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
 
-    // PlayCanvas-style CoC: far range starts at focusDistance + focusRange/2
+    // upstream-style CoC: far range starts at focusDistance + focusRange/2
     float farRange = focusDistance + focusRange * 0.5;
     float invRange = 1.0 / max(focusRange, 0.001);
     float cocFar = clamp((linearDepth - farRange) * invRange, 0.0, 1.0);

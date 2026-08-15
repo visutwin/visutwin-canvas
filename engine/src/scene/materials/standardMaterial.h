@@ -93,7 +93,7 @@ namespace visutwin::canvas
         // --- Emissive ---
         // StandardMaterial owns the emissive contribution unconditionally: updateUniforms() writes
         // pow(_emissive, 2.2) * _emissiveIntensity to the GPU as linear HDR, overriding whatever
-        // base Material::_emissiveFactor the parser populated. This matches PlayCanvas's
+        // base Material::_emissiveFactor the parser populated. This matches upstream's
         // StandardMaterial.emissive semantics and deliberately ignores authoring artifacts like
         // specular-glossiness exporters writing emissiveFactor=(1,1,1) with no emissive texture
         // (which would otherwise produce fully-white glowing walls).

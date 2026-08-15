@@ -11,7 +11,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Two variants compiled separately. Matches PlayCanvas's BOXFILTER/!BOXFILTER split:
+        // Two variants compiled separately. Matches upstream's BOXFILTER/!BOXFILTER split:
         //  - SIMPLE (options.boxFilter=true): single bilinear fetch + optional negative clamp.
         //    Used for the scene-half pre-bloom pass where we only want a crisp half-res copy.
         //  - KARIS (options.boxFilter=false, default): 13-tap partial-average filter from the
@@ -51,7 +51,7 @@ fragment float4 downsampleFragment(
     // downsample — we want a crisp, non-blurry half-res copy of the scene.
     float3 value = sourceTexture.sample(linearSampler, clamp(in.uv, float2(0.0), float2(1.0))).rgb;
     // Clamp invalid/negative values so bloom & DOF don't propagate NaN/Inf from the scene
-    // texture. Matches PlayCanvas's REMOVE_INVALID path.
+    // texture. Matches upstream's REMOVE_INVALID path.
     value = max(value, float3(0.0));
     return float4(value, 1.0);
 }
@@ -88,7 +88,7 @@ fragment float4 downsampleFragment(
     sampler linearSampler [[sampler(0)]])
 {
     // 13-tap Karis partial-average (Call of Duty: Advanced Warfare — Next Generation Post
-    // Processing). Same weights PlayCanvas uses for its bloom mip-chain downsample
+    // Processing). Same weights upstream uses for its bloom mip-chain downsample
     // (render-pass/frag/downsample.js). Damps fireflies at each mip level so a single very
     // bright pixel doesn't cascade unfiltered through the chain.
     const float2 texel = float2(1.0 / float(sourceTexture.get_width()),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Anisotropic specular demo (mirrors PlayCanvas materials/material-anisotropic).
+// Anisotropic specular demo (mirrors upstream materials/material-anisotropic).
 //
 // An 11 x 6 grid of metallic procedural spheres lit by the helipad env atlas plus
 // a single directional light, matching upstream's sweeps exactly:

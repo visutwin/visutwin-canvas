@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Mesh decals demo — port of PlayCanvas examples/src/examples/graphics/mesh-decals.example.mjs.
+// Mesh decals demo — port of upstream examples/src/examples/graphics/mesh-decals.example.mjs.
 //
-// PlayCanvas does not have a dedicated decal subsystem; "mesh decals" is a *technique*
+// upstream does not have a dedicated decal subsystem; "mesh decals" is a *technique*
 // using StandardMaterial primitives:
 //   • dynamic flat-quad mesh built incrementally as decals are stamped
 //   • additive-alpha blend so overlapping stamps brighten
@@ -116,7 +116,7 @@ namespace
     // Quad is laid flat on the y=0 plane, oriented by `angleRad`, scaled by `size`.
     void writeDecal(std::vector<float>& vertices, int decalIndex, const DecalQuad& d)
     {
-        // 4 corners, rotated 90° apart. PlayCanvas's example uses the same trick:
+        // 4 corners, rotated 90° apart. upstream's example uses the same trick:
         // start at angleRad and step π/2 between each corner; uv pattern is (0,0)(0,1)(1,1)(1,0).
         constexpr float kQuarter = 1.5707963267948966f;
         const float uvs[4][2] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
@@ -153,7 +153,7 @@ namespace
             v[OFF_COLOR + 1] = d.g;
             v[OFF_COLOR + 2] = d.b;
             // Alpha must be 1 in this engine: VT_FEATURE_VERTEX_COLORS multiplies the
-            // running fragment alpha by saturate(vertexColor.a). PlayCanvas can leave
+            // running fragment alpha by saturate(vertexColor.a). upstream can leave
             // alpha at zero because their decal example uses emissiveVertexColor (RGB
             // only); we route through diffuseVertexColor + UNLIT and need full alpha.
             v[OFF_COLOR + 3] = d.a;
@@ -336,7 +336,7 @@ int main()
     decalMesh->setAabb(BoundingBox(Vector3(0, 0.05f, 0), Vector3(12, 0.5f, 12)));
 
     // ── Decal material ──────────────────────────────────────────────────
-    // The PlayCanvas reference enables emissiveVertexColor + opacityMap to use the
+    // The upstream reference enables emissiveVertexColor + opacityMap to use the
     // emissive lane. visutwin-canvas doesn't yet have an emissiveVertexColor route,
     // so we use the diffuse lane via UNLIT (skips PBR lighting entirely) + the
     // texture's alpha for cutout. Result is visually equivalent: heart silhouettes

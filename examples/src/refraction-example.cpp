@@ -45,7 +45,7 @@ using namespace visutwin::canvas;
 const std::string rootPath = ASSET_DIR;
 
 // The helipad environment atlas gives the env-atlas refraction/reflection path real
-// content to sample (mirrors the PlayCanvas material-refraction example).
+// content to sample (mirrors the upstream material-refraction example).
 const auto helipad = std::make_unique<Asset>(
     "helipad-env-atlas",
     AssetType::TEXTURE,
@@ -223,7 +223,7 @@ int main()
         ));
     }
 
-    // Rocky floor (seaside-rocks color+normal+gloss), like the PlayCanvas ground.
+    // Rocky floor (seaside-rocks color+normal+gloss), like the upstream ground.
     auto floorMaterial = std::make_shared<StandardMaterial>();
     floorMaterial->setName("floor");
     floorMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));

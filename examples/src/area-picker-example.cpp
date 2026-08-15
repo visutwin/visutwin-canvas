@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Area picker demo (parity with PlayCanvas graphics/area-picker): 300 random
+// Area picker demo (parity with upstream graphics/area-picker): 300 random
 // metallic primitives in a 30-unit box, lit only by the dim helipad env atlas.
 // A quarter-resolution Picker renders mesh ids offscreen; every frame four
 // screen areas are scanned — a tall yellow rectangle, a wide cyan strip, a

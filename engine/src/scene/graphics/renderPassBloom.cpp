@@ -115,7 +115,7 @@ namespace visutwin::canvas
             pass->init(_renderTargets[i]);
             // Additive blending during progressive upscale accumulates every mip level into
             // bloom_rt[0]. Without this we only see the result of the last (finest) upsample,
-            // losing the wide halo from coarser mips — matching PlayCanvas FramePassBloom
+            // losing the wide halo from coarser mips — matching upstream FramePassBloom
             // (render-passes/frame-pass-bloom.js uses BlendState.ADDBLEND on upsample passes).
             // Source alpha = 1.0 from the upsample shader, so SRC_ALPHA == ONE, giving a pure
             // additive accumulation src + dst.

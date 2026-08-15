@@ -51,7 +51,7 @@ using namespace visutwin::canvas;
 
 const std::string rootPath = ASSET_DIR;
 
-// Real particle sprites (mirrors PlayCanvas' particles-spark / particles-snow
+// Real particle sprites (mirrors upstream's particles-spark / particles-snow
 // examples, which attach spark.png / snowflake.png as the emitter color map).
 // spark.png  — bright streak sprite for the fast embers (sparks emitter).
 // snowflake.png — soft radial puff used for the fire and smoke billboards.
@@ -268,7 +268,7 @@ int main()
         o.colorGraph.curves[1] = Curve({0.0f, 0.75f, 1.0f, 0.3f});
         o.colorGraph.curves[2] = Curve({0.0f, 0.25f, 1.0f, 0.0f});
         o.alphaGraph = Curve({0.0f, 1.0f, 0.8f, 1.0f, 1.0f, 0.0f});
-        o.colorMap = sparkTex;  // bright streak sprite (PlayCanvas particles-spark)
+        o.colorMap = sparkTex;  // bright streak sprite (upstream particles-spark)
         sparks->apply();
     }
     engine->root()->addChild(sparkEntity);

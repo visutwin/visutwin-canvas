@@ -3,7 +3,7 @@
 //
 // Screen-space UI text example.
 //
-// Mirrors the PlayCanvas `user-interface/text` example: a screen-space
+// Mirrors the upstream `user-interface/text` example: a screen-space
 // Screen root hosts several Text ElementComponents at different positions,
 // font sizes and colors. One line updates every frame (frame counter + FPS)
 // via ElementComponent::setText to demonstrate live text.

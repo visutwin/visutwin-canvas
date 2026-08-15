@@ -45,7 +45,7 @@ namespace visutwin::canvas
         int numSamples = 0;
         // NoL-weighted accumulation (sum * L.z) / sum(L.z): required for GGX
         // specular prefilter. Lambert / Phong leave this false for a uniform
-        // average. Mirrors PlayCanvas prefilterSamples vs. prefilterSamplesUnweighted.
+        // average. Mirrors upstream prefilterSamples vs. prefilterSamplesUnweighted.
         bool weightByNoL = false;
     };
 

@@ -10,10 +10,14 @@
 [![Home](https://img.shields.io/badge/home-canvas.visutwin.com-green.svg)](https://canvas.visutwin.com)
 
 A C++23 real-time rendering engine for **digital twins, geospatial scenes, and
-scientific visualization** — running natively on Apple Metal and Vulkan 1.3.
-Its architecture is derived from the [PlayCanvas](https://playcanvas.com/)
-engine, rebuilt in C++ for native applications that need a physically based
-renderer they can embed.
+scientific visualization** — running natively on Apple Metal and Vulkan 1.3,
+built for applications that need a physically based renderer they can embed.
+
+Originally derived from the [PlayCanvas](https://playcanvas.com/) engine's
+architecture, rebuilt in C++23 and substantially extended — with a Vulkan
+backend, volumetric fog, lightmap baking, dynamic reflection probes, and
+geospatial and scientific-visualization layers that have no upstream
+equivalent.
 
 > **Status: Alpha.** The engine renders the scenes shown here and ships 44
 > working examples, but the API is not stable and changes without notice.
@@ -96,9 +100,13 @@ Separate CMake projects built on this engine:
 
 ## Attribution
 
-The architecture, class hierarchy, and algorithms are ported from the
-[PlayCanvas engine](https://github.com/playcanvas/engine) (MIT). See
-[NOTICE](NOTICE) for full attribution.
+VisuTwin Canvas derives its architecture, class hierarchy, and core rendering
+algorithms from the [PlayCanvas engine](https://github.com/playcanvas/engine),
+used under the MIT License. Work built on that foundation — the Vulkan backend,
+volumetric fog, the lightmap baker, dynamic reflection probes, and the
+geospatial and scientific-visualization layers — is original and licensed under
+Apache-2.0. Deviations from upstream behaviour are marked with `DEVIATION:`
+comments in the source. See [NOTICE](NOTICE) for full attribution.
 
 ## License
 

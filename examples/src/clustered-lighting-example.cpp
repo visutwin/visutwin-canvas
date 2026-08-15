@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Clustered lighting example — port of PlayCanvas graphics/clustered-lighting.
+// Clustered lighting example — port of upstream graphics/clustered-lighting.
 //
 // A high-polycount cylinder stands on a large normal-mapped ground plane. 30 omni
 // lights ride a sine wave around the cylinder and 16 spot lights orbit at its base,

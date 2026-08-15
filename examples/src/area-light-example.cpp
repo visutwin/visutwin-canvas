@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// LTC area-light demo (parity with PlayCanvas graphics/area-lights): three animated
+// LTC area-light demo (parity with upstream graphics/area-lights): three animated
 // area lights — a white rect, a yellow sphere and a large blue "sky" disk — illuminate
 // the statue.glb hero standing on a seaside-rocks textured floor, lit by the helipad
 // environment atlas. Each light carries an emissive primitive matching its shape.
@@ -157,7 +157,7 @@ int main()
     scene->setToneMapping(TONEMAP_ACES);
 
     // Skydome + image-based lighting from the helipad environment atlas (darkened),
-    // matching the PlayCanvas counterpart.
+    // matching the upstream counterpart.
     scene->setSkyboxMip(1);
     scene->setSkyboxIntensity(0.4f);
     const auto helipadResource = helipad->resource();
@@ -199,7 +199,7 @@ int main()
     }
     engine->root()->addChild(floor);
 
-    // Statue hero standing on the floor (PlayCanvas scale 0.4).
+    // Statue hero standing on the floor (upstream scale 0.4).
     const auto statueResource = statue->resource();
     if (!statueResource) {
         spdlog::error("Failed to load statue model");
@@ -210,7 +210,7 @@ int main()
     statueEntity->setLocalScale(0.4f, 0.4f, 0.4f);
     engine->root()->addChild(statueEntity);
 
-    // Camera matching PlayCanvas: pos (0, 2.5, 12), lookAt origin, fov 60, gray clear.
+    // Camera matching upstream: pos (0, 2.5, 12), lookAt origin, fov 60, gray clear.
     auto* camera = new Entity();
     camera->setEngine(engine.get());
     auto* cameraComp = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());

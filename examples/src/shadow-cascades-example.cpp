@@ -58,7 +58,7 @@ const auto envAtlas = std::make_unique<Asset>(
     }
 );
 
-// Low-poly terrain model (same hero asset as PlayCanvas shadow-cascades).
+// Low-poly terrain model (same hero asset as upstream shadow-cascades).
 const auto terrainAsset = std::make_unique<Asset>(
     "terrain",
     AssetType::CONTAINER,
@@ -191,7 +191,7 @@ int main()
     scene->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
 
     // -----------------------------------------------------------------------
-    // Instantiate the low-poly terrain model (mirrors PlayCanvas shadow-cascades).
+    // Instantiate the low-poly terrain model (mirrors upstream shadow-cascades).
     // The GLB contains ground, trees and static clouds; scaled up so cascades
     // span it at varying distance.
     // -----------------------------------------------------------------------
@@ -241,7 +241,7 @@ int main()
     camera->addComponent<ScriptComponent>();
 
     if (cameraComp && cameraComp->camera()) {
-        // PlayCanvas uses a light-grey clear behind the terrain.
+        // upstream uses a light-grey clear behind the terrain.
         cameraComp->camera()->setClearColor(Color(0.9f, 0.9f, 0.9f, 1.0f));
         cameraComp->camera()->setFarClip(2000.0f);
 

@@ -1,7 +1,7 @@
 #version 450
 
 // Scalable Ambient Obscurance — port of metalSsaoPass.cpp ssaoFragment
-// (spiral-tap SAO from the depth buffer, upstream PlayCanvas algorithm).
+// (spiral-tap SAO from the depth buffer, upstream algorithm).
 
 layout(set = 0, binding = 0) uniform sampler2D depthTex;
 

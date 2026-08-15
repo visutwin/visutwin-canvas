@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Anim state-graph example — mirrors PlayCanvas's `locomotion` example. The
+// Anim state-graph example — mirrors upstream's `locomotion` example. The
 // skinned bitmoji character is driven through an AnimComponent state graph:
 // an "Idle" state transitions into a 1D "Locomotion" blend tree (Walk <-> Run)
 // based on a float "speed" parameter. The idle/walk/run animation clips live in
@@ -286,7 +286,7 @@ int main()
             renderComps, meshInsts);
     }
 
-    // Build the anim state graph (mirrors PlayCanvas locomotion):
+    // Build the anim state graph (mirrors upstream locomotion):
     //
     //   START ──► Idle ──(speed >= 0.5)──► Locomotion (1D blend: Walk@1 .. Run@2)
     //              ▲                            │
