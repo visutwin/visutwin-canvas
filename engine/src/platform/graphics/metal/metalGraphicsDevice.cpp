@@ -60,17 +60,17 @@ namespace visutwin::canvas
             float _pad[3];
         };
 
-        MTL::CompareFunction toMetalStencilCompare(const StencilCompareFunction function)
+        MTL::CompareFunction toMetalCompare(const CompareFunction function)
         {
             switch (function) {
-            case StencilCompareFunction::Never:        return MTL::CompareFunctionNever;
-            case StencilCompareFunction::Less:         return MTL::CompareFunctionLess;
-            case StencilCompareFunction::Equal:        return MTL::CompareFunctionEqual;
-            case StencilCompareFunction::LessEqual:    return MTL::CompareFunctionLessEqual;
-            case StencilCompareFunction::Greater:      return MTL::CompareFunctionGreater;
-            case StencilCompareFunction::NotEqual:     return MTL::CompareFunctionNotEqual;
-            case StencilCompareFunction::GreaterEqual: return MTL::CompareFunctionGreaterEqual;
-            case StencilCompareFunction::Always:       return MTL::CompareFunctionAlways;
+            case CompareFunction::Never:        return MTL::CompareFunctionNever;
+            case CompareFunction::Less:         return MTL::CompareFunctionLess;
+            case CompareFunction::Equal:        return MTL::CompareFunctionEqual;
+            case CompareFunction::LessEqual:    return MTL::CompareFunctionLessEqual;
+            case CompareFunction::Greater:      return MTL::CompareFunctionGreater;
+            case CompareFunction::NotEqual:     return MTL::CompareFunctionNotEqual;
+            case CompareFunction::GreaterEqual: return MTL::CompareFunctionGreaterEqual;
+            case CompareFunction::Always:       return MTL::CompareFunctionAlways;
             }
             return MTL::CompareFunctionAlways;
         }
@@ -93,7 +93,7 @@ namespace visutwin::canvas
         void configureStencilDescriptor(MTL::StencilDescriptor* descriptor,
             const StencilParameters* parameters)
         {
-            descriptor->setStencilCompareFunction(toMetalStencilCompare(parameters->compareFunction()));
+            descriptor->setStencilCompareFunction(toMetalCompare(parameters->compareFunction()));
             descriptor->setStencilFailureOperation(toMetalStencilOperation(parameters->failOperation()));
             descriptor->setDepthFailureOperation(toMetalStencilOperation(parameters->depthFailOperation()));
             descriptor->setDepthStencilPassOperation(toMetalStencilOperation(parameters->passOperation()));
@@ -111,6 +111,7 @@ namespace visutwin::canvas
         hash ^= std::hash<uint32_t>{}(key.backState) + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
         hash ^= std::hash<bool>{}(key.depthTest) + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
         hash ^= std::hash<bool>{}(key.depthWrite) + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
+        hash ^= std::hash<uint8_t>{}(static_cast<uint8_t>(key.depthFunc)) + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
         return hash;
     }
 
@@ -536,11 +537,17 @@ namespace visutwin::canvas
     {
         const bool depthTest = !depthState || depthState->depthTest();
         const bool depthWrite = !depthState || depthState->depthWrite();
+        const CompareFunction depthFunc = depthState ? depthState->func() : CompareFunction::LessEqual;
         if (!stencilFront && !stencilBack) {
-            if (depthTest) {
-                return depthWrite ? _defaultDepthStencilState : _noWriteDepthStencilState;
+            // The four LessEqual combinations are prebuilt; anything else (a material
+            // with its own depthFunc, e.g. the Greater test an x-ray pass wants) falls
+            // through to the cache below, which handles stencil-free states too.
+            if (depthFunc == CompareFunction::LessEqual) {
+                if (depthTest) {
+                    return depthWrite ? _defaultDepthStencilState : _noWriteDepthStencilState;
+                }
+                return depthWrite ? _noTestDepthStencilState : _noTestNoWriteDepthStencilState;
             }
-            return depthWrite ? _noTestDepthStencilState : _noTestNoWriteDepthStencilState;
         }
 
         // A single face descriptor applies to both windings, matching the common
@@ -549,27 +556,34 @@ namespace visutwin::canvas
         StencilParameters* effectiveBack = stencilBack ? stencilBack : stencilFront;
 
         const DepthStencilCacheKey cacheKey{
-            effectiveFront->stateKey(), effectiveBack->stateKey(), depthTest, depthWrite};
+            effectiveFront ? effectiveFront->stateKey() : 0u,
+            effectiveBack ? effectiveBack->stateKey() : 0u,
+            depthTest, depthWrite, depthFunc};
         if (const auto it = _stencilStateCache.find(cacheKey); it != _stencilStateCache.end()) {
             return it->second;
         }
 
         auto* descriptor = MTL::DepthStencilDescriptor::alloc()->init();
         descriptor->setDepthCompareFunction(depthTest
-            ? MTL::CompareFunctionLessEqual : MTL::CompareFunctionAlways);
+            ? toMetalCompare(depthFunc) : MTL::CompareFunctionAlways);
         descriptor->setDepthWriteEnabled(depthWrite);
 
-        auto* frontDescriptor = MTL::StencilDescriptor::alloc()->init();
-        configureStencilDescriptor(frontDescriptor, effectiveFront);
-        descriptor->setFrontFaceStencil(frontDescriptor);
-
-        auto* backDescriptor = MTL::StencilDescriptor::alloc()->init();
-        configureStencilDescriptor(backDescriptor, effectiveBack);
-        descriptor->setBackFaceStencil(backDescriptor);
+        MTL::StencilDescriptor* frontDescriptor = nullptr;
+        MTL::StencilDescriptor* backDescriptor = nullptr;
+        if (effectiveFront) {
+            frontDescriptor = MTL::StencilDescriptor::alloc()->init();
+            configureStencilDescriptor(frontDescriptor, effectiveFront);
+            descriptor->setFrontFaceStencil(frontDescriptor);
+        }
+        if (effectiveBack) {
+            backDescriptor = MTL::StencilDescriptor::alloc()->init();
+            configureStencilDescriptor(backDescriptor, effectiveBack);
+            descriptor->setBackFaceStencil(backDescriptor);
+        }
 
         auto* state = _device->newDepthStencilState(descriptor);
-        backDescriptor->release();
-        frontDescriptor->release();
+        if (backDescriptor) { backDescriptor->release(); }
+        if (frontDescriptor) { frontDescriptor->release(); }
         descriptor->release();
         if (!state) {
             spdlog::error("Failed to create Metal depth/stencil state");

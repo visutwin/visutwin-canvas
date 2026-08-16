@@ -162,6 +162,11 @@ namespace visutwin::canvas
         /** Skin instance driving this mesh (shared across submeshes of one skinned node). */
         SkinInstance* skinInstance() const { return _skinInstance.get(); }
 
+        /// Shared ownership of the skin, so a second MeshInstance can render the same
+        /// mesh in the same animated pose (upstream shares meshInstance.skinInstance
+        /// directly — e.g. an x-ray duplicate of a character in another layer).
+        const std::shared_ptr<SkinInstance>& skinInstanceShared() const { return _skinInstance; }
+
         /**
          * Attach a skin instance. DEVIATION: also disables frustum culling for this
          * instance — the bind-pose AABB is not valid under animation and the port has
@@ -188,6 +193,9 @@ namespace visutwin::canvas
         // --- Morph targets ---
 
         MorphInstance* morphInstance() const { return _morphInstance.get(); }
+
+        /// Shared ownership of the morph state — see skinInstanceShared.
+        const std::shared_ptr<MorphInstance>& morphInstanceShared() const { return _morphInstance; }
         void setMorphInstance(const std::shared_ptr<MorphInstance>& morphInstance)
         {
             _morphInstance = morphInstance;

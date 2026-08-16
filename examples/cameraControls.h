@@ -64,6 +64,10 @@ namespace visutwin::canvas
 
         void setOrbitDistance(float distance);
 
+        // Clamp range for the orbit distance (upstream CameraControls.zoomRange).
+        // x = closest, y = farthest; y <= 0 disables clamping.
+        void setZoomRange(const Vector2& range) { _zoomRange = range; }
+
         [[nodiscard]] float orbitDistance() const { return _orbitDistance; }
 
         void addZoomInput(float delta) { _zoomImpulse += delta; }

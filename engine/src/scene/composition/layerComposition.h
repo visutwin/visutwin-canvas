@@ -30,7 +30,14 @@ namespace visutwin::canvas
         // Adds part of the layer with semi-transparent objects to the end of the layerList
         void pushTransparent(const std::shared_ptr<Layer>& layer);
 
+        // Inserts both sublayers of a layer at the given position in the layerList,
+        // opaque first then transparent (upstream LayerComposition::insert). Pair it
+        // with getTransparentIndex/getOpaqueIndex to slot a layer relative to another.
+        void insert(const std::shared_ptr<Layer>& layer, int index);
+
         const std::vector<RenderAction*>& renderActions();
+        int getOpaqueIndex(const std::shared_ptr<Layer>& layer) const;
+        int getTransparentIndex(const std::shared_ptr<Layer>& layer) const;
         std::shared_ptr<Layer> getLayerById(int layerId) const;
         std::shared_ptr<Layer> getLayerByName(const std::string& name) const;
         bool isEnabled(const Layer* layer, bool transparent) const;
@@ -38,8 +45,6 @@ namespace visutwin::canvas
 
     private:
         bool isSublayerAdded(const std::shared_ptr<Layer>& layer, bool transparent) const;
-        int getOpaqueIndex(const std::shared_ptr<Layer>& layer) const;
-        int getTransparentIndex(const std::shared_ptr<Layer>& layer) const;
 
         void updateLayerMaps();
         void rebuildRenderActions();

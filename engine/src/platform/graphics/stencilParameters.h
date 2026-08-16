@@ -23,6 +23,10 @@ namespace visutwin::canvas
         Always
     };
 
+    /// The same eight comparisons drive the depth test (DepthState::func), so the
+    /// backends can share one conversion helper.
+    using CompareFunction = StencilCompareFunction;
+
     enum class StencilOperation : uint8_t
     {
         Keep,

@@ -680,7 +680,11 @@ namespace visutwin::canvas
             depthStencil.depthTestEnable = VK_TRUE;
             depthStencil.depthWriteEnable = VK_TRUE;
         }
-        depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+        // Depth comparison follows the material's DepthState (upstream Material.depthFunc);
+        // LessEqual is the default and the depth-only passes always use it.
+        depthStencil.depthCompareOp = (!depthOnly && depthState)
+            ? vulkanMapStencilCompare(depthState->func())
+            : VK_COMPARE_OP_LESS_OR_EQUAL;
         depthStencil.depthBoundsTestEnable = VK_FALSE;
         const bool hasStencil = vulkanFormatHasStencil(depthFormat);
         const bool useStencil = stencilEnabled && hasStencil &&

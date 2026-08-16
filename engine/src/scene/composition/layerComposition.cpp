@@ -5,6 +5,8 @@
 //
 #include "layerComposition.h"
 
+#include <algorithm>
+
 #include <spdlog/spdlog.h>
 #include "framework/components/camera/cameraComponent.h"
 
@@ -30,7 +32,6 @@ namespace visutwin::canvas
             return;
         }
         _layerList.push_back(layer);
-        _opaqueOrder[layer->id()] = _subLayerList.size();
         _subLayerList.push_back(false);
         _subLayerEnabled.push_back(true);
 
@@ -46,9 +47,31 @@ namespace visutwin::canvas
             return;
         }
         _layerList.push_back(layer);
-        _transparentOrder[layer->id()] = _subLayerList.size();
         _subLayerList.push_back(true);
         _subLayerEnabled.push_back(true);
+
+        updateLayerMaps();
+        _dirty = true;
+        fire("add", layer);
+    }
+
+    void LayerComposition::insert(const std::shared_ptr<Layer>& layer, int index)
+    {
+        if (!layer) {
+            return;
+        }
+        if (isSublayerAdded(layer, false) || isSublayerAdded(layer, true)) {
+            return;
+        }
+        // Mirrors upstream LayerComposition::insert: BOTH sublayers of the layer go in
+        // at the index, opaque first then transparent, so the layer as a whole slots
+        // into the existing order (e.g. at another layer's transparent index, which
+        // puts it after that layer's opaque meshes but before its transparent ones).
+        const int clamped = std::clamp(index, 0, static_cast<int>(_layerList.size()));
+
+        _layerList.insert(_layerList.begin() + clamped, {layer, layer});
+        _subLayerList.insert(_subLayerList.begin() + clamped, {false, true});
+        _subLayerEnabled.insert(_subLayerEnabled.begin() + clamped, {true, true});
 
         updateLayerMaps();
         _dirty = true;
@@ -138,6 +161,10 @@ namespace visutwin::canvas
         _layerNameMap.clear();
         _layerOpaqueIndexMap.clear();
         _layerTransparentIndexMap.clear();
+        // Rebuilt from the sublayer list rather than maintained incrementally —
+        // insert() shifts every index after it, which stale entries would miss.
+        _opaqueOrder.clear();
+        _transparentOrder.clear();
 
         for (size_t i = 0; i < _layerList.size(); i++) {
             auto& layer = _layerList[i];
@@ -146,6 +173,9 @@ namespace visutwin::canvas
 
             auto& subLayerIndexMap = _subLayerList[i] ? _layerTransparentIndexMap : _layerOpaqueIndexMap;
             subLayerIndexMap[layer] = i;
+
+            auto& subLayerOrder = _subLayerList[i] ? _transparentOrder : _opaqueOrder;
+            subLayerOrder[layer->id()] = static_cast<int>(i);
         }
     }
 

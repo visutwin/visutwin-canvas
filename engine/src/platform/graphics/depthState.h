@@ -7,6 +7,8 @@
 
 #include <cstdint>
 
+#include "stencilParameters.h"
+
 namespace visutwin::canvas
 {
     /**
@@ -34,13 +36,27 @@ namespace visutwin::canvas
         bool depthWrite() const { return _depthWrite; }
         void setDepthWrite(bool value) {
             _depthWrite = value;
-            _key = (_depthWrite ? 0u : 1u) | (_depthTest ? 0u : 2u);
+            updateKey();
         }
 
         bool depthTest() const { return _depthTest; }
         void setDepthTest(bool value) {
             _depthTest = value;
-            _key = (_depthWrite ? 0u : 1u) | (_depthTest ? 0u : 2u);
+            updateKey();
+        }
+
+        /**
+         * Comparison the depth test performs against the depth buffer (upstream
+         * Material.depthFunc). Defaults to LessEqual — required for the skybox at
+         * cleared depth 1.0. Greater is the x-ray trick: the mesh only draws where
+         * something already rendered in front of it.
+         *
+         * Ignored while depthTest is false, which always passes.
+         */
+        CompareFunction func() const { return _func; }
+        void setFunc(CompareFunction value) {
+            _func = value;
+            updateKey();
         }
 
         // Constant depth bias added to each fragment's depth in hardware depth-buffer units.
@@ -71,9 +87,15 @@ namespace visutwin::canvas
         }
 
     private:
+        void updateKey() {
+            _key = (_depthWrite ? 0u : 1u) | (_depthTest ? 0u : 2u)
+                 | (static_cast<uint32_t>(_func) << 2);
+        }
+
         uint32_t _key = 0;
         bool _depthWrite = true;
         bool _depthTest = true;
+        CompareFunction _func = CompareFunction::LessEqual;
         float _depthBias = 0.0f;
         float _slopeDepthBias = 0.0f;
     };

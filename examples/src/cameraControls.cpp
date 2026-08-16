@@ -219,6 +219,13 @@ namespace visutwin::canvas
 
             _orbitDistance = std::max(_orbitDistance, MIN_ORBIT_DISTANCE);
 
+            // Optional app-supplied zoom limits (upstream CameraControls.zoomRange).
+            // Left at (0, 0) the range is inactive and zoom stays unbounded.
+            if (_zoomRange.y > 0.0f) {
+                _orbitDistance = std::clamp(_orbitDistance,
+                    std::max(_zoomRange.x, MIN_ORBIT_DISTANCE), _zoomRange.y);
+            }
+
             const Vector3 forward = computeForwardFromEuler(_pitch, _yaw);
             const Vector3 position = _focusPoint - forward * _orbitDistance;
             _camera->entity()->setPosition(position);

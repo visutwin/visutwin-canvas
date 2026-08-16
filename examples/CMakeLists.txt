@@ -63,6 +63,7 @@ visutwin_set_macos_bundle(visutwin-render-to-texture com.visutwin.render-to-text
 
 add_executable(visutwin-layers MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/layers-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
 )
 target_link_libraries(visutwin-layers PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-layers com.visutwin.layers)

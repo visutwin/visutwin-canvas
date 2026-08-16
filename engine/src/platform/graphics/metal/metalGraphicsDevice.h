@@ -211,6 +211,7 @@ namespace visutwin::canvas
             uint32_t backState;
             bool depthTest;
             bool depthWrite;
+            CompareFunction depthFunc;
 
             bool operator==(const DepthStencilCacheKey&) const = default;
         };
