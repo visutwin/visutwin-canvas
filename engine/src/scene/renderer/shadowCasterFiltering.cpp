@@ -59,6 +59,13 @@ namespace visutwin::canvas
             return false;
         }
 
+        // A lightmap bake camera renders one mesh in UV space through its own private
+        // layer, but the shadows baked into that mesh have to come from the WHOLE scene —
+        // filtering casters by the camera's layers would leave the bake shadowless.
+        if (camera && camera->lightmapBakePass()) {
+            return true;
+        }
+
         const auto* cameraComponent = findCameraComponentForCamera(camera);
         return cameraRendersRenderComponent(cameraComponent, renderComponent);
     }

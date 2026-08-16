@@ -91,6 +91,13 @@ void main() {
     // shadowRendererDirectional bakes into the shadow sample matrix.
     gl_Position.z = 0.5 * (gl_Position.z + gl_Position.w);
 
+    if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_BIT)) {
+        // Lightmap bake: rasterize across the mesh's own UV1 unwrap instead of through
+        // the view projection (upstream's UV-space lightmapper render). World position
+        // and normal below are untouched, so the fragment stage lights the real surface.
+        gl_Position = vec4(inUV1.x * 2.0 - 1.0, 1.0 - inUV1.y * 2.0, 0.0, 1.0);
+    }
+
     // clip.w == view-space Z for a standard perspective projection — used for
     // cascaded-shadow cascade selection in the fragment stage.
     fragViewDepth = gl_Position.w;

@@ -1463,6 +1463,14 @@ void main() {
     }
     vec3 diffuseAlbedo = albedo.rgb * (1.0 - metallic);
 
+    // Lightmap bake (VT_FEATURE_LIGHTMAP_BAKE): the diffuse LIGHT reaching this texel,
+    // accumulated without albedo — the runtime multiplies the sampled lightmap by the
+    // surface's own diffuse colour. This shader folds albedo in at each accumulation
+    // site, hence the parallel accumulator rather than a division at the end.
+    vec3 bakeDiffuseLight = vec3(0.0);
+    // Direct-only half of the same accumulator, for the accumulating bake passes.
+    vec3 bakeDirectLight = vec3(0.0);
+
     vec3 color = vec3(0.0);
     // Dynamic refraction replaces the surface's diffuse with the refracted scene
     // but must keep specular, so the specular share is tracked separately.
@@ -1663,6 +1671,8 @@ void main() {
         }
         color += (kD * diffuseAlbedo / PI * diffuseTerm + specular) *
             radiance * NdotL;
+        bakeDiffuseLight += kD / PI * diffuseTerm * radiance * NdotL;
+        bakeDirectLight += kD / PI * diffuseTerm * radiance * NdotL;
         directSpecular += specular * radiance * NdotL;
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
             float ccRough = clamp(material.clearCoatRoughness, 0.04, 1.0);
@@ -1735,6 +1745,8 @@ void main() {
                 color += (kd * diffuseAlbedo / PI +
                     D * G * F / max(4.0 * NdotV * nl, 1e-4)) *
                     radiance * nl;
+                bakeDiffuseLight += kd / PI * radiance * nl;
+                bakeDirectLight += kd / PI * radiance * nl;
             }
         }
     }
@@ -1789,6 +1801,7 @@ void main() {
 
         indirect = kD * irradiance * diffuseAlbedo + prefiltered * Fr;
         indirectSpecular = prefiltered * Fr;
+        bakeDiffuseLight += kD * irradiance;
     } else if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
         vec3 shN = N;
         vec3 irradiance =
@@ -1802,12 +1815,19 @@ void main() {
             lighting.ambientSH[7].rgb * (3.0 * shN.z * shN.z - 1.0) +
             lighting.ambientSH[8].rgb * (shN.x * shN.x - shN.y * shN.y);
         indirect = max(irradiance, vec3(0.0)) * diffuseAlbedo;
+        bakeDiffuseLight += max(irradiance, vec3(0.0));
     } else {
         indirect = lighting.ambient.rgb * diffuseAlbedo + lighting.ambient.rgb * F0;
         indirectSpecular = lighting.ambient.rgb * F0;
+        bakeDiffuseLight += lighting.ambient.rgb;
     }
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
-        indirect += srgbToLinear(texture(lightMap, fragUV1).rgb) * diffuseAlbedo;
+        // The bake REPLACES the ambient diffuse rather than adding to it — upstream
+        // gates the ambient behind `addAmbient = !lightMapEnabled` (lit-shader.js),
+        // so that a lightmapped surface is not lit twice by what the bake already
+        // contains. Matches the Metal chunk (forward-fragment-tail).
+        // Lightmaps store LINEAR light (see the bake output and Lightmapper's encoder).
+        indirect = max(texture(lightMap, fragUV1).rgb, vec3(0.0)) * diffuseAlbedo;
     }
     color += indirect * ao;
     indirectSpecular *= ao;
@@ -2126,6 +2146,18 @@ void main() {
             f = clamp(exp(-d * d), 0.0, 1.0);
         }
         color = mix(lighting.fogColorDensity.rgb, color, f);
+    }
+
+    if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_BIT)) {
+        // Bake output: light only, sRGB-encoded for the RGBA8 target and the pow(2.2)
+        // decode on the sampling side. No exposure or tonemap — the lightmap feeds the
+        // lit path, which applies both later.
+        // Linear, so the accumulating virtual-light passes sum correctly (see the Metal chunk).
+        // Accumulating passes add only their own light — the first pass wrote the ambient.
+        vec3 baked = vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_ACCUM_BIT)
+            ? bakeDirectLight : bakeDiffuseLight;
+        outColor = vec4(max(baked, vec3(0.0)), 1.0);
+        return;
     }
 
     // Exposure, tonemap, then display-gamma encode (swapchain is a linear

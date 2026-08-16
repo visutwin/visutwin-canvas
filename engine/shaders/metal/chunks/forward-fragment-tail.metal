@@ -29,11 +29,31 @@
     return float4(float3(dShadowCatcher), 1.0);
 #else
 #if VT_FEATURE_LIGHTMAP
-    // Baked lightmap adds to indirect diffuse (upstream lightmapAdd.js). Sampled at
-    // UV1 (the GLB parser falls back to UV0 when the mesh has no second UV set);
-    // stored sRGB → decoded to linear like the other LDR material textures.
-    const float3 lightmapSample = lightMapTexture.sample(defaultSampler, rd.uv1).rgb;
-    indirectDiffuse += pow(max(lightmapSample, float3(0.0)) + 0.0000001, float3(2.2));
+    // Baked lightmap becomes the indirect diffuse (upstream lightmapAdd.js adds it,
+    // but lit-shader.js gates the ambient behind `addAmbient = !lightMapEnabled`, so
+    // a lightmapped surface takes its indirect diffuse from the bake alone —
+    // otherwise the runtime ambient double-counts what the bake already contains and
+    // washes the surface out). Specular IBL is unaffected.
+    // Sampled at UV1 (the GLB parser falls back to UV0 when the mesh has no second UV
+    // set); stored sRGB → decoded to linear like the other LDR material textures.
+    // Lightmaps store LINEAR light (see the bake output above and Lightmapper's encoder).
+    indirectDiffuse = max(lightMapTexture.sample(defaultSampler, rd.uv1).rgb, float3(0.0));
+#endif
+
+#if VT_FEATURE_LIGHTMAP_BAKE
+    // Lightmap bake output: the diffuse LIGHT reaching this texel, with no albedo,
+    // specular or emissive — the runtime multiplies the sampled lightmap by the
+    // surface's own diffuse colour. Stored LINEAR: the ambient-occlusion and soft-shadow
+    // virtual lights accumulate into this target with additive blending, and summing
+    // gamma-encoded values is not the same as encoding the sum (it blows the result out
+    // and flattens contrast).
+#if VT_FEATURE_LIGHTMAP_BAKE_ACCUM
+    // Accumulating pass (soft-shadow / ambient-occlusion virtual lights): the first bake
+    // pass already wrote the ambient, so these add only the light they carry.
+    return float4(max(directDiffuse, float3(0.0)), 1.0);
+#else
+    return float4(max(directDiffuse + indirectDiffuse, float3(0.0)), 1.0);
+#endif
 #endif
 
     float3 litLinear = diffuseColor * (directDiffuse + indirectDiffuse) + directSpecular + indirectSpecular + emissiveLinear;

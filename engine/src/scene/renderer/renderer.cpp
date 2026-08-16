@@ -20,6 +20,7 @@
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/light/lightComponent.h"
+#include "platform/graphics/blendState.h"
 #include "platform/graphics/instanceCuller.h"
 #include "scene/frustumUtils.h"
 #include "scene/light.h"
@@ -310,6 +311,8 @@ namespace visutwin::canvas
         // with VT_FEATURE_PLANAR_REFLECTION_DEPTH_PASS to override fragment output
         // with distance-from-reflection-plane (setShaderPass).
         programLibrary->setPlanarReflectionDepthPass(camera && camera->planarReflectionDepthPass());
+        programLibrary->setLightmapBakePass(camera && camera->lightmapBakePass());
+        programLibrary->setLightmapBakeAccumulate(camera && camera->lightmapBakeAccumulate());
 
         // Debug surface-quantity output (setDebugShaderPass). One variant covers every mode;
         // the mode itself rides in a uniform, uploaded below.
@@ -1131,8 +1134,23 @@ namespace visutwin::canvas
                 cachedCullMode = resolveMaterialCullMode(boundMaterial);
                 lastCullMaterial = boundMaterial;
             }
-            const auto cullMode = applyNodeScaleFlip(cachedCullMode,
+            auto cullMode = applyNodeScaleFlip(cachedCullMode,
                 entry->meshInstance ? entry->meshInstance->node() : nullptr);
+            if (camera && camera->lightmapBakeAccumulate()) {
+                // Ambient-occlusion virtual lights: each pass adds its own contribution
+                // to the lightmap already in the target (upstream sums the virtual lights
+                // the same way), so the draw blends additively and the camera does not
+                // clear between passes.
+                static const auto additive = std::make_shared<BlendState>(BlendState::additiveBlend());
+                _device->setBlendState(additive);
+            }
+            if (camera && camera->lightmapBakePass()) {
+                // UV-space bake: triangle winding follows the unwrap, not the surface —
+                // mirrored charts (and the v-flip that puts UV origin at the top) make
+                // triangles face either way, so face culling would drop them. Upstream's
+                // lightmapper likewise renders the bake double-sided.
+                cullMode = CullMode::CULLFACE_NONE;
+            }
             _device->setCullMode(cullMode);
 
             _device->setVertexBuffer(entry->vertexBuffer, 0);

@@ -193,6 +193,15 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     clip.z = clip.w - 1.0e-7;
 #endif
 
+#if VT_FEATURE_LIGHTMAP_BAKE
+    // Lightmap bake: rasterize the mesh across its own UV1 unwrap instead of through
+    // the view projection (upstream's UV-space lightmapper render). The world position
+    // and normal below are unchanged, so the fragment stage lights the real surface
+    // point while the triangle covers the lightmap texels that belong to it.
+    // UV origin is top-left, clip space is y-up, hence the flipped y.
+    clip = float4(v.uv1.x * 2.0 - 1.0, 1.0 - v.uv1.y * 2.0, 0.0, 1.0);
+#endif
+
     rd.position = clip;
     rd.worldPos = world.xyz;
 

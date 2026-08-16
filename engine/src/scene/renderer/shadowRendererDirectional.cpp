@@ -20,6 +20,7 @@
 #include "framework/components/render/renderComponent.h"
 #include "scene/graphNode.h"
 #include "scene/meshInstance.h"
+#include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
 {

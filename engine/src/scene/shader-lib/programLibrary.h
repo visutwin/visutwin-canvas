@@ -61,6 +61,13 @@ namespace visutwin::canvas
         // to emit distance-from-reflection-plane. Set per-camera by the renderer.
         void setPlanarReflectionDepthPass(bool value) { _planarReflectionDepthPass = value; }
 
+        // Enables the UV-space lightmap bake variant for the draws that follow.
+        void setLightmapBakePass(bool value) { _lightmapBakePass = value; }
+
+        // Accumulating bake pass — the ambient term is dropped, since the first bake pass
+        // already wrote it and these passes only add their own light.
+        void setLightmapBakeAccumulate(bool value) { _lightmapBakeAccumulate = value; }
+
         // when true, forward shaders compile with VT_FEATURE_DEBUG_PASS, which adds the debug
         // surface-quantity output. Which quantity is a runtime uniform, so this is a single
         // variant for all debug modes. Set per-camera by the renderer.
@@ -168,6 +175,8 @@ namespace visutwin::canvas
             bool instancingColor = false;  // 80-byte instance stride: per-instance base color overrides the material
             bool planarReflection = false;  // Planar reflection — screen-space UV sampling + Fresnel blend
             bool planarReflectionDepthPass = false;  // Depth pass: output distance-from-plane instead of PBR
+            bool lightmapBake = false;      // UV-space lightmap bake: rasterize the unwrap, output diffuse light
+            bool lightmapBakeAccum = false; // Accumulating bake pass: direct light only, ambient already baked
             bool debugPass = false;         // Debug surface-quantity output (mode chosen at runtime)
             bool localShadows = false;      // Local light (spot/point) shadow mapping — 2D depth textures
             bool omniShadows = false;       // Omni light cubemap shadow mapping — depthcube textures
@@ -198,6 +207,8 @@ namespace visutwin::canvas
         std::unordered_map<std::string, std::vector<std::string>> _registeredPrograms;
         bool _skyCubemapAvailable = false;
         bool _planarReflectionDepthPass = false;
+        bool _lightmapBakePass = false;
+        bool _lightmapBakeAccumulate = false;
         bool _debugPassEnabled = false;
         bool _localShadowsEnabled = false;
         bool _omniShadowsEnabled = false;

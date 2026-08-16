@@ -113,15 +113,51 @@ namespace visutwin::canvas
             return static_cast<float>(bits) * 2.3283064365386963e-10f;
         }
 
-        uint8_t toSrgbByte(const float linear)
+        /// Lightmaps store LINEAR light — the shader samples them without a decode, so the
+        /// GPU baker's accumulating virtual-light passes can sum in linear space. 8 bits of
+        /// linear is coarse in the darks, but a lightmap is low-frequency by nature.
+        uint8_t toLightmapByte(const float linear)
         {
             const float c = std::clamp(linear, 0.0f, 1.0f);
-            return static_cast<uint8_t>(std::pow(c, 1.0f / 2.2f) * 255.0f + 0.5f);
+            return static_cast<uint8_t>(c * 255.0f + 0.5f);
         }
 
         // Median-split BVH over world-space triangles for fast any-hit ray tests.
         // Without it, brute-force ray casting against a tessellated occluder makes
         // a per-texel AO bake O(texels · rays · triangles) — minutes, not seconds.
+        constexpr float GOLDEN_ANGLE = 2.399963229728653f;  // upstream _goldenAngle
+
+        /// Upstream random.circlePointDeterministic — evenly spread points in a unit disc.
+        void circlePointDeterministic(float& x, float& y, const int index, const int numPoints)
+        {
+            const float theta = static_cast<float>(index) * GOLDEN_ANGLE;
+            const float r = std::sqrt(static_cast<float>(index) / static_cast<float>(std::max(numPoints, 1)));
+            x = r * std::cos(theta);
+            y = r * std::sin(theta);
+        }
+
+        /// Upstream random.spherePointDeterministic — Fibonacci sphere, optionally
+        /// covering only the top `end` part of the sphere (y from +1 downwards).
+        Vector3 spherePointDeterministic(const int index, const int numPoints, const float end)
+        {
+            const float start = 1.0f;                 // upstream: 1 - 2 * 0
+            const float finish = 1.0f - 2.0f * end;
+            const float t = static_cast<float>(index) / static_cast<float>(std::max(numPoints, 1));
+            const float y = start + (finish - start) * t;
+            const float radius = std::sqrt(std::max(0.0f, 1.0f - y * y));
+            const float theta = GOLDEN_ANGLE * static_cast<float>(index);
+            return Vector3(std::cos(theta) * radius, y, std::sin(theta) * radius);
+        }
+
+        int nextPowerOfTwo(int value)
+        {
+            int result = 1;
+            while (result < value) {
+                result <<= 1;
+            }
+            return result;
+        }
+
         struct TriData { Vector3 a, b, c; };
         struct BvhNode { Vector3 bmin, bmax; int start, count, left; };
 
@@ -265,7 +301,32 @@ namespace visutwin::canvas
         const Options& options)
     {
         if (!_device) return nullptr;
-        const int size = std::clamp(options.lightmapSize, 8, 4096);
+
+        // Resolution: either fixed, or derived from the target's world-space bounds
+        // the way upstream's calculateLightmapSize does.
+        int size = std::clamp(options.lightmapSize, 8, 4096);
+        if (options.sizeMultiplier > 0.0f) {
+            Vector3 bmin(1e30f, 1e30f, 1e30f);
+            Vector3 bmax(-1e30f, -1e30f, -1e30f);
+            forEachTriangle(target, [&](const Vertex& a, const Vertex& b, const Vertex& c) {
+                for (const auto& v : {a, b, c}) {
+                    const Vector3 w = worldTransform.transformPoint(v.pos);
+                    bmin = Vector3(std::min(bmin.getX(), w.getX()), std::min(bmin.getY(), w.getY()),
+                                   std::min(bmin.getZ(), w.getZ()));
+                    bmax = Vector3(std::max(bmax.getX(), w.getX()), std::max(bmax.getY(), w.getY()),
+                                   std::max(bmax.getZ(), w.getZ()));
+                }
+            });
+            if (bmax.getX() >= bmin.getX()) {
+                // upstream uses the half extents and the three face areas, unit area per axis
+                const float hx = (bmax.getX() - bmin.getX()) * 0.5f;
+                const float hy = (bmax.getY() - bmin.getY()) * 0.5f;
+                const float hz = (bmax.getZ() - bmin.getZ()) * 0.5f;
+                const float totalArea = std::sqrt(hy * hz + hx * hz + hx * hy);
+                size = std::clamp(nextPowerOfTwo(static_cast<int>(totalArea * options.sizeMultiplier)),
+                    8, std::clamp(options.maxResolution, 8, 4096));
+            }
+        }
 
         // BVH over occluder triangles for fast shadow/AO any-hit queries.
         std::vector<TriData> triData;
@@ -308,12 +369,71 @@ namespace visutwin::canvas
 
                 const float reach = (light.type == LightType::LIGHTTYPE_DIRECTIONAL)
                     ? 1e6f : (light.position - P).length();
-                if (light.castShadows && occluded(origin, L, reach)) continue;
 
-                const float s = ndl * atten * light.intensity;
+                float visibility = 1.0f;
+                if (light.castShadows) {
+                    const bool soft = light.type == LightType::LIGHTTYPE_DIRECTIONAL &&
+                        light.bakeNumSamples > 1 && light.bakeArea > 0.0f;
+                    if (!soft) {
+                        if (occluded(origin, L, reach)) continue;
+                    } else {
+                        // Spread the shadow ray over a bakeArea-degree cone, the same
+                        // spread upstream applies by rotating its virtual lights.
+                        const Vector3 up = std::fabs(L.getY()) < 0.99f ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
+                        const Vector3 tangent = up.cross(L).normalized();
+                        const Vector3 bitangent = L.cross(tangent);
+                        const float spread = std::tan(light.bakeArea * 0.5f *
+                            std::numbers::pi_v<float> / 180.0f);
+                        int unshadowed = 0;
+                        for (int vs = 0; vs < light.bakeNumSamples; ++vs) {
+                            float jx = 0.0f, jy = 0.0f;
+                            if (vs > 0) {
+                                circlePointDeterministic(jx, jy, vs, light.bakeNumSamples);
+                            }
+                            const Vector3 dir = (L + tangent * (jx * spread) +
+                                bitangent * (jy * spread)).normalized();
+                            if (!occluded(origin, dir, reach)) ++unshadowed;
+                        }
+                        visibility = static_cast<float>(unshadowed) /
+                            static_cast<float>(light.bakeNumSamples);
+                        if (visibility <= 0.0f) continue;
+                    }
+                }
+
+                const float s = ndl * atten * light.intensity * visibility;
                 lit.r += light.color.r * s;
                 lit.g += light.color.g * s;
                 lit.b += light.color.b * s;
+            }
+
+            if (options.ambientBake && options.ambientBakeNumSamples > 0) {
+                // Upstream bakes ambient as N virtual directional lights spread over the
+                // top `spherePart` of the sphere. Here the same distribution drives N
+                // occlusion rays, weighted by N·L like the virtual lights' own N·L term.
+                float weight = 0.0f;
+                float visible = 0.0f;
+                for (int as = 0; as < options.ambientBakeNumSamples; ++as) {
+                    const Vector3 dir = spherePointDeterministic(as, options.ambientBakeNumSamples,
+                        std::clamp(options.ambientBakeSpherePart, 0.01f, 1.0f));
+                    const float ndl = N.dot(dir);
+                    if (ndl <= 0.0f) continue;
+                    weight += ndl;
+                    if (!occluded(origin, dir, options.aoRadius)) {
+                        visible += ndl;
+                    }
+                }
+                float ambientOcclusion = weight > 0.0f ? visible / weight : 1.0f;
+
+                // upstream bakeLmEnd: contrast around 0.5, then brightness, then saturate
+                ambientOcclusion = ((ambientOcclusion - 0.5f) *
+                    std::max(options.ambientBakeOcclusionContrast + 1.0f, 0.0f)) + 0.5f;
+                ambientOcclusion = std::clamp(ambientOcclusion + options.ambientBakeOcclusionBrightness,
+                    0.0f, 1.0f);
+
+                lit.r += (options.ambient.r + options.skyColor.r) * ambientOcclusion;
+                lit.g += (options.ambient.g + options.skyColor.g) * ambientOcclusion;
+                lit.b += (options.ambient.b + options.skyColor.b) * ambientOcclusion;
+                return lit;
             }
 
             float ao = 1.0f;
@@ -415,6 +535,65 @@ namespace visutwin::canvas
             for (auto& th : pool) th.join();
         }
 
+        // Bilateral denoise over the shaded texels (upstream's bilateralDeNoise pass,
+        // driven by the same two sigmas: filterRange spatially, filterSmoothness on
+        // intensity, so lighting detail survives while ray noise is smoothed away).
+        // Runs before dilation so only real, shaded texels contribute.
+        if (options.filterEnabled && !work.empty()) {
+            const float sigmaSpace = std::max(options.filterRange, 0.01f);
+            const float sigmaValue = std::max(options.filterSmoothness, 0.01f);
+            const int radius = std::clamp(static_cast<int>(std::ceil(sigmaSpace)), 1, 7);
+            const float invTwoSigmaSpaceSq = 1.0f / (2.0f * sigmaSpace * sigmaSpace);
+            const float invTwoSigmaValueSq = 1.0f / (2.0f * sigmaValue * sigmaValue);
+
+            std::vector<Vector3> filtered = accum;
+            const auto filterRange = [&](const size_t begin, const size_t end) {
+                for (size_t w = begin; w < end; ++w) {
+                    const uint32_t idx = work[w];
+                    const int cx = static_cast<int>(idx % static_cast<size_t>(size));
+                    const int cy = static_cast<int>(idx / static_cast<size_t>(size));
+                    const Vector3 center = accum[idx];
+
+                    Vector3 sum(0, 0, 0);
+                    float weightSum = 0.0f;
+                    for (int dy = -radius; dy <= radius; ++dy) {
+                        const int y = cy + dy;
+                        if (y < 0 || y >= size) continue;
+                        for (int dx = -radius; dx <= radius; ++dx) {
+                            const int x = cx + dx;
+                            if (x < 0 || x >= size) continue;
+                            const size_t nIdx = static_cast<size_t>(y) * size + x;
+                            if (!covered[nIdx]) continue;
+
+                            const Vector3 sample = accum[nIdx];
+                            const Vector3 delta = sample - center;
+                            const float spatial = static_cast<float>(dx * dx + dy * dy) * invTwoSigmaSpaceSq;
+                            const float range = delta.lengthSquared() * invTwoSigmaValueSq;
+                            const float weight = std::exp(-(spatial + range));
+                            sum = sum + sample * weight;
+                            weightSum += weight;
+                        }
+                    }
+                    if (weightSum > 0.0f) {
+                        filtered[idx] = sum * (1.0f / weightSum);
+                    }
+                }
+            };
+            if (threadCount <= 1) {
+                filterRange(0, work.size());
+            } else {
+                std::vector<std::thread> pool;
+                const size_t chunk = (work.size() + threadCount - 1) / threadCount;
+                for (size_t t = 0; t < threadCount; ++t) {
+                    const size_t b = t * chunk;
+                    const size_t e = std::min(work.size(), b + chunk);
+                    if (b < e) pool.emplace_back(filterRange, b, e);
+                }
+                for (auto& th : pool) th.join();
+            }
+            accum.swap(filtered);
+        }
+
         // Dilate covered texels outward to fill seams (bilinear sampling at UV
         // borders otherwise fetches black).
         for (int iter = 0; iter < options.dilatePixels; ++iter) {
@@ -444,9 +623,9 @@ namespace visutwin::canvas
         // Encode sRGB RGBA8 (the shader pow(2.2)-decodes the lightmap).
         std::vector<uint8_t> pixels(static_cast<size_t>(size) * size * 4);
         for (size_t i = 0; i < accum.size(); ++i) {
-            pixels[i * 4 + 0] = toSrgbByte(accum[i].getX());
-            pixels[i * 4 + 1] = toSrgbByte(accum[i].getY());
-            pixels[i * 4 + 2] = toSrgbByte(accum[i].getZ());
+            pixels[i * 4 + 0] = toLightmapByte(accum[i].getX());
+            pixels[i * 4 + 1] = toLightmapByte(accum[i].getY());
+            pixels[i * 4 + 2] = toLightmapByte(accum[i].getZ());
             pixels[i * 4 + 3] = 255;
         }
 

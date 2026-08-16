@@ -537,6 +537,30 @@ namespace visutwin::canvas
             (features & shaderFeatureBit(ShaderFeature::Morphing)) != 0;
 
         // --- Shader stages ---
+        // Feature specialization constants. BOTH stages need them: the vertex shaders
+        // gate displacement and the UV-space lightmap bake on the same mask, and giving
+        // it only to the fragment stage silently disabled those.
+        struct FeatureSpecialization {
+            uint32_t low;
+            uint32_t high;
+        };
+        static constexpr std::array<VkSpecializationMapEntry, 2>
+            featureEntries = {{
+                {0, offsetof(FeatureSpecialization, low), sizeof(uint32_t)},
+                {1, offsetof(FeatureSpecialization, high), sizeof(uint32_t)},
+            }};
+        FeatureSpecialization featureData{};
+        VkSpecializationInfo featureInfo{};
+        if (shader->specializesFeatures()) {
+            const uint64_t featureMask = shader->featureMask();
+            featureData.low = static_cast<uint32_t>(featureMask);
+            featureData.high = static_cast<uint32_t>(featureMask >> 32u);
+            featureInfo.mapEntryCount = static_cast<uint32_t>(featureEntries.size());
+            featureInfo.pMapEntries = featureEntries.data();
+            featureInfo.dataSize = sizeof(featureData);
+            featureInfo.pData = &featureData;
+        }
+
         std::vector<VkPipelineShaderStageCreateInfo> stages;
         VkShaderModule vertModule = shader->vertexModule();
         if (useColor) vertModule = shader->colorVertexModule();
@@ -554,6 +578,9 @@ namespace visutwin::canvas
             vert.stage = VK_SHADER_STAGE_VERTEX_BIT;
             vert.module = vertModule;
             vert.pName = "main";
+            if (shader->specializesFeatures()) {
+                vert.pSpecializationInfo = &featureInfo;
+            }
             stages.push_back(vert);
         }
         // Depth-only passes (shadow maps: no color formats) omit the
@@ -561,31 +588,12 @@ namespace visutwin::canvas
         // fragment shader that declares a colour output with no colour
         // attachment is a MoltenVK hazard that silently drops depth writes.
         const bool depthOnly = colorFormats.empty();
-        struct FeatureSpecialization {
-            uint32_t low;
-            uint32_t high;
-        };
-        static constexpr std::array<VkSpecializationMapEntry, 2>
-            featureEntries = {{
-                {0, offsetof(FeatureSpecialization, low), sizeof(uint32_t)},
-                {1, offsetof(FeatureSpecialization, high), sizeof(uint32_t)},
-            }};
-        FeatureSpecialization featureData{};
-        VkSpecializationInfo featureInfo{};
         if (!depthOnly && shader->fragmentModule() != VK_NULL_HANDLE) {
             VkPipelineShaderStageCreateInfo frag{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
             frag.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
             frag.module = shader->fragmentModule();
             frag.pName = "main";
             if (shader->specializesFeatures()) {
-                const uint64_t featureMask = shader->featureMask();
-                featureData.low = static_cast<uint32_t>(featureMask);
-                featureData.high = static_cast<uint32_t>(featureMask >> 32u);
-                featureInfo.mapEntryCount =
-                    static_cast<uint32_t>(featureEntries.size());
-                featureInfo.pMapEntries = featureEntries.data();
-                featureInfo.dataSize = sizeof(featureData);
-                featureInfo.pData = &featureData;
                 frag.pSpecializationInfo = &featureInfo;
             }
             stages.push_back(frag);

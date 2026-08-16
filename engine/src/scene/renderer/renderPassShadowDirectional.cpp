@@ -21,6 +21,7 @@
 #include "scene/shader-lib/programLibrary.h"
 #include "shadowRenderer.h"
 #include "shadowCasterFiltering.h"
+#include "spdlog/spdlog.h"
 #include "scene/frustumUtils.h"
 
 namespace visutwin::canvas

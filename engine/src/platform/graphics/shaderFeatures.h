@@ -59,6 +59,8 @@
     X(SurfaceLic,                "VT_FEATURE_SURFACE_LIC",                  48) \
     X(DebugPass,                 "VT_FEATURE_DEBUG_PASS",                   49) \
     X(InstancingColor,           "VT_FEATURE_INSTANCING_COLOR",             50) \
+    X(LightmapBake,              "VT_FEATURE_LIGHTMAP_BAKE",                51) \
+    X(LightmapBakeAccum,         "VT_FEATURE_LIGHTMAP_BAKE_ACCUM",          52) \
     X(Skybox,                    "VT_FEATURE_SKYBOX",                       62) \
     X(TransparentPass,           "VT_FEATURE_TRANSPARENT_PASS",             63)
 

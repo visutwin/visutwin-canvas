@@ -105,10 +105,14 @@ namespace visutwin::canvas
             // (null render target); fall back to the last camera seen.
             Camera* shadowFitCamera = nullptr;
             Camera* lastCamera = nullptr;
+            Camera* lightmapBakeCamera = nullptr;
             for (const auto* action : actions) {
                 if (action && action->camera) {
                     if (Camera* cam = action->camera->camera()) {
                         lastCamera = cam;
+                        if (cam->lightmapBakePass()) {
+                            lightmapBakeCamera = cam;
+                        }
                         if (!cam->renderTarget()) {
                             shadowFitCamera = cam;
                         }
@@ -117,6 +121,14 @@ namespace visutwin::canvas
             }
             if (!shadowFitCamera) {
                 shadowFitCamera = lastCamera;
+            }
+            // A lightmap bake takes priority for the frame it runs in: its cameras always
+            // have a render target, so the rule above would fit the cascades to the
+            // presentation camera and bake whatever shadows happen to suit the current
+            // view. Fitting to the bake camera instead is what puts real shadows into the
+            // lightmap; the presentation camera re-fits on the next (non-bake) frame.
+            if (lightmapBakeCamera) {
+                shadowFitCamera = lightmapBakeCamera;
             }
 
             std::unordered_set<Camera*> culledCameras;

@@ -265,12 +265,26 @@ namespace visutwin::canvas
         // instead of PBR lighting. Used by the depth camera in blurred planar reflections.
         // camera.setShaderPass('planar_reflection_depth').
         bool _planarReflectionDepthPass = false;
+        bool _lightmapBakePass = false;
+        bool _lightmapBakeAccumulate = false;
 
         // Debug shader pass selection. See setDebugShaderPass().
         DebugShaderPass _debugShaderPass = DebugShaderPass::DEBUGPASS_NONE;
     public:
         void setPlanarReflectionDepthPass(bool v) { _planarReflectionDepthPass = v; }
         [[nodiscard]] bool planarReflectionDepthPass() const { return _planarReflectionDepthPass; }
+
+        // Lightmap bake pass (upstream's UV-space lightmapper render). Meshes drawn by
+        // this camera rasterize across their own UV1 unwrap instead of through the view
+        // projection, and the fragment stage outputs the diffuse light reaching each
+        // texel rather than a shaded pixel. See GpuLightmapper.
+        void setLightmapBakePass(bool v) { _lightmapBakePass = v; }
+        [[nodiscard]] bool lightmapBakePass() const { return _lightmapBakePass; }
+
+        // Accumulating bake pass: the draw blends additively into the lightmap instead
+        // of replacing it, which is how the ambient-occlusion virtual lights sum up.
+        void setLightmapBakeAccumulate(bool v) { _lightmapBakeAccumulate = v; }
+        [[nodiscard]] bool lightmapBakeAccumulate() const { return _lightmapBakeAccumulate; }
 
         /**
          * Replaces this camera's forward output with a single surface quantity, for inspecting

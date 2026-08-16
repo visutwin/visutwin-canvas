@@ -401,6 +401,8 @@ namespace visutwin::canvas
         // depth pass flag set by renderer from camera state.
         // When active, fragment shader outputs distance-from-plane instead of PBR.
         options.planarReflectionDepthPass = _planarReflectionDepthPass;
+        options.lightmapBake = _lightmapBakePass;
+        options.lightmapBakeAccum = _lightmapBakeAccumulate;
 
         // Debug surface-quantity output, set by the renderer from the camera's debugShaderPass.
         options.debugPass = _debugPassEnabled;
@@ -477,6 +479,8 @@ namespace visutwin::canvas
         set(ShaderFeature::PlanarReflection, options.planarReflection);
         set(ShaderFeature::PlanarReflectionDepthPass,
             options.planarReflectionDepthPass);
+        set(ShaderFeature::LightmapBake, options.lightmapBake);
+        set(ShaderFeature::LightmapBakeAccum, options.lightmapBakeAccum);
         set(ShaderFeature::DebugPass, options.debugPass);
         set(ShaderFeature::LocalShadows, options.localShadows);
         set(ShaderFeature::OmniShadows, options.omniShadows);
