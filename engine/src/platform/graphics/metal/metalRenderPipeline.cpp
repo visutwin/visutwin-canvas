@@ -9,6 +9,7 @@
 
 #include "metalRenderTarget.h"
 #include "metalShader.h"
+#include "platform/graphics/vertexFormat.h"
 #include "core/utils.h"
 #include "spdlog/spdlog.h"
 #include "Foundation/NSBundle.hpp"
@@ -454,13 +455,18 @@ namespace visutwin::canvas
         layouts->object(0)->setStepRate(1);
 
         // Hardware instancing: set up vertex descriptor layout(5) with perInstance step function.
-        // instance_line1..4 (4x float4 for model matrix) + instanceColor (float4).
-        // These map to [[attribute(6)]]..[[attribute(10)]] in the shader's VertexData struct.
+        // instance_line1..4 (4x float4 for model matrix) map to [[attribute(6)]]..[[attribute(9)]].
+        // An 80-byte stride also carries a per-instance color at [[attribute(10)]]; the matrix-only
+        // 64-byte stride (upstream's default instancing format) does not, and the shader variant it
+        // is paired with declares no such attribute — see VT_FEATURE_INSTANCING_COLOR.
         if (instancingStride > 0) {
             constexpr NS::UInteger INST_BUFFER_INDEX = 5;
             constexpr NS::UInteger INST_ATTR_BASE = 6;
 
-            for (NS::UInteger i = 0; i < 5; ++i) {
+            const NS::UInteger instAttrCount =
+                (instancingStride >= VertexFormat::INSTANCING_MATRIX_COLOR_SIZE) ? 5 : 4;
+
+            for (NS::UInteger i = 0; i < instAttrCount; ++i) {
                 attributes->object(INST_ATTR_BASE + i)->setFormat(MTL::VertexFormatFloat4);
                 attributes->object(INST_ATTR_BASE + i)->setOffset(i * 4 * sizeof(float));
                 attributes->object(INST_ATTR_BASE + i)->setBufferIndex(INST_BUFFER_INDEX);

@@ -116,6 +116,13 @@ namespace visutwin::canvas
         const Color& clearColor() const { return _clearColor; }
         void setClearColor(const Color& value) { _clearColor = value; }
 
+        // Per-camera tone mapping (upstream CameraComponent::toneMapping). TONEMAP_INHERIT
+        // keeps the scene-wide Scene::toneMapping value, which is what cameras did before
+        // this existed; any other value overrides it for everything this camera renders.
+        // The HDR camera-frame path has its own setting in CameraComponent::RenderingSettings.
+        int toneMapping() const { return _toneMapping; }
+        void setToneMapping(const int value) { _toneMapping = value; }
+
         // normalized viewport rectangle (x, y, width, height)
         // in render target coordinates.
         const Vector4& rect() const { return _rect; }
@@ -235,6 +242,7 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> _renderTarget;
 
         Color _clearColor = Color(0.75f, 0.75f, 0.75f, 1.0f);
+        int _toneMapping = TONEMAP_INHERIT;
         Vector4 _rect = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
         Vector4 _scissorRect = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
 

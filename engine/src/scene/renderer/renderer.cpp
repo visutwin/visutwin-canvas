@@ -1049,6 +1049,12 @@ namespace visutwin::canvas
         // Pre-build for the default mask (covers 95%+ of draws).
         buildFilteredLights(MASK_AFFECT_DYNAMIC, cachedGpuLights);
 
+        // Per-camera tone mapping (upstream CameraComponent::toneMapping) overrides the
+        // scene-wide value; TONEMAP_INHERIT keeps the scene's.
+        const int sceneToneMapping = _scene ? _scene->toneMapping() : TONEMAP_LINEAR;
+        const int cameraToneMapping = camera ? camera->toneMapping() : TONEMAP_INHERIT;
+        const int toneMapping = (cameraToneMapping != TONEMAP_INHERIT) ? cameraToneMapping : sceneToneMapping;
+
         // Phase 4: cull mode cache — skip material parameter map lookups for same material.
         const Material* lastCullMaterial = nullptr;
         CullMode cachedCullMode = CullMode::CULLFACE_BACK;
@@ -1062,19 +1068,37 @@ namespace visutwin::canvas
         bool lastShaderDynBatch = false;
         bool lastShaderSkinned = false;
         bool lastShaderMorphed = false;
+        bool lastShaderInstanced = false;
+        bool lastShaderInstanceColor = false;
 
         for (const auto* entry : drawEntries) {
             const Material* boundMaterial = entry->material ? entry->material : defaultMaterial.get();
             const bool isDynBatch = entry->meshInstance && entry->meshInstance->isDynamicBatch();
             const bool isSkinned = entry->meshInstance && entry->meshInstance->skinInstance() != nullptr;
             const bool isMorphed = entry->meshInstance && entry->meshInstance->morphInstance() != nullptr;
+
+            // Hardware instancing is a property of the draw, not the material: a mesh instance
+            // that carries a per-instance buffer gets the instanced vertex stage, and the buffer's
+            // stride decides whether that stage also reads a per-instance base color.
+            const auto& drawInstancing = entry->meshInstance
+                ? entry->meshInstance->instancingData() : MeshInstance::InstancingData{};
+            const auto& instanceBuffer = drawInstancing.compactedVertexBuffer
+                ? drawInstancing.compactedVertexBuffer : drawInstancing.vertexBuffer;
+            const bool isInstanced = instanceBuffer != nullptr && drawInstancing.count > 0;
+            const bool hasInstanceColor = isInstanced && instanceBuffer->format() &&
+                instanceBuffer->format()->hasInstanceColor();
+
             if (boundMaterial != lastShaderMaterial || isDynBatch != lastShaderDynBatch ||
-                isSkinned != lastShaderSkinned || isMorphed != lastShaderMorphed) {
-                programLibrary->bindMaterial(_device, boundMaterial, transparent, isDynBatch, isSkinned, isMorphed);
+                isSkinned != lastShaderSkinned || isMorphed != lastShaderMorphed ||
+                isInstanced != lastShaderInstanced || hasInstanceColor != lastShaderInstanceColor) {
+                programLibrary->bindMaterial(_device, boundMaterial, transparent, isDynBatch, isSkinned, isMorphed,
+                    isInstanced, hasInstanceColor);
                 lastShaderMaterial = boundMaterial;
                 lastShaderDynBatch = isDynBatch;
                 lastShaderSkinned = isSkinned;
                 lastShaderMorphed = isMorphed;
+                lastShaderInstanced = isInstanced;
+                lastShaderInstanceColor = hasInstanceColor;
             }
 
             // Phase 4: reuse cached light list when mask matches (zero allocation per draw).
@@ -1092,13 +1116,13 @@ namespace visutwin::canvas
             if (drawReceivesShadow) {
                 _device->setLightingUniforms(ambientColor, cachedGpuLights, cameraPosition, true,
                     (_scene ? _scene->exposure() : 1.0f), fogParams, shadowParams,
-                    (_scene ? _scene->toneMapping() : 0), ambientSH, &viewProjection);
+                    toneMapping, ambientSH, &viewProjection);
             } else {
                 ShadowParams noShadow;
                 noShadow.enabled = false;
                 _device->setLightingUniforms(ambientColor, cachedGpuLights, cameraPosition, true,
                     (_scene ? _scene->exposure() : 1.0f), fogParams, noShadow,
-                    (_scene ? _scene->toneMapping() : 0), ambientSH, &viewProjection);
+                    toneMapping, ambientSH, &viewProjection);
             }
 
             // Phase 4: cache material's base cull mode (skip parameter map lookups),
@@ -1115,7 +1139,7 @@ namespace visutwin::canvas
 
             // Hardware instancing: bind instance buffer at slot 5, pass instanceCount to draw.
             //checks meshInstance.instancingData before draw.
-            const auto& instData = entry->meshInstance ? entry->meshInstance->instancingData() : MeshInstance::InstancingData{};
+            const auto& instData = drawInstancing;
 
             if (instData.indirectArgsBuffer && instData.indirectSlot >= 0 && instData.compactedVertexBuffer) {
                 // GPU-culled indirect instancing (Phase 3):

@@ -45,6 +45,15 @@ namespace visutwin::canvas
         void setRotation(const Quaternion& rotation);
         void setLocalRotation(const Quaternion& rotation);
 
+        /**
+         * Reorients the graph node so that its negative z-axis points towards the target in world
+         * space, matching upstream GraphNode::lookAt. The up vector defaults to world +Y and is
+         * only used to resolve roll; if it is parallel to the view direction, a fallback axis is
+         * chosen so the node still ends up facing the target.
+         */
+        void lookAt(const Vector3& target, const Vector3& up = Vector3(0.0f, 1.0f, 0.0f));
+        void lookAt(float tx, float ty, float tz, float ux = 0.0f, float uy = 1.0f, float uz = 0.0f);
+
         const Matrix4& worldTransform();
 
         const Vector3& localPosition() const { return _localPosition; }

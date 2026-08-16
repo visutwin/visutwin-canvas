@@ -107,10 +107,17 @@ namespace visutwin::canvas
         // / instancingData / instancingCount.
         // Sets up hardware instancing for this mesh instance. The vertexBuffer must contain
         // packed InstanceData structs (80 bytes each: float4x4 + float4).
+        // Also derives a world-space AABB covering the whole instance cloud, so
+        // frustum culling and the directional shadow cascade fit see every instance
+        // instead of the base mesh sitting at this instance's node transform. See
+        // updateInstancingAabb — a caller that has already supplied its own AABB
+        // (setCustomAabb) keeps it, and a buffer with no CPU-side copy is skipped.
+        // DEVIATION: upstream leaves this to the app (MeshInstance.setCustomAabb).
         void setInstancing(const std::shared_ptr<VertexBuffer>& vertexBuffer, int count)
         {
             _instancingData.vertexBuffer = vertexBuffer;
             _instancingData.count = count;
+            updateInstancingAabb();
         }
 
         // GPU-driven indirect instancing (Phase 3).
@@ -212,6 +219,10 @@ namespace visutwin::canvas
         }
 
     private:
+        // Unions the mesh AABB transformed by every per-instance matrix into a
+        // world-space _aabb override. Called by setInstancing.
+        void updateInstancingAabb();
+
         Material* _material = nullptr;
         Mesh* _mesh = nullptr;
 

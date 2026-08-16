@@ -8,8 +8,12 @@
 #include "skin.h"
 #include "skinInstance.h"
 
+#include <algorithm>
+#include <cstring>
+
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/instanceCuller.h"
+#include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
 #include "spdlog/spdlog.h"
 
@@ -26,6 +30,51 @@ namespace visutwin::canvas
     {
     }
 
+    void MeshInstance::updateInstancingAabb()
+    {
+        if (!_mesh || !_instancingData.vertexBuffer || _instancingData.count <= 0) {
+            return;
+        }
+        // Respect an AABB the app supplied itself (setCustomAabb / setUpdateAabbFunc).
+        if (!_updateAabb || _updateAabbFunc || _customAabb) {
+            return;
+        }
+
+        const auto& format = _instancingData.vertexBuffer->format();
+        const auto& storage = _instancingData.vertexBuffer->storage();
+        if (!format || storage.empty()) {
+            return;  // GPU-only buffer (zero-copy or GPU-written): nothing to read
+        }
+
+        const size_t stride = static_cast<size_t>(format->size());
+        if (stride < static_cast<size_t>(VertexFormat::INSTANCING_MATRIX_SIZE)) {
+            return;
+        }
+        const size_t available = storage.size() / stride;
+        const size_t count = std::min(static_cast<size_t>(_instancingData.count), available);
+        if (count == 0) {
+            return;
+        }
+
+        // Instance matrices are world-space transforms — the instanced vertex stage
+        // ignores the node transform — so the union is already in world space.
+        BoundingBox worldAabb;
+        for (size_t i = 0; i < count; ++i) {
+            Matrix4 instanceMatrix;
+            std::memcpy(&instanceMatrix, storage.data() + i * stride, sizeof(Matrix4));
+
+            BoundingBox instanceAabb;
+            instanceAabb.setFromTransformedAabb(_mesh->aabb(), instanceMatrix);
+            if (i == 0) {
+                worldAabb = instanceAabb;
+            } else {
+                worldAabb.add(instanceAabb);
+            }
+        }
+
+        setCustomAabb(worldAabb);
+    }
+
     void MeshInstance::enableGpuInstanceCulling(GraphicsDevice* device, float boundingSphereRadius)
     {
         if (!device) {
@@ -38,6 +87,16 @@ namespace visutwin::canvas
         }
         if (!device->supportsGpuInstanceCulling()) {
             spdlog::info("[MeshInstance] Backend does not support GPU instance culling — skipping");
+            return;
+        }
+        // The cull kernel reads and compacts fixed 80-byte instance records
+        // (matrix + color). A matrix-only 64-byte instance buffer would be
+        // misread stride-wise, so refuse it rather than corrupt the draw.
+        if (const auto& format = _instancingData.vertexBuffer->format();
+            !format || format->size() != VertexFormat::INSTANCING_MATRIX_COLOR_SIZE) {
+            spdlog::warn("[MeshInstance] GPU instance culling requires the {}-byte instance format "
+                "(VertexFormat::colorInstancingFormat); culling not enabled",
+                VertexFormat::INSTANCING_MATRIX_COLOR_SIZE);
             return;
         }
 

@@ -42,8 +42,10 @@
     }
 #endif
 
-#if VT_FEATURE_INSTANCING
-    // Instanced path: per-instance color from vertex shader overrides material baseColor.
+#if VT_FEATURE_INSTANCING_COLOR
+    // Instanced path with an 80-byte instance stride: the per-instance color from the
+    // vertex shader overrides material baseColor. A matrix-only instance buffer takes
+    // the #else branch and uses the material's base color, like any other draw.
     float alpha = rd.instanceColor.a;
     float3 baseLinear = srgbToLinear(rd.instanceColor.rgb);
 #else

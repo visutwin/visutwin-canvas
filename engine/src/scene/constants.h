@@ -88,6 +88,9 @@ namespace visutwin::canvas
     // Tonemapping modes.
     enum Tonemap
     {
+        // Sentinel for Camera::toneMapping — take the scene-wide Scene::toneMapping value.
+        // Never reaches a shader; the renderer resolves it per camera.
+        TONEMAP_INHERIT = -1,
         TONEMAP_LINEAR = 0,
         TONEMAP_FILMIC = 1,
         TONEMAP_HEJL = 2,

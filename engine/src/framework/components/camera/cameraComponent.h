@@ -174,6 +174,13 @@ namespace visutwin::canvas
 
         const Matrix4& projectionMatrix() const { return _camera->projectionMatrix(); }
 
+        // Per-camera tone mapping (upstream CameraComponent::toneMapping). Defaults to
+        // TONEMAP_INHERIT, which keeps using Scene::toneMapping. Applies to the standard
+        // forward path; the HDR camera-frame path is configured through
+        // RenderingSettings::toneMapping instead.
+        int toneMapping() const { return _camera->toneMapping(); }
+        void setToneMapping(const int value) { _camera->setToneMapping(value); }
+
         void initializeComponentData() override;
 
         // Gets the render passes the camera uses for rendering, instead of its default rendering

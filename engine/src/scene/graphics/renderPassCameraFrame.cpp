@@ -672,7 +672,11 @@ namespace visutwin::canvas
         _composePass->setDofEnabled(options.dofEnabled);
         _composePass->setSsaoTexture(options.ssaoType == SSAOTYPE_COMBINE && _ssaoPass ? _ssaoPass->ssaoTexture() : nullptr);
         _composePass->setSharpness(options.sharpness);
-        _composePass->setToneMapping(_scene ? _scene->toneMapping() : TONEMAP_LINEAR);
+        // Per-camera tone mapping wins over the scene-wide value, so the HDR path
+        // resolves it the same way the standard forward path does.
+        const int sceneToneMapping = _scene ? _scene->toneMapping() : TONEMAP_LINEAR;
+        const int cameraToneMapping = _cameraComponent ? _cameraComponent->toneMapping() : TONEMAP_INHERIT;
+        _composePass->setToneMapping(cameraToneMapping != TONEMAP_INHERIT ? cameraToneMapping : sceneToneMapping);
         _composePass->setExposure(_scene ? _scene->exposure() : 1.0f);
 
         // Single-pass DOF: pass depth texture and DOF settings to compose

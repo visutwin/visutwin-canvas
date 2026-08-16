@@ -73,4 +73,14 @@ namespace visutwin::canvas
             {VertexSemantic::SEMANTIC_ATTR8, VertexDataType::TYPE_FLOAT32, 4, 48},
         };
     }
+
+    std::shared_ptr<VertexFormat> VertexFormat::defaultInstancingFormat()
+    {
+        return std::make_shared<VertexFormat>(INSTANCING_MATRIX_SIZE, instanceMatrixElements(), true, true);
+    }
+
+    std::shared_ptr<VertexFormat> VertexFormat::colorInstancingFormat()
+    {
+        return std::make_shared<VertexFormat>(INSTANCING_MATRIX_COLOR_SIZE, instanceMatrixElements(), true, true);
+    }
 }

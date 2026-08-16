@@ -220,7 +220,8 @@ namespace visutwin::canvas
     }
 
     ProgramLibrary::ShaderVariantOptions ProgramLibrary::buildForwardVariantOptions(const Material* material,
-        const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing) const
+        const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing,
+        const bool instancing, const bool instancingColor) const
     {
         ShaderVariantOptions options{};
         options.transparentPass = transparentPass;
@@ -366,7 +367,14 @@ namespace visutwin::canvas
         options.atmosphere = (_atmosphereEnabled && options.skybox) || (variantBits & (1ull << 28)) != 0ull;
         options.pointSpotAttenuation = !options.skybox || ((variantBits & (1ull << 29)) != 0ull);
         options.multiLight = !options.skybox || ((variantBits & (1ull << 30)) != 0ull);
-        options.instancing = (variantBits & (1ull << 33)) != 0ull;
+        // Instancing follows the draw: a mesh instance with a per-instance buffer gets the
+        // instanced vertex stage (upstream infers it from MeshInstance::setInstancing the same
+        // way). Variant bit 33 stays honoured so materials that opted in explicitly keep working;
+        // for those the per-instance color is assumed, since the 80-byte layout was the only one
+        // the engine supported when that bit was the sole way to request instancing.
+        const bool materialInstancing = (variantBits & (1ull << 33)) != 0ull;
+        options.instancing = instancing || materialInstancing;
+        options.instancingColor = instancing ? instancingColor : materialInstancing;
         options.pointSize = (variantBits & (1ull << 31)) != 0ull;
         // unlit: shaderVariantKey bit 32 (used by glb-parser for KHR_materials_unlit assets) OR
         // a StandardMaterial with lighting disabled (decals, debug visualizers, holograms).
@@ -465,6 +473,7 @@ namespace visutwin::canvas
         set(ShaderFeature::ShadowCatcher, options.shadowCatcher);
         set(ShaderFeature::SkyCubemap, options.skyCubemap);
         set(ShaderFeature::Instancing, options.instancing);
+        set(ShaderFeature::InstancingColor, options.instancingColor);
         set(ShaderFeature::PlanarReflection, options.planarReflection);
         set(ShaderFeature::PlanarReflectionDepthPass,
             options.planarReflectionDepthPass);
@@ -586,14 +595,15 @@ namespace visutwin::canvas
     }
 
     std::shared_ptr<Shader> ProgramLibrary::getForwardShader(const Material* material, const bool transparentPass,
-        const bool dynamicBatch, const bool skinning, const bool morphing)
+        const bool dynamicBatch, const bool skinning, const bool morphing,
+        const bool instancing, const bool instancingColor)
     {
         if (!_device) {
             return nullptr;
         }
 
         const ShaderVariantOptions options = buildForwardVariantOptions(material, transparentPass, dynamicBatch,
-            skinning, morphing);
+            skinning, morphing, instancing, instancingColor);
         const std::string programName = resolveProgramName(options);
         if (!hasProgram(programName)) {
             spdlog::error("ProgramLibrary has no registered program '{}'.", programName);
@@ -648,7 +658,7 @@ namespace visutwin::canvas
     }
 
     std::shared_ptr<Shader> ProgramLibrary::getShadowShader(const bool dynamicBatch, const bool skinning,
-        const bool morphing)
+        const bool morphing, const bool instancing, const bool instancingColor)
     {
         if (!_device || !hasProgram("shadow")) {
             return nullptr;
@@ -665,6 +675,11 @@ namespace visutwin::canvas
         options.dynamicBatch = dynamicBatch;
         options.skinning = skinning;
         options.morphing = morphing;
+        // Instanced casters transform through the per-instance matrix in the shadow
+        // vertex stage, exactly as they do in the forward pass — without this the
+        // whole cloud would collapse onto the mesh instance's own node transform.
+        options.instancing = instancing;
+        options.instancingColor = instancing && instancingColor;
         // The shadow fragment shader needs to know whether to write moments
         // (RGBA16F EVSM) or just rely on hardware depth (PCF). Both shadow
         // shader variants are cached separately by the variant key.
@@ -682,7 +697,8 @@ namespace visutwin::canvas
     }
 
     void ProgramLibrary::bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material,
-        const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing)
+        const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing,
+        const bool instancing, const bool instancingColor)
     {
         if (!device) {
             return;
@@ -690,7 +706,8 @@ namespace visutwin::canvas
 
         auto shader = material ? material->shaderOverride() : nullptr;
         if (!shader) {
-            shader = getForwardShader(material, transparentPass, dynamicBatch, skinning, morphing);
+            shader = getForwardShader(material, transparentPass, dynamicBatch, skinning, morphing,
+                instancing, instancingColor);
         }
 
         auto blendState = material ? material->blendState() : nullptr;

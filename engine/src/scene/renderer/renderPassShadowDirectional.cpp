@@ -12,6 +12,8 @@
 #include "framework/batching/batchManager.h"
 #include "framework/batching/skinBatchInstance.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/vertexBuffer.h"
+#include "platform/graphics/vertexFormat.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "scene/graphNode.h"
@@ -57,6 +59,9 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> shadowShaderSkinned;
         std::shared_ptr<Shader> shadowShaderSkinnedMorphed;
         std::shared_ptr<Shader> shadowShaderMorphed;
+        // Same for hardware-instanced casters — one variant per instance stride.
+        std::shared_ptr<Shader> shadowShaderInstanced;
+        std::shared_ptr<Shader> shadowShaderInstancedColor;
 
         _graphicsDevice->setShader(shadowShader);
 
@@ -148,7 +153,33 @@ namespace visutwin::canvas
                     meshInstance->setVisibleThisFrame(true);
                     _graphicsDevice->setVertexBuffer(vertexBuffer, 0);
 
-                    if (meshInstance->isDynamicBatch()) {
+                    const auto& instancing = meshInstance->instancingData();
+                    const bool isInstanced = instancing.vertexBuffer && instancing.count > 0;
+
+                    if (isInstanced) {
+                        // Hardware instancing: the caster cloud transforms through the
+                        // per-instance matrices in the shadow vertex stage, so bind the
+                        // instance buffer at slot 5 and draw instanced — the same contract
+                        // the forward pass uses. Without this every instance would cast
+                        // from the mesh instance's own node transform.
+                        const bool instanceColor = instancing.vertexBuffer->format() &&
+                            instancing.vertexBuffer->format()->hasInstanceColor();
+                        auto& variant = instanceColor ? shadowShaderInstancedColor : shadowShaderInstanced;
+                        if (!variant) {
+                            variant = programLibrary->getShadowShader(false, false, false, true, instanceColor);
+                        }
+                        if (variant) {
+                            _graphicsDevice->setShader(variant);
+                        }
+                        _graphicsDevice->setVertexBuffer(instancing.vertexBuffer, 5);
+                        _graphicsDevice->setTransformUniforms(viewProjection, Matrix4::identity());
+                        _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), instancing.count, -1, true, true);
+                        // Unbind the per-instance buffer — the backends pick the instancing
+                        // vertex layout by scanning the bound slots, so a leftover binding
+                        // would follow the next, non-instanced caster into its pipeline.
+                        _graphicsDevice->setVertexBuffer(nullptr, 5);
+                        _graphicsDevice->setShader(shadowShader);
+                    } else if (meshInstance->isDynamicBatch()) {
                         // Dynamic batch: use dynamic batch shadow shader + palette.
                         if (shadowShaderDynBatch) {
                             _graphicsDevice->setShader(shadowShaderDynBatch);

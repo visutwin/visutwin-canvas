@@ -26,7 +26,9 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     rd.worldTangent = float4(0.0);
     rd.uv0 = v.uv0;
     rd.uv1 = v.uv1;
+#if VT_FEATURE_INSTANCING_COLOR
     rd.instanceColor = v.instanceColor;
+#endif
 #if VT_FEATURE_POINT_SIZE
     rd.pointSize = 3.0;
 #endif

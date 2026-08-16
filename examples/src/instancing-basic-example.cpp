@@ -1,24 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Port of upstream's graphics/instancing-basic: hardware instancing with a
+// StandardMaterial — 1000 randomly placed, randomly scaled cylinders drawn in a
+// single call from per-instance model matrices, lit by the helipad env atlas
+// alone. The scene matches upstream value for value.
 //
-// Demonstrates hardware instancing with a StandardMaterial: 1000 randomly placed
-// cylinders rendered in a single draw call using per-instance model matrices and
-// diffuse colors packed into a vertex buffer at slot 5.
+// The only deliberate difference is the fixed RNG seed, so the instance layout is
+// reproducible for screenshot comparison; upstream reseeds from Math.random().
 //
+#ifdef VISUTWIN_HAS_METAL
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #define MTK_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION
+#endif
 
 #include <SDL3/SDL.h>
+#ifdef VISUTWIN_HAS_METAL
 #include <QuartzCore/QuartzCore.hpp>
+#endif
 
 #include <cmath>
 #include <cstring>
-#include <iostream>
 #include <memory>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "framework/engine.h"
@@ -29,8 +36,10 @@
 #include "framework/components/camera/cameraComponentSystem.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
+#include "framework/entity.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/vertexFormat.h"
+#include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 
 constexpr int WINDOW_WIDTH = 900;
@@ -72,40 +81,52 @@ int main()
 
     spdlog::info("*** Instancing-Basic Example ***");
 
+#ifdef VISUTWIN_HAS_METAL
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+#endif
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
         "Instancing Basic",
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+#ifdef VISUTWIN_HAS_VULKAN
+        | SDL_WINDOW_VULKAN
+#endif
     );
     if (!window) {
-        std::cerr << "SDL Window Creation Failed" << std::endl;
+        spdlog::error("SDL Window Creation Failed");
         shutdown();
         return -1;
     }
 
     renderer = SDL_CreateRenderer(window, nullptr);
     if (!renderer) {
-        std::cerr << "SDL Renderer Creation Failed" << std::endl;
+        spdlog::error("SDL Renderer Creation Failed");
         shutdown();
         return -1;
     }
     SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
 
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
+    void* swapchain = nullptr;
+#ifdef VISUTWIN_HAS_METAL
+    swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
     if (!swapchain) {
-        std::cerr << "Unable to get render Metal layer" << std::endl;
+        spdlog::error("Unable to get render Metal layer");
         shutdown();
         return -1;
     }
+#endif
 
-    auto device = createGraphicsDevice(
-        GraphicsDeviceOptions{.swapChain = swapchain, .window = window}
-    );
+    GraphicsDeviceOptions deviceOptions;
+#ifdef VISUTWIN_HAS_VULKAN
+    deviceOptions.backend = Backend::Vulkan;
+#endif
+    deviceOptions.swapChain = swapchain;
+    deviceOptions.window = window;
+    auto device = createGraphicsDevice(deviceOptions);
     if (!device) {
-        std::cerr << "Unable to create graphics device" << std::endl;
+        spdlog::error("Unable to create graphics device");
         shutdown();
         return -1;
     }
@@ -141,22 +162,25 @@ int main()
     scene->setEnvAtlas(std::get<Texture*>(*helipadResource));
 
     // Create an Entity with a camera component
+    // JS: camera.addComponent('camera', { toneMapping: TONEMAP_ACES })
     auto* camera = new Entity();
     camera->setEngine(engine.get());
-    camera->addComponent<CameraComponent>();
+    auto* cameraComp = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
+    if (cameraComp) {
+        cameraComp->setToneMapping(TONEMAP_ACES);
+    }
     engine->root()->addChild(camera);
 
     // Move the camera back to see the cylinders
     camera->setPosition(0.0f, 0.0f, 10.0f);
 
-    // Create standard material and enable instancing on it
+    // Create standard material — instancing needs nothing from the material, the
+    // instanced shader variant follows the mesh instance's per-instance buffer.
     // JS: material.gloss = 0.6; material.metalness = 0.7; material.useMetalness = true;
     auto material = std::make_shared<StandardMaterial>();
     material->setGloss(0.6f);
     material->setMetalness(0.7f);
     material->setUseMetalness(true);
-    // Enable instancing shader variant (bit 33)
-    material->setShaderVariantKey(material->shaderVariantKey() | (1ull << 33));
 
     // Create a Entity with a cylinder render component and the instancing material
     auto* cylinder = new Entity();
@@ -174,11 +198,10 @@ int main()
 
     // ── Build per-instance data buffer ─────────────────────────────
     //
-    // GPU InstanceData layout (must match common.metal):
-    //   float4x4 modelMatrix   (64 bytes, column-major)
-    //   float4   diffuseColor  (16 bytes, RGBA)
-    //   ─────────────────────────────────  80 bytes total
-    constexpr int kInstanceDataBytes = 80;
+    // JS: const matrices = new Float32Array(instanceCount * 16)
+    // One column-major float4x4 model matrix per instance; base color comes from the
+    // material, as in any other draw (VertexFormat::defaultInstancingFormat below).
+    constexpr int kInstanceDataBytes = VertexFormat::INSTANCING_MATRIX_SIZE;
 
     std::vector<uint8_t> instanceBytes(static_cast<size_t>(instanceCount) * kInstanceDataBytes);
 
@@ -212,18 +235,14 @@ int main()
         // Build TRS matrix
         const auto matrix = Matrix4::trs(pos, rot, scl);
 
-        // Pack 64 bytes of column-major matrix data
+        // Copy matrix elements into the instance buffer (JS copies matrix.data)
         auto* dst = instanceBytes.data() + static_cast<size_t>(i) * kInstanceDataBytes;
-        std::memcpy(dst, &matrix, 64);
-
-        // Pack diffuse color (RGBA) — white, overrides material diffuse per-instance
-        const float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-        std::memcpy(dst + 64, color, 16);
+        std::memcpy(dst, &matrix, kInstanceDataBytes);
     }
 
-    // Create static vertex buffer containing the instance data
-    auto instanceFormat = std::make_shared<VertexFormat>(
-        kInstanceDataBytes, VertexFormat::instanceMatrixElements(), true, true);
+    // Create static vertex buffer containing the matrices
+    // JS: VertexFormat.getDefaultInstancingFormat(app.graphicsDevice)
+    auto instanceFormat = VertexFormat::defaultInstancingFormat();
     VertexBufferOptions vbOptions;
     vbOptions.data = std::move(instanceBytes);
     auto instanceBuffer = graphicsDevice->createVertexBuffer(instanceFormat, instanceCount, vbOptions);
@@ -270,13 +289,8 @@ int main()
             8.0f * std::cos(angle)
         );
 
-        // Look at origin — use setLocalEulerAngles to orient toward (0,0,0)
-        // Compute direction from camera to origin
-        const float cx = 8.0f * std::sin(angle);
-        const float cz = 8.0f * std::cos(angle);
-        // atan2 gives the Y rotation needed to face origin from (cx, 0, cz)
-        const float yaw = std::atan2(cx, cz) * (180.0f / 3.14159265358979323846f);
-        camera->setLocalEulerAngles(0.0f, yaw, 0.0f);
+        // JS: camera.lookAt(Vec3.ZERO)
+        camera->lookAt(Vector3(0.0f, 0.0f, 0.0f));
 
         engine->update(dt);
         engine->render();

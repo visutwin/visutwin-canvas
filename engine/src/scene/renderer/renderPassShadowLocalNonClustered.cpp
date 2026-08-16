@@ -13,6 +13,8 @@
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/vertexBuffer.h"
+#include "platform/graphics/vertexFormat.h"
 #include <scene/graphNode.h>
 #include "scene/morph.h"
 #include "scene/shader-lib/programLibrary.h"
@@ -64,6 +66,9 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> shadowShaderSkinned;
         std::shared_ptr<Shader> shadowShaderSkinnedMorphed;
         std::shared_ptr<Shader> shadowShaderMorphed;
+        // Hardware-instanced casters — one variant per instance stride.
+        std::shared_ptr<Shader> shadowShaderInstanced;
+        std::shared_ptr<Shader> shadowShaderInstancedColor;
 
         _graphicsDevice->setShader(shadowShader);
 
@@ -123,7 +128,28 @@ namespace visutwin::canvas
                 meshInstance->setVisibleThisFrame(true);
                 _graphicsDevice->setVertexBuffer(vertexBuffer, 0);
 
-                if (meshInstance->isDynamicBatch()) {
+                const auto& instancing = meshInstance->instancingData();
+                const bool isInstanced = instancing.vertexBuffer && instancing.count > 0;
+
+                if (isInstanced) {
+                    // Hardware instancing: transform through the per-instance matrices,
+                    // matching the forward pass (see RenderPassShadowDirectional).
+                    const bool instanceColor = instancing.vertexBuffer->format() &&
+                        instancing.vertexBuffer->format()->hasInstanceColor();
+                    auto& variant = instanceColor ? shadowShaderInstancedColor : shadowShaderInstanced;
+                    if (!variant) {
+                        variant = programLibrary->getShadowShader(false, false, false, true, instanceColor);
+                    }
+                    if (variant) {
+                        _graphicsDevice->setShader(variant);
+                    }
+                    _graphicsDevice->setVertexBuffer(instancing.vertexBuffer, 5);
+                    _graphicsDevice->setTransformUniforms(viewProjection, Matrix4::identity());
+                    _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), instancing.count, -1, true, true);
+                    // Unbind — the backends detect instancing by scanning bound slots.
+                    _graphicsDevice->setVertexBuffer(nullptr, 5);
+                    _graphicsDevice->setShader(shadowShader);
+                } else if (meshInstance->isDynamicBatch()) {
                     if (shadowShaderDynBatch) {
                         _graphicsDevice->setShader(shadowShaderDynBatch);
                     }

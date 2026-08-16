@@ -6,9 +6,12 @@
 #include "graphNode.h"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
+#include "core/math/matrix4.h"
 #include "core/math/quaternion.h"
+#include "core/math/vector4.h"
 
 namespace visutwin::canvas
 {
@@ -91,6 +94,43 @@ namespace visutwin::canvas
         if (!_dirtyLocal) {
             dirtifyLocal();
         }
+    }
+
+    void GraphNode::lookAt(const Vector3& target, const Vector3& up)
+    {
+        // The node's -Z looks at the target, so its +Z axis points back from it.
+        const Vector3 back = target - position();
+        if (back.lengthSquared() < 1e-12f) {
+            return;  // degenerate: node sits on the target, keep the current rotation
+        }
+        const Vector3 zAxis = (-back).normalized();
+
+        // Roll reference. When up is parallel to the view direction the cross product
+        // collapses, so fall back to an axis that is guaranteed not to be parallel.
+        Vector3 upAxis = up;
+        Vector3 xAxis = upAxis.cross(zAxis);
+        if (xAxis.lengthSquared() < 1e-12f) {
+            upAxis = (std::abs(zAxis.getY()) > 0.999f) ? Vector3(0.0f, 0.0f, 1.0f)
+                                                       : Vector3(0.0f, 1.0f, 0.0f);
+            xAxis = upAxis.cross(zAxis);
+        }
+        xAxis = xAxis.normalized();
+        const Vector3 yAxis = zAxis.cross(xAxis);
+
+        // Columns are the basis vectors — the convention Quaternion::fromMatrix4 reads.
+        const Matrix4 basis(
+            Vector4(xAxis.getX(), xAxis.getY(), xAxis.getZ(), 0.0f),
+            Vector4(yAxis.getX(), yAxis.getY(), yAxis.getZ(), 0.0f),
+            Vector4(zAxis.getX(), zAxis.getY(), zAxis.getZ(), 0.0f),
+            Vector4(0.0f, 0.0f, 0.0f, 1.0f)
+        );
+        setRotation(Quaternion::fromMatrix4(basis));
+    }
+
+    void GraphNode::lookAt(const float tx, const float ty, const float tz,
+        const float ux, const float uy, const float uz)
+    {
+        lookAt(Vector3(tx, ty, tz), Vector3(ux, uy, uz));
     }
 
     void GraphNode::setLocalRotation(const Quaternion& rotation)

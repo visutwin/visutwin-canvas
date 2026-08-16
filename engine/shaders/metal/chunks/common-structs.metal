@@ -19,14 +19,18 @@ struct VertexData {
     float  boneIndex [[attribute(5)]];
 #endif
 #if VT_FEATURE_INSTANCING
-    // per-instance model matrix as 4 column vectors + diffuse color.
-    // Per-instance model matrix as 4 column vectors + diffuse color.
+    // Per-instance model matrix as 4 column vectors, optionally followed by a diffuse color.
     // bufferIndex=5, stepFunction=perInstance via vertex descriptor.
     float4 instance_line1 [[attribute(6)]];   // model matrix column 0
     float4 instance_line2 [[attribute(7)]];   // model matrix column 1
     float4 instance_line3 [[attribute(8)]];   // model matrix column 2
     float4 instance_line4 [[attribute(9)]];   // model matrix column 3
+#if VT_FEATURE_INSTANCING_COLOR
+    // Only present with the 80-byte instance stride. The matrix-only 64-byte stride
+    // (upstream's default instancing format) leaves base color to the material, and the
+    // vertex descriptor declares no attribute(10) for it.
     float4 instanceColor  [[attribute(10)]];  // sRGB diffuse color
+#endif
 #endif
 #if VT_FEATURE_SKINNING
     // GPU skinning: 4-bone weighted blend. Interleaved after uv1 in the 88-byte
@@ -49,7 +53,7 @@ struct RasterizerData {
 #if VT_FEATURE_VERTEX_COLORS
     float4 vertexColor;
 #endif
-#if VT_FEATURE_INSTANCING
+#if VT_FEATURE_INSTANCING_COLOR
     float4 instanceColor;
 #endif
 #if VT_FEATURE_POINT_SIZE
@@ -120,10 +124,14 @@ struct MaterialData {
 };
 
 /// CPU-side packing layout for hardware instancing (VT_FEATURE_INSTANCING).
-/// Each instance carries its own model transform and base color.
 /// Data is fed to the vertex shader via vertex descriptor layout(5) with perInstance step function.
 /// The shader reads it through [[stage_in]] attributes (instance_line1..4 + instanceColor).
-/// Mirrors hardware instancing layout + per-instance color.
+///
+/// Two strides are supported, chosen by the VertexFormat the app builds:
+///   64 bytes — model matrix only (VertexFormat::defaultInstancingFormat, upstream's default).
+///              Base color comes from the material, as it does for non-instanced draws.
+///   80 bytes — model matrix + per-instance sRGB base color that replaces the material's
+///              (VertexFormat::colorInstancingFormat), gated by VT_FEATURE_INSTANCING_COLOR.
 struct InstanceData {
     float4x4 modelMatrix;    // 64 bytes — world transform for this instance
     float4   diffuseColor;   // 16 bytes — sRGB base color (transfer-function mapped)

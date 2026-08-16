@@ -35,8 +35,10 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     rd.uv0 = v.uv0;
     rd.uv1 = v.uv1;
 
+#if VT_FEATURE_INSTANCING_COLOR
     // Pass per-instance color (sRGB) to the fragment shader.
     rd.instanceColor = v.instanceColor;
+#endif
 
 #if VT_FEATURE_POINT_SIZE
     rd.pointSize = 3.0;

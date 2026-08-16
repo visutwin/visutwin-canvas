@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -96,6 +97,27 @@ namespace visutwin::canvas
         static std::vector<VertexElement> pointElements();
         static std::vector<VertexElement> skinnedElements();
         static std::vector<VertexElement> instanceMatrixElements();
+
+        // Per-instance buffer strides. Both carry a column-major float4x4 model matrix;
+        // the color variant appends a float4 sRGB base color that overrides the material's,
+        // which the shader picks up through VT_FEATURE_INSTANCING_COLOR.
+        static constexpr int INSTANCING_MATRIX_SIZE = 64;
+        static constexpr int INSTANCING_MATRIX_COLOR_SIZE = 80;
+
+        /**
+         * Matrix-only per-instance format (upstream getDefaultInstancingFormat): 64 bytes,
+         * a column-major float4x4 model matrix. Instances share the material's base color.
+         */
+        static std::shared_ptr<VertexFormat> defaultInstancingFormat();
+
+        /**
+         * Per-instance format carrying a model matrix plus a float4 sRGB base color that
+         * replaces the material's per draw: 80 bytes.
+         */
+        static std::shared_ptr<VertexFormat> colorInstancingFormat();
+
+        // True when this format carries the trailing per-instance color (80-byte stride).
+        bool hasInstanceColor() const { return _instancing && _size >= INSTANCING_MATRIX_COLOR_SIZE; }
 
     private:
         int _verticesByteSize = 0;
