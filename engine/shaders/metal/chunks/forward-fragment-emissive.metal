@@ -6,3 +6,10 @@
         emissiveLinear *= srgbToLinear(emissiveTexture.sample(defaultSampler, uvEmissive).rgb);
     }
 #endif
+#if VT_FEATURE_VERTEX_COLORS
+    // upstream `emissiveVertexColor`: the vertex color tints the emissive lane
+    // instead of the diffuse one (bit 23; bit 28 is what took it off diffuse).
+    if ((material.flags & (1u << 23)) != 0u) {
+        emissiveLinear *= saturate(rd.vertexColor.rgb);
+    }
+#endif

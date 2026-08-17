@@ -286,14 +286,13 @@ namespace visutwin::canvas
 
             if (ls.isOmni) {
                 // Omni: bind cubemap texture, pack omni-specific params.
-                // The shader-side depth bias must be very small because perspective
-                // depth is highly compressed near 1.0 for cubemap shadow maps.
-                // The primary self-shadowing prevention is hardware polygon offset
-                // (setDepthBias in the shadow render pass), so the shader bias is
-                // only a secondary guard.  Use a fixed small value (0.001) rather
-                // than the light's shadowBias which is meant for polygon offset
-                // (scaled by ×1000 in the render pass).
-                constexpr float omniShaderBias = 0.001f;
+                // RELATIVE bias — a fraction of the receiver distance, applied by the
+                // shader BEFORE the perspective projection. Perspective depth for a
+                // cubemap shadow is crushed against 1.0 (with near 0.01 / far 30,
+                // half a world unit of separation is 8e-5 of stored depth), so the
+                // old fixed post-projection offset of 0.001 was more than ten times
+                // the gap it was meant to preserve and erased omni shadows outright.
+                constexpr float omniShaderBias = 0.002f;
                 const float farClip = ls.viewProjection.getElement(0, 0);
                 if (idx == 0) {
                     _omniShadowCube0 = ls.shadowMap;

@@ -674,8 +674,12 @@ float sampleOmniShadow(int slot, vec3 worldPos, vec3 lightPos) {
             : getShadowPCSSOmni(omniShadowCube1, dir, pc.x, pc.y, pc.z, bias);
     } else {
         float d = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
-        float denom = (farV - nearV) * d;
-        float compareValue = farV * (d - nearV) / max(denom, 1e-6) - bias;
+        // Relative bias applied before the projection — see the matching comment in
+        // forward-fragment-lights.metal: perspective depth is crushed against 1.0 at
+        // these ranges, so a fixed post-projection offset swallows real shadows.
+        float dBiased = d * (1.0 - bias);
+        float denom = (farV - nearV) * dBiased;
+        float compareValue = farV * (dBiased - nearV) / max(denom, 1e-6);
 
         float occluder = (slot == 0) ? texture(omniShadowCube0, dir).r
                                      : texture(omniShadowCube1, dir).r;
@@ -1384,7 +1388,13 @@ void main() {
         ? texture(baseColorMap, uvBase) : vec4(1.0);
     // fragColor is vec4(1) except for the vertex-color / point-cloud vertex
     // variants, which feed the mesh's per-vertex color through.
-    vec4 albedo = material.baseColor * baseSample * fragColor;
+    // Upstream splits this into `diffuseVertexColor` / `emissiveVertexColor`:
+    // flag bit 28 takes the color OFF the diffuse lane (so a zero flags word keeps
+    // the old behaviour) and bit 23 routes it to emissive instead. Alpha always
+    // modulates opacity.
+    bool diffuseVertexColorOff = (material.flags & (1u << 28)) != 0u;
+    vec4 vertexTint = diffuseVertexColorOff ? vec4(1.0, 1.0, 1.0, fragColor.a) : fragColor;
+    vec4 albedo = material.baseColor * baseSample * vertexTint;
 
     // DEBUGPASS_LIGHTING (upstream debug-process-frontend.js): neutralize albedo
     // before it feeds diffuseAlbedo/F0 so the lit result shows the lighting
@@ -1442,7 +1452,17 @@ void main() {
     // gamma on the tinted color (mirrors Metal's unlit point shader).
     if (vtFeatureEnabled(VT_FEATURE_UNLIT_BIT) ||
         dot(fragWorldNormal, fragWorldNormal) < 1e-6) {
-        vec3 unlit = albedo.rgb * lighting.cameraPosExposure.w;
+        // Emissive still contributes here: upstream reaches this path through
+        // `useLighting = false`, which drops the lights but keeps the emissive
+        // lane (that is how its decal material draws at all).
+        vec3 unlitEmissive = material.emissiveColor.rgb;
+        if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
+            unlitEmissive *= texture(emissiveMap, uvEmissive).rgb;
+        }
+        if ((material.flags & (1u << 23)) != 0u) {
+            unlitEmissive *= clamp(fragColor.rgb, 0.0, 1.0);
+        }
+        vec3 unlit = (albedo.rgb + unlitEmissive) * lighting.cameraPosExposure.w;
         unlit = applyToneMap(unlit);
         outColor = vec4(pow(max(unlit, vec3(0.0)), vec3(1.0 / 2.2)), albedo.a);
         return;
@@ -2093,6 +2113,10 @@ void main() {
     vec3 emissive = material.emissiveColor.rgb;
     if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
         emissive *= texture(emissiveMap, uvEmissive).rgb;
+    }
+    // upstream `emissiveVertexColor` (bit 23): the vertex color tints emissive.
+    if ((material.flags & (1u << 23)) != 0u) {
+        emissive *= clamp(fragColor.rgb, 0.0, 1.0);
     }
     color += emissive;
 

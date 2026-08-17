@@ -64,7 +64,13 @@
 #if VT_FEATURE_VERTEX_COLORS
     // Modulate base color by interpolated vertex color (already linearized in VS).
     // upstream convention: RGB modulates diffuse, A modulates opacity.
-    baseLinear *= saturate(rd.vertexColor.rgb);
+    // Upstream splits this across `diffuseVertexColor` and `emissiveVertexColor`;
+    // here the diffuse lane is on by default (bit 28 turns it OFF, so existing
+    // materials keep their behaviour) and bit 23 routes the color to emissive
+    // instead — see forward-fragment-emissive.
+    if ((material.flags & (1u << 28)) == 0u) {
+        baseLinear *= saturate(rd.vertexColor.rgb);
+    }
     alpha *= saturate(rd.vertexColor.a);
 #endif
 
@@ -127,7 +133,23 @@
 #if VT_FEATURE_UNLIT
     // KHR_materials_unlit: output base color directly, skip all PBR lighting.
     {
-        const float3 unlitColor = baseLinear;
+        // Emissive still contributes — upstream reaches this path through
+        // `useLighting = false`, which drops the lights but keeps the emissive
+        // lane (that is how its decal material draws at all: black diffuse plus a
+        // bright emissive map). Recomputed here rather than deferred to
+        // forward-fragment-emissive, which this early return never reaches.
+        float3 unlitEmissive = max(material.emissiveColor.rgb, float3(0.0));
+#if VT_FEATURE_EMISSIVE_MAP
+        if (emissiveTexture.get_width() > 0 && emissiveTexture.get_height() > 0) {
+            unlitEmissive *= srgbToLinear(emissiveTexture.sample(defaultSampler, uvEmissive).rgb);
+        }
+#endif
+#if VT_FEATURE_VERTEX_COLORS
+        if ((material.flags & (1u << 23)) != 0u) {
+            unlitEmissive *= saturate(rd.vertexColor.rgb);
+        }
+#endif
+        const float3 unlitColor = baseLinear + unlitEmissive;
         if ((lighting.flagsAndPad.x & (1u << 5)) != 0u) {
             return float4(max(unlitColor, float3(0.0)), alpha);
         }

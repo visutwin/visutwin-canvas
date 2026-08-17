@@ -246,6 +246,12 @@ namespace visutwin::canvas
         }
         if (_displacementMap)  uniforms.flags |= (1u << 24);  // bit 24: hasDisplacementMap
 
+        // Vertex color routing (upstream diffuseVertexColor / emissiveVertexColor).
+        // Bit 28 is the DISABLE for the diffuse lane so that a zero flags word keeps
+        // the long-standing "vertex colors tint diffuse" behaviour.
+        if (_emissiveVertexColor)  uniforms.flags |= (1u << 23);
+        if (!_diffuseVertexColor)  uniforms.flags |= (1u << 28);
+
         // bits 25-27: opacity dither matrix (DitherMode). Which matrix is a runtime value rather
         // than a shader variant, so changing it costs no recompile — VT_FEATURE_OPACITY_DITHER
         // only gates whether the dither block exists at all.

@@ -104,6 +104,16 @@ namespace visutwin::canvas
         Texture* emissiveMap() const { return _emissiveMap; }
         void setEmissiveMap(Texture* texture) { _emissiveMap = texture; _dirtyShader = true; }
 
+        // --- Vertex color routing (upstream diffuseVertexColor / emissiveVertexColor) ---
+        // A mesh's vertex colors modulate the diffuse lane by default, which is how
+        // every vertex-colored material in this engine behaved before these existed.
+        // Route them to emissive instead for additive stamps like decals, where the
+        // color has to survive an unlit, black-diffuse material.
+        bool diffuseVertexColor() const { return _diffuseVertexColor; }
+        void setDiffuseVertexColor(const bool value) { _diffuseVertexColor = value; }
+        bool emissiveVertexColor() const { return _emissiveVertexColor; }
+        void setEmissiveVertexColor(const bool value) { _emissiveVertexColor = value; }
+
         // --- Normal ---
         Texture* normalMap() const { return _normalMap; }
         void setNormalMap(Texture* texture) { _normalMap = texture; _dirtyShader = true; }
@@ -310,6 +320,8 @@ namespace visutwin::canvas
 
         Color _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);
         float _emissiveIntensity = 1.0f;
+        bool _diffuseVertexColor = true;
+        bool _emissiveVertexColor = false;
         Texture* _emissiveMap = nullptr;
 
         Texture* _normalMap = nullptr;

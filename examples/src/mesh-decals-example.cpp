@@ -69,16 +69,6 @@ using namespace visutwin::canvas;
 
 const std::string rootPath = ASSET_DIR;
 
-const auto helipad = std::make_unique<Asset>(
-    "helipad-env-atlas",
-    AssetType::TEXTURE,
-    rootPath + "/cubemaps/helipad-env-atlas.png",
-    AssetData{
-        .type = TextureType::TEXTURETYPE_RGBP,
-        .mipmaps = false
-    }
-);
-
 const auto heart = std::make_unique<Asset>(
     "heart",
     AssetType::TEXTURE,
@@ -228,16 +218,10 @@ int main()
     engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
     engine->start();
 
+    // Ambient only — upstream lights this scene with a dim omni and nothing else,
+    // and the near-black ground is what makes the emissive decals read as glowing.
     auto scene = engine->scene();
-    scene->setSkyboxMip(2);
-    scene->setExposure(0.6f);
     scene->setAmbientLight(0.2f, 0.2f, 0.2f);
-
-    if (const auto envResource = helipad->resource()) {
-        scene->setEnvAtlas(std::get<Texture*>(*envResource));
-    } else {
-        spdlog::warn("Helipad env atlas missing — scene will be flat-lit");
-    }
 
     Texture* heartTexture = nullptr;
     if (const auto heartResource = heart->resource()) {
@@ -253,7 +237,7 @@ int main()
     planeMaterial->setGloss(0.6f);
     planeMaterial->setMetalness(0.5f);
     planeMaterial->setUseMetalness(true);
-    planeMaterial->setDiffuse(Color(0.55f, 0.55f, 0.6f, 1.0f));
+    planeMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
 
     auto* plane = new Entity();
     plane->setEngine(engine.get());
@@ -266,12 +250,10 @@ int main()
 
     // ── Bouncing ball ───────────────────────────────────────────────────
     auto* ballMaterial = new StandardMaterial();
-    ballMaterial->setDiffuse(Color(0.9f, 0.4f, 0.4f, 1.0f));
-    ballMaterial->setGloss(0.4f);
+    ballMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
 
     auto* ball = new Entity();
     ball->setEngine(engine.get());
-    ball->setLocalScale(0.5f, 0.5f, 0.5f);
     if (auto* rc = static_cast<RenderComponent*>(ball->addComponent<RenderComponent>())) {
         rc->setMaterial(ballMaterial);
         rc->setType("sphere");
@@ -283,9 +265,12 @@ int main()
     light->setEngine(engine.get());
     if (auto* lc = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
         lc->setType(LightType::LIGHTTYPE_OMNI);
-        lc->setColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
-        lc->setIntensity(2.0f);
+        lc->setColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
+        lc->setIntensity(2.5f);
         lc->setRange(30.0f);
+        lc->setCastShadows(true);
+        lc->setShadowBias(0.1f);
+        lc->setShadowNormalBias(0.2f);
     }
     light->setLocalPosition(0.0f, 8.0f, 0.0f);
     engine->root()->addChild(light);
@@ -336,17 +321,21 @@ int main()
     decalMesh->setAabb(BoundingBox(Vector3(0, 0.05f, 0), Vector3(12, 0.5f, 12)));
 
     // ── Decal material ──────────────────────────────────────────────────
-    // The upstream reference enables emissiveVertexColor + opacityMap to use the
-    // emissive lane. visutwin-canvas doesn't yet have an emissiveVertexColor route,
-    // so we use the diffuse lane via UNLIT (skips PBR lighting entirely) + the
-    // texture's alpha for cutout. Result is visually equivalent: heart silhouettes
-    // tinted by per-vertex color, accumulated additively.
+    // Black diffuse plus a bright emissive heart, tinted per vertex — the decals
+    // are pure emission, which is what makes them glow against the dark ground.
+    // DEVIATION: upstream takes the cutout from a separate `opacityMap`; this port
+    // has no opacity-map binding, so the same texture rides the base-color slot for
+    // its alpha alone (its RGB is multiplied by the black diffuse and contributes
+    // nothing).
     auto decalMaterial = std::make_shared<StandardMaterial>();
     decalMaterial->setUseLighting(false);                  // → VT_FEATURE_UNLIT
-    decalMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
+    decalMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
     decalMaterial->setDiffuseMap(heartTexture);            // alpha channel = cutout
-    // Vertex colors modulate baseColor in the unlit path (forward-fragment-head.metal:179).
-    decalMaterial->setShaderVariantKey(decalMaterial->shaderVariantKey() | (1ull << 21));
+    decalMaterial->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
+    decalMaterial->setEmissiveMap(heartTexture);
+    decalMaterial->setEmissiveIntensity(10.0f);            // bright enough to bloom on HDR displays
+    decalMaterial->setDiffuseVertexColor(false);
+    decalMaterial->setEmissiveVertexColor(true);
     decalMaterial->setTransparent(true);                   // route through transparent sublayer
 
     auto blend = std::make_shared<BlendState>(BlendState::additiveBlend());  // BLEND_ADDITIVEALPHA
@@ -386,6 +375,7 @@ int main()
         if (cc->camera()) {
             cc->camera()->setClearColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
         }
+        cc->setToneMapping(TONEMAP_ACES);
     }
     camera->setPosition(20.0f, 10.0f, 20.0f);
     engine->root()->addChild(camera);
@@ -422,7 +412,6 @@ int main()
     float t = 0.0f;
     int decalSlot = 0;
     float fadeAccumulator = 0.0f;
-    float cameraOrbit = 0.0f;
 
     spdlog::info("Mesh-Decals: bouncing ball stamps colored hearts on the ground plane. ESC to exit.");
 
@@ -481,16 +470,12 @@ int main()
             uploadVertexBuffer();
         }
 
-        // Orbit camera around origin.
-        cameraOrbit += dt * 0.3f;
+        // Orbit camera around the origin, on the same clock as the ball.
         camera->setLocalPosition(
-            20.0f * std::sin(cameraOrbit),
+            20.0f * std::sin(t * 0.3f),
             10.0f,
-            20.0f * std::cos(cameraOrbit));
-        const float yawDeg =
-            std::atan2(20.0f * std::sin(cameraOrbit), 20.0f * std::cos(cameraOrbit)) *
-            (180.0f / 3.14159265f);
-        camera->setLocalEulerAngles(-25.0f, yawDeg, 0.0f);
+            20.0f * std::cos(t * 0.3f));
+        camera->lookAt(Vector3(0.0f, 0.0f, 0.0f));
 
         engine->update(dt);
         engine->render();

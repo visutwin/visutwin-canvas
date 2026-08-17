@@ -1612,13 +1612,15 @@ namespace visutwin::canvas
             const ShadowParams::LocalShadow& ls = shadowParams.localShadows[i];
             if (ls.isOmni) {
                 // Omni: bind cubemap, pack [near, far, bias, intensity].  Far is
-                // stashed in VP[0][0] by the renderer; the shader bias is a fixed
-                // small secondary guard (polygon offset is the primary defence).
+                // stashed in VP[0][0] by the renderer; the bias is RELATIVE (a
+                // fraction of the receiver distance, applied before the projection)
+                // because perspective depth is crushed against 1.0 at cubemap shadow
+                // ranges — mirrors MetalUniformBinder.
                 Texture*& cube = (i == 0) ? _omniShadowCube0 : _omniShadowCube1;
                 cube = ls.shadowMap;
                 omniDst[0] = 0.01f;
                 omniDst[1] = ls.viewProjection.getElement(0, 0);
-                omniDst[2] = 0.001f;
+                omniDst[2] = 0.002f;
                 omniDst[3] = ls.intensity;
                 std::memset(matDst, 0, 16 * sizeof(float));
             } else {

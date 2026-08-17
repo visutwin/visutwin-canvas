@@ -337,7 +337,11 @@ namespace visutwin::canvas
         } else {
             options.lightmap = (variantBits & (1ull << 34)) != 0ull;
         }
-        options.vertexColors = (variantBits & (1ull << 21)) != 0ull;
+        // Vertex colors stay an explicit opt-in (bit 21) because the material cannot
+        // see whether the mesh even carries a color stream — but asking for
+        // emissiveVertexColor is that opt-in, and would otherwise silently do nothing.
+        options.vertexColors = (variantBits & (1ull << 21)) != 0ull ||
+            (stdMat && stdMat->emissiveVertexColor());
         // Skinning/morphing are per-draw flags set by the renderer from
         // MeshInstance::skinInstance()/morphInstance(); the variant-key bits
         // remain as a material-level override.

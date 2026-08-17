@@ -281,8 +281,16 @@
             // The frustum matrix uses OpenGL convention (z_ndc in [-1,1]),
             // shadow vertex shader remaps: clip.z = 0.5 * (clip.z + clip.w) → [0,1].
             // Resulting stored depth = far * (d - near) / ((far - near) * d).
-            const float denom = (far_val - near_val) * d;
-            const float compareValue = far_val * (d - near_val) / max(denom, 1e-6) - bias;
+            //
+            // The bias is RELATIVE (a fraction of the distance), applied before the
+            // projection rather than as an offset after it. Perspective depth is
+            // crushed against 1.0 out here — with near 0.01 and far 30, half a world
+            // unit of separation is 8e-5 of stored depth, so any fixed offset large
+            // enough to stop acne also swallows every real shadow. Scaling the
+            // distance keeps the bias proportionate at any range.
+            const float dBiased = d * (1.0 - bias);
+            const float denom = (far_val - near_val) * dBiased;
+            const float compareValue = far_val * (dBiased - near_val) / max(denom, 1e-6);
 
             constexpr sampler omniShadowSampler(coord::normalized, filter::linear,
                                                 compare_func::less_equal, address::clamp_to_edge);
