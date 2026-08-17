@@ -992,7 +992,7 @@ namespace visutwin::canvas
                 return _whiteArrayImageView;
             };
 
-            std::array<VkDescriptorImageInfo, 17> sceneInfos{};
+            std::array<VkDescriptorImageInfo, 21> sceneInfos{};
             sceneInfos[0].sampler = _envSampler;
             sceneInfos[0].imageView = resolveView(_envAtlasTexture);
 
@@ -1043,6 +1043,13 @@ namespace visutwin::canvas
                 ? _whiteImageView : resolveView(reflectionMap());
             sceneInfos[16].imageView = isActiveColorAttachment(reflectionDepthMap())
                 ? _whiteImageView : resolveView(reflectionDepthMap());
+            // Bindings 17-20: light cookies. The white fallback is the identity
+            // mask, so an unbound slot leaves its light unmodulated — matching
+            // the Metal path, where the cookie branch is simply not compiled in.
+            sceneInfos[17].imageView = resolveView(_cookieTexture2D0);
+            sceneInfos[18].imageView = resolveView(_cookieTexture2D1);
+            sceneInfos[19].imageView = resolveCubeView(_cookieTextureCube0);
+            sceneInfos[20].imageView = resolveCubeView(_cookieTextureCube1);
             for (auto& sceneInfo : sceneInfos) {
                 sceneInfo.imageLayout =
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1615,13 +1622,17 @@ namespace visutwin::canvas
                 omniDst[3] = ls.intensity;
                 std::memset(matDst, 0, 16 * sizeof(float));
             } else {
-                // Spot: bind 2D depth map, pack the transposed VP matrix in the
-                // column-major order the GLSL mat4 expects (mirrors Metal).
+                // Spot: bind 2D depth map, pack the VP matrix column-major, which
+                // is what a GLSL mat4 expects for `m * vec4(p, 1)` (mirrors Metal).
+                // Matrix4::getElement takes (col, row) — reading it (row, col) here
+                // uploaded the transpose, which threw every projected coordinate
+                // outside [0,1] and silently made spot lights cast no shadow at all
+                // on this backend.
                 Texture*& tex = (i == 0) ? _localShadowTexture0 : _localShadowTexture1;
                 tex = ls.shadowMap;
                 for (int col = 0; col < 4; ++col) {
                     for (int row = 0; row < 4; ++row) {
-                        matDst[col * 4 + row] = ls.viewProjection.getElement(row, col);
+                        matDst[col * 4 + row] = ls.viewProjection.getElement(col, row);
                     }
                 }
             }
@@ -1705,6 +1716,68 @@ namespace visutwin::canvas
             dst.areaUpHalfHeight[1] = areaUp.getY();
             dst.areaUpHalfHeight[2] = areaUp.getZ();
             dst.areaUpHalfHeight[3] = src.areaHalfHeight;
+
+            dst.cookieFlags[0] = (src.cookieIndex >= 0 && src.cookie) ? 1.0f : 0.0f;
+            dst.cookieFlags[1] = (src.cookieIndex >= 0)
+                ? static_cast<float>(src.cookieIndex) : 0.0f;
+            dst.cookieFlags[2] = static_cast<float>(src.cookieChannel);
+            dst.cookieFlags[3] = src.cookieFalloff ? 1.0f : 0.0f;
+        }
+
+        // Light cookies: two 2D (spot) and two cubemap (omni) slots, indexed by
+        // GpuLightData::cookieIndex within the pool the light type selects.
+        // Mirrors MetalUniformBinder.
+        _cookieTexture2D0 = nullptr;
+        _cookieTexture2D1 = nullptr;
+        _cookieTextureCube0 = nullptr;
+        _cookieTextureCube1 = nullptr;
+        {
+            auto clearCookieSlot = [](float* matDst, float* paramsDst) {
+                std::memset(matDst, 0, 16 * sizeof(float));
+                matDst[0] = matDst[5] = matDst[10] = matDst[15] = 1.0f;
+                paramsDst[0] = 1.0f;
+                paramsDst[1] = 1.0f;
+                paramsDst[2] = 0.0f;
+                paramsDst[3] = 0.0f;
+            };
+            clearCookieSlot(_lightingUbo.cookieMatrix2D0, _lightingUbo.cookieParams2D0);
+            clearCookieSlot(_lightingUbo.cookieMatrix2D1, _lightingUbo.cookieParams2D1);
+            clearCookieSlot(_lightingUbo.cookieMatrixCube0, _lightingUbo.cookieParamsCube0);
+            clearCookieSlot(_lightingUbo.cookieMatrixCube1, _lightingUbo.cookieParamsCube1);
+
+            for (size_t i = 0; i < count; ++i) {
+                const GpuLightData& src = lights[i];
+                if (!src.cookie || src.cookieIndex < 0 || src.cookieIndex > 1) {
+                    continue;
+                }
+                const bool isCube = (src.type == GpuLightType::Point);
+                float* matDst;
+                float* paramsDst;
+                if (isCube) {
+                    (src.cookieIndex == 0 ? _cookieTextureCube0 : _cookieTextureCube1) = src.cookie;
+                    matDst = (src.cookieIndex == 0)
+                        ? _lightingUbo.cookieMatrixCube0 : _lightingUbo.cookieMatrixCube1;
+                    paramsDst = (src.cookieIndex == 0)
+                        ? _lightingUbo.cookieParamsCube0 : _lightingUbo.cookieParamsCube1;
+                } else {
+                    (src.cookieIndex == 0 ? _cookieTexture2D0 : _cookieTexture2D1) = src.cookie;
+                    matDst = (src.cookieIndex == 0)
+                        ? _lightingUbo.cookieMatrix2D0 : _lightingUbo.cookieMatrix2D1;
+                    paramsDst = (src.cookieIndex == 0)
+                        ? _lightingUbo.cookieParams2D0 : _lightingUbo.cookieParams2D1;
+                }
+                // Matrix4::getElement takes (col, row) — upload column-major, which
+                // is what a GLSL mat4 expects for `m * vec4(p, 1)`.
+                for (int col = 0; col < 4; ++col) {
+                    for (int row = 0; row < 4; ++row) {
+                        matDst[col * 4 + row] = src.cookieMatrix.getElement(col, row);
+                    }
+                }
+                paramsDst[0] = src.cookieIntensity;
+                paramsDst[1] = src.cookieFalloff ? 1.0f : 0.0f;
+                paramsDst[2] = static_cast<float>(src.cookieChannel);
+                paramsDst[3] = 0.0f;
+            }
         }
 
         Color fogLinear;

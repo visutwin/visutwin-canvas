@@ -140,6 +140,19 @@ namespace visutwin::canvas
         // Local light shadow data (spot/point).
         int shadowMapIndex = -1;    // -1 = no shadow, 0 = slot 11, 1 = slot 12
 
+        // Light cookie (upstream Light.cookie): a projected texture masking the
+        // light's color. 2D for spot lights, cubemap for omni; the two kinds have
+        // separate slot pools, so cookieIndex is an index within the pool the
+        // light's type selects. -1 = this light has no cookie.
+        Texture* cookie = nullptr;
+        int cookieIndex = -1;
+        float cookieIntensity = 1.0f;
+        uint32_t cookieChannel = 0u;   // CookieChannel: 0=rgb, 1=r, 2=g, 3=b, 4=a
+        bool cookieFalloff = true;     // spot only — keep the cone falloff alongside the cookie
+        // Spot: world → cookie UV projection. Omni: the light's world transform,
+        // whose rotation takes the light→fragment vector into cookie cube space.
+        Matrix4 cookieMatrix = Matrix4::identity();
+
         // Area light: half-extents, local right axis (world space) and shape
         // (0=rect, 1=disk, 2=sphere — mirrors AreaLightShape).
         float areaHalfWidth = 0.0f;

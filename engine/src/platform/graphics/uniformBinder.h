@@ -39,6 +39,9 @@ namespace visutwin::canvas
             PackedVector4f coneAngles = {1.0f, 1.0f, 0.0f, 0.0f};
             // [0]=lightType, [1]=castsShadows, [2]=falloffLinear, [3]=localShadowMapIndex
             PackedVector4u typeCastShadows = {0u, 0u, 0u, 0u};
+            // Light cookie: [0]=hasCookie, [1]=cookieIndex (within the 2D or cube
+            // pool selected by the light type), [2]=CookieChannel, [3]=cookieFalloff
+            PackedVector4u cookieFlags = {0u, 0u, 0u, 1u};
         };
 
         struct alignas(16) LightingUniforms
@@ -103,6 +106,20 @@ namespace visutwin::canvas
             PackedVector4f localShadowPcss0 = {0.0f, 0.01f, 100.0f, 0.0f};
             PackedVector4f localShadowPcss1 = {0.0f, 0.01f, 100.0f, 0.0f};
 
+            // Light cookies (VT_FEATURE_COOKIE_2D / VT_FEATURE_COOKIE_CUBE): two
+            // slots per kind, matching the local-shadow pools. Spot cookies carry a
+            // world → cookie-UV projection; omni cookies carry the light's world
+            // transform, whose rotation maps the light→fragment vector into cube space.
+            float cookieMatrix2D0[16] = {};
+            float cookieMatrix2D1[16] = {};
+            float cookieMatrixCube0[16] = {};
+            float cookieMatrixCube1[16] = {};
+            // [x]=intensity, [y]=cookieFalloff (spot), [z]=CookieChannel, [w]=pad.
+            PackedVector4f cookieParams2D0 = {1.0f, 1.0f, 0.0f, 0.0f};
+            PackedVector4f cookieParams2D1 = {1.0f, 1.0f, 0.0f, 0.0f};
+            PackedVector4f cookieParamsCube0 = {1.0f, 1.0f, 0.0f, 0.0f};
+            PackedVector4f cookieParamsCube1 = {1.0f, 1.0f, 0.0f, 0.0f};
+
             // Reflection probe (box-projected cubemap): box bounds + params.
             // params = {boxProjection flag, intensity, maxMipLod, pad}.
             PackedVector4f reflectionProbeBoxMin = {-1.0f, -1.0f, -1.0f, 0.0f};
@@ -132,6 +149,11 @@ namespace visutwin::canvas
         [[nodiscard]] virtual Texture* localShadowTexture1() const = 0;
         [[nodiscard]] virtual Texture* omniShadowCube0() const = 0;
         [[nodiscard]] virtual Texture* omniShadowCube1() const = 0;
+        // Light cookies: 2D for spot lights, cubemap for omni. Two slots each.
+        [[nodiscard]] virtual Texture* cookieTexture2D0() const { return nullptr; }
+        [[nodiscard]] virtual Texture* cookieTexture2D1() const { return nullptr; }
+        [[nodiscard]] virtual Texture* cookieTextureCube0() const { return nullptr; }
+        [[nodiscard]] virtual Texture* cookieTextureCube1() const { return nullptr; }
 
         /// GPU-side atmosphere uniform struct (Nishita single-scattering parameters).
         /// 96 bytes (6 × float4), bound at Metal buffer slot 9 when VT_FEATURE_ATMOSPHERE is active.
@@ -160,7 +182,7 @@ namespace visutwin::canvas
     // `LightingData`/`AtmosphereData` layout exactly. Lock size/alignment and a
     // few sentinel offsets so a mis-sized field (which would shift everything
     // after it and silently corrupt the shader read) fails at compile time.
-    static_assert(sizeof(UniformBinder::GpuLightUniform) == 80);
+    static_assert(sizeof(UniformBinder::GpuLightUniform) == 96);
     static_assert(std::is_trivially_copyable_v<UniformBinder::LightingUniforms>);
     static_assert(alignof(UniformBinder::LightingUniforms) == 16);
     static_assert(sizeof(UniformBinder::LightingUniforms) % 16 == 0);

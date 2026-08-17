@@ -1,18 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Lights example (parity with upstream graphics/lights): a procedural scene —
-// a large ground plane with a cluster of primitive objects — lit by ONE of each
-// light type the engine supports:
-//   * DIRECTIONAL (cyan)   — the key light, casts cascaded shadows.
-//   * OMNI / POINT (yellow) — animated in a fast horizontal circle, with an
-//                             emissive marker sphere so you can see its position.
-//   * SPOT (magenta)       — sweeps a slow larger circle, aims back at the origin,
-//                             with an emissive cone marker showing the beam.
-//   * AREA_RECT (green)    — a warm-green rectangular LTC panel above the cluster,
-//                             with an emissive slab marker.
-// The omni and spot positions are animated every frame so their falloff sweeps
-// across the objects. Keys 1-4 toggle each light on/off (logged); orbit camera.
+// Lights example — port of upstream graphics/lights. A statue on a large grey
+// ground box, lit by one of each local light type plus a directional key light,
+// every one of them animated:
+//   * SPOT (white)      — orbits high above, aimed at the scene, and projects the
+//                         alpha channel of heart.png as a light COOKIE.
+//   * OMNI (yellow)     — orbits low and fast, casts cubemap shadows, and projects
+//                         a christmas cubemap COOKIE that spins with the light.
+//   * DIRECTIONAL (cyan)— the key light, sweeping its yaw, casting cascaded shadows.
+// Keys 1/2/3 toggle omni/spot/directional (upstream's key order); orbit camera.
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -21,20 +18,22 @@
 
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <memory>
-
-#include "core/math/quaternion.h"
+#include <vector>
 
 #include <QuartzCore/QuartzCore.hpp>
 
 #include "../cameraControls.h"
+#include "core/math/quaternion.h"
 #include "framework/engine.h"
 #include "log.h"
 #include "framework/appOptions.h"
 #include "framework/constants.h"
 #include "framework/assets/asset.h"
+#include "framework/handlers/containerResource.h"
 #include "framework/components/camera/cameraComponentSystem.h"
 #include "framework/components/light/lightComponentSystem.h"
 #include "framework/components/light/lightComponent.h"
@@ -42,6 +41,7 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/components/script/scriptComponentSystem.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
+#include "platform/graphics/texture.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 
@@ -55,35 +55,68 @@ using namespace visutwin::canvas;
 
 const std::string rootPath = ASSET_DIR;
 
-// Environment atlas (image-based lighting + faint skydome), same asset the sibling
-// examples use. Optional — provides a little ambient specular so the metal reads.
-const auto envAtlas = std::make_unique<Asset>(
-    "helipad-env-atlas",
-    AssetType::TEXTURE,
-    rootPath + "/cubemaps/helipad-env-atlas.png",
-    AssetData{
-        .type = TextureType::TEXTURETYPE_RGBP,
-        .mipmaps = false
-    }
+const auto statueAsset = std::make_unique<Asset>(
+    "statue",
+    AssetType::CONTAINER,
+    rootPath + "/models/statue.glb"
 );
 
-// Helper: create a primitive entity with material, shadows, position, and scale.
-Entity* createPrimitive(Engine* engine, const std::string& type, StandardMaterial* material,
-                        float x, float y, float z, float sx, float sy, float sz,
-                        bool castShadow = true, bool receiveShadow = true)
+// Spot light cookie: the heart's ALPHA channel masks the beam.
+const auto heartAsset = std::make_unique<Asset>(
+    "heart",
+    AssetType::TEXTURE,
+    rootPath + "/textures/heart.png",
+    AssetData{.mipmaps = true}
+);
+
+// Omni light cookie: six faces assembled into a cubemap below. Face order is the
+// engine's cube convention: +X, -X, +Y, -Y, +Z, -Z.
+const std::array<const char*, 6> xmasFaceFiles = {
+    "xmas_posx", "xmas_negx", "xmas_posy", "xmas_negy", "xmas_posz", "xmas_negz"
+};
+
+// Assemble a cubemap from six loaded 2D face textures. DEVIATION: upstream builds
+// this through a 'cubemap' Asset that references six texture assets; this port has
+// no cubemap asset type, so the faces are copied into one cubemap texture here.
+std::shared_ptr<Texture> makeCubemapFromFaces(GraphicsDevice* device,
+                                              const std::array<Texture*, 6>& faces,
+                                              const std::string& name)
 {
-    auto* entity = new Entity();
-    entity->setEngine(engine);
-    auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
-    if (render) {
-        render->setType(type);
-        render->setMaterial(material);
-        render->setCastShadows(castShadow);
-        render->setReceiveShadows(receiveShadow);
+    const Texture* first = faces[0];
+    if (!first) {
+        return nullptr;
     }
-    entity->setLocalPosition(x, y, z);
-    entity->setLocalScale(sx, sy, sz);
-    return entity;
+    const uint32_t size = first->width();
+    for (const Texture* face : faces) {
+        if (!face || face->width() != size || face->height() != size) {
+            spdlog::error("Cubemap '{}': faces must all be square and the same size", name);
+            return nullptr;
+        }
+    }
+
+    TextureOptions options;
+    options.name = name;
+    options.width = size;
+    options.height = size;
+    options.format = PixelFormat::PIXELFORMAT_RGBA8;
+    options.cubemap = true;
+    options.mipmaps = true;
+    options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
+    options.magFilter = FilterMode::FILTER_LINEAR;
+    auto cubemap = std::make_shared<Texture>(device, options);
+
+    for (uint32_t face = 0; face < 6; ++face) {
+        const auto* pixels = static_cast<const uint8_t*>(faces[face]->getLevel(0));
+        const size_t dataSize = faces[face]->getLevelDataSize(0);
+        if (!pixels || dataSize == 0) {
+            spdlog::error("Cubemap '{}': face {} has no CPU-side pixel data", name, face);
+            return nullptr;
+        }
+        cubemap->setLevelData(0, pixels, dataSize, face);
+    }
+    // mipmaps = true makes upload() generate the roughness chain on the GPU.
+    cubemap->upload();
+    return cubemap;
 }
 
 int main()
@@ -159,187 +192,198 @@ int main()
     engine->start();
 
     auto scene = engine->scene();
-    scene->setToneMapping(TONEMAP_ACES);
-    scene->setExposure(1.0f);
-    // Keep ambient low so each light's contribution is clearly visible.
-    scene->setAmbientLight(0.08f, 0.08f, 0.10f);
-    scene->setSkyboxMip(2);
-    scene->setSkyboxIntensity(0.25f);
+    scene->setAmbientLight(0.2f, 0.2f, 0.2f);
 
-    const auto envAtlasResource = envAtlas->resource();
-    if (envAtlasResource) {
-        scene->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+    // -----------------------------------------------------------------------
+    // Cookie textures.
+    // -----------------------------------------------------------------------
+    Texture* heartCookie = nullptr;
+    if (const auto heartResource = heartAsset->resource()) {
+        heartCookie = std::get<Texture*>(*heartResource);
     } else {
-        spdlog::warn("Env atlas failed to load — continuing without IBL");
+        spdlog::warn("heart.png failed to load — the spot light keeps a plain beam");
+    }
+
+    // Load the six cubemap faces, then assemble them. The face assets stay alive
+    // for the run; only their CPU-side level 0 is read, at assembly time.
+    std::vector<std::unique_ptr<Asset>> xmasFaceAssets;
+    std::array<Texture*, 6> xmasFaces{};
+    bool allFacesLoaded = true;
+    for (size_t i = 0; i < xmasFaceFiles.size(); ++i) {
+        auto asset = std::make_unique<Asset>(
+            xmasFaceFiles[i],
+            AssetType::TEXTURE,
+            rootPath + "/cubemaps/xmas_faces/" + xmasFaceFiles[i] + ".png"
+        );
+        if (const auto resource = asset->resource()) {
+            xmasFaces[i] = std::get<Texture*>(*resource);
+        } else {
+            allFacesLoaded = false;
+        }
+        xmasFaceAssets.push_back(std::move(asset));
+    }
+    std::shared_ptr<Texture> xmasCookie;
+    if (allFacesLoaded) {
+        xmasCookie = makeCubemapFromFaces(graphicsDevice.get(), xmasFaces, "xmas_cubemap");
+    }
+    if (!xmasCookie) {
+        spdlog::warn("xmas cubemap failed to build — the omni light keeps a plain falloff");
     }
 
     // -----------------------------------------------------------------------
-    // Ground plane (grey, slightly glossy metal so specular highlights read).
+    // Statue.
     // -----------------------------------------------------------------------
-    auto groundMaterial = std::make_shared<StandardMaterial>();
-    groundMaterial->setName("ground");
-    groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
-    groundMaterial->setUseMetalness(true);
-    groundMaterial->setMetalness(0.3f);
-    groundMaterial->setGloss(0.5f);
-    engine->root()->addChild(createPrimitive(
-        engine.get(), "plane", groundMaterial.get(),
-        0.0f, 0.0f, 0.0f, 40.0f, 1.0f, 40.0f,
-        /*cast*/ false, /*receive*/ true
-    ));
-
-    // -----------------------------------------------------------------------
-    // Cluster of objects to be lit (near-white matte so light colors show).
-    // -----------------------------------------------------------------------
-    auto objectMaterial = std::make_shared<StandardMaterial>();
-    objectMaterial->setName("object");
-    objectMaterial->setDiffuse(Color(0.85f, 0.85f, 0.85f, 1.0f));
-    objectMaterial->setUseMetalness(true);
-    objectMaterial->setMetalness(0.1f);
-    objectMaterial->setGloss(0.4f);
-
-    engine->root()->addChild(createPrimitive(engine.get(), "sphere",   objectMaterial.get(),  -4.0f, 1.0f, -3.0f, 2.0f, 2.0f, 2.0f));
-    engine->root()->addChild(createPrimitive(engine.get(), "box",      objectMaterial.get(),   3.5f, 1.0f, -2.0f, 2.0f, 2.0f, 2.0f));
-    engine->root()->addChild(createPrimitive(engine.get(), "cylinder", objectMaterial.get(),   0.0f, 1.2f,  2.5f, 1.6f, 2.4f, 1.6f));
-    engine->root()->addChild(createPrimitive(engine.get(), "cone",     objectMaterial.get(),  -2.0f, 1.0f,  4.0f, 1.6f, 2.0f, 1.6f));
-    engine->root()->addChild(createPrimitive(engine.get(), "sphere",   objectMaterial.get(),   5.0f, 0.8f,  3.5f, 1.4f, 1.4f, 1.4f));
-
-    // -----------------------------------------------------------------------
-    // 1. DIRECTIONAL — cyan key light with cascaded shadows.
-    // -----------------------------------------------------------------------
-    auto* dirLight = new Entity();
-    dirLight->setEngine(engine.get());
-    auto* dirComp = static_cast<LightComponent*>(dirLight->addComponent<LightComponent>());
-    if (dirComp) {
-        dirComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        dirComp->setColor(Color(0.2f, 0.9f, 1.0f));   // cyan
-        dirComp->setIntensity(1.0f);
-        dirComp->setCastShadows(true);
-        dirComp->setShadowBias(0.05f);
-        dirComp->setShadowNormalBias(0.2f);
-        dirComp->setShadowDistance(80.0f);
-        dirComp->setNumCascades(3);
-        dirComp->setShadowResolution(2048);
+    const auto statueResource = statueAsset->resource();
+    if (!statueResource || !std::holds_alternative<ContainerResource*>(*statueResource)) {
+        spdlog::error("statue.glb failed to load");
+        shutdown();
+        return -1;
     }
-    dirLight->setLocalEulerAngles(45.0f, 30.0f, 0.0f);
-    engine->root()->addChild(dirLight);
-
-    // -----------------------------------------------------------------------
-    // 2. OMNI / POINT — yellow, animated in a fast circle, emissive marker sphere.
-    // -----------------------------------------------------------------------
-    auto* omniLight = new Entity();
-    omniLight->setEngine(engine.get());
-    auto* omniComp = static_cast<LightComponent*>(omniLight->addComponent<LightComponent>());
-    if (omniComp) {
-        omniComp->setType(LightType::LIGHTTYPE_OMNI);
-        omniComp->setColor(Color(1.0f, 0.85f, 0.1f));  // yellow
-        omniComp->setIntensity(4.0f);
-        omniComp->setRange(18.0f);
+    auto* statueContainer = std::get<ContainerResource*>(*statueResource);
+    auto* statue = statueContainer ? statueContainer->instantiateRenderEntity() : nullptr;
+    if (!statue) {
+        spdlog::error("statue.glb instantiate failed");
+        shutdown();
+        return -1;
     }
-    engine->root()->addChild(omniLight);
-
-    // Emissive marker sphere so the omni position is visible.
-    auto omniMarkerMat = std::make_shared<StandardMaterial>();
-    omniMarkerMat->setName("omni-marker");
-    omniMarkerMat->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
-    omniMarkerMat->setEmissive(Color(1.0f, 0.85f, 0.1f, 1.0f));
-    omniMarkerMat->setEmissiveIntensity(2.0f);
-    auto* omniMarker = createPrimitive(
-        engine.get(), "sphere", omniMarkerMat.get(),
-        0.0f, 0.0f, 0.0f, 0.5f, 0.5f, 0.5f, /*cast*/ false, /*receive*/ false
-    );
-    omniLight->addChild(omniMarker);
+    statue->setEngine(engine.get());
+    engine->root()->addChild(statue);
 
     // -----------------------------------------------------------------------
-    // 3. SPOT — magenta, sweeps a slow larger circle, aims at origin, cone marker.
-    // -----------------------------------------------------------------------
-    auto* spotLight = new Entity();
-    spotLight->setEngine(engine.get());
-    auto* spotComp = static_cast<LightComponent*>(spotLight->addComponent<LightComponent>());
-    if (spotComp) {
-        spotComp->setType(LightType::LIGHTTYPE_SPOT);
-        spotComp->setColor(Color(1.0f, 0.2f, 0.8f));   // magenta
-        spotComp->setIntensity(6.0f);
-        spotComp->setRange(40.0f);
-        spotComp->setInnerConeAngle(18.0f);
-        spotComp->setOuterConeAngle(28.0f);
-        spotComp->setCastShadows(true);
-        spotComp->setShadowBias(0.2f);
-        spotComp->setShadowNormalBias(0.05f);
-        spotComp->setShadowResolution(2048);
-    }
-    engine->root()->addChild(spotLight);
-
-    // Emissive cone marker (small, tip along -Y = emission direction).
-    auto spotMarkerMat = std::make_shared<StandardMaterial>();
-    spotMarkerMat->setName("spot-marker");
-    spotMarkerMat->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
-    spotMarkerMat->setEmissive(Color(1.0f, 0.2f, 0.8f, 1.0f));
-    spotMarkerMat->setEmissiveIntensity(2.0f);
-    auto* spotMarker = createPrimitive(
-        engine.get(), "cone", spotMarkerMat.get(),
-        0.0f, 0.0f, 0.0f, 0.8f, 1.2f, 0.8f, /*cast*/ false, /*receive*/ false
-    );
-    spotLight->addChild(spotMarker);
-
-    // -----------------------------------------------------------------------
-    // 4. AREA_RECT — warm-green LTC panel above the cluster, emissive slab marker.
-    //    Entity -Y is the emission direction; tilt it to face down at the scene.
-    // -----------------------------------------------------------------------
-    auto* areaLight = new Entity();
-    areaLight->setEngine(engine.get());
-    auto* areaComp = static_cast<LightComponent*>(areaLight->addComponent<LightComponent>());
-    if (areaComp) {
-        areaComp->setType(LightType::LIGHTTYPE_AREA_RECT);
-        areaComp->setAreaShape(AreaLightShape::LIGHTSHAPE_RECT);
-        areaComp->setColor(Color(0.3f, 1.0f, 0.4f));   // green
-        areaComp->setIntensity(2.0f);
-        areaComp->setRange(30.0f);
-        areaComp->setAreaWidth(6.0f);
-        areaComp->setAreaHeight(2.0f);
-    }
-    areaLight->setLocalPosition(0.0f, 8.0f, -6.0f);
-    areaLight->setLocalEulerAngles(60.0f, 0.0f, 0.0f);
-    engine->root()->addChild(areaLight);
-
-    // Emissive slab marking the emitting panel.
-    auto areaMarkerMat = std::make_shared<StandardMaterial>();
-    areaMarkerMat->setName("area-marker");
-    areaMarkerMat->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
-    areaMarkerMat->setEmissive(Color(0.3f, 1.0f, 0.4f, 1.0f));
-    areaMarkerMat->setEmissiveIntensity(3.0f);
-    auto* areaMarker = createPrimitive(
-        engine.get(), "box", areaMarkerMat.get(),
-        0.0f, 0.0f, 0.0f, 6.0f, 0.05f, 2.0f, /*cast*/ false, /*receive*/ false
-    );
-    areaLight->addChild(areaMarker);
-
-    // -----------------------------------------------------------------------
-    // Orbit camera.
+    // Camera. Upstream authors it at (0, 15, 35) and its orbit script pivots on
+    // the AABB centre of everything renderable at script-init time — which is the
+    // statue alone, since the ground is added after the camera. That AABB centre
+    // (verified against the running reference) sits at (0.17, 7.52, 0.02), which
+    // is what puts the statue where the reference frames it; orbiting the origin
+    // instead tilts the whole scene up the frame.
     // -----------------------------------------------------------------------
     auto* camera = new Entity();
     camera->setEngine(engine.get());
     auto* cameraComp = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
     camera->addComponent<ScriptComponent>();
     if (cameraComp && cameraComp->camera()) {
-        cameraComp->camera()->setClearColor(Color(0.06f, 0.07f, 0.09f, 1.0f));
-        cameraComp->camera()->setFarClip(500.0f);
-        auto rendering = cameraComp->rendering();
-        rendering.toneMapping = TONEMAP_ACES;
-        cameraComp->setRendering(rendering);
+        cameraComp->camera()->setClearColor(Color(0.4f, 0.45f, 0.5f, 1.0f));
     }
-    camera->setPosition(Vector3(0.0f, 12.0f, 22.0f));
+    camera->setPosition(Vector3(0.0f, 15.0f, 35.0f));
     engine->root()->addChild(camera);
 
+    const Vector3 statueCenter(0.173f, 7.523f, 0.018f);
     auto* cameraControls = camera->script()->create<CameraControls>();
-    cameraControls->setFocusPoint(Vector3(0.0f, 1.5f, 0.0f));
+    cameraControls->setFocusPoint(statueCenter);
     cameraControls->setEnableFly(false);
-    cameraControls->setOrbitDistance(26.0f);
+    cameraControls->setZoomRange(Vector2(1.0f, 500.0f));
     cameraControls->storeResetState();
 
-    spdlog::info("Lights: 1=DIRECTIONAL(cyan/shadows)  2=OMNI(yellow)  3=SPOT(magenta)  4=AREA_RECT(green)");
-    spdlog::info("Keys: 1/2/3/4 toggle each light on/off | F focus | R reset | Esc quit");
-    spdlog::info("Orbit: LMB/RMB orbit, Shift/MMB pan, Wheel zoom");
+    // -----------------------------------------------------------------------
+    // Ground.
+    // -----------------------------------------------------------------------
+    auto groundMaterial = std::make_shared<StandardMaterial>();
+    groundMaterial->setName("ground");
+    groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
+    groundMaterial->setUseMetalness(true);
+    groundMaterial->setMetalness(0.5f);
+    groundMaterial->setGloss(0.5f);
+
+    auto* ground = new Entity();
+    ground->setEngine(engine.get());
+    if (auto* render = static_cast<RenderComponent*>(ground->addComponent<RenderComponent>())) {
+        render->setType("box");
+        render->setMaterial(groundMaterial.get());
+        render->setCastShadows(true);
+        render->setReceiveShadows(true);
+    }
+    ground->setLocalScale(70.0f, 1.0f, 70.0f);
+    ground->setLocalPosition(0.0f, -0.5f, 0.0f);
+    engine->root()->addChild(ground);
+
+    // -----------------------------------------------------------------------
+    // 1. SPOT — white, heart-alpha cookie, 2D shadows.
+    // -----------------------------------------------------------------------
+    auto* spotLight = new Entity();
+    spotLight->setEngine(engine.get());
+    auto* spotComp = static_cast<LightComponent*>(spotLight->addComponent<LightComponent>());
+    if (spotComp) {
+        spotComp->setType(LightType::LIGHTTYPE_SPOT);
+        spotComp->setColor(Color(1.0f, 1.0f, 1.0f));
+        spotComp->setIntensity(0.8f);
+        spotComp->setInnerConeAngle(30.0f);
+        spotComp->setOuterConeAngle(31.0f);
+        spotComp->setRange(100.0f);
+        spotComp->setCastShadows(true);
+        spotComp->setShadowBias(0.05f);
+        spotComp->setShadowNormalBias(0.03f);
+        spotComp->setShadowResolution(2048);
+        spotComp->setCookie(heartCookie);
+        spotComp->setCookieChannel(CookieChannel::COOKIE_CHANNEL_A);
+        spotComp->setCookieIntensity(1.0f);
+    }
+    engine->root()->addChild(spotLight);
+
+    // Emissive cone marking the light itself.
+    auto coneMaterial = std::make_shared<StandardMaterial>();
+    coneMaterial->setName("spot-marker");
+    coneMaterial->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
+    auto* cone = new Entity();
+    cone->setEngine(engine.get());
+    if (auto* render = static_cast<RenderComponent*>(cone->addComponent<RenderComponent>())) {
+        render->setType("cone");
+        render->setMaterial(coneMaterial.get());
+        render->setCastShadows(false);
+    }
+    spotLight->addChild(cone);
+
+    // -----------------------------------------------------------------------
+    // 2. OMNI — yellow, christmas cubemap cookie, cubemap shadows.
+    // -----------------------------------------------------------------------
+    auto* omniLight = new Entity();
+    omniLight->setEngine(engine.get());
+    auto* omniComp = static_cast<LightComponent*>(omniLight->addComponent<LightComponent>());
+    if (omniComp) {
+        omniComp->setType(LightType::LIGHTTYPE_OMNI);
+        omniComp->setColor(Color(1.0f, 1.0f, 0.0f));
+        omniComp->setIntensity(0.8f);
+        omniComp->setRange(111.0f);
+        omniComp->setCastShadows(true);
+        omniComp->setShadowBias(0.05f);
+        omniComp->setShadowNormalBias(0.03f);
+        omniComp->setShadowType(SHADOW_PCF3_32F);
+        omniComp->setShadowResolution(256);
+        omniComp->setCookie(xmasCookie.get());
+        omniComp->setCookieChannel(CookieChannel::COOKIE_CHANNEL_RGB);
+        omniComp->setCookieIntensity(1.0f);
+    }
+    // Upstream puts the marker sphere on the light entity itself.
+    auto omniMarkerMaterial = std::make_shared<StandardMaterial>();
+    omniMarkerMaterial->setName("omni-marker");
+    omniMarkerMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
+    omniMarkerMaterial->setEmissive(Color(1.0f, 1.0f, 0.0f, 1.0f));
+    if (auto* render = static_cast<RenderComponent*>(omniLight->addComponent<RenderComponent>())) {
+        render->setType("sphere");
+        render->setMaterial(omniMarkerMaterial.get());
+        render->setCastShadows(false);
+    }
+    engine->root()->addChild(omniLight);
+
+    // -----------------------------------------------------------------------
+    // 3. DIRECTIONAL — cyan key light with cascaded shadows.
+    // -----------------------------------------------------------------------
+    auto* dirLight = new Entity();
+    dirLight->setEngine(engine.get());
+    auto* dirComp = static_cast<LightComponent*>(dirLight->addComponent<LightComponent>());
+    if (dirComp) {
+        dirComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
+        dirComp->setColor(Color(0.0f, 1.0f, 1.0f));
+        dirComp->setIntensity(0.8f);
+        dirComp->setRange(100.0f);
+        dirComp->setShadowDistance(50.0f);
+        dirComp->setCastShadows(true);
+        dirComp->setShadowBias(0.1f);
+        dirComp->setShadowNormalBias(0.2f);
+    }
+    engine->root()->addChild(dirLight);
+
+    spdlog::info("Keys: 1=OMNI(yellow, cubemap cookie)  2=SPOT(white, heart cookie)  3=DIRECTIONAL(cyan)");
+    spdlog::info("      F focus | R reset | Esc quit | LMB/RMB orbit, Shift/MMB pan, Wheel zoom");
 
     const auto toggle = [](LightComponent* c, const char* name) {
         if (!c) return;
@@ -350,7 +394,7 @@ int main()
     bool running = true;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
     uint64_t prevCounter = SDL_GetPerformanceCounter();
-    float time = 0.0f;
+    float angleRad = 1.0f;
 
     while (running) {
         SDL_Event event;
@@ -360,15 +404,13 @@ int main()
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_1) {
-                toggle(dirComp, "DIRECTIONAL");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_2) {
                 toggle(omniComp, "OMNI");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_3) {
+            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_2) {
                 toggle(spotComp, "SPOT");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_4) {
-                toggle(areaComp, "AREA_RECT");
+            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_3) {
+                toggle(dirComp, "DIRECTIONAL");
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F && cameraControls) {
-                cameraControls->focus(Vector3(0.0f, 1.5f, 0.0f), 26.0f);
+                cameraControls->focus(statueCenter, 35.772f);
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_R && cameraControls) {
                 cameraControls->reset();
             } else if (event.type == SDL_EVENT_MOUSE_WHEEL && cameraControls) {
@@ -382,35 +424,26 @@ int main()
         const double dtSeconds = static_cast<double>(nowCounter - prevCounter) / static_cast<double>(perfFreq);
         prevCounter = nowCounter;
         const float dt = static_cast<float>(dtSeconds);
-        time += dt;
 
-        // Animate the omni light: fast horizontal circle at mid height.
-        const float omniAngle = time * 1.6f;
-        omniLight->setLocalPosition(6.0f * std::sin(omniAngle), 4.0f, 6.0f * std::cos(omniAngle));
+        angleRad += 0.3f * dt;
 
-        // Animate the spot light: slow larger circle high above, aimed at origin.
-        const float spotAngle = time * 0.6f;
-        const Vector3 spotPos(12.0f * std::sin(spotAngle), 14.0f, 12.0f * std::cos(spotAngle));
-        spotLight->setLocalPosition(spotPos.getX(), spotPos.getY(), spotPos.getZ());
-        // Aim the node's -Y axis (the spot emission direction) at the scene
-        // centre. Build the rotation that takes the reference -Y onto the
-        // target direction (robust, no euler-order assumptions; no lookAt in
-        // the engine API).
-        const Vector3 aimDir = (Vector3(0.0f, 1.0f, 0.0f) - spotPos).normalized();
-        const Vector3 ref(0.0f, -1.0f, 0.0f);
-        const float d = std::clamp(ref.dot(aimDir), -1.0f, 1.0f);
-        Vector3 axis = ref.cross(aimDir);
-        const float axisLen = axis.length();
-        if (axisLen > 1e-5f) {
-            axis = axis.normalized();
-            const float angleDeg = std::acos(d) * 57.29578f;
-            spotLight->setLocalRotation(Quaternion::fromAxisAngle(axis, angleDeg));
-        } else if (d < 0.0f) {
-            // Antiparallel (aim straight up): 180° about X.
-            spotLight->setLocalRotation(Quaternion::fromAxisAngle(Vector3(1.0f, 0.0f, 0.0f), 180.0f));
-        } else {
-            spotLight->setLocalRotation(Quaternion());
-        }
+        // Spot: aim at (0, -5, 0), then roll the node so its -Y (the emission
+        // axis) points down the view direction, then move it. Upstream aims
+        // before it moves, so the aim trails the position by one frame — kept
+        // as-is, since the lag is what the reference animation shows.
+        spotLight->lookAt(Vector3(0.0f, -5.0f, 0.0f));
+        spotLight->rotateLocal(90.0f, 0.0f, 0.0f);
+        spotLight->setLocalPosition(15.0f * std::sin(angleRad), 25.0f, 15.0f * std::cos(angleRad));
+
+        // Omni: a faster counter-rotating orbit, spinning about its own Y so the
+        // projected cubemap cookie sweeps across the scene.
+        omniLight->setLocalPosition(5.0f * std::sin(-2.0f * angleRad), 10.0f,
+                                    5.0f * std::cos(-2.0f * angleRad));
+        // Upstream uses the world-space rotate(); the light is a root child with
+        // no parent rotation, so a local rotation is the same thing.
+        omniLight->rotateLocal(0.0f, 50.0f * dt, 0.0f);
+
+        dirLight->setLocalEulerAngles(45.0f, -60.0f * angleRad, 0.0f);
 
         engine->update(dt);
         engine->render();

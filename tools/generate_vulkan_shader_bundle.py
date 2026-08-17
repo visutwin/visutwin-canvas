@@ -272,6 +272,11 @@ def validate(module: str, reflection: dict) -> None:
         (3, 14, "SampledImage"),
         (3, 15, "SampledImage"),
         (3, 16, "SampledImage"),
+        # 17/18 = spot light cookies, 19/20 = omni light cookie cubemaps.
+        (3, 17, "SampledImage"),
+        (3, 18, "SampledImage"),
+        (3, 19, "SampledImage"),
+        (3, 20, "SampledImage"),
         (5, 0, "StorageBuffer"),
         (5, 1, "StorageBuffer"),
     }
@@ -286,7 +291,7 @@ def validate(module: str, reflection: dict) -> None:
         for set_index, binding, kind, size in bindings
         if kind == "UniformBuffer"
     }
-    if block_sizes != {(0, 0): 384, (2, 0): 2000}:
+    if block_sizes != {(0, 0): 384, (2, 0): 2448}:
         raise RuntimeError(
             f"{module}: uniform block reflection mismatch: {block_sizes}"
         )

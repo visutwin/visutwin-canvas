@@ -81,6 +81,12 @@ namespace visutwin::canvas
         // When true, forward shaders compile with VT_FEATURE_OMNI_SHADOWS.
         void setOmniShadowsEnabled(bool value) { _omniShadowsEnabled = value; }
 
+        // Set when a spot light carries a 2D cookie texture, or an omni light a
+        // cubemap one. Forward shaders then compile with VT_FEATURE_COOKIE_2D /
+        // VT_FEATURE_COOKIE_CUBE, which declare the cookie samplers.
+        void setCookie2DEnabled(bool value) { _cookie2DEnabled = value; }
+        void setCookieCubeEnabled(bool value) { _cookieCubeEnabled = value; }
+
         // Set when the directional light's shadow type is SHADOW_VSM_16F.
         // When true:
         //   - shadow shaders compile with VT_FEATURE_VSM_SHADOWS so the shadow
@@ -180,6 +186,8 @@ namespace visutwin::canvas
             bool debugPass = false;         // Debug surface-quantity output (mode chosen at runtime)
             bool localShadows = false;      // Local light (spot/point) shadow mapping — 2D depth textures
             bool omniShadows = false;       // Omni light cubemap shadow mapping — depthcube textures
+            bool cookie2D = false;          // Spot light cookie — 2D texture projected through the beam
+            bool cookieCube = false;        // Omni light cookie — cubemap sampled by light→fragment direction
             bool vsmShadows = false;        // Directional EVSM_16F: moments texture sampled via Chebyshev.
             bool pcssShadows = false;       // Directional PCSS: raw depth samples, Vogel-disk blocker search.
                                             // Mirrors upstream SHADOW_VSM_16F.
@@ -212,6 +220,8 @@ namespace visutwin::canvas
         bool _debugPassEnabled = false;
         bool _localShadowsEnabled = false;
         bool _omniShadowsEnabled = false;
+        bool _cookie2DEnabled = false;
+        bool _cookieCubeEnabled = false;
         bool _vsmShadowsEnabled = false;
         bool _pcssShadowsEnabled = false;
 

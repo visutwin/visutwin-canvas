@@ -70,7 +70,30 @@ namespace visutwin::canvas
         bool enabled() const { return _enabled; }
         void setEnabled(const bool value) { _enabled = value; }
 
+        // Light cookie (upstream Light.cookie): a texture projected by the light,
+        // masking its color. 2D for spot lights, cubemap for omni. Non-owning —
+        // the app owns the texture (asset or manually built cubemap).
         Texture* cookie() const { return _cookie; }
+        void setCookie(Texture* value) { _cookie = value; }
+
+        // Blend between "no cookie" (0) and the full cookie sample (1).
+        float cookieIntensity() const { return _cookieIntensity; }
+        void setCookieIntensity(const float value) { _cookieIntensity = value; }
+
+        CookieChannel cookieChannel() const { return _cookieChannel; }
+        void setCookieChannel(const CookieChannel value) { _cookieChannel = value; }
+
+        // Spot only. When false (upstream's non-default), the cone angle falloff is
+        // skipped and the cookie's own projection clip defines the beam shape.
+        bool cookieFalloff() const { return _cookieFalloff; }
+        void setCookieFalloff(const bool value) { _cookieFalloff = value; }
+
+        // World → cookie-UV projection for spot cookies. Equal to the shadow VP
+        // when the light casts shadows; otherwise evaluated separately (upstream
+        // LightCamera.evalSpotCookieMatrix). Omni cookies use the light's world
+        // transform instead and ignore this.
+        const Matrix4& cookieMatrix() const { return _cookieMatrix; }
+        void setCookieMatrix(const Matrix4& value) { _cookieMatrix = value; }
 
         bool visibleThisFrame() const { return _visibleThisFrame; }
         void setVisibleThisFrame(const bool value) { _visibleThisFrame = value; }
@@ -186,6 +209,14 @@ namespace visutwin::canvas
         bool _enabled = false;
 
         Texture* _cookie = nullptr;
+
+        float _cookieIntensity = 1.0f;
+
+        CookieChannel _cookieChannel = CookieChannel::COOKIE_CHANNEL_RGB;
+
+        bool _cookieFalloff = true;
+
+        Matrix4 _cookieMatrix = Matrix4::identity();
 
         bool _visibleThisFrame = false;
 

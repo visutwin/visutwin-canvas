@@ -64,6 +64,19 @@ namespace visutwin::canvas
         LIGHTSHAPE_SPHERE = 2
     };
 
+    // Light cookie channel (upstream Light.cookieChannel, which is a swizzle
+    // string — 'rgb', 'r', 'g', 'b', 'a'; shorter strings are padded by
+    // repeating the last character, so 'a' means 'aaa'). The enum carries the
+    // same five options as a value the shader can branch on.
+    enum class CookieChannel
+    {
+        COOKIE_CHANNEL_RGB = 0,
+        COOKIE_CHANNEL_R = 1,
+        COOKIE_CHANNEL_G = 2,
+        COOKIE_CHANNEL_B = 3,
+        COOKIE_CHANNEL_A = 4
+    };
+
     enum class LightFalloff
     {
         LIGHTFALLOFF_LINEAR = 0,

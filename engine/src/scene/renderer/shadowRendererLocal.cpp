@@ -8,6 +8,7 @@
 #include <cmath>
 #include <numbers>
 
+#include "lightCamera.h"
 #include "renderPassShadowLocalNonClustered.h"
 #include "scene/graphNode.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -131,19 +132,9 @@ namespace visutwin::canvas
                         * rd->shadowCamera->node()->worldTransform().inverse();
 
                     // Apply NDC-to-UV viewport bias matrix, matching directional shadow
-                    // construction (shadowRendererDirectional.cpp).
-                    // Maps NDC x,y [-1,1] → UV [0,1] and z [-1,1] → [0,1] to match
-                    // shadow vertex shader's clip.z = 0.5*(clip.z+clip.w) depth mapping.
-                    // Metal Y flip: negative Y scale (texture coordinates are top-left origin).
-                    Matrix4 viewportBias = Matrix4::identity();
-                    viewportBias.setElement(0, 0, 0.5f);        // X: scale by 0.5
-                    viewportBias.setElement(3, 0, 0.5f);        // X: translate by 0.5
-                    viewportBias.setElement(1, 1, -0.5f);       // Y: scale by -0.5 (Metal Y flip)
-                    viewportBias.setElement(3, 1, 0.5f);        // Y: translate by 0.5
-                    viewportBias.setElement(2, 2, 0.5f);        // Z: scale by 0.5
-                    viewportBias.setElement(3, 2, 0.5f);        // Z: bias by 0.5
-
-                    light->setShadowViewProjection(viewportBias * shadowVP);
+                    // construction (shadowRendererDirectional.cpp). Shared with the
+                    // spot cookie projection, which needs the identical mapping.
+                    light->setShadowViewProjection(LightCamera::spotProjectionBias() * shadowVP);
                 }
             }
         }

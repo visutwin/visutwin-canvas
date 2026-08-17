@@ -24,7 +24,7 @@ namespace visutwin::canvas
     class MetalTextureBinder
     {
     public:
-        static constexpr int kMaxTextureSlots = 27;  // Slots 0-26; 11-12 = spot shadow, 15-16 = omni shadow cubemaps, 17 = height map, 18 = SSAO, 19 = lightmap, 20-21 = LTC area-light LUTs, 22 = scene color grab, 23 = detail normal, 24 = reflection probe cubemap, 25 = SSR scene depth grab, 26 = clustered spot-shadow atlas array
+        static constexpr int kMaxTextureSlots = 31;  // Slots 0-30; 11-12 = spot shadow, 15-16 = omni shadow cubemaps, 17 = height map, 18 = SSAO, 19 = lightmap, 20-21 = LTC area-light LUTs, 22 = scene color grab, 23 = detail normal, 24 = reflection probe cubemap, 25 = SSR scene depth grab, 26 = clustered spot-shadow atlas array, 27-28 = spot light cookies, 29-30 = omni light cookie cubemaps
 
         /// Bind a texture at the given fragment slot, skipping if already bound.
         void bindCached(MTL::RenderCommandEncoder* encoder, int slot, Texture* texture);
@@ -62,6 +62,10 @@ namespace visutwin::canvas
         /// Bind omni shadow cubemap depth textures at slots 15 and 16 (point lights, cube).
         void bindOmniShadowTextures(MTL::RenderCommandEncoder* encoder,
             Texture* cube0, Texture* cube1);
+
+        /// Bind light cookies: 2D (spot) at slots 27-28, cubemap (omni) at 29-30.
+        void bindCookieTextures(MTL::RenderCommandEncoder* encoder,
+            Texture* cookie2D0, Texture* cookie2D1, Texture* cookieCube0, Texture* cookieCube1);
 
         /// Mark the cache as clean after the first draw in a pass.
         void markClean() { _dirty = false; }

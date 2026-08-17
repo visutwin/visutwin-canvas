@@ -62,6 +62,10 @@ namespace visutwin::canvas
         _light->setShadowIntensity(_shadowStrength);
         _light->setRange(_range);
         _light->setOuterConeAngle(_outerConeAngle);
+        _light->setCookie(_cookie);
+        _light->setCookieIntensity(_cookieIntensity);
+        _light->setCookieChannel(_cookieChannel);
+        _light->setCookieFalloff(_cookieFalloff);
         _light->setNode(_entity);
 
         if (_castShadows) {
@@ -104,6 +108,10 @@ namespace visutwin::canvas
         _numCascades = src->_numCascades;
         _cascadeDistribution = src->_cascadeDistribution;
         _cascadeBlend = src->_cascadeBlend;
+        _cookie = src->_cookie;
+        _cookieIntensity = src->_cookieIntensity;
+        _cookieChannel = src->_cookieChannel;
+        _cookieFalloff = src->_cookieFalloff;
         _areaWidth = src->_areaWidth;
         _areaHeight = src->_areaHeight;
         _layers = src->_layers;

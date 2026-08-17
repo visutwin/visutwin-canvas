@@ -27,6 +27,9 @@ namespace visutwin::canvas
         float coneParams[4]     = {1.0f, 1.0f, 1.0f, -1.0f};
         float areaRightHalfWidth[4] = {1.0f, 0.0f, 0.0f, 0.0f};
         float areaUpHalfHeight[4] = {0.0f, 0.0f, 1.0f, 0.0f};
+        // Light cookie: x=hasCookie, y=slot in the 2D or cube pool (the light type
+        // picks which), z=CookieChannel, w=cookieFalloff (spot only).
+        float cookieFlags[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     };
 
     // Per-pass lighting block bound at set 2, binding 0.
@@ -76,6 +79,19 @@ namespace visutwin::canvas
         // shadow-map UV, 0 = PCSS off for that slot.  y=near, z=far, w=pad.
         float localShadowPcss0[4]      = {0.0f, 0.01f, 100.0f, 0.0f};
         float localShadowPcss1[4]      = {0.0f, 0.01f, 100.0f, 0.0f};
+
+        // Light cookies, two slots per kind (spot 2D, omni cubemap). Spot slots
+        // carry a world → cookie-UV projection; omni slots carry the light's
+        // world transform, whose rotation maps light→fragment into cube space.
+        float cookieMatrix2D0[16]      = {};
+        float cookieMatrix2D1[16]      = {};
+        float cookieMatrixCube0[16]    = {};
+        float cookieMatrixCube1[16]    = {};
+        // x=intensity, y=cookieFalloff, z=CookieChannel, w=pad
+        float cookieParams2D0[4]       = {1.0f, 1.0f, 0.0f, 0.0f};
+        float cookieParams2D1[4]       = {1.0f, 1.0f, 0.0f, 0.0f};
+        float cookieParamsCube0[4]     = {1.0f, 1.0f, 0.0f, 0.0f};
+        float cookieParamsCube1[4]     = {1.0f, 1.0f, 0.0f, 0.0f};
 
         // xyz = sky dome center (world), w = flags: bit0 = has skybox cubemap,
         // bit1 = dome projection (view dir from dome center, not camera).

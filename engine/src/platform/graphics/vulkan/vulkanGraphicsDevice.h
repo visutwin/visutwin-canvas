@@ -375,7 +375,7 @@ namespace visutwin::canvas
         // past this, which silently skips the draw — with no error, so a too-small
         // value looks like "the feature does nothing". Raise it whenever set 3
         // grows; the only cost is descriptor-pool sizing and the cache key width.
-        static constexpr uint32_t kMaxCachedImageBindings = 20;
+        static constexpr uint32_t kMaxCachedImageBindings = 24;
 
         struct ImageDescriptorKey {
             VkDescriptorSetLayout layout = VK_NULL_HANDLE;
@@ -664,6 +664,13 @@ namespace visutwin::canvas
         Texture* _localShadowTexture1 = nullptr;
         Texture* _omniShadowCube0 = nullptr;
         Texture* _omniShadowCube1 = nullptr;
+
+        // Light cookies (set 3): up to 2 spot-light 2D cookies and 2 omni
+        // cubemap cookies.  Non-owning — the app owns the textures.
+        Texture* _cookieTexture2D0 = nullptr;
+        Texture* _cookieTexture2D1 = nullptr;
+        Texture* _cookieTextureCube0 = nullptr;
+        Texture* _cookieTextureCube1 = nullptr;
 
         // 1×1 white cubemap: fallback for unbound omni shadow slots (a 2D white
         // view cannot back a samplerCube descriptor).

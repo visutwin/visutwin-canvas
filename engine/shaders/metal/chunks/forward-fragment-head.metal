@@ -70,6 +70,16 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   // Clustered spot-shadow atlas (LightTextureAtlas): one slice per light.
                                   depth2d_array<float> clusterShadowAtlas [[texture(26)]],
 #endif
+#if VT_FEATURE_COOKIE_2D
+                                  // Spot light cookies: two slots, matching the local shadow pool.
+                                  texture2d<float> cookieTexture2D0 [[texture(27)]],
+                                  texture2d<float> cookieTexture2D1 [[texture(28)]],
+#endif
+#if VT_FEATURE_COOKIE_CUBE
+                                  // Omni light cookies, sampled by light→fragment direction.
+                                  texturecube<float> cookieTextureCube0 [[texture(29)]],
+                                  texturecube<float> cookieTextureCube1 [[texture(30)]],
+#endif
 #if VT_FEATURE_ATMOSPHERE
                                   constant AtmosphereData &atmosphere [[buffer(9)]],
 #endif

@@ -14,6 +14,14 @@
         float3 L = float3(0.0, 1.0, 0.0);
         float attenuation = 1.0;
         float3 lightDirW = float3(0.0);
+        // Light cookie (upstream lightFunctionLight.js): a projected texture that
+        // masks the light color. Multiplied into the radiance below, BEFORE any
+        // falloff — the two are independent.
+        float3 cookieMask = float3(1.0);
+        // A cookie with cookieFalloff disabled replaces the cone falloff entirely:
+        // the projection's own clip bounds the beam instead (upstream skips
+        // getSpotEffect in exactly that case).
+        bool cookieReplacesConeFalloff = false;
         if (lightType == 0u) {
             const float3 lightDir = light.directionCone.xyz;
             if (length_squared(lightDir) <= 1e-8) {
@@ -134,6 +142,44 @@
             const float invLightDirLen = rsqrt(lightDirLenSq);
             const float3 dLightDirNormW = lightDirW * invLightDirLen;
             L = dLightDirNormW;
+
+#if VT_FEATURE_COOKIE_2D || VT_FEATURE_COOKIE_CUBE
+            if (light.cookieFlags.x != 0u) {
+                const uint cookieIdx = light.cookieFlags.y;
+                const uint cookieChannel = light.cookieFlags.z;
+                const bool cookieFalloff = (light.cookieFlags.w != 0u);
+#if VT_FEATURE_COOKIE_2D
+                if (lightType == 2u) {
+                    const float4x4 cookieXform = (cookieIdx == 0u)
+                        ? lighting.cookieMatrix2D0 : lighting.cookieMatrix2D1;
+                    const float4 cookieParams = (cookieIdx == 0u)
+                        ? lighting.cookieParams2D0 : lighting.cookieParams2D1;
+                    cookieMask = (cookieIdx == 0u)
+                        ? getCookie2D(cookieTexture2D0, cookieXform, rd.worldPos,
+                                      cookieParams.x, cookieChannel, !cookieFalloff)
+                        : getCookie2D(cookieTexture2D1, cookieXform, rd.worldPos,
+                                      cookieParams.x, cookieChannel, !cookieFalloff);
+                    cookieReplacesConeFalloff = !cookieFalloff;
+                }
+#endif
+#if VT_FEATURE_COOKIE_CUBE
+                if (lightType == 1u) {
+                    const float4x4 cookieXform = (cookieIdx == 0u)
+                        ? lighting.cookieMatrixCube0 : lighting.cookieMatrixCube1;
+                    const float4 cookieParams = (cookieIdx == 0u)
+                        ? lighting.cookieParamsCube0 : lighting.cookieParamsCube1;
+                    // Upstream samples by dLightDirNormW, which points from the
+                    // light to the fragment — the opposite of our L.
+                    cookieMask = (cookieIdx == 0u)
+                        ? getCookieCube(cookieTextureCube0, cookieXform, -dLightDirNormW,
+                                        cookieParams.x, cookieChannel)
+                        : getCookieCube(cookieTextureCube1, cookieXform, -dLightDirNormW,
+                                        cookieParams.x, cookieChannel);
+                }
+#endif
+            }
+#endif
+
 #if VT_FEATURE_POINT_SPOT_ATTENUATION
             if (falloffModeLinear) {
                 attenuation = getFalloffLinear(light.positionRange.w, lightDirW);
@@ -141,7 +187,7 @@
                 attenuation = getFalloffInvSquared(light.positionRange.w, lightDirW);
             }
 
-            if (lightType == 2u) {
+            if (lightType == 2u && !cookieReplacesConeFalloff) {
                 const float3 spotDir = normalize(light.directionCone.xyz);
                 const float outerConeCos = clamp(light.coneAngles.y, -1.0, 1.0);
                 const float innerConeCos = clamp(light.coneAngles.x, outerConeCos, 1.0);
@@ -378,7 +424,7 @@
         if (nDotL <= 0.0) {
             continue;
         }
-        const float3 radiance = lightColor * lightIntensity * attenuation * shadowFactor;
+        const float3 radiance = lightColor * cookieMask * lightIntensity * attenuation * shadowFactor;
         const float nDotV = max(dot(N, V), 0.0);
         const float NoH = max(dot(N, H), 0.0);
 #if VT_FEATURE_ANISOTROPY

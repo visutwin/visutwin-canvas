@@ -13,6 +13,7 @@
 #include <numbers>
 
 #include "core/objectPool.h"
+#include "lightCamera.h"
 #include "core/math/color.h"
 #include "core/math/matrix4.h"
 #include "core/math/vector3.h"
@@ -342,6 +343,30 @@ namespace visutwin::canvas
             programLibrary->setLocalShadowsEnabled(hasLocalShadows);
             programLibrary->setOmniShadowsEnabled(hasOmniShadows);
 
+            // Light cookies: separate variants for the 2D (spot) and cubemap (omni)
+            // samplers, enabled only when a light actually carries a cookie of that
+            // kind — same reason as the shadow features, an unbound texture
+            // parameter would be nil at draw time.
+            bool hasCookie2D = false;
+            bool hasCookieCube = false;
+            for (const auto* lc : LightComponent::instances()) {
+                if (!lc || !lc->enabled() || !lc->cookie()) {
+                    continue;
+                }
+                // The cookie's shape has to match the light: a spot projects a 2D
+                // texture, an omni samples a cubemap by direction. A mismatch is
+                // ignored, as upstream does.
+                if (lc->type() == LightType::LIGHTTYPE_SPOT && !lc->cookie()->isCubemap()) {
+                    hasCookie2D = true;
+                } else if ((lc->type() == LightType::LIGHTTYPE_OMNI ||
+                            lc->type() == LightType::LIGHTTYPE_POINT) &&
+                           lc->cookie()->isCubemap()) {
+                    hasCookieCube = true;
+                }
+            }
+            programLibrary->setCookie2DEnabled(hasCookie2D);
+            programLibrary->setCookieCubeEnabled(hasCookieCube);
+
             // Directional EVSM_16F: enable when any shadow-casting directional
             // light is configured for SHADOW_VSM_16F. Both the shadow program
             // (writes moments) and the forward program (samples via Chebyshev)
@@ -638,6 +663,12 @@ namespace visutwin::canvas
         localLights.reserve(8);
         ShadowParams shadowParams{};
 
+        // Light cookie slot pools: two 2D (spot) and two cubemap (omni) slots,
+        // matching the local-shadow slot count.
+        constexpr int kMaxCookies = 2;
+        int cookie2DCount = 0;
+        int cookieCubeCount = 0;
+
         auto toRadians = [](const float degrees) {
             return degrees * (std::numbers::pi_v<float> / 180.0f);
         };
@@ -685,8 +716,13 @@ namespace visutwin::canvas
             lightData.color = lightComponent->color();
             lightData.intensity = std::max(lightComponent->intensity(), 0.0f);
             lightData.range = std::max(lightComponent->range(), 1e-4f);
-            lightData.innerConeCos = std::cos(toRadians(std::max(lightComponent->innerConeAngle(), 0.0f) * 0.5f));
-            lightData.outerConeCos = std::cos(toRadians(std::max(lightComponent->outerConeAngle(), 0.0f) * 0.5f));
+            // inner/outerConeAngle are HALF-angles in degrees (upstream Light:
+            // `cos(angle * DEG_TO_RAD)`, and its spot shadow/cookie cameras use
+            // `fov = outerConeAngle * 2`). Halving them here made every spot cone
+            // half as wide as the shadow and cookie frustum fitted to the same
+            // light — visible as a beam covering only the middle of its cookie.
+            lightData.innerConeCos = std::cos(toRadians(std::max(lightComponent->innerConeAngle(), 0.0f)));
+            lightData.outerConeCos = std::cos(toRadians(std::max(lightComponent->outerConeAngle(), 0.0f)));
             if (lightData.innerConeCos < lightData.outerConeCos) {
                 lightData.innerConeCos = lightData.outerConeCos;
             }
@@ -841,6 +877,35 @@ namespace visutwin::canvas
                 }
             }
 
+            // Light cookies (upstream Light.cookie): the projected texture masking
+            // the light's color. Spot cookies need a world → cookie-UV matrix —
+            // identical to the spot shadow VP, so shadow casters reuse theirs and
+            // cookie-only lights evaluate it here. Omni cookies are sampled by
+            // direction and carry the light's world transform instead.
+            // DEVIATION: two slots per kind (like local shadows), not one per light.
+            if (Light* sceneLight = lightComponent->light();
+                sceneLight && sceneLight->cookie() &&
+                lightData.type != GpuLightType::Directional &&
+                lightData.type != GpuLightType::AreaRect) {
+
+                const bool isOmniCookie = (sceneLight->type() == LightType::LIGHTTYPE_OMNI ||
+                                           sceneLight->type() == LightType::LIGHTTYPE_POINT);
+                const bool shapeMatches = (isOmniCookie == sceneLight->cookie()->isCubemap());
+                int& poolCount = isOmniCookie ? cookieCubeCount : cookie2DCount;
+
+                if (shapeMatches && poolCount < kMaxCookies) {
+                    lightData.cookie = sceneLight->cookie();
+                    lightData.cookieIndex = poolCount++;
+                    lightData.cookieIntensity = sceneLight->cookieIntensity();
+                    lightData.cookieChannel = static_cast<uint32_t>(sceneLight->cookieChannel());
+                    lightData.cookieFalloff = sceneLight->cookieFalloff();
+                    lightData.cookieMatrix = isOmniCookie
+                        ? lightComponent->entity()->worldTransform()
+                        : (lightData.castShadows ? sceneLight->shadowViewProjection()
+                                                 : LightCamera::evalSpotCookieMatrix(*sceneLight));
+                }
+            }
+
             LightDispatchEntry dispatchEntry{};
             dispatchEntry.light = lightData;
             dispatchEntry.mask = lightComponent->mask();
@@ -941,10 +1006,11 @@ namespace visutwin::canvas
                 lcd.color = ld.color;
                 lcd.intensity = ld.intensity;
                 lcd.range = ld.range;
+                // Back to the half-angle in degrees that WorldClusters re-cosines.
                 lcd.innerConeAngle = std::acos(std::clamp(ld.innerConeCos, -1.0f, 1.0f))
-                    * (360.0f / std::numbers::pi_v<float>);  // radians half-angle → degrees full-angle
+                    * (180.0f / std::numbers::pi_v<float>);
                 lcd.outerConeAngle = std::acos(std::clamp(ld.outerConeCos, -1.0f, 1.0f))
-                    * (360.0f / std::numbers::pi_v<float>);
+                    * (180.0f / std::numbers::pi_v<float>);
                 lcd.isSpot = (ld.type == GpuLightType::Spot);
                 lcd.falloffModeLinear = ld.falloffModeLinear;
 

@@ -208,6 +208,11 @@ namespace visutwin::canvas
                 // Local shadow map index: 0 or 1 → texture slots 11/12. Encoded as uint.
                 dst.typeCastShadows[3] = (src.shadowMapIndex >= 0)
                     ? static_cast<uint32_t>(src.shadowMapIndex) : 0u;
+                dst.cookieFlags[0] = (src.cookieIndex >= 0 && src.cookie) ? 1u : 0u;
+                dst.cookieFlags[1] = (src.cookieIndex >= 0)
+                    ? static_cast<uint32_t>(src.cookieIndex) : 0u;
+                dst.cookieFlags[2] = src.cookieChannel;
+                dst.cookieFlags[3] = src.cookieFalloff ? 1u : 0u;
             } else {
                 dst = GpuLightUniform{};
             }
@@ -349,6 +354,59 @@ namespace visutwin::canvas
                 float* pcssDst = (i == 0) ? &_lightingUniforms.localShadowPcss0.x : &_lightingUniforms.localShadowPcss1.x;
                 pcssDst[0] = 0.0f;
             }
+        }
+
+        // Light cookies: two 2D (spot) and two cubemap (omni) slots, indexed by
+        // GpuLightData::cookieIndex within the pool the light type selects.
+        _cookieTexture2D0 = nullptr;
+        _cookieTexture2D1 = nullptr;
+        _cookieTextureCube0 = nullptr;
+        _cookieTextureCube1 = nullptr;
+
+        auto clearCookieSlot = [](float* matDst, float* paramsDst) {
+            std::memset(matDst, 0, 16 * sizeof(float));
+            matDst[0] = matDst[5] = matDst[10] = matDst[15] = 1.0f;
+            paramsDst[0] = 1.0f;
+            paramsDst[1] = 1.0f;
+            paramsDst[2] = 0.0f;
+            paramsDst[3] = 0.0f;
+        };
+        clearCookieSlot(_lightingUniforms.cookieMatrix2D0, &_lightingUniforms.cookieParams2D0.x);
+        clearCookieSlot(_lightingUniforms.cookieMatrix2D1, &_lightingUniforms.cookieParams2D1.x);
+        clearCookieSlot(_lightingUniforms.cookieMatrixCube0, &_lightingUniforms.cookieParamsCube0.x);
+        clearCookieSlot(_lightingUniforms.cookieMatrixCube1, &_lightingUniforms.cookieParamsCube1.x);
+
+        for (size_t i = 0; i < lightCount; ++i) {
+            const auto& src = lights[i];
+            if (!src.cookie || src.cookieIndex < 0 || src.cookieIndex > 1) {
+                continue;
+            }
+            const bool isCube = (src.type == GpuLightType::Point);
+            float* matDst;
+            float* paramsDst;
+            if (isCube) {
+                (src.cookieIndex == 0 ? _cookieTextureCube0 : _cookieTextureCube1) = src.cookie;
+                matDst = (src.cookieIndex == 0)
+                    ? _lightingUniforms.cookieMatrixCube0 : _lightingUniforms.cookieMatrixCube1;
+                paramsDst = (src.cookieIndex == 0)
+                    ? &_lightingUniforms.cookieParamsCube0.x : &_lightingUniforms.cookieParamsCube1.x;
+            } else {
+                (src.cookieIndex == 0 ? _cookieTexture2D0 : _cookieTexture2D1) = src.cookie;
+                matDst = (src.cookieIndex == 0)
+                    ? _lightingUniforms.cookieMatrix2D0 : _lightingUniforms.cookieMatrix2D1;
+                paramsDst = (src.cookieIndex == 0)
+                    ? &_lightingUniforms.cookieParams2D0.x : &_lightingUniforms.cookieParams2D1.x;
+            }
+            // Matrix4::getElement takes (col, row) — upload column-major.
+            for (int col = 0; col < 4; ++col) {
+                for (int row = 0; row < 4; ++row) {
+                    matDst[col * 4 + row] = src.cookieMatrix.getElement(col, row);
+                }
+            }
+            paramsDst[0] = src.cookieIntensity;
+            paramsDst[1] = src.cookieFalloff ? 1.0f : 0.0f;
+            paramsDst[2] = static_cast<float>(src.cookieChannel);
+            paramsDst[3] = 0.0f;
         }
     }
 

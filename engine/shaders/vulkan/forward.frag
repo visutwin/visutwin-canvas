@@ -77,6 +77,7 @@ struct Light {
     vec4 coneParams;      // innerCos, outerCos, falloffLinear, localShadowIndex(-1/0/1)
     vec4 areaRightHalfWidth;
     vec4 areaUpHalfHeight;
+    vec4 cookieFlags;     // hasCookie, cookie slot, CookieChannel, cookieFalloff
 };
 
 layout(set = 2, binding = 0) uniform LightingData {
@@ -102,6 +103,16 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 omniShadowParams1;
     vec4 localShadowPcss0;    // searchArea UV (0 = off), near, far, pad
     vec4 localShadowPcss1;
+    // Light cookies: spot slots carry a world → cookie-UV projection, omni slots
+    // the light's world transform (its rotation maps light→fragment into cube space).
+    mat4 cookieMatrix2D0;
+    mat4 cookieMatrix2D1;
+    mat4 cookieMatrixCube0;
+    mat4 cookieMatrixCube1;
+    vec4 cookieParams2D0;     // intensity, cookieFalloff, CookieChannel, pad
+    vec4 cookieParams2D1;
+    vec4 cookieParamsCube0;
+    vec4 cookieParamsCube1;
     vec4 skyParams2;          // xyz sky dome center, w flags: bit0 cubemap, bit1 dome
     vec4 ambientSH[9];
     vec4 clusterBoundsMin;
@@ -201,6 +212,13 @@ layout(set = 3, binding = 14) uniform texture2DArray clusterShadowAtlasImage;
 // reflection camera, and the distance-from-plane map from the depth camera.
 layout(set = 3, binding = 15) uniform texture2D planarReflectionImage;
 layout(set = 3, binding = 16) uniform texture2D planarReflectionDepthImage;
+// Light cookies: 2D for spot lights, cubemap for omni, two slots each. Separate
+// images for the same reason as the block above — the per-stage sampler slots
+// are nearly exhausted, and these want the plain linear clamp sampler anyway.
+layout(set = 3, binding = 17) uniform texture2D cookieImage2D0;
+layout(set = 3, binding = 18) uniform texture2D cookieImage2D1;
+layout(set = 3, binding = 19) uniform textureCube cookieImageCube0;
+layout(set = 3, binding = 20) uniform textureCube cookieImageCube1;
 
 #define skyboxCube        samplerCube(skyboxCubeImage, linearClampSampler)
 #define reflectionProbeCube samplerCube(reflectionProbeCubeImage, linearClampSampler)
@@ -213,6 +231,10 @@ layout(set = 3, binding = 16) uniform texture2D planarReflectionDepthImage;
 // Point-sampled for the same reason as every other shadow map here: manual
 // depth comparison per tap, so filtering must not blend across occluders.
 #define clusterShadowAtlas sampler2DArray(clusterShadowAtlasImage, nearestClampSampler)
+#define cookie2D0         sampler2D(cookieImage2D0, linearClampSampler)
+#define cookie2D1         sampler2D(cookieImage2D1, linearClampSampler)
+#define cookieCube0       samplerCube(cookieImageCube0, linearClampSampler)
+#define cookieCube1       samplerCube(cookieImageCube1, linearClampSampler)
 // Linear-filtered: both are ordinary colour renders, and the Poisson taps below
 // want interpolation between texels.
 #define planarReflection      sampler2D(planarReflectionImage, linearClampSampler)
@@ -660,6 +682,59 @@ float sampleOmniShadow(int slot, vec3 worldPos, vec3 lightPos) {
         visible = (compareValue <= occluder) ? 1.0 : 0.0;
     }
     return mix(1.0 - clamp(intensity, 0.0, 1.0), 1.0, visible);
+}
+
+// ── Light cookies (upstream cookie.js; mirrors common-cookie.metal) ──
+// Every cookie sample below uses textureLod(..., 0.0). The samples sit inside the
+// per-light loop, behind fragment-varying `continue`s, so screen-space derivatives
+// there are undefined — and an undefined LOD reads a fully averaged mip, which
+// turns any cookie into a flat wash of its own average color.
+// DEVIATION: upstream samples cookies with mipmapping.
+// A texture the light projects onto the scene, masking its color: a 2D texture
+// projected through a spot's beam, a cubemap sampled by direction for an omni.
+// DEVIATION: no cookieTransform / cookieOffset variants.
+
+// Upstream's cookieChannel is a 3-character swizzle ('rgb', or a single channel
+// repeated, e.g. 'a' → 'aaa'). CookieChannel carries the same five options.
+vec3 cookieChannelValue(vec4 texel, uint channel) {
+    if (channel == 1u) return vec3(texel.r);
+    if (channel == 2u) return vec3(texel.g);
+    if (channel == 3u) return vec3(texel.b);
+    if (channel == 4u) return vec3(texel.a);
+    return texel.rgb;
+}
+
+// Spot cookie. `clip` mirrors upstream's getCookie2DClip, used when the cone
+// falloff is disabled and the projection alone must bound the beam.
+vec3 getCookie2D(int slot, vec3 worldPos, uint channel, bool clip) {
+    mat4 transform = (slot == 0) ? lighting.cookieMatrix2D0 : lighting.cookieMatrix2D1;
+    float intensity = ((slot == 0) ? lighting.cookieParams2D0 : lighting.cookieParams2D1).x;
+
+    vec4 projPos = transform * vec4(worldPos, 1.0);
+    if (projPos.w <= 0.0) {
+        // Behind the light — never lit through the cookie.
+        return clip ? vec3(0.0) : vec3(1.0);
+    }
+    vec2 uv = projPos.xy / projPos.w;
+    if (clip && (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)) {
+        return vec3(0.0);
+    }
+    vec4 texel = (slot == 0) ? textureLod(cookie2D0, uv, 0.0) : textureLod(cookie2D1, uv, 0.0);
+    return mix(vec3(1.0), cookieChannelValue(texel, channel), intensity);
+}
+
+// Omni cookie. The light's world transform rotates the world-space
+// light→fragment direction into cookie cube space (upstream's
+// `dLightDirNormW * mat3(transform)` — the inverse rotation for an orthonormal
+// basis). The X flip matches the cube convention used elsewhere in the engine.
+vec3 getCookieCube(int slot, vec3 lightToFrag, uint channel) {
+    mat4 transform = (slot == 0) ? lighting.cookieMatrixCube0 : lighting.cookieMatrixCube1;
+    float intensity = ((slot == 0) ? lighting.cookieParamsCube0 : lighting.cookieParamsCube1).x;
+
+    vec3 dir = transpose(mat3(transform)) * lightToFrag;
+    dir.x *= -1.0;
+    vec4 texel = (slot == 0) ? textureLod(cookieCube0, dir, 0.0) : textureLod(cookieCube1, dir, 0.0);
+    return mix(vec3(1.0), cookieChannelValue(texel, channel), intensity);
 }
 
 // ── Environment atlas layout (matches engine bake / Metal common.metal) ──
@@ -1488,6 +1563,9 @@ void main() {
 
         vec3 L;
         float atten = 1.0;
+        // Light cookie: the projected texture masking this light's color. Folded
+        // into the radiance below, BEFORE any falloff (upstream lightFunctionLight.js).
+        vec3 cookieMask = vec3(1.0);
         if (type == 0u) {
             L = normalize(-light.directionType.xyz);
             // Directional light is the CSM shadow caster.
@@ -1620,7 +1698,25 @@ void main() {
             float dist = length(toLight);
             L = (dist > 1e-4) ? toLight / dist : vec3(0.0, 1.0, 0.0);
             atten = distanceAttenuation(dist, light.positionRange.w, light.coneParams.z);
-            if (type == 2u) {
+
+            // A cookie with cookieFalloff disabled replaces the cone falloff
+            // entirely — the projection's own clip bounds the beam instead.
+            bool cookieReplacesConeFalloff = false;
+            if (light.cookieFlags.x > 0.5) {
+                int cookieSlot = int(light.cookieFlags.y + 0.5);
+                uint cookieChannel = uint(light.cookieFlags.z + 0.5);
+                bool cookieFalloff = light.cookieFlags.w > 0.5;
+                if (type == 2u && vtFeatureEnabled(VT_FEATURE_COOKIE_2D_BIT)) {
+                    cookieMask = getCookie2D(cookieSlot, fragWorldPos, cookieChannel, !cookieFalloff);
+                    cookieReplacesConeFalloff = !cookieFalloff;
+                } else if (type == 1u && vtFeatureEnabled(VT_FEATURE_COOKIE_CUBE_BIT)) {
+                    // Upstream samples by the light→fragment direction, the
+                    // opposite of our L.
+                    cookieMask = getCookieCube(cookieSlot, -L, cookieChannel);
+                }
+            }
+
+            if (type == 2u && !cookieReplacesConeFalloff) {
                 float cd = dot(normalize(-light.directionType.xyz), L);
                 float spot = clamp((cd - light.coneParams.y) /
                                    max(light.coneParams.x - light.coneParams.y, 1e-4), 0.0, 1.0);
@@ -1657,7 +1753,7 @@ void main() {
         vec3 specular = (D * G) * F / max(4.0 * NdotV * NdotL, 1e-4);
         vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
 
-        vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.w * atten;
+        vec3 radiance = light.colorIntensity.rgb * cookieMask * light.colorIntensity.w * atten;
         // Oren-Nayar rough diffuse (fast qualitative form): retro-reflection for
         // rough surfaces instead of plain Lambert.
         float diffuseTerm = 1.0;

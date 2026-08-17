@@ -132,6 +132,7 @@ namespace visutwin::canvas
             "common-shadow-pcf",
             "common-shadow-vsm",
             "common-shadow-pcss",
+            "common-cookie",
             "common-brdf",
             "common-sheen",
             "common-iridescence",
@@ -156,6 +157,7 @@ namespace visutwin::canvas
             "common-shadow-pcf",
             "common-shadow-vsm",
             "common-shadow-pcss",
+            "common-cookie",
             "common-brdf",
             "common-sheen",
             "common-iridescence",
@@ -180,6 +182,7 @@ namespace visutwin::canvas
             "common-shadow-pcf",
             "common-shadow-vsm",
             "common-shadow-pcss",
+            "common-cookie",
             "common-brdf",
             "common-sheen",
             "common-iridescence",
@@ -414,6 +417,11 @@ namespace visutwin::canvas
         // Omni cubemap shadows: enabled when any omni light has castShadows.
         options.omniShadows = _omniShadowsEnabled && !options.skybox;
 
+        // Light cookies: the projected texture masking a spot or omni light's color.
+        // Set by the renderer before the draw loop.
+        options.cookie2D = _cookie2DEnabled && !options.skybox;
+        options.cookieCube = _cookieCubeEnabled && !options.skybox;
+
         // Directional EVSM_16F: forward shader samples moments texture via Chebyshev.
         options.vsmShadows = _vsmShadowsEnabled && !options.skybox;
         options.pcssShadows = _pcssShadowsEnabled;
@@ -484,6 +492,8 @@ namespace visutwin::canvas
         set(ShaderFeature::DebugPass, options.debugPass);
         set(ShaderFeature::LocalShadows, options.localShadows);
         set(ShaderFeature::OmniShadows, options.omniShadows);
+        set(ShaderFeature::Cookie2D, options.cookie2D);
+        set(ShaderFeature::CookieCube, options.cookieCube);
         set(ShaderFeature::DynamicBatch, options.dynamicBatch);
         set(ShaderFeature::PointSize, options.pointSize);
         set(ShaderFeature::Unlit, options.unlit);

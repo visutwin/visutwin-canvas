@@ -160,6 +160,19 @@ namespace visutwin::canvas
     }
 
     // -----------------------------------------------------------------------
+    // Light cookies
+    // -----------------------------------------------------------------------
+
+    void MetalTextureBinder::bindCookieTextures(MTL::RenderCommandEncoder* encoder,
+        Texture* cookie2D0, Texture* cookie2D1, Texture* cookieCube0, Texture* cookieCube1)
+    {
+        bindCached(encoder, 27, cookie2D0);
+        bindCached(encoder, 28, cookie2D1);
+        bindCached(encoder, 29, cookieCube0);
+        bindCached(encoder, 30, cookieCube1);
+    }
+
+    // -----------------------------------------------------------------------
     // Pass lifecycle
     // -----------------------------------------------------------------------
 

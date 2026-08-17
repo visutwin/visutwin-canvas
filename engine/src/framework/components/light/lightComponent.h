@@ -18,6 +18,7 @@
 namespace visutwin::canvas
 {
     class Light;
+    class Texture;
 
     /*
      * The LightComponent enables an Entity to light the scene.
@@ -127,6 +128,27 @@ namespace visutwin::canvas
         float cascadeBlend() const { return _cascadeBlend; }
         void setCascadeBlend(const float value) { _cascadeBlend = value; }
 
+        // --- Light Cookie (upstream light.cookie / cookieIntensity / cookieChannel /
+        // cookieFalloff) ---
+        // A texture the light projects onto the scene, multiplying its color:
+        // a 2D texture for spot lights, a cubemap for omni. Directional cookies
+        // are not supported (upstream restricts them to local lights too).
+        // The component does not own the texture.
+        Texture* cookie() const { return _cookie; }
+        void setCookie(Texture* value) { _cookie = value; }
+
+        float cookieIntensity() const { return _cookieIntensity; }
+        void setCookieIntensity(const float value) { _cookieIntensity = value; }
+
+        CookieChannel cookieChannel() const { return _cookieChannel; }
+        void setCookieChannel(const CookieChannel value) { _cookieChannel = value; }
+
+        // Spot only: keep the cone angle falloff alongside the cookie (default,
+        // upstream's too). Set false to let the cookie projection alone shape the
+        // beam — the cone falloff is then skipped and the projection is clipped.
+        bool cookieFalloff() const { return _cookieFalloff; }
+        void setCookieFalloff(const bool value) { _cookieFalloff = value; }
+
         // --- Area Light ---
         float areaWidth() const { return _areaWidth; }
         void setAreaWidth(const float value) { _areaWidth = value; }
@@ -186,6 +208,10 @@ namespace visutwin::canvas
         int _numCascades = 4;
         float _cascadeDistribution = 0.5f;
         float _cascadeBlend = 0.0f;
+        Texture* _cookie = nullptr;
+        float _cookieIntensity = 1.0f;
+        CookieChannel _cookieChannel = CookieChannel::COOKIE_CHANNEL_RGB;
+        bool _cookieFalloff = true;
         float _areaWidth = 1.0f;
         float _areaHeight = 1.0f;
         AreaLightShape _areaShape = AreaLightShape::LIGHTSHAPE_RECT;

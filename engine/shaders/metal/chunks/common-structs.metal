@@ -177,6 +177,9 @@ struct GpuLight {
     float4 colorIntensity;
     float4 coneAngles;
     uint4 typeCastShadows;
+    // Light cookie: x=hasCookie, y=slot in the 2D or cube pool (the light type
+    // picks which), z=CookieChannel, w=cookieFalloff (spot).
+    uint4 cookieFlags;
 };
 
 // Clustered lighting: per-light data packed into a Metal buffer (slot 7).
@@ -285,6 +288,18 @@ struct LightingData {
     // [y]=shadow camera near, [z]=shadow camera far, [w]=pad.
     float4 localShadowPcss0;
     float4 localShadowPcss1;
+    // Light cookies: two slots per kind. Spot cookies carry a world → cookie-UV
+    // projection, omni cookies the light's world transform (its rotation maps the
+    // light→fragment direction into cube space).
+    float4x4 cookieMatrix2D0;
+    float4x4 cookieMatrix2D1;
+    float4x4 cookieMatrixCube0;
+    float4x4 cookieMatrixCube1;
+    // [x]=intensity, [y]=cookieFalloff, [z]=CookieChannel, [w]=pad
+    float4 cookieParams2D0;
+    float4 cookieParams2D1;
+    float4 cookieParamsCube0;
+    float4 cookieParamsCube1;
     // Reflection probe (box-projected cubemap): world-space box bounds + params.
     // params = {boxProjection flag, intensity, maxMipLod, pad}.
     float4 reflectionProbeBoxMin;

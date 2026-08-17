@@ -60,8 +60,9 @@ namespace visutwin::canvas
 
             LightEntry entry;
             entry.data = ld;
-            entry.outerConeCos = std::cos(toRadians(std::max(ld.outerConeAngle, 0.0f) * 0.5f));
-            entry.innerConeCos = std::cos(toRadians(std::max(ld.innerConeAngle, 0.0f) * 0.5f));
+            // Half-angles in degrees, as everywhere else (upstream convention).
+            entry.outerConeCos = std::cos(toRadians(std::max(ld.outerConeAngle, 0.0f)));
+            entry.innerConeCos = std::cos(toRadians(std::max(ld.innerConeAngle, 0.0f)));
             if (entry.innerConeCos < entry.outerConeCos) {
                 entry.innerConeCos = entry.outerConeCos;
             }

@@ -61,6 +61,8 @@
     X(InstancingColor,           "VT_FEATURE_INSTANCING_COLOR",             50) \
     X(LightmapBake,              "VT_FEATURE_LIGHTMAP_BAKE",                51) \
     X(LightmapBakeAccum,         "VT_FEATURE_LIGHTMAP_BAKE_ACCUM",          52) \
+    X(Cookie2D,                  "VT_FEATURE_COOKIE_2D",                    53) \
+    X(CookieCube,                "VT_FEATURE_COOKIE_CUBE",                  54) \
     X(Skybox,                    "VT_FEATURE_SKYBOX",                       62) \
     X(TransparentPass,           "VT_FEATURE_TRANSPARENT_PASS",             63)
 

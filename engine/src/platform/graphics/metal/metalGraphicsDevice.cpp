@@ -1731,6 +1731,9 @@ namespace visutwin::canvas
                 _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
             _textureBinder.bindOmniShadowTextures(passEncoder,
                 _uniformBinder.omniShadowCube0(), _uniformBinder.omniShadowCube1());
+            _textureBinder.bindCookieTextures(passEncoder,
+                _uniformBinder.cookieTexture2D0(), _uniformBinder.cookieTexture2D1(),
+                _uniformBinder.cookieTextureCube0(), _uniformBinder.cookieTextureCube1());
             // Clustered spot-shadow atlas (depth texture2d_array) at slot 26.
             if (_clusterShadowAtlas) {
                 _textureBinder.bindCached(passEncoder, 26, _clusterShadowAtlas);

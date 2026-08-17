@@ -37,7 +37,7 @@ namespace visutwin::canvas
             static_assert(kForwardSkyVertPushConstantSize == 128);
             static_assert(kForwardColorVertPushConstantSize == 128);
             static_assert(kForwardPointVertPushConstantSize == 128);
-            static_assert(sizeof(VulkanLightingUBO) == 2000);
+            static_assert(sizeof(VulkanLightingUBO) == 2448);
             static_assert(
                 offsetof(MaterialUniforms, emissiveTransform1) +
                     sizeof(float) * 4 ==
@@ -63,7 +63,7 @@ namespace visutwin::canvas
                     reflected.set == 1 && reflected.binding < 26 &&
                     (sampler || separateImage || separateSampler);
                 const bool validSceneTexture =
-                    reflected.set == 3 && reflected.binding < 17 &&
+                    reflected.set == 3 && reflected.binding < 21 &&
                     (sampler || separateImage || separateSampler);
                 const bool validGeometry =
                     reflected.set == 4 &&
@@ -370,8 +370,10 @@ namespace visutwin::canvas
         // a per-stage sampler slot, and this device allows only 16 across all sets.
         // Bindings 14-16 (clustered shadow atlas, planar reflection colour and
         // depth) are separate images like 6-11; they sit after the samplers only
-        // so those keep their existing bindings.
-        std::array<VkDescriptorSetLayoutBinding, 17> sceneBindings{};
+        // so those keep their existing bindings. Bindings 17-20 are the light
+        // cookies (two spot 2D, two omni cubemap), separate images for the same
+        // reason.
+        std::array<VkDescriptorSetLayoutBinding, 21> sceneBindings{};
         for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
             sceneBindings[i].binding = i;
             sceneBindings[i].descriptorType = vulkanSceneDescriptorType(i);
