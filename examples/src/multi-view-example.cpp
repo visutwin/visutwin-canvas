@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Multi-view — port of upstream graphics/multi-view. One chess board rendered by
+// three cameras into three viewports of the same back buffer:
+//   * TOP (full width, upper half) — perspective, World layer, directional light.
+//   * BOTTOM-LEFT                  — perspective, World layer, orbiting the board.
+//   * BOTTOM-RIGHT                 — ORTHOGRAPHIC top-down, on a private
+//                                    SpotLightLayer, so it sees only the yellow
+//                                    spot light and not the directional one.
+// The board belongs to both lighting layers, which is what lets the same geometry
+// be lit differently per camera. Press D to step the debug shader pass applied to
+// the top and right viewports (upstream exposes the same thing as a HUD dropdown).
+//
+// Model: "Chess Board" by Idmental, CC BY 4.0
+// https://sketchfab.com/3d-models/chess-board-901eeeca884f4622ac37b7e8f7cb82c3
 //
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -69,6 +82,22 @@ void setRenderLayersRecursive(GraphNode* node, const std::vector<int>& layers)
     }
 }
 
+void setRenderShadowsRecursive(GraphNode* node, const bool cast, const bool receive)
+{
+    if (!node) {
+        return;
+    }
+    if (auto* entity = dynamic_cast<Entity*>(node)) {
+        if (auto* render = entity->findComponent<RenderComponent>()) {
+            render->setCastShadows(cast);
+            render->setReceiveShadows(receive);
+        }
+    }
+    for (const auto& child : node->children()) {
+        setRenderShadowsRecursive(child.get(), cast, receive);
+    }
+}
+
 BoundingBox calcEntityAABB(Entity* entity)
 {
     BoundingBox bbox;
@@ -87,27 +116,6 @@ BoundingBox calcEntityAABB(Entity* entity)
         }
     }
     return bbox;
-}
-
-void setLookAt(Entity* cameraEntity, const Vector3& target, const Vector3& up = Vector3(0.0f, 1.0f, 0.0f))
-{
-    if (!cameraEntity) {
-        return;
-    }
-
-    const Vector3 position = cameraEntity->position();
-    const Vector3 lookDir = (target - position).normalized();
-    const float pitchDeg = std::asin(std::clamp(lookDir.getY(), -1.0f, 1.0f)) * RAD_TO_DEG;
-    float yawDeg = std::atan2(-lookDir.getX(), -lookDir.getZ()) * RAD_TO_DEG;
-
-    // For side orthographic look-at with X-up we rotate around forward axis as needed.
-    float rollDeg = 0.0f;
-    if (std::abs(up.getX()) > 0.9f) {
-        rollDeg = (up.getX() > 0.0f) ? -90.0f : 90.0f;
-        yawDeg += 90.0f;
-    }
-
-    cameraEntity->setLocalEulerAngles(pitchDeg, yawDeg, rollDeg);
 }
 
 int main()
@@ -173,9 +181,7 @@ int main()
     engine->start();
 
     auto scene = engine->scene();
-    scene->setAmbientLight(0.2f, 0.2f, 0.2f);
     scene->setSkyboxMip(1);
-    scene->setSkyboxIntensity(0.4f);
 
     const auto helipadResource = helipad->resource();
     if (!helipadResource) {
@@ -236,25 +242,16 @@ int main()
         return -1;
     }
     boardEntity->setEngine(engine.get());
+    // Both lighting layers, so each camera lights the same geometry from its own
+    // light. The board keeps its authored size (~337 units across) — the camera
+    // distances and ortho heights below are all framed against that, so scaling it
+    // down to a "tidy" 100 units, as this port used to, pushed every viewport out
+    // to a distant wide shot instead of upstream's close-ups.
     setRenderLayersRecursive(boardEntity, {LAYERID_WORLD, LAYERID_SPOTLIGHT});
+    setRenderShadowsRecursive(boardEntity, true, true);
     engine->root()->addChild(boardEntity);
 
-    // Normalize the board so its longest extent is ~100 units, centered at origin,
-    // matching the camera framing distances below.
-    {
-        const auto bbox = calcEntityAABB(boardEntity);
-        const auto& he = bbox.halfExtents();
-        const auto& ct = bbox.center();
-        const float maxExtent = std::max({he.getX(), he.getY(), he.getZ()}) * 2.0f;
-        if (maxExtent > 0.001f) {
-            const float s = 100.0f / maxExtent;
-            boardEntity->setLocalScale(s, s, s);
-            boardEntity->setLocalPosition(-ct.getX() * s, -ct.getY() * s, -ct.getZ() * s);
-            spdlog::info("Chess board: extent={:.1f}, scale={:.3f}", maxExtent, s);
-        }
-    }
-
-    // Left camera: perspective, bottom-left viewport.
+    // Left camera: perspective, bottom-left viewport, World layer.
     auto* leftCamEntity = new Entity();
     leftCamEntity->setEngine(engine.get());
     auto* leftCam = static_cast<CameraComponent*>(leftCamEntity->addComponent<CameraComponent>());
@@ -262,13 +259,16 @@ int main()
         leftCam->setLayers({LAYERID_WORLD, LAYERID_SKYBOX});
         leftCam->camera()->setRect(Vector4(0.0f, 0.0f, 0.5f, 0.5f));
         leftCam->camera()->setScissorRect(Vector4(0.0f, 0.0f, 0.5f, 0.5f));
-        leftCam->camera()->setClearColor(Color(0.09f, 0.09f, 0.12f, 1.0f));
+        leftCam->camera()->setFarClip(500.0f);
+        leftCam->setToneMapping(TONEMAP_ACES);
     }
     leftCamEntity->setLocalPosition(100.0f, 35.0f, 100.0f);
-    setLookAt(leftCamEntity, Vector3(0.0f, 0.0f, 0.0f));
+    leftCamEntity->lookAt(Vector3(0.0f, 0.0f, 0.0f));
     engine->root()->addChild(leftCamEntity);
 
-    // Right camera: orthographic, bottom-right viewport, spotlight layer only.
+    // Right camera: orthographic top-down, bottom-right viewport, spot light layer
+    // only — so this view is lit by the yellow spot and never by the directional.
+    // The +X up vector is what turns the board square-on in the viewport.
     auto* rightCamEntity = new Entity();
     rightCamEntity->setEngine(engine.get());
     auto* rightCam = static_cast<CameraComponent*>(rightCamEntity->addComponent<CameraComponent>());
@@ -277,16 +277,21 @@ int main()
         rightCam->camera()->setRect(Vector4(0.5f, 0.0f, 0.5f, 0.5f));
         rightCam->camera()->setScissorRect(Vector4(0.5f, 0.0f, 0.5f, 0.5f));
         rightCam->camera()->setProjection(ProjectionType::Orthographic);
-        rightCam->camera()->setOrthoHeight(70.0f);
+        rightCam->camera()->setOrthoHeight(150.0f);
+        rightCam->camera()->setFarClip(500.0f);
+        rightCam->setToneMapping(TONEMAP_ACES);
+        // DEVIATION: upstream lets every camera clear its own viewport. Here the
+        // second and third cameras must not clear, or they wipe the viewports drawn
+        // before them.
         rightCam->camera()->setClearColorBuffer(false);
         rightCam->camera()->setClearDepthBuffer(false);
         rightCam->camera()->setClearStencilBuffer(false);
     }
-    rightCamEntity->setLocalPosition(60.0f, 42.0f, 60.0f);
-    setLookAt(rightCamEntity, Vector3(0.0f, 0.0f, 0.0f));
+    rightCamEntity->setLocalPosition(0.0f, 150.0f, 0.0f);
+    rightCamEntity->lookAt(Vector3(0.0f, 0.0f, 0.0f), Vector3(1.0f, 0.0f, 0.0f));
     engine->root()->addChild(rightCamEntity);
 
-    // Top camera: perspective, top-half full width viewport.
+    // Top camera: perspective, full-width upper half, World layer.
     auto* topCamEntity = new Entity();
     topCamEntity->setEngine(engine.get());
     auto* topCam = static_cast<CameraComponent*>(topCamEntity->addComponent<CameraComponent>());
@@ -294,12 +299,14 @@ int main()
         topCam->setLayers({LAYERID_WORLD, LAYERID_SKYBOX});
         topCam->camera()->setRect(Vector4(0.0f, 0.5f, 1.0f, 0.5f));
         topCam->camera()->setScissorRect(Vector4(0.0f, 0.5f, 1.0f, 0.5f));
+        topCam->camera()->setFarClip(500.0f);
+        topCam->setToneMapping(TONEMAP_ACES);
         topCam->camera()->setClearColorBuffer(false);
         topCam->camera()->setClearDepthBuffer(false);
         topCam->camera()->setClearStencilBuffer(false);
     }
     topCamEntity->setLocalPosition(-100.0f, 75.0f, 100.0f);
-    setLookAt(topCamEntity, Vector3(0.0f, 7.0f, 0.0f));
+    topCamEntity->lookAt(Vector3(0.0f, 7.0f, 0.0f));
     engine->root()->addChild(topCamEntity);
 
     // Guard against unintended extra cameras rendering full-screen.
@@ -365,6 +372,10 @@ int main()
         dirLight->setColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
         dirLight->setIntensity(5.0f);
         dirLight->setRange(500.0f);
+        dirLight->setShadowDistance(500.0f);
+        dirLight->setCastShadows(true);
+        dirLight->setShadowBias(0.2f);
+        dirLight->setShadowNormalBias(0.05f);
     }
     dirLightEntity->setLocalEulerAngles(45.0f, 0.0f, 30.0f);
     engine->root()->addChild(dirLightEntity);
@@ -376,14 +387,19 @@ int main()
     if (spotLight) {
         spotLight->setType(LightType::LIGHTTYPE_SPOT);
         spotLight->setLayers({LAYERID_SPOTLIGHT});
-        spotLight->setColor(Color(1.0f, 1.0f, 0.2f, 1.0f));
+        spotLight->setColor(Color(1.0f, 1.0f, 0.0f, 1.0f));
         spotLight->setIntensity(7.0f);
         spotLight->setInnerConeAngle(20.0f);
         spotLight->setOuterConeAngle(80.0f);
         spotLight->setRange(200.0f);
+        spotLight->setShadowDistance(200.0f);
+        spotLight->setCastShadows(true);
+        spotLight->setShadowBias(0.2f);
+        spotLight->setShadowNormalBias(0.05f);
     }
+    // Left unrotated on purpose, as upstream does: the beam points straight down
+    // its own -Y and the light simply slides around above the board.
     spotLightEntity->setLocalPosition(40.0f, 60.0f, 40.0f);
-    setLookAt(spotLightEntity, Vector3(0.0f, 0.0f, 0.0f));
     engine->root()->addChild(spotLightEntity);
 
     bool running = true;
@@ -417,10 +433,15 @@ int main()
     constexpr float debugPassInterval = 2.5f;
 
     const auto applyDebugPass = [&]() {
+        // Upstream's HUD drives the top and right cameras together; the left one
+        // stays on the forward pass as a reference.
         if (topCam && topCam->camera()) {
             topCam->camera()->setDebugShaderPass(debugPasses[debugPassIndex].pass);
         }
-        spdlog::info("Top viewport debug pass: {}", debugPasses[debugPassIndex].name);
+        if (rightCam && rightCam->camera()) {
+            rightCam->camera()->setDebugShaderPass(debugPasses[debugPassIndex].pass);
+        }
+        spdlog::info("Top + right viewport debug pass: {}", debugPasses[debugPassIndex].name);
     };
     applyDebugPass();
     spdlog::info("Press D to step the top viewport's debug shader pass (stops auto-cycling)");
@@ -453,15 +474,14 @@ int main()
             }
         }
 
-        // upstream-style animated control-room cameras/lights.
+        // Orbit the left camera, slide the spot light, and breathe the ortho view.
         leftCamEntity->setLocalPosition(100.0f * std::sin(time * 0.2f), 35.0f, 100.0f * std::cos(time * 0.2f));
-        setLookAt(leftCamEntity, Vector3(0.0f, 0.0f, 0.0f));
+        leftCamEntity->lookAt(Vector3(0.0f, 0.0f, 0.0f));
 
         spotLightEntity->setLocalPosition(40.0f * std::sin(time * 0.5f), 60.0f, 40.0f * std::cos(time * 0.5f));
-        setLookAt(spotLightEntity, Vector3(0.0f, 0.0f, 0.0f));
 
         if (rightCam && rightCam->camera()) {
-            rightCam->camera()->setOrthoHeight(70.0f + std::sin(time * 0.3f) * 20.0f);
+            rightCam->camera()->setOrthoHeight(90.0f + std::sin(time * 0.3f) * 60.0f);
         }
 
         engine->update(dt);

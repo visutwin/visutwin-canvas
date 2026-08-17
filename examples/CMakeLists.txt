@@ -318,10 +318,3 @@ add_executable(visutwin-pcss-local MACOSX_BUNDLE
 )
 target_link_libraries(visutwin-pcss-local PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-pcss-local com.visutwin.pcss-local)
-
-add_executable(visutwin-morph-anim MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/morph-anim-example.cpp
-)
-target_link_libraries(visutwin-morph-anim PRIVATE visutwin-canvas)
-target_compile_definitions(visutwin-morph-anim PRIVATE ASSET_DIR="${VISUTWIN_ASSET_DIR}")
-visutwin_set_macos_bundle(visutwin-morph-anim com.visutwin.morph-anim)
