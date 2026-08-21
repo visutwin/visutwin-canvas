@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <ranges>
 #include "metalCoCPass.h"
 #include "metalComposePass.h"
 #include "metalDepthAwareBlurPass.h"
@@ -804,7 +805,22 @@ namespace visutwin::canvas
             encoder->setComputePipelineState(pipelineState);
 
             // DEVIATION: C++ port does not yet have compute bind group
-            // declarations/reflection, so we bind textures in deterministic name order.
+            // declarations/reflection, so resources bind in deterministic name order:
+            // storage buffers first, then the loose-uniform block, then textures.
+            uint32_t bufferSlot = 0u;
+            for (const auto& buffer : compute->bufferParameters() | std::views::values) {
+                auto* hwBuffer = buffer ? static_cast<MTL::Buffer*>(buffer->nativeBuffer()) : nullptr;
+                encoder->setBuffer(hwBuffer, 0, static_cast<NS::UInteger>(bufferSlot));
+                ++bufferSlot;
+            }
+
+            // Loose scalar uniforms travel as one small block right after the buffers.
+            const std::vector<uint8_t> uniformData = compute->uniformData();
+            if (!uniformData.empty()) {
+                encoder->setBytes(uniformData.data(), uniformData.size(),
+                    static_cast<NS::UInteger>(bufferSlot));
+            }
+
             std::vector<std::pair<std::string, Texture*>> textureBindings;
             textureBindings.reserve(compute->textureParameters().size());
             for (const auto& [name, texture] : compute->textureParameters()) {
@@ -826,9 +842,11 @@ namespace visutwin::canvas
                 static_cast<NS::UInteger>(compute->dispatchZ())
             );
 
-            // DEVIATION: workgroup size is currently fixed to 8x8x1 for parity with
-            // Edge-detect compute shader.
-            const MTL::Size threadsPerThreadgroup(8, 8, 1);
+            const MTL::Size threadsPerThreadgroup(
+                static_cast<NS::UInteger>(compute->threadgroupSizeX()),
+                static_cast<NS::UInteger>(compute->threadgroupSizeY()),
+                static_cast<NS::UInteger>(compute->threadgroupSizeZ())
+            );
             encoder->dispatchThreadgroups(threadgroups, threadsPerThreadgroup);
         }
 

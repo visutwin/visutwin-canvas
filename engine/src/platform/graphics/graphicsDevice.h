@@ -717,6 +717,19 @@ namespace visutwin::canvas
         virtual void setParticleState(const std::shared_ptr<VertexBuffer>& particles,
             const void* params, size_t paramsSize) { (void)particles; (void)params; (void)paramsSize; }
 
+        /// Bind an app-owned storage buffer + parameter block for the next draw call
+        /// (consumed by one draw). This is the generic form of the particle/gsplat
+        /// bindings and shares their slots — buffer at vertex slot 7, params at vertex
+        /// slot 11 (Vulkan: descriptor set 6, bindings 0 and 3) — so a draw is a
+        /// storage draw, a particle draw, or a splat draw, never two at once.
+        /// Used by MeshInstance storage draws, where a custom shader expands one
+        /// instance per record in the buffer.
+        void setStorageDrawState(const std::shared_ptr<VertexBuffer>& buffer,
+            const void* params, const size_t paramsSize)
+        {
+            setParticleState(buffer, params, paramsSize);
+        }
+
         /// Bind Gaussian splat state for the next draw call (consumed by one draw).
         /// splats: GpuSplat storage (vertex slot 7); order: uint32 draw order, farthest
         /// first (vertex slot 8); sh: per-splat SH coefficients (vertex slot 12);

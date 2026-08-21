@@ -289,12 +289,6 @@ add_executable(visutwin-refraction MACOSX_BUNDLE
 target_link_libraries(visutwin-refraction PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-refraction com.visutwin.refraction)
 
-add_executable(visutwin-outline-viewcube MACOSX_BUNDLE
-    ${VISUTWIN_ROOT_DIR}/examples/src/outline-viewcube-example.cpp
-)
-target_link_libraries(visutwin-outline-viewcube PRIVATE visutwin-canvas)
-visutwin_set_macos_bundle(visutwin-outline-viewcube com.visutwin.outline-viewcube)
-
 add_executable(visutwin-pcss-dither MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/pcss-dither-example.cpp
 )
@@ -309,6 +303,7 @@ visutwin_set_macos_bundle(visutwin-shader-chunks com.visutwin.shader-chunks)
 
 add_executable(visutwin-particles MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/particles-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
 )
 target_link_libraries(visutwin-particles PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-particles com.visutwin.particles)

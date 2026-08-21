@@ -6,6 +6,7 @@
 #include "vulkanGraphicsDevice.h"
 
 #include <algorithm>
+#include <ranges>
 #include <cstring>
 #include <VkBootstrap.h>
 #include <SDL3/SDL_vulkan.h>
@@ -248,14 +249,37 @@ namespace visutwin::canvas
                 continue;
             }
 
+            // Binding order mirrors the Metal backend and Compute's documented contract:
+            // storage buffers (name-sorted) first, then textures (name-sorted), then the
+            // loose-uniform block. A texture-only compute keeps the bindings it always had.
+            std::vector<VkDescriptorType> types;
+            std::vector<VkBuffer> storageBuffers;
+            std::vector<std::shared_ptr<VulkanVertexBuffer>> storageKeepAlive;
+            bool valid = true;
+            for (const auto& buffer : compute->bufferParameters() | std::views::values) {
+                auto vkBuffer = std::dynamic_pointer_cast<VulkanVertexBuffer>(buffer);
+                if (!vkBuffer || !vkBuffer->buffer()) {
+                    valid = false;
+                    break;
+                }
+                storageBuffers.push_back(vkBuffer->buffer());
+                storageKeepAlive.push_back(std::move(vkBuffer));
+                types.push_back(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            }
+            if (!valid) {
+                spdlog::error("Vulkan compute dispatch '{}' has invalid buffer parameters",
+                    compute->name());
+                continue;
+            }
+            const uint32_t bufferCount = static_cast<uint32_t>(storageBuffers.size());
+
             std::vector<std::pair<std::string, Texture*>> parameters(
                 compute->textureParameters().begin(),
                 compute->textureParameters().end());
             std::ranges::sort(parameters, {}, &decltype(parameters)::value_type::first);
 
             std::vector<gpu::VulkanTexture*> textures;
-            std::vector<VkDescriptorType> types;
-            bool valid = true;
+            std::vector<VkDescriptorType> textureTypes;
             for (const auto& [name, texture] : parameters) {
                 (void)name;
                 if (texture) {
@@ -273,12 +297,27 @@ namespace visutwin::canvas
                     break;
                 }
                 textures.push_back(vkTexture);
-                types.push_back(texture->storage()
+                textureTypes.push_back(texture->storage()
                     ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
                     : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                types.push_back(textureTypes.back());
             }
-            if (!valid || textures.empty()) {
+            if (!valid) {
                 spdlog::error("Vulkan compute dispatch '{}' has invalid texture parameters",
+                    compute->name());
+                continue;
+            }
+
+            // Loose scalar uniforms collapse into one UBO bound after the textures. The
+            // backing allocation happens further down, once the pipeline is known to exist,
+            // so the early-out paths below cannot leak it.
+            const std::vector<uint8_t> uniformData = compute->uniformData();
+            if (!uniformData.empty()) {
+                types.push_back(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+            }
+
+            if (types.empty()) {
+                spdlog::error("Vulkan compute dispatch '{}' has no bound resources",
                     compute->name());
                 continue;
             }
@@ -360,23 +399,71 @@ namespace visutwin::canvas
                 continue;
             }
 
+            // The uniform block's backing buffer: allocated here so every failure path above
+            // exits without one to release.
+            VkBuffer uniformBuffer = VK_NULL_HANDLE;
+            VmaAllocation uniformAllocation = VK_NULL_HANDLE;
+            if (!uniformData.empty()) {
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = uniformData.size();
+                bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                VmaAllocationCreateInfo allocationInfo{};
+                allocationInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+                allocationInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                VmaAllocationInfo mappedInfo{};
+                if (vmaCreateBuffer(_vmaAllocator, &bufferInfo, &allocationInfo,
+                        &uniformBuffer, &uniformAllocation, &mappedInfo) != VK_SUCCESS) {
+                    spdlog::error("Vulkan compute dispatch '{}' failed to allocate its uniform block",
+                        compute->name());
+                    vkDestroyDescriptorPool(_device, descriptorPool, nullptr);
+                    continue;
+                }
+                std::memcpy(mappedInfo.pMappedData, uniformData.data(), uniformData.size());
+                vmaFlushAllocation(_vmaAllocator, uniformAllocation, 0, uniformData.size());
+            }
+
             std::vector<VkDescriptorImageInfo> imageInfos(textures.size());
-            std::vector<VkWriteDescriptorSet> writes(textures.size());
+            std::vector<VkDescriptorBufferInfo> bufferInfos(types.size());
+            std::vector<VkWriteDescriptorSet> writes(types.size());
+            uint32_t writeCount = 0;
+            for (uint32_t i = 0; i < bufferCount; ++i) {
+                bufferInfos[writeCount] = {storageBuffers[i], 0, VK_WHOLE_SIZE};
+                auto& write = writes[writeCount];
+                write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = descriptorSet;
+                write.dstBinding = i;
+                write.descriptorCount = 1;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write.pBufferInfo = &bufferInfos[writeCount];
+                ++writeCount;
+            }
             for (uint32_t i = 0; i < textures.size(); ++i) {
-                const bool storage = types[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                const bool storage = textureTypes[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
                 imageInfos[i].sampler = storage ? VK_NULL_HANDLE : textures[i]->sampler();
                 imageInfos[i].imageView = textures[i]->imageView();
                 imageInfos[i].imageLayout = storage
                     ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                writes[i].dstSet = descriptorSet;
-                writes[i].dstBinding = i;
-                writes[i].descriptorCount = 1;
-                writes[i].descriptorType = types[i];
-                writes[i].pImageInfo = &imageInfos[i];
+                auto& write = writes[writeCount];
+                write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = descriptorSet;
+                write.dstBinding = bufferCount + i;
+                write.descriptorCount = 1;
+                write.descriptorType = textureTypes[i];
+                write.pImageInfo = &imageInfos[i];
+                ++writeCount;
             }
-            vkUpdateDescriptorSets(_device, static_cast<uint32_t>(writes.size()),
-                writes.data(), 0, nullptr);
+            if (uniformBuffer != VK_NULL_HANDLE) {
+                bufferInfos[writeCount] = {uniformBuffer, 0, uniformData.size()};
+                auto& write = writes[writeCount];
+                write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = descriptorSet;
+                write.dstBinding = bufferCount + static_cast<uint32_t>(textures.size());
+                write.descriptorCount = 1;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                write.pBufferInfo = &bufferInfos[writeCount];
+                ++writeCount;
+            }
+            vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
 
             const VkPipeline pipeline = resources.pipeline;
             const VkPipelineLayout pipelineLayout = resources.pipelineLayout;
@@ -384,11 +471,13 @@ namespace visutwin::canvas
             const uint32_t dispatchY = compute->dispatchY();
             const uint32_t dispatchZ = compute->dispatchZ();
             enqueueUpload(
-                [textures, types, descriptorSet, pipeline, pipelineLayout,
-                 dispatchX, dispatchY, dispatchZ](VkCommandBuffer cmd) {
+                [textures, textureTypes, descriptorSet, pipeline, pipelineLayout,
+                 dispatchX, dispatchY, dispatchZ,
+                 keepAlive = std::move(storageKeepAlive)](VkCommandBuffer cmd) {
+                    (void)keepAlive;
                     for (uint32_t i = 0; i < textures.size(); ++i) {
                         textures[i]->transitionLayout(cmd,
-                            types[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+                            textureTypes[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
                                 ? VK_IMAGE_LAYOUT_GENERAL
                                 : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                     }
@@ -410,14 +499,18 @@ namespace visutwin::canvas
                     dependency.pMemoryBarriers = &barrier;
                     vkCmdPipelineBarrier2(cmd, &dependency);
                     for (uint32_t i = 0; i < textures.size(); ++i) {
-                        if (types[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
+                        if (textureTypes[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
                             textures[i]->transitionLayout(cmd,
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                         }
                     }
                 },
-                [device = _device, descriptorPool] {
+                [device = _device, allocator = _vmaAllocator, descriptorPool,
+                 uniformBuffer, uniformAllocation] {
                     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+                    if (uniformBuffer != VK_NULL_HANDLE) {
+                        vmaDestroyBuffer(allocator, uniformBuffer, uniformAllocation);
+                    }
                 });
         }
         flushUploads();

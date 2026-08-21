@@ -6,17 +6,21 @@
 // over a single warm-grey ramp) replaces the materials of every mesh instance in the
 // loaded statue model, which rotates at 60°/s.
 //
+#ifdef VISUTWIN_HAS_METAL
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #define MTK_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION
+#endif
 
 #include <SDL3/SDL.h>
 #include <memory>
 #include <string>
 #include <vector>
 
+#ifdef VISUTWIN_HAS_METAL
 #include <QuartzCore/QuartzCore.hpp>
+#endif
 
 #include "framework/engine.h"
 #include "log.h"
@@ -125,9 +129,12 @@ fragment float4 fragmentShader(Varyings in [[stage_in]])
 //    exactly as engine/shaders/vulkan/forward.vert does;
 //  - the custom uniform block is set 0 / binding 0 (the per-draw material UBO, bound
 //    to both stages) rather than buffer(3);
-//  - NO clip.z remap. forward.vert assigns gl_Position straight from the projection,
-//    so a custom shader must do the same or it depth-tests inconsistently against
-//    every other draw on this backend.
+//  - the clip.z remap is MANDATORY. Engine projections are GL-style (NDC z in [-1,1])
+//    while Vulkan clips to [0,w], so forward.vert (and particle.vert / gsplat.vert)
+//    all apply `z = 0.5 * (z + w)`. A custom shader that skips it stores roughly half
+//    the depth every other draw stores, and then wrongly wins depth tests against all
+//    standard-material geometry — verified 2026-08-21 with a box that the statue
+//    occluded on Vulkan but correctly intersected on Metal.
 static const char* kToonShaderSourceGlsl = R"GLSL(
 #version 450
 
@@ -149,7 +156,9 @@ void main() {
     vec3 worldNormal = normalize(mat3(pc.model) * vertexNormal);
     vec3 lightDir = normalize(toon.uLightPos.xyz - world.xyz);
     vertOutTexCoord = max(0.0, dot(worldNormal, lightDir));
-    gl_Position = pc.viewProjection * world;
+    vec4 clip = pc.viewProjection * world;
+    clip.z = 0.5 * (clip.z + clip.w);   // GL [-1,1] -> Vulkan [0,1], as forward.vert does
+    gl_Position = clip;
 }
 #endif
 
@@ -209,21 +218,36 @@ int main()
         SDL_Quit();
     };
 
+#ifdef VISUTWIN_HAS_METAL
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+#endif
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
         "Custom Shader (Toon)", WINDOW_WIDTH, WINDOW_HEIGHT,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
+        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+#ifdef VISUTWIN_HAS_VULKAN
+        | SDL_WINDOW_VULKAN
+#endif
+    );
     if (!window) { shutdown(); return -1; }
     renderer = SDL_CreateRenderer(window, nullptr);
     if (!renderer) { shutdown(); return -1; }
     SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
 
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
+    void* swapchain = nullptr;
+#ifdef VISUTWIN_HAS_METAL
+    swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
     if (!swapchain) { shutdown(); return -1; }
+#endif
 
-    auto device = createGraphicsDevice(GraphicsDeviceOptions{.swapChain = swapchain, .window = window});
+    GraphicsDeviceOptions deviceOptions;
+#ifdef VISUTWIN_HAS_VULKAN
+    deviceOptions.backend = Backend::Vulkan;
+#endif
+    deviceOptions.swapChain = swapchain;
+    deviceOptions.window = window;
+    auto device = createGraphicsDevice(deviceOptions);
     if (!device) { shutdown(); return -1; }
 
     AppOptions createOptions;

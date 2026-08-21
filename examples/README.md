@@ -104,7 +104,7 @@ Recommended free asset sources:
 |---------|-------------|
 | gsplat | Gaussian splatting (classic path) |
 | gsplat-tier2 | Splatting with view-dependent SH + compressed PLY |
-| particles | GPU particle system (fire / smoke / sparks) |
+| particles | 1M particles simulated by an app-authored compute shader, colliding with spheres |
 
 ### Scene, camera & loading
 
@@ -125,6 +125,5 @@ Recommended free asset sources:
 | gizmo-translate | Transform gizmo interaction |
 | transform-rotate | Rotate gizmo |
 | transform-scale | Scale gizmo |
-| outline-viewcube | Selection outlines + orientation view cube |
 | ui-text | Screen-space UI text (Screen + Element components) |
 | world-to-screen | Screen-space UI with world anchors |

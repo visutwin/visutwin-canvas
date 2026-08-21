@@ -1263,6 +1263,18 @@ namespace visutwin::canvas
                 }
                 _device->setTransformUniforms(viewProjection, Matrix4::identity());
                 _device->draw(entry->primitive, entry->indexBuffer, 1, -1, true, true);
+            } else if (entry->meshInstance && entry->meshInstance->storageDrawCount() > 0) {
+                // App-driven storage draw: a custom shader expands one instance per
+                // record in an app-owned buffer (typically filled by a compute shader).
+                // Same binding slots as the emitter/splat paths, no engine-side simulation.
+                const Matrix4 modelMatrix = entry->meshInstance->node()
+                    ? entry->meshInstance->node()->worldTransform() : Matrix4::identity();
+                const auto& storageParams = entry->meshInstance->storageParams();
+                _device->setStorageDrawState(entry->meshInstance->storageBuffer(),
+                    storageParams.data(), storageParams.size());
+                _device->setTransformUniforms(viewProjection, modelMatrix);
+                _device->draw(entry->primitive, entry->indexBuffer,
+                    entry->meshInstance->storageDrawCount(), -1, true, true);
             } else if (auto* particles = entry->meshInstance ? entry->meshInstance->particleEmitter() : nullptr) {
                 // GPU particles: one instanced billboard quad per particle over the
                 // compute-simulated pool (dead particles emit clipped vertices).

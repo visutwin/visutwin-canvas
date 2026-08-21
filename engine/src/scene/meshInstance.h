@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 #include <core/shape/boundingBox.h>
 
 #include "graphNode.h"
@@ -190,6 +191,32 @@ namespace visutwin::canvas
             _particleEmitter = emitter;
         }
 
+        // --- App-driven storage draws ---
+
+        /**
+         * Draw `instanceCount` instances of this mesh with an app-owned storage buffer
+         * bound for the vertex stage, plus a small parameter block. The custom shader
+         * expands one instance per record in the buffer, keyed off the instance id —
+         * the same mechanism the built-in particle emitter and Gaussian splats use, made
+         * available to applications that simulate their own data with a compute shader.
+         *
+         * The buffer and parameter block share the emitter/splat binding slots, so a
+         * mesh instance that has a storage draw must not also carry a particle emitter
+         * or a splat instance. `params` is copied.
+         */
+        void setStorageDraw(const std::shared_ptr<VertexBuffer>& buffer, const int instanceCount,
+            const void* params, const size_t paramsSize)
+        {
+            _storageBuffer = buffer;
+            _storageDrawCount = buffer ? instanceCount : 0;
+            _storageParams.assign(static_cast<const uint8_t*>(params),
+                static_cast<const uint8_t*>(params) + paramsSize);
+        }
+
+        const std::shared_ptr<VertexBuffer>& storageBuffer() const { return _storageBuffer; }
+        int storageDrawCount() const { return _storageDrawCount; }
+        const std::vector<uint8_t>& storageParams() const { return _storageParams; }
+
         // --- Morph targets ---
 
         MorphInstance* morphInstance() const { return _morphInstance.get(); }
@@ -254,6 +281,9 @@ namespace visutwin::canvas
         std::shared_ptr<MorphInstance> _morphInstance;
         std::shared_ptr<GSplatInstance> _gsplatInstance;
         std::shared_ptr<ParticleEmitter> _particleEmitter;
+        std::shared_ptr<VertexBuffer> _storageBuffer;
+        std::vector<uint8_t> _storageParams;
+        int _storageDrawCount = 0;
         SkinBatchInstance* _skinBatchInstance = nullptr;
         InstancingData _instancingData;
 
