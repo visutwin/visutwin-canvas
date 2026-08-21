@@ -75,7 +75,7 @@ Recommended free asset sources:
 | reflection-probe | Box-projected cubemap reflection probe |
 | reflection-probe-dynamic | Runtime scene-capture reflection probe (live cubemap) |
 | reflection-planar-blurred | Planar reflections with blur |
-| procedural-sky | Nishita atmosphere / procedural sky with animated sun |
+| procedural-sky | Laboratory in dunes under a time-of-day sun (upstream procedural-sky scene) |
 
 ### Post-processing
 

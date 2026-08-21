@@ -119,7 +119,11 @@ namespace visutwin::canvas
         void setPrefilteredCubemaps(const std::vector<Texture*>& cubemaps);
 
         // Atmosphere scattering (Nishita).
-        void setAtmosphereEnabled(bool value) { _atmosphereEnabled = value; }
+        // Rebuilds the sky mesh: the atmosphere path needs one even with no skybox or env
+        // atlas, and Sky::updateSkyMesh only reaches that branch when this flag is already
+        // set. Without the rebuild, enabling the atmosphere AFTER setSkyType left the sky
+        // permanently reset — the order every caller naturally writes.
+        void setAtmosphereEnabled(bool value);
         bool atmosphereEnabled() const { return _atmosphereEnabled; }
 
         /// Set atmosphere uniforms from bridge data.

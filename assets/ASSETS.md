@@ -67,6 +67,8 @@ Mirrored from PlayCanvas examples (for visual parity):
 - `SunglassesKhronos.glb` — Sunglasses from Khronos glTF-Sample-Assets (**CC-BY 4.0**)
 - `apartment.glb` — Mirror's Edge Apartment by Aurélien Martel, Sketchfab (**CC-BY-NC 4.0 — NON-COMMERCIAL ONLY**, see .txt)
 - `love.glb` — Love neon sign 02 by daysena, Sketchfab (**CC-BY 4.0**, see .txt)
+- `laboratory.glb` — Laboratory by Sketchfab (**CC-BY 4.0**, see .txt)
+- `dry-sand-terrain.glb` — FREE Dry Sand Terrain by josevega, Sketchfab (**CC-BY 4.0**, see .txt)
 - `cat.glb` — Egyptian Cat Statue by Ankledot, Sketchfab (**CC-BY 4.0**, webp textures re-encoded to png, see .txt)
 - `tamiya-dt03.compressed.ply` — Tamiya DT-03 by Simon Bethke, SuperSplat
   (**CC-BY 4.0**, see .txt). Used by `gsplat-example`. Downloaded as a 154 MB

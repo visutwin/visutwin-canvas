@@ -159,7 +159,11 @@ namespace visutwin::canvas
         /// 96 bytes (6 × float4), bound at Metal buffer slot 9 when VT_FEATURE_ATMOSPHERE is active.
         struct alignas(16) AtmosphereUniforms
         {
-            PackedVector4f planetCenterAndRadius = {0.0f, 0.0f, 0.0f, 6371000.0f};
+            // CAMERA-LOCAL planet centre: the shader builds its ray origin as
+            // -planetCenter / planetRadius, so a viewer standing on the surface has the
+            // centre one radius below. At (0,0,0) the viewer sits at the planet's core,
+            // every view ray starts underground, and the sky renders black.
+            PackedVector4f planetCenterAndRadius = {0.0f, -6371000.0f, 0.0f, 6371000.0f};
             PackedVector4f atmosphereRadiusAndSunIntensity = {6471000.0f, 22.0f, 0.9998f, 0.0f};
             PackedVector4f rayleighCoeffAndScaleHeight = {5.5e-6f, 13.0e-6f, 22.4e-6f, 8500.0f};
             PackedVector4f mieCoeffAndScaleHeight = {21.0e-6f, 1200.0f, 0.758f, 0.0f};

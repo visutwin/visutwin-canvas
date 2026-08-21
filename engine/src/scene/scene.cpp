@@ -24,6 +24,14 @@ namespace visutwin::canvas
         }
     }
 
+    void Scene::setAtmosphereEnabled(const bool value)
+    {
+        if (value != _atmosphereEnabled) {
+            _atmosphereEnabled = value;
+            resetSkyMesh();
+        }
+    }
+
     void Scene::resetSkyMesh()
     {
         if (!_sky) {
