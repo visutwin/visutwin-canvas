@@ -291,6 +291,7 @@ visutwin_set_macos_bundle(visutwin-refraction com.visutwin.refraction)
 
 add_executable(visutwin-pcss-dither MACOSX_BUNDLE
     ${VISUTWIN_ROOT_DIR}/examples/src/pcss-dither-example.cpp
+    ${VISUTWIN_ROOT_DIR}/examples/src/cameraControls.cpp
 )
 target_link_libraries(visutwin-pcss-dither PRIVATE visutwin-canvas)
 visutwin_set_macos_bundle(visutwin-pcss-dither com.visutwin.pcss-dither)

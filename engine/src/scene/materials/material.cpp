@@ -446,4 +446,23 @@ namespace visutwin::canvas
             _shaderChunksHash = 0;
         }
     }
+
+    void Material::detachSharedState()
+    {
+        // The copy constructor shares the state objects with the original; duplicate them
+        // so the clone can be reconfigured on its own.
+        if (_blendState) {
+            _blendState = std::make_shared<BlendState>(*_blendState);
+        }
+        if (_depthState) {
+            _depthState = std::make_shared<DepthState>(*_depthState);
+        }
+    }
+
+    std::shared_ptr<Material> Material::clone() const
+    {
+        auto copy = std::make_shared<Material>(*this);
+        copy->detachSharedState();
+        return copy;
+    }
 }

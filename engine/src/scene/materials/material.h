@@ -122,7 +122,8 @@ namespace visutwin::canvas
 
         // --- Volume Attenuation (KHR_materials_volume) + Dispersion (KHR_materials_dispersion) ---
         float attenuationParams[4] = {1, 1, 1, 0};  // rgb=attenuationColor, w=attenuationDistance (0 = disabled)
-        float dispersionParams[4] = {0, 0, 0, 0};   // x=dispersion strength, yzw=pad
+        // x=dispersion strength, y=alphaDither (<0 = unset, dither follows opacity), zw=pad
+        float dispersionParams[4] = {0, -1.0f, 0, 0};
     };
 
     /**
@@ -317,6 +318,25 @@ namespace visutwin::canvas
         virtual void getTextureSlots(std::vector<TextureSlot>& slots) const;
 
         uint64_t sortKey() const;
+
+        /**
+         * An independent copy of this material (upstream Material::clone).
+         *
+         * Needed whenever one loaded asset is instantiated more than once and the copies
+         * must be configured differently — a container's materials are shared across every
+         * instantiateRenderEntity() call, so mutating one otherwise changes them all.
+         *
+         * The blend and depth state objects are duplicated rather than shared, so the clone
+         * is safe to reconfigure. Textures stay shared (non-owning pointers, as everywhere).
+         */
+        virtual std::shared_ptr<Material> clone() const;
+
+    protected:
+        /// Duplicates the state objects a copy-construct would otherwise share. Call from
+        /// every clone() override after copy-constructing.
+        void detachSharedState();
+
+    public:
 
     private:
         std::string _name;

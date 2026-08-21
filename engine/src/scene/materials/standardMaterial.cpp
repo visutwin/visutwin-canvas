@@ -257,6 +257,14 @@ namespace visutwin::canvas
         // only gates whether the dither block exists at all.
         uniforms.flags |= (static_cast<uint32_t>(_opacityDitherMode) & 0x7u) << 25;
 
+        // bits 29-31: shadow-pass dither matrix, kept independent of the forward one so a
+        // caster can dither its shadow without dithering itself (and the reverse).
+        uniforms.flags |= (static_cast<uint32_t>(_opacityShadowDitherMode) & 0x7u) << 29;
+
+        // Decoupled dither strength. Negative means "unset", which the shaders read as
+        // "fall back to opacity" — the coupled behaviour every material had before.
+        uniforms.dispersionParams[1] = _alphaDither;
+
         // Re-apply setParameter() overrides last: the typed writes above
         // (baseColor/metallic/roughness/normalScale/emissive) would otherwise
         // silently discard them, breaking the documented dual-binding contract.
@@ -301,5 +309,12 @@ namespace visutwin::canvas
         // Vertex displacement map: routed to VERTEX texture slot 0 via the
         // >= 100 sentinel (see MetalTextureBinder::bindMaterialTextures).
         overrideSlot(100, _displacementMap);
+    }
+
+    std::shared_ptr<Material> StandardMaterial::clone() const
+    {
+        auto copy = std::make_shared<StandardMaterial>(*this);
+        copy->detachSharedState();
+        return copy;
     }
 }

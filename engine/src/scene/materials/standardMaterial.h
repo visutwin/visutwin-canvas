@@ -4,6 +4,8 @@
 // Created by Arnis Lektauers on 11.10.2025.
 //
 #pragma once
+#include <algorithm>
+
 #include "material.h"
 
 namespace visutwin::canvas
@@ -26,6 +28,8 @@ namespace visutwin::canvas
         StandardMaterial();
 
         void reset();
+
+        std::shared_ptr<Material> clone() const override;
 
         void updateUniforms(MaterialUniforms& uniforms) const override;
         void getTextureSlots(std::vector<TextureSlot>& slots) const override;
@@ -87,6 +91,27 @@ namespace visutwin::canvas
         {
             setOpacityDitherMode(value ? DitherMode::DITHER_BAYER8 : DitherMode::DITHER_NONE);
         }
+
+        // Independent dither strength (upstream StandardMaterial.alphaDither). Opacity
+        // normally drives BOTH alpha blending and dither density; setting this decouples
+        // them, so opacity drives only the blend and this value only the dither pattern.
+        // Unset (the default) restores the coupled behaviour.
+        static constexpr float ALPHA_DITHER_UNSET = -1.0f;
+        float alphaDither() const { return _alphaDither; }
+        void setAlphaDither(const float value) { _alphaDither = std::max(value, 0.0f); }
+        void clearAlphaDither() { _alphaDither = ALPHA_DITHER_UNSET; }
+        bool hasAlphaDither() const { return _alphaDither >= 0.0f; }
+
+        // Dither the SHADOW pass too (upstream StandardMaterial.opacityShadowDither), so a
+        // partially-opaque caster throws a correspondingly thinned shadow instead of a solid
+        // one. Independent of opacityDitherMode, exactly as upstream keeps them.
+        DitherMode opacityShadowDitherMode() const { return _opacityShadowDitherMode; }
+        void setOpacityShadowDitherMode(const DitherMode value)
+        {
+            _opacityShadowDitherMode = value;
+            _dirtyShader = true;
+        }
+
         Texture* glossMap() const { return _glossMap; }
         void setGlossMap(Texture* texture) { _glossMap = texture; _dirtyShader = true; }
 
@@ -316,6 +341,8 @@ namespace visutwin::canvas
         bool _useDynamicRefraction = false;
         bool _useSSR = false;
         DitherMode _opacityDitherMode = DitherMode::DITHER_NONE;
+        DitherMode _opacityShadowDitherMode = DitherMode::DITHER_NONE;
+        float _alphaDither = ALPHA_DITHER_UNSET;
         Texture* _glossMap = nullptr;
 
         Color _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);

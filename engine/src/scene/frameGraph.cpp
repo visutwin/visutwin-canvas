@@ -6,6 +6,8 @@
 
 #include "frameGraph.h"
 
+#include <algorithm>
+
 namespace visutwin::canvas
 {
     void FrameGraph::reset()
@@ -44,26 +46,44 @@ namespace visutwin::canvas
             renderPass->setSkipEnd(false);
         }
 
+        // The map tracks the most recent pass per target WITHIN THIS FRAME. Passes are
+        // persistent objects reused across frames, so a stale entry would make the first
+        // pass of a new frame propagate stores onto last frame's pass (and keep it alive).
+        _renderTargetMap.clear();
+
         for (auto renderPass : _renderPasses) {
             RenderTarget* renderTarget = renderPass->renderTarget().get();
 
-            // if using a target, or null which represents the default back-buffer
-            if (renderTarget != nullptr) {
-                // previous pass using the same render target
-                if (auto it = _renderTargetMap.find(renderTarget); it != _renderTargetMap.end()) {
-                    auto prevPass = it->second;
+            // A null target is the default back-buffer and participates like any other:
+            // it is a real surface that a later pass can read without clearing. Skipping it
+            // here meant a back-buffer pass was never told to store, so when the scene color
+            // grab split the frame into two back-buffer passes, the second one loaded a depth
+            // buffer the first had discarded — the skybox then passed the depth test
+            // everywhere and repainted over every opaque draw from the first pass.
+            //
+            // Passes with no color ops at all (the grab passes, which only blit) carry no
+            // load/store contract of their own, so they must not displace the previous pass
+            // in the map — otherwise the pass that actually reads the surface would look at
+            // the grab instead of the draw pass that filled it.
+            const auto& colorArrayOps = renderPass->colorArrayOps();
+            const auto depthStencilOps = renderPass->depthStencilOps();
+            const bool participates = !colorArrayOps.empty() || depthStencilOps != nullptr;
 
-                    // if we use the RT without clearing, make sure the previous pass stores data
-                    const auto& colorArrayOps = renderPass->colorArrayOps();
-                    size_t count = colorArrayOps.size();
-                    for (size_t j = 0; j < count; j++) {
-                        const auto colorOps = colorArrayOps[j];
-                        if (!colorOps->clear) {
-                            prevPass->colorArrayOps()[j]->store = true;
-                        }
+            // previous pass using the same render target
+            if (auto it = _renderTargetMap.find(renderTarget); it != _renderTargetMap.end()) {
+                auto prevPass = it->second;
+
+                // if we use the RT without clearing, make sure the previous pass stores data
+                const auto& prevColorOps = prevPass->colorArrayOps();
+                const size_t count = std::min(colorArrayOps.size(), prevColorOps.size());
+                for (size_t j = 0; j < count; j++) {
+                    const auto colorOps = colorArrayOps[j];
+                    if (!colorOps->clear) {
+                        prevColorOps[j]->store = true;
                     }
+                }
 
-                    const auto depthStencilOps = renderPass->depthStencilOps();
+                if (depthStencilOps && prevPass->depthStencilOps()) {
                     if (!depthStencilOps->clearDepth) {
                         prevPass->depthStencilOps()->storeDepth = true;
                     }
@@ -71,8 +91,10 @@ namespace visutwin::canvas
                         prevPass->depthStencilOps()->storeStencil = true;
                     }
                 }
+            }
 
-                // add the pass to the map
+            // add the pass to the map
+            if (participates) {
                 _renderTargetMap[renderTarget] = renderPass;
             }
         }

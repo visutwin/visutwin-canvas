@@ -277,6 +277,29 @@ const uint VT_DITHER_BAYER4  = 2u;
 const uint VT_DITHER_BAYER8  = 3u;
 const uint VT_DITHER_BAYER16 = 4u;
 
+// Ordered-dither threshold for a screen position (parity with common-dither.metal).
+float ditherThreshold(uint ditherMode, vec2 screenPos) {
+    float noise;
+    if (ditherMode == VT_DITHER_BAYER2) {
+        noise = bayer2(floor(mod(screenPos, 2.0))) / 4.0;
+    } else if (ditherMode == VT_DITHER_BAYER4) {
+        noise = bayer4(floor(mod(screenPos, 4.0))) / 16.0;
+    } else if (ditherMode == VT_DITHER_BAYER16) {
+        noise = bayer16(floor(mod(screenPos, 16.0))) / 256.0;
+    } else {  // VT_DITHER_BAYER8
+        noise = bayer8(floor(mod(screenPos, 8.0))) / 64.0;
+    }
+    // The threshold is authored in perceptual (sRGB) space — linearize.
+    return pow(noise, 2.2);
+}
+
+// True when the fragment loses the ordered-dither test and must be discarded.
+bool ditherDiscards(uint ditherMode, vec2 screenPos, float alpha) {
+    if (alpha <= 0.0) return true;
+    if (alpha >= 1.0) return false;
+    return alpha < ditherThreshold(ditherMode, screenPos);
+}
+
 // ── Parallax occlusion mapping (parity with common-parallax.metal) ──
 vec2 parallaxOcclusionMap(vec2 uv, vec3 viewDirTS, float heightScale) {
     // Adaptive step count: more steps at grazing angles, where parallax shows most.
@@ -1419,32 +1442,23 @@ void main() {
     // blue-noise / IGN variants and no per-frame jitter (static pattern;
     // upstream jitters for TAA convergence).
     if (vtFeatureEnabled(VT_FEATURE_OPACITY_DITHER_BIT)) {
-        if (albedo.a <= 0.0) {
+        // Upstream's alphaDither decouples the two strengths: opacity keeps driving the
+        // alpha blend while this value alone drives the dither density. Negative means
+        // unset, which restores the coupled behaviour every material had before.
+        float ditherStrength = material.dispersionParams.y;
+        bool hasAlphaDither = ditherStrength >= 0.0;
+        float ditherAlpha = hasAlphaDither ? ditherStrength : albedo.a;
+
+        if (ditherDiscards((material.flags >> 25) & 0x7u, gl_FragCoord.xy, ditherAlpha)) {
             discard;
         }
-        if (albedo.a < 1.0) {
-            uint ditherMode = (material.flags >> 25) & 0x7u;
 
-            // Each matrix is normalized by its cell count, so the threshold
-            // stays in [0, 1).
-            float ditherNoise;
-            if (ditherMode == VT_DITHER_BAYER2) {
-                ditherNoise = bayer2(floor(mod(gl_FragCoord.xy, 2.0))) / 4.0;
-            } else if (ditherMode == VT_DITHER_BAYER4) {
-                ditherNoise = bayer4(floor(mod(gl_FragCoord.xy, 4.0))) / 16.0;
-            } else if (ditherMode == VT_DITHER_BAYER16) {
-                ditherNoise = bayer16(floor(mod(gl_FragCoord.xy, 16.0))) / 256.0;
-            } else {  // VT_DITHER_BAYER8
-                ditherNoise = bayer8(floor(mod(gl_FragCoord.xy, 8.0))) / 64.0;
-            }
-
-            // The threshold is authored in perceptual (sRGB) space — linearize.
-            ditherNoise = pow(ditherNoise, 2.2);
-            if (albedo.a < ditherNoise) {
-                discard;
-            }
+        // Coupled (legacy) use is an opaque-pass technique, so forcing alpha keeps the
+        // target's alpha channel clean. Decoupled use is upstream's blend-AND-dither case,
+        // where alpha must survive to drive the blend.
+        if (!hasAlphaDither) {
+            albedo.a = 1.0;
         }
-        albedo.a = 1.0;
     }
 
     // Point-cloud (unlit) path: the point vertex variant writes a zero world

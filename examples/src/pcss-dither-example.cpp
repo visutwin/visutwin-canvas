@@ -1,28 +1,45 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// PCSS + opacity-dither demo (aligned with upstream dithered-transparency).
-// The glass-table.glb model is the hero: its materials are rendered with Bayer8
-// screen-door opacity dithering (opaque pass, correct depth) instead of alpha
-// blending, lit by the table-mountain environment atlas. A soft-shadow ground
-// plane shows contact-hardening: with PCSS the table legs' shadows are razor sharp
-// at their base and soften with distance; with PCF they are uniformly sharp.
-// Two half-transparent spheres flank the table to compare transparency modes:
-// LEFT uses Bayer8 opacity dithering, RIGHT uses classic alpha blending.
-// Auto-cycles PCF <-> PCSS every few seconds (1 = PCF, 2 = PCSS, Space = auto).
+// Port of the upstream "dithered-transparency" example.
 //
+// Two glass tables, both alpha-blended AND opacity-dithered, showing that the two
+// strengths are independent. LEFT leaves alphaDither unset, so opacity drives both the
+// blend and the dither density — the coupled behaviour every material had before.
+// RIGHT sets alphaDither explicitly, so opacity drives only the blend and alphaDither
+// only the dither. Both tables also dither their SHADOWS, so a half-opaque table throws
+// a correspondingly thinned shadow rather than a solid one.
+//
+// Values are frozen at upstream's initial state (opacity 0.5, alphaDither 0.5, TAA off).
+// Upstream drives them from sliders, and at these values both tables deliberately look
+// identical — the difference only appears once a slider moves.
+//
+// DEVIATION: the shadow dither runs in the Metal shadow fragment shader, which serves both
+// the PCF and VSM paths. On Vulkan the PCF shadow pass is depth-only and omits the fragment
+// stage entirely, so a dithered shadow there would need one attached; this example uses VSM,
+// whose fragment stage does run.
+//
+// @credit Low-poly Glass Table by Sketchfab, CC BY 4.0
+//   https://sketchfab.com/3d-models/low-poly-glass-table-6acac6d9201e448b92dff859b6f63aad
+//
+#ifdef VISUTWIN_HAS_METAL
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #define MTK_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION
+#endif
 
 #include <algorithm>
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <memory>
+#include <vector>
 
+#ifdef VISUTWIN_HAS_METAL
 #include <QuartzCore/QuartzCore.hpp>
+#endif
 
+#include "../cameraControls.h"
 #include "framework/engine.h"
 #include "log.h"
 #include "framework/appOptions.h"
@@ -33,10 +50,13 @@
 #include "framework/components/light/lightComponentSystem.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
+#include "framework/components/script/scriptComponent.h"
+#include "framework/components/script/scriptComponentSystem.h"
 #include "framework/constants.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/meshInstance.h"
 
 constexpr int WINDOW_WIDTH = 900;
 constexpr int WINDOW_HEIGHT = 700;
@@ -48,9 +68,13 @@ using namespace visutwin::canvas;
 
 const std::string rootPath = ASSET_DIR;
 
-// table-mountain environment atlas (image-based lighting for the glass table).
+// Upstream's initial slider values.
+constexpr float INITIAL_OPACITY = 0.5f;
+constexpr float INITIAL_ALPHA_DITHER = 0.5f;
+constexpr bool INITIAL_TAA = false;
+
 const auto envAtlasAsset = std::make_unique<Asset>(
-    "table-mountain-env-atlas",
+    "env-atlas",
     AssetType::TEXTURE,
     rootPath + "/cubemaps/table-mountain-env-atlas.png",
     AssetData{
@@ -59,29 +83,17 @@ const auto envAtlasAsset = std::make_unique<Asset>(
     }
 );
 
-// Low-poly glass table (Sketchfab, CC BY 4.0) — the dithered-opacity hero object.
-const auto glassTableAsset = std::make_unique<Asset>(
-    "glass-table",
+const auto tableAsset = std::make_unique<Asset>(
+    "table",
     AssetType::CONTAINER,
     rootPath + "/models/glass-table.glb"
 );
 
-Entity* createEntity(Engine* engine, Material* material, const char* type,
-    const Vector3& position, const Vector3& scale, const bool castShadows = true)
-{
-    auto* entity = new Entity();
-    entity->setEngine(engine);
-    entity->setLocalPosition(position.getX(), position.getY(), position.getZ());
-    entity->setLocalScale(scale.getX(), scale.getY(), scale.getZ());
-
-    auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
-    if (render) {
-        render->setMaterial(material);
-        render->setType(type);
-        render->setCastShadows(castShadows);
-    }
-    return entity;
-}
+const auto diffuseAsset = std::make_unique<Asset>(
+    "color",
+    AssetType::TEXTURE,
+    rootPath + "/textures/playcanvas.png"
+);
 
 int main()
 {
@@ -92,45 +104,42 @@ int main()
     renderer = nullptr;
 
     const auto shutdown = []() {
-        if (renderer) {
-            SDL_DestroyRenderer(renderer);
-            renderer = nullptr;
-        }
-        if (window) {
-            SDL_DestroyWindow(window);
-            window = nullptr;
-        }
+        if (renderer) { SDL_DestroyRenderer(renderer); renderer = nullptr; }
+        if (window) { SDL_DestroyWindow(window); window = nullptr; }
         SDL_Quit();
     };
 
+#ifdef VISUTWIN_HAS_METAL
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+#endif
     SDL_Init(SDL_INIT_VIDEO);
 
     window = SDL_CreateWindow(
-        "PCSS + Opacity Dither", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+        "Dithered Transparency", WINDOW_WIDTH, WINDOW_HEIGHT,
+        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
+#ifdef VISUTWIN_HAS_VULKAN
+        | SDL_WINDOW_VULKAN
+#endif
     );
-    if (!window) {
-        shutdown();
-        return -1;
-    }
+    if (!window) { shutdown(); return -1; }
     renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) {
-        shutdown();
-        return -1;
-    }
+    if (!renderer) { shutdown(); return -1; }
     SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
 
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain) {
-        shutdown();
-        return -1;
-    }
+    void* swapchain = nullptr;
+#ifdef VISUTWIN_HAS_METAL
+    swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
+    if (!swapchain) { shutdown(); return -1; }
+#endif
 
-    auto device = createGraphicsDevice(GraphicsDeviceOptions{.swapChain = swapchain, .window = window});
-    if (!device) {
-        shutdown();
-        return -1;
-    }
+    GraphicsDeviceOptions deviceOptions;
+#ifdef VISUTWIN_HAS_VULKAN
+    deviceOptions.backend = Backend::Vulkan;
+#endif
+    deviceOptions.swapChain = swapchain;
+    deviceOptions.window = window;
+    auto device = createGraphicsDevice(deviceOptions);
+    if (!device) { shutdown(); return -1; }
 
     AppOptions createOptions;
     auto graphicsDevice = std::shared_ptr<GraphicsDevice>(std::move(device));
@@ -138,6 +147,7 @@ int main()
     createOptions.registerComponentSystem<RenderComponentSystem>();
     createOptions.registerComponentSystem<CameraComponentSystem>();
     createOptions.registerComponentSystem<LightComponentSystem>();
+    createOptions.registerComponentSystem<ScriptComponentSystem>();
 
     auto engine = std::make_shared<Engine>(window);
     engine->init(createOptions);
@@ -145,149 +155,152 @@ int main()
     engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
     engine->start();
 
+    // Setup skydome
     auto scene = engine->scene();
-    scene->setToneMapping(TONEMAP_ACES);
-    scene->setAmbientLight(0.22f, 0.22f, 0.25f);
-
-    // Image-based lighting from the table-mountain environment atlas (mirrors upstream).
-    const auto envAtlasResource = envAtlasAsset->resource();
-    if (envAtlasResource) {
-        scene->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
-        scene->setSkyboxMip(2);
-        scene->setExposure(2.5f);
+    if (const auto envResource = envAtlasAsset->resource()) {
+        scene->setEnvAtlas(std::get<Texture*>(*envResource));
     } else {
-        spdlog::error("Failed to load table-mountain env atlas");
+        spdlog::error("Failed to load the table-mountain environment atlas");
+    }
+    scene->setSkyboxMip(2);
+    scene->setExposure(4.5f);
+
+    Texture* diffuseTexture = nullptr;
+    if (const auto diffuseResource = diffuseAsset->resource()) {
+        diffuseTexture = std::get<Texture*>(*diffuseResource);
     }
 
-    auto* camera = new Entity();
-    camera->setEngine(engine.get());
-    camera->addComponent<CameraComponent>();
-    camera->setLocalPosition(0.0f, 7.0f, 14.0f);
-    camera->setLocalEulerAngles(-25.0f, 0.0f, 0.0f);
-    engine->root()->addChild(camera);
-
-    auto* light = new Entity();
-    light->setEngine(engine.get());
-    auto* lightComponent = static_cast<LightComponent*>(light->addComponent<LightComponent>());
-    if (lightComponent) {
-        lightComponent->setColor(Color(1.0f, 0.97f, 0.9f, 1.0f));
-        lightComponent->setIntensity(1.5f);
-        lightComponent->setCastShadows(true);
-        lightComponent->setShadowDistance(40.0f);
-        lightComponent->setNumCascades(1);
-        lightComponent->setShadowResolution(2048);
-        lightComponent->setShadowBias(0.05f);
-        lightComponent->setShadowNormalBias(0.5f);
-        lightComponent->setPenumbraSize(0.04f);  // upstream soft-shadow examples use 0.02-0.05
-        lightComponent->setPenumbraFalloff(1.0f);
-    }
-    // Light from the upper right, so shadows stretch left across the visible ground.
-    light->setLocalEulerAngles(50.0f, 115.0f, 0.0f);
-    engine->root()->addChild(light);
-
-    // Ground.
+    // Ground plane.
     auto groundMaterial = std::make_shared<StandardMaterial>();
-    groundMaterial->setDiffuse(Color(0.55f, 0.55f, 0.58f, 1.0f));
-    groundMaterial->setGlossInvert(true);
-    groundMaterial->setGloss(0.9f);
-    engine->root()->addChild(createEntity(
-        engine.get(), groundMaterial.get(), "plane", Vector3(0.0f, 0.0f, 0.0f), Vector3(40.0f, 1.0f, 40.0f), false
-    ));
+    groundMaterial->setDiffuse(Color(0.8f, 0.8f, 0.8f, 1.0f));
+    groundMaterial->setDiffuseMap(diffuseTexture);
+    {
+        auto* ground = new Entity();
+        ground->setEngine(engine.get());
+        if (auto* render = static_cast<RenderComponent*>(ground->addComponent<RenderComponent>())) {
+            render->setMaterial(groundMaterial.get());
+            render->setType("plane");
+        }
+        ground->setLocalPosition(0.0f, 0.0f, 0.0f);
+        ground->setLocalScale(60.0f, 1.0f, 30.0f);
+        engine->root()->addChild(ground);
+    }
 
-    // Hero object: the glass-table model, rendered with Bayer8 opacity dithering.
-    // Its (originally alpha-blended) StandardMaterials are switched to opaque-pass
-    // screen-door dithering so the table both casts crisp soft shadows and reads as
-    // partially transparent without any sorting artifacts.
-    const auto glassTableResource = glassTableAsset->resource();
-    if (glassTableResource) {
-        auto* tableEntity = std::get<ContainerResource*>(*glassTableResource)->instantiateRenderEntity();
-        tableEntity->setLocalScale(3.0f, 3.0f, 3.0f);
-        tableEntity->setLocalPosition(-1.5f, 0.0f, 0.0f);
-        engine->root()->addChild(tableEntity);
+    const auto tableResource = tableAsset->resource();
+    if (!tableResource) {
+        spdlog::error("Failed to load models/glass-table.glb");
+        shutdown();
+        return -1;
+    }
+    auto* tableContainer = std::get<ContainerResource*>(*tableResource);
 
-        // Convert every StandardMaterial on the table to dithered opacity.
-        int ditheredCount = 0;
-        for (auto* render : RenderComponent::instances()) {
-            if (!render || !render->entity()) {
-                continue;
-            }
-            auto* owner = render->entity();
-            if (owner != tableEntity && !owner->isDescendantOf(tableEntity)) {
-                continue;
-            }
-            render->setCastShadows(true);
-            for (auto* mi : render->meshInstances()) {
-                if (!mi) {
+    // Instantiate the glass table and collect its alpha-blended materials. Each blended
+    // material is CLONED — a container's materials are shared across instantiations, so
+    // without this the two tables could not be configured independently.
+    std::vector<std::shared_ptr<Material>> clonedMaterials;   // keeps the clones alive
+    const auto spawnTable = [&](const Vector3& position) {
+        auto* entity = tableContainer->instantiateRenderEntity();
+        entity->setEngine(engine.get());
+        entity->setLocalScale(3.0f, 3.0f, 3.0f);
+        entity->setLocalPosition(position.getX(), position.getY(), position.getZ());
+        engine->root()->addChild(entity);
+
+        std::vector<StandardMaterial*> materials;
+        for (auto* render : entity->findComponents<RenderComponent>()) {
+            for (auto* meshInstance : render->meshInstances()) {
+                auto* source = meshInstance->material();
+                if (!source || !source->transparent()) {
                     continue;
                 }
-                if (auto* stdMat = dynamic_cast<StandardMaterial*>(mi->material())) {
-                    stdMat->setTransparent(false);       // dither runs in the opaque pass
-                    stdMat->setOpacity(0.55f);           // screen-door coverage
-                    stdMat->setOpacityDither(true);      // Bayer8 screen-door pattern
-                    ++ditheredCount;
+                auto clone = source->clone();
+                meshInstance->setMaterial(clone.get());
+                clonedMaterials.push_back(clone);
+                if (auto* standard = dynamic_cast<StandardMaterial*>(clone.get())) {
+                    materials.push_back(standard);
                 }
             }
         }
-        spdlog::info("Glass table loaded; {} material(s) switched to opacity dither", ditheredCount);
-    } else {
-        spdlog::error("Failed to load glass-table.glb");
+        return materials;
+    };
+
+    // LEFT — alphaDither stays unset, so opacity drives both blend strength and dither
+    // density, exactly like the legacy behaviour.
+    auto leftMaterials = spawnTable(Vector3(-7.0f, 0.0f, 0.0f));
+
+    // RIGHT — alphaDither set explicitly, decoupled from opacity.
+    auto rightMaterials = spawnTable(Vector3(7.0f, 0.0f, 0.0f));
+
+    // Everything except alphaDither applies to both tables, so the only difference between
+    // them is that unset-vs-explicit state.
+    const auto applyShared = [](const std::vector<StandardMaterial*>& materials) {
+        for (auto* material : materials) {
+            material->setOpacity(INITIAL_OPACITY);
+            material->setOpacityDitherMode(DitherMode::DITHER_BAYER8);
+            material->setOpacityShadowDitherMode(DitherMode::DITHER_BAYER8);
+        }
+    };
+    applyShared(leftMaterials);
+    applyShared(rightMaterials);
+    for (auto* material : rightMaterials) {
+        material->setAlphaDither(INITIAL_ALPHA_DITHER);
     }
 
-    // Transparency comparison spheres (alpha 0.55): left dithers, right blends.
-    auto ditherMaterial = std::make_shared<StandardMaterial>();
-    ditherMaterial->setDiffuse(Color(0.9f, 0.35f, 0.25f, 1.0f));
-    ditherMaterial->setOpacity(0.55f);
-    ditherMaterial->setOpacityDither(true);
-    engine->root()->addChild(createEntity(
-        engine.get(), ditherMaterial.get(), "sphere", Vector3(2.2f, 1.0f, 2.5f), Vector3(2.0f, 2.0f, 2.0f)
-    ));
+    // Directional light casting a soft VSM shadow.
+    auto* light = new Entity();
+    light->setEngine(engine.get());
+    if (auto* lc = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
+        lc->setType(LightType::LIGHTTYPE_DIRECTIONAL);
+        lc->setColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
+        lc->setRange(200.0f);
+        lc->setCastShadows(true);
+        lc->setShadowResolution(2048);
+        lc->setShadowType(ShadowType::SHADOW_VSM_16F);
+        lc->setVsmBlurSize(20);
+        lc->setShadowBias(0.1f);
+        lc->setShadowNormalBias(0.1f);
+    }
+    light->setLocalEulerAngles(75.0f, 120.0f, 20.0f);
+    engine->root()->addChild(light);
 
-    auto blendMaterial = std::make_shared<StandardMaterial>();
-    blendMaterial->setDiffuse(Color(0.25f, 0.45f, 0.9f, 1.0f));
-    blendMaterial->setOpacity(0.55f);
-    blendMaterial->setTransparent(true);
-    engine->root()->addChild(createEntity(
-        engine.get(), blendMaterial.get(), "sphere", Vector3(5.2f, 1.0f, 2.5f), Vector3(2.0f, 2.0f, 2.0f)
-    ));
+    // Camera.
+    auto* cameraEntity = new Entity();
+    cameraEntity->setEngine(engine.get());
+    auto* cameraComponent = static_cast<CameraComponent*>(cameraEntity->addComponent<CameraComponent>());
+    cameraEntity->addComponent<ScriptComponent>();
+    cameraEntity->setLocalPosition(-14.0f, 12.0f, 20.0f);
+    engine->root()->addChild(cameraEntity);
 
-    // Dither matrix selection, applied to the dithered sphere so the patterns can be compared
-    // side by side against the alpha-blended one.
-    struct DitherEntry
-    {
-        DitherMode mode;
-        const char* name;
-    };
-    constexpr DitherEntry ditherModes[] = {
-        {DitherMode::DITHER_BAYER2, "Bayer2 (4 levels)"},
-        {DitherMode::DITHER_BAYER4, "Bayer4 (16 levels)"},
-        {DitherMode::DITHER_BAYER8, "Bayer8 (64 levels)"},
-        {DitherMode::DITHER_BAYER16, "Bayer16 (256 levels)"},
-    };
-    size_t ditherModeIndex = 2;  // Bayer8, the default
+    const Vector3 focusPoint(0.0f, 4.0f, 0.0f);
+    if (cameraComponent) {
+        if (cameraComponent->camera()) {
+            cameraComponent->camera()->setFov(70.0f);
+        }
+        // Upstream's CameraFrame: ACES tone mapping, a scene color map, TAA jitter 1, and
+        // sharpening only while TAA is on.
+        cameraComponent->requestSceneColorMap(true);   // upstream: cameraFrame.rendering.sceneColorMap
+        auto taa = cameraComponent->taa();
+        taa.enabled = INITIAL_TAA;
+        taa.jitter = 1.0f;
+        cameraComponent->setTaa(taa);
+        auto rendering = cameraComponent->rendering();
+        rendering.toneMapping = TONEMAP_ACES;
+        rendering.sharpness = INITIAL_TAA ? 1.0f : 0.0f;
+        cameraComponent->setRendering(rendering);
+        cameraComponent->setToneMapping(TONEMAP_ACES);
+    }
+    cameraEntity->lookAt(focusPoint);
 
-    const auto applyDitherMode = [&]() {
-        ditherMaterial->setOpacityDitherMode(ditherModes[ditherModeIndex].mode);
-        spdlog::info("Dither matrix: {}", ditherModes[ditherModeIndex].name);
-    };
+    auto* cameraControls = cameraEntity->script()->create<CameraControls>();
+    cameraControls->setFocusPoint(focusPoint);
+    cameraControls->setEnableFly(false);
+    cameraControls->storeResetState();
 
-    spdlog::info("PCSS demo: penumbraSize 0.04; 1 = PCF, 2 = PCSS, Space = auto-cycle, Esc = quit");
-    spdlog::info("Dither: M cycles the matrix on the left sphere (Bayer 2/4/8/16)");
+    spdlog::info("Dithered transparency: left = dither coupled to opacity, right = decoupled "
+                 "(alphaDither {:.2f}). Esc quits.", INITIAL_ALPHA_DITHER);
 
     bool running = true;
-    bool usePcss = true;
-    bool autoCycle = true;
-    float cycleTimer = 0.0f;
     const uint64_t perfFreq = SDL_GetPerformanceFrequency();
     uint64_t prevCounter = SDL_GetPerformanceCounter();
-
-    const auto applyShadowType = [&](const bool pcss) {
-        usePcss = pcss;
-        if (lightComponent) {
-            lightComponent->setShadowType(pcss ? SHADOW_PCSS_32F : SHADOW_PCF3_32F);
-        }
-        spdlog::info("Shadow type: {}", pcss ? "PCSS_32F (contact hardening)" : "PCF3_32F");
-    };
-    applyShadowType(false);  // start with PCF
 
     while (running) {
         SDL_Event event;
@@ -296,35 +309,21 @@ int main()
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
                 running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_1) {
-                autoCycle = false;
-                applyShadowType(false);
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_2) {
-                autoCycle = false;
-                applyShadowType(false);  // start with PCF
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_M) {
-                ditherModeIndex = (ditherModeIndex + 1) % std::size(ditherModes);
-                applyDitherMode();
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_SPACE) {
-                autoCycle = true;
-                cycleTimer = 0.0f;
-                spdlog::info("Auto-cycle resumed");
+            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_R && cameraControls) {
+                cameraControls->reset();
+            } else if (event.type == SDL_EVENT_MOUSE_WHEEL && cameraControls) {
+                cameraControls->addZoomInput(event.wheel.y);
+            } else if (event.type == SDL_EVENT_PINCH_UPDATE && cameraControls) {
+                cameraControls->addZoomInput((event.pinch.scale - 1.0f) * 10.0f);
             }
         }
 
         const uint64_t nowCounter = SDL_GetPerformanceCounter();
-        const double dtSeconds = static_cast<double>(nowCounter - prevCounter) / static_cast<double>(perfFreq);
+        const auto dtSeconds = static_cast<float>(
+            static_cast<double>(nowCounter - prevCounter) / static_cast<double>(perfFreq));
         prevCounter = nowCounter;
 
-        if (autoCycle) {
-            cycleTimer += static_cast<float>(dtSeconds);
-            if (cycleTimer >= 3.5f) {
-                cycleTimer = 0.0f;
-                applyShadowType(!usePcss);
-            }
-        }
-
-        engine->update(static_cast<float>(dtSeconds));
+        engine->update(dtSeconds);
         engine->render();
     }
 

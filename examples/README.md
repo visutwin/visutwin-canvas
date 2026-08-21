@@ -64,7 +64,7 @@ Recommended free asset sources:
 | lights | Directional / omni / spot / area light types |
 | shadow-cascades | Cascaded shadow maps |
 | clustered-lighting | 46 local lights (30 omni + 16 spot) via the 3D cluster grid |
-| pcss-dither | PCSS soft shadows + opacity dither |
+| pcss-dither | Dithered transparency: blend and dither strengths decoupled, dithered shadows |
 | pcss-local | Spot/omni PCSS contact-hardening shadows |
 | lightmap-bake | CPU-baked lightmap (soft shadows + AO) applied at UV1 |
 

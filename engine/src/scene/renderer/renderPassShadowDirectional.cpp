@@ -17,6 +17,7 @@
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "scene/graphNode.h"
+#include "scene/materials/standardMaterial.h"
 #include "scene/morph.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "shadowRenderer.h"
@@ -153,6 +154,16 @@ namespace visutwin::canvas
                     auto vertexBuffer = meshInstance->mesh()->getVertexBuffer();
                     meshInstance->setVisibleThisFrame(true);
                     _graphicsDevice->setVertexBuffer(vertexBuffer, 0);
+
+                    // The shadow pass otherwise bypasses materials entirely and the device
+                    // supplies a default-constructed MaterialUniforms. A caster that opts into
+                    // shadow dithering needs its real uniforms at slot 3 so the shadow shader
+                    // can read the dither mode and strength — bind them for those casters only,
+                    // leaving every other scene's shadow pass exactly as it was.
+                    const auto* casterStd = dynamic_cast<const StandardMaterial*>(meshInstance->material());
+                    const bool ditheredCaster = casterStd &&
+                        casterStd->opacityShadowDitherMode() != DitherMode::DITHER_NONE;
+                    _graphicsDevice->setMaterial(ditheredCaster ? meshInstance->material() : nullptr);
 
                     const auto& instancing = meshInstance->instancingData();
                     const bool isInstanced = instancing.vertexBuffer && instancing.count > 0;

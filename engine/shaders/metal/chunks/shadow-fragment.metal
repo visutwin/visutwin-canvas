@@ -10,9 +10,22 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     if (alpha < material.alphaCutoff) {
         discard_fragment();
     }
-#else
-    (void)material;
 #endif
+
+    // Shadow-pass opacity dither (upstream opacityShadowDither, flags bits 29-31, kept
+    // independent of the forward dither in bits 25-27). A partially-opaque caster discards
+    // the same screen-space Bayer pattern here, so it throws a thinned shadow instead of a
+    // solid one. Runtime branch, no extra shader variant — mode 0 (DITHER_NONE) skips it.
+    {
+        const uint shadowDitherMode = (material.flags >> 29) & 0x7u;
+        if (shadowDitherMode != 0u) {
+            const float ditherStrength = material.dispersionParams.y;
+            const float ditherAlpha = ditherStrength >= 0.0 ? ditherStrength : material.baseColor.a;
+            if (ditherDiscards(shadowDitherMode, rd.position.xy, ditherAlpha)) {
+                discard_fragment();
+            }
+        }
+    }
 
 #if VT_FEATURE_VSM_SHADOWS
     // EVSM_16F output: write (exp(c·z), exp(c·z)², 1, 1) into RGBA16F color RT.
@@ -45,7 +58,6 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     const float warpedZ = exp(VSM_EXPONENT * (2.0 * ndcZ - 1.0));
     return float4(warpedZ, warpedZ * warpedZ, 1.0, 1.0);
 #else
-    (void)rd;
     // PCF path: depth-only render target — depth is written automatically by
     // the rasterizer; the color return value is unused (no color RT bound).
     return float4(1.0, 1.0, 1.0, 1.0);
