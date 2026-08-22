@@ -65,6 +65,18 @@ namespace visutwin::canvas
         void setLocalEulerAngles(float x, float y, float z);
 
         /**
+         * Rotates the graph node in WORLD space by the specified Euler angles.
+         * Eulers are specified in degrees in XYZ order.
+         *
+         * The rotation is applied about the world axes, so it composes on the left of
+         * the node's current orientation — unlike rotateLocal, which turns the node
+         * about its own, already-rotated axes. For an unparented node with no prior
+         * rotation the two agree; once the node has tilted they diverge.
+         */
+        void rotate(float x, float y, float z);
+        void rotate(const Vector3& eulerAngles);
+
+        /**
          * Rotates the graph node in local space by the specified Euler angles.
          * Eulers are specified in degrees in XYZ order.
          */

@@ -5,8 +5,10 @@ layout(set=0,binding=1) uniform samplerCube sourceCube;
 layout(push_constant) uniform Push {
     vec4 rectTarget; // rect x,y,w,h in pixels
     vec4 flags;      // sourceCube, decodeSrgb, encodeRgbp, cubeFace
-    vec4 misc;       // convolve, roughness
+    vec4 misc;       // convolve, roughness, sourceProjection, targetProjection
 } p;
+// Projection ids mirror TextureProjection in platform/graphics/constants.h.
+const float PROJ_OCTAHEDRAL = 3.0;
 const float PI = 3.14159265359;
 vec3 faceDirection(int face, vec2 st) {
     vec2 q = st * 2.0 - 1.0;
@@ -21,6 +23,25 @@ vec2 directionUv(vec3 d) {
     return vec2(atan(d.x, d.z) / (2.0 * PI) + 0.5,
         0.5 - asin(clamp(d.y, -1.0, 1.0)) / PI);
 }
+// Octahedral unwrap: the sphere folded onto a square, +Y centre, -Y at the corners.
+// Matches the Metal pass and upstream's reproject chunk so atlases round-trip.
+vec3 octahedralDirection(vec2 st) {
+    vec2 f = st * 2.0 - 1.0;
+    vec3 n = vec3(f.x, 1.0 - abs(f.x) - abs(f.y), f.y);
+    float t = max(-n.y, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.z += (n.z >= 0.0) ? -t : t;
+    return normalize(n);
+}
+vec2 directionUvOctahedral(vec3 d) {
+    vec3 a = abs(d);
+    float invL1 = 1.0 / max(a.x + a.y + a.z, 1e-8);
+    vec2 t = vec2(d.x, d.z) * invL1;
+    if (d.y < 0.0) {
+        t = (1.0 - abs(t.yx)) * vec2(t.x >= 0.0 ? 1.0 : -1.0, t.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return t * 0.5 + 0.5;
+}
 vec3 equirectDirection(vec2 st) {
     float phi = (st.x - 0.5) * 2.0 * PI;
     float theta = (0.5 - st.y) * PI;
@@ -28,16 +49,27 @@ vec3 equirectDirection(vec2 st) {
     return vec3(sin(phi) * c, sin(theta), cos(phi) * c);
 }
 vec4 sampleDirection(vec3 direction) {
-    return p.flags.x > 0.5
-        ? textureLod(sourceCube, direction, p.misc.y * 5.0)
-        : texture(sourceEquirect, directionUv(direction));
+    if (p.flags.x > 0.5) {
+        return textureLod(sourceCube, direction, p.misc.y * 5.0);
+    }
+    vec2 uv = (p.misc.z >= PROJ_OCTAHEDRAL - 0.5)
+        ? directionUvOctahedral(direction)
+        : directionUv(direction);
+    return texture(sourceEquirect, uv);
 }
 void main() {
     vec2 localUv = (gl_FragCoord.xy - p.rectTarget.xy) /
         max(p.rectTarget.zw, vec2(1.0));
-    vec3 direction = p.flags.w >= 0.0
-        ? faceDirection(int(p.flags.w + 0.5), localUv)
-        : equirectDirection(localUv);
+    // A cube-face target overrides the projection; otherwise the target's own
+    // projection decides which direction this texel stands for.
+    vec3 direction;
+    if (p.flags.w >= 0.0) {
+        direction = faceDirection(int(p.flags.w + 0.5), localUv);
+    } else if (p.misc.w >= PROJ_OCTAHEDRAL - 0.5) {
+        direction = octahedralDirection(localUv);
+    } else {
+        direction = equirectDirection(localUv);
+    }
     vec4 sampleValue = sampleDirection(direction);
     if (p.misc.x > 0.5) {
         vec3 up = abs(direction.y) < 0.99 ? vec3(0,1,0) : vec3(1,0,0);

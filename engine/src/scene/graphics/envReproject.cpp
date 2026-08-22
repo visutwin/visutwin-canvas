@@ -26,13 +26,46 @@ namespace visutwin::canvas
             return;
         }
 
+        // Work out both ends' projections. An explicit option wins; otherwise the
+        // textures speak for themselves, and an unset projection means EQUIRECT so
+        // that callers written before octahedral support keep their old behaviour.
+        const auto resolve = [](const TextureProjection requested, const Texture* texture,
+                                const bool forceCube) {
+            if (requested != TextureProjection::TEXTUREPROJECTION_NONE) {
+                return requested;
+            }
+            if (forceCube) {
+                return TextureProjection::TEXTUREPROJECTION_CUBE;
+            }
+            const auto fromTexture = texture ? texture->projection()
+                                             : TextureProjection::TEXTUREPROJECTION_NONE;
+            return fromTexture == TextureProjection::TEXTUREPROJECTION_NONE
+                ? TextureProjection::TEXTUREPROJECTION_EQUIRECT
+                : fromTexture;
+        };
+
+        const TextureProjection sourceProjection = resolve(
+            options.sourceProjection, options.source.get(),
+            options.sourceIsCubemap || options.source->isCubemap());
+        TextureProjection targetProjection = resolve(
+            options.targetProjection, options.target.get(), false);
+
+        if (targetProjection == TextureProjection::TEXTUREPROJECTION_CUBE) {
+            // A cube target is written face by face by the caller, not by one pass.
+            spdlog::warn("reprojectTexture: cubemap targets are not supported; "
+                         "treating the target as equirect");
+            targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
+        }
+
         EnvReprojectPassParams params;
         params.target = options.target.get();
-        if (options.sourceIsCubemap) {
+        if (sourceProjection == TextureProjection::TEXTUREPROJECTION_CUBE) {
             params.sourceCubemap = options.source.get();
         } else {
             params.sourceEquirect = options.source.get();
         }
+        params.sourceProjection = sourceProjection;
+        params.targetProjection = targetProjection;
 
         params.ops.reserve(options.rects.size());
         for (const auto& r : options.rects) {
@@ -111,9 +144,13 @@ namespace visutwin::canvas
         if (options.reprojectSource && !options.reprojectRects.empty()) {
             if (options.reprojectSourceIsCubemap) {
                 params.reprojectSourceCubemap = options.reprojectSource.get();
+                params.reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_CUBE;
             } else {
                 params.reprojectSourceEquirect = options.reprojectSource.get();
+                params.reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
             }
+            // The atlas layout is authored in equirect rects regardless of the source.
+            params.reprojectTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
             params.reprojectOps.reserve(options.reprojectRects.size());
             for (const auto& r : options.reprojectRects) {
                 EnvReprojectOp op;

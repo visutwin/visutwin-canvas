@@ -40,12 +40,17 @@ struct ReprojectVarying {
     float2 vUv;
 };
 
+// Projection ids mirror TextureProjection in platform/graphics/constants.h.
+constant uint PROJ_CUBE       = 1u;
+constant uint PROJ_EQUIRECT   = 2u;
+constant uint PROJ_OCTAHEDRAL = 3u;
+
 struct ReprojectUniforms {
     float4 uvMod;
-    uint  sourceIsCubemap;
+    uint  sourceProjection;
     uint  encodeRgbp;
     uint  decodeSrgb;
-    uint  _pad0;
+    uint  targetProjection;
 };
 
 vertex ReprojectVarying reprojectVertex(ReprojectVertexIn in [[stage_in]],
@@ -72,6 +77,36 @@ static float2 dirToUvEquirect(float3 dir)
     return float2(phi / (2.0 * PI) + 0.5, 1.0 - (theta / PI + 0.5));
 }
 
+// Octahedral unwrap: the sphere is folded onto a square, +Y at the centre and -Y
+// pushed out to the four corners. Same mapping upstream's reproject chunk uses, so
+// atlases round-trip between the two engines.
+static float3 uvToDirOctahedral(float2 vUv)
+{
+    const float2 f = vUv * 2.0 - 1.0;
+    float3 n = float3(f.x, 1.0 - abs(f.x) - abs(f.y), f.y);
+    const float t = max(-n.y, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.z += (n.z >= 0.0) ? -t : t;
+    return normalize(n);
+}
+
+static float2 dirToUvOctahedral(float3 dir)
+{
+    const float3 a = abs(dir);
+    const float invL1 = 1.0 / max(a.x + a.y + a.z, 1e-8);
+    float2 t = float2(dir.x, dir.z) * invL1;
+    if (dir.y < 0.0) {
+        t = (1.0 - abs(float2(t.y, t.x))) *
+            float2(t.x >= 0.0 ? 1.0 : -1.0, t.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return t * 0.5 + 0.5;
+}
+
+static float3 uvToDir(float2 vUv, uint projection)
+{
+    return (projection == PROJ_OCTAHEDRAL) ? uvToDirOctahedral(vUv) : uvToDirEquirect(vUv);
+}
+
 static float3 decodeGammaSrgb(float4 raw)
 {
     return pow(max(raw.rgb, float3(0.0)), float3(2.2));
@@ -96,16 +131,19 @@ fragment float4 reprojectFragment(
     sampler            linearSampler   [[sampler(0)]],
     constant ReprojectUniforms& u      [[buffer(5)]])
 {
-    const float3 dir = normalize(uvToDirEquirect(in.vUv));
+    // The target's own projection decides which direction this texel stands for.
+    const float3 dir = normalize(uvToDir(in.vUv, u.targetProjection));
 
     float3 linearColor = float3(0.0);
-    if (u.sourceIsCubemap != 0u) {
+    if (u.sourceProjection == PROJ_CUBE) {
         float3 cubeDir = dir;
         cubeDir.x = -cubeDir.x;
         const float4 raw = sourceCubemap.sample(linearSampler, cubeDir);
         linearColor = (u.decodeSrgb != 0u) ? decodeGammaSrgb(raw) : raw.rgb;
     } else {
-        const float2 srcUv = dirToUvEquirect(dir);
+        const float2 srcUv = (u.sourceProjection == PROJ_OCTAHEDRAL)
+            ? dirToUvOctahedral(dir)
+            : dirToUvEquirect(dir);
         const float4 raw = sourceEquirect.sample(linearSampler, srcUv);
         linearColor = (u.decodeSrgb != 0u) ? decodeGammaSrgb(raw) : raw.rgb;
     }
@@ -237,7 +275,8 @@ fragment float4 reprojectFragment(
     }
 
     void MetalEnvReprojectPass::drawRect(MTL::RenderCommandEncoder* encoder,
-        const EnvReprojectOp& op, bool sourceIsCubemap, bool encodeRgbp, bool decodeSrgb)
+        const EnvReprojectOp& op, TextureProjection sourceProjection,
+        TextureProjection targetProjection, bool encodeRgbp, bool decodeSrgb)
     {
         if (!encoder) return;
         if (op.rectW <= 0 || op.rectH <= 0) return;
@@ -261,10 +300,10 @@ fragment float4 reprojectFragment(
         struct alignas(16) ReprojectUniforms
         {
             float uvMod[4];
-            uint32_t sourceIsCubemap;
+            uint32_t sourceProjection;
             uint32_t encodeRgbp;
             uint32_t decodeSrgb;
-            uint32_t _pad0;
+            uint32_t targetProjection;
         } uniforms{};
 
         const int seam = std::max(0, op.seamPixels);
@@ -281,7 +320,8 @@ fragment float4 reprojectFragment(
             uniforms.uvMod[2] = 0.0f;
             uniforms.uvMod[3] = 0.0f;
         }
-        uniforms.sourceIsCubemap = sourceIsCubemap ? 1u : 0u;
+        uniforms.sourceProjection = static_cast<uint32_t>(sourceProjection);
+        uniforms.targetProjection = static_cast<uint32_t>(targetProjection);
         uniforms.encodeRgbp = encodeRgbp ? 1u : 0u;
         uniforms.decodeSrgb = decodeSrgb ? 1u : 0u;
 

@@ -86,6 +86,11 @@ namespace visutwin::canvas
 
         bool isCubemap() const { return _cubemap; }
 
+        // How the texel grid maps onto directions — read by reprojectTexture to decide
+        // how to sample this texture and how to lay out a target.
+        TextureProjection projection() const { return _projection; }
+        void setProjection(const TextureProjection projection) { _projection = projection; }
+
         void* getFaceData(uint32_t mipLevel, uint32_t face) const;
         void* getArrayData(uint32_t mipLevel, uint32_t index) const;
 

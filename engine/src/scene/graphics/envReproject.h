@@ -6,6 +6,8 @@
 #include <memory>
 #include <vector>
 
+#include "platform/graphics/constants.h"
+
 namespace visutwin::canvas
 {
     class GraphicsDevice;
@@ -28,6 +30,13 @@ namespace visutwin::canvas
         std::vector<EnvReprojectRect> rects;
         bool encodeRgbp = true;
         bool decodeSrgb = false;
+
+        // Leave these unset to have them read off the textures: a cubemap source is
+        // CUBE, otherwise Texture::projection() is used, and TEXTUREPROJECTION_NONE
+        // falls back to EQUIRECT (which is what every caller predating octahedral
+        // support meant). Set them to override that inference.
+        TextureProjection sourceProjection = TextureProjection::TEXTUREPROJECTION_NONE;
+        TextureProjection targetProjection = TextureProjection::TEXTUREPROJECTION_NONE;
     };
 
     void reprojectTexture(GraphicsDevice* device, const EnvReprojectOptions& options);

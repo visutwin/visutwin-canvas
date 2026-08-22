@@ -47,6 +47,23 @@ namespace
         return condition;
     }
 
+    // The node's world-space +X axis, which is what a rotation is observable through.
+    Vector3 worldAxisX(GraphNode* node)
+    {
+        const auto& m = node->worldTransform();
+        return Vector3(m.getElement(0, 0), m.getElement(0, 1), m.getElement(0, 2)).normalized();
+    }
+
+    bool expectAxis(GraphNode* node, const Vector3& expected, const std::string_view message)
+    {
+        const auto actual = worldAxisX(node);
+        return expect(
+            near(actual.getX(), expected.getX()) &&
+            near(actual.getY(), expected.getY()) &&
+            near(actual.getZ(), expected.getZ()),
+            message);
+    }
+
     bool expectPosition(GraphNode* node, const Vector3& expected, const std::string_view message)
     {
         const auto actual = node->position();
@@ -205,6 +222,51 @@ int main()
         "findComponents traverses entities without a local match");
     passed &= expect(childEntityObserver->findComponents<OtherComponent>().size() == 1,
         "findComponents filters by component type");
+
+    // ---- world-space rotate vs local-space rotateLocal -------------------------
+    // A single rotation from identity is the same either way...
+    {
+        auto worldNode = std::make_unique<GraphNode>("rotate-world");
+        auto localNode = std::make_unique<GraphNode>("rotate-local");
+        worldNode->rotate(0.0f, 90.0f, 0.0f);
+        localNode->rotateLocal(0.0f, 90.0f, 0.0f);
+        passed &= expectAxis(worldNode.get(), Vector3(0.0f, 0.0f, -1.0f),
+            "rotate about world Y turns +X to -Z");
+        passed &= expectAxis(localNode.get(), Vector3(0.0f, 0.0f, -1.0f),
+            "rotateLocal matches rotate from identity");
+    }
+
+    // ...but they diverge once the node is already tilted. Roll 90 about Z, which puts
+    // the node's +X along world +Y and its own Y along world -X. Then yaw 90:
+    //   world-space: turns about WORLD Y, which +X is now parallel to -> +X unmoved
+    //   local-space: turns about the node's OWN Y (world -X)          -> +X ends at -Z
+    {
+        auto worldNode = std::make_unique<GraphNode>("tilted-world");
+        worldNode->rotate(0.0f, 0.0f, 90.0f);
+        worldNode->rotate(0.0f, 90.0f, 0.0f);
+        passed &= expectAxis(worldNode.get(), Vector3(0.0f, 1.0f, 0.0f),
+            "second rotate is about the world axis, not the node's");
+
+        auto localNode = std::make_unique<GraphNode>("tilted-local");
+        localNode->rotateLocal(0.0f, 0.0f, 90.0f);
+        localNode->rotateLocal(0.0f, 90.0f, 0.0f);
+        passed &= expectAxis(localNode.get(), Vector3(0.0f, 0.0f, -1.0f),
+            "rotateLocal turns about the node's own axis");
+    }
+
+    // Under a rotated parent, rotate() must still act in WORLD space: the parent's
+    // 90-degree yaw is undone before the rotation is stored as local.
+    {
+        auto parent = std::make_unique<GraphNode>("rotated-parent");
+        parent->setLocalEulerAngles(0.0f, 90.0f, 0.0f);
+        auto child = std::make_unique<GraphNode>("child");
+        auto* childObserver = child.get();
+        parent->addChild(std::move(child));
+
+        childObserver->rotate(0.0f, -90.0f, 0.0f);
+        passed &= expectAxis(childObserver, Vector3(1.0f, 0.0f, 0.0f),
+            "rotate under a rotated parent cancels the parent yaw in world space");
+    }
 
     return passed ? 0 : 1;
 }

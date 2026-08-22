@@ -40,9 +40,13 @@ namespace visutwin::canvas
             const std::shared_ptr<RenderTarget>& renderTarget,
             const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats);
 
+        // sourceProjection selects how the bound source is sampled (CUBE reads the
+        // cubemap, EQUIRECT/OCTAHEDRAL the 2D texture); targetProjection decides which
+        // direction each destination texel represents.
         void drawRect(MTL::RenderCommandEncoder* encoder,
             const EnvReprojectOp& op,
-            bool sourceIsCubemap,
+            TextureProjection sourceProjection,
+            TextureProjection targetProjection,
             bool encodeRgbp,
             bool decodeSrgb);
 

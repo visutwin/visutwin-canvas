@@ -81,6 +81,9 @@ namespace visutwin::canvas
 
         Texture* cubemap() const { return _cube.get(); }
 
+        // The owning pointer, for APIs that take a shared_ptr (reprojectTexture).
+        const std::shared_ptr<Texture>& cubemapShared() const { return _cube; }
+
     private:
         void applyProbe();
         void setCapturingEnabled(bool enabled);

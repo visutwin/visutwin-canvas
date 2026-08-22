@@ -17,7 +17,8 @@ namespace visutwin::canvas
         Texture* sourceEquirect, Texture* sourceCubemap,
         const std::vector<EnvReprojectOp>& ops, const bool encodeRgbp,
         const bool decodeSrgb, const bool clearTarget, const bool cubemapFaces,
-        const bool convolve)
+        const bool convolve, const TextureProjection sourceProjection,
+        const TextureProjection targetProjection)
     {
         if (!target || (!sourceEquirect && !sourceCubemap) ||
             (!cubemapFaces && ops.empty())) return;
@@ -255,7 +256,9 @@ namespace visutwin::canvas
                     srcCube ? 1.0f : 0.0f, decodeSrgb ? 1.0f : 0.0f,
                     encodeRgbp ? 1.0f : 0.0f,
                     cubemapFaces ? static_cast<float>(i) : -1.0f,
-                    convolve ? 1.0f : 0.0f, roughness, 0.0f, 0.0f};
+                    convolve ? 1.0f : 0.0f, roughness,
+                    static_cast<float>(sourceProjection),
+                    static_cast<float>(targetProjection)};
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     pipelineLayout, 0, 1, &set, 0, nullptr);
@@ -280,7 +283,8 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::generateEnvReproject(const EnvReprojectPassParams& p)
     {
         renderEnvironment(p.target, p.sourceEquirect, p.sourceCubemap, p.ops,
-            p.encodeRgbp, p.decodeSrgb, true, false);
+            p.encodeRgbp, p.decodeSrgb, true, false, false,
+            p.sourceProjection, p.targetProjection);
     }
 
     void VulkanGraphicsDevice::generateEnvConvolve(const EnvConvolvePassParams& p)

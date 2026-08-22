@@ -249,6 +249,31 @@ namespace visutwin::canvas
         }
     }
 
+    void GraphNode::rotate(const float x, const float y, const float z)
+    {
+        const Quaternion rotation = Quaternion::fromEulerAngles(x, y, z);
+
+        if (_parent == nullptr) {
+            // No parent, so local space IS world space — pre-multiply directly.
+            _localRotation = rotation * _localRotation;
+        } else {
+            // Bring the world-space rotation into the parent's frame before applying
+            // it to the node's world orientation, then store the result as local.
+            const Quaternion worldRotation = this->rotation();
+            const Quaternion parentInverse = _parent->rotation().invert();
+            _localRotation = (parentInverse * rotation) * worldRotation;
+        }
+
+        if (!_dirtyLocal) {
+            dirtifyLocal();
+        }
+    }
+
+    void GraphNode::rotate(const Vector3& eulerAngles)
+    {
+        rotate(eulerAngles.getX(), eulerAngles.getY(), eulerAngles.getZ());
+    }
+
     void GraphNode::rotateLocal(float x, float y, float z)
     {
         const Quaternion rotation = Quaternion::fromEulerAngles(x, y, z);

@@ -937,9 +937,13 @@ namespace visutwin::canvas
             params.sourceEquirect, params.sourceCubemap,
             _renderPipeline.get(), renderTarget, _bindGroupFormats);
 
-        const bool sourceIsCubemap = params.sourceCubemap != nullptr;
+        // A bound cubemap wins over the declared projection: the two must not disagree
+        // or the shader samples a texture that was never bound.
+        const TextureProjection sourceProjection = params.sourceCubemap
+            ? TextureProjection::TEXTUREPROJECTION_CUBE : params.sourceProjection;
         for (const auto& op : params.ops) {
-            _envReprojectPass->drawRect(encoder, op, sourceIsCubemap,
+            _envReprojectPass->drawRect(encoder, op,
+                sourceProjection, params.targetProjection,
                 params.encodeRgbp, params.decodeSrgb);
         }
 
@@ -1111,9 +1115,11 @@ namespace visutwin::canvas
                 params.reprojectSourceEquirect, params.reprojectSourceCubemap,
                 _renderPipeline.get(), renderTarget, _bindGroupFormats);
 
-            const bool sourceIsCubemap = params.reprojectSourceCubemap != nullptr;
+            const TextureProjection reprojectSource = params.reprojectSourceCubemap
+                ? TextureProjection::TEXTUREPROJECTION_CUBE : params.reprojectSourceProjection;
             for (const auto& op : params.reprojectOps) {
-                _envReprojectPass->drawRect(encoder, op, sourceIsCubemap,
+                _envReprojectPass->drawRect(encoder, op,
+                    reprojectSource, params.reprojectTargetProjection,
                     params.encodeRgbp, params.decodeSrgb);
             }
         }

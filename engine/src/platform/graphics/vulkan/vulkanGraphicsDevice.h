@@ -631,7 +631,9 @@ namespace visutwin::canvas
         void renderEnvironment(Texture* target, Texture* sourceEquirect,
             Texture* sourceCubemap, const std::vector<EnvReprojectOp>& ops,
             bool encodeRgbp, bool decodeSrgb, bool clearTarget,
-            bool cubemapFaces, bool convolve = false);
+            bool cubemapFaces, bool convolve = false,
+            TextureProjection sourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT,
+            TextureProjection targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT);
 
         VkDescriptorSetLayout _postSetLayout = VK_NULL_HANDLE;
         VkPipelineLayout _postPipelineLayout = VK_NULL_HANDLE;

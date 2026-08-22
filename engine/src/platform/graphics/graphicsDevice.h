@@ -418,9 +418,13 @@ namespace visutwin::canvas
     struct EnvReprojectPassParams
     {
         Texture* target = nullptr;
-        Texture* sourceEquirect = nullptr;
-        Texture* sourceCubemap  = nullptr;
+        Texture* sourceEquirect = nullptr;   // bound when sourceProjection != CUBE
+        Texture* sourceCubemap  = nullptr;   // bound when sourceProjection == CUBE
         std::vector<EnvReprojectOp> ops;
+        // How to read the source and how to lay out the target. CUBE is only valid as a
+        // source; a cube TARGET is produced face-by-face by the caller instead.
+        TextureProjection sourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
+        TextureProjection targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
         bool encodeRgbp = true;
         bool decodeSrgb = false;
     };
@@ -465,6 +469,8 @@ namespace visutwin::canvas
         Texture* target = nullptr;
         Texture* reprojectSourceEquirect = nullptr;
         Texture* reprojectSourceCubemap  = nullptr;
+        TextureProjection reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
+        TextureProjection reprojectTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
         std::vector<EnvReprojectOp> reprojectOps;
         Texture* convolveSourceEquirect = nullptr;
         Texture* convolveSourceCubemap  = nullptr;

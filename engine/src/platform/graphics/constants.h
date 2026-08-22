@@ -25,8 +25,10 @@ namespace visutwin::canvas
     };
 
     enum class TextureProjection : uint32_t {
-        TEXTUREPROJECTION_NONE = 0, // Texture data is not stored in a specific projection format
-        TEXTUREPROJECTION_CUBE = 1  // Texture data is stored in the cubemap projection format
+        TEXTUREPROJECTION_NONE = 0,        // Texture data is not stored in a specific projection format
+        TEXTUREPROJECTION_CUBE = 1,        // Cubemap projection (six faces)
+        TEXTUREPROJECTION_EQUIRECT = 2,    // Latitude/longitude panorama
+        TEXTUREPROJECTION_OCTAHEDRAL = 3   // Octahedral unwrap of the sphere onto a square
     };
 
     enum class PixelFormat : uint32_t {
