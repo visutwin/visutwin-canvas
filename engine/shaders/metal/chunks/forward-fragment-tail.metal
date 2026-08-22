@@ -59,14 +59,28 @@
     float3 litLinear = diffuseColor * (directDiffuse + indirectDiffuse) + directSpecular + indirectSpecular + emissiveLinear;
 
 #if VT_FEATURE_TRANSMISSION
+    // Scalar maps modulate their factors per pixel (upstream thicknessMap /
+    // refractionMap, both defaulting to the green channel). Sampled once here and
+    // used by BOTH refraction paths below.
+    float refractionFactor = material.transmissionFactor;
+    float refractionThickness = material.thickness;
+    if (material.mapChannelParams.w >= 0.0) {
+        refractionFactor *= refractionMap.sample(defaultSampler, rd.uv0)
+            [int(material.mapChannelParams.w)];
+    }
+    if (material.mapChannelParams.z >= 0.0) {
+        refractionThickness *= thicknessMap.sample(defaultSampler, rd.uv0)
+            [int(material.mapChannelParams.z)];
+    }
+
 #if VT_FEATURE_DYNAMIC_REFRACTION
     // Dynamic grab-pass refraction (upstream refractionDynamic.js): sample the
     // mid-frame scene color grab at the screen position of the refracted exit
     // point instead of the environment atlas. Requires the camera to have
     // requestSceneColorMap(true) so the depth-layer grab pass publishes slot 22.
-    if (material.transmissionFactor > 0.0 && sceneColorTexture.get_width() > 0) {
+    if (refractionFactor > 0.0 && sceneColorTexture.get_width() > 0) {
         const float ior = max(material.refractionIndex, 1.001);
-        const float thickness = max(material.thickness, 0.0);
+        const float thickness = max(refractionThickness, 0.0);
         // The simple forward path grabs the tonemapped sRGB back buffer — decode
         // to linear (upstream SCENE_COLORMAP_GAMMA). Under the HDR camera-frame
         // path (flag bit 5) the grab is mid-frame LINEAR — no decode.
@@ -129,7 +143,7 @@
         const float NdotV = max(dot(N, V), 0.0);
         const float F0_ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
         const float fresnel = F0_ior + (1.0 - F0_ior) * pow(1.0 - NdotV, 5.0);
-        const float transmission = material.transmissionFactor * (1.0 - fresnel);
+        const float transmission = refractionFactor * (1.0 - fresnel);
 
         // Blend: replace surface diffuse with the refracted scene, keep specular.
         const float3 specPart = directSpecular + indirectSpecular + emissiveLinear;
@@ -138,7 +152,7 @@
 #else
     // Cubemap-based refraction.
     // Samples the environment atlas in the refracted direction with roughness blur.
-    if (material.transmissionFactor > 0.0 && envAtlasTexture.get_width() > 0) {
+    if (refractionFactor > 0.0 && envAtlasTexture.get_width() > 0) {
         const float ior = max(material.refractionIndex, 1.001);
         const float3 refrDir = refract(-V, N, 1.0 / ior);
 
@@ -168,9 +182,9 @@
             const float attDistance = material.attenuationParams.w;
             if (attDistance > 0.0) {
                 const float3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
-                refrColor *= exp(-(-log(attColor) / attDistance) * max(material.thickness, 0.0));
+                refrColor *= exp(-(-log(attColor) / attDistance) * max(refractionThickness, 0.0));
             } else {
-                const float absorb = max(material.thickness, 0.0) + 1.0;
+                const float absorb = max(refractionThickness, 0.0) + 1.0;
                 refrColor *= pow(baseLinear, float3(absorb));
             }
 
@@ -179,7 +193,7 @@
             const float NdotV = max(dot(N, V), 0.0);
             const float F0_ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
             const float fresnel = F0_ior + (1.0 - F0_ior) * pow(1.0 - NdotV, 5.0);
-            const float transmission = material.transmissionFactor * (1.0 - fresnel);
+            const float transmission = refractionFactor * (1.0 - fresnel);
 
             // Blend: replace surface diffuse with refracted view, keep specular.
             const float3 specPart = directSpecular + indirectSpecular + emissiveLinear;

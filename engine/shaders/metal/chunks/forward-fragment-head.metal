@@ -83,6 +83,11 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #if VT_FEATURE_ATMOSPHERE
                                   constant AtmosphereData &atmosphere [[buffer(9)]],
 #endif
+                                  // Scalar maps (upstream glossMap / thicknessMap / refractionMap): one channel
+                                  // each, chosen by material.mapChannelParams — see the MaterialData comment.
+                                  texture2d<float> glossMap [[texture(31)]],
+                                  texture2d<float> thicknessMap [[texture(32)]],
+                                  texture2d<float> refractionMap [[texture(33)]],
                                   sampler defaultSampler [[sampler(0)]],
                                   bool isFrontFace [[front_facing]])
 {

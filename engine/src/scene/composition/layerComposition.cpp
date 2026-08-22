@@ -55,6 +55,42 @@ namespace visutwin::canvas
         fire("add", layer);
     }
 
+    void LayerComposition::insertOpaque(const std::shared_ptr<Layer>& layer, const int index)
+    {
+        if (!layer || isSublayerAdded(layer, false)) {
+            return;
+        }
+        const int clamped = std::clamp(index, 0, static_cast<int>(_layerList.size()));
+        _layerList.insert(_layerList.begin() + clamped, layer);
+        _subLayerList.insert(_subLayerList.begin() + clamped, false);
+        _subLayerEnabled.insert(_subLayerEnabled.begin() + clamped, true);
+
+        updateLayerMaps();
+        _dirty = true;
+        fire("add", layer);
+    }
+
+    void LayerComposition::remove(const std::shared_ptr<Layer>& layer)
+    {
+        if (!layer) {
+            return;
+        }
+        bool removed = false;
+        for (int i = static_cast<int>(_layerList.size()) - 1; i >= 0; --i) {
+            if (_layerList[i] == layer) {
+                _layerList.erase(_layerList.begin() + i);
+                _subLayerList.erase(_subLayerList.begin() + i);
+                _subLayerEnabled.erase(_subLayerEnabled.begin() + i);
+                removed = true;
+            }
+        }
+        if (removed) {
+            updateLayerMaps();
+            _dirty = true;
+            fire("remove", layer);
+        }
+    }
+
     void LayerComposition::insert(const std::shared_ptr<Layer>& layer, int index)
     {
         if (!layer) {

@@ -68,6 +68,19 @@ namespace visutwin::canvas
     // string — 'rgb', 'r', 'g', 'b', 'a'; shorter strings are padded by
     // repeating the last character, so 'a' means 'aaa'). The enum carries the
     // same five options as a value the shader can branch on.
+    /**
+     * Which channel of a scalar map (gloss, thickness, refraction) supplies the value.
+     * Upstream spells these as strings ("r"/"g"/"b"/"a") in its *MapChannel properties,
+     * defaulting to "g" for all three so they can share one packed texture.
+     */
+    enum MapChannel
+    {
+        MAP_CHANNEL_R = 0,
+        MAP_CHANNEL_G = 1,
+        MAP_CHANNEL_B = 2,
+        MAP_CHANNEL_A = 3
+    };
+
     enum class CookieChannel
     {
         COOKIE_CHANNEL_RGB = 0,

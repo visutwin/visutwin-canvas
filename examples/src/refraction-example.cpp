@@ -1,17 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Dynamic grab-pass refraction demo: a glass sphere refracts the mid-frame scene
-// color grab, distorting the colorful column backdrop behind it. Auto-cycles between
-// dynamic (grab-pass) refraction and the env-atlas fallback every few seconds
-// (1 = dynamic, 2 = env atlas, Space = auto-cycle).
+// Port of the upstream "materials/material-refraction" example.
 //
+// Two refractive capsules stand in a ring of small ones over a textured ground,
+// with the camera orbiting them. Refraction is driven by the material's
+// refraction/thickness properties and can be resolved two ways, toggled at
+// runtime: the env-atlas fallback (default) or the mid-frame scene-colour grab
+// (upstream's useDynamicRefraction). The metalness workflow toggles too —
+// refraction works in both, but without metalness the Fresnel comes from the
+// material's specular colour, which is black by default.
+//
+// Keys: 1 = dynamic refraction, 2 = metalness workflow, Space = auto-cycle.
+//
+// DEVIATIONS from upstream:
+//  - Upstream drives the two toggles from UI checkboxes; there is no UI layer
+//    here, so they are keys plus an auto-cycle that walks all four combinations.
+//  - Upstream's `refraction` property is `transmissionFactor` here, and
+//    `BLEND_NORMAL` is `setTransparent(true)`.
+//
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
+#include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 
@@ -20,16 +35,11 @@ using namespace visutwin::canvas;
 class RefractionExample final: public ExampleApp
 {
 public:
-    RefractionExample(): ExampleApp({.title = "Dynamic Refraction"}) {}
+    RefractionExample(): ExampleApp({.title = "Material Refraction"}) {}
 
 protected:
     bool create() override
     {
-        scene()->setToneMapping(TONEMAP_ACES);
-        scene()->setAmbientLight(0.25f, 0.25f, 0.28f);
-
-        // The helipad environment atlas gives the env-atlas refraction/reflection path
-        // real content to sample (mirrors the upstream material-refraction example).
         _helipad = std::make_unique<Asset>(
             "helipad-env-atlas",
             AssetType::TEXTURE,
@@ -46,100 +56,119 @@ protected:
         }
         scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
 
-        // Seaside-rocks PBR maps texture the backdrop so refraction shows a realistic
-        // rocky background rather than flat synthetic color.
         _rocksColor = std::make_unique<Asset>(
-            "rocks-color", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-color.jpg"));
+            "diffuse", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-color.jpg"));
         _rocksNormal = std::make_unique<Asset>(
-            "rocks-normal", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-normal.jpg"));
+            "normal", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-normal.jpg"));
         _rocksGloss = std::make_unique<Asset>(
-            "rocks-gloss", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-gloss.jpg"));
+            "other", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-gloss.jpg"));
 
-        Texture* rocksColorTex = requireTexture(_rocksColor, "rocks-color");
-        Texture* rocksNormalTex = requireTexture(_rocksNormal, "rocks-normal");
-        Texture* rocksGlossTex = requireTexture(_rocksGloss, "rocks-gloss");
-        if (!rocksColorTex || !rocksNormalTex || !rocksGlossTex) {
+        Texture* diffuseTex = requireTexture(_rocksColor, "diffuse");
+        Texture* normalTex = requireTexture(_rocksNormal, "normal");
+        Texture* otherTex = requireTexture(_rocksGloss, "other");
+        if (!diffuseTex || !normalTex || !otherTex) {
             return false;
         }
 
-        auto* camera = createCamera(Vector3(0.0f, 1.2f, 6.0f), Vector3(-4.0f, 0.0f, 0.0f));
-
-        // The dynamic-refraction grab pass only runs when the camera publishes the
-        // scene color map.
-        if (auto* cameraComponent = camera->findComponent<CameraComponent>()) {
-            cameraComponent->requestSceneColorMap(true);
+        // The depth layer is where the framebuffer is copied to a texture for the
+        // following layers. Move it after World AND Skybox so the grab captures both;
+        // by default it sits between them, which would leave the sky out of the
+        // refracted image.
+        if (const auto layers = scene()->layers()) {
+            if (const auto depthLayer = layers->getLayerById(LAYERID_DEPTH)) {
+                layers->remove(depthLayer);
+                layers->insertOpaque(depthLayer, 2);
+            }
         }
 
-        createDirectionalLight(Vector3(50.0f, -30.0f, 0.0f), Color(1.0f, 1.0f, 1.0f, 1.0f), 1.4f);
-
-        // Colorful column backdrop — sharp vertical color edges make the refraction
-        // distortion unmistakable.
-        const Color columnColors[6] = {
-            Color(0.9f, 0.15f, 0.15f, 1.0f), Color(0.95f, 0.6f, 0.1f, 1.0f),
-            Color(0.9f, 0.85f, 0.1f, 1.0f), Color(0.15f, 0.7f, 0.25f, 1.0f),
-            Color(0.15f, 0.4f, 0.9f, 1.0f), Color(0.6f, 0.2f, 0.8f, 1.0f)
-        };
-        for (int i = 0; i < 6; ++i) {
-            auto material = std::make_shared<StandardMaterial>();
-            material->setName("column-" + std::to_string(i));
-            // Tinted seaside-rocks: the color map keeps a rocky backdrop while the per-column
-            // tint preserves sharp color edges that make the refraction distortion obvious.
-            material->setDiffuse(columnColors[i]);
-            material->setDiffuseMap(rocksColorTex);
-            material->setNormalMap(rocksNormalTex);
-            material->setBumpiness(1.0f);
-            material->setGlossMap(rocksGlossTex);
-            material->setMetalness(0.0f);
-            material->setGloss(0.4f);
-            _materials.push_back(material);
-            createPrimitive("box", material.get(),
-                Vector3(-3.75f + 1.5f * static_cast<float>(i), 1.0f, -2.5f),
-                Vector3(1.2f, 4.0f, 0.6f));
+        auto* cameraEntity = createCamera(Vector3(0.0f, 0.0f, 3.0f), Vector3(0.0f, 0.0f, 0.0f));
+        _camera = cameraEntity;
+        if (auto* cameraComponent = cameraEntity->findComponent<CameraComponent>()) {
+            cameraComponent->setToneMapping(TONEMAP_ACES);
+            _cameraComponent = cameraComponent;
         }
 
-        // Rocky floor (seaside-rocks color+normal+gloss), like the upstream ground.
-        auto floorMaterial = std::make_shared<StandardMaterial>();
-        floorMaterial->setName("floor");
-        floorMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
-        floorMaterial->setDiffuseMap(rocksColorTex);
-        floorMaterial->setNormalMap(rocksNormalTex);
-        floorMaterial->setBumpiness(1.0f);
-        floorMaterial->setGlossMap(rocksGlossTex);
-        floorMaterial->setMetalness(0.0f);
-        floorMaterial->setGloss(0.4f);
-        _materials.push_back(floorMaterial);
-        createPrimitive("plane", floorMaterial.get(), Vector3(0.0f, -1.0f, 0.0f),
-            Vector3(24.0f, 1.0f, 24.0f));
+        createDirectionalLight(Vector3(85.0f, -100.0f, 0.0f), Color(1.0f, 0.8f, 0.25f, 1.0f));
 
-        // The glass sphere: transparent so it renders after the depth-layer grab.
-        _glassMaterial = std::make_shared<StandardMaterial>();
-        _glassMaterial->setName("glass");
-        _glassMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
-        _glassMaterial->setMetalness(0.0f);
-        _glassMaterial->setGlossInvert(true);
-        _glassMaterial->setGloss(0.05f);  // near-mirror smooth
-        _glassMaterial->setTransmissionFactor(1.0f);
-        _glassMaterial->setRefractionIndex(1.5f);
-        _glassMaterial->setThickness(0.8f);
-        _glassMaterial->setUseDynamicRefraction(true);
-        _glassMaterial->setTransparent(true);
-        createPrimitive("sphere", _glassMaterial.get(), Vector3(0.0f, 1.0f, 0.8f),
-            Vector3(2.4f, 2.4f, 2.4f));
+        // Ground
+        auto groundMaterial = std::make_shared<StandardMaterial>();
+        groundMaterial->setName("ground");
+        groundMaterial->setDiffuse(Color(1.0f, 2.5f, 2.5f, 1.0f));
+        groundMaterial->setDiffuseMap(diffuseTex);
+        groundMaterial->setGloss(0.4f);
+        groundMaterial->setMetalness(0.5f);
+        groundMaterial->setUseMetalness(true);
+        _materials.push_back(groundMaterial);
+        createPrimitive("box", groundMaterial.get(),
+            Vector3(0.0f, -2.0f, 0.0f), Vector3(30.0f, 1.0f, 30.0f));
 
-        spdlog::info("Dynamic refraction: glass sphere over colorful columns");
-        spdlog::info("Keys: 1 = dynamic, 2 = +dispersion, 3 = +volume attenuation, 4 = env atlas, Space = auto-cycle, Esc = quit");
+        // Basic refractive material. Low metalness, otherwise it turns reflective.
+        _material = std::make_shared<StandardMaterial>();
+        _material->setName("refractive");
+        _material->setMetalness(0.0f);
+        _material->setGloss(1.0f);
+        _material->setGlossMap(otherTex);
+        _material->setGlossMapChannel(MapChannel::MAP_CHANNEL_G);
+        _material->setUseMetalness(true);
+        _material->setTransmissionFactor(0.8f);           // upstream: refraction
+        _material->setRefractionIndex(1.0f / 1.33f);      // water
+        _material->setTransparent(true);                  // upstream: BLEND_NORMAL
+        _material->setThickness(0.4f);
+        _material->setThicknessMap(otherTex);
+        _materials.push_back(_material);
 
-        applyMode(0);
+        // Clone and apply the second material's extra settings.
+        _material2 = std::static_pointer_cast<StandardMaterial>(_material->clone());
+        _material2->setName("refractive-2");
+        _material2->setDiffuse(Color(0.9f, 0.6f, 0.6f, 1.0f));
+        _material2->setNormalMap(normalTex);
+        _material2->setBumpiness(2.0f);
+        _material2->setRefractionMap(diffuseTex);
+        _materials.push_back(_material2);
+
+        // Two main objects with refraction materials
+        createObject(-0.5f, 0.0f, 0.0f, _material.get(), 0.7f);
+        createObject(0.5f, 0.0f, 0.0f, _material2.get(), 0.7f);
+
+        // A ring of objects with a simple color material as a background
+        auto objMaterial = std::make_shared<StandardMaterial>();
+        objMaterial->setName("ring");
+        objMaterial->setDiffuse(Color(0.5f, 0.5f, 2.5f, 1.0f));
+        objMaterial->setGloss(0.5f);
+        objMaterial->setMetalness(0.5f);
+        objMaterial->setUseMetalness(true);
+        _materials.push_back(objMaterial);
+        constexpr int count = 8;
+        for (int i = 0; i < count; ++i) {
+            const float angle = (static_cast<float>(i) / count) * 2.0f * 3.14159265358979f;
+            createObject(std::cos(angle) * 2.5f, -0.3f, std::sin(angle) * 2.5f,
+                objMaterial.get(), 0.2f);
+        }
+
+        spdlog::info("Material refraction: two refractive capsules over a textured ground.");
+        spdlog::info("Keys: 1 = dynamic refraction, 2 = metalness workflow, "
+                     "Space = auto-cycle, Esc = quit");
+
+        applyToggles();
         return true;
     }
 
     void update(const float dt) override
     {
+        // Rotate the camera around the objects.
+        _time += dt;
+        _camera->setLocalPosition(3.0f * std::sin(_time * 0.5f), 0.0f, 3.0f * std::cos(_time * 0.5f));
+        _camera->lookAt(Vector3(0.0f, 0.0f, 0.0f));
+
         if (_autoCycle) {
             _cycleTimer += dt;
-            if (_cycleTimer >= 3.0f) {
+            if (_cycleTimer >= 4.0f) {
                 _cycleTimer = 0.0f;
-                applyMode((_phase + 1) % 4);
+                // Walk the four combinations of the two upstream toggles.
+                _phase = (_phase + 1) % 4;
+                _dynamic = (_phase & 1) != 0;
+                _metalness = (_phase & 2) == 0;
+                applyToggles();
             }
         }
     }
@@ -149,9 +178,16 @@ protected:
         if (event.type != SDL_EVENT_KEY_DOWN) {
             return false;
         }
-        if (event.key.key >= SDLK_1 && event.key.key <= SDLK_4) {
+        if (event.key.key == SDLK_1) {
             _autoCycle = false;
-            applyMode(static_cast<int>(event.key.key - SDLK_1));
+            _dynamic = !_dynamic;
+            applyToggles();
+            return true;
+        }
+        if (event.key.key == SDLK_2) {
+            _autoCycle = false;
+            _metalness = !_metalness;
+            applyToggles();
             return true;
         }
         if (event.key.key == SDLK_SPACE) {
@@ -174,23 +210,29 @@ private:
         return std::get<Texture*>(*resource);
     }
 
-    // Phases: 0 = dynamic grab, 1 = dynamic + dispersion (KHR_materials_dispersion),
-    // 2 = dynamic + Beer-law volume attenuation (KHR_materials_volume), 3 = env atlas.
-    void applyMode(const int newPhase)
+    void createObject(const float x, const float y, const float z,
+        Material* material, const float scale)
     {
-        _phase = newPhase;
-        _glassMaterial->setUseDynamicRefraction(_phase != 3);
-        _glassMaterial->setDispersion(_phase == 1 ? 10.0f : 0.0f);
-        if (_phase == 2) {
-            _glassMaterial->setAttenuationColor(Color(0.9f, 0.3f, 0.1f, 1.0f));
-            _glassMaterial->setAttenuationDistance(0.35f);
-        } else {
-            _glassMaterial->setAttenuationDistance(0.0f);
+        createPrimitive("capsule", material, Vector3(x, y, z), Vector3(scale, scale, scale));
+    }
+
+    void applyToggles() const
+    {
+        _material->setUseDynamicRefraction(_dynamic);
+        _material2->setUseDynamicRefraction(_dynamic);
+
+        // Dynamic refraction reads the scene colour grab, which only exists when the
+        // camera asks for it.
+        if (_cameraComponent) {
+            _cameraComponent->requestSceneColorMap(_dynamic);
         }
-        static const char* names[4] = {
-            "dynamic grab pass", "dynamic + dispersion",
-            "dynamic + volume attenuation (orange Beer-law)", "env atlas"};
-        spdlog::info("Refraction mode: {}", names[_phase]);
+
+        _material->setUseMetalness(_metalness);
+        _material2->setUseMetalness(_metalness);
+
+        spdlog::info("Refraction: {} | workflow: {}",
+            _dynamic ? "dynamic (scene colour grab)" : "env atlas",
+            _metalness ? "metalness" : "specular");
     }
 
     std::unique_ptr<Asset> _helipad;
@@ -199,9 +241,16 @@ private:
     std::unique_ptr<Asset> _rocksGloss;
 
     std::vector<std::shared_ptr<StandardMaterial>> _materials;
-    std::shared_ptr<StandardMaterial> _glassMaterial;
+    std::shared_ptr<StandardMaterial> _material;
+    std::shared_ptr<StandardMaterial> _material2;
 
+    Entity* _camera = nullptr;
+    CameraComponent* _cameraComponent = nullptr;
+
+    float _time = 0.0f;
     bool _autoCycle = true;
+    bool _dynamic = false;    // upstream initial UI value
+    bool _metalness = true;   // upstream initial UI value
     int _phase = 0;
     float _cycleTimer = 0.0f;
 };

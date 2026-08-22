@@ -206,7 +206,7 @@
         glossiness *= sg.a;
     }
     const float metallic = 0.0;
-    const float roughness = clamp(1.0 - glossiness, 0.04, 1.0);
+    float roughness = clamp(1.0 - glossiness, 0.04, 1.0);  // non-const: a gloss map may replace it below
     // Diffuse energy conservation per the extension: scale by 1 - max(specular).
     const float3 diffuseColor = baseLinear *
         (1.0 - max(specularColor.r, max(specularColor.g, specularColor.b)));
@@ -225,6 +225,17 @@
     const float3 diffuseColor = baseLinear * (1.0 - metallic);
     const float3 F0 = mix(float3(0.04), baseLinear, metallic);
 #endif
+
+    // Gloss map (upstream getGlossiness): one channel scales the gloss FACTOR, and
+    // the result replaces the roughness derived above — upstream's gloss and the
+    // metal-rough map's roughness are alternative sources, not multiplied together.
+    if (material.mapChannelParams.y >= 0.0) {
+        const float4 glossSample = glossMap.sample(defaultSampler, rd.uv0);
+        const float glossValue = material.mapChannelParams.x *
+            glossSample[int(material.mapChannelParams.y)];
+        roughness = clamp(1.0 - glossValue, 0.04, 1.0);
+    }
+
     const float gloss = 1.0 - roughness;
 
 #if VT_FEATURE_CLEARCOAT

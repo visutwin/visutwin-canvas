@@ -166,6 +166,18 @@ namespace visutwin::canvas
         // Users who want emission must call setEmissive()/setEmissiveIntensity(); when they do,
         // the linearize-first-then-scale order keeps HDR intensities (e.g. 200 × neon) in range
         // (pow(1, 2.2) * 200 = 200 linear, vs pow(200, 2.2) ≈ 1.7e5 which overflows fp16).
+        // Scalar maps modulate their factor by one channel of a texture. The gloss
+        // factor travels separately because the packed uniform carries ROUGHNESS, and
+        // the map has to scale gloss before the inversion (upstream getGlossiness).
+        // glossInvert means the authored value already IS roughness, so undo it here.
+        uniforms.mapChannelParams[0] = _glossInvert ? (1.0f - _gloss) : _gloss;
+        uniforms.mapChannelParams[1] = _glossMap
+            ? static_cast<float>(_glossMapChannel) : -1.0f;
+        uniforms.mapChannelParams[2] = _thicknessMap
+            ? static_cast<float>(_thicknessMapChannel) : -1.0f;
+        uniforms.mapChannelParams[3] = _refractionMap
+            ? static_cast<float>(_refractionMapChannel) : -1.0f;
+
         uniforms.emissiveColor[0] = std::pow(std::max(_emissive.r, 0.0f), 2.2f) * _emissiveIntensity;
         uniforms.emissiveColor[1] = std::pow(std::max(_emissive.g, 0.0f), 2.2f) * _emissiveIntensity;
         uniforms.emissiveColor[2] = std::pow(std::max(_emissive.b, 0.0f), 2.2f) * _emissiveIntensity;
@@ -306,6 +318,10 @@ namespace visutwin::canvas
         overrideSlot(3, _specGlossMap);
         // Detail normal overlay at slot 23.
         overrideSlot(23, _detailNormalMap);
+        // Scalar maps. Slots 0-30 were all taken, so these extend the range.
+        overrideSlot(31, _glossMap);
+        overrideSlot(32, _thicknessMap);
+        overrideSlot(33, _refractionMap);
         // Vertex displacement map: routed to VERTEX texture slot 0 via the
         // >= 100 sentinel (see MetalTextureBinder::bindMaterialTextures).
         overrideSlot(100, _displacementMap);

@@ -35,6 +35,17 @@ namespace visutwin::canvas
         // with getTransparentIndex/getOpaqueIndex to slot a layer relative to another.
         void insert(const std::shared_ptr<Layer>& layer, int index);
 
+        /**
+         * Insert ONLY the opaque sublayer at `index` (upstream insertOpaque). Needed
+         * to reorder a layer whose transparent half should not move with it — the
+         * depth layer's grab, for instance, has to run after the skydome's opaque
+         * draw so the grabbed scene colour includes the sky.
+         */
+        void insertOpaque(const std::shared_ptr<Layer>& layer, int index);
+
+        /// Remove both sublayers of `layer` (upstream remove). No-op when absent.
+        void remove(const std::shared_ptr<Layer>& layer);
+
         const std::vector<RenderAction*>& renderActions();
         int getOpaqueIndex(const std::shared_ptr<Layer>& layer) const;
         int getTransparentIndex(const std::shared_ptr<Layer>& layer) const;

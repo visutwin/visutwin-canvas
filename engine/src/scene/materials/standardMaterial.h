@@ -111,6 +111,22 @@ namespace visutwin::canvas
 
         Texture* glossMap() const { return _glossMap; }
         void setGlossMap(Texture* texture) { _glossMap = texture; _dirtyShader = true; markUniformsDirty(); }
+
+        /// Channel of the gloss map that supplies glossiness (upstream glossMapChannel, default "g").
+        MapChannel glossMapChannel() const { return _glossMapChannel; }
+        void setGlossMapChannel(const MapChannel value) { _glossMapChannel = value; markUniformsDirty(); }
+
+        /// Per-pixel thickness, multiplying the thickness factor (upstream thicknessMap).
+        Texture* thicknessMap() const { return _thicknessMap; }
+        void setThicknessMap(Texture* texture) { _thicknessMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        MapChannel thicknessMapChannel() const { return _thicknessMapChannel; }
+        void setThicknessMapChannel(const MapChannel value) { _thicknessMapChannel = value; markUniformsDirty(); }
+
+        /// Per-pixel refraction visibility, multiplying the refraction factor (upstream refractionMap).
+        Texture* refractionMap() const { return _refractionMap; }
+        void setRefractionMap(Texture* texture) { _refractionMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        MapChannel refractionMapChannel() const { return _refractionMapChannel; }
+        void setRefractionMapChannel(const MapChannel value) { _refractionMapChannel = value; markUniformsDirty(); }
         // --- Emissive ---
         // StandardMaterial owns the emissive contribution unconditionally: updateUniforms() writes
         // pow(_emissive, 2.2) * _emissiveIntensity to the GPU as linear HDR, overriding whatever
@@ -315,6 +331,11 @@ namespace visutwin::canvas
         DitherMode _opacityShadowDitherMode = DitherMode::DITHER_NONE;
         float _alphaDither = ALPHA_DITHER_UNSET;
         Texture* _glossMap = nullptr;
+        MapChannel _glossMapChannel = MapChannel::MAP_CHANNEL_G;
+        Texture* _thicknessMap = nullptr;
+        MapChannel _thicknessMapChannel = MapChannel::MAP_CHANNEL_G;
+        Texture* _refractionMap = nullptr;
+        MapChannel _refractionMapChannel = MapChannel::MAP_CHANNEL_G;
 
         Color _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);
         float _emissiveIntensity = 1.0f;

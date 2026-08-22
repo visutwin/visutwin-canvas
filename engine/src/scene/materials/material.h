@@ -124,6 +124,13 @@ namespace visutwin::canvas
         float attenuationParams[4] = {1, 1, 1, 0};  // rgb=attenuationColor, w=attenuationDistance (0 = disabled)
         // x=dispersion strength, y=alphaDither (<0 = unset, dither follows opacity), zw=pad
         float dispersionParams[4] = {0, -1.0f, 0, 0};
+
+        // --- Scalar maps (upstream glossMap / thicknessMap / refractionMap) ---
+        // x = the gloss factor that the gloss map modulates; y,z,w = which channel of
+        // the gloss / thickness / refraction map to read (0=r,1=g,2=b,3=a). A NEGATIVE
+        // channel means "no map bound": the flags word has no spare bits left (25-27
+        // and 29-31 carry the two dither modes), so presence rides in the sign here.
+        float mapChannelParams[4] = {1.0f, -1.0f, -1.0f, -1.0f};
     };
 
     /**

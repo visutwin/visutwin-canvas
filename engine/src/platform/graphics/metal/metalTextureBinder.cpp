@@ -71,7 +71,7 @@ namespace visutwin::canvas
         const std::vector<TextureSlot>& textureSlots)
     {
         // Clear material-owned slots (0,1,3,4,5) not used by this material.
-        constexpr int materialSlots[] = {0, 1, 3, 4, 5, 17, 19, 23};
+        constexpr int materialSlots[] = {0, 1, 3, 4, 5, 17, 19, 23, 31, 32, 33};
         for (const int s : materialSlots) {
             bool used = false;
             for (const auto& [slot, tex] : textureSlots) {

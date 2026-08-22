@@ -223,7 +223,7 @@ def validate(module: str, reflection: dict) -> None:
         geometry_expected = {
             # Displacement is wired into the standard vertex path only.
             "ForwardVert": [
-                (0, 0, "UniformBuffer", 384),
+                (0, 0, "UniformBuffer", 400),  # MaterialUniforms (+16: mapChannelParams)
                 (1, 24, "Sampler", 0),
                 (1, 25, "SampledImage", 0),
             ],
@@ -291,7 +291,8 @@ def validate(module: str, reflection: dict) -> None:
         for set_index, binding, kind, size in bindings
         if kind == "UniformBuffer"
     }
-    if block_sizes != {(0, 0): 384, (2, 0): 2448}:
+    # (0,0) is MaterialUniforms; grew by 16 bytes for mapChannelParams.
+    if block_sizes != {(0, 0): 400, (2, 0): 2448}:
         raise RuntimeError(
             f"{module}: uniform block reflection mismatch: {block_sizes}"
         )

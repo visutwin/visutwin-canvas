@@ -121,6 +121,9 @@ struct MaterialData {
     float4 attenuationParams;
     // Dispersion (KHR_materials_dispersion): x=strength, yzw=pad.
     float4 dispersionParams;
+    /// x = gloss factor the gloss map scales; yzw = channel index of the gloss /
+    /// thickness / refraction map (0=r,1=g,2=b,3=a), NEGATIVE when no map is bound.
+    float4 mapChannelParams;
 };
 
 /// CPU-side packing layout for hardware instancing (VT_FEATURE_INSTANCING).

@@ -47,6 +47,9 @@ layout(set = 0, binding = 0) uniform MaterialData {
     vec4 detailNormalTransform1;
     vec4 attenuationParams;
     vec4 dispersionParams;
+    // x = gloss factor scaled by the gloss map; yzw = channel of the gloss /
+    // thickness / refraction map, NEGATIVE when that map is not bound.
+    vec4 mapChannelParams;
 } material;
 
 // Displacement height map: a separate image in the vertex stage sharing the
