@@ -2,14 +2,6 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 //
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-#define MTK_PRIVATE_IMPLEMENTATION
-#define CA_PRIVATE_IMPLEMENTATION
-
-#include <SDL3/SDL.h>
-#include <QuartzCore/QuartzCore.hpp>
-
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -18,53 +10,31 @@
 #include <string>
 #include <vector>
 
-#include "framework/engine.h"
-#include "log.h"
+#include "../exampleApp.h"
+#include "core/math/matrix4.h"
+#include "core/math/vector2.h"
 #include "core/math/vector4.h"
-#include "framework/appOptions.h"
 #include "framework/assets/asset.h"
 #include "framework/components/button/buttonComponent.h"
 #include "framework/components/button/buttonComponentSystem.h"
-#include "framework/components/camera/cameraComponent.h"
-#include "framework/components/camera/cameraComponentSystem.h"
 #include "framework/components/collision/collisionComponent.h"
 #include "framework/components/collision/collisionComponentSystem.h"
 #include "framework/components/element/elementComponent.h"
 #include "framework/components/element/elementComponentSystem.h"
-#include "framework/components/light/lightComponent.h"
-#include "framework/components/light/lightComponentSystem.h"
-#include "framework/components/render/renderComponent.h"
-#include "framework/components/render/renderComponentSystem.h"
 #include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/components/rigidbody/rigidBodyComponentSystem.h"
 #include "framework/components/screen/screenComponent.h"
 #include "framework/components/screen/screenComponentSystem.h"
 #include "framework/input/elementInput.h"
-#include "platform/graphics/graphicsDeviceCreate.h"
 #include "scene/materials/standardMaterial.h"
+
+using namespace visutwin::canvas;
 
 constexpr int WINDOW_WIDTH = 1280;
 constexpr int WINDOW_HEIGHT = 720;
 
-using namespace visutwin::canvas;
-
 namespace
 {
-    SDL_Window* window = nullptr;
-    SDL_Renderer* renderer = nullptr;
-
-    const std::string rootPath = ASSET_DIR;
-    const auto checkerboard = std::make_unique<Asset>(
-        "checkerboard",
-        AssetType::TEXTURE,
-        rootPath + "/textures/checkboard.png"
-    );
-    const auto courierFont = std::make_unique<Asset>(
-        "courier-font",
-        AssetType::FONT,
-        rootPath + "/fonts/courier.json"
-    );
-
     struct PlayerUi
     {
         Entity* worldEntity = nullptr;
@@ -292,253 +262,178 @@ namespace
     }
 }
 
-int main()
+class WorldToScreenExample final: public ExampleApp
 {
-    log::init();
-    log::set_level_debug();
+public:
+    WorldToScreenExample()
+        : ExampleApp({.title = "Screen Overlay Anchors (World-To-Screen)",
+                      .width = WINDOW_WIDTH, .height = WINDOW_HEIGHT}) {}
 
-    const auto shutdown = []() {
-        if (renderer) {
-            SDL_DestroyRenderer(renderer);
-            renderer = nullptr;
+protected:
+    void configure(AppOptions& options) override
+    {
+        options.registerComponentSystem<CollisionComponentSystem>();
+        options.registerComponentSystem<RigidBodyComponentSystem>();
+        options.registerComponentSystem<ScreenComponentSystem>();
+        options.registerComponentSystem<ElementComponentSystem>();
+        options.registerComponentSystem<ButtonComponentSystem>();
+        _elementInput = std::make_shared<ElementInput>();
+        options.elementInput = _elementInput;
+    }
+
+    bool create() override
+    {
+        scene()->setAmbientLight(0.3f, 0.3f, 0.32f);
+
+        _checkerboard = std::make_unique<Asset>(
+            "checkerboard", AssetType::TEXTURE, assetPath("textures/checkboard.png"));
+        _courierFont = std::make_unique<Asset>(
+            "courier-font", AssetType::FONT, assetPath("fonts/courier.json"));
+
+        _groundMaterial = std::make_shared<StandardMaterial>();
+        if (const auto checkerResource = _checkerboard->resource()) {
+            _groundMaterial->setDiffuseMap(std::get<Texture*>(*checkerResource));
+        } else {
+            _groundMaterial->setDiffuse(Color(0.75f, 0.75f, 0.75f, 1.0f));
         }
-        if (window) {
-            SDL_DestroyWindow(window);
-            window = nullptr;
+
+        auto* ground = createPrimitive("box", _groundMaterial.get(), Vector3(0.0f, -0.5f, 0.0f),
+            Vector3(50.0f, 1.0f, 50.0f), {LAYERID_WORLD});
+        if (auto* body = static_cast<RigidBodyComponent*>(ground->addComponent<RigidBodyComponent>())) {
+            body->setType("static");
         }
-        SDL_Quit();
-    };
+        if (auto* col = static_cast<CollisionComponent*>(ground->addComponent<CollisionComponent>())) {
+            col->setType("box");
+            col->setHalfExtents(Vector3(25.0f, 0.5f, 25.0f));
+        }
 
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
-    SDL_Init(SDL_INIT_VIDEO);
+        _occluderMaterial = std::make_shared<StandardMaterial>();
+        _occluderMaterial->setDiffuse(Color(0.55f, 0.58f, 0.64f, 1.0f));
+        auto* occluder = createPrimitive("box", _occluderMaterial.get(), Vector3(0.0f, 1.25f, 0.0f),
+            Vector3(1.5f, 2.5f, 0.6f), {LAYERID_WORLD});
+        if (auto* body = static_cast<RigidBodyComponent*>(occluder->addComponent<RigidBodyComponent>())) {
+            body->setType("static");
+        }
+        if (auto* col = static_cast<CollisionComponent*>(occluder->addComponent<CollisionComponent>())) {
+            col->setType("box");
+            col->setHalfExtents(Vector3(0.75f, 1.25f, 0.3f));
+        }
 
-    window = SDL_CreateWindow(
-        "Screen Overlay Anchors (World-To-Screen)",
-        WINDOW_WIDTH,
-        WINDOW_HEIGHT,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
-    );
-    if (!window) {
-        shutdown();
-        return -1;
-    }
+        auto* light = createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f),
+            Color(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, true);
+        if (auto* lightComp = light->findComponent<LightComponent>()) {
+            lightComp->setShadowResolution(2048);
+            lightComp->setShadowDistance(16.0f);
+            lightComp->setShadowBias(0.2f);
+            lightComp->setShadowNormalBias(0.05f);
+        }
 
-    renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) {
-        shutdown();
-        return -1;
-    }
-    SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
+        _cameraEntity = createCamera(Vector3(0.0f, 3.5f, 7.0f), Vector3(-30.0f, 0.0f, 0.0f));
+        _cameraComponent = _cameraEntity->findComponent<CameraComponent>();
+        if (_cameraComponent && _cameraComponent->camera()) {
+            _cameraComponent->camera()->setClearColor(
+                Color(30.0f / 255.0f, 30.0f / 255.0f, 30.0f / 255.0f, 1.0f));
+        }
+        _cameraComponent->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX});
 
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain) {
-        shutdown();
-        return -1;
-    }
+        // Orthographic UI camera rendering only the UI layer.
+        auto* uiCameraEntity = createCamera(Vector3(0.0f, 0.0f, 10.0f));
+        _uiCamera = uiCameraEntity->findComponent<CameraComponent>();
+        if (_uiCamera && _uiCamera->camera()) {
+            _uiCamera->camera()->setProjection(ProjectionType::Orthographic);
+            _uiCamera->camera()->setOrthoHeight(static_cast<float>(WINDOW_HEIGHT) * 0.5f);
+            _uiCamera->camera()->setClearColorBuffer(false);
+            // Render UI over world by clearing depth before UI pass.
+            _uiCamera->camera()->setClearDepthBuffer(true);
+            _uiCamera->camera()->setClearStencilBuffer(true);
+            _uiCamera->setLayers({LAYERID_UI});
+        }
 
-    auto device = createGraphicsDevice(GraphicsDeviceOptions{.swapChain = swapchain, .window = window});
-    if (!device) {
-        shutdown();
-        return -1;
-    }
+        auto* screenEntity = new Entity();
+        screenEntity->setEngine(engine());
+        _screenComponent = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
+        if (_screenComponent) {
+            _screenComponent->setReferenceResolution(Vector2(1280.0f, 720.0f));
+            _screenComponent->setScreenSpace(true);
+        }
+        root()->addChild(screenEntity);
 
-    auto elementInput = std::make_shared<ElementInput>();
+        _players.reserve(3);
+        _players.push_back(createPlayer(engine(), screenEntity, 1, 135.0f, 30.0f, 1.5f));
+        _players.push_back(createPlayer(engine(), screenEntity, 2, 65.0f, -18.0f, 1.0f));
+        _players.push_back(createPlayer(engine(), screenEntity, 3, 0.0f, 15.0f, 2.5f));
 
-    AppOptions createOptions;
-    auto graphicsDevice = std::shared_ptr<GraphicsDevice>(std::move(device));
-    createOptions.graphicsDevice = graphicsDevice;
-    createOptions.registerComponentSystem<RenderComponentSystem>();
-    createOptions.registerComponentSystem<CameraComponentSystem>();
-    createOptions.registerComponentSystem<LightComponentSystem>();
-    createOptions.registerComponentSystem<CollisionComponentSystem>();
-    createOptions.registerComponentSystem<RigidBodyComponentSystem>();
-    createOptions.registerComponentSystem<ScreenComponentSystem>();
-    createOptions.registerComponentSystem<ElementComponentSystem>();
-    createOptions.registerComponentSystem<ButtonComponentSystem>();
-    createOptions.elementInput = elementInput;
-
-    auto engine = std::make_shared<Engine>(window);
-    engine->init(createOptions);
-    engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
-    engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-    engine->start();
-
-    auto scene = engine->scene();
-    scene->setAmbientLight(0.3f, 0.3f, 0.32f);
-
-    auto groundMaterial = std::make_shared<StandardMaterial>();
-    if (const auto checkerResource = checkerboard->resource()) {
-        groundMaterial->setDiffuseMap(std::get<Texture*>(*checkerResource));
-    } else {
-        groundMaterial->setDiffuse(Color(0.75f, 0.75f, 0.75f, 1.0f));
-    }
-
-    auto* ground = createPrimitiveEntity(
-        engine.get(),
-        "box",
-        Vector3(0.0f, -0.5f, 0.0f),
-        Vector3(50.0f, 1.0f, 50.0f),
-        groundMaterial.get()
-    );
-    if (auto* body = static_cast<RigidBodyComponent*>(ground->addComponent<RigidBodyComponent>())) {
-        body->setType("static");
-    }
-    if (auto* col = static_cast<CollisionComponent*>(ground->addComponent<CollisionComponent>())) {
-        col->setType("box");
-        col->setHalfExtents(Vector3(25.0f, 0.5f, 25.0f));
-    }
-
-    auto occluderMat = std::make_shared<StandardMaterial>();
-    occluderMat->setDiffuse(Color(0.55f, 0.58f, 0.64f, 1.0f));
-    auto* occluder = createPrimitiveEntity(
-        engine.get(),
-        "box",
-        Vector3(0.0f, 1.25f, 0.0f),
-        Vector3(1.5f, 2.5f, 0.6f),
-        occluderMat.get()
-    );
-    if (auto* body = static_cast<RigidBodyComponent*>(occluder->addComponent<RigidBodyComponent>())) {
-        body->setType("static");
-    }
-    if (auto* col = static_cast<CollisionComponent*>(occluder->addComponent<CollisionComponent>())) {
-        col->setType("box");
-        col->setHalfExtents(Vector3(0.75f, 1.25f, 0.3f));
-    }
-
-    auto* lightEntity = new Entity();
-    lightEntity->setEngine(engine.get());
-    auto* light = static_cast<LightComponent*>(lightEntity->addComponent<LightComponent>());
-    if (light) {
-        light->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        light->setIntensity(1.0f);
-        light->setCastShadows(true);
-        light->setShadowResolution(2048);
-        light->setShadowDistance(16.0f);
-        light->setShadowBias(0.2f);
-        light->setShadowNormalBias(0.05f);
-    }
-    lightEntity->setLocalEulerAngles(45.0f, 30.0f, 0.0f);
-    engine->root()->addChild(lightEntity);
-
-    auto* cameraEntity = new Entity();
-    cameraEntity->setEngine(engine.get());
-    auto* cameraComponent = static_cast<CameraComponent*>(cameraEntity->addComponent<CameraComponent>());
-    if (cameraComponent && cameraComponent->camera()) {
-        cameraComponent->camera()->setClearColor(Color(30.0f / 255.0f, 30.0f / 255.0f, 30.0f / 255.0f, 1.0f));
-    }
-    cameraEntity->setLocalEulerAngles(-30.0f, 0.0f, 0.0f);
-    cameraEntity->setLocalPosition(0.0f, 3.5f, 7.0f);
-    cameraComponent->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX});
-    engine->root()->addChild(cameraEntity);
-
-    // Orthographic UI camera rendering only the UI layer.
-    auto* uiCameraEntity = new Entity();
-    uiCameraEntity->setEngine(engine.get());
-    auto* uiCamera = static_cast<CameraComponent*>(uiCameraEntity->addComponent<CameraComponent>());
-    if (uiCamera && uiCamera->camera()) {
-        uiCamera->camera()->setProjection(ProjectionType::Orthographic);
-        uiCamera->camera()->setOrthoHeight(static_cast<float>(WINDOW_HEIGHT) * 0.5f);
-        uiCamera->camera()->setClearColorBuffer(false);
-        // Render UI over world by clearing depth before UI pass.
-        uiCamera->camera()->setClearDepthBuffer(true);
-        uiCamera->camera()->setClearStencilBuffer(true);
-        uiCamera->setLayers({LAYERID_UI});
-    }
-    uiCameraEntity->setLocalPosition(0.0f, 0.0f, 10.0f);
-    engine->root()->addChild(uiCameraEntity);
-
-    auto* screenEntity = new Entity();
-    screenEntity->setEngine(engine.get());
-    auto* screenComponent = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-    if (screenComponent) {
-        screenComponent->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        screenComponent->setScreenSpace(true);
-    }
-    engine->root()->addChild(screenEntity);
-
-    std::vector<PlayerUi> players;
-    players.reserve(3);
-    players.push_back(createPlayer(engine.get(), screenEntity, 1, 135.0f, 30.0f, 1.5f));
-    players.push_back(createPlayer(engine.get(), screenEntity, 2, 65.0f, -18.0f, 1.0f));
-    players.push_back(createPlayer(engine.get(), screenEntity, 3, 0.0f, 15.0f, 2.5f));
-
-    FontResource* fontResource = nullptr;
-    if (const auto fontRes = courierFont->resource(); fontRes.has_value() && std::holds_alternative<FontResource*>(*fontRes)) {
-        fontResource = std::get<FontResource*>(*fontRes);
-    }
-    if (fontResource) {
-        for (auto& player : players) {
-            if (player.nameElement) {
-                player.nameElement->setFontResource(fontResource);
+        FontResource* fontResource = nullptr;
+        if (const auto fontRes = _courierFont->resource();
+            fontRes.has_value() && std::holds_alternative<FontResource*>(*fontRes)) {
+            fontResource = std::get<FontResource*>(*fontRes);
+        }
+        if (fontResource) {
+            for (auto& player : _players) {
+                if (player.nameElement) {
+                    player.nameElement->setFontResource(fontResource);
+                }
             }
+        } else {
+            spdlog::warn("Courier bitmap font was not loaded. Text labels will remain disabled.");
         }
-    } else {
-        spdlog::warn("Courier bitmap font was not loaded. Text labels will remain disabled.");
+
+        std::uniform_real_distribution<float> unit(0.15f, 1.0f);
+        for (auto& player : _players) {
+            if (!player.nameButton) {
+                continue;
+            }
+            player.nameButton->on("click",
+                [nameEl = player.nameElement, mat = player.worldMaterial, this, unit]() mutable {
+                    const Color color(unit(_rng), unit(_rng), unit(_rng), 1.0f);
+                    if (nameEl) {
+                        nameEl->setColor(color);
+                    }
+                    if (mat) {
+                        mat->setDiffuse(color);
+                    }
+                });
+        }
+
+        _rigidbodySystem = dynamic_cast<RigidBodyComponentSystem*>(engine()->systems()->getById("rigidbody"));
+        spdlog::info("World-To-Screen controls: ESC quit, left-click player name recolor, O toggle occlusion ({})",
+            _occlusionEnabled ? "on" : "off");
+
+        return true;
     }
 
-    std::mt19937 rng(1337u);
-    std::uniform_real_distribution<float> unit(0.15f, 1.0f);
-    for (auto& player : players) {
-        if (!player.nameButton) {
-            continue;
+    bool onEvent(const SDL_Event& event) override
+    {
+        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_O) {
+            _occlusionEnabled = !_occlusionEnabled;
+            spdlog::info("Occlusion gating: {}", _occlusionEnabled ? "enabled" : "disabled");
+            return true;
         }
-        player.nameButton->on("click", [nameEl = player.nameElement, mat = player.worldMaterial, &rng, unit]() mutable {
-            const Color color(unit(rng), unit(rng), unit(rng), 1.0f);
-            if (nameEl) {
-                nameEl->setColor(color);
-            }
-            if (mat) {
-                mat->setDiffuse(color);
-            }
-        });
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
+            _elementInput->handleMouseButtonDown(event.button.x, event.button.y);
+            return true;
+        }
+        return false;
     }
 
-    auto* rigidbodySystem = dynamic_cast<RigidBodyComponentSystem*>(engine->systems()->getById("rigidbody"));
-    bool occlusionEnabled = false;
-    spdlog::info("World-To-Screen controls: ESC quit, left-click player name recolor, O toggle occlusion ({})",
-        occlusionEnabled ? "on" : "off");
-
-    const uint64_t perfFreq = SDL_GetPerformanceFrequency();
-    uint64_t prevCounter = SDL_GetPerformanceCounter();
-
-    bool running = true;
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_O) {
-                occlusionEnabled = !occlusionEnabled;
-                spdlog::info("Occlusion gating: {}", occlusionEnabled ? "enabled" : "disabled");
-            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
-                elementInput->handleMouseButtonDown(event.button.x, event.button.y);
-            }
-        }
-
+    void update(const float dt) override
+    {
         int windowW = 1;
         int windowH = 1;
-        SDL_GetWindowSize(window, &windowW, &windowH);
-        float uiWidth = static_cast<float>(windowW);
-        float uiHeight = static_cast<float>(windowH);
-        if (screenComponent) {
-            screenComponent->updateScaleFromWindow(windowW, windowH);
-            const float scale = std::max(screenComponent->scale(), 1e-6f);
-            uiWidth = screenComponent->resolution().x / scale;
-            uiHeight = screenComponent->resolution().y / scale;
+        SDL_GetWindowSize(window(), &windowW, &windowH);
+        _uiWidth = static_cast<float>(windowW);
+        _uiHeight = static_cast<float>(windowH);
+        if (_screenComponent) {
+            _screenComponent->updateScaleFromWindow(windowW, windowH);
+            const float scale = std::max(_screenComponent->scale(), 1e-6f);
+            _uiWidth = _screenComponent->resolution().x / scale;
+            _uiHeight = _screenComponent->resolution().y / scale;
         }
-        if (uiCamera && uiCamera->camera()) {
-            uiCamera->camera()->setOrthoHeight(uiHeight * 0.5f);
+        if (_uiCamera && _uiCamera->camera()) {
+            _uiCamera->camera()->setOrthoHeight(_uiHeight * 0.5f);
         }
 
-        const uint64_t nowCounter = SDL_GetPerformanceCounter();
-        const float dt = static_cast<float>(nowCounter - prevCounter) / static_cast<float>(perfFreq);
-        prevCounter = nowCounter;
-
-        for (size_t i = 0; i < players.size(); ++i) {
-            auto& player = players[i];
-
+        for (auto& player : _players) {
             player.angleDeg += dt * player.speedDegPerSec;
             if (player.angleDeg > 360.0f) {
                 player.angleDeg -= 360.0f;
@@ -552,23 +447,26 @@ int main()
             player.worldEntity->setLocalPosition(x, 0.5f, z);
             player.worldEntity->setLocalEulerAngles(0.0f, player.angleDeg + 90.0f, 0.0f);
 
-            (void)i;
             player.health = 0.75f;
         }
+    }
 
-        engine->update(dt);
-
-        for (auto& player : players) {
+    // Runs after Engine::update so the world transforms the overlay anchors to are
+    // the ones this frame will render.
+    void preRender() override
+    {
+        for (auto& player : _players) {
             const Vector3 base = player.worldEntity->position();
             const Vector3 headWorld(base.getX(), base.getY() + 0.6f, base.getZ());
 
             Vector3 screenPos;
-            const bool inFront = worldToScreenSpace(headWorld, cameraComponent, cameraEntity, screenComponent, screenPos);
+            const bool inFront = worldToScreenSpace(headWorld, _cameraComponent, _cameraEntity,
+                _screenComponent, screenPos);
             const bool inBounds = inFront &&
-                screenPos.getX() >= 16.0f && screenPos.getX() <= uiWidth - 16.0f &&
-                screenPos.getY() >= 16.0f && screenPos.getY() <= uiHeight - 16.0f;
-            const bool occluded = occlusionEnabled && inBounds &&
-                isOccluded(cameraEntity->position(), headWorld, player.worldEntity, rigidbodySystem);
+                screenPos.getX() >= 16.0f && screenPos.getX() <= _uiWidth - 16.0f &&
+                screenPos.getY() >= 16.0f && screenPos.getY() <= _uiHeight - 16.0f;
+            const bool occluded = _occlusionEnabled && inBounds &&
+                isOccluded(_cameraEntity->position(), headWorld, player.worldEntity, _rigidbodySystem);
             const bool desiredVisible = inBounds && screenPos.getZ() > 0.0f && !occluded;
 
             player.panelEntity->setEnabled(desiredVisible);
@@ -587,8 +485,8 @@ int main()
             if (desiredVisible) {
                 player.panelEntity->setLocalPosition(screenPos.getX(), screenPos.getY(), 0.0f);
 
-                const float worldX = screenPos.getX() - uiWidth * 0.5f;
-                const float worldY = uiHeight * 0.5f - screenPos.getY();
+                const float worldX = screenPos.getX() - _uiWidth * 0.5f;
+                const float worldY = _uiHeight * 0.5f - screenPos.getY();
                 if (player.panelVisual) {
                     player.panelVisual->setLocalPosition(worldX, worldY, 0.0f);
                     player.panelVisual->setLocalScale(150.0f, 50.0f, 0.2f);
@@ -614,12 +512,28 @@ int main()
             }
         }
 
-        elementInput->syncTextElements();
-
-        // Single present path through engine renderer.
-        engine->render();
+        _elementInput->syncTextElements();
     }
 
-    shutdown();
-    return 0;
-}
+private:
+    std::shared_ptr<ElementInput> _elementInput;
+    std::unique_ptr<Asset> _checkerboard;
+    std::unique_ptr<Asset> _courierFont;
+
+    std::shared_ptr<StandardMaterial> _groundMaterial;
+    std::shared_ptr<StandardMaterial> _occluderMaterial;
+
+    std::vector<PlayerUi> _players;
+    Entity* _cameraEntity = nullptr;
+    CameraComponent* _cameraComponent = nullptr;
+    CameraComponent* _uiCamera = nullptr;
+    ScreenComponent* _screenComponent = nullptr;
+    RigidBodyComponentSystem* _rigidbodySystem = nullptr;
+
+    std::mt19937 _rng{1337u};
+    bool _occlusionEnabled = false;
+    float _uiWidth = static_cast<float>(WINDOW_WIDTH);
+    float _uiHeight = static_cast<float>(WINDOW_HEIGHT);
+};
+
+VISUTWIN_EXAMPLE_MAIN(WorldToScreenExample)

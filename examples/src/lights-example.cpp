@@ -11,63 +11,22 @@
 //   * DIRECTIONAL (cyan)— the key light, sweeping its yaw, casting cascaded shadows.
 // Keys 1/2/3 toggle omni/spot/directional (upstream's key order); orbit camera.
 //
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-#define MTK_PRIVATE_IMPLEMENTATION
-#define CA_PRIVATE_IMPLEMENTATION
-
-#include <SDL3/SDL.h>
-#include <algorithm>
 #include <array>
 #include <cmath>
-#include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
-#include <QuartzCore/QuartzCore.hpp>
-
 #include "../cameraControls.h"
+#include "../exampleApp.h"
 #include "core/math/quaternion.h"
-#include "framework/engine.h"
-#include "log.h"
-#include "framework/appOptions.h"
-#include "framework/constants.h"
 #include "framework/assets/asset.h"
 #include "framework/handlers/containerResource.h"
-#include "framework/components/camera/cameraComponentSystem.h"
-#include "framework/components/light/lightComponentSystem.h"
-#include "framework/components/light/lightComponent.h"
-#include "framework/components/render/renderComponent.h"
-#include "framework/components/render/renderComponentSystem.h"
-#include "framework/components/script/scriptComponentSystem.h"
-#include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/texture.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 
-constexpr int WINDOW_WIDTH = 1100;
-constexpr int WINDOW_HEIGHT = 750;
-
-SDL_Window* window;
-SDL_Renderer* renderer;
-
 using namespace visutwin::canvas;
-
-const std::string rootPath = ASSET_DIR;
-
-const auto statueAsset = std::make_unique<Asset>(
-    "statue",
-    AssetType::CONTAINER,
-    rootPath + "/models/statue.glb"
-);
-
-// Spot light cookie: the heart's ALPHA channel masks the beam.
-const auto heartAsset = std::make_unique<Asset>(
-    "heart",
-    AssetType::TEXTURE,
-    rootPath + "/textures/heart.png",
-    AssetData{.mipmaps = true}
-);
 
 // Omni light cookie: six faces assembled into a cubemap below. Face order is the
 // engine's cube convention: +X, -X, +Y, -Y, +Z, -Z.
@@ -119,339 +78,279 @@ std::shared_ptr<Texture> makeCubemapFromFaces(GraphicsDevice* device,
     return cubemap;
 }
 
-int main()
+class LightsExample final: public ExampleApp
 {
-    log::init();
-    log::set_level_debug();
+public:
+    LightsExample(): ExampleApp({.title = "Lights Example", .width = 1100, .height = 750}) {}
 
-    window = nullptr;
-    renderer = nullptr;
+protected:
+    bool create() override
+    {
+        spdlog::info("*** Lights Example Started ***");
 
-    const auto shutdown = []() {
-        if (renderer) {
-            SDL_DestroyRenderer(renderer);
-            renderer = nullptr;
-        }
-        if (window) {
-            SDL_DestroyWindow(window);
-            window = nullptr;
-        }
-        SDL_Quit();
-    };
+        scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 
-    spdlog::info("*** Lights Example Started ***");
+        // -----------------------------------------------------------------------
+        // Cookie textures.
+        // -----------------------------------------------------------------------
+        // Spot light cookie: the heart's ALPHA channel masks the beam.
+        _heartAsset = std::make_unique<Asset>(
+            "heart", AssetType::TEXTURE, assetPath("textures/heart.png"),
+            AssetData{.mipmaps = true});
 
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
-    SDL_Init(SDL_INIT_VIDEO);
-
-    window = SDL_CreateWindow(
-        "Lights Example", WINDOW_WIDTH, WINDOW_HEIGHT,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
-    );
-    if (!window) {
-        std::cerr << "SDL Window Creation Failed" << std::endl;
-        shutdown();
-        return -1;
-    }
-    renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) {
-        std::cerr << "SDL Renderer Creation Failed" << std::endl;
-        shutdown();
-        return -1;
-    }
-    SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
-
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain) {
-        std::cerr << "Unable to get render Metal layer" << std::endl;
-        shutdown();
-        return -1;
-    }
-
-    auto device = createGraphicsDevice(
-        GraphicsDeviceOptions{.swapChain = swapchain, .window = window}
-    );
-    if (!device) {
-        std::cerr << "Unable to create graphics device" << std::endl;
-        shutdown();
-        return -1;
-    }
-
-    AppOptions createOptions;
-    auto graphicsDevice = std::shared_ptr<GraphicsDevice>(std::move(device));
-    createOptions.graphicsDevice = graphicsDevice;
-    createOptions.registerComponentSystem<RenderComponentSystem>();
-    createOptions.registerComponentSystem<CameraComponentSystem>();
-    createOptions.registerComponentSystem<LightComponentSystem>();
-    createOptions.registerComponentSystem<ScriptComponentSystem>();
-
-    auto engine = std::make_shared<Engine>(window);
-    engine->init(createOptions);
-    engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
-    engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-    engine->start();
-
-    auto scene = engine->scene();
-    scene->setAmbientLight(0.2f, 0.2f, 0.2f);
-
-    // -----------------------------------------------------------------------
-    // Cookie textures.
-    // -----------------------------------------------------------------------
-    Texture* heartCookie = nullptr;
-    if (const auto heartResource = heartAsset->resource()) {
-        heartCookie = std::get<Texture*>(*heartResource);
-    } else {
-        spdlog::warn("heart.png failed to load — the spot light keeps a plain beam");
-    }
-
-    // Load the six cubemap faces, then assemble them. The face assets stay alive
-    // for the run; only their CPU-side level 0 is read, at assembly time.
-    std::vector<std::unique_ptr<Asset>> xmasFaceAssets;
-    std::array<Texture*, 6> xmasFaces{};
-    bool allFacesLoaded = true;
-    for (size_t i = 0; i < xmasFaceFiles.size(); ++i) {
-        auto asset = std::make_unique<Asset>(
-            xmasFaceFiles[i],
-            AssetType::TEXTURE,
-            rootPath + "/cubemaps/xmas_faces/" + xmasFaceFiles[i] + ".png"
-        );
-        if (const auto resource = asset->resource()) {
-            xmasFaces[i] = std::get<Texture*>(*resource);
+        Texture* heartCookie = nullptr;
+        if (const auto heartResource = _heartAsset->resource()) {
+            heartCookie = std::get<Texture*>(*heartResource);
         } else {
-            allFacesLoaded = false;
+            spdlog::warn("heart.png failed to load — the spot light keeps a plain beam");
         }
-        xmasFaceAssets.push_back(std::move(asset));
-    }
-    std::shared_ptr<Texture> xmasCookie;
-    if (allFacesLoaded) {
-        xmasCookie = makeCubemapFromFaces(graphicsDevice.get(), xmasFaces, "xmas_cubemap");
-    }
-    if (!xmasCookie) {
-        spdlog::warn("xmas cubemap failed to build — the omni light keeps a plain falloff");
-    }
 
-    // -----------------------------------------------------------------------
-    // Statue.
-    // -----------------------------------------------------------------------
-    const auto statueResource = statueAsset->resource();
-    if (!statueResource || !std::holds_alternative<ContainerResource*>(*statueResource)) {
-        spdlog::error("statue.glb failed to load");
-        shutdown();
-        return -1;
-    }
-    auto* statueContainer = std::get<ContainerResource*>(*statueResource);
-    auto* statue = statueContainer ? statueContainer->instantiateRenderEntity() : nullptr;
-    if (!statue) {
-        spdlog::error("statue.glb instantiate failed");
-        shutdown();
-        return -1;
-    }
-    statue->setEngine(engine.get());
-    engine->root()->addChild(statue);
-
-    // -----------------------------------------------------------------------
-    // Camera. Upstream authors it at (0, 15, 35) and its orbit script pivots on
-    // the AABB centre of everything renderable at script-init time — which is the
-    // statue alone, since the ground is added after the camera. That AABB centre
-    // (verified against the running reference) sits at (0.17, 7.52, 0.02), which
-    // is what puts the statue where the reference frames it; orbiting the origin
-    // instead tilts the whole scene up the frame.
-    // -----------------------------------------------------------------------
-    auto* camera = new Entity();
-    camera->setEngine(engine.get());
-    auto* cameraComp = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
-    camera->addComponent<ScriptComponent>();
-    if (cameraComp && cameraComp->camera()) {
-        cameraComp->camera()->setClearColor(Color(0.4f, 0.45f, 0.5f, 1.0f));
-    }
-    camera->setPosition(Vector3(0.0f, 15.0f, 35.0f));
-    engine->root()->addChild(camera);
-
-    const Vector3 statueCenter(0.173f, 7.523f, 0.018f);
-    auto* cameraControls = camera->script()->create<CameraControls>();
-    cameraControls->setFocusPoint(statueCenter);
-    cameraControls->setEnableFly(false);
-    cameraControls->setZoomRange(Vector2(1.0f, 500.0f));
-    cameraControls->storeResetState();
-
-    // -----------------------------------------------------------------------
-    // Ground.
-    // -----------------------------------------------------------------------
-    auto groundMaterial = std::make_shared<StandardMaterial>();
-    groundMaterial->setName("ground");
-    groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
-    groundMaterial->setUseMetalness(true);
-    groundMaterial->setMetalness(0.5f);
-    groundMaterial->setGloss(0.5f);
-
-    auto* ground = new Entity();
-    ground->setEngine(engine.get());
-    if (auto* render = static_cast<RenderComponent*>(ground->addComponent<RenderComponent>())) {
-        render->setType("box");
-        render->setMaterial(groundMaterial.get());
-        render->setCastShadows(true);
-        render->setReceiveShadows(true);
-    }
-    ground->setLocalScale(70.0f, 1.0f, 70.0f);
-    ground->setLocalPosition(0.0f, -0.5f, 0.0f);
-    engine->root()->addChild(ground);
-
-    // -----------------------------------------------------------------------
-    // 1. SPOT — white, heart-alpha cookie, 2D shadows.
-    // -----------------------------------------------------------------------
-    auto* spotLight = new Entity();
-    spotLight->setEngine(engine.get());
-    auto* spotComp = static_cast<LightComponent*>(spotLight->addComponent<LightComponent>());
-    if (spotComp) {
-        spotComp->setType(LightType::LIGHTTYPE_SPOT);
-        spotComp->setColor(Color(1.0f, 1.0f, 1.0f));
-        spotComp->setIntensity(0.8f);
-        spotComp->setInnerConeAngle(30.0f);
-        spotComp->setOuterConeAngle(31.0f);
-        spotComp->setRange(100.0f);
-        spotComp->setCastShadows(true);
-        spotComp->setShadowBias(0.05f);
-        spotComp->setShadowNormalBias(0.03f);
-        spotComp->setShadowResolution(2048);
-        spotComp->setCookie(heartCookie);
-        spotComp->setCookieChannel(CookieChannel::COOKIE_CHANNEL_A);
-        spotComp->setCookieIntensity(1.0f);
-    }
-    engine->root()->addChild(spotLight);
-
-    // Emissive cone marking the light itself.
-    auto coneMaterial = std::make_shared<StandardMaterial>();
-    coneMaterial->setName("spot-marker");
-    coneMaterial->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
-    auto* cone = new Entity();
-    cone->setEngine(engine.get());
-    if (auto* render = static_cast<RenderComponent*>(cone->addComponent<RenderComponent>())) {
-        render->setType("cone");
-        render->setMaterial(coneMaterial.get());
-        render->setCastShadows(false);
-    }
-    spotLight->addChild(cone);
-
-    // -----------------------------------------------------------------------
-    // 2. OMNI — yellow, christmas cubemap cookie, cubemap shadows.
-    // -----------------------------------------------------------------------
-    auto* omniLight = new Entity();
-    omniLight->setEngine(engine.get());
-    auto* omniComp = static_cast<LightComponent*>(omniLight->addComponent<LightComponent>());
-    if (omniComp) {
-        omniComp->setType(LightType::LIGHTTYPE_OMNI);
-        omniComp->setColor(Color(1.0f, 1.0f, 0.0f));
-        omniComp->setIntensity(0.8f);
-        omniComp->setRange(111.0f);
-        omniComp->setCastShadows(true);
-        omniComp->setShadowBias(0.05f);
-        omniComp->setShadowNormalBias(0.03f);
-        omniComp->setShadowType(SHADOW_PCF3_32F);
-        omniComp->setShadowResolution(256);
-        omniComp->setCookie(xmasCookie.get());
-        omniComp->setCookieChannel(CookieChannel::COOKIE_CHANNEL_RGB);
-        omniComp->setCookieIntensity(1.0f);
-    }
-    // Upstream puts the marker sphere on the light entity itself.
-    auto omniMarkerMaterial = std::make_shared<StandardMaterial>();
-    omniMarkerMaterial->setName("omni-marker");
-    omniMarkerMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
-    omniMarkerMaterial->setEmissive(Color(1.0f, 1.0f, 0.0f, 1.0f));
-    if (auto* render = static_cast<RenderComponent*>(omniLight->addComponent<RenderComponent>())) {
-        render->setType("sphere");
-        render->setMaterial(omniMarkerMaterial.get());
-        render->setCastShadows(false);
-    }
-    engine->root()->addChild(omniLight);
-
-    // -----------------------------------------------------------------------
-    // 3. DIRECTIONAL — cyan key light with cascaded shadows.
-    // -----------------------------------------------------------------------
-    auto* dirLight = new Entity();
-    dirLight->setEngine(engine.get());
-    auto* dirComp = static_cast<LightComponent*>(dirLight->addComponent<LightComponent>());
-    if (dirComp) {
-        dirComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        dirComp->setColor(Color(0.0f, 1.0f, 1.0f));
-        dirComp->setIntensity(0.8f);
-        dirComp->setRange(100.0f);
-        dirComp->setShadowDistance(50.0f);
-        dirComp->setCastShadows(true);
-        dirComp->setShadowBias(0.1f);
-        dirComp->setShadowNormalBias(0.2f);
-    }
-    engine->root()->addChild(dirLight);
-
-    spdlog::info("Keys: 1=OMNI(yellow, cubemap cookie)  2=SPOT(white, heart cookie)  3=DIRECTIONAL(cyan)");
-    spdlog::info("      F focus | R reset | Esc quit | LMB/RMB orbit, Shift/MMB pan, Wheel zoom");
-
-    const auto toggle = [](LightComponent* c, const char* name) {
-        if (!c) return;
-        c->setEnabled(!c->enabled());
-        spdlog::info("{}: {}", name, c->enabled() ? "ON" : "OFF");
-    };
-
-    bool running = true;
-    const uint64_t perfFreq = SDL_GetPerformanceFrequency();
-    uint64_t prevCounter = SDL_GetPerformanceCounter();
-    float angleRad = 1.0f;
-
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_1) {
-                toggle(omniComp, "OMNI");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_2) {
-                toggle(spotComp, "SPOT");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_3) {
-                toggle(dirComp, "DIRECTIONAL");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F && cameraControls) {
-                cameraControls->focus(statueCenter, 35.772f);
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_R && cameraControls) {
-                cameraControls->reset();
-            } else if (event.type == SDL_EVENT_MOUSE_WHEEL && cameraControls) {
-                cameraControls->addZoomInput(event.wheel.y);
-            } else if (event.type == SDL_EVENT_PINCH_UPDATE && cameraControls) {
-                cameraControls->addZoomInput((event.pinch.scale - 1.0f) * 10.0f);
+        // Load the six cubemap faces, then assemble them. The face assets stay alive
+        // for the run; only their CPU-side level 0 is read, at assembly time.
+        std::array<Texture*, 6> xmasFaces{};
+        bool allFacesLoaded = true;
+        for (size_t i = 0; i < xmasFaceFiles.size(); ++i) {
+            auto asset = std::make_unique<Asset>(
+                xmasFaceFiles[i],
+                AssetType::TEXTURE,
+                assetPath("cubemaps/xmas_faces/" + std::string(xmasFaceFiles[i]) + ".png")
+            );
+            if (const auto resource = asset->resource()) {
+                xmasFaces[i] = std::get<Texture*>(*resource);
+            } else {
+                allFacesLoaded = false;
             }
+            _xmasFaceAssets.push_back(std::move(asset));
+        }
+        if (allFacesLoaded) {
+            _xmasCookie = makeCubemapFromFaces(device().get(), xmasFaces, "xmas_cubemap");
+        }
+        if (!_xmasCookie) {
+            spdlog::warn("xmas cubemap failed to build — the omni light keeps a plain falloff");
         }
 
-        const uint64_t nowCounter = SDL_GetPerformanceCounter();
-        const double dtSeconds = static_cast<double>(nowCounter - prevCounter) / static_cast<double>(perfFreq);
-        prevCounter = nowCounter;
-        const float dt = static_cast<float>(dtSeconds);
+        // -----------------------------------------------------------------------
+        // Statue.
+        // -----------------------------------------------------------------------
+        _statueAsset = std::make_unique<Asset>(
+            "statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
+        const auto statueResource = _statueAsset->resource();
+        if (!statueResource || !std::holds_alternative<ContainerResource*>(*statueResource)) {
+            spdlog::error("statue.glb failed to load");
+            return false;
+        }
+        auto* statueContainer = std::get<ContainerResource*>(*statueResource);
+        auto* statue = statueContainer ? statueContainer->instantiateRenderEntity() : nullptr;
+        if (!statue) {
+            spdlog::error("statue.glb instantiate failed");
+            return false;
+        }
+        statue->setEngine(engine());
+        root()->addChild(statue);
 
-        angleRad += 0.3f * dt;
+        // -----------------------------------------------------------------------
+        // Camera. Upstream authors it at (0, 15, 35) and its orbit script pivots on
+        // the AABB centre of everything renderable at script-init time — which is the
+        // statue alone, since the ground is added after the camera. That AABB centre
+        // (verified against the running reference) sits at (0.17, 7.52, 0.02), which
+        // is what puts the statue where the reference frames it; orbiting the origin
+        // instead tilts the whole scene up the frame.
+        // -----------------------------------------------------------------------
+        auto* camera = createCamera(Vector3(0.0f, 15.0f, 35.0f));
+        if (auto* cameraComp = camera->findComponent<CameraComponent>();
+            cameraComp && cameraComp->camera()) {
+            cameraComp->camera()->setClearColor(Color(0.4f, 0.45f, 0.5f, 1.0f));
+        }
+
+        _controls = addOrbitControls(camera, kStatueCenter);
+        _controls->setZoomRange(Vector2(1.0f, 500.0f));
+        _controls->storeResetState();
+
+        // -----------------------------------------------------------------------
+        // Ground.
+        // -----------------------------------------------------------------------
+        _groundMaterial = std::make_shared<StandardMaterial>();
+        _groundMaterial->setName("ground");
+        _groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
+        _groundMaterial->setUseMetalness(true);
+        _groundMaterial->setMetalness(0.5f);
+        _groundMaterial->setGloss(0.5f);
+
+        auto* ground = createPrimitive("box", _groundMaterial.get(), Vector3(0.0f, -0.5f, 0.0f),
+            Vector3(70.0f, 1.0f, 70.0f));
+        if (auto* render = ground->findComponent<RenderComponent>()) {
+            render->setCastShadows(true);
+            render->setReceiveShadows(true);
+        }
+
+        // -----------------------------------------------------------------------
+        // 1. SPOT — white, heart-alpha cookie, 2D shadows.
+        // -----------------------------------------------------------------------
+        _spotLight = new Entity();
+        _spotLight->setEngine(engine());
+        _spotComp = static_cast<LightComponent*>(_spotLight->addComponent<LightComponent>());
+        if (_spotComp) {
+            _spotComp->setType(LightType::LIGHTTYPE_SPOT);
+            _spotComp->setColor(Color(1.0f, 1.0f, 1.0f));
+            _spotComp->setIntensity(0.8f);
+            _spotComp->setInnerConeAngle(30.0f);
+            _spotComp->setOuterConeAngle(31.0f);
+            _spotComp->setRange(100.0f);
+            _spotComp->setCastShadows(true);
+            _spotComp->setShadowBias(0.05f);
+            _spotComp->setShadowNormalBias(0.03f);
+            _spotComp->setShadowResolution(2048);
+            _spotComp->setCookie(heartCookie);
+            _spotComp->setCookieChannel(CookieChannel::COOKIE_CHANNEL_A);
+            _spotComp->setCookieIntensity(1.0f);
+        }
+        root()->addChild(_spotLight);
+
+        // Emissive cone marking the light itself.
+        _coneMaterial = std::make_shared<StandardMaterial>();
+        _coneMaterial->setName("spot-marker");
+        _coneMaterial->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
+        auto* cone = new Entity();
+        cone->setEngine(engine());
+        if (auto* render = static_cast<RenderComponent*>(cone->addComponent<RenderComponent>())) {
+            render->setType("cone");
+            render->setMaterial(_coneMaterial.get());
+            render->setCastShadows(false);
+        }
+        _spotLight->addChild(cone);
+
+        // -----------------------------------------------------------------------
+        // 2. OMNI — yellow, christmas cubemap cookie, cubemap shadows.
+        // -----------------------------------------------------------------------
+        _omniLight = new Entity();
+        _omniLight->setEngine(engine());
+        _omniComp = static_cast<LightComponent*>(_omniLight->addComponent<LightComponent>());
+        if (_omniComp) {
+            _omniComp->setType(LightType::LIGHTTYPE_OMNI);
+            _omniComp->setColor(Color(1.0f, 1.0f, 0.0f));
+            _omniComp->setIntensity(0.8f);
+            _omniComp->setRange(111.0f);
+            _omniComp->setCastShadows(true);
+            _omniComp->setShadowBias(0.05f);
+            _omniComp->setShadowNormalBias(0.03f);
+            _omniComp->setShadowType(SHADOW_PCF3_32F);
+            _omniComp->setShadowResolution(256);
+            _omniComp->setCookie(_xmasCookie.get());
+            _omniComp->setCookieChannel(CookieChannel::COOKIE_CHANNEL_RGB);
+            _omniComp->setCookieIntensity(1.0f);
+        }
+        // Upstream puts the marker sphere on the light entity itself.
+        _omniMarkerMaterial = std::make_shared<StandardMaterial>();
+        _omniMarkerMaterial->setName("omni-marker");
+        _omniMarkerMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
+        _omniMarkerMaterial->setEmissive(Color(1.0f, 1.0f, 0.0f, 1.0f));
+        if (auto* render = static_cast<RenderComponent*>(_omniLight->addComponent<RenderComponent>())) {
+            render->setType("sphere");
+            render->setMaterial(_omniMarkerMaterial.get());
+            render->setCastShadows(false);
+        }
+        root()->addChild(_omniLight);
+
+        // -----------------------------------------------------------------------
+        // 3. DIRECTIONAL — cyan key light with cascaded shadows.
+        // -----------------------------------------------------------------------
+        _dirLight = createDirectionalLight(Vector3(0.0f, 0.0f, 0.0f), Color(0.0f, 1.0f, 1.0f), 0.8f, true);
+        _dirComp = _dirLight->findComponent<LightComponent>();
+        if (_dirComp) {
+            _dirComp->setRange(100.0f);
+            _dirComp->setShadowDistance(50.0f);
+            _dirComp->setShadowBias(0.1f);
+            _dirComp->setShadowNormalBias(0.2f);
+        }
+
+        spdlog::info("Keys: 1=OMNI(yellow, cubemap cookie)  2=SPOT(white, heart cookie)  3=DIRECTIONAL(cyan)");
+        spdlog::info("      F focus | R reset | Esc quit | LMB/RMB orbit, Shift/MMB pan, Wheel zoom");
+
+        return true;
+    }
+
+    bool onEvent(const SDL_Event& event) override
+    {
+        if (event.type != SDL_EVENT_KEY_DOWN) {
+            return false;
+        }
+        switch (event.key.key) {
+        case SDLK_1:
+            toggle(_omniComp, "OMNI");
+            return true;
+        case SDLK_2:
+            toggle(_spotComp, "SPOT");
+            return true;
+        case SDLK_3:
+            toggle(_dirComp, "DIRECTIONAL");
+            return true;
+        case SDLK_F:
+            if (_controls) {
+                _controls->focus(kStatueCenter, 35.772f);
+            }
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    void update(const float dt) override
+    {
+        _angleRad += 0.3f * dt;
 
         // Spot: aim at (0, -5, 0), then roll the node so its -Y (the emission
         // axis) points down the view direction, then move it. Upstream aims
         // before it moves, so the aim trails the position by one frame — kept
         // as-is, since the lag is what the reference animation shows.
-        spotLight->lookAt(Vector3(0.0f, -5.0f, 0.0f));
-        spotLight->rotateLocal(90.0f, 0.0f, 0.0f);
-        spotLight->setLocalPosition(15.0f * std::sin(angleRad), 25.0f, 15.0f * std::cos(angleRad));
+        _spotLight->lookAt(Vector3(0.0f, -5.0f, 0.0f));
+        _spotLight->rotateLocal(90.0f, 0.0f, 0.0f);
+        _spotLight->setLocalPosition(15.0f * std::sin(_angleRad), 25.0f, 15.0f * std::cos(_angleRad));
 
         // Omni: a faster counter-rotating orbit, spinning about its own Y so the
         // projected cubemap cookie sweeps across the scene.
-        omniLight->setLocalPosition(5.0f * std::sin(-2.0f * angleRad), 10.0f,
-                                    5.0f * std::cos(-2.0f * angleRad));
+        _omniLight->setLocalPosition(5.0f * std::sin(-2.0f * _angleRad), 10.0f,
+                                     5.0f * std::cos(-2.0f * _angleRad));
         // Upstream uses the world-space rotate(); the light is a root child with
         // no parent rotation, so a local rotation is the same thing.
-        omniLight->rotateLocal(0.0f, 50.0f * dt, 0.0f);
+        _omniLight->rotateLocal(0.0f, 50.0f * dt, 0.0f);
 
-        dirLight->setLocalEulerAngles(45.0f, -60.0f * angleRad, 0.0f);
-
-        engine->update(dt);
-        engine->render();
+        _dirLight->setLocalEulerAngles(45.0f, -60.0f * _angleRad, 0.0f);
     }
 
-    shutdown();
+    void destroy() override
+    {
+        spdlog::info("*** Lights Example Finished ***");
+    }
 
-    spdlog::info("*** Lights Example Finished ***");
+private:
+    static void toggle(LightComponent* component, const char* name)
+    {
+        if (!component) {
+            return;
+        }
+        component->setEnabled(!component->enabled());
+        spdlog::info("{}: {}", name, component->enabled() ? "ON" : "OFF");
+    }
 
-    return 0;
-}
+    std::unique_ptr<Asset> _statueAsset;
+    std::unique_ptr<Asset> _heartAsset;
+    std::vector<std::unique_ptr<Asset>> _xmasFaceAssets;
+    std::shared_ptr<Texture> _xmasCookie;
+
+    std::shared_ptr<StandardMaterial> _groundMaterial;
+    std::shared_ptr<StandardMaterial> _coneMaterial;
+    std::shared_ptr<StandardMaterial> _omniMarkerMaterial;
+
+    Entity* _spotLight = nullptr;
+    Entity* _omniLight = nullptr;
+    Entity* _dirLight = nullptr;
+    LightComponent* _spotComp = nullptr;
+    LightComponent* _omniComp = nullptr;
+    LightComponent* _dirComp = nullptr;
+    CameraControls* _controls = nullptr;
+
+    const Vector3 kStatueCenter{0.173f, 7.523f, 0.018f};
+    float _angleRad = 1.0f;
+};
+
+VISUTWIN_EXAMPLE_MAIN(LightsExample)

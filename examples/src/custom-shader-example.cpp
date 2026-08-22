@@ -6,52 +6,16 @@
 // over a single warm-grey ramp) replaces the materials of every mesh instance in the
 // loaded statue model, which rotates at 60°/s.
 //
-#ifdef VISUTWIN_HAS_METAL
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-#define MTK_PRIVATE_IMPLEMENTATION
-#define CA_PRIVATE_IMPLEMENTATION
-#endif
-
-#include <SDL3/SDL.h>
 #include <memory>
 #include <string>
 #include <vector>
 
-#ifdef VISUTWIN_HAS_METAL
-#include <QuartzCore/QuartzCore.hpp>
-#endif
-
-#include "framework/engine.h"
-#include "log.h"
-#include "framework/appOptions.h"
+#include "../exampleApp.h"
 #include "framework/assets/asset.h"
-#include "framework/components/camera/cameraComponent.h"
-#include "framework/components/camera/cameraComponentSystem.h"
-#include "framework/components/light/lightComponent.h"
-#include "framework/components/light/lightComponentSystem.h"
-#include "framework/components/render/renderComponent.h"
-#include "framework/components/render/renderComponentSystem.h"
-#include "framework/constants.h"
-#include "platform/graphics/graphicsDeviceCreate.h"
 #include "scene/constants.h"
 #include "scene/materials/shaderMaterial.h"
 
-constexpr int WINDOW_WIDTH = 900;
-constexpr int WINDOW_HEIGHT = 700;
-
-SDL_Window* window;
-SDL_Renderer* renderer;
-
 using namespace visutwin::canvas;
-
-const std::string rootPath = ASSET_DIR;
-
-const auto statueAsset = std::make_unique<Asset>(
-    "statue",
-    AssetType::CONTAINER,
-    rootPath + "/models/statue.glb"
-);
 
 // Self-contained toon shader. It declares the same vertex-input attributes and
 // per-draw uniform buffers the forward pass binds (SceneData @1, ModelData @2), plus
@@ -204,155 +168,92 @@ private:
     } _data;
 };
 
-int main()
+class CustomShaderExample final: public ExampleApp
 {
-    log::init();
-    log::set_level_debug();
+public:
+    CustomShaderExample(): ExampleApp({.title = "Custom Shader (Toon)"}) {}
 
-    window = nullptr;
-    renderer = nullptr;
+protected:
+    bool create() override
+    {
+        scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 
-    const auto shutdown = []() {
-        if (renderer) { SDL_DestroyRenderer(renderer); renderer = nullptr; }
-        if (window) { SDL_DestroyWindow(window); window = nullptr; }
-        SDL_Quit();
-    };
-
-#ifdef VISUTWIN_HAS_METAL
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
-#endif
-    SDL_Init(SDL_INIT_VIDEO);
-
-    window = SDL_CreateWindow(
-        "Custom Shader (Toon)", WINDOW_WIDTH, WINDOW_HEIGHT,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
-#ifdef VISUTWIN_HAS_VULKAN
-        | SDL_WINDOW_VULKAN
-#endif
-    );
-    if (!window) { shutdown(); return -1; }
-    renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) { shutdown(); return -1; }
-    SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
-
-    void* swapchain = nullptr;
-#ifdef VISUTWIN_HAS_METAL
-    swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain) { shutdown(); return -1; }
-#endif
-
-    GraphicsDeviceOptions deviceOptions;
-#ifdef VISUTWIN_HAS_VULKAN
-    deviceOptions.backend = Backend::Vulkan;
-#endif
-    deviceOptions.swapChain = swapchain;
-    deviceOptions.window = window;
-    auto device = createGraphicsDevice(deviceOptions);
-    if (!device) { shutdown(); return -1; }
-
-    AppOptions createOptions;
-    auto graphicsDevice = std::shared_ptr<GraphicsDevice>(std::move(device));
-    createOptions.graphicsDevice = graphicsDevice;
-    createOptions.registerComponentSystem<RenderComponentSystem>();
-    createOptions.registerComponentSystem<CameraComponentSystem>();
-    createOptions.registerComponentSystem<LightComponentSystem>();
-
-    auto engine = std::make_shared<Engine>(window);
-    engine->init(createOptions);
-    engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
-    engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-    engine->start();
-
-    auto scene = engine->scene();
-    scene->setAmbientLight(0.2f, 0.2f, 0.2f);
-
-    // Camera. Upstream translates it without rotating, so it looks straight down -Z.
-    auto* camera = new Entity();
-    camera->setEngine(engine.get());
-    if (auto* cameraComponent = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>())) {
-        cameraComponent->camera()->setClearColor(Color(0.4f, 0.45f, 0.5f, 1.0f));
-    }
-    const Vector3 cameraPosition(0.0f, 7.0f, 24.0f);
-    camera->setLocalPosition(cameraPosition);
-    engine->root()->addChild(camera);
-
-    // Omni light. The toon shader does its own lighting, so this entity only supplies
-    // the light position the material passes to the shader.
-    auto* light = new Entity();
-    light->setEngine(engine.get());
-    if (auto* lc = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
-        lc->setType(LightType::LIGHTTYPE_OMNI);
-        lc->setColor(Color(1.0f, 1.0f, 1.0f));
-        lc->setRange(10.0f);
-    }
-    const Vector3 lightPosition(0.0f, 1.0f, 0.0f);
-    light->setLocalPosition(lightPosition);
-    engine->root()->addChild(light);
-
-    // Custom toon material — bypasses the PBR pipeline entirely.
-    auto toonMaterial = std::make_shared<ToonMaterial>(
-        graphicsDevice, "toon", "vertexShader", "fragmentShader",
-        ShaderSourceSet{.msl = kToonShaderSource, .glsl = kToonShaderSourceGlsl});
-
-    // DEVIATION: upstream's shader compares a WORLD-space normal (matrix_normal is the
-    // world normal matrix, despite the "eye coordinates" comment) against a light
-    // direction built from a VIEW-space vertex position. With its unrotated camera the
-    // view matrix is a pure translation, so that mix is exactly a world-space light at
-    // lightPosition + cameraPosition — which is what this port feeds the shader, keeping
-    // the lighting identical while the shader stays consistently world-space.
-    toonMaterial->setLightPosition(lightPosition + cameraPosition);
-
-    const auto statueResource = statueAsset->resource();
-    if (!statueResource) {
-        spdlog::error("Failed to load models/statue.glb");
-        shutdown();
-        return -1;
-    }
-    auto* statue = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
-    engine->root()->addChild(statue);
-
-    // Set the new material on every mesh in the model.
-    int meshInstanceCount = 0;
-    for (auto* render : statue->findComponents<RenderComponent>()) {
-        for (auto* meshInstance : render->meshInstances()) {
-            meshInstance->setMaterial(toonMaterial.get());
-            ++meshInstanceCount;
+        // Camera. Upstream translates it without rotating, so it looks straight down -Z.
+        const Vector3 cameraPosition(0.0f, 7.0f, 24.0f);
+        auto* camera = createCamera(cameraPosition);
+        if (auto* cameraComponent = camera->findComponent<CameraComponent>()) {
+            cameraComponent->camera()->setClearColor(Color(0.4f, 0.45f, 0.5f, 1.0f));
         }
-    }
 
-    spdlog::info("*** Custom Shader (Toon) Example ***");
-    spdlog::info("ShaderMaterial toon shader applied to {} mesh instances. Esc quits.",
-                 meshInstanceCount);
+        // Omni light. The toon shader does its own lighting, so this entity only supplies
+        // the light position the material passes to the shader.
+        const Vector3 lightPosition(0.0f, 1.0f, 0.0f);
+        auto* light = new Entity();
+        light->setEngine(engine());
+        if (auto* lc = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
+            lc->setType(LightType::LIGHTTYPE_OMNI);
+            lc->setColor(Color(1.0f, 1.0f, 1.0f));
+            lc->setRange(10.0f);
+        }
+        light->setLocalPosition(lightPosition);
+        root()->addChild(light);
 
-    bool running = true;
-    const uint64_t perfFreq = SDL_GetPerformanceFrequency();
-    uint64_t prevCounter = SDL_GetPerformanceCounter();
-    float angle = 0.0f;
+        // Custom toon material — bypasses the PBR pipeline entirely.
+        _toonMaterial = std::make_shared<ToonMaterial>(
+            device(), "toon", "vertexShader", "fragmentShader",
+            ShaderSourceSet{.msl = kToonShaderSource, .glsl = kToonShaderSourceGlsl});
 
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
-                running = false;
+        // DEVIATION: upstream's shader compares a WORLD-space normal (matrix_normal is the
+        // world normal matrix, despite the "eye coordinates" comment) against a light
+        // direction built from a VIEW-space vertex position. With its unrotated camera the
+        // view matrix is a pure translation, so that mix is exactly a world-space light at
+        // lightPosition + cameraPosition — which is what this port feeds the shader, keeping
+        // the lighting identical while the shader stays consistently world-space.
+        _toonMaterial->setLightPosition(lightPosition + cameraPosition);
+
+        _statueAsset = std::make_unique<Asset>(
+            "statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
+        const auto statueResource = _statueAsset->resource();
+        if (!statueResource) {
+            spdlog::error("Failed to load models/statue.glb");
+            return false;
+        }
+        _statue = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
+        root()->addChild(_statue);
+
+        // Set the new material on every mesh in the model.
+        int meshInstanceCount = 0;
+        for (auto* render : _statue->findComponents<RenderComponent>()) {
+            for (auto* meshInstance : render->meshInstances()) {
+                meshInstance->setMaterial(_toonMaterial.get());
+                ++meshInstanceCount;
             }
         }
 
-        const uint64_t nowCounter = SDL_GetPerformanceCounter();
-        const float dt = static_cast<float>(static_cast<double>(nowCounter - prevCounter) /
-                                            static_cast<double>(perfFreq));
-        prevCounter = nowCounter;
+        spdlog::info("*** Custom Shader (Toon) Example ***");
+        spdlog::info("ShaderMaterial toon shader applied to {} mesh instances. Esc quits.",
+                     meshInstanceCount);
 
-        // Rotate the statue.
-        angle += 60.0f * dt;
-        statue->setLocalEulerAngles(0.0f, angle, 0.0f);
-
-        engine->update(dt);
-        engine->render();
+        return true;
     }
 
-    shutdown();
-    spdlog::info("*** Custom Shader (Toon) Example Finished ***");
-    return 0;
-}
+    void update(const float dt) override
+    {
+        // Rotate the statue.
+        _angle += 60.0f * dt;
+        _statue->setLocalEulerAngles(0.0f, _angle, 0.0f);
+    }
+
+    void destroy() override
+    {
+        spdlog::info("*** Custom Shader (Toon) Example Finished ***");
+    }
+
+private:
+    std::unique_ptr<Asset> _statueAsset;
+    std::shared_ptr<ToonMaterial> _toonMaterial;
+    Entity* _statue = nullptr;
+    float _angle = 0.0f;
+};
+
+VISUTWIN_EXAMPLE_MAIN(CustomShaderExample)

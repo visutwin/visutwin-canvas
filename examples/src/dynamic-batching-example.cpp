@@ -10,278 +10,153 @@
 // can be moved every frame — the BatchManager rebuilds the per-frame matrix
 // palette in Engine::update() (BatchManager::updateAll()).
 //
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-#define MTK_PRIVATE_IMPLEMENTATION
-#define CA_PRIVATE_IMPLEMENTATION
-
-#include <SDL3/SDL.h>
-#include <iostream>
-#include <algorithm>
 #include <cmath>
+#include <memory>
 #include <random>
+#include <string>
 #include <vector>
 
-#include <QuartzCore/QuartzCore.hpp>
-
-#include "framework/engine.h"
-#include "log.h"
-#include "framework/appOptions.h"
-#include "framework/constants.h"
-#include "framework/batching/batchManager.h"
+#include "../exampleApp.h"
 #include "framework/batching/batchGroup.h"
-#include "framework/components/camera/cameraComponentSystem.h"
-#include "framework/components/light/lightComponentSystem.h"
-#include "framework/components/light/lightComponent.h"
-#include "framework/components/render/renderComponent.h"
-#include "framework/components/render/renderComponentSystem.h"
-#include "platform/graphics/graphicsDeviceCreate.h"
+#include "framework/batching/batchManager.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 
-constexpr int WINDOW_WIDTH = 1100;
-constexpr int WINDOW_HEIGHT = 750;
-
-SDL_Window* window;
-SDL_Renderer* renderer;
-
 using namespace visutwin::canvas;
 
-// Aim an entity's -Z axis at a target (equivalent of upstream Entity::lookAt).
-void setLookAt(Entity* entity, const Vector3& target)
+constexpr int kBatchGroupId = 0;
+constexpr int numInstances = 500;
+constexpr float kCamDist = 70.0f;
+
+class DynamicBatchingExample final: public ExampleApp
 {
-    if (!entity) {
-        return;
-    }
-    const Vector3 position = entity->position();
-    const Vector3 dir = (target - position).normalized();
-    const float pitchDeg = std::asin(std::clamp(dir.getY(), -1.0f, 1.0f)) * RAD_TO_DEG;
-    const float yawDeg = std::atan2(-dir.getX(), -dir.getZ()) * RAD_TO_DEG;
-    entity->setLocalEulerAngles(pitchDeg, yawDeg, 0.0f);
-}
+public:
+    DynamicBatchingExample()
+        : ExampleApp({.title = "Dynamic Batching Example", .width = 1100, .height = 750}) {}
 
-int main()
-{
-    log::init();
-    log::set_level_debug();
-
-    window = nullptr;
-    renderer = nullptr;
-
-    const auto shutdown = []() {
-        if (renderer) {
-            SDL_DestroyRenderer(renderer);
-            renderer = nullptr;
-        }
-        if (window) {
-            SDL_DestroyWindow(window);
-            window = nullptr;
-        }
-        SDL_Quit();
-    };
-
-    spdlog::info("*** Dynamic Batching Example Started ***");
-
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
-    SDL_Init(SDL_INIT_VIDEO);
-
-    window = SDL_CreateWindow(
-        "Dynamic Batching Example", WINDOW_WIDTH, WINDOW_HEIGHT,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
-    );
-    if (!window) {
-        std::cerr << "SDL Window Creation Failed" << std::endl;
-        shutdown();
-        return -1;
-    }
-    renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) {
-        std::cerr << "SDL Renderer Creation Failed" << std::endl;
-        shutdown();
-        return -1;
-    }
-    SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
-
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain) {
-        std::cerr << "Unable to get render Metal layer" << std::endl;
-        shutdown();
-        return -1;
-    }
-
-    auto device = createGraphicsDevice(
-        GraphicsDeviceOptions{.swapChain = swapchain, .window = window}
-    );
-    if (!device) {
-        std::cerr << "Unable to create graphics device" << std::endl;
-        shutdown();
-        return -1;
-    }
-
-    AppOptions createOptions;
-    auto graphicsDevice = std::shared_ptr<GraphicsDevice>(std::move(device));
-    createOptions.graphicsDevice = graphicsDevice;
-    createOptions.registerComponentSystem<RenderComponentSystem>();
-    createOptions.registerComponentSystem<CameraComponentSystem>();
-    createOptions.registerComponentSystem<LightComponentSystem>();
-    // Note: AppOptions::batchManager left unset — Engine::init() creates a
-    // default BatchManager, reachable via engine->batcher().
-
-    auto engine = std::make_shared<Engine>(window);
-    engine->init(createOptions);
-
-    engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
-    engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-
-    engine->start();
-
-    // Upstream leaves every scene default in place: no environment atlas, black
-    // ambient, linear tone mapping. The single directional light below (parented to
-    // the camera) is the only illumination, which is what gives the primitives their
-    // strong shaded/unshaded contrast against the flat clear colour.
-    auto scene = engine->scene();
-
-    // -----------------------------------------------------------------------
-    // Two shared materials — batching produces (at least) one draw call per
-    // distinct material, so this scene resolves to ~2 batched draws.
-    // -----------------------------------------------------------------------
-    auto* material1 = new StandardMaterial();
-    material1->setDiffuse(Color(1.0f, 1.0f, 0.0f));
-    material1->setGloss(0.4f);
-    material1->setMetalness(0.5f);
-    material1->setUseMetalness(true);
-
-    auto* material2 = new StandardMaterial();
-    material2->setDiffuse(Color(0.0f, 1.0f, 1.0f));
-    material2->setGloss(0.4f);
-    material2->setMetalness(0.5f);
-    material2->setUseMetalness(true);
-
-    // -----------------------------------------------------------------------
-    // Register a single DYNAMIC BatchGroup BEFORE creating the entities.
-    // BatchGroup fields set: id, name, dynamic=true, maxAabbSize=100,
-    // layers={} (empty → BatchManager defaults the batch to WORLD layer id 1,
-    // which is what RenderComponent uses by default).
-    // -----------------------------------------------------------------------
-    constexpr int kBatchGroupId = 0;
-    BatchGroup meshesGroup(kBatchGroupId, "Meshes", /*dynamic*/ true,
-                           /*maxAabbSize*/ 100.0f, /*layers*/ {});
-    engine->batcher()->addGroup(meshesGroup);
-
-    // -----------------------------------------------------------------------
-    // Create many small procedural primitives, all tagged into the batch group.
-    // -----------------------------------------------------------------------
-    constexpr int numInstances = 500;
-    const std::vector<std::string> shapes = {"box", "cone", "cylinder", "sphere", "capsule"};
-
-    std::mt19937 rng(1337u);
-    std::uniform_int_distribution<int> shapeDist(0, static_cast<int>(shapes.size()) - 1);
-    std::uniform_real_distribution<float> matDist(0.0f, 1.0f);
-
-    std::vector<Entity*> entities;
-    entities.reserve(numInstances);
-
-    for (int i = 0; i < numInstances; ++i) {
-        const std::string& shapeName = shapes[shapeDist(rng)];
-
-        auto* entity = new Entity();
-        entity->setEngine(engine.get());
-        auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
-        if (render) {
-            render->setType(shapeName);
-            render->setMaterial(matDist(rng) < 0.5f ? material1 : material2);
-            render->setCastShadows(true);
-
-            // Tag into the batch group — the engine will try to render all of
-            // these in a small number of draw calls (one per material).
-            render->setBatchGroupId(kBatchGroupId);
-        }
-        engine->root()->addChild(entity);
-        entities.push_back(entity);
-    }
-
-    // -----------------------------------------------------------------------
-    // Ground box — NOT batched (its own draw), gives the moving meshes context.
-    // -----------------------------------------------------------------------
+protected:
+    bool create() override
     {
-        auto* ground = new Entity();
-        ground->setEngine(engine.get());
-        auto* groundRender = static_cast<RenderComponent*>(ground->addComponent<RenderComponent>());
-        if (groundRender) {
-            groundRender->setType("box");
-            groundRender->setMaterial(material2);
-            groundRender->setReceiveShadows(true);
-            // Left as a caster, like upstream (RenderComponent::castShadows defaults to
-            // true on both engines). The directional shadow camera fits its depth range
-            // to CASTERS, so a receiver-only ground would sit outside that range and
-            // catch no shadows at all.
-        }
-        ground->setLocalScale(150.0f, 1.0f, 150.0f);
-        ground->setLocalPosition(0.0f, -26.0f, 0.0f);
-        engine->root()->addChild(ground);
-    }
+        spdlog::info("*** Dynamic Batching Example Started ***");
 
-    // -----------------------------------------------------------------------
-    // Camera — orbits the origin in the y = 0 plane, always looking at it.
-    // -----------------------------------------------------------------------
-    auto* camera = new Entity();
-    camera->setEngine(engine.get());
-    auto* cameraComp = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
-    if (cameraComp && cameraComp->camera()) {
-        cameraComp->camera()->setClearColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
-    }
-    constexpr float kCamDist = 70.0f;
-    camera->setLocalPosition(0.0f, 0.0f, kCamDist);
-    engine->root()->addChild(camera);
+        // Upstream leaves every scene default in place: no environment atlas, black
+        // ambient, linear tone mapping. The single directional light below (parented to
+        // the camera) is the only illumination, which is what gives the primitives their
+        // strong shaded/unshaded contrast against the flat clear colour.
 
-    // Directional light parented to the camera so it rotates with the view.
-    auto* light = new Entity();
-    light->setEngine(engine.get());
-    auto* lightComp = static_cast<LightComponent*>(light->addComponent<LightComponent>());
-    if (lightComp) {
-        lightComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        lightComp->setCastShadows(true);
-        lightComp->setShadowBias(0.2f);
-        lightComp->setShadowNormalBias(0.06f);
-        lightComp->setShadowDistance(150.0f);
-    }
-    light->setLocalEulerAngles(15.0f, 30.0f, 0.0f);
-    camera->addChild(light);
+        // -----------------------------------------------------------------------
+        // Two shared materials — batching produces (at least) one draw call per
+        // distinct material, so this scene resolves to ~2 batched draws.
+        // -----------------------------------------------------------------------
+        _material1 = std::make_shared<StandardMaterial>();
+        _material1->setDiffuse(Color(1.0f, 1.0f, 0.0f));
+        _material1->setGloss(0.4f);
+        _material1->setMetalness(0.5f);
+        _material1->setUseMetalness(true);
 
-    // -----------------------------------------------------------------------
-    // Build the batches. prepare() merges geometry per (group, material),
-    // hides the originals, and registers the batched MeshInstances with the
-    // scene layers. Must run AFTER the tagged entities exist.
-    // -----------------------------------------------------------------------
-    engine->batcher()->prepare(scene.get());
+        _material2 = std::make_shared<StandardMaterial>();
+        _material2->setDiffuse(Color(0.0f, 1.0f, 1.0f));
+        _material2->setGloss(0.4f);
+        _material2->setMetalness(0.5f);
+        _material2->setUseMetalness(true);
 
-    spdlog::info("Dynamic batching: BatchGroup id={} name=\"{}\" dynamic={} maxAabbSize={} — "
-                 "{} procedural primitives sharing 2 materials tagged into it.",
-                 kBatchGroupId, "Meshes", true, 100.0f, numInstances);
-    spdlog::info("These render as a handful of batched draws (one per material) rebuilt every "
-                 "frame via BatchManager::updateAll().");
+        // -----------------------------------------------------------------------
+        // Register a single DYNAMIC BatchGroup BEFORE creating the entities.
+        // BatchGroup fields set: id, name, dynamic=true, maxAabbSize=100,
+        // layers={} (empty → BatchManager defaults the batch to WORLD layer id 1,
+        // which is what RenderComponent uses by default).
+        //
+        // Note: AppOptions::batchManager is left unset — Engine::init() creates a
+        // default BatchManager, reachable via engine()->batcher().
+        // -----------------------------------------------------------------------
+        BatchGroup meshesGroup(kBatchGroupId, "Meshes", /*dynamic*/ true,
+                               /*maxAabbSize*/ 100.0f, /*layers*/ {});
+        engine()->batcher()->addGroup(meshesGroup);
 
-    bool running = true;
-    const uint64_t perfFreq = SDL_GetPerformanceFrequency();
-    uint64_t prevCounter = SDL_GetPerformanceCounter();
-    float time = 0.0f;
+        // -----------------------------------------------------------------------
+        // Create many small procedural primitives, all tagged into the batch group.
+        // -----------------------------------------------------------------------
+        const std::vector<std::string> shapes = {"box", "cone", "cylinder", "sphere", "capsule"};
 
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
-                running = false;
+        std::mt19937 rng(1337u);
+        std::uniform_int_distribution<int> shapeDist(0, static_cast<int>(shapes.size()) - 1);
+        std::uniform_real_distribution<float> matDist(0.0f, 1.0f);
+
+        _entities.reserve(numInstances);
+
+        for (int i = 0; i < numInstances; ++i) {
+            const std::string& shapeName = shapes[shapeDist(rng)];
+
+            auto* entity = new Entity();
+            entity->setEngine(engine());
+            if (auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>())) {
+                render->setType(shapeName);
+                render->setMaterial(matDist(rng) < 0.5f ? _material1.get() : _material2.get());
+                render->setCastShadows(true);
+
+                // Tag into the batch group — the engine will try to render all of
+                // these in a small number of draw calls (one per material).
+                render->setBatchGroupId(kBatchGroupId);
             }
+            root()->addChild(entity);
+            _entities.push_back(entity);
         }
 
-        const uint64_t nowCounter = SDL_GetPerformanceCounter();
-        const double dtSeconds =
-            static_cast<double>(nowCounter - prevCounter) / static_cast<double>(perfFreq);
-        prevCounter = nowCounter;
-        const float dt = static_cast<float>(dtSeconds);
-        time += dt;
+        // -----------------------------------------------------------------------
+        // Ground box — NOT batched (its own draw), gives the moving meshes context.
+        // Left as a caster, like upstream (RenderComponent::castShadows defaults to
+        // true on both engines). The directional shadow camera fits its depth range
+        // to CASTERS, so a receiver-only ground would sit outside that range and
+        // catch no shadows at all.
+        // -----------------------------------------------------------------------
+        auto* ground = createPrimitive("box", _material2.get(), Vector3(0.0f, -26.0f, 0.0f),
+            Vector3(150.0f, 1.0f, 150.0f));
+        if (auto* groundRender = ground->findComponent<RenderComponent>()) {
+            groundRender->setReceiveShadows(true);
+        }
+
+        // -----------------------------------------------------------------------
+        // Camera — orbits the origin in the y = 0 plane, always looking at it.
+        // -----------------------------------------------------------------------
+        _camera = createCamera(Vector3(0.0f, 0.0f, kCamDist));
+        if (auto* cameraComp = _camera->findComponent<CameraComponent>();
+            cameraComp && cameraComp->camera()) {
+            cameraComp->camera()->setClearColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
+        }
+
+        // Directional light parented to the camera so it rotates with the view.
+        auto* light = new Entity();
+        light->setEngine(engine());
+        if (auto* lightComp = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
+            lightComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
+            lightComp->setCastShadows(true);
+            lightComp->setShadowBias(0.2f);
+            lightComp->setShadowNormalBias(0.06f);
+            lightComp->setShadowDistance(150.0f);
+        }
+        light->setLocalEulerAngles(15.0f, 30.0f, 0.0f);
+        _camera->addChild(light);
+
+        // -----------------------------------------------------------------------
+        // Build the batches. prepare() merges geometry per (group, material),
+        // hides the originals, and registers the batched MeshInstances with the
+        // scene layers. Must run AFTER the tagged entities exist.
+        // -----------------------------------------------------------------------
+        engine()->batcher()->prepare(scene().get());
+
+        spdlog::info("Dynamic batching: BatchGroup id={} name=\"{}\" dynamic={} maxAabbSize={} — "
+                     "{} procedural primitives sharing 2 materials tagged into it.",
+                     kBatchGroupId, "Meshes", true, 100.0f, numInstances);
+        spdlog::info("These render as a handful of batched draws (one per material) rebuilt every "
+                     "frame via BatchManager::updateAll().");
+
+        return true;
+    }
+
+    void update(const float dt) override
+    {
+        _time += dt;
+        const float time = _time;
 
         // Move every batched entity along its own orbit — exercises DYNAMIC
         // batching (transforms change per frame, palette rebuilt in updateAll).
@@ -289,25 +164,30 @@ int main()
             const float radius = 5.0f + (20.0f * static_cast<float>(i)) / numInstances;
             const float speed = static_cast<float>(i) / numInstances;
             const float fi = static_cast<float>(i);
-            entities[i]->setLocalPosition(
+            _entities[i]->setLocalPosition(
                 radius * std::sin(fi + time * speed),
                 radius * std::cos(fi + time * speed),
                 radius * std::cos(fi + 2.0f * time * speed)
             );
-            setLookAt(entities[i], Vector3(0.0f, 0.0f, 0.0f));
+            _entities[i]->lookAt(Vector3(0.0f, 0.0f, 0.0f));
         }
 
         // Orbit the camera around the scene.
-        camera->setLocalPosition(70.0f * std::sin(time), 0.0f, 70.0f * std::cos(time));
-        setLookAt(camera, Vector3(0.0f, 0.0f, 0.0f));
-
-        engine->update(dt);   // BatchManager::updateAll() runs inside here.
-        engine->render();
+        _camera->setLocalPosition(70.0f * std::sin(time), 0.0f, 70.0f * std::cos(time));
+        _camera->lookAt(Vector3(0.0f, 0.0f, 0.0f));
     }
 
-    shutdown();
+    void destroy() override
+    {
+        spdlog::info("*** Dynamic Batching Example Finished ***");
+    }
 
-    spdlog::info("*** Dynamic Batching Example Finished ***");
+private:
+    std::shared_ptr<StandardMaterial> _material1;
+    std::shared_ptr<StandardMaterial> _material2;
+    std::vector<Entity*> _entities;
+    Entity* _camera = nullptr;
+    float _time = 0.0f;
+};
 
-    return 0;
-}
+VISUTWIN_EXAMPLE_MAIN(DynamicBatchingExample)

@@ -3,328 +3,194 @@
 //
 // Created by Arnis Lektauers on 18.07.2025.
 //
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-#define MTK_PRIVATE_IMPLEMENTATION
-#define CA_PRIVATE_IMPLEMENTATION
-
-#include <SDL3/SDL.h>
-#include <iostream>
+// Orbit-camera reference scene: the statue under the helipad env atlas, with
+// keyboard toggles for the normal-map debug view and the TAA settings.
+//
 #include <algorithm>
-#include <core/shape/boundingBox.h>
-#include <framework/assets/asset.h>
+#include <memory>
 
-#include <QuartzCore/QuartzCore.hpp>
+#include <core/shape/boundingBox.h>
 
 #include "../cameraControls.h"
-#include "framework/engine.h"
-#include "log.h"
-#include "framework/appOptions.h"
-#include "framework/constants.h"
-#include "framework/components/camera/cameraComponentSystem.h"
-#include "framework/components/animation/animationComponentSystem.h"
-#include "framework/components/light/lightComponentSystem.h"
-#include "framework/components/render/renderComponent.h"
-#include "framework/components/render/renderComponentSystem.h"
-#include "framework/components/script/scriptComponentSystem.h"
-#include "platform/graphics/graphicsDeviceCreate.h"
-
-constexpr int WINDOW_WIDTH = 900;
-constexpr int WINDOW_HEIGHT = 700;
-
-SDL_Window* window;
-SDL_Renderer* renderer;
+#include "../exampleApp.h"
+#include "framework/assets/asset.h"
 
 using namespace visutwin::canvas;
 
-const std::string rootPath = ASSET_DIR;
-
-const auto helipad = std::make_unique<Asset>(
-    "helipad-env-atlas",
-    AssetType::TEXTURE,
-    rootPath + "/cubemaps/helipad-env-atlas.png",
-    AssetData{
-        .type = TextureType::TEXTURETYPE_RGBP,
-        .mipmaps = false
-    }
-);
-
-const auto statue = std::make_unique<Asset>(
-    "statue",
-    AssetType::CONTAINER,
-    rootPath + "/models/statue.glb"
-);
-
 constexpr int LAYER_IMMEDIATE_EXAMPLE = 5;
 
-BoundingBox calcEntityAABB(Entity* entity)
+class OrbitExample final: public ExampleApp
 {
-    BoundingBox bbox;
-    bbox.setCenter(0, 0, 0);
-    bbox.setHalfExtents(0, 0, 0);
+public:
+    OrbitExample(): ExampleApp({.title = "Visualization Engine"}) {}
 
-    if (!entity) {
-        return bbox;
-    }
+protected:
+    bool create() override
+    {
+        spdlog::info("*** Visualization Engine Started *** ");
 
-    bool hasAny = false;
-    for (auto* render : RenderComponent::instances()) {
-        if (!render || !render->entity()) {
-            continue;
-        }
+        scene()->setAmbientLight(0.4f, 0.4f, 0.4f);
+        scene()->setDebugNormalMapsEnabled(false);
+        scene()->setExposure(1.0f);
 
-        auto* owner = render->entity();
-        if (owner != entity && !owner->isDescendantOf(entity)) {
-            continue;
-        }
+        scene()->setSkyboxMip(1);
+        scene()->setSkyboxIntensity(0.4f);
 
-        for (auto* mi : render->meshInstances()) {
-            if (!mi) {
-                continue;
+        _helipad = std::make_unique<Asset>(
+            "helipad-env-atlas",
+            AssetType::TEXTURE,
+            assetPath("cubemaps/helipad-env-atlas.png"),
+            AssetData{
+                .type = TextureType::TEXTURETYPE_RGBP,
+                .mipmaps = false
             }
-            bbox.add(mi->aabb());
-            hasAny = true;
-        }
-    }
-
-    if (!hasAny) {
-        bbox.setCenter(entity->position());
-        bbox.setHalfExtents(0.5f, 0.5f, 0.5f);
-    }
-    return bbox;
-};
-
-int main()
-{
-    log::init();
-    log::set_level_debug();
-
-    window = nullptr;
-    renderer = nullptr;
-
-    const auto shutdown = []() {
-        if (renderer) {
-            SDL_DestroyRenderer(renderer);
-            renderer = nullptr;
-        }
-        if (window) {
-            SDL_DestroyWindow(window);
-            window = nullptr;
-        }
-        SDL_Quit();
-    };
-
-    spdlog::info("*** Visualization Engine Started *** ");
-
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
-    SDL_Init(SDL_INIT_VIDEO);
-
-    window = SDL_CreateWindow(
-        "Visualization Engine", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
         );
-    if (!window)
+        const auto helipadResource = _helipad->resource();
+        if (!helipadResource) {
+            spdlog::error("Failed to load helipad texture");
+            return false;
+        }
+        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+
+        auto* light = new Entity();
+        light->setEngine(engine());
+        light->addComponent<LightComponent>();
+        light->setLocalEulerAngles(45, 30, 0);
+        root()->addChild(light);
+
+        _statue = std::make_unique<Asset>(
+            "statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
+        const auto statueResource = _statue->resource();
+        if (!statueResource) {
+            spdlog::error("Failed to load statue model");
+            return false;
+        }
+        auto* statueEntity = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
+        statueEntity->setLocalPosition(0, -0.5, 0);
+        root()->addChild(statueEntity);
+
+        const auto bbox = entityBounds(statueEntity);
+        _focusPoint = bbox.center();
+        _sceneRadius = std::max(bbox.halfExtents().length(), 1.0f);
+        const auto start = Vector3(0.0f, 20.0f, 30.0f);
+
+        auto* camera = createCamera(start);
+        _cameraComponentA = camera->findComponent<CameraComponent>();
+
+        _controls = addOrbitControls(camera, _focusPoint);
+        const float sceneSize = _sceneRadius;
+        _controls->setMoveSpeed(2 * sceneSize);
+        _controls->setMoveFastSpeed(4 * sceneSize);
+        _controls->setMoveSlowSpeed(sceneSize);
+        _controls->setOrbitDistance(std::max(_sceneRadius * 4.0f, 12.0f));
+        _controls->storeResetState();
+
+        if (_cameraComponentA) {
+            auto taa = _cameraComponentA->taa();
+            taa.enabled = false;
+            taa.highQuality = true;
+            taa.jitter = 0.7f;
+            _cameraComponentA->setTaa(taa);
+        }
+
+        auto* cameraB = createCamera(start);
+        if (auto* cameraComponentB = cameraB->findComponent<CameraComponent>();
+            cameraComponentB && cameraComponentB->camera()) {
+            cameraComponentB->setLayers({LAYER_IMMEDIATE_EXAMPLE});
+            cameraComponentB->camera()->setClearColorBuffer(false);
+            cameraComponentB->camera()->setClearDepthBuffer(false);
+            cameraComponentB->camera()->setClearStencilBuffer(false);
+        }
+
+        spdlog::info("Orbit controls: LMB/RMB orbit, Shift/MMB pan, Wheel/Pinch zoom, F focus, R reset");
+        spdlog::info("Render controls: N normal-map debug, T toggle TAA, Y toggle TAA quality, [ and ] adjust TAA jitter");
+        logTaaState("init");
+
+        return true;
+    }
+
+    bool onEvent(const SDL_Event& event) override
     {
-        std::cerr << "SDL Window Creation Failed: " << std::endl;
-        shutdown();
-        return -1;
+        if (event.type != SDL_EVENT_KEY_DOWN) {
+            return false;
+        }
+
+        switch (event.key.key) {
+        case SDLK_N: {
+            const bool enabled = !scene()->debugNormalMapsEnabled();
+            scene()->setDebugNormalMapsEnabled(enabled);
+            spdlog::info("Normal map debug toggle: {}", enabled ? "ON" : "OFF");
+            return true;
+        }
+        case SDLK_T:
+            if (_cameraComponentA) {
+                auto taa = _cameraComponentA->taa();
+                taa.enabled = !taa.enabled;
+                _cameraComponentA->setTaa(taa);
+                logTaaState("toggle");
+            }
+            return true;
+        case SDLK_Y:
+            if (_cameraComponentA) {
+                auto taa = _cameraComponentA->taa();
+                taa.highQuality = !taa.highQuality;
+                _cameraComponentA->setTaa(taa);
+                logTaaState("quality");
+            }
+            return true;
+        case SDLK_LEFTBRACKET:
+            if (_cameraComponentA) {
+                auto taa = _cameraComponentA->taa();
+                taa.jitter = std::max(0.0f, taa.jitter - 0.1f);
+                _cameraComponentA->setTaa(taa);
+                logTaaState("jitter");
+            }
+            return true;
+        case SDLK_RIGHTBRACKET:
+            if (_cameraComponentA) {
+                auto taa = _cameraComponentA->taa();
+                taa.jitter = std::min(2.0f, taa.jitter + 0.1f);
+                _cameraComponentA->setTaa(taa);
+                logTaaState("jitter");
+            }
+            return true;
+        case SDLK_F:
+            if (_controls) {
+                _controls->focus(_focusPoint, std::max(_sceneRadius * 2.0f, 6.0f));
+            }
+            return true;
+        default:
+            return false;
+        }
     }
-    renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer)
+
+    void destroy() override
     {
-        std::cerr << "SDL Renderer Creation Failed: " << std::endl;
-        shutdown();
-        return -1;
+        spdlog::info("*** Visualization Engine Finished *** ");
     }
-    SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
 
-    auto* swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain)
+private:
+
+    void logTaaState(const char* reason) const
     {
-        std::cerr << "Unable to get render Metal layer" << std::endl;
-        shutdown();
-        return -1;
-    }
-
-    auto device = createGraphicsDevice(
-        GraphicsDeviceOptions{.swapChain = swapchain, .window = window}
-    );
-    if (!device) {
-        std::cerr << "Unable to create graphics device" << std::endl;
-        shutdown();
-        return -1;
-    }
-
-    std::string basePath = ASSET_DIR;
-    spdlog::info("Base path: {}", basePath);
-
-    AppOptions createOptions;
-    auto graphicsDevice = std::shared_ptr<GraphicsDevice>(std::move(device));
-    createOptions.graphicsDevice = graphicsDevice;
-    createOptions.registerComponentSystem<RenderComponentSystem>();
-    createOptions.registerComponentSystem<CameraComponentSystem>();
-    createOptions.registerComponentSystem<AnimationComponentSystem>();
-    createOptions.registerComponentSystem<LightComponentSystem>();
-    createOptions.registerComponentSystem<ScriptComponentSystem>();
-
-    auto engine = std::make_shared<Engine>(window);
-    engine->init(createOptions);
-
-    // Set the canvas to fill the window and automatically change resolution to be the same as the canvas size
-    engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
-    engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-
-    engine->start();
-
-    auto scene = engine->scene();
-    scene->setAmbientLight(0.4f, 0.4f, 0.4f);
-    scene->setDebugNormalMapsEnabled(false);
-    scene->setExposure(1.0f);
-
-    
-    scene->setSkyboxMip(1);
-    scene->setSkyboxIntensity(0.4f);
-    const auto helipadResource = helipad->resource();
-    if (!helipadResource)
-    {
-        spdlog::error("Failed to load helipad texture");
-        shutdown();
-        return -1;
-    }
-    scene->setEnvAtlas(std::get<Texture*>(*helipadResource));
-
-    auto light = new Entity();
-    light->setEngine(engine.get());
-    light->addComponent<LightComponent>();
-    light->setLocalEulerAngles(45, 30, 0);
-
-    engine->root()->addChild(light);
-    const auto statueResource = statue->resource();
-    if (!statueResource)
-    {
-        spdlog::error("Failed to load statue model");
-        shutdown();
-        return -1;
-    }
-    auto statueEntity = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
-    statueEntity->setLocalPosition(0, -0.5, 0);
-    engine->root()->addChild(statueEntity);
-
-    const auto bbox = calcEntityAABB(statueEntity);
-    const float sceneRadius = std::max(bbox.halfExtents().length(), 1.0f);
-    const auto start = Vector3(0.0f, 20.0f, 30.0f);
-
-    auto camera = new Entity();
-    camera->setEngine(engine.get());
-    auto* cameraComponentA = static_cast<CameraComponent*>(camera->addComponent<CameraComponent>());
-    camera->addComponent<ScriptComponent>();
-    camera->setPosition(start);
-
-    engine->root()->addChild(camera);
-
-    auto* cameraControls = camera->script()->create<CameraControls>();
-    const auto sceneSize = sceneRadius;
-
-    cameraControls->setFocusPoint(bbox.center());
-    cameraControls->setEnableFly(false);
-    cameraControls->setMoveSpeed(2 * sceneSize);
-    cameraControls->setMoveFastSpeed(4 * sceneSize);
-    cameraControls->setMoveSlowSpeed(sceneSize);
-    cameraControls->setOrbitDistance(std::max(sceneRadius * 4.0f, 12.0f));
-    cameraControls->storeResetState();
-
-    if (cameraComponentA) {
-        auto taa = cameraComponentA->taa();
-        taa.enabled = false;
-        taa.highQuality = true;
-        taa.jitter = 0.7f;
-        cameraComponentA->setTaa(taa);
-    }
-
-    auto cameraB = new Entity();
-    cameraB->setEngine(engine.get());
-    auto* cameraComponentB = static_cast<CameraComponent*>(cameraB->addComponent<CameraComponent>());
-    cameraB->setPosition(start);
-    if (cameraComponentB && cameraComponentB->camera()) {
-        cameraComponentB->setLayers({LAYER_IMMEDIATE_EXAMPLE});
-        cameraComponentB->camera()->setClearColorBuffer(false);
-        cameraComponentB->camera()->setClearDepthBuffer(false);
-        cameraComponentB->camera()->setClearStencilBuffer(false);
-    }
-    engine->root()->addChild(cameraB);
-
-    bool running = true;
-    const uint64_t perfFreq = SDL_GetPerformanceFrequency();
-    uint64_t prevCounter = SDL_GetPerformanceCounter();
-
-    auto logTaaState = [&](const char* reason) {
-        if (!cameraComponentA) {
+        if (!_cameraComponentA) {
             return;
         }
-        const auto& taa = cameraComponentA->taa();
+        const auto& taa = _cameraComponentA->taa();
         spdlog::info("TAA {}: enabled={}, highQuality={}, jitter={:.2f}",
             reason,
             taa.enabled ? "ON" : "OFF",
             taa.highQuality ? "ON" : "OFF",
             taa.jitter);
-    };
-    spdlog::info("Orbit controls: LMB/RMB orbit, Shift/MMB pan, Wheel/Pinch zoom, F focus, R reset");
-    spdlog::info("Render controls: N normal-map debug, T toggle TAA, Y toggle TAA quality, [ and ] adjust TAA jitter");
-    logTaaState("init");
-
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_N) {
-                const bool enabled = !scene->debugNormalMapsEnabled();
-                scene->setDebugNormalMapsEnabled(enabled);
-                spdlog::info("Normal map debug toggle: {}", enabled ? "ON" : "OFF");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_T && cameraComponentA) {
-                auto taa = cameraComponentA->taa();
-                taa.enabled = !taa.enabled;
-                cameraComponentA->setTaa(taa);
-                logTaaState("toggle");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_Y && cameraComponentA) {
-                auto taa = cameraComponentA->taa();
-                taa.highQuality = !taa.highQuality;
-                cameraComponentA->setTaa(taa);
-                logTaaState("quality");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_LEFTBRACKET && cameraComponentA) {
-                auto taa = cameraComponentA->taa();
-                taa.jitter = std::max(0.0f, taa.jitter - 0.1f);
-                cameraComponentA->setTaa(taa);
-                logTaaState("jitter");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_RIGHTBRACKET && cameraComponentA) {
-                auto taa = cameraComponentA->taa();
-                taa.jitter = std::min(2.0f, taa.jitter + 0.1f);
-                cameraComponentA->setTaa(taa);
-                logTaaState("jitter");
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F && cameraControls) {
-                cameraControls->focus(bbox.center(), std::max(sceneRadius * 2.0f, 6.0f));
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_R && cameraControls) {
-                cameraControls->reset();
-            } else if (event.type == SDL_EVENT_MOUSE_WHEEL && cameraControls) {
-                cameraControls->addZoomInput(event.wheel.y);
-            } else if (event.type == SDL_EVENT_PINCH_UPDATE && cameraControls) {
-                const float pinchDelta = (event.pinch.scale - 1.0f) * 10.0f;
-                cameraControls->addZoomInput(pinchDelta);
-            }
-        }
-
-        const uint64_t nowCounter = SDL_GetPerformanceCounter();
-        const double dtSeconds = static_cast<double>(nowCounter - prevCounter) / static_cast<double>(perfFreq);
-        prevCounter = nowCounter;
-
-        engine->update(static_cast<float>(dtSeconds));
-        engine->render();
     }
 
-    shutdown();
+    std::unique_ptr<Asset> _helipad;
+    std::unique_ptr<Asset> _statue;
 
-    spdlog::info("*** Visualization Engine Finished *** ");
+    CameraComponent* _cameraComponentA = nullptr;
+    CameraControls* _controls = nullptr;
+    Vector3 _focusPoint;
+    float _sceneRadius = 1.0f;
+};
 
-    return 0;
-}
+VISUTWIN_EXAMPLE_MAIN(OrbitExample)

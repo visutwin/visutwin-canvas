@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers 28.12.2025
 //
-#include "../cameraControls.h"
+#include "cameraControls.h"
 #include <algorithm>
 #include <cmath>
 #include <SDL3/SDL.h>

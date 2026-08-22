@@ -23,41 +23,20 @@
 //
 // Esc quits; the camera orbits with the mouse.
 //
-#ifdef VISUTWIN_HAS_METAL
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-#define MTK_PRIVATE_IMPLEMENTATION
-#define CA_PRIVATE_IMPLEMENTATION
-#endif
-
 #include <algorithm>
-#include <SDL3/SDL.h>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <random>
 #include <string>
 #include <vector>
 
-#ifdef VISUTWIN_HAS_METAL
-#include <QuartzCore/QuartzCore.hpp>
-#endif
-
 #include <framework/assets/asset.h>
 
 #include "../cameraControls.h"
-#include "framework/engine.h"
-#include "log.h"
-#include "framework/appOptions.h"
-#include "framework/components/camera/cameraComponent.h"
-#include "framework/components/camera/cameraComponentSystem.h"
-#include "framework/components/render/renderComponent.h"
-#include "framework/components/render/renderComponentSystem.h"
-#include "framework/components/script/scriptComponent.h"
-#include "framework/components/script/scriptComponentSystem.h"
-#include "framework/constants.h"
+#include "../exampleApp.h"
 #include "platform/graphics/compute.h"
-#include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
@@ -67,30 +46,13 @@
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
 
-constexpr int WINDOW_WIDTH = 900;
-constexpr int WINDOW_HEIGHT = 700;
-
-SDL_Window* window;
-SDL_Renderer* renderer;
-
 using namespace visutwin::canvas;
-
-const std::string rootPath = ASSET_DIR;
 
 // Upstream's particle count. 1M records x 48 bytes = 48 MB of storage.
 constexpr uint32_t NUM_PARTICLES = 1024u * 1024u;
 constexpr uint32_t WORKGROUP_SIZE = 64u;
 constexpr uint32_t NUM_SPHERES = 3u;
 
-const auto helipadAsset = std::make_unique<Asset>(
-    "helipad-env-atlas",
-    AssetType::TEXTURE,
-    rootPath + "/cubemaps/helipad-env-atlas.png",
-    AssetData{
-        .type = TextureType::TEXTURETYPE_RGBP,
-        .mipmaps = false
-    }
-);
 
 // The particle record, laid out to match the struct both shaders declare. Upstream's
 // WGSL Particle is 12 floats with padding after positionOld and originalVelocity; the
@@ -388,273 +350,208 @@ std::vector<GpuParticleRecord> buildInitialParticles()
     return particles;
 }
 
-int main()
+class ParticlesExample final: public ExampleApp
 {
-    log::init();
-    log::set_level_debug();
+public:
+    ParticlesExample(): ExampleApp({.title = "Compute Particles"}) {}
 
-    window = nullptr;
-    renderer = nullptr;
-
-    const auto shutdown = []() {
-        if (renderer) {
-            SDL_DestroyRenderer(renderer);
-            renderer = nullptr;
+protected:
+    bool create() override
+    {
+        const bool supportsCompute = device()->supportsCompute();
+        if (!supportsCompute) {
+            spdlog::error("This device reports no compute support — the particles will not move.");
         }
-        if (window) {
-            SDL_DestroyWindow(window);
-            window = nullptr;
-        }
-        SDL_Quit();
-    };
 
-#ifdef VISUTWIN_HAS_METAL
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
-#endif
-    SDL_Init(SDL_INIT_VIDEO);
+        // General scene rendering properties (upstream: skyboxMip 2, intensity 0.2).
+        scene()->setSkyboxMip(2);
+        scene()->setSkyboxIntensity(0.2f);
 
-    window = SDL_CreateWindow(
-        "Compute Particles", WINDOW_WIDTH, WINDOW_HEIGHT,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
-#ifdef VISUTWIN_HAS_VULKAN
-        | SDL_WINDOW_VULKAN
-#endif
-    );
-    if (!window) { shutdown(); return -1; }
-    renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) { shutdown(); return -1; }
-    SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
-
-    void* swapchain = nullptr;
-#ifdef VISUTWIN_HAS_METAL
-    swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain) { shutdown(); return -1; }
-#endif
-
-    GraphicsDeviceOptions deviceOptions;
-#ifdef VISUTWIN_HAS_VULKAN
-    deviceOptions.backend = Backend::Vulkan;
-#endif
-    deviceOptions.swapChain = swapchain;
-    deviceOptions.window = window;
-    auto device = createGraphicsDevice(deviceOptions);
-    if (!device) { shutdown(); return -1; }
-
-    AppOptions createOptions;
-    auto graphicsDevice = std::shared_ptr<GraphicsDevice>(std::move(device));
-    createOptions.graphicsDevice = graphicsDevice;
-    createOptions.registerComponentSystem<RenderComponentSystem>();
-    createOptions.registerComponentSystem<CameraComponentSystem>();
-    createOptions.registerComponentSystem<ScriptComponentSystem>();
-
-    auto engine = std::make_shared<Engine>(window);
-    engine->init(createOptions);
-    engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
-    engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-    engine->start();
-
-    const bool supportsCompute = graphicsDevice->supportsCompute();
-    if (!supportsCompute) {
-        spdlog::error("This device reports no compute support — the particles will not move.");
-    }
-
-    // General scene rendering properties (upstream: skyboxMip 2, intensity 0.2).
-    auto scene = engine->scene();
-    scene->setSkyboxMip(2);
-    scene->setSkyboxIntensity(0.2f);
-    if (const auto helipadResource = helipadAsset->resource()) {
-        scene->setEnvAtlas(std::get<Texture*>(*helipadResource));
-    } else {
-        spdlog::error("Failed to load the helipad environment atlas");
-    }
-
-    // -----------------------------------------------------------------------
-    // Collision spheres — both the colliders the kernel reads and the visible
-    // geometry the particles pile onto.
-    // -----------------------------------------------------------------------
-    auto sphereMaterial = std::make_shared<StandardMaterial>();
-    sphereMaterial->setGloss(0.6f);
-    sphereMaterial->setMetalness(0.4f);
-
-    struct SphereDesc { float x, y, z, radius; };
-    constexpr SphereDesc sphereDescs[NUM_SPHERES] = {
-        {28.0f, -70.0f, 0.0f, 27.0f},
-        {-38.0f, -130.0f, 0.0f, 35.0f},
-        {45.0f, -210.0f, 35.0f, 70.0f}
-    };
-
-    std::vector<float> sphereData(NUM_SPHERES * 4);
-    for (uint32_t i = 0; i < NUM_SPHERES; ++i) {
-        const auto& [x, y, z, radius] = sphereDescs[i];
-        sphereData[i * 4 + 0] = x;
-        sphereData[i * 4 + 1] = y;
-        sphereData[i * 4 + 2] = z;
-        sphereData[i * 4 + 3] = radius;
-
-        auto* sphere = new Entity();
-        sphere->setEngine(engine.get());
-        if (auto* render = static_cast<RenderComponent*>(sphere->addComponent<RenderComponent>())) {
-            render->setMaterial(sphereMaterial.get());
-            render->setType("sphere");
-        }
-        sphere->setLocalScale(radius * 2.0f, radius * 2.0f, radius * 2.0f);
-        sphere->setLocalPosition(x, y, z);
-        engine->root()->addChild(sphere);
-    }
-
-    // -----------------------------------------------------------------------
-    // Camera. Upstream places it here and focuses the orbit on the middle sphere.
-    // -----------------------------------------------------------------------
-    const Vector3 focusPoint(sphereDescs[1].x, sphereDescs[1].y, sphereDescs[1].z);
-
-    auto* cameraEntity = new Entity();
-    cameraEntity->setEngine(engine.get());
-    auto* cameraComponent = static_cast<CameraComponent*>(cameraEntity->addComponent<CameraComponent>());
-    cameraEntity->addComponent<ScriptComponent>();
-    if (cameraComponent) {
-        cameraComponent->setToneMapping(TONEMAP_ACES);
-        if (cameraComponent->camera()) {
-            cameraComponent->camera()->setFarClip(1000.0f);
-        }
-    }
-    cameraEntity->setLocalPosition(-150.0f, -60.0f, 190.0f);
-    engine->root()->addChild(cameraEntity);
-
-    auto* cameraControls = cameraEntity->script()->create<CameraControls>();
-    cameraControls->setFocusPoint(focusPoint);
-    cameraControls->setEnableFly(false);
-    cameraControls->storeResetState();
-
-    // -----------------------------------------------------------------------
-    // Particle storage: the buffer the kernel writes and the vertex stage reads.
-    // -----------------------------------------------------------------------
-    const std::vector<GpuParticleRecord> initialParticles = buildInitialParticles();
-    VertexBufferOptions particleBufferOptions;
-    particleBufferOptions.data.resize(initialParticles.size() * sizeof(GpuParticleRecord));
-    std::memcpy(particleBufferOptions.data.data(), initialParticles.data(),
-        particleBufferOptions.data.size());
-    auto particleFormat = std::make_shared<VertexFormat>(
-        static_cast<int>(sizeof(GpuParticleRecord)), true, false);
-    auto particleBuffer = graphicsDevice->createVertexBuffer(
-        particleFormat, static_cast<int>(NUM_PARTICLES), particleBufferOptions);
-
-    VertexBufferOptions sphereBufferOptions;
-    sphereBufferOptions.data.resize(sphereData.size() * sizeof(float));
-    std::memcpy(sphereBufferOptions.data.data(), sphereData.data(), sphereBufferOptions.data.size());
-    auto sphereFormat = std::make_shared<VertexFormat>(4 * static_cast<int>(sizeof(float)), true, false);
-    auto sphereBuffer = graphicsDevice->createVertexBuffer(
-        sphereFormat, static_cast<int>(NUM_SPHERES), sphereBufferOptions);
-
-    // -----------------------------------------------------------------------
-    // Simulation compute shader.
-    // -----------------------------------------------------------------------
-    std::shared_ptr<Shader> simulationShader;
-    std::unique_ptr<Compute> compute;
-    if (supportsCompute) {
-        ShaderDefinition definition;
-        definition.name = "SimulationShader";
-        definition.cshader = "simulateParticles";
-        // Both backends can be compiled in and selected at runtime (VISUTWIN_BACKEND),
-        // so the source has to come from the live device rather than a build-time #ifdef.
-        const char* source = graphicsDevice->shaderLanguage() == ShaderLanguage::Glsl
-            ? kSimulationSourceGlsl
-            : kSimulationSourceMsl;
-        simulationShader = createShader(graphicsDevice.get(), definition, source);
-        if (simulationShader) {
-            compute = std::make_unique<Compute>(graphicsDevice.get(), simulationShader, "ComputeParticles");
-            compute->setParameter("particles", particleBuffer);
-            compute->setParameter("spheres", sphereBuffer);
-            compute->setParameter("count", NUM_PARTICLES);
-            compute->setParameter("sphereCount", NUM_SPHERES);
-            compute->setThreadgroupSize(WORKGROUP_SIZE, 1u, 1u);
+        _helipadAsset = std::make_unique<Asset>(
+            "helipad-env-atlas",
+            AssetType::TEXTURE,
+            assetPath("cubemaps/helipad-env-atlas.png"),
+            AssetData{
+                .type = TextureType::TEXTURETYPE_RGBP,
+                .mipmaps = false
+            }
+        );
+        if (const auto helipadResource = _helipadAsset->resource()) {
+            scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
         } else {
-            spdlog::error("Failed to compile the particle simulation shader");
+            spdlog::error("Failed to load the helipad environment atlas");
         }
-    }
 
-    // -----------------------------------------------------------------------
-    // Particle rendering: one instanced quad per record in the storage buffer.
-    // -----------------------------------------------------------------------
-    auto particleMaterial = std::make_shared<ShaderMaterial>(
-        graphicsDevice, "ParticleRenderShader", "particleVS", "particleFS",
-        ShaderSourceSet{.msl = kRenderSourceMsl, .glsl = kRenderSourceGlsl});
-    // Screen-aligned quads carry no meaningful winding.
-    particleMaterial->setCullMode(CullMode::CULLFACE_NONE);
+        // -----------------------------------------------------------------------
+        // Collision spheres — both the colliders the kernel reads and the visible
+        // geometry the particles pile onto.
+        // -----------------------------------------------------------------------
+        _sphereMaterial = std::make_shared<StandardMaterial>();
+        _sphereMaterial->setGloss(0.6f);
+        _sphereMaterial->setMetalness(0.4f);
 
-    // A 4-vertex triangle-strip quad. The vertex shader is vertex-id driven, so the
-    // contents are never read — the buffer exists to give the draw its vertex count.
-    auto quadFormat = std::make_shared<VertexFormat>(
-        14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
-    VertexBufferOptions quadOptions;
-    quadOptions.data.assign(4 * 14 * sizeof(float), 0);
-    auto quadBuffer = graphicsDevice->createVertexBuffer(quadFormat, 4, quadOptions);
+        struct SphereDesc { float x, y, z, radius; };
+        constexpr SphereDesc sphereDescs[NUM_SPHERES] = {
+            {28.0f, -70.0f, 0.0f, 27.0f},
+            {-38.0f, -130.0f, 0.0f, 35.0f},
+            {45.0f, -210.0f, 35.0f, 70.0f}
+        };
 
-    auto quadMesh = std::make_shared<Mesh>();
-    quadMesh->setVertexBuffer(quadBuffer);
-    Primitive primitive;
-    primitive.type = PRIMITIVE_TRISTRIP;
-    primitive.base = 0;
-    primitive.count = 4;
-    primitive.indexed = false;
-    quadMesh->setPrimitive(primitive, 0);
+        std::vector<float> sphereData(NUM_SPHERES * 4);
+        for (uint32_t i = 0; i < NUM_SPHERES; ++i) {
+            const auto& [x, y, z, radius] = sphereDescs[i];
+            sphereData[i * 4 + 0] = x;
+            sphereData[i * 4 + 1] = y;
+            sphereData[i * 4 + 2] = z;
+            sphereData[i * 4 + 3] = radius;
 
-    auto* particleEntity = new Entity();
-    particleEntity->setEngine(engine.get());
-    engine->root()->addChild(particleEntity);
+            createPrimitive("sphere", _sphereMaterial.get(), Vector3(x, y, z),
+                Vector3(radius * 2.0f, radius * 2.0f, radius * 2.0f));
+        }
 
-    constexpr ParticleRenderParams renderParams;
-    if (auto* render = static_cast<RenderComponent*>(particleEntity->addComponent<RenderComponent>())) {
-        auto meshInstance = std::make_unique<MeshInstance>(quadMesh, particleMaterial, particleEntity);
-        meshInstance->setStorageDraw(particleBuffer, static_cast<int>(NUM_PARTICLES),
-            &renderParams, sizeof(renderParams));
-        // Particles live in world space and roam far past the node's own bounds.
-        meshInstance->setCull(false);
-        meshInstance->setCastShadow(false);
-        render->addMeshInstance(std::move(meshInstance));
-    }
+        // -----------------------------------------------------------------------
+        // Camera. Upstream places it here and focuses the orbit on the middle sphere.
+        // -----------------------------------------------------------------------
+        const Vector3 focusPoint(sphereDescs[1].x, sphereDescs[1].y, sphereDescs[1].z);
 
-    spdlog::info("{} particles simulated on the GPU. LMB/RMB orbit, Wheel zoom, Esc quits.",
-        NUM_PARTICLES);
+        auto* cameraEntity = createCamera(Vector3(-150.0f, -60.0f, 190.0f));
+        if (auto* cameraComponent = cameraEntity->findComponent<CameraComponent>()) {
+            cameraComponent->setToneMapping(TONEMAP_ACES);
+            if (cameraComponent->camera()) {
+                cameraComponent->camera()->setFarClip(1000.0f);
+            }
+        }
+        addOrbitControls(cameraEntity, focusPoint);
 
-    bool running = true;
-    const uint64_t perfFreq = SDL_GetPerformanceFrequency();
-    uint64_t prevCounter = SDL_GetPerformanceCounter();
+        // -----------------------------------------------------------------------
+        // Particle storage: the buffer the kernel writes and the vertex stage reads.
+        // -----------------------------------------------------------------------
+        const std::vector<GpuParticleRecord> initialParticles = buildInitialParticles();
+        VertexBufferOptions particleBufferOptions;
+        particleBufferOptions.data.resize(initialParticles.size() * sizeof(GpuParticleRecord));
+        std::memcpy(particleBufferOptions.data.data(), initialParticles.data(),
+            particleBufferOptions.data.size());
+        auto particleFormat = std::make_shared<VertexFormat>(
+            static_cast<int>(sizeof(GpuParticleRecord)), true, false);
+        _particleBuffer = device()->createVertexBuffer(
+            particleFormat, static_cast<int>(NUM_PARTICLES), particleBufferOptions);
 
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_R && cameraControls) {
-                cameraControls->reset();
-            } else if (event.type == SDL_EVENT_MOUSE_WHEEL && cameraControls) {
-                cameraControls->addZoomInput(event.wheel.y);
-            } else if (event.type == SDL_EVENT_PINCH_UPDATE && cameraControls) {
-                cameraControls->addZoomInput((event.pinch.scale - 1.0f) * 10.0f);
+        VertexBufferOptions sphereBufferOptions;
+        sphereBufferOptions.data.resize(sphereData.size() * sizeof(float));
+        std::memcpy(sphereBufferOptions.data.data(), sphereData.data(), sphereBufferOptions.data.size());
+        auto sphereFormat = std::make_shared<VertexFormat>(4 * static_cast<int>(sizeof(float)), true, false);
+        _sphereBuffer = device()->createVertexBuffer(
+            sphereFormat, static_cast<int>(NUM_SPHERES), sphereBufferOptions);
+
+        // -----------------------------------------------------------------------
+        // Simulation compute shader.
+        // -----------------------------------------------------------------------
+        if (supportsCompute) {
+            ShaderDefinition definition;
+            definition.name = "SimulationShader";
+            definition.cshader = "simulateParticles";
+            // Both backends can be compiled in and selected at runtime (VISUTWIN_BACKEND),
+            // so the source has to come from the live device rather than a build-time #ifdef.
+            const char* source = device()->shaderLanguage() == ShaderLanguage::Glsl
+                ? kSimulationSourceGlsl
+                : kSimulationSourceMsl;
+            _simulationShader = createShader(device().get(), definition, source);
+            if (_simulationShader) {
+                _compute = std::make_unique<Compute>(device().get(), _simulationShader, "ComputeParticles");
+                _compute->setParameter("particles", _particleBuffer);
+                _compute->setParameter("spheres", _sphereBuffer);
+                _compute->setParameter("count", NUM_PARTICLES);
+                _compute->setParameter("sphereCount", NUM_SPHERES);
+                _compute->setThreadgroupSize(WORKGROUP_SIZE, 1u, 1u);
+            } else {
+                spdlog::error("Failed to compile the particle simulation shader");
             }
         }
 
-        const uint64_t nowCounter = SDL_GetPerformanceCounter();
-        const auto dtSeconds = static_cast<float>(
-            static_cast<double>(nowCounter - prevCounter) / static_cast<double>(perfFreq));
-        prevCounter = nowCounter;
+        // -----------------------------------------------------------------------
+        // Particle rendering: one instanced quad per record in the storage buffer.
+        // -----------------------------------------------------------------------
+        _particleMaterial = std::make_shared<ShaderMaterial>(
+            device(), "ParticleRenderShader", "particleVS", "particleFS",
+            ShaderSourceSet{.msl = kRenderSourceMsl, .glsl = kRenderSourceGlsl});
+        // Screen-aligned quads carry no meaningful winding.
+        _particleMaterial->setCullMode(CullMode::CULLFACE_NONE);
 
-        engine->update(dtSeconds);
+        // A 4-vertex triangle-strip quad. The vertex shader is vertex-id driven, so the
+        // contents are never read — the buffer exists to give the draw its vertex count.
+        auto quadFormat = std::make_shared<VertexFormat>(
+            14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
+        VertexBufferOptions quadOptions;
+        quadOptions.data.assign(4 * 14 * sizeof(float), 0);
+        auto quadBuffer = device()->createVertexBuffer(quadFormat, 4, quadOptions);
 
-        // Advance the simulation before the frame's render encoding. Upstream
-        // dispatches 1024/64 x 1024 workgroups; the kernel folds those two axes
-        // back into one particle index.
-        if (compute) {
-            compute->setParameter("dt", dtSeconds);
-            compute->setupDispatch(NUM_PARTICLES / 1024u / WORKGROUP_SIZE, 1024u, 1u);
-            graphicsDevice->computeDispatch({compute.get()}, "ComputeParticlesDispatch");
+        _quadMesh = std::make_shared<Mesh>();
+        _quadMesh->setVertexBuffer(quadBuffer);
+        Primitive primitive;
+        primitive.type = PRIMITIVE_TRISTRIP;
+        primitive.base = 0;
+        primitive.count = 4;
+        primitive.indexed = false;
+        _quadMesh->setPrimitive(primitive, 0);
+
+        auto* particleEntity = new Entity();
+        particleEntity->setEngine(engine());
+        root()->addChild(particleEntity);
+
+        if (auto* render = static_cast<RenderComponent*>(particleEntity->addComponent<RenderComponent>())) {
+            auto meshInstance = std::make_unique<MeshInstance>(_quadMesh, _particleMaterial, particleEntity);
+            meshInstance->setStorageDraw(_particleBuffer, static_cast<int>(NUM_PARTICLES),
+                &_renderParams, sizeof(_renderParams));
+            // Particles live in world space and roam far past the node's own bounds.
+            meshInstance->setCull(false);
+            meshInstance->setCastShadow(false);
+            render->addMeshInstance(std::move(meshInstance));
         }
 
-        engine->render();
+        spdlog::info("{} particles simulated on the GPU. LMB/RMB orbit, Wheel zoom, Esc quits.",
+            NUM_PARTICLES);
+
+        return true;
     }
 
-    shutdown();
-    return 0;
-}
+    // Advance the simulation before the frame's render encoding. Upstream
+    // dispatches 1024/64 x 1024 workgroups; the kernel folds those two axes
+    // back into one particle index.
+    void preRender() override
+    {
+        if (_compute) {
+            _compute->setParameter("dt", _lastDt);
+            _compute->setupDispatch(NUM_PARTICLES / 1024u / WORKGROUP_SIZE, 1024u, 1u);
+            device()->computeDispatch({_compute.get()}, "ComputeParticlesDispatch");
+        }
+    }
+
+    void update(const float dt) override
+    {
+        _lastDt = dt;
+    }
+
+    void destroy() override
+    {
+        // Holds device resources that must not outlive the graphics device.
+        _compute.reset();
+        _simulationShader.reset();
+    }
+
+private:
+    std::unique_ptr<Asset> _helipadAsset;
+    std::shared_ptr<StandardMaterial> _sphereMaterial;
+    std::shared_ptr<ShaderMaterial> _particleMaterial;
+    std::shared_ptr<Mesh> _quadMesh;
+    std::shared_ptr<VertexBuffer> _particleBuffer;
+    std::shared_ptr<VertexBuffer> _sphereBuffer;
+    std::shared_ptr<Shader> _simulationShader;
+    std::unique_ptr<Compute> _compute;
+
+    // Referenced by the storage draw for the lifetime of the mesh instance.
+    ParticleRenderParams _renderParams;
+
+    float _lastDt = 0.0f;
+};
+
+VISUTWIN_EXAMPLE_MAIN(ParticlesExample)

@@ -35,6 +35,56 @@ namespace visutwin::canvas
             return requested;
         }
 
+        // The backend this build would pick on its own. Vulkan wins a build that
+        // has both, matching what the hand-guarded examples did before there was
+        // a shared host: they set Backend::Vulkan under #ifdef VISUTWIN_HAS_VULKAN
+        // whether or not Metal was also compiled in.
+        constexpr Backend compiledDefault()
+        {
+#ifdef VISUTWIN_HAS_VULKAN
+            return Backend::Vulkan;
+#elif defined(VISUTWIN_HAS_METAL)
+            return Backend::Metal;
+#else
+            return Backend::WebGPU;
+#endif
+        }
+
+        // Whether a backend has an implementation in this build. An override
+        // naming a backend that was compiled out has to be ignored rather than
+        // honoured — otherwise createGraphicsDevice fails later with a window
+        // already built for the wrong one.
+        bool isCompiledIn(Backend backend)
+        {
+            switch (backend) {
+            case Backend::Metal:
+#ifdef VISUTWIN_HAS_METAL
+                return true;
+#else
+                return false;
+#endif
+            case Backend::Vulkan:
+#ifdef VISUTWIN_HAS_VULKAN
+                return true;
+#else
+                return false;
+#endif
+            default:
+                return false;
+            }
+        }
+    }
+
+    Backend defaultBackend()
+    {
+        const Backend requested = compiledDefault();
+        const Backend resolved = applyEnvOverride(requested);
+        if (resolved != requested && !isCompiledIn(resolved)) {
+            spdlog::warn("VISUTWIN_BACKEND requests {}, which is not compiled into this build — using {}",
+                backendName(resolved), backendName(requested));
+            return requested;
+        }
+        return resolved;
     }
 
     std::unique_ptr<GraphicsDevice> createGraphicsDevice(const GraphicsDeviceOptions& options)

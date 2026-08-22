@@ -19,6 +19,47 @@ cmake --build build-examples
 The `examples/` directory is also a standalone CMake project, so it can be
 configured on its own against an already-built engine.
 
+Each example is one line in `CMakeLists.txt`:
+
+```cmake
+visutwin_add_example(clearcoat)   # builds src/clearcoat-example.cpp
+```
+
+The helper compiles the example together with the shared `ExampleApp` host and
+the `CameraControls` script, links the engine, and bundles it for macOS.
+
+## Structure
+
+Every example derives from **`ExampleApp`** (`exampleApp.h`), which owns the
+window, the graphics device, the engine and the frame loop, so an example file
+contains only the scene it exists to demonstrate:
+
+```cpp
+class MyExample final: public ExampleApp
+{
+public:
+    MyExample(): ExampleApp({.title = "My Example"}) {}
+
+protected:
+    bool create() override { ...build the scene...; return true; }
+    void update(float dt) override { ...per-frame...; }
+};
+
+VISUTWIN_EXAMPLE_MAIN(MyExample)
+```
+
+`run()` calls the virtual hooks in order: `configure()` (extra component
+systems) → `create()` → [`update()` → `preRender()` → `postRender()`]* →
+`destroy()`. Only `create()` is mandatory. The class also carries the small
+pieces of setup that repeat — `assetPath()`, `createCamera()`,
+`addOrbitControls()`, `createDirectionalLight()`, `createPrimitive()` and
+`entityBounds()`.
+
+Backend selection lives there too: `ExampleApp` resolves Metal vs Vulkan before
+creating the window (each needs different window flags) and hosts metal-cpp's
+`*_PRIVATE_IMPLEMENTATION` translation unit, so no example carries a backend
+`#ifdef` of its own and every one of them builds for either backend.
+
 ## Running
 
 The executables land in `build-examples/examples/`, each as a macOS app bundle:

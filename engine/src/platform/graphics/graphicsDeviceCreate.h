@@ -43,6 +43,16 @@ namespace visutwin::canvas
     /// Human-readable backend name ("Metal", "Vulkan", "WebGPU").
     const char* backendName(Backend backend);
 
+    /// The backend an application should use when it expresses no preference:
+    /// the VISUTWIN_BACKEND override when it names a backend compiled into this
+    /// build, otherwise Vulkan when available, otherwise Metal.
+    ///
+    /// createGraphicsDevice applies the same override internally, but a host
+    /// needs the answer EARLIER than that: SDL_WINDOW_VULKAN has to be passed to
+    /// SDL_CreateWindow, and the Metal path needs a CAMetalLayer from an SDL
+    /// renderer, so the window cannot be created until the backend is known.
+    Backend defaultBackend();
+
     /// Appends " [Metal]" / " [Vulkan]" to the window title. Idempotent: a tag
     /// left by a previous backend is replaced rather than stacked, and only a
     /// suffix naming a known backend is stripped, so "Example [WIP]" survives.

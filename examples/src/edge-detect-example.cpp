@@ -1,19 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Compute-shader edge detection: a chess board renders into an offscreen target
+// through its own camera, an app-authored compute kernel runs a Sobel filter over
+// that image, and two full-screen quad passes display the original above the
+// edge-detected result.
 //
-#ifdef VISUTWIN_HAS_METAL
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-#define MTK_PRIVATE_IMPLEMENTATION
-#define CA_PRIVATE_IMPLEMENTATION
-#endif
-
-#include <SDL3/SDL.h>
-#ifdef VISUTWIN_HAS_METAL
-#include <QuartzCore/QuartzCore.hpp>
-#endif
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -21,27 +13,16 @@
 #include <string>
 #include <vector>
 
-#include "framework/appOptions.h"
+#include "../exampleApp.h"
 #include "framework/assets/asset.h"
-#include "framework/components/camera/cameraComponent.h"
-#include "framework/components/camera/cameraComponentSystem.h"
-#include "framework/components/light/lightComponent.h"
-#include "framework/components/light/lightComponentSystem.h"
-#include "framework/components/render/renderComponent.h"
-#include "framework/components/render/renderComponentSystem.h"
-#include "framework/components/script/scriptComponentSystem.h"
-#include "framework/constants.h"
-#include "framework/engine.h"
 #include "framework/handlers/containerResource.h"
-#include "log.h"
 #include "platform/graphics/compute.h"
-#include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/texture.h"
-#include "scene/graphics/renderPassDownsample.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
+#include "scene/graphics/renderPassDownsample.h"
 #include "scene/layer.h"
 #include "scene/materials/standardMaterial.h"
 
@@ -49,11 +30,7 @@ using namespace visutwin::canvas;
 
 namespace
 {
-    constexpr int WINDOW_WIDTH = 1200;
-    constexpr int WINDOW_HEIGHT = 800;
     constexpr int LAYERID_RT = 70;
-
-    const std::string rootPath = ASSET_DIR;
 
     constexpr const char* EDGE_DETECT_COMPUTE_SOURCE_METAL = R"(
 #include <metal_stdlib>
@@ -129,19 +106,6 @@ void main()
 }
 )";
 
-    void setLookAt(Entity* camera, const Vector3& target)
-    {
-        if (!camera) {
-            return;
-        }
-
-        const Vector3 position = camera->position();
-        const Vector3 lookDir = (target - position).normalized();
-        const float pitchDeg = std::asin(std::clamp(lookDir.getY(), -1.0f, 1.0f)) * RAD_TO_DEG;
-        const float yawDeg = std::atan2(-lookDir.getX(), -lookDir.getZ()) * RAD_TO_DEG;
-        camera->setLocalEulerAngles(pitchDeg, yawDeg, 0.0f);
-    }
-
     // Mirrors upstream's instantiateRenderEntity({ castShadows, receiveShadows, layers }).
     void applyRenderOptionsRecursive(GraphNode* node, const std::vector<int>& layers)
     {
@@ -188,329 +152,212 @@ void main()
 
 }
 
-int main()
+class EdgeDetectExample final: public ExampleApp
 {
-    log::init();
-    log::set_level_debug();
+public:
+    EdgeDetectExample()
+        : ExampleApp({.title = "Compute Edge Detect", .width = 1200, .height = 800}) {}
 
-#ifdef VISUTWIN_HAS_METAL
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
-#endif
-    SDL_Init(SDL_INIT_VIDEO);
-
-    SDL_Window* window = SDL_CreateWindow(
-        "Compute Edge Detect",
-        WINDOW_WIDTH,
-        WINDOW_HEIGHT,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE
-#ifdef VISUTWIN_HAS_VULKAN
-        | SDL_WINDOW_VULKAN
-#endif
-    );
-    if (!window) {
-        SDL_Quit();
-        return -1;
-    }
-
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
-    if (!renderer) {
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return -1;
-    }
-    SDL_SetRenderVSync(renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
-
-    void* swapchain = nullptr;
-#ifdef VISUTWIN_HAS_METAL
-    swapchain = static_cast<CA::MetalLayer*>(SDL_GetRenderMetalLayer(renderer));
-    if (!swapchain) {
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return -1;
-    }
-#endif
-
-    GraphicsDeviceOptions deviceOptions;
-#ifdef VISUTWIN_HAS_VULKAN
-    deviceOptions.backend = Backend::Vulkan;
-#else
-    deviceOptions.backend = Backend::Metal;
-#endif
-    deviceOptions.swapChain = swapchain;
-    deviceOptions.window = window;
-    auto graphicsDevice = std::shared_ptr<GraphicsDevice>(
-        createGraphicsDevice(deviceOptions));
-    if (!graphicsDevice) {
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return -1;
-    }
-
-    AppOptions createOptions;
-    createOptions.graphicsDevice = graphicsDevice;
-    createOptions.registerComponentSystem<RenderComponentSystem>();
-    createOptions.registerComponentSystem<CameraComponentSystem>();
-    createOptions.registerComponentSystem<LightComponentSystem>();
-    createOptions.registerComponentSystem<ScriptComponentSystem>();
-
-    auto engine = std::make_shared<Engine>(window);
-    engine->init(createOptions);
-    engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
-    engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-    engine->start();
-
-    auto scene = engine->scene();
-
-    auto composition = std::make_shared<LayerComposition>("edge-detect");
-    auto defaultLayers = scene->layers();
-    auto rtLayer = std::make_shared<Layer>("RTLayer", LAYERID_RT);
-    composition->pushOpaque(rtLayer);
-    if (defaultLayers) {
-        if (auto layer = defaultLayers->getLayerById(LAYERID_WORLD)) {
-            composition->pushOpaque(layer);
-            composition->pushTransparent(layer);
+protected:
+    bool create() override
+    {
+        auto composition = std::make_shared<LayerComposition>("edge-detect");
+        auto defaultLayers = scene()->layers();
+        auto rtLayer = std::make_shared<Layer>("RTLayer", LAYERID_RT);
+        composition->pushOpaque(rtLayer);
+        if (defaultLayers) {
+            if (auto layer = defaultLayers->getLayerById(LAYERID_WORLD)) {
+                composition->pushOpaque(layer);
+                composition->pushTransparent(layer);
+            }
+            if (auto layer = defaultLayers->getLayerById(LAYERID_DEPTH)) {
+                composition->pushOpaque(layer);
+            }
+            if (auto layer = defaultLayers->getLayerById(LAYERID_SKYBOX)) {
+                composition->pushOpaque(layer);
+            }
+            if (auto layer = defaultLayers->getLayerById(LAYERID_IMMEDIATE)) {
+                composition->pushOpaque(layer);
+                composition->pushTransparent(layer);
+            }
+            if (auto layer = defaultLayers->getLayerById(LAYERID_UI)) {
+                composition->pushTransparent(layer);
+            }
         }
-        if (auto layer = defaultLayers->getLayerById(LAYERID_DEPTH)) {
-            composition->pushOpaque(layer);
+        scene()->setLayers(composition);
+
+        _boardAsset = std::make_unique<Asset>(
+            "board", AssetType::CONTAINER, assetPath("models/chess-board.glb"));
+        _helipadAsset = std::make_unique<Asset>(
+            "helipad-env-atlas",
+            AssetType::TEXTURE,
+            assetPath("cubemaps/helipad-env-atlas.png"),
+            AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false}
+        );
+
+        const auto boardResource = _boardAsset->resource();
+        const auto helipadResource = _helipadAsset->resource();
+        if (!boardResource || !helipadResource || !std::holds_alternative<ContainerResource*>(*boardResource)) {
+            spdlog::error("Failed to load required chess-board/env atlas resources");
+            return false;
         }
-        if (auto layer = defaultLayers->getLayerById(LAYERID_SKYBOX)) {
-            composition->pushOpaque(layer);
+
+        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setSkyboxMip(1.0f);
+        scene()->setSkyboxIntensity(1.0f);
+        scene()->setExposure(1.0f);
+        scene()->setToneMapping(TONEMAP_LINEAR);
+
+        auto* container = std::get<ContainerResource*>(*boardResource);
+        auto* boardEntity = container ? container->instantiateRenderEntity() : nullptr;
+        if (!boardEntity) {
+            spdlog::error("Failed to instantiate chess-board.glb render entity");
+            return false;
         }
-        if (auto layer = defaultLayers->getLayerById(LAYERID_IMMEDIATE)) {
-            composition->pushOpaque(layer);
-            composition->pushTransparent(layer);
+        boardEntity->setEngine(engine());
+        applyRenderOptionsRecursive(boardEntity, {LAYERID_RT});
+        root()->addChild(boardEntity);
+
+        // The board keeps its authored transform, exactly like upstream. The model is
+        // ~340 units across, so the orbiting render-target camera at radius 100 sits
+        // among the pieces — that close-up is the shot the example is built around.
+        // Re-scaling it to fit the frame turns it into a distant speck on white.
+
+        RenderableStats boardStats;
+        gatherRenderableStats(boardEntity, boardStats);
+        if (boardStats.meshInstances == 0) {
+            spdlog::error("chess-board.glb instantiated with zero mesh instances (renderComponents={}).",
+                boardStats.renderComponents);
+            spdlog::error("Draco is enabled in this build, so GLB decode likely failed for a different reason.");
+            spdlog::error("Check parser warnings above for malformed Draco extension or decode errors.");
+            return false;
         }
-        if (auto layer = defaultLayers->getLayerById(LAYERID_UI)) {
-            composition->pushTransparent(layer);
+
+        // Directional light on the default WORLD layer, as upstream declares it. Note it
+        // therefore does NOT reach the board, which lives on the RT layer only — the board
+        // is lit purely by the environment atlas. Putting the light on LAYERID_RT would
+        // add a key light upstream does not have.
+        createDirectionalLight(Vector3(45.0f, 45.0f, 0.0f));
+
+        const auto [initialW, initialH] = device()->size();
+        const int rtWidth = std::max(1, initialW);
+        const int rtHeight = std::max(1, initialH / 2);
+
+        TextureOptions sourceTextureOptions;
+        sourceTextureOptions.name = "EdgeDetectSourceRT";
+        sourceTextureOptions.width = rtWidth;
+        sourceTextureOptions.height = rtHeight;
+        sourceTextureOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+        sourceTextureOptions.mipmaps = false;
+        sourceTextureOptions.minFilter = FilterMode::FILTER_LINEAR;
+        sourceTextureOptions.magFilter = FilterMode::FILTER_LINEAR;
+        _sourceTexture = std::make_shared<Texture>(device().get(), sourceTextureOptions);
+        _sourceTexture->setAddressU(ADDRESS_CLAMP_TO_EDGE);
+        _sourceTexture->setAddressV(ADDRESS_CLAMP_TO_EDGE);
+
+        TextureOptions outputTextureOptions;
+        outputTextureOptions.name = "EdgeDetectOutputStorage";
+        outputTextureOptions.width = rtWidth;
+        outputTextureOptions.height = rtHeight;
+        outputTextureOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+        outputTextureOptions.mipmaps = false;
+        outputTextureOptions.storage = true;
+        outputTextureOptions.minFilter = FilterMode::FILTER_LINEAR;
+        outputTextureOptions.magFilter = FilterMode::FILTER_LINEAR;
+        _outputTexture = std::make_shared<Texture>(device().get(), outputTextureOptions);
+        _outputTexture->setAddressU(ADDRESS_CLAMP_TO_EDGE);
+        _outputTexture->setAddressV(ADDRESS_CLAMP_TO_EDGE);
+
+        RenderTargetOptions rtOptions;
+        rtOptions.graphicsDevice = device().get();
+        rtOptions.colorBuffer = _sourceTexture.get();
+        rtOptions.depth = true;
+        rtOptions.samples = 4;
+        rtOptions.autoResolve = true;
+        rtOptions.name = "EdgeDetectRT";
+        _sceneRenderTarget = device()->createRenderTarget(rtOptions);
+
+        _rtCameraEntity = createCamera(Vector3(100.0f, 35.0f, 0.0f));
+        if (auto* rtCamera = _rtCameraEntity->findComponent<CameraComponent>();
+            rtCamera && rtCamera->camera()) {
+            rtCamera->setLayers({LAYERID_RT});
+            rtCamera->camera()->setRenderTarget(_sceneRenderTarget);
+            rtCamera->camera()->setFarClip(500.0f);
+            rtCamera->camera()->setClearColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
         }
-    }
-    scene->setLayers(composition);
+        _rtCameraEntity->lookAt(Vector3(0.0f, 0.0f, 0.0f));
 
-    auto boardAsset = std::make_unique<Asset>(
-        "board",
-        AssetType::CONTAINER,
-        rootPath + "/models/chess-board.glb"
-    );
-    auto helipadAsset = std::make_unique<Asset>(
-        "helipad-env-atlas",
-        AssetType::TEXTURE,
-        rootPath + "/cubemaps/helipad-env-atlas.png",
-        AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false}
-    );
-
-    const auto boardResource = boardAsset->resource();
-    const auto helipadResource = helipadAsset->resource();
-    if (!boardResource || !helipadResource || !std::holds_alternative<ContainerResource*>(*boardResource)) {
-        spdlog::error("Failed to load required chess-board/env atlas resources");
-        engine.reset();
-        graphicsDevice.reset();
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return -1;
-    }
-
-    scene->setEnvAtlas(std::get<Texture*>(*helipadResource));
-    scene->setSkyboxMip(1.0f);
-    scene->setSkyboxIntensity(1.0f);
-    scene->setExposure(1.0f);
-    scene->setToneMapping(TONEMAP_LINEAR);
-
-    auto* container = std::get<ContainerResource*>(*boardResource);
-    auto* boardEntity = container ? container->instantiateRenderEntity() : nullptr;
-    if (!boardEntity) {
-        spdlog::error("Failed to instantiate chess-board.glb render entity");
-        engine.reset();
-        graphicsDevice.reset();
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return -1;
-    }
-    boardEntity->setEngine(engine.get());
-    applyRenderOptionsRecursive(boardEntity, {LAYERID_RT});
-    engine->root()->addChild(boardEntity);
-
-    // The board keeps its authored transform, exactly like upstream. The model is
-    // ~340 units across, so the orbiting render-target camera at radius 100 sits
-    // among the pieces — that close-up is the shot the example is built around.
-    // Re-scaling it to fit the frame turns it into a distant speck on white.
-
-    RenderableStats boardStats;
-    gatherRenderableStats(boardEntity, boardStats);
-    if (boardStats.meshInstances == 0) {
-        spdlog::error("chess-board.glb instantiated with zero mesh instances (renderComponents={}).",
-            boardStats.renderComponents);
-
-        spdlog::error("Draco is enabled in this build, so GLB decode likely failed for a different reason.");
-        spdlog::error("Check parser warnings above for malformed Draco extension or decode errors.");
-
-        engine.reset();
-        graphicsDevice.reset();
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return -1;
-    }
-
-    // Directional light on the default WORLD layer, as upstream declares it. Note it
-    // therefore does NOT reach the board, which lives on the RT layer only — the board
-    // is lit purely by the environment atlas. Putting the light on LAYERID_RT would
-    // add a key light upstream does not have.
-    auto* rtLight = new Entity();
-    rtLight->setEngine(engine.get());
-    auto* rtLightComp = static_cast<LightComponent*>(rtLight->addComponent<LightComponent>());
-    if (rtLightComp) {
-        rtLightComp->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        rtLightComp->setColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
-        rtLightComp->setIntensity(1.0f);
-    }
-    rtLight->setLocalEulerAngles(45.0f, 45.0f, 0.0f);
-    engine->root()->addChild(rtLight);
-
-    const auto [initialW, initialH] = graphicsDevice->size();
-    const int rtWidth = std::max(1, initialW);
-    const int rtHeight = std::max(1, initialH / 2);
-
-    TextureOptions sourceTextureOptions;
-    sourceTextureOptions.name = "EdgeDetectSourceRT";
-    sourceTextureOptions.width = rtWidth;
-    sourceTextureOptions.height = rtHeight;
-    sourceTextureOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
-    sourceTextureOptions.mipmaps = false;
-    sourceTextureOptions.minFilter = FilterMode::FILTER_LINEAR;
-    sourceTextureOptions.magFilter = FilterMode::FILTER_LINEAR;
-    auto sourceTexture = std::make_shared<Texture>(graphicsDevice.get(), sourceTextureOptions);
-    sourceTexture->setAddressU(ADDRESS_CLAMP_TO_EDGE);
-    sourceTexture->setAddressV(ADDRESS_CLAMP_TO_EDGE);
-
-    TextureOptions outputTextureOptions;
-    outputTextureOptions.name = "EdgeDetectOutputStorage";
-    outputTextureOptions.width = rtWidth;
-    outputTextureOptions.height = rtHeight;
-    outputTextureOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
-    outputTextureOptions.mipmaps = false;
-    outputTextureOptions.storage = true;
-    outputTextureOptions.minFilter = FilterMode::FILTER_LINEAR;
-    outputTextureOptions.magFilter = FilterMode::FILTER_LINEAR;
-    auto outputTexture = std::make_shared<Texture>(graphicsDevice.get(), outputTextureOptions);
-    outputTexture->setAddressU(ADDRESS_CLAMP_TO_EDGE);
-    outputTexture->setAddressV(ADDRESS_CLAMP_TO_EDGE);
-
-    RenderTargetOptions rtOptions;
-    rtOptions.graphicsDevice = graphicsDevice.get();
-    rtOptions.colorBuffer = sourceTexture.get();
-    rtOptions.depth = true;
-    rtOptions.samples = 4;
-    rtOptions.autoResolve = true;
-    rtOptions.name = "EdgeDetectRT";
-    auto sceneRenderTarget = graphicsDevice->createRenderTarget(rtOptions);
-
-    auto* rtCameraEntity = new Entity();
-    rtCameraEntity->setEngine(engine.get());
-    auto* rtCamera = static_cast<CameraComponent*>(rtCameraEntity->addComponent<CameraComponent>());
-    if (rtCamera && rtCamera->camera()) {
-        rtCamera->setLayers({LAYERID_RT});
-        rtCamera->camera()->setRenderTarget(sceneRenderTarget);
-        rtCamera->camera()->setFarClip(500.0f);
-        rtCamera->camera()->setClearColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
-    }
-    rtCameraEntity->setLocalPosition(100.0f, 35.0f, 0.0f);
-    setLookAt(rtCameraEntity, Vector3(0.0f, 0.0f, 0.0f));
-    engine->root()->addChild(rtCameraEntity);
-
-    // Main camera: keeps its default layer set so the environment skybox fills the
-    // background behind the two display quads (upstream relies on the same default).
-    auto* mainCameraEntity = new Entity();
-    mainCameraEntity->setEngine(engine.get());
-    auto* mainCamera = static_cast<CameraComponent*>(mainCameraEntity->addComponent<CameraComponent>());
-    if (mainCamera && mainCamera->camera()) {
-        mainCamera->camera()->setClearColor(Color(0.2f, 0.2f, 0.3f, 1.0f));
-    }
-    mainCameraEntity->setLocalPosition(0.0f, 0.0f, 0.0f);
-    engine->root()->addChild(mainCameraEntity);
-
-    auto displayOriginalPass = std::make_shared<RenderPassDownsample>(graphicsDevice, sourceTexture.get());
-    auto displayEdgePass = std::make_shared<RenderPassDownsample>(graphicsDevice, outputTexture.get());
-    displayOriginalPass->init(nullptr);
-    displayEdgePass->init(nullptr);
-    displayOriginalPass->setRequiresCubemaps(false);
-    displayEdgePass->setRequiresCubemaps(false);
-
-    // Register the display passes as renderer append passes so they run inside
-    // Engine::render(), after the scene render actions but BEFORE frame end.
-    // Rendering to the back buffer after engine->render() returns is unsafe:
-    // frameEnd presents the drawable, and a later pass would reuse the stale
-    // presented drawable (pointer-auth SIGSEGV in startRenderPass).
-    engine->renderer()->addAppendPass(displayOriginalPass);
-    engine->renderer()->addAppendPass(displayEdgePass);
-
-    std::shared_ptr<Shader> computeShader = nullptr;
-    std::unique_ptr<Compute> compute = nullptr;
-    if (graphicsDevice->supportsCompute()) {
-        ShaderDefinition computeDef;
-        computeDef.name = "EdgeDetectCompute";
-        computeDef.cshader = "edgeDetectKernel";
-        // Both backends can be compiled in and selected at runtime (VISUTWIN_BACKEND),
-        // so the source must be chosen from the live device, not from a build-time
-        // #ifdef — that handed Metal the GLSL and failed every compile in a dual
-        // backend build.
-        const char* computeSource =
-            graphicsDevice->shaderLanguage() == ShaderLanguage::Glsl
-                ? EDGE_DETECT_COMPUTE_SOURCE_VULKAN
-                : EDGE_DETECT_COMPUTE_SOURCE_METAL;
-        computeShader = createShader(graphicsDevice.get(), computeDef, computeSource);
-        if (computeShader) {
-            compute = std::make_unique<Compute>(graphicsDevice.get(), computeShader, "EdgeDetect");
-            compute->setParameter("inputTexture", sourceTexture.get());
-            compute->setParameter("outputTexture", outputTexture.get());
+        // Main camera: keeps its default layer set so the environment skybox fills the
+        // background behind the two display quads (upstream relies on the same default).
+        auto* mainCameraEntity = createCamera(Vector3(0.0f, 0.0f, 0.0f));
+        if (auto* mainCamera = mainCameraEntity->findComponent<CameraComponent>();
+            mainCamera && mainCamera->camera()) {
+            mainCamera->camera()->setClearColor(Color(0.2f, 0.2f, 0.3f, 1.0f));
         }
-    }
 
-    bool running = true;
-    const uint64_t perfFreq = SDL_GetPerformanceFrequency();
-    uint64_t prevCounter = SDL_GetPerformanceCounter();
-    float time = 0.0f;
+        _displayOriginalPass = std::make_shared<RenderPassDownsample>(device(), _sourceTexture.get());
+        _displayEdgePass = std::make_shared<RenderPassDownsample>(device(), _outputTexture.get());
+        _displayOriginalPass->init(nullptr);
+        _displayEdgePass->init(nullptr);
+        _displayOriginalPass->setRequiresCubemaps(false);
+        _displayEdgePass->setRequiresCubemaps(false);
 
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
-                running = false;
+        // Register the display passes as renderer append passes so they run inside
+        // Engine::render(), after the scene render actions but BEFORE frame end.
+        // Rendering to the back buffer after engine->render() returns is unsafe:
+        // frameEnd presents the drawable, and a later pass would reuse the stale
+        // presented drawable (pointer-auth SIGSEGV in startRenderPass).
+        engine()->renderer()->addAppendPass(_displayOriginalPass);
+        engine()->renderer()->addAppendPass(_displayEdgePass);
+
+        if (device()->supportsCompute()) {
+            ShaderDefinition computeDef;
+            computeDef.name = "EdgeDetectCompute";
+            computeDef.cshader = "edgeDetectKernel";
+            // Both backends can be compiled in and selected at runtime (VISUTWIN_BACKEND),
+            // so the source must be chosen from the live device, not from a build-time
+            // #ifdef — that handed Metal the GLSL and failed every compile in a dual
+            // backend build.
+            const char* computeSource =
+                device()->shaderLanguage() == ShaderLanguage::Glsl
+                    ? EDGE_DETECT_COMPUTE_SOURCE_VULKAN
+                    : EDGE_DETECT_COMPUTE_SOURCE_METAL;
+            _computeShader = createShader(device().get(), computeDef, computeSource);
+            if (_computeShader) {
+                _compute = std::make_unique<Compute>(device().get(), _computeShader, "EdgeDetect");
+                _compute->setParameter("inputTexture", _sourceTexture.get());
+                _compute->setParameter("outputTexture", _outputTexture.get());
             }
         }
 
-        const uint64_t currentCounter = SDL_GetPerformanceCounter();
-        float deltaTime = static_cast<float>(currentCounter - prevCounter) / static_cast<float>(perfFreq);
-        prevCounter = currentCounter;
-        deltaTime = std::clamp(deltaTime, 0.0f, 0.1f);
-        time += deltaTime;
+        return true;
+    }
 
-        const auto [w, h] = graphicsDevice->size();
+    void update(const float dt) override
+    {
+        _time += std::clamp(dt, 0.0f, 0.1f);
+
+        const auto [w, h] = device()->size();
         const int desiredW = std::max(1, w);
         const int desiredH = std::max(1, h / 2);
-        if (sceneRenderTarget->width() != desiredW || sceneRenderTarget->height() != desiredH) {
-            sceneRenderTarget->resize(desiredW, desiredH);
-            outputTexture->resize(static_cast<uint32_t>(desiredW), static_cast<uint32_t>(desiredH));
-            if (compute) {
-                compute->setParameter("inputTexture", sourceTexture.get());
-                compute->setParameter("outputTexture", outputTexture.get());
+        if (_sceneRenderTarget->width() != desiredW || _sceneRenderTarget->height() != desiredH) {
+            _sceneRenderTarget->resize(desiredW, desiredH);
+            _outputTexture->resize(static_cast<uint32_t>(desiredW), static_cast<uint32_t>(desiredH));
+            if (_compute) {
+                _compute->setParameter("inputTexture", _sourceTexture.get());
+                _compute->setParameter("outputTexture", _outputTexture.get());
             }
         }
 
-        const float cameraAngle = time * 0.2f;
-        rtCameraEntity->setLocalPosition(100.0f * std::sin(cameraAngle), 35.0f, 100.0f * std::cos(cameraAngle));
-        setLookAt(rtCameraEntity, Vector3(0.0f, 0.0f, 0.0f));
+        const float cameraAngle = _time * 0.2f;
+        _rtCameraEntity->setLocalPosition(100.0f * std::sin(cameraAngle), 35.0f, 100.0f * std::cos(cameraAngle));
+        _rtCameraEntity->lookAt(Vector3(0.0f, 0.0f, 0.0f));
 
-        if (compute) {
-            const uint32_t dispatchX = static_cast<uint32_t>((sceneRenderTarget->width() + 7) / 8);
-            const uint32_t dispatchY = static_cast<uint32_t>((sceneRenderTarget->height() + 7) / 8);
-            compute->setupDispatch(dispatchX, dispatchY, 1);
-            graphicsDevice->computeDispatch({compute.get()}, "EdgeDetectDispatch");
+        if (_compute) {
+            const uint32_t dispatchX = static_cast<uint32_t>((_sceneRenderTarget->width() + 7) / 8);
+            const uint32_t dispatchY = static_cast<uint32_t>((_sceneRenderTarget->height() + 7) / 8);
+            _compute->setupDispatch(dispatchX, dispatchY, 1);
+            device()->computeDispatch({_compute.get()}, "EdgeDetectDispatch");
         }
 
         // Two screen-space views with a small vertical gap — viewports set before
@@ -524,19 +371,41 @@ int main()
         const int topY = static_cast<int>(std::round(0.5f * gap * static_cast<float>(screenH)));
         const int bottomY = static_cast<int>(std::round((0.5f + 0.5f * gap) * static_cast<float>(screenH)));
 
-        displayOriginalPass->setViewport(Vector4(static_cast<float>(vx), static_cast<float>(topY), static_cast<float>(vw), static_cast<float>(vh)));
-        displayOriginalPass->setScissor(displayOriginalPass->viewport());
-        displayEdgePass->setViewport(Vector4(static_cast<float>(vx), static_cast<float>(bottomY), static_cast<float>(vw), static_cast<float>(vh)));
-        displayEdgePass->setScissor(displayEdgePass->viewport());
-
-        engine->update(deltaTime);
-        engine->render();
+        _displayOriginalPass->setViewport(Vector4(static_cast<float>(vx), static_cast<float>(topY),
+            static_cast<float>(vw), static_cast<float>(vh)));
+        _displayOriginalPass->setScissor(_displayOriginalPass->viewport());
+        _displayEdgePass->setViewport(Vector4(static_cast<float>(vx), static_cast<float>(bottomY),
+            static_cast<float>(vw), static_cast<float>(vh)));
+        _displayEdgePass->setScissor(_displayEdgePass->viewport());
     }
 
-    engine.reset();
-    graphicsDevice.reset();
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-    return 0;
-}
+    void destroy() override
+    {
+        // The append passes are registered with the renderer and the compute holds
+        // device resources, so both go while the engine is still alive.
+        _compute.reset();
+        _computeShader.reset();
+        _displayOriginalPass.reset();
+        _displayEdgePass.reset();
+        _sceneRenderTarget.reset();
+        _sourceTexture.reset();
+        _outputTexture.reset();
+    }
+
+private:
+    std::unique_ptr<Asset> _boardAsset;
+    std::unique_ptr<Asset> _helipadAsset;
+
+    std::shared_ptr<Texture> _sourceTexture;
+    std::shared_ptr<Texture> _outputTexture;
+    std::shared_ptr<RenderTarget> _sceneRenderTarget;
+    std::shared_ptr<RenderPassDownsample> _displayOriginalPass;
+    std::shared_ptr<RenderPassDownsample> _displayEdgePass;
+    std::shared_ptr<Shader> _computeShader;
+    std::unique_ptr<Compute> _compute;
+
+    Entity* _rtCameraEntity = nullptr;
+    float _time = 0.0f;
+};
+
+VISUTWIN_EXAMPLE_MAIN(EdgeDetectExample)
