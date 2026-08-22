@@ -33,6 +33,14 @@ namespace visutwin::canvas
             if (!material) {
                 return nullptr;
             }
+            // parameter() takes a std::string, so every name here would construct a
+            // temporary — and the longer ones ("texture_metallicRoughnessMap") exceed
+            // the small-string capacity and reach the heap. Materials that never call
+            // setParameter have nothing to find, which is nearly all of them, and this
+            // runs for each of them on every material switch.
+            if (material->parameters().empty()) {
+                return nullptr;
+            }
             for (const char* name : names) {
                 if (const auto* value = material->parameter(name)) {
                     return value;
