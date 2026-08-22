@@ -1,10 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Blurred planar reflections: a glossy ground plane on its own layer reflects the
-// scene through a mirrored camera pair — one rendering colour, one rendering
-// distance-from-plane as a depth proxy — which the ground shader blurs by height.
-// Keys retune blur, intensity, fade, angle fade and height range at runtime.
+// Port of the upstream "graphics/reflection-planar-blurred" example.
+//
+// The Khronos sunglasses model sits at its authored real-world size (~14 cm) on a
+// 4-unit reflective quad, lit by the morning environment atlas alone. A mirrored
+// camera pair renders the scene from below the ground plane — one pass for colour,
+// one writing per-pixel distance from the plane — and the ground shader uses that
+// distance to blur the reflection with height, so contact points stay sharp while
+// the raised parts of the frame smear out.
+//
+// Keys stand in for upstream's slider panel, over the same parameters and ranges:
+//   B / V  blur amount     (0 .. 1)
+//   I / O  intensity       (0 .. 1)
+//   F / G  fade strength   (0.1 .. 5)
+//   A / S  angle fade      (0.1 .. 1)
+//   H / J  height range    (0.001 .. 1)
+//   M      toggle reflections   R  reset to defaults   Esc  quit
+//
+// DEVIATIONS:
+//  - upstream's BlurredPlanarReflection script REPLACES the ground plane's material
+//    with a dedicated ShaderMaterial reflection quad. This engine implements planar
+//    reflection as a StandardMaterial feature instead (VT_FEATURE bits 33/34, driven
+//    by setReflectionMap plus GraphicsDevice::setReflectionBlurParams), so the ground
+//    here stays a StandardMaterial. Same technique, different plumbing.
+//  - upstream inserts the excluded layer's opaque and transparent sublayers at two
+//    different positions; LayerComposition::insert places both at one index. The
+//    excluded layer holds only the opaque ground, so the orders coincide.
+//  - upstream's `resolution` slider rescales the reflection render targets live; here
+//    they are created once at the device's backbuffer size (upstream's default 1.0).
 //
 #include <algorithm>
 #include <cmath>
@@ -23,28 +47,23 @@
 
 using namespace visutwin::canvas;
 
-constexpr int WINDOW_WIDTH = 1200;
-constexpr int WINDOW_HEIGHT = 800;
-
-// Custom layer ID for the ground reflector (excluded from reflection camera).
-constexpr int LAYERID_GROUND_REFLECTOR = 100;
+// Layer holding the ground reflector, excluded from the reflection cameras
+// (upstream calls it "Excluded").
+constexpr int LAYERID_EXCLUDED = 100;
 
 class ReflectionPlanarBlurredExample final: public ExampleApp
 {
 public:
     ReflectionPlanarBlurredExample()
-        : ExampleApp({.title = "Blurred Planar Reflection",
-                      .width = WINDOW_WIDTH, .height = WINDOW_HEIGHT}) {}
+        : ExampleApp({.title = "Blurred Planar Reflection", .width = 1200, .height = 800}) {}
 
 protected:
     bool create() override
     {
-        scene()->setSkyboxMip(0);
+        // Upstream sets only the environment atlas and skybox intensity; tone mapping
+        // is a CAMERA setting there, and exposure/skyboxMip stay at their defaults.
         scene()->setSkyboxIntensity(2.0f);
-        scene()->setExposure(1.5f);
-        scene()->setToneMapping(TONEMAP_NEUTRAL);
 
-        // Environment atlas for IBL (matches upstream reflection-planar-blurred).
         _envAtlas = std::make_unique<Asset>(
             "morning-env-atlas",
             AssetType::TEXTURE,
@@ -54,7 +73,7 @@ protected:
                 .mipmaps = false
             }
         );
-        _statueAsset = std::make_unique<Asset>(
+        _sunglassesAsset = std::make_unique<Asset>(
             "sunglasses", AssetType::CONTAINER, assetPath("models/SunglassesKhronos.glb"));
 
         const auto envAtlasResource = _envAtlas->resource();
@@ -64,177 +83,111 @@ protected:
         }
         scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
 
-        // -----------------------------------------------------------------------
-        // Layer composition: World + GroundReflector (excluded from reflection).
-        // -----------------------------------------------------------------------
-        auto groundLayer = std::make_shared<Layer>("GroundReflector", LAYERID_GROUND_REFLECTOR);
-        scene()->layers()->pushOpaque(groundLayer);
-        scene()->layers()->pushTransparent(groundLayer);
-
-        // -----------------------------------------------------------------------
-        // Scene objects — materials and primitives in the World layer.
-        // -----------------------------------------------------------------------
-
-        // Red metallic sphere.
-        _redMaterial = std::make_shared<StandardMaterial>();
-        _redMaterial->setDiffuse(Color(0.9f, 0.15f, 0.1f, 1.0f));
-        _redMaterial->setMetalness(0.6f);
-        _redMaterial->setGloss(0.8f);
-
-        // Gold metallic box.
-        _goldMaterial = std::make_shared<StandardMaterial>();
-        _goldMaterial->setDiffuse(Color(1.0f, 0.84f, 0.0f, 1.0f));
-        _goldMaterial->setMetalness(0.9f);
-        _goldMaterial->setGloss(0.7f);
-
-        // Blue dielectric cylinder.
-        _blueMaterial = std::make_shared<StandardMaterial>();
-        _blueMaterial->setDiffuse(Color(0.15f, 0.3f, 0.85f, 1.0f));
-        _blueMaterial->setMetalness(0.1f);
-        _blueMaterial->setGloss(0.9f);
-
-        // White ceramic torus (cone as proxy).
-        _whiteMaterial = std::make_shared<StandardMaterial>();
-        _whiteMaterial->setDiffuse(Color(0.95f, 0.95f, 0.92f, 1.0f));
-        _whiteMaterial->setMetalness(0.0f);
-        _whiteMaterial->setGloss(0.85f);
-
-        _sphere = createPrimitive("sphere", _redMaterial.get(),
-            Vector3(-1.5f, 1.0f, -0.5f), Vector3(2.0f, 2.0f, 2.0f));
-        _box = createPrimitive("box", _goldMaterial.get(),
-            Vector3(1.8f, 0.8f, -1.0f), Vector3(1.5f, 1.6f, 1.5f));
-        _cone = createPrimitive("cone", _blueMaterial.get(),
-            Vector3(0.0f, 1.2f, 1.5f), Vector3(1.6f, 2.4f, 1.6f));
-        createPrimitive("cone", _whiteMaterial.get(),
-            Vector3(-3.0f, 0.6f, 2.0f), Vector3(1.0f, 1.2f, 1.0f));
-
-        // Load GLB model if available.
-        if (const auto statueResource = _statueAsset->resource()) {
-            if (auto* modelEntity = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity()) {
-                // SunglassesKhronos is authored at real-world scale (~14 cm) — scale up
-                // to be the visible hero object in this larger scene.
-                modelEntity->setLocalScale(18.0f, 18.0f, 18.0f);
-                modelEntity->setLocalPosition(0.0f, 1.6f, 0.0f);
-                root()->addChild(modelEntity);
-            }
+        // Layer order upstream asks for:
+        //   World(opaque) -> Excluded(opaque) -> Depth -> World(transp) -> Excluded(transp)
+        const auto layers = scene()->layers();
+        const auto worldLayer = layers->getLayerById(LAYERID_WORLD);
+        if (!worldLayer) {
+            spdlog::error("World layer missing from the default composition");
+            return false;
         }
+        auto excludedLayer = std::make_shared<Layer>("Excluded", LAYERID_EXCLUDED);
+        layers->insert(excludedLayer, layers->getOpaqueIndex(worldLayer) + 1);
 
         // -----------------------------------------------------------------------
-        // Ground reflector — render component in GroundReflector layer only.
+        // The hero model, at its authored real-world scale — upstream neither scales
+        // nor moves it, and the whole shot is a sub-metre close-up because of that.
+        // -----------------------------------------------------------------------
+        const auto sunglassesResource = _sunglassesAsset->resource();
+        if (!sunglassesResource) {
+            spdlog::error("Failed to load models/SunglassesKhronos.glb");
+            return false;
+        }
+        auto* sunglasses = std::get<ContainerResource*>(*sunglassesResource)->instantiateRenderEntity();
+        sunglasses->setEngine(engine());
+        root()->addChild(sunglasses);
+
+        // -----------------------------------------------------------------------
+        // Ground reflector — a 4-unit plane alone on the excluded layer.
         // -----------------------------------------------------------------------
         _groundMaterial = std::make_shared<StandardMaterial>();
-        _groundMaterial->setDiffuse(Color(0.85f, 0.85f, 0.85f, 1.0f));
+        _groundMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
         _groundMaterial->setMetalness(0.0f);
-        _groundMaterial->setGloss(0.95f);   // High gloss for strong reflections.
+        _groundMaterial->setGloss(0.95f);
 
-        createPrimitive("plane", _groundMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
-            Vector3(20.0f, 1.0f, 20.0f), {LAYERID_GROUND_REFLECTOR});
+        auto* ground = createPrimitive("plane", _groundMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
+            Vector3(4.0f, 1.0f, 4.0f), {LAYERID_EXCLUDED});
+        if (auto* render = ground->findComponent<RenderComponent>()) {
+            render->setCastShadows(false);
+        }
 
         // -----------------------------------------------------------------------
-        // Reflection depth render target and camera.
-        //
-        // The depth camera renders the scene (excluding ground) with a special
-        // shader that outputs distance-from-reflection-plane as grayscale.
-        // Created before color camera so it renders first.
+        // Reflection render targets, sized to the backbuffer (upstream resolution 1.0).
+        // Both reflection cameras are created BEFORE the main camera: this engine has
+        // no camera priority (upstream uses -2 / -1 / 0), and layer composition renders
+        // cameras in construction order — built after, the main camera would sample the
+        // previous frame's reflection maps.
         // -----------------------------------------------------------------------
-        TextureOptions depthTexOpts;
-        depthTexOpts.name = "ReflectionDepthRT";
-        depthTexOpts.width = WINDOW_WIDTH;
-        depthTexOpts.height = WINDOW_HEIGHT;
-        depthTexOpts.format = PixelFormat::PIXELFORMAT_RGBA8;
-        depthTexOpts.mipmaps = false;
-        depthTexOpts.minFilter = FilterMode::FILTER_LINEAR;
-        depthTexOpts.magFilter = FilterMode::FILTER_LINEAR;
-        _reflectionDepthTexture = std::make_shared<Texture>(device().get(), depthTexOpts);
+        const auto [deviceWidth, deviceHeight] = device()->size();
+        const int rtWidth = std::max(1, deviceWidth);
+        const int rtHeight = std::max(1, deviceHeight);
 
-        RenderTargetOptions depthRtOpts;
-        depthRtOpts.graphicsDevice = device().get();
-        depthRtOpts.colorBuffer = _reflectionDepthTexture.get();
-        depthRtOpts.depth = true;
-        depthRtOpts.name = "ReflectionDepthRenderTarget";
-        auto reflectionDepthRT = device()->createRenderTarget(depthRtOpts);
+        _reflectionDepthTexture = createReflectionTexture("ReflectionDepthRT", rtWidth, rtHeight);
+        auto reflectionDepthRT = createReflectionTarget("ReflectionDepthRenderTarget",
+            _reflectionDepthTexture.get());
 
-        // Depth camera: renders World + Skybox with depth pass shader.
+        // Depth camera: renders distance-from-plane as greyscale for the blur radius.
         _depthCamEntity = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         _depthCamComp = _depthCamEntity->findComponent<CameraComponent>();
-        _depthCamComp->setLayers({LAYERID_WORLD, LAYERID_SKYBOX});
+        _depthCamComp->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_UI});
         _depthCamComp->camera()->setRenderTarget(reflectionDepthRT);
-        _depthCamComp->camera()->setClearColor(Color(0.0f, 0.0f, 0.0f, 1.0f));  // Black = zero distance
-        _depthCamComp->camera()->setPlanarReflectionDepthPass(true);  // Enable depth pass shader
+        _depthCamComp->camera()->setPlanarReflectionDepthPass(true);
 
-        // -----------------------------------------------------------------------
-        // Reflection color render target and camera.
-        // -----------------------------------------------------------------------
-        TextureOptions reflTexOpts;
-        reflTexOpts.name = "ReflectionRT";
-        reflTexOpts.width = WINDOW_WIDTH;
-        reflTexOpts.height = WINDOW_HEIGHT;
-        reflTexOpts.format = PixelFormat::PIXELFORMAT_RGBA8;
-        reflTexOpts.mipmaps = false;
-        reflTexOpts.minFilter = FilterMode::FILTER_LINEAR;
-        reflTexOpts.magFilter = FilterMode::FILTER_LINEAR;
-        _reflectionTexture = std::make_shared<Texture>(device().get(), reflTexOpts);
+        _reflectionTexture = createReflectionTexture("ReflectionRT", rtWidth, rtHeight);
+        auto reflectionRT = createReflectionTarget("ReflectionRenderTarget", _reflectionTexture.get());
 
-        RenderTargetOptions reflRtOpts;
-        reflRtOpts.graphicsDevice = device().get();
-        reflRtOpts.colorBuffer = _reflectionTexture.get();
-        reflRtOpts.depth = true;
-        reflRtOpts.name = "ReflectionRenderTarget";
-        auto reflectionRT = device()->createRenderTarget(reflRtOpts);
-
-        // Reflection color camera: renders World + Skybox only (excludes ground layer).
+        // Colour camera: the main camera's layers minus the excluded ground and minus
+        // the skybox — upstream clears to the fade colour instead of drawing the sky.
         _reflCamEntity = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         _reflCamComp = _reflCamEntity->findComponent<CameraComponent>();
-        _reflCamComp->setLayers({LAYERID_WORLD, LAYERID_SKYBOX});
+        _reflCamComp->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_UI});
         _reflCamComp->camera()->setRenderTarget(reflectionRT);
-        _reflCamComp->camera()->setClearColor(Color(0.5f, 0.5f, 0.5f, 1.0f));
 
         // -----------------------------------------------------------------------
-        // Main camera with orbit controls.
+        // Main camera. Upstream: fov 60, nearClip 0.01, white clear, NEUTRAL tone
+        // mapping, and no Skybox layer — the background is the clear colour.
         // -----------------------------------------------------------------------
-        _cameraEntity = createCamera(Vector3(-2.0f, 3.5f, 8.0f));
+        _cameraEntity = createCamera(Vector3(-0.2f, 0.1f, 0.2f));
         _cameraComp = _cameraEntity->findComponent<CameraComponent>();
-
         if (_cameraComp && _cameraComp->camera()) {
-            _cameraComp->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX,
-                                    LAYERID_UI, LAYERID_IMMEDIATE, LAYERID_GROUND_REFLECTOR});
+            _cameraComp->setLayers({LAYERID_WORLD, LAYERID_EXCLUDED, LAYERID_DEPTH, LAYERID_UI});
             _cameraComp->camera()->setFov(60.0f);
             _cameraComp->camera()->setNearClip(0.01f);
-            _cameraComp->camera()->setFarClip(200.0f);
-            _cameraComp->camera()->setClearColor(Color(0.7f, 0.7f, 0.75f, 1.0f));
-        }
-        _cameraEntity->lookAt(Vector3(0.0f, 0.5f, 0.0f));
+            _cameraComp->camera()->setClearColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
+            _cameraComp->setToneMapping(TONEMAP_NEUTRAL);
 
-        // Orbit camera controls.
-        _controls = addOrbitControls(_cameraEntity, Vector3(0.0f, 0.5f, 0.0f));
-        _controls->setPitchRange(Vector2(-85.0f, -3.0f));  // Keep above ground.
-        _controls->setOrbitDistance(10.0f);
-        _controls->setAutoFarClip(true, 10.0f, 200.0f);
+            // The sunglasses' lenses use transmission, which reads the mid-frame
+            // scene colour grab — without this the glass renders wrong.
+            _cameraComp->requestSceneColorMap(true);
+        }
+
+        _controls = addOrbitControls(_cameraEntity, Vector3(0.0f, 0.02f, 0.0f));
+        _controls->setPitchRange(Vector2(-85.0f, -4.0f));   // keep the camera above ground
+        _controls->setZoomRange(Vector2(0.1f, 1.0f));
         _controls->storeResetState();
 
         // -----------------------------------------------------------------------
-        // Directional light with shadows.
-        // -----------------------------------------------------------------------
-        auto* light = createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f),
-            Color(1.0f, 1.0f, 1.0f, 1.0f), 1.2f, true);
-        if (auto* lightComp = light->findComponent<LightComponent>()) {
-            lightComp->setShadowResolution(2048);
-            lightComp->setShadowDistance(50.0f);
-            lightComp->setShadowBias(0.2f);
-        }
-
-        // -----------------------------------------------------------------------
-        // Apply reflection textures to ground material and graphics device.
+        // Hand the reflection maps to the ground material and the device.
         // -----------------------------------------------------------------------
         _groundMaterial->setReflectionMap(_reflectionTexture.get());
         device()->setReflectionMap(_reflectionTexture.get());
         device()->setReflectionDepthMap(_reflectionDepthTexture.get());
 
-        // Initialize blur parameters (defaults).
         resetBlurParams();
         device()->setReflectionBlurParams(_blurParams);
 
-        spdlog::info("Controls: B/V blur +/-, I/O intensity +/-, F/G fade +/-, A/S angle +/-, H/J height +/-, M toggle, R reset");
+        spdlog::info("Blurred planar reflection (upstream graphics/reflection-planar-blurred).");
+        spdlog::info("Keys: B/V blur, I/O intensity, F/G fade, A/S angle, H/J height, M toggle, R reset");
         logBlurParams();
 
         return true;
@@ -245,48 +198,39 @@ protected:
         if (event.type != SDL_EVENT_KEY_DOWN) {
             return false;
         }
+        // Steps and clamps mirror upstream's slider ranges.
         switch (event.key.key) {
-        // Blur amount: B increase, V decrease.
         case SDLK_B:
-            _blurParams.blurAmount = std::min(_blurParams.blurAmount + 0.1f, 2.0f);
+            _blurParams.blurAmount = std::min(_blurParams.blurAmount + 0.05f, 1.0f);
             break;
         case SDLK_V:
-            _blurParams.blurAmount = std::max(_blurParams.blurAmount - 0.1f, 0.0f);
+            _blurParams.blurAmount = std::max(_blurParams.blurAmount - 0.05f, 0.0f);
             break;
-
-        // Intensity: I increase, O decrease.
         case SDLK_I:
-            _blurParams.intensity = std::min(_blurParams.intensity + 0.1f, 1.0f);
+            _blurParams.intensity = std::min(_blurParams.intensity + 0.05f, 1.0f);
             break;
         case SDLK_O:
-            _blurParams.intensity = std::max(_blurParams.intensity - 0.1f, 0.0f);
+            _blurParams.intensity = std::max(_blurParams.intensity - 0.05f, 0.0f);
             break;
-
-        // Fade strength: F increase, G decrease.
         case SDLK_F:
             _blurParams.fadeStrength = std::min(_blurParams.fadeStrength + 0.2f, 5.0f);
             break;
         case SDLK_G:
             _blurParams.fadeStrength = std::max(_blurParams.fadeStrength - 0.2f, 0.1f);
             break;
-
-        // Angle fade: A increase, S decrease.
         case SDLK_A:
-            _blurParams.angleFade = std::min(_blurParams.angleFade + 0.1f, 1.0f);
+            _blurParams.angleFade = std::min(_blurParams.angleFade + 0.05f, 1.0f);
             break;
         case SDLK_S:
-            _blurParams.angleFade = std::max(_blurParams.angleFade - 0.1f, 0.1f);
+            _blurParams.angleFade = std::max(_blurParams.angleFade - 0.05f, 0.1f);
             break;
-
-        // Height range: H increase, J decrease.
         case SDLK_H:
-            _blurParams.heightRange = std::min(_blurParams.heightRange + 1.0f, 50.0f);
+            _blurParams.heightRange = std::min(_blurParams.heightRange + 0.01f, 1.0f);
             break;
         case SDLK_J:
-            _blurParams.heightRange = std::max(_blurParams.heightRange - 1.0f, 1.0f);
+            _blurParams.heightRange = std::max(_blurParams.heightRange - 0.01f, 0.001f);
             break;
 
-        // Reset to defaults.
         case SDLK_R:
             resetBlurParams();
             device()->setReflectionBlurParams(_blurParams);
@@ -295,7 +239,6 @@ protected:
             logBlurParams();
             return true;
 
-        // Toggle reflection on/off.
         case SDLK_M:
             _reflectionEnabled = !_reflectionEnabled;
             device()->setReflectionMap(_reflectionEnabled ? _reflectionTexture.get() : nullptr);
@@ -313,27 +256,18 @@ protected:
         return true;
     }
 
-    void update(const float dt) override
+    void update(float) override
     {
-        _time += std::clamp(dt, 0.0f, 0.1f);
-        const float time = _time;
-
-        // Animate scene objects for visual interest.
-        _sphere->setLocalPosition(-1.5f, 1.0f + 0.3f * std::sin(time * 1.5f), -0.5f);
-        _box->setLocalEulerAngles(0.0f, time * 20.0f, 0.0f);
-        _cone->setLocalEulerAngles(0.0f, time * -15.0f, 0.0f);
-
-        // -----------------------------------------------------------------------
-        // Mirror main camera across ground plane for both reflection cameras.
-        //   _reflectionMatrix.setReflection(plane.normal, plane.distance);
-        //   reflectionMatrix.transformPoint(mainCameraPos, reflectedPos);
-        // -----------------------------------------------------------------------
         if (!_reflectionEnabled) {
             return;
         }
 
+        // Mirror the main camera across the ground plane for both reflection cameras
+        // (upstream BlurredPlanarReflection::postUpdate):
+        //   _reflectionMatrix.setReflection(plane.normal, plane.distance);
+        //   reflectionMatrix.transformPoint(mainCameraPos, reflectedPos);
         constexpr float groundY = 0.0f;
-        const float planeDistance = -groundY;  // d = -dot(normal, pointOnPlane)
+        const float planeDistance = -groundY;   // d = -dot(normal, pointOnPlane)
         const Matrix4 reflMatrix = Matrix4::reflection(0.0f, 1.0f, 0.0f, planeDistance);
 
         const auto& camWorld = _cameraEntity->worldTransform();
@@ -347,66 +281,84 @@ protected:
         const float pitch = std::asin(std::clamp(reflDir.getY(), -1.0f, 1.0f)) * RAD_TO_DEG;
         const float yaw = std::atan2(-reflDir.getX(), -reflDir.getZ()) * RAD_TO_DEG;
 
-        // Update color reflection camera.
-        _reflCamEntity->setPosition(reflPos);
-        _reflCamEntity->setLocalEulerAngles(pitch, yaw, 0.0f);
-        _reflCamComp->camera()->setFov(_cameraComp->camera()->fov());
-        _reflCamComp->camera()->setNearClip(_cameraComp->camera()->nearClip());
-        _reflCamComp->camera()->setFarClip(_cameraComp->camera()->farClip() * 2.0f);
-        _reflCamComp->camera()->setAspectRatio(_cameraComp->camera()->aspectRatio());
-        _reflCamComp->camera()->setClearColor(_blurParams.fadeColor);
-
-        // Update depth reflection camera (identical transform).
-        _depthCamEntity->setPosition(reflPos);
-        _depthCamEntity->setLocalEulerAngles(pitch, yaw, 0.0f);
-        _depthCamComp->camera()->setFov(_cameraComp->camera()->fov());
-        _depthCamComp->camera()->setNearClip(_cameraComp->camera()->nearClip());
-        _depthCamComp->camera()->setFarClip(_cameraComp->camera()->farClip() * 2.0f);
-        _depthCamComp->camera()->setAspectRatio(_cameraComp->camera()->aspectRatio());
+        // Upstream runs the same _updateReflectionCamera over both cameras, so both
+        // track the main camera's projection and both clear to the fade colour.
+        syncReflectionCamera(_reflCamEntity, _reflCamComp, reflPos, pitch, yaw);
+        syncReflectionCamera(_depthCamEntity, _depthCamComp, reflPos, pitch, yaw);
     }
 
     void destroy() override
     {
-        // Release reflection resources before engine destruction.
+        // Release reflection resources before the engine goes.
         device()->setReflectionMap(nullptr);
         device()->setReflectionDepthMap(nullptr);
         _groundMaterial->setReflectionMap(nullptr);
     }
 
 private:
+    std::shared_ptr<Texture> createReflectionTexture(const char* name, int width, int height) const
+    {
+        TextureOptions options;
+        options.name = name;
+        options.width = width;
+        options.height = height;
+        options.format = PixelFormat::PIXELFORMAT_RGBA8;
+        options.mipmaps = false;
+        options.minFilter = FilterMode::FILTER_LINEAR;
+        options.magFilter = FilterMode::FILTER_LINEAR;
+        return std::make_shared<Texture>(device().get(), options);
+    }
+
+    std::shared_ptr<RenderTarget> createReflectionTarget(const char* name, Texture* colorBuffer) const
+    {
+        RenderTargetOptions options;
+        options.graphicsDevice = device().get();
+        options.colorBuffer = colorBuffer;
+        options.depth = true;
+        options.name = name;
+        return device()->createRenderTarget(options);
+    }
+
+    // Both reflection cameras track the main camera's projection; the colour one
+    // doubles the far clip, as upstream does.
+    void syncReflectionCamera(Entity* entity, CameraComponent* component,
+        const Vector3& position, const float pitch, const float yaw) const
+    {
+        entity->setPosition(position);
+        entity->setLocalEulerAngles(pitch, yaw, 0.0f);
+        component->camera()->setFov(_cameraComp->camera()->fov());
+        component->camera()->setNearClip(_cameraComp->camera()->nearClip());
+        component->camera()->setFarClip(_cameraComp->camera()->farClip() * 2.0f);
+        component->camera()->setAspectRatio(_cameraComp->camera()->aspectRatio());
+        component->camera()->setClearColor(_blurParams.fadeColor);
+    }
+
+    // Upstream's initial script values.
     void resetBlurParams()
     {
         _blurParams.intensity = 1.0f;
         _blurParams.blurAmount = 0.5f;
         _blurParams.fadeStrength = 0.8f;
         _blurParams.angleFade = 0.5f;
-        _blurParams.fadeColor = Color(0.5f, 0.5f, 0.5f, 1.0f);
-        _blurParams.planeDistance = 0.0f;   // Ground plane at Y = 0
-        _blurParams.heightRange = 10.0f;    // Normalize heights to 0..1 over 10 world units
+        _blurParams.fadeColor = Color(1.0f, 1.0f, 1.0f, 1.0f);
+        _blurParams.planeDistance = 0.0f;   // ground plane at y = 0
+        _blurParams.heightRange = 0.07f;    // metres — the model is only ~14 cm tall
     }
 
     void logBlurParams() const
     {
-        spdlog::info("Reflection: blur={:.2f} intensity={:.2f} fade={:.2f} angle={:.2f} height={:.1f}",
+        spdlog::info("Reflection: blur={:.2f} intensity={:.2f} fade={:.2f} angle={:.2f} height={:.3f}",
             _blurParams.blurAmount, _blurParams.intensity,
             _blurParams.fadeStrength, _blurParams.angleFade, _blurParams.heightRange);
     }
 
     std::unique_ptr<Asset> _envAtlas;
-    std::unique_ptr<Asset> _statueAsset;
+    std::unique_ptr<Asset> _sunglassesAsset;
 
-    std::shared_ptr<StandardMaterial> _redMaterial;
-    std::shared_ptr<StandardMaterial> _goldMaterial;
-    std::shared_ptr<StandardMaterial> _blueMaterial;
-    std::shared_ptr<StandardMaterial> _whiteMaterial;
     std::shared_ptr<StandardMaterial> _groundMaterial;
-
     std::shared_ptr<Texture> _reflectionTexture;
     std::shared_ptr<Texture> _reflectionDepthTexture;
 
-    Entity* _sphere = nullptr;
-    Entity* _box = nullptr;
-    Entity* _cone = nullptr;
     Entity* _cameraEntity = nullptr;
     Entity* _reflCamEntity = nullptr;
     Entity* _depthCamEntity = nullptr;
@@ -417,7 +369,6 @@ private:
 
     ReflectionBlurParams _blurParams;
     bool _reflectionEnabled = true;
-    float _time = 0.0f;
 };
 
 VISUTWIN_EXAMPLE_MAIN(ReflectionPlanarBlurredExample)
