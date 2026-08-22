@@ -653,6 +653,45 @@ namespace visutwin::canvas
         _gpuCullBatchCommandBuffer = nullptr;
     }
 
+    void MetalGraphicsDevice::beginEnvBatch()
+    {
+        ++_envBatchDepth;
+    }
+
+    void MetalGraphicsDevice::endEnvBatch()
+    {
+        if (_envBatchDepth > 0 && --_envBatchDepth > 0) {
+            return;  // inner scope of a nested batch
+        }
+        if (_envBatchCommandBuffer) {
+            _envBatchCommandBuffer->commit();
+            _envBatchCommandBuffer = nullptr;
+        }
+    }
+
+    MTL::CommandBuffer* MetalGraphicsDevice::acquireEnvCommandBuffer()
+    {
+        if (!_commandQueue) {
+            return nullptr;
+        }
+        if (_envBatchDepth <= 0) {
+            return _commandQueue->commandBuffer();
+        }
+        if (!_envBatchCommandBuffer) {
+            _envBatchCommandBuffer = _commandQueue->commandBuffer();
+        }
+        return _envBatchCommandBuffer;
+    }
+
+    void MetalGraphicsDevice::submitEnvCommandBuffer(MTL::CommandBuffer* buffer)
+    {
+        // While batching, the buffer stays open so later operations encode into it;
+        // endEnvBatch does the single commit.
+        if (buffer && buffer != _envBatchCommandBuffer) {
+            buffer->commit();
+        }
+    }
+
     std::shared_ptr<IndexBuffer> MetalGraphicsDevice::createIndexBuffer(const IndexFormat format, const int numIndices,
         const std::vector<uint8_t>& data)
     {
@@ -906,7 +945,7 @@ namespace visutwin::canvas
         }
         metalTarget->ensureAttachments();
 
-        auto* commandBuffer = _commandQueue->commandBuffer();
+        auto* commandBuffer = acquireEnvCommandBuffer();
         if (!commandBuffer) {
             spdlog::warn("generateEnvReproject: failed to allocate command buffer");
             return;
@@ -948,7 +987,7 @@ namespace visutwin::canvas
         }
 
         encoder->endEncoding();
-        commandBuffer->commit();
+        submitEnvCommandBuffer(commandBuffer);
     }
 
     void MetalGraphicsDevice::generateEnvConvolve(const EnvConvolvePassParams& params)
@@ -999,7 +1038,7 @@ namespace visutwin::canvas
         }
         metalTarget->ensureAttachments();
 
-        auto* commandBuffer = _commandQueue->commandBuffer();
+        auto* commandBuffer = acquireEnvCommandBuffer();
         if (!commandBuffer) {
             spdlog::warn("generateEnvConvolve: failed to allocate command buffer");
             return;
@@ -1037,7 +1076,7 @@ namespace visutwin::canvas
         }
 
         encoder->endEncoding();
-        commandBuffer->commit();
+        submitEnvCommandBuffer(commandBuffer);
     }
 
     void MetalGraphicsDevice::generateEnvAtlas(const EnvAtlasBakeParams& params)
@@ -1086,7 +1125,7 @@ namespace visutwin::canvas
         }
         metalTarget->ensureAttachments();
 
-        auto* commandBuffer = _commandQueue->commandBuffer();
+        auto* commandBuffer = acquireEnvCommandBuffer();
         if (!commandBuffer) {
             spdlog::warn("generateEnvAtlas: failed to allocate command buffer");
             return;
@@ -1140,7 +1179,7 @@ namespace visutwin::canvas
         }
 
         encoder->endEncoding();
-        commandBuffer->commit();
+        submitEnvCommandBuffer(commandBuffer);
     }
 
     void MetalGraphicsDevice::generateEquirectToCubemap(const EquirectToCubeParams& params)
@@ -1178,7 +1217,7 @@ namespace visutwin::canvas
             _equirectToCubePass = std::make_unique<MetalEquirectToCubePass>(this, _composePass.get());
         }
 
-        auto* commandBuffer = _commandQueue->commandBuffer();
+        auto* commandBuffer = acquireEnvCommandBuffer();
         if (!commandBuffer) {
             spdlog::warn("generateEquirectToCubemap: failed to allocate command buffer");
             return;
@@ -1232,7 +1271,7 @@ namespace visutwin::canvas
             }
         }
 
-        commandBuffer->commit();
+        submitEnvCommandBuffer(commandBuffer);
     }
 
     void MetalGraphicsDevice::setDepthBias(const float depthBias, const float slopeScale, const float clamp)
@@ -1594,14 +1633,29 @@ namespace visutwin::canvas
         if (!raw || raw->mipmapLevelCount() <= 1) {
             return;
         }
-        auto* cmdBuffer = _commandQueue->commandBuffer();
+        auto* cmdBuffer = acquireEnvCommandBuffer();
         auto* blitEncoder = cmdBuffer ? cmdBuffer->blitCommandEncoder() : nullptr;
         if (!blitEncoder) {
             return;
         }
         blitEncoder->generateMipmaps(raw);
         blitEncoder->endEncoding();
-        cmdBuffer->commit();
+        submitEnvCommandBuffer(cmdBuffer);
+    }
+
+    uint32_t MetalGraphicsDevice::renderTargetFormatKey()
+    {
+        const RenderTarget* target = _renderTarget.get();
+        if (!_psoFormatKeyValid || target != _psoFormatKeyTarget) {
+            // dynamic_cast, NOT static_cast: the back buffer is a plain RenderTarget,
+            // and reading past the base object crashed intermittently in the compose
+            // pass. Key 0 mirrors create()'s fixed BGRA8+D32F back-buffer path.
+            const auto* metalTarget = dynamic_cast<const MetalRenderTarget*>(target);
+            _psoFormatKey = metalTarget ? metalTarget->formatKey() : 0u;
+            _psoFormatKeyTarget = target;
+            _psoFormatKeyValid = true;
+        }
+        return _psoFormatKey;
     }
 
     void MetalGraphicsDevice::draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
@@ -1656,7 +1710,8 @@ namespace visutwin::canvas
             pipelineState = _renderPipeline->get(primitive, vb0 != nullptr ? vb0->format() : nullptr,
                 vb1 != nullptr ? vb1->format() : nullptr,
                 ibFormat, _shader, _renderTarget, _bindGroupFormats, _blendState, _depthState,
-                _cullMode, _stencilEnabled, _stencilFront, _stencilBack, instFmt);
+                _cullMode, _stencilEnabled, _stencilFront, _stencilBack, instFmt,
+                renderTargetFormatKey());
             if (!pipelineState) {
                 spdlog::error("Draw skipped: failed to create/render pipeline state");
                 return;
@@ -1729,12 +1784,16 @@ namespace visutwin::canvas
                 uniformData = customData;
                 uniformSize = customSize;
             } else if (materialChanged) {
-                boundMaterial->updateUniforms(materialUniforms);
+                // Packed once per edit and reused across binds — see packedUniforms().
+                uniformData = &boundMaterial->packedUniforms();
             }
 
             // Skip texture rebinding when same material is still bound.
             if (materialChanged) {
-                std::vector<TextureSlot> textureSlots;
+                // Reused: this runs on every material switch, and the slot list is
+                // consumed immediately by bindMaterialTextures.
+                static thread_local std::vector<TextureSlot> textureSlots;
+                textureSlots.clear();
                 boundMaterial->getTextureSlots(textureSlots);
                 _textureBinder.bindMaterialTextures(passEncoder, textureSlots);
             }
@@ -1899,6 +1958,7 @@ namespace visutwin::canvas
 
     void MetalGraphicsDevice::startRenderPass(RenderPass* renderPass)
     {
+        _psoFormatKeyValid = false;
         if (!_commandQueue || !_metalLayer || _renderPassEncoder) {
             spdlog::warn("Cannot start render pass: queue/layer invalid or encoder already active");
             return;

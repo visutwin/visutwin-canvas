@@ -137,6 +137,8 @@ namespace visutwin::canvas
         // command buffer. Rendering on the same queue consumes the results later.
         void beginGpuCullBatch() override;
         void endGpuCullBatch() override;
+        void beginEnvBatch() override;
+        void endEnvBatch() override;
         [[nodiscard]] MTL::CommandBuffer* gpuCullBatchCommandBuffer() const { return _gpuCullBatchCommandBuffer; }
 
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
@@ -265,6 +267,19 @@ namespace visutwin::canvas
         // Live between beginGpuCullBatch/endGpuCullBatch (autoreleased).
         MTL::CommandBuffer* _gpuCullBatchCommandBuffer = nullptr;
 
+        // Shared command buffer for batched environment operations, plus the nesting
+        // depth so that begin/end pairs compose. Null when not batching, in which
+        // case each operation submits its own buffer as before.
+        MTL::CommandBuffer* _envBatchCommandBuffer = nullptr;
+        int _envBatchDepth = 0;
+
+        /// The command buffer an environment operation should encode into: the shared
+        /// batch buffer when one is open, otherwise a fresh one.
+        MTL::CommandBuffer* acquireEnvCommandBuffer();
+
+        /// Commit `buffer` unless it belongs to an open batch, which commits at endEnvBatch.
+        void submitEnvCommandBuffer(MTL::CommandBuffer* buffer);
+
         // Dynamic batch palette: ring-buffer offset for slot 6.
         // Set by setDynamicBatchPalette() → allocate from _paletteRing,
         // consumed (reset to SIZE_MAX) after draw() → setVertexBufferOffset().
@@ -308,6 +323,18 @@ namespace visutwin::canvas
         int _backBufferDepthHeight = 0;
 
         std::unique_ptr<MetalRenderPipeline> _renderPipeline;
+
+        // One-entry memo for the bound target's attachment-format key. Resolving it
+        // needs a dynamic_cast (the back buffer is a plain RenderTarget), which used
+        // to run for every draw call; the target cannot change within a pass, so it
+        // is resolved once per pass instead. Reset in startRenderPass so a freed
+        // target cannot be matched by a new one reusing its address.
+        const RenderTarget* _psoFormatKeyTarget = nullptr;
+        uint32_t _psoFormatKey = 0;
+        bool _psoFormatKeyValid = false;
+
+        /// Attachment-format key of the currently bound render target (0 = back buffer).
+        uint32_t renderTargetFormatKey();
         std::unique_ptr<MetalComputePipeline> _computePipeline;
 
         std::vector<std::shared_ptr<MetalBindGroupFormat>> _bindGroupFormats;

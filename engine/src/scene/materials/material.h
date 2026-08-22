@@ -154,14 +154,11 @@ namespace visutwin::canvas
         virtual ~Material() = default;
 
         const std::string& name() const { return _name; }
-        void setName(const std::string& name) { _name = name; }
-
+        void setName(const std::string& name) { _name = name; markUniformsDirty(); }
         bool transparent() const { return _transparent; }
-        void setTransparent(const bool value) { _transparent = value; }
-
+        void setTransparent(const bool value) { _transparent = value; markUniformsDirty(); }
         uint64_t shaderVariantKey() const { return _shaderVariantKey; }
-        void setShaderVariantKey(const uint64_t value) { _shaderVariantKey = value; }
-
+        void setShaderVariantKey(const uint64_t value) { _shaderVariantKey = value; markUniformsDirty(); }
         /**
          * Per-material shader chunk overrides (upstream material.shaderChunks):
          * replace a named chunk's source for programs compiled for THIS material
@@ -177,87 +174,72 @@ namespace visutwin::canvas
         uint64_t shaderChunksHash() const { return _shaderChunksHash; }
 
         const std::shared_ptr<Shader>& shaderOverride() const { return _shaderOverride; }
-        void setShaderOverride(const std::shared_ptr<Shader>& shader) { _shaderOverride = shader; }
-
+        void setShaderOverride(const std::shared_ptr<Shader>& shader) { _shaderOverride = shader; markUniformsDirty(); }
         const std::shared_ptr<BlendState>& blendState() const { return _blendState; }
-        void setBlendState(const std::shared_ptr<BlendState>& blendState) { _blendState = blendState; }
-
+        void setBlendState(const std::shared_ptr<BlendState>& blendState) { _blendState = blendState; markUniformsDirty(); }
         const std::shared_ptr<DepthState>& depthState() const { return _depthState; }
-        void setDepthState(const std::shared_ptr<DepthState>& depthState) { _depthState = depthState; }
-
+        void setDepthState(const std::shared_ptr<DepthState>& depthState) { _depthState = depthState; markUniformsDirty(); }
         CullMode cullMode() const { return _cullMode; }
-        void setCullMode(const CullMode mode) { _cullMode = mode; }
-
+        void setCullMode(const CullMode mode) { _cullMode = mode; markUniformsDirty(); }
         const Color& baseColorFactor() const { return _baseColorFactor; }
-        void setBaseColorFactor(const Color& value) { _baseColorFactor = value; }
-
+        void setBaseColorFactor(const Color& value) { _baseColorFactor = value; markUniformsDirty(); }
         Texture* baseColorTexture() const { return _baseColorTexture; }
-        void setBaseColorTexture(Texture* texture) { _baseColorTexture = texture; }
-
+        void setBaseColorTexture(Texture* texture) { _baseColorTexture = texture; markUniformsDirty(); }
         bool hasBaseColorTexture() const { return _hasBaseColorTexture; }
-        void setHasBaseColorTexture(const bool value) { _hasBaseColorTexture = value; }
+        void setHasBaseColorTexture(const bool value) { _hasBaseColorTexture = value; markUniformsDirty(); }
         int baseColorUvSet() const { return _baseColorUvSet; }
-        void setBaseColorUvSet(const int uvSet) { _baseColorUvSet = uvSet; }
-
+        void setBaseColorUvSet(const int uvSet) { _baseColorUvSet = uvSet; markUniformsDirty(); }
         Texture* normalTexture() const { return _normalTexture; }
-        void setNormalTexture(Texture* texture) { _normalTexture = texture; }
+        void setNormalTexture(Texture* texture) { _normalTexture = texture; markUniformsDirty(); }
         float normalScale() const { return _normalScale; }
-        void setNormalScale(const float value) { _normalScale = value; }
-
+        void setNormalScale(const float value) { _normalScale = value; markUniformsDirty(); }
         bool hasNormalTexture() const { return _hasNormalTexture; }
-        void setHasNormalTexture(const bool value) { _hasNormalTexture = value; }
+        void setHasNormalTexture(const bool value) { _hasNormalTexture = value; markUniformsDirty(); }
         int normalUvSet() const { return _normalUvSet; }
-        void setNormalUvSet(const int uvSet) { _normalUvSet = uvSet; }
-
+        void setNormalUvSet(const int uvSet) { _normalUvSet = uvSet; markUniformsDirty(); }
         float metallicFactor() const { return _metallicFactor; }
-        void setMetallicFactor(const float value) { _metallicFactor = value; }
-
+        void setMetallicFactor(const float value) { _metallicFactor = value; markUniformsDirty(); }
         float roughnessFactor() const { return _roughnessFactor; }
-        void setRoughnessFactor(const float value) { _roughnessFactor = value; }
-
+        void setRoughnessFactor(const float value) { _roughnessFactor = value; markUniformsDirty(); }
         Texture* metallicRoughnessTexture() const { return _metallicRoughnessTexture; }
-        void setMetallicRoughnessTexture(Texture* texture) { _metallicRoughnessTexture = texture; }
+        void setMetallicRoughnessTexture(Texture* texture) { _metallicRoughnessTexture = texture; markUniformsDirty(); }
         bool hasMetallicRoughnessTexture() const { return _hasMetallicRoughnessTexture; }
-        void setHasMetallicRoughnessTexture(const bool value) { _hasMetallicRoughnessTexture = value; }
+        void setHasMetallicRoughnessTexture(const bool value) { _hasMetallicRoughnessTexture = value; markUniformsDirty(); }
         int metallicRoughnessUvSet() const { return _metallicRoughnessUvSet; }
-        void setMetallicRoughnessUvSet(const int uvSet) { _metallicRoughnessUvSet = uvSet; }
-
+        void setMetallicRoughnessUvSet(const int uvSet) { _metallicRoughnessUvSet = uvSet; markUniformsDirty(); }
         Texture* occlusionTexture() const { return _occlusionTexture; }
-        void setOcclusionTexture(Texture* texture) { _occlusionTexture = texture; }
+        void setOcclusionTexture(Texture* texture) { _occlusionTexture = texture; markUniformsDirty(); }
         bool hasOcclusionTexture() const { return _hasOcclusionTexture; }
-        void setHasOcclusionTexture(const bool value) { _hasOcclusionTexture = value; }
+        void setHasOcclusionTexture(const bool value) { _hasOcclusionTexture = value; markUniformsDirty(); }
         int occlusionUvSet() const { return _occlusionUvSet; }
-        void setOcclusionUvSet(const int uvSet) { _occlusionUvSet = uvSet; }
+        void setOcclusionUvSet(const int uvSet) { _occlusionUvSet = uvSet; markUniformsDirty(); }
         float occlusionStrength() const { return _occlusionStrength; }
-        void setOcclusionStrength(const float value) { _occlusionStrength = value; }
+        void setOcclusionStrength(const float value) { _occlusionStrength = value; markUniformsDirty(); }
         bool occludeDirect() const { return _occludeDirect; }
-        void setOccludeDirect(const bool value) { _occludeDirect = value; }
+        void setOccludeDirect(const bool value) { _occludeDirect = value; markUniformsDirty(); }
         uint32_t occludeSpecular() const { return _occludeSpecular; }
-        void setOccludeSpecular(const uint32_t value) { _occludeSpecular = value; }
+        void setOccludeSpecular(const uint32_t value) { _occludeSpecular = value; markUniformsDirty(); }
         float occludeSpecularIntensity() const { return _occludeSpecularIntensity; }
-        void setOccludeSpecularIntensity(const float value) { _occludeSpecularIntensity = value; }
-
+        void setOccludeSpecularIntensity(const float value) { _occludeSpecularIntensity = value; markUniformsDirty(); }
         const Color& emissiveFactor() const { return _emissiveFactor; }
-        void setEmissiveFactor(const Color& value) { _emissiveFactor = value; }
+        void setEmissiveFactor(const Color& value) { _emissiveFactor = value; markUniformsDirty(); }
         Texture* emissiveTexture() const { return _emissiveTexture; }
-        void setEmissiveTexture(Texture* texture) { _emissiveTexture = texture; }
+        void setEmissiveTexture(Texture* texture) { _emissiveTexture = texture; markUniformsDirty(); }
         bool hasEmissiveTexture() const { return _hasEmissiveTexture; }
-        void setHasEmissiveTexture(const bool value) { _hasEmissiveTexture = value; }
+        void setHasEmissiveTexture(const bool value) { _hasEmissiveTexture = value; markUniformsDirty(); }
         int emissiveUvSet() const { return _emissiveUvSet; }
-        void setEmissiveUvSet(const int uvSet) { _emissiveUvSet = uvSet; }
-
+        void setEmissiveUvSet(const int uvSet) { _emissiveUvSet = uvSet; markUniformsDirty(); }
         // per-texture UV transforms (tiling, offset, rotation).
         const TextureTransform& baseColorTransform() const { return _baseColorTransform; }
-        void setBaseColorTransform(const TextureTransform& t) { _baseColorTransform = t; }
+        void setBaseColorTransform(const TextureTransform& t) { _baseColorTransform = t; markUniformsDirty(); }
         const TextureTransform& normalTransform() const { return _normalTransform; }
-        void setNormalTransform(const TextureTransform& t) { _normalTransform = t; }
+        void setNormalTransform(const TextureTransform& t) { _normalTransform = t; markUniformsDirty(); }
         const TextureTransform& metalRoughTransform() const { return _metalRoughTransform; }
-        void setMetalRoughTransform(const TextureTransform& t) { _metalRoughTransform = t; }
+        void setMetalRoughTransform(const TextureTransform& t) { _metalRoughTransform = t; markUniformsDirty(); }
         const TextureTransform& occlusionTransform() const { return _occlusionTransform; }
-        void setOcclusionTransform(const TextureTransform& t) { _occlusionTransform = t; }
+        void setOcclusionTransform(const TextureTransform& t) { _occlusionTransform = t; markUniformsDirty(); }
         const TextureTransform& emissiveTransform() const { return _emissiveTransform; }
-        void setEmissiveTransform(const TextureTransform& t) { _emissiveTransform = t; }
-
+        void setEmissiveTransform(const TextureTransform& t) { _emissiveTransform = t; markUniformsDirty(); }
         AlphaMode alphaMode() const { return _alphaMode; }
         // Sets the glTF alpha mode and updates the material's BlendState/DepthState/transparent
         // flag to match. BLEND enables standard src-alpha blending, disables depth-write, and
@@ -267,15 +249,27 @@ namespace visutwin::canvas
         void setAlphaMode(AlphaMode mode);
 
         float alphaCutoff() const { return _alphaCutoff; }
-        void setAlphaCutoff(const float value) { _alphaCutoff = value; }
-
+        void setAlphaCutoff(const float value) { _alphaCutoff = value; markUniformsDirty(); }
         bool isSkybox() const { return _isSkybox; }
-        void setIsSkybox(const bool value) { _isSkybox = value; }
-
+        void setIsSkybox(const bool value) { _isSkybox = value; markUniformsDirty(); }
         void setParameter(const std::string& name, const ParameterValue& value);
         bool removeParameter(const std::string& name);
         void clearParameters();
         const std::unordered_map<std::string, ParameterValue>& parameters() const { return _parameters; }
+
+        /**
+         * The packed GPU uniform block, built on demand and reused until something
+         * on the material changes. Packing costs a pass over every typed property
+         * plus the parameter-override lookups, and the renderer needs it every time
+         * a different material is bound — so it is computed on edit, not on bind.
+         * Every mutator calls markUniformsDirty(); the debug build re-packs on each
+         * call and reports a mismatch, so a mutator that forgets to is caught here
+         * rather than as a stale-looking surface much later.
+         */
+        const MaterialUniforms& packedUniforms() const;
+
+        /// Invalidate the packed uniform cache. Called by every mutator.
+        void markUniformsDirty() { _uniformsDirty = true; }
         const ParameterValue* parameter(const std::string& name) const;
 
         /**
@@ -391,6 +385,12 @@ namespace visutwin::canvas
         TextureTransform _emissiveTransform;
 
         std::unordered_map<std::string, ParameterValue> _parameters;
+
+        // Packed uniform cache — see packedUniforms(). Mutable so that the const
+        // accessor can fill it; updateUniforms() itself writes to the material via
+        // const_cast, which is why the dirty flag is cleared AFTER packing.
+        mutable MaterialUniforms _cachedUniforms{};
+        mutable bool _uniformsDirty = true;
     };
 
     // Assigns the default material to device cache

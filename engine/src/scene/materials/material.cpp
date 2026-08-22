@@ -3,6 +3,10 @@
 //
 // Created by Arnis Lektauers on 11.10.2025.
 //
+#include <cstring>
+
+#include <spdlog/spdlog.h>
+
 #include "material.h"
 
 #include "scene/shader-lib/shaderChunks.h"
@@ -156,6 +160,7 @@ namespace visutwin::canvas
 
     void Material::setAlphaMode(const AlphaMode mode)
     {
+        markUniformsDirty();
         _alphaMode = mode;
         if (mode == AlphaMode::BLEND) {
             // Standard glTF "BLEND": src*srcAlpha + dst*(1-srcAlpha), with depth-write off so
@@ -173,6 +178,7 @@ namespace visutwin::canvas
 
     void Material::setParameter(const std::string& name, const ParameterValue& value)
     {
+        markUniformsDirty();
         if (name.empty()) {
             return;
         }
@@ -189,6 +195,7 @@ namespace visutwin::canvas
 
     void Material::clearParameters()
     {
+        markUniformsDirty();
         _parameters.clear();
     }
 
@@ -198,8 +205,40 @@ namespace visutwin::canvas
         return it == _parameters.end() ? nullptr : &it->second;
     }
 
+    const MaterialUniforms& Material::packedUniforms() const
+    {
+        if (_uniformsDirty) {
+            updateUniforms(_cachedUniforms);
+            // AFTER, not before: updateUniforms writes back to the material through a
+            // const_cast (the per-map transform fields), which sets the flag again.
+            _uniformsDirty = false;
+        }
+
+#ifndef NDEBUG
+        // Debug builds additionally re-pack and compare, so a mutator that forgets to
+        // call markUniformsDirty() is reported here instead of showing up later as a
+        // surface that ignores an edit. The CACHED value is still what gets returned,
+        // so debug and release behave identically and a test can catch the staleness.
+        MaterialUniforms fresh{};
+        updateUniforms(fresh);
+        _uniformsDirty = false;
+        if (std::memcmp(&fresh, &_cachedUniforms, sizeof(MaterialUniforms)) != 0) {
+            spdlog::error("Material '{}': packed uniform cache is stale — a mutator is "
+                          "missing markUniformsDirty()", name());
+        }
+#endif
+        return _cachedUniforms;
+    }
+
     void Material::applyParameterOverrides(MaterialUniforms& uniforms) const
     {
+        // Nine lookups of up to two names each, and unordered_map::find hashes the
+        // string before it can discover the map is empty — which it is for every
+        // material that never calls setParameter, i.e. nearly all of them.
+        if (_parameters.empty()) {
+            return;
+        }
+
         readColor4(getParam(this, {"material_baseColor", "baseColorFactor"}), uniforms.baseColor);
         {
             // Parameter override convention is sRGB input — linearize to match the typed path.
@@ -426,6 +465,7 @@ namespace visutwin::canvas
 
     void Material::setShaderChunk(const std::string& name, std::string source)
     {
+        markUniformsDirty();
         _shaderChunkOverrides[name] = std::move(source);
         _shaderChunksHash = ShaderChunks::hashChunkMap(_shaderChunkOverrides);
     }
@@ -441,6 +481,7 @@ namespace visutwin::canvas
 
     void Material::clearShaderChunks()
     {
+        markUniformsDirty();
         if (!_shaderChunkOverrides.empty()) {
             _shaderChunkOverrides.clear();
             _shaderChunksHash = 0;

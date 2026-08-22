@@ -3,6 +3,8 @@
 //
 // Created by Arnis Lektauers on 22.10.2025.
 //
+#include <algorithm>
+
 #include "metalRenderTarget.h"
 
 #include "metalGraphicsDevice.h"
@@ -111,8 +113,30 @@ namespace visutwin::canvas
         }
     }
 
+    uint32_t MetalRenderTarget::formatKey() const
+    {
+        if (_formatKeyValid) {
+            return _formatKey;
+        }
+        uint32_t key = 0x9e3779b9u;
+        for (const auto& att : _colorAttachments) {
+            key = key * 31u + static_cast<uint32_t>(att->pixelFormat);
+        }
+        if (_depthAttachment) {
+            key = key * 31u + static_cast<uint32_t>(_depthAttachment->pixelFormat)
+                + (_depthAttachment->hasStencil ? 7u : 0u);
+        }
+        // The PSO's raster sample count must match the attachments, so MSAA targets
+        // need their own pipelines.
+        key = key * 31u + static_cast<uint32_t>(std::max(samples(), 1));
+        _formatKey = key;
+        _formatKeyValid = true;
+        return _formatKey;
+    }
+
     void MetalRenderTarget::destroyFrameBuffers()
     {
+        _formatKeyValid = false;
         for (const auto& colorAttachment : _colorAttachments) {
             if (colorAttachment) {
                 colorAttachment->destroy();
@@ -129,6 +153,7 @@ namespace visutwin::canvas
 
     void MetalRenderTarget::createFrameBuffers()
     {
+        _formatKeyValid = false;
         auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(device());
         if (!metalDevice) {
             spdlog::error("MetalRenderTarget requires MetalGraphicsDevice");

@@ -51,7 +51,11 @@ namespace visutwin::canvas
             const std::shared_ptr<BlendState>& blendState, const std::shared_ptr<DepthState>& depthState,
             CullMode cullMode, bool stencilEnabled,
             const std::shared_ptr<StencilParameters>& stencilFront, const std::shared_ptr<StencilParameters>& stencilBack,
-            const std::shared_ptr<VertexFormat>& instancingFormat = nullptr);
+            const std::shared_ptr<VertexFormat>& instancingFormat = nullptr,
+            // Attachment-format fingerprint of renderTarget (0 for the back buffer).
+            // Supplied by the caller because it only changes when the bound target
+            // does, while this runs per draw call — see MetalRenderTarget::formatKey.
+            uint32_t renderTargetFormatKey = 0);
 
     private:
         // Create a new render pipeline

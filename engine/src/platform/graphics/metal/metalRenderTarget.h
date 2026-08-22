@@ -72,11 +72,23 @@ namespace visutwin::canvas
         const std::shared_ptr<DepthAttachment>& depthAttachment() const { return _depthAttachment; }
         void ensureAttachments();
 
+        /**
+         * Fingerprint of what a render pipeline actually depends on here — the
+         * attachment pixel formats and sample count. Part of the PSO cache key.
+         * Computed once: the attachments are fixed until the framebuffers are
+         * rebuilt (a resize keeps the object's address, hence the invalidation
+         * in createFrameBuffers/destroyFrameBuffers).
+         */
+        uint32_t formatKey() const;
+
     private:
         void destroyFrameBuffers() override;
         void createFrameBuffers() override;
 
         std::vector<std::shared_ptr<ColorAttachment>> _colorAttachments;
         std::shared_ptr<DepthAttachment> _depthAttachment;
+
+        mutable uint32_t _formatKey = 0;
+        mutable bool _formatKeyValid = false;
     };
 }

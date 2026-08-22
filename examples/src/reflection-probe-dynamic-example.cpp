@@ -287,12 +287,19 @@ protected:
 
     void postRender() override
     {
+        // Mip generation and the four reprojections below are one batch: each would
+        // otherwise create, encode and commit a command buffer of its own, five per
+        // frame. Encoding order inside the batch still orders the GPU work, so the
+        // reprojections continue to read the mips generated just above them.
+        device()->beginEnvBatch();
+
         // Regenerate the roughness mips from the freshly captured faces and keep the
         // probe installed (upstream's cubemapRenderer does this inside its own update).
         _probe->update();
 
         const auto& sourceCube = _probe->cubemapShared();
         if (!sourceCube) {
+            device()->endEnvBatch();
             return;
         }
 
@@ -304,6 +311,8 @@ protected:
         // exercises the projections against each other rather than against the cube.
         reproject(_textureEqui, _textureOcta2, false);
         reproject(_textureOcta, _textureEqui2, false);
+
+        device()->endEnvBatch();
 
         // The prefiltered atlas is built once — see the DEVIATIONS note. It is fed the
         // EQUIRECT reprojection rather than the cube: generateAtlas runs its source

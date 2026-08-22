@@ -974,6 +974,17 @@ namespace visutwin::canvas
         virtual void beginGpuCullBatch() {}
         virtual void endGpuCullBatch() {}
 
+        /**
+         * Group consecutive environment operations (reprojection, convolution,
+         * atlas bakes, cubemap mip generation) into ONE command buffer instead of
+         * one each. Every such call otherwise creates, encodes and commits its own
+         * buffer, so a scene that reprojects several targets per frame pays that
+         * submission cost repeatedly. Nesting is reference-counted; the batch must
+         * be closed before the rendering that samples its results.
+         */
+        virtual void beginEnvBatch() {}
+        virtual void endEnvBatch() {}
+
         virtual std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) = 0;
         virtual void executeComposePass(const ComposePassParams& params)
         {

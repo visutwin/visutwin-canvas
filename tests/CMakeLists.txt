@@ -6,6 +6,14 @@ target_link_libraries(visutwin-graph-node-tests PRIVATE visutwin-canvas)
 
 add_test(NAME graph-node-invariants COMMAND visutwin-graph-node-tests)
 
+add_executable(visutwin-material-uniforms-tests
+    materialUniformsTests.cpp
+)
+
+target_link_libraries(visutwin-material-uniforms-tests PRIVATE visutwin-canvas)
+
+add_test(NAME material-uniforms COMMAND visutwin-material-uniforms-tests)
+
 add_executable(visutwin-stencil-parameters-tests
     stencilParametersTests.cpp
 )

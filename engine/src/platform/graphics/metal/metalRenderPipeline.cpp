@@ -162,7 +162,8 @@ namespace visutwin::canvas
             const std::shared_ptr<BlendState>& blendState, const std::shared_ptr<DepthState>& depthState,
             CullMode cullMode, bool stencilEnabled,
             const std::shared_ptr<StencilParameters>& stencilFront, const std::shared_ptr<StencilParameters>& stencilBack,
-            const std::shared_ptr<VertexFormat>& instancingFormat) {
+            const std::shared_ptr<VertexFormat>& instancingFormat,
+            const uint32_t renderTargetFormatKey) {
         assert(bindGroupFormats.size() <= 3);
         assert(shader != nullptr);
         assert(blendState != nullptr);
@@ -187,30 +188,13 @@ namespace visutwin::canvas
         _lookupHashes[4] = blendState->key();
         _lookupHashes[5] = vertexFormat0 ? vertexFormat0->renderingHash() : 0;
         _lookupHashes[6] = vertexFormat1 ? vertexFormat1->renderingHash() : 0;
-        // Key on what the PSO actually depends on — the attachment pixel
-        // formats — not the render target's per-instance id. Instance-id keys
-        // minted a new PSO for every recreated/transient target (resize, env
-        // bakes) and the cache never evicts, growing without bound.
-        // dynamic_cast, NOT static_cast: the backbuffer render target is a
-        // plain RenderTarget (create() below treats the failed cast as the
-        // backbuffer path with fixed BGRA8+D32F formats) — key 0 mirrors that.
-        // A static_cast here read past the base object and crashed
-        // intermittently in the compose pass.
-        uint32_t rtFormatKey = 0;
-        if (const auto* metalTarget = dynamic_cast<const MetalRenderTarget*>(renderTarget.get())) {
-            rtFormatKey = 0x9e3779b9u;
-            for (const auto& att : metalTarget->colorAttachments()) {
-                rtFormatKey = rtFormatKey * 31u + static_cast<uint32_t>(att->pixelFormat);
-            }
-            if (const auto& depthAtt = metalTarget->depthAttachment()) {
-                rtFormatKey = rtFormatKey * 31u + static_cast<uint32_t>(depthAtt->pixelFormat)
-                            + (depthAtt->hasStencil ? 7u : 0u);
-            }
-            // The PSO's raster sample count must match the attachments, so MSAA targets
-            // need their own pipelines.
-            rtFormatKey = rtFormatKey * 31u + static_cast<uint32_t>(std::max(metalTarget->samples(), 1));
-        }
-        _lookupHashes[7] = static_cast<int>(rtFormatKey);
+        // Key on what the PSO actually depends on — the attachment pixel formats —
+        // not the render target's per-instance id. Instance-id keys minted a new PSO
+        // for every recreated/transient target (resize, env bakes) and the cache never
+        // evicts, growing without bound. The value is computed by the caller once per
+        // bound target (MetalRenderTarget::formatKey); 0 is the back buffer, which
+        // create() below treats as the fixed BGRA8+D32F path.
+        _lookupHashes[7] = static_cast<int>(renderTargetFormatKey);
         _lookupHashes[8] = bindGroupFormats.size() > 0 && bindGroupFormats[0] ? bindGroupFormats[0]->key() : 0;
         _lookupHashes[9] = bindGroupFormats.size() > 1 && bindGroupFormats[1] ? bindGroupFormats[1]->key() : 0;
         _lookupHashes[10] = bindGroupFormats.size() > 2 && bindGroupFormats[2] ? bindGroupFormats[2]->key() : 0;
