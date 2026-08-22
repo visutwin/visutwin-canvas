@@ -54,6 +54,19 @@ namespace
         return Vector3(m.getElement(0, 0), m.getElement(0, 1), m.getElement(0, 2)).normalized();
     }
 
+    // Same observation, but through rotation() — the cached quaternion — so that a
+    // stale cache is visible. worldAxisX() reads the matrix and would not notice.
+    bool expectRotationAxis(GraphNode* node, const Vector3& expected,
+        const std::string_view message)
+    {
+        const auto actual = (node->rotation() * Vector3(1.0f, 0.0f, 0.0f)).normalized();
+        return expect(
+            near(actual.getX(), expected.getX()) &&
+            near(actual.getY(), expected.getY()) &&
+            near(actual.getZ(), expected.getZ()),
+            message);
+    }
+
     bool expectAxis(GraphNode* node, const Vector3& expected, const std::string_view message)
     {
         const auto actual = worldAxisX(node);
@@ -266,6 +279,43 @@ int main()
         childObserver->rotate(0.0f, -90.0f, 0.0f);
         passed &= expectAxis(childObserver, Vector3(1.0f, 0.0f, 0.0f),
             "rotate under a rotated parent cancels the parent yaw in world space");
+    }
+
+    // The world rotation is CACHED alongside the world transform, so these guard the
+    // invalidation rather than the maths: a stale cache returns a plausible-looking
+    // orientation and would otherwise fail silently.
+    {
+        auto node = std::make_unique<GraphNode>("cache-invalidate");
+        node->rotation();                                   // prime the cache
+        node->setLocalEulerAngles(0.0f, 90.0f, 0.0f);       // must invalidate it
+        passed &= expectRotationAxis(node.get(), Vector3(0.0f, 0.0f, -1.0f),
+            "rotation() reflects a local rotation set after it was first read");
+
+        // Reading twice must be stable — the second read comes from the cache.
+        const visutwin::canvas::Quaternion first = node->rotation();
+        const visutwin::canvas::Quaternion second = node->rotation();
+        const bool stable = std::fabs(first.getX() - second.getX()) < 1e-6f &&
+                            std::fabs(first.getY() - second.getY()) < 1e-6f &&
+                            std::fabs(first.getZ() - second.getZ()) < 1e-6f &&
+                            std::fabs(first.getW() - second.getW()) < 1e-6f;
+        if (!stable) {
+            std::cerr << "FAIL: repeated rotation() reads disagree\n";
+        }
+        passed &= stable;
+    }
+
+    // A parent's rotation must invalidate the child's cached world rotation, which is
+    // the case a per-node dirty flag gets wrong if it does not propagate downwards.
+    {
+        auto parent = std::make_unique<GraphNode>("cache-parent");
+        auto child = std::make_unique<GraphNode>("cache-child");
+        auto* childObserver = child.get();
+        parent->addChild(std::move(child));
+
+        childObserver->rotation();                          // prime the child's cache
+        parent->setLocalEulerAngles(0.0f, 90.0f, 0.0f);     // only the PARENT changes
+        passed &= expectRotationAxis(childObserver, Vector3(0.0f, 0.0f, -1.0f),
+            "a parent rotation invalidates the child's cached world rotation");
     }
 
     return passed ? 0 : 1;

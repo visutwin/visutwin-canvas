@@ -66,6 +66,7 @@ namespace visutwin::canvas
             }
         }
         _dirtyNormal = true;
+        _dirtyWorldRotation = true;
         _worldScaleSign = 0;
         _aabbVer++;
     }
@@ -81,7 +82,14 @@ namespace visutwin::canvas
 
     Quaternion GraphNode::rotation()
     {
-        return Quaternion::fromMatrix4(worldTransform());
+        // worldTransform() syncs first, so a clean transform here means the cached
+        // rotation is still valid; the decomposition only reruns after a dirtify.
+        const Matrix4& world = worldTransform();
+        if (_dirtyWorldRotation) {
+            _worldRotation = Quaternion::fromMatrix4(world);
+            _dirtyWorldRotation = false;
+        }
+        return _worldRotation;
     }
 
     void GraphNode::setRotation(const Quaternion& rotation) {
@@ -259,9 +267,12 @@ namespace visutwin::canvas
         } else {
             // Bring the world-space rotation into the parent's frame before applying
             // it to the node's world orientation, then store the result as local.
-            const Quaternion worldRotation = this->rotation();
-            const Quaternion parentInverse = _parent->rotation().invert();
-            _localRotation = (parentInverse * rotation) * worldRotation;
+            // Expanding this node's world rotation as parent * local keeps the parent
+            // as the only node queried: asking for our OWN world rotation would sync
+            // a world transform that the dirtify below immediately invalidates.
+            const Quaternion parentRotation = _parent->rotation();
+            const Quaternion parentInverse = parentRotation.invert();
+            _localRotation = (parentInverse * rotation) * (parentRotation * _localRotation);
         }
 
         if (!_dirtyLocal) {

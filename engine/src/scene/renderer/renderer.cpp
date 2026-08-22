@@ -543,7 +543,12 @@ namespace visutwin::canvas
         // DEVIATION: pooled frame-local query objects reduce allocator churn in this native port.
         static thread_local ObjectPool<ForwardDrawEntry> drawEntryPool(256);
         drawEntryPool.freeAll();
-        std::vector<ForwardDrawEntry*> drawEntries;
+        // Reused across calls, like the pool above: this function runs once per
+        // camera x layer x (opaque|transparent), so several times per frame, and a
+        // fresh vector here meant a heap allocation on each of them. clear() keeps
+        // the capacity. thread_local for the same reason the pool is.
+        static thread_local std::vector<ForwardDrawEntry*> drawEntries;
+        drawEntries.clear();
         drawEntries.reserve(256);
 
         // Build the camera frustum ONCE for this layer — the per-instance test
@@ -657,8 +662,10 @@ namespace visutwin::canvas
         // and forward shader variants, while full parameter scope is still being ported.
         const auto ambientColor = _scene ? _scene->ambientLight() : Color(0.0f, 0.0f, 0.0f, 1.0f);
         const auto fogParams = _scene ? _scene->fog() : FogParams{};
-        std::vector<LightDispatchEntry> directionalLights;
-        std::vector<LightDispatchEntry> localLights;
+        static thread_local std::vector<LightDispatchEntry> directionalLights;
+        static thread_local std::vector<LightDispatchEntry> localLights;
+        directionalLights.clear();
+        localLights.clear();
         directionalLights.reserve(4);
         localLights.reserve(8);
         ShadowParams shadowParams{};
@@ -989,7 +996,8 @@ namespace visutwin::canvas
             _lastClusterCameraPosition = cameraPosition;
 
             // Convert local light dispatch entries to WorldClusters input format.
-            std::vector<ClusterLightData> clusterLocalLights;
+            static thread_local std::vector<ClusterLightData> clusterLocalLights;
+            clusterLocalLights.clear();
             clusterLocalLights.reserve(localLights.size());
 
             for (const auto& dispatchEntry : localLights) {
@@ -1074,7 +1082,8 @@ namespace visutwin::canvas
         // 95%+ of mesh instances use MASK_AFFECT_DYNAMIC (default). Pre-filter the
         // light list for this mask once, then reuse it across all draws with the
         // same mask. Only re-filter when a draw has a different mask.
-        std::vector<GpuLightData> cachedGpuLights;
+        static thread_local std::vector<GpuLightData> cachedGpuLights;
+        cachedGpuLights.clear();
         cachedGpuLights.reserve(8);
         uint32_t cachedLightMask = MASK_AFFECT_DYNAMIC;
 

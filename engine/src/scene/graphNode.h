@@ -192,6 +192,12 @@ namespace visutwin::canvas
         Matrix4 _localTransform;
         Matrix4 _worldTransform;
 
+        // World rotation cached alongside the world transform. Deriving it costs a
+        // matrix->quaternion decomposition, and rotation() is called several times
+        // per node per frame (lookAt, setRotation and rotate all go through it), so
+        // it is computed once per world-transform change rather than per call.
+        Quaternion _worldRotation;
+
         // Version tracking
         int _aabbVer = 0;
         int _worldScaleSign = 0;
@@ -203,6 +209,7 @@ namespace visutwin::canvas
         bool _dirtyLocal = false;
         bool _dirtyWorld = false;
         bool _dirtyNormal = true;
+        bool _dirtyWorldRotation = true;
         bool _frozen = false;
 
         bool _scaleCompensation = false;
