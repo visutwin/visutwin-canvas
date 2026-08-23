@@ -48,7 +48,24 @@ find_package(Stb MODULE REQUIRED)
 set(STB_INCLUDE_DIR "${Stb_INCLUDE_DIR}" CACHE INTERNAL "Path to the vcpkg stb headers")
 
 find_package(assimp        CONFIG REQUIRED)
-find_package(basisu        CONFIG REQUIRED)
+# ── KTX2 transcoding backend ─────────────────────────────────────────
+# The standalone basisu port and libktx each bundle their own copy of
+# basis_universal (2.1.0 vs 1.16) and export the same basist:: symbols, so a
+# program linking both fails to link. Consumers that already pull in libktx —
+# via cesium-native, for instance — select it here and get a single copy.
+option(VISUTWIN_KTX2_USE_LIBKTX
+    "Transcode KTX2 textures via libktx instead of the standalone basisu transcoder" OFF)
+
+if(VISUTWIN_KTX2_USE_LIBKTX)
+    # KTX::ktx declares a C link interface, so C has to be an enabled language
+    # even though the engine itself is C++ only.
+    enable_language(C)
+    find_package(Ktx        CONFIG REQUIRED)
+    set(VISUTWIN_KTX2_BACKEND_LIB KTX::ktx)
+else()
+    find_package(basisu     CONFIG REQUIRED)
+    set(VISUTWIN_KTX2_BACKEND_LIB basisu::basisu_encoder)
+endif()
 
 find_package(imgui          CONFIG REQUIRED)
 find_package(implot         CONFIG REQUIRED)
@@ -269,7 +286,7 @@ target_link_libraries(visutwin-canvas
         draco::draco
         Boost::core
         assimp::assimp
-        basisu::basisu_encoder
+        ${VISUTWIN_KTX2_BACKEND_LIB}
         imgui::imgui
         implot::implot
 )
@@ -277,6 +294,10 @@ target_link_libraries(visutwin-canvas
 target_compile_definitions(visutwin-canvas PUBLIC
     $<$<CONFIG:Debug>:VISUTWIN_DEBUG_GPU_VALIDATION>
 )
+
+if(VISUTWIN_KTX2_USE_LIBKTX)
+    target_compile_definitions(visutwin-canvas PRIVATE VISUTWIN_KTX2_USE_LIBKTX)
+endif()
 
 # ── Metal backend linking ─────────────────────────────────────────────
 if(VISUTWIN_BACKEND_METAL)
