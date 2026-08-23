@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 #include "renderPassBloom.h"
 #include "renderPassColorGrab.h"
@@ -135,6 +136,9 @@ namespace visutwin::canvas
         options.ssaoBlurEnabled = ssao.blurEnabled;
 
         options.samples = std::max(rendering.samples, 1);
+        // Clamped rather than trusted: the scene target is quadratic in this value,
+        // so a stray 8.0 would ask for 64x the pixels of a native-resolution frame.
+        options.renderTargetScale = std::clamp(rendering.renderTargetScale, 0.25f, 4.0f);
         options.bloomEnabled = rendering.bloomIntensity > 0.0f;
         options.bloomIntensity = rendering.bloomIntensity;
         options.bloomBlurLevel = std::max(rendering.bloomBlurLevel, 1);
@@ -172,6 +176,7 @@ namespace visutwin::canvas
             options.ssaoBlurEnabled != current.ssaoBlurEnabled ||
             options.taaEnabled != current.taaEnabled ||
             options.samples != current.samples ||
+            options.renderTargetScale != current.renderTargetScale ||
             options.stencil != current.stencil ||
             options.bloomEnabled != current.bloomEnabled ||
             options.prepassEnabled != current.prepassEnabled ||
@@ -367,13 +372,18 @@ namespace visutwin::canvas
         _hdrFormat = PixelFormat::PIXELFORMAT_RGBA16F;
         _bloomEnabled = options.bloomEnabled && _hdrFormat != PixelFormat::PIXELFORMAT_RGBA8;
         _sceneHalfEnabled = _bloomEnabled || options.dofEnabled;
+        _renderTargetScale = options.renderTargetScale;
 
         // Create the scene color texture explicitly so it survives beyond the helper.
         // The createRenderTarget() helper creates a local Texture that is destroyed when
         // the method returns (RenderTarget stores only a raw pointer). We must keep
         // the color texture alive ourselves.
         // Start at the device size (not 4×4) so the first frame isn't too small.
-        const auto [initW, initH] = gd->size();
+        // Scaled the same way _sceneOptions scales it below, so a supersampled frame
+        // starts at its real size instead of growing into it on the second frame.
+        const auto [devW, devH] = gd->size();
+        const int initW = std::max(static_cast<int>(std::floor(devW * _renderTargetScale)), 1);
+        const int initH = std::max(static_cast<int>(std::floor(devH * _renderTargetScale)), 1);
         {
             TextureOptions colorOpts;
             colorOpts.name = "SceneColor";
@@ -420,8 +430,12 @@ namespace visutwin::canvas
             // Create half-resolution color texture explicitly (same lifetime fix as _sceneTexture).
             TextureOptions halfOpts;
             halfOpts.name = "SceneColorHalf";
-            halfOpts.width = 4;
-            halfOpts.height = 4;
+            // Half of the scene texture, not 4x4, for the same reason the scene
+            // texture starts at the device size: the bloom chain sizes its mip
+            // count from this texture on the very first frameUpdate, and a
+            // placeholder makes it build a chain it discards a frame later.
+            halfOpts.width = std::max(initW / 2, 1);
+            halfOpts.height = std::max(initH / 2, 1);
             halfOpts.format = _hdrFormat;
             halfOpts.mipmaps = false;
             halfOpts.minFilter = FilterMode::FILTER_LINEAR;
@@ -685,7 +699,10 @@ namespace visutwin::canvas
             _composePass->setDepthTexture(_sceneDepthTexture.get());
             _composePass->setDofFocusDistance(dof.focusDistance);
             _composePass->setDofFocusRange(dof.focusRange);
-            _composePass->setDofBlurRadius(dof.blurRadius);
+            // The blur steps in scene-texture texels, so a supersampled scene would
+            // shrink the same radius to half the screen fraction. Scale it back so
+            // the depth of field looks identical at any render-target scale.
+            _composePass->setDofBlurRadius(dof.blurRadius * _renderTargetScale);
             if (auto* camera = _cameraComponent->camera()) {
                 _composePass->setDofCameraNear(camera->nearClip());
                 _composePass->setDofCameraFar(camera->farClip());
@@ -757,9 +774,13 @@ namespace visutwin::canvas
         // the back buffer has no color buffer texture, so we handle it here.
         if (gd && _sceneRenderTarget && !_targetRenderTarget) {
             const auto [devW, devH] = gd->size();
+            // Scaled like every other sizing path: without this the supersampled
+            // scene target would be pulled back to the device size every frame.
+            const int scaledW = std::max(static_cast<int>(std::floor(devW * _renderTargetScale)), 1);
+            const int scaledH = std::max(static_cast<int>(std::floor(devH * _renderTargetScale)), 1);
             if (devW > 0 && devH > 0 &&
-                (_sceneRenderTarget->width() != devW || _sceneRenderTarget->height() != devH)) {
-                _sceneRenderTarget->resize(devW, devH);
+                (_sceneRenderTarget->width() != scaledW || _sceneRenderTarget->height() != scaledH)) {
+                _sceneRenderTarget->resize(scaledW, scaledH);
             }
         }
 

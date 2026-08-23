@@ -4,6 +4,7 @@
 //
 #include "renderPassTAA.h"
 
+#include <algorithm>
 #include <cassert>
 #include <string>
 
@@ -23,11 +24,18 @@ namespace visutwin::canvas
     void RenderPassTAA::setup()
     {
         const PixelFormat historyFormat = _sourceTexture ? _sourceTexture->format() : PixelFormat::PIXELFORMAT_RGBA8;
+        // Start at the source size, not 4x4: resizeSource corrects the history on the
+        // first frameUpdate either way, but until then the resolved texture is what
+        // downstream passes size themselves from, and a placeholder propagates — the
+        // half-res scene texture lands at 2x2 and the bloom chain builds a one-pass
+        // version it throws away a frame later.
+        const int historyWidth = _sourceTexture ? std::max(static_cast<int>(_sourceTexture->width()), 1) : 4;
+        const int historyHeight = _sourceTexture ? std::max(static_cast<int>(_sourceTexture->height()), 1) : 4;
         for (int i = 0; i < 2; ++i) {
             TextureOptions textureOptions;
             textureOptions.name = "TAA-History-" + std::to_string(i);
-            textureOptions.width = 4;
-            textureOptions.height = 4;
+            textureOptions.width = historyWidth;
+            textureOptions.height = historyHeight;
             textureOptions.format = historyFormat;
             textureOptions.mipmaps = false;
             textureOptions.minFilter = FilterMode::FILTER_LINEAR;

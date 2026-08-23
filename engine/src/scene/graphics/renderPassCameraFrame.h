@@ -43,6 +43,10 @@ namespace visutwin::canvas
         int lastSceneLayerId = LAYERID_IMMEDIATE;
         bool lastSceneLayerIsTransparent = true;
         bool taaEnabled = false;
+        // Supersampling factor for the scene render target: >1 renders the scene
+        // larger than the camera's output and lets the compose blit filter it back
+        // down (SSAA), <1 renders smaller and upscales. 1.0 is native.
+        float renderTargetScale = 1.0f;
         bool bloomEnabled = false;
         float bloomIntensity = 0.01f;
         int bloomBlurLevel = 16;
