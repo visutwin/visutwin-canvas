@@ -6,11 +6,26 @@
 
 #include "platform/graphics/shader.h"
 
+#include <type_traits>
+
 namespace visutwin::canvas
 {
     QuadRender::QuadRender(const std::shared_ptr<Shader>& shader)
         : _shader(shader)
     {
+    }
+
+    void QuadRender::setTexture(const size_t slot, Texture* texture)
+    {
+        if (slot < _textures.size()) {
+            _textures[slot] = texture;
+        }
+    }
+
+    void QuadRender::setUniformData(const void* data, const size_t size)
+    {
+        const auto* bytes = static_cast<const uint8_t*>(data);
+        _uniformData.assign(bytes, bytes + size);
     }
 
     void QuadRender::render(const Vector4* viewport, const Vector4* scissor) const
@@ -53,7 +68,14 @@ namespace visutwin::canvas
 
         rawDevice->setVertexBuffer(rawDevice->quadVertexBuffer());
         rawDevice->setShader(_shader);
-        // DEVIATION: UBO / bind-group setup from upstream QuadRender is not implemented in this backend yet.
+        for (size_t slot = 0; slot < _textures.size(); ++slot) {
+            if (_textures[slot]) {
+                rawDevice->setQuadTextureBinding(slot, _textures[slot]);
+            }
+        }
+        if (!_uniformData.empty()) {
+            rawDevice->setQuadUniformData(_uniformData.data(), _uniformData.size());
+        }
         rawDevice->setQuadRenderActive(true);
 
         Primitive quadPrimitive;
@@ -66,6 +88,7 @@ namespace visutwin::canvas
         rawDevice->draw(quadPrimitive, nullptr, 1, -1, true, true);
         rawDevice->setQuadRenderActive(false);
         rawDevice->clearQuadTextureBindings();
+        rawDevice->clearQuadUniformData();
 
         if (viewport) {
             rawDevice->setViewport(oldVx, oldVy, oldVw, oldVh);

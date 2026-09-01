@@ -597,17 +597,6 @@ namespace visutwin::canvas
         destroyPostResources();
         destroyComputeResources();
 
-        for (auto& [key, pipeline] : _vsmBlurPipelines) {
-            vkDestroyPipeline(_device, pipeline, nullptr);
-        }
-        if (_vsmBlurPipelineLayout != VK_NULL_HANDLE)
-            vkDestroyPipelineLayout(_device, _vsmBlurPipelineLayout, nullptr);
-        if (_vsmBlurSetLayout != VK_NULL_HANDLE)
-            vkDestroyDescriptorSetLayout(_device, _vsmBlurSetLayout, nullptr);
-        if (_vsmBlurVertModule != VK_NULL_HANDLE)
-            vkDestroyShaderModule(_device, _vsmBlurVertModule, nullptr);
-        if (_vsmBlurFragModule != VK_NULL_HANDLE)
-            vkDestroyShaderModule(_device, _vsmBlurFragModule, nullptr);
 
         _renderPipeline.reset();
         // Owns VkQueryPools — must die before the VkDevice.

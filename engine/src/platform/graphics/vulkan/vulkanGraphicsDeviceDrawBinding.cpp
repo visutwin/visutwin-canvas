@@ -35,249 +35,6 @@
 namespace visutwin::canvas
 {
 
-    void VulkanGraphicsDevice::ensureVsmBlurResources()
-    {
-        if (_vsmBlurPipelineLayout != VK_NULL_HANDLE ||
-            _vsmBlurResourcesAttempted) {
-            return;
-        }
-        _vsmBlurResourcesAttempted = true;
-
-        VkDescriptorSetLayoutBinding binding{};
-        binding.binding = 0;
-        binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        binding.descriptorCount = 1;
-        binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-        VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        setInfo.bindingCount = 1;
-        setInfo.pBindings = &binding;
-        VkResult result = vkCreateDescriptorSetLayout(
-            _device, &setInfo, nullptr, &_vsmBlurSetLayout);
-        if (result != VK_SUCCESS) {
-            spdlog::error(
-                "VulkanGraphicsDevice: VSM blur descriptor set layout creation failed ({})",
-                static_cast<int>(result));
-            return;
-        }
-
-        VkPushConstantRange pushRange{};
-        pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        pushRange.offset = 0;
-        pushRange.size = 32; // vec4 dirInvRes + vec4 filterParams
-
-        VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutInfo.setLayoutCount = 1;
-        layoutInfo.pSetLayouts = &_vsmBlurSetLayout;
-        layoutInfo.pushConstantRangeCount = 1;
-        layoutInfo.pPushConstantRanges = &pushRange;
-        result = vkCreatePipelineLayout(
-            _device, &layoutInfo, nullptr, &_vsmBlurPipelineLayout);
-        if (result != VK_SUCCESS) {
-            spdlog::error(
-                "VulkanGraphicsDevice: VSM blur pipeline layout creation failed ({})",
-                static_cast<int>(result));
-            vkDestroyDescriptorSetLayout(
-                _device, _vsmBlurSetLayout, nullptr);
-            _vsmBlurSetLayout = VK_NULL_HANDLE;
-            return;
-        }
-
-        auto createModule = [this](
-                                const uint32_t* spirv,
-                                size_t words) -> VkShaderModule {
-            VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-            info.codeSize = words * sizeof(uint32_t);
-            info.pCode = spirv;
-            VkShaderModule module = VK_NULL_HANDLE;
-            const VkResult moduleResult =
-                vkCreateShaderModule(_device, &info, nullptr, &module);
-            if (moduleResult != VK_SUCCESS) {
-                spdlog::error(
-                    "VulkanGraphicsDevice: VSM blur shader module creation failed ({})",
-                    static_cast<int>(moduleResult));
-                return VK_NULL_HANDLE;
-            }
-            return module;
-        };
-        _vsmBlurVertModule = createModule(
-            vulkan_generated::kVsmBlurVert,
-            vulkan_generated::kVsmBlurVertWordCount);
-        _vsmBlurFragModule = createModule(
-            vulkan_generated::kVsmBlurFrag,
-            vulkan_generated::kVsmBlurFragWordCount);
-        if (_vsmBlurVertModule == VK_NULL_HANDLE ||
-            _vsmBlurFragModule == VK_NULL_HANDLE) {
-            if (_vsmBlurVertModule != VK_NULL_HANDLE) {
-                vkDestroyShaderModule(
-                    _device, _vsmBlurVertModule, nullptr);
-            }
-            if (_vsmBlurFragModule != VK_NULL_HANDLE) {
-                vkDestroyShaderModule(
-                    _device, _vsmBlurFragModule, nullptr);
-            }
-            vkDestroyPipelineLayout(
-                _device, _vsmBlurPipelineLayout, nullptr);
-            vkDestroyDescriptorSetLayout(
-                _device, _vsmBlurSetLayout, nullptr);
-            _vsmBlurVertModule = VK_NULL_HANDLE;
-            _vsmBlurFragModule = VK_NULL_HANDLE;
-            _vsmBlurPipelineLayout = VK_NULL_HANDLE;
-            _vsmBlurSetLayout = VK_NULL_HANDLE;
-        }
-    }
-
-    VkPipeline VulkanGraphicsDevice::getVsmBlurPipeline(const VkFormat colorFormat, const VkFormat depthFormat)
-    {
-        const uint64_t key = (static_cast<uint64_t>(colorFormat) << 32) |
-                             static_cast<uint64_t>(depthFormat);
-        if (const auto it = _vsmBlurPipelines.find(key); it != _vsmBlurPipelines.end()) {
-            return it->second;
-        }
-        if (_vsmBlurVertModule == VK_NULL_HANDLE || _vsmBlurFragModule == VK_NULL_HANDLE) {
-            return VK_NULL_HANDLE;
-        }
-
-        VkPipelineShaderStageCreateInfo stages[2]{};
-        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = _vsmBlurVertModule;
-        stages[0].pName = "main";
-        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = _vsmBlurFragModule;
-        stages[1].pName = "main";
-
-        // Fullscreen triangle: no vertex input.
-        VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-        VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-        viewportState.viewportCount = 1;
-        viewportState.scissorCount = 1;
-
-        VkPipelineRasterizationStateCreateInfo rasterization{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-        rasterization.polygonMode = VK_POLYGON_MODE_FILL;
-        rasterization.cullMode = VK_CULL_MODE_NONE;
-        rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-        rasterization.lineWidth = 1.0f;
-
-        VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-        // Fullscreen blit — depth untouched even if the pass carries a depth attachment.
-        VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-        depthStencil.depthTestEnable = VK_FALSE;
-        depthStencil.depthWriteEnable = VK_FALSE;
-        depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
-
-        VkPipelineColorBlendAttachmentState blendAttachment{};
-        blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-        VkPipelineColorBlendStateCreateInfo colorBlend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-        colorBlend.attachmentCount = 1;
-        colorBlend.pAttachments = &blendAttachment;
-
-        VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-        VkPipelineDynamicStateCreateInfo dynamicState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-        dynamicState.dynamicStateCount = 2;
-        dynamicState.pDynamicStates = dynamicStates;
-
-        VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-        renderingInfo.colorAttachmentCount = 1;
-        renderingInfo.pColorAttachmentFormats = &colorFormat;
-        renderingInfo.depthAttachmentFormat = depthFormat;
-
-        VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-        pipelineInfo.pNext = &renderingInfo;
-        pipelineInfo.stageCount = 2;
-        pipelineInfo.pStages = stages;
-        pipelineInfo.pVertexInputState = &vertexInput;
-        pipelineInfo.pInputAssemblyState = &inputAssembly;
-        pipelineInfo.pViewportState = &viewportState;
-        pipelineInfo.pRasterizationState = &rasterization;
-        pipelineInfo.pMultisampleState = &multisampling;
-        pipelineInfo.pDepthStencilState = &depthStencil;
-        pipelineInfo.pColorBlendState = &colorBlend;
-        pipelineInfo.pDynamicState = &dynamicState;
-        pipelineInfo.layout = _vsmBlurPipelineLayout;
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateGraphicsPipelines(_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
-            spdlog::error("VulkanGraphicsDevice: VSM blur pipeline creation failed");
-        }
-        _vsmBlurPipelines[key] = pipeline;
-        return pipeline;
-    }
-
-    void VulkanGraphicsDevice::executeVsmBlurPass(const VsmBlurPassParams& params, const bool horizontal)
-    {
-        if (!_frameActive || !_dynamicRenderingActive || !params.sourceTexture) {
-            return;
-        }
-        auto* sourceTex = static_cast<gpu::VulkanTexture*>(params.sourceTexture->impl());
-        if (!sourceTex || sourceTex->imageView() == VK_NULL_HANDLE) {
-            return;
-        }
-
-        ensureVsmBlurResources();
-
-        // Formats of the active pass (same derivation as draw()).
-        VkFormat colorFmt = _swapchainFormat;
-        VkFormat depthFmt = _depthFormat;
-        if (_activeOffscreenTarget) {
-            const auto& colors = _activeOffscreenTarget->colorAttachments();
-            colorFmt = colors.empty() ? VK_FORMAT_UNDEFINED : colors[0].format;
-            depthFmt = _activeOffscreenTarget->hasDepthAttachment()
-                ? _activeOffscreenTarget->depthAttachment().format
-                : VK_FORMAT_UNDEFINED;
-        }
-        if (colorFmt == VK_FORMAT_UNDEFINED) {
-            return;
-        }
-
-        VkPipeline pipeline = getVsmBlurPipeline(colorFmt, depthFmt);
-        if (pipeline == VK_NULL_HANDLE) {
-            return;
-        }
-
-        auto& frame = _frames[_frameIndex];
-        VkCommandBuffer cmd = frame.commandBuffer;
-
-        VkDescriptorImageInfo imageInfo{};
-        imageInfo.sampler = sourceTex->sampler() != VK_NULL_HANDLE ? sourceTex->sampler() : _defaultSampler;
-        imageInfo.imageView = sourceTex->imageView();
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        const VkDescriptorSet set = getOrCreateImageDescriptorSet(
-            _vsmBlurSetLayout, std::span(&imageInfo, 1));
-        if (set == VK_NULL_HANDLE) {
-            return;
-        }
-
-        struct { float dirInvRes[4]; float filterParams[4]; } push{};
-        push.dirInvRes[0] = horizontal ? 1.0f : 0.0f;
-        push.dirInvRes[1] = horizontal ? 0.0f : 1.0f;
-        push.dirInvRes[2] = params.sourceInvResolutionX;
-        push.dirInvRes[3] = params.sourceInvResolutionY;
-        push.filterParams[0] = static_cast<float>(params.filterSize);
-        push.filterParams[1] = params.tileSize;
-
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            _vsmBlurPipelineLayout, 0, 1, &set, 0, nullptr);
-        vkCmdPushConstants(cmd, _vsmBlurPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,
-            0, sizeof(push), &push);
-        vkCmdDraw(cmd, 3, 1, 0, 0);
-
-        // The blur pipeline replaced the material pipeline — force a rebind
-        // (and full descriptor rebind via the incompatible layout) next draw.
-        _currentPipeline = VK_NULL_HANDLE;
-    }
-
     void VulkanGraphicsDevice::startRenderPass(RenderPass* renderPass)
     {
         if (!_frameActive) {
@@ -802,7 +559,21 @@ namespace visutwin::canvas
             MaterialUniforms materialUniforms;
             const void* uniformData = &materialUniforms;
             size_t uniformSize = sizeof(MaterialUniforms);
-            if (_material) {
+            // A quad pass has no material, so its own uniform block takes this
+            // slot. The descriptor's range is sizeof(MaterialUniforms), so the
+            // allocation has to stay that size even when the quad block is
+            // smaller — a short allocation would leave the descriptor reading
+            // past it. Copy the block into the front of the full-size struct.
+            if (quadRenderActive() && !quadUniformData().empty()) {
+                const size_t copySize =
+                    std::min(quadUniformData().size(), sizeof(MaterialUniforms));
+                if (quadUniformData().size() > sizeof(MaterialUniforms)) {
+                    spdlog::error("VulkanGraphicsDevice: quad uniform block is {} bytes, "
+                        "larger than the {}-byte material slot it rides in; truncated",
+                        quadUniformData().size(), sizeof(MaterialUniforms));
+                }
+                std::memcpy(&materialUniforms, quadUniformData().data(), copySize);
+            } else if (_material) {
                 size_t customSize = 0;
                 const void* customData = _material->customUniformData(customSize);
                 if (customData && customSize > 0) {

@@ -209,8 +209,6 @@ namespace visutwin::canvas
         [[nodiscard]] std::weak_ptr<bool> aliveToken() const { return _aliveToken; }
 
         // VSM separable gaussian blur — fullscreen draw into the active
-        // RenderPassVsmBlur render pass (H: moments → scratch, V: back).
-        void executeVsmBlurPass(const VsmBlurPassParams& params, bool horizontal) override;
 
         // ── Post-processing core (fullscreen draws inside the active pass,
         //    shaders compiled at runtime from engine/shaders/vulkan) ────────
@@ -604,14 +602,6 @@ namespace visutwin::canvas
         std::shared_ptr<gpu::VulkanGpuProfiler> _vulkanGpuProfiler;
 
         // ── VSM blur pass (lazy) ─────────────────────────────────────────
-        void ensureVsmBlurResources();
-        VkPipeline getVsmBlurPipeline(VkFormat colorFormat, VkFormat depthFormat);
-        VkDescriptorSetLayout _vsmBlurSetLayout = VK_NULL_HANDLE;
-        VkPipelineLayout _vsmBlurPipelineLayout = VK_NULL_HANDLE;
-        VkShaderModule _vsmBlurVertModule = VK_NULL_HANDLE;
-        VkShaderModule _vsmBlurFragModule = VK_NULL_HANDLE;
-        std::unordered_map<uint64_t, VkPipeline> _vsmBlurPipelines;
-        bool _vsmBlurResourcesAttempted = false;
 
         // ── Post-processing framework (vulkanPostProcess.cpp) ────────────
         // Shared layout: bindings 0-3 combined samplers + binding 4 params UBO

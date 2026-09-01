@@ -23,8 +23,6 @@ MODULES = (
     ("ForwardPointVert", "forward_point.vert", "vert"),
     ("ForwardFrag", "forward.frag", "frag"),
     ("ShadowVsmFrag", "shadow_vsm_moments.frag", "frag"),
-    ("VsmBlurVert", "vsm_blur.vert", "vert"),
-    ("VsmBlurFrag", "vsm_blur.frag", "frag"),
     ("PostFullscreenVert", "post_fullscreen.vert", "vert"),
     ("PostComposeFrag", "post_compose.frag", "frag"),
     ("PostSsaoFrag", "post_ssao.frag", "frag"),
@@ -206,18 +204,6 @@ def validate(module: str, reflection: dict) -> None:
                 f"{module}: reflected layout mismatch: {bindings}"
             )
         return
-    if module == "VsmBlurVert":
-        if bindings or push_constant_size(reflection):
-            raise RuntimeError(f"{module}: unexpected reflected resources")
-        return
-    if module == "VsmBlurFrag":
-        expected = [(0, 0, "CombinedImageSampler", 0)]
-        if bindings != expected or push_constant_size(reflection) != 32:
-            raise RuntimeError(
-                f"{module}: reflected layout mismatch: "
-                f"bindings={bindings}, push={push_constant_size(reflection)}"
-            )
-        return
     if module.endswith("Vert"):
         if push_constant_size(reflection) != 128:
             raise RuntimeError(
@@ -382,6 +368,10 @@ def main() -> None:
                 "--target-spv=spv1.3",
                 f"-fshader-stage={stage}",
                 f"-I{args.work_dir}",
+                # Chunk tree: forward.frag is composed from
+                # engine/shaders/vulkan/chunks/ at build time, mirroring the
+                # runtime composition ProgramLibrary does for overrides.
+                f"-I{args.shader_dir}",
                 str(source),
                 "-o",
                 str(destination),

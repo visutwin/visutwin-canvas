@@ -394,18 +394,6 @@ namespace visutwin::canvas
     // VSM separable gaussian blur (upstream blurVSM equivalent).
     // Operates on the RGB channels of a 2D RGBA16F moments texture.
     // Run twice per shadow update — once horizontal, once vertical.
-    struct VsmBlurPassParams
-    {
-        Texture* sourceTexture = nullptr;   // Moments texture sampled per fragment.
-        int filterSize = 5;                 // Half-kernel; total taps = 2 * filterSize + 1.
-        float sourceInvResolutionX = 0.0f;
-        float sourceInvResolutionY = 0.0f;
-        // Normalized cascade tile size: 1.0 = single cascade (full atlas),
-        // 0.5 = 2x2 quadrant layouts. Blur taps are clamped to the fragment's
-        // tile so gaussian kernels can't mix moments across cascade seams.
-        float tileSize = 1.0f;
-    };
-
     struct EnvReprojectOp
     {
         int rectX = 0;
@@ -833,6 +821,26 @@ namespace visutwin::canvas
         }
         const std::array<Texture*, 8>& quadTextureBindings() const { return _quadTextureBindings; }
 
+        /**
+         * Uniform block for the next quad draw.
+         *
+         * A quad pass carries no Material, so the block rides the per-draw
+         * material uniform slot that would otherwise hold a default-constructed
+         * MaterialUniforms (Metal buffer 3 / Vulkan set 0 binding 0). The quad
+         * shader declares whatever struct it wants there. This is what lets a
+         * fullscreen effect live above GraphicsDevice instead of as a backend
+         * pass class: shader + textures + this block is the whole contract.
+         *
+         * The bytes are copied, so the caller's struct need not outlive the draw.
+         */
+        void setQuadUniformData(const void* data, const size_t size)
+        {
+            _quadUniformData.assign(static_cast<const uint8_t*>(data),
+                                    static_cast<const uint8_t*>(data) + size);
+        }
+        void clearQuadUniformData() { _quadUniformData.clear(); }
+        const std::vector<uint8_t>& quadUniformData() const { return _quadUniformData; }
+
         void setMaterial(const Material* material) { _material = material; }
         const Material* material() const { return _material; }
 
@@ -1031,11 +1039,6 @@ namespace visutwin::canvas
             (void)params; (void)horizontal;
             VT_DEVICE_FEATURE_UNSUPPORTED("executeDepthAwareBlurPass");
         }
-        virtual void executeVsmBlurPass(const VsmBlurPassParams& params, bool horizontal)
-        {
-            (void)params; (void)horizontal;
-            VT_DEVICE_FEATURE_UNSUPPORTED("executeVsmBlurPass");
-        }
         virtual void generateEnvReproject(const EnvReprojectPassParams& params)
         {
             (void)params;
@@ -1141,6 +1144,7 @@ namespace visutwin::canvas
 
         std::shared_ptr<VertexBuffer> _quadVertexBuffer;
         std::array<Texture*, 8> _quadTextureBindings{};
+        std::vector<uint8_t> _quadUniformData;
         bool _quadRenderActive = false;
         bool _hdrPass = false;
         bool _atmosphereEnabled = false;
