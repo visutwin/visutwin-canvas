@@ -475,12 +475,9 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
                 featurePrograms.getForwardShader(&featureMaterial, false);
             const auto* vkFeatureShader =
                 dynamic_cast<VulkanShader*>(featureShader.get());
-            const uint64_t requiredFeatures =
-                shaderFeatureBit(ShaderFeature::BaseColorMap) |
-                shaderFeatureBit(ShaderFeature::AlphaTest);
             if (!vkFeatureShader ||
-                (vkFeatureShader->featureMask() & requiredFeatures) !=
-                    requiredFeatures ||
+                !vkFeatureShader->features().testAll(
+                    {ShaderFeature::BaseColorMap, ShaderFeature::AlphaTest}) ||
                 !vkFeatureShader->specializesFeatures()) {
                 spdlog::error(
                     "Vulkan smoke: shared feature mask did not reach SPIR-V");
@@ -1358,8 +1355,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             const auto* vkClusterShader =
                 dynamic_cast<VulkanShader*>(clusterShader.get());
             if (!vkClusterShader ||
-                (vkClusterShader->featureMask() &
-                    shaderFeatureBit(ShaderFeature::LightClustering)) == 0) {
+                !vkClusterShader->features().test(ShaderFeature::LightClustering)) {
                 spdlog::error("Vulkan smoke: clustered forward variant lacks the "
                     "LIGHT_CLUSTERING feature bit — the shadow probe below would "
                     "be measuring the wrong shader");
@@ -1547,11 +1543,9 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             auto skyShader = skyPrograms.getForwardShader(&skyMaterial, false);
             const auto* vkSkyShader =
                 dynamic_cast<VulkanShader*>(skyShader.get());
-            const uint64_t skyFeatures =
-                shaderFeatureBit(ShaderFeature::Skybox) |
-                shaderFeatureBit(ShaderFeature::Atmosphere);
             if (!vkSkyShader ||
-                (vkSkyShader->featureMask() & skyFeatures) != skyFeatures) {
+                !vkSkyShader->features().testAll(
+                    {ShaderFeature::Skybox, ShaderFeature::Atmosphere})) {
                 spdlog::error("Vulkan smoke: skybox variant lacks the ATMOSPHERE "
                     "feature bit — the sky probe below would measure the wrong shader");
                 result = 1;
@@ -1758,8 +1752,8 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             const auto* vkDepthPassShader =
                 dynamic_cast<VulkanShader*>(depthPassShader.get());
             if (!vkDepthPassShader ||
-                (vkDepthPassShader->featureMask() &
-                    shaderFeatureBit(ShaderFeature::PlanarReflectionDepthPass)) == 0) {
+                !vkDepthPassShader->features().test(
+                    ShaderFeature::PlanarReflectionDepthPass)) {
                 spdlog::error("Vulkan smoke: depth-pass variant lacks the "
                     "PLANAR_REFLECTION_DEPTH_PASS feature bit");
                 result = 1;
@@ -2019,8 +2013,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             const auto* vkCatcherShader =
                 dynamic_cast<VulkanShader*>(catcherShader.get());
             if (!vkCatcherShader ||
-                (vkCatcherShader->featureMask() &
-                    shaderFeatureBit(ShaderFeature::ShadowCatcher)) == 0) {
+                !vkCatcherShader->features().test(ShaderFeature::ShadowCatcher)) {
                 spdlog::error("Vulkan smoke: shadow-catcher variant lacks the "
                     "SHADOW_CATCHER feature bit");
                 result = 1;
@@ -2202,8 +2195,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             const auto* vkDebugShader =
                 dynamic_cast<VulkanShader*>(debugShader.get());
             if (!vkDebugShader ||
-                (vkDebugShader->featureMask() &
-                    shaderFeatureBit(ShaderFeature::DebugPass)) == 0) {
+                !vkDebugShader->features().test(ShaderFeature::DebugPass)) {
                 spdlog::error("Vulkan smoke: debug-pass variant lacks the "
                     "DEBUG_PASS feature bit");
                 result = 1;

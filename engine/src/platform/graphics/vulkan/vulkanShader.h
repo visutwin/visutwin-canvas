@@ -51,7 +51,7 @@ namespace visutwin::canvas
         [[nodiscard]] VkShaderModule skinnedMorphedVertexModule() const { return _skinnedMorphedVertexModule; }
         [[nodiscard]] VkShaderModule fragmentModule() const { return _fragmentModule; }
         [[nodiscard]] VkShaderModule computeModule() const { return _computeModule; }
-        [[nodiscard]] uint64_t featureMask() const { return _featureMask; }
+        [[nodiscard]] const ShaderFeatureSet& features() const { return _features; }
         [[nodiscard]] bool specializesFeatures() const {
             return _specializeFeatures;
         }
@@ -74,7 +74,7 @@ namespace visutwin::canvas
         VkShaderModule _skinnedMorphedVertexModule = VK_NULL_HANDLE;
         VkShaderModule _fragmentModule = VK_NULL_HANDLE;
         VkShaderModule _computeModule = VK_NULL_HANDLE;
-        uint64_t _featureMask = 0;
+        ShaderFeatureSet _features;
         bool _specializeFeatures = false;
     };
 }

@@ -29,7 +29,7 @@ namespace visutwin::canvas
         auto* vkDevice = static_cast<VulkanGraphicsDevice*>(device);
         _vkDevice = vkDevice->device();
         _deviceAlive = vkDevice->aliveToken();
-        _featureMask = definition.featureMask;
+        _features = definition.features;
         _specializeFeatures = specializeFeatures;
 
         if (vertSpirv && vertWordCount > 0)

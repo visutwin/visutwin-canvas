@@ -532,37 +532,37 @@ namespace visutwin::canvas
         const bool useColor = !useSky && !instanced && !usePoint &&
             hasSemantic(vertexFormat, VertexSemantic::SEMANTIC_COLOR) &&
             shader->colorVertexModule() != VK_NULL_HANDLE;
-        const uint64_t features = shader->featureMask();
-        const bool dynamicBatch =
-            (features & shaderFeatureBit(ShaderFeature::DynamicBatch)) != 0;
-        const bool skinned =
-            (features & shaderFeatureBit(ShaderFeature::Skinning)) != 0;
-        const bool morphed =
-            (features & shaderFeatureBit(ShaderFeature::Morphing)) != 0;
+        const ShaderFeatureSet& features = shader->features();
+        const bool dynamicBatch = features.test(ShaderFeature::DynamicBatch);
+        const bool skinned = features.test(ShaderFeature::Skinning);
+        const bool morphed = features.test(ShaderFeature::Morphing);
 
         // --- Shader stages ---
         // Feature specialization constants. BOTH stages need them: the vertex shaders
-        // gate displacement and the UV-space lightmap bake on the same mask, and giving
+        // gate displacement and the UV-space lightmap bake on the same set, and giving
         // it only to the fragment stage silently disabled those.
-        struct FeatureSpecialization {
-            uint32_t low;
-            uint32_t high;
-        };
-        static constexpr std::array<VkSpecializationMapEntry, 2>
-            featureEntries = {{
-                {0, offsetof(FeatureSpecialization, low), sizeof(uint32_t)},
-                {1, offsetof(FeatureSpecialization, high), sizeof(uint32_t)},
-            }};
-        FeatureSpecialization featureData{};
+        //
+        // One constant per feature word, ids 0..kShaderFeatureWordCount-1, matching
+        // the vtFeatureMask<N> constants the shader bundle generator emits from
+        // shaderFeatures.h. Both sides derive the count from that one list, so adding
+        // the 33rd/65th/... feature widens them together.
+        static const std::array<VkSpecializationMapEntry, kShaderFeatureWordCount>
+            featureEntries = [] {
+                std::array<VkSpecializationMapEntry, kShaderFeatureWordCount> entries{};
+                for (uint32_t i = 0; i < kShaderFeatureWordCount; ++i) {
+                    entries[i] = {i, static_cast<uint32_t>(i * sizeof(uint32_t)),
+                                  sizeof(uint32_t)};
+                }
+                return entries;
+            }();
+        std::array<uint32_t, kShaderFeatureWordCount> featureData{};
         VkSpecializationInfo featureInfo{};
         if (shader->specializesFeatures()) {
-            const uint64_t featureMask = shader->featureMask();
-            featureData.low = static_cast<uint32_t>(featureMask);
-            featureData.high = static_cast<uint32_t>(featureMask >> 32u);
+            featureData = features.words();
             featureInfo.mapEntryCount = static_cast<uint32_t>(featureEntries.size());
             featureInfo.pMapEntries = featureEntries.data();
-            featureInfo.dataSize = sizeof(featureData);
-            featureInfo.pData = &featureData;
+            featureInfo.dataSize = featureData.size() * sizeof(uint32_t);
+            featureInfo.pData = featureData.data();
         }
 
         std::vector<VkPipelineShaderStageCreateInfo> stages;

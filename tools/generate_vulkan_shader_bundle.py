@@ -41,8 +41,11 @@ MODULES = (
     ("GSplatFrag", "gsplat.frag", "frag"),
 )
 
+# Matches one VT_SHADER_FEATURES entry: X(Symbol, "VT_FEATURE_NAME").
+# Feature indices are positional (declaration order), matching the C++ enum in
+# platform/graphics/shaderFeatures.h — neither side carries a hand-written bit.
 FEATURE_RE = re.compile(
-    r'X\(\s*(\w+)\s*,\s*"([^"]+)"\s*,\s*(\d+)\s*\)'
+    r'X\(\s*(\w+)\s*,\s*"([^"]+)"\s*\)'
 )
 
 
@@ -341,20 +344,30 @@ def main() -> None:
 
     args.work_dir.mkdir(parents=True, exist_ok=True)
     feature_glsl = args.work_dir / "shader_features.glsl"
+
+    # One specialization constant per 32 features, ids 0..word_count-1. This
+    # mirrors ShaderFeatureSet's word layout on the C++ side, so adding features
+    # past a word boundary widens both together with no hand edits.
+    word_count = (len(features) + 31) // 32
     feature_lines = [
-        "// Generated from platform/graphics/shaderFeatures.h.",
-        "layout(constant_id = 0) const uint vtFeatureMaskLo = 0u;",
-        "layout(constant_id = 1) const uint vtFeatureMaskHi = 0u;",
-        "bool vtFeatureEnabled(uint bit) {",
-        "    return bit < 32u",
-        "        ? (vtFeatureMaskLo & (1u << bit)) != 0u",
-        "        : (vtFeatureMaskHi & (1u << (bit - 32u))) != 0u;",
-        "}",
+        "// Generated from platform/graphics/shaderFeatures.h — do not edit.",
+        f"// {len(features)} features in {word_count} specialization word(s).",
     ]
-    for symbol, define_name, bit in features:
+    for word in range(word_count):
         feature_lines.append(
-            f"const uint {define_name}_BIT = {int(bit)}u;"
+            f"layout(constant_id = {word}) const uint vtFeatureMask{word} = 0u;"
         )
+    feature_lines.append("bool vtFeatureEnabled(uint bit) {")
+    feature_lines.append("    uint mask = 1u << (bit & 31u);")
+    feature_lines.append("    uint word = bit >> 5u;")
+    for word in range(word_count):
+        feature_lines.append(
+            f"    if (word == {word}u) return (vtFeatureMask{word} & mask) != 0u;"
+        )
+    feature_lines.append("    return false;")
+    feature_lines.append("}")
+    for index, (symbol, define_name) in enumerate(features):
+        feature_lines.append(f"const uint {define_name}_BIT = {index}u;")
     feature_glsl.write_text("\n".join(feature_lines) + "\n")
 
     reflected: dict[str, dict] = {}

@@ -197,20 +197,53 @@ namespace visutwin::canvas
             bool unlit = false;             // KHR_materials_unlit — skip PBR lighting
         };
 
+        /// Exact identity of a compiled variant. Compared in full by the cache,
+        /// so two variants can never share an entry — the hash below only
+        /// distributes buckets and names entry points.
+        struct VariantKey
+        {
+            uint64_t programNameHash = 0;
+            ShaderFeatureSet features;
+            uint64_t chunksHash = 0;          // device-wide chunk registry overrides
+            uint64_t materialChunksHash = 0;  // per-material chunk overrides
+
+            bool operator==(const VariantKey&) const = default;
+
+            [[nodiscard]] uint64_t hash() const
+            {
+                // FNV-1a mixing of the component hashes; the feature set folds in
+                // through its own hash so the result stays stable as the set widens.
+                uint64_t value = features.hash();
+                for (const uint64_t part : {programNameHash, chunksHash, materialChunksHash}) {
+                    value ^= part;
+                    value *= 1099511628211ull;
+                }
+                return value;
+            }
+        };
+
+        struct VariantKeyHash
+        {
+            size_t operator()(const VariantKey& key) const
+            {
+                return static_cast<size_t>(key.hash());
+            }
+        };
+
         ShaderVariantOptions buildForwardVariantOptions(const Material* material, bool transparentPass,
                                                          bool dynamicBatch = false, bool skinning = false,
                                                          bool morphing = false, bool instancing = false,
                                                          bool instancingColor = false) const;
         static std::string resolveProgramName(const ShaderVariantOptions& options);
-        static uint64_t makeFeatureMask(const ShaderVariantOptions& options);
-        uint64_t makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;
-        std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantKey, const Material* material = nullptr);
+        static ShaderFeatureSet makeFeatureSet(const ShaderVariantOptions& options);
+        VariantKey makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;
+        std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantId, const Material* material = nullptr);
 
         std::string composeProgramVariantMetalSource(const std::string& programName, const ShaderVariantOptions& options,
             const std::string& vertexEntry, const std::string& fragmentEntry, const Material* material = nullptr);
 
         std::shared_ptr<GraphicsDevice> _device;
-        std::unordered_map<uint64_t, std::shared_ptr<Shader>> _forwardShaderCache;
+        std::unordered_map<VariantKey, std::shared_ptr<Shader>, VariantKeyHash> _forwardShaderCache;
         std::unordered_set<std::string> _warnedFeatureFlags;
         std::unordered_map<std::string, std::vector<std::string>> _registeredPrograms;
         bool _skyCubemapAvailable = false;

@@ -1070,13 +1070,12 @@ namespace visutwin::canvas
                 _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
         }
 
-        // Set 4: deformation data selected by the shared feature mask.
-        const uint64_t featureMask = vulkanShader->featureMask();
+        // Set 4: deformation data selected by the shared feature set.
+        const ShaderFeatureSet& shaderFeatures = vulkanShader->features();
         const bool usesPalette =
-            (featureMask & (shaderFeatureBit(ShaderFeature::Skinning) |
-                            shaderFeatureBit(ShaderFeature::DynamicBatch))) != 0;
-        const bool usesMorph =
-            (featureMask & shaderFeatureBit(ShaderFeature::Morphing)) != 0;
+            shaderFeatures.test(ShaderFeature::Skinning) ||
+            shaderFeatures.test(ShaderFeature::DynamicBatch);
+        const bool usesMorph = shaderFeatures.test(ShaderFeature::Morphing);
         if (usesPalette || usesMorph) {
             if ((usesPalette && (!paletteOffset || paletteSize == 0)) ||
                 (usesMorph && (!morphDeltaBuffer || !morphParamsOffset ||

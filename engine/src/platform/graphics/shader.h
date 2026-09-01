@@ -21,7 +21,7 @@ namespace visutwin::canvas
         std::string cshader;  // Compute shader entry-point name (optional)
         // Backend-independent feature selection resolved by ProgramLibrary.
         // Metal emits these as defines; Vulkan uses specialization constants.
-        uint64_t featureMask = 0;
+        ShaderFeatureSet features;
     };
 
     class GraphicsDevice;

@@ -446,12 +446,12 @@ namespace visutwin::canvas
         return options.skybox ? "skybox" : "forward";
     }
 
-    uint64_t ProgramLibrary::makeFeatureMask(
+    ShaderFeatureSet ProgramLibrary::makeFeatureSet(
         const ShaderVariantOptions& options)
     {
-        uint64_t mask = 0;
-        const auto set = [&mask](const ShaderFeature feature, const bool enabled) {
-            if (enabled) mask |= shaderFeatureBit(feature);
+        ShaderFeatureSet features;
+        const auto set = [&features](const ShaderFeature feature, const bool enabled) {
+            if (enabled) features.set(feature);
         };
         set(ShaderFeature::TransparentPass, options.transparentPass);
         set(ShaderFeature::Skybox, options.skybox);
@@ -510,26 +510,32 @@ namespace visutwin::canvas
         set(ShaderFeature::ReflectionProbe, options.reflectionProbe);
         set(ShaderFeature::Ssr, options.ssr);
         set(ShaderFeature::SurfaceLic, options.surfaceLIC);
-        return mask;
+        return features;
     }
 
-    uint64_t ProgramLibrary::makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const
+    ProgramLibrary::VariantKey ProgramLibrary::makeVariantKey(const std::string& programName,
+        const ShaderVariantOptions& options, const Material* material) const
     {
-        (void)material;
-        // Build key entirely from resolved ShaderVariantOptions — do NOT fold in
+        // Build the key entirely from resolved ShaderVariantOptions — do NOT fold in
         // the raw material shaderVariantKey, because the options already capture
         // every flag that affects the compiled shader.  Including the raw key was
         // creating spurious unique variants (different materials mapping to the
         // same set of options but different shaderVariantKey values) and hitting
         // the AGX compiled-variants footprint limit.
-        uint64_t key = fnv1a64(programName) ^ makeFeatureMask(options);
+        //
+        // The key holds the feature set itself rather than a mask folded into an
+        // integer, so the cache compares variants exactly: growing the feature list
+        // past any word boundary cannot make two variants alias.
+        VariantKey key;
+        key.programNameHash = fnv1a64(programName);
+        key.features = makeFeatureSet(options);
 
         // Shader chunk overrides (registry + per-material) change the composed
-        // source without changing any option bit — fold their content hashes in so
+        // source without changing any feature — carry their content hashes so
         // overridden chunks compile fresh programs instead of hitting stale cache.
-        key ^= _chunks.hash();
+        key.chunksHash = _chunks.hash();
         if (material) {
-            key ^= material->shaderChunksHash();
+            key.materialChunksHash = material->shaderChunksHash();
         }
         return key;
     }
@@ -553,10 +559,9 @@ namespace visutwin::canvas
         // The feature names/bits consumed by Metal and Vulkan are generated
         // from one contract. Metal receives defines; Vulkan receives this same
         // mask through SPIR-V specialization constants.
-        const uint64_t featureMask = makeFeatureMask(options);
-#define VT_APPEND_METAL_FEATURE(symbol, defineName, bit) \
-        appendFeatureDefine(source, defineName, \
-            (featureMask & shaderFeatureBit(ShaderFeature::symbol)) != 0);
+        const ShaderFeatureSet features = makeFeatureSet(options);
+#define VT_APPEND_METAL_FEATURE(symbol, defineName) \
+        appendFeatureDefine(source, defineName, features.test(ShaderFeature::symbol));
         VT_SHADER_FEATURES(VT_APPEND_METAL_FEATURE)
 #undef VT_APPEND_METAL_FEATURE
         // VT_FEATURE_HDR_PASS is not emitted as a compile-time define.
@@ -595,16 +600,19 @@ namespace visutwin::canvas
     }
 
     std::shared_ptr<Shader> ProgramLibrary::buildForwardShaderVariant(const std::string& programName,
-        const ShaderVariantOptions& options, const uint64_t variantKey, const Material* material)
+        const ShaderVariantOptions& options, const uint64_t variantId, const Material* material)
     {
+        // variantId only names the generated entry points. Each variant compiles as
+        // its own translation unit, so the name just has to be internally consistent —
+        // variant identity itself is the exact VariantKey the cache compares.
         ShaderDefinition definition;
         definition.name = "program-" + programName;
         definition.name += options.transparentPass ? "-transparent" : "-opaque";
-        definition.name += "-" + std::to_string(variantKey);
+        definition.name += "-" + std::to_string(variantId);
         const auto entryPrefix = programName == "shadow" ? "pcShadow" : "pcForward";
-        definition.vshader = entryPrefix + std::string("VS_") + std::to_string(variantKey);
-        definition.fshader = entryPrefix + std::string("FS_") + std::to_string(variantKey);
-        definition.featureMask = makeFeatureMask(options);
+        definition.vshader = entryPrefix + std::string("VS_") + std::to_string(variantId);
+        definition.fshader = entryPrefix + std::string("FS_") + std::to_string(variantId);
+        definition.features = makeFeatureSet(options);
         const std::string sourceCode = composeProgramVariantMetalSource(programName, options, definition.vshader, definition.fshader, material);
         if (sourceCode.empty()) {
             return nullptr;
@@ -634,7 +642,7 @@ namespace visutwin::canvas
             _cachedChunksHash = _chunks.hash();
         }
 
-        const uint64_t key = makeVariantKey(programName, options, material);
+        const VariantKey key = makeVariantKey(programName, options, material);
 
         const auto cached = _forwardShaderCache.find(key);
         if (cached != _forwardShaderCache.end()) {
@@ -666,10 +674,11 @@ namespace visutwin::canvas
         // specGloss/orenNayar/detailNormals/displacement: fully implemented.
         // atmosphere: fully implemented — no warning needed.
 
-        auto shader = buildForwardShaderVariant(programName, options, key, material);
+        const uint64_t variantId = key.hash();
+        auto shader = buildForwardShaderVariant(programName, options, variantId, material);
         if (!shader) {
-            spdlog::error("Failed to build shader variant '{}' (key={:#x}, localShadows={}, shadows={}, envAtlas={})",
-                programName, key, options.localShadows, options.shadowMapping, options.envAtlas);
+            spdlog::error("Failed to build shader variant '{}' (id={:#x}, localShadows={}, shadows={}, envAtlas={})",
+                programName, variantId, options.localShadows, options.shadowMapping, options.envAtlas);
         }
         _forwardShaderCache[key] = shader;
         return shader;
@@ -703,13 +712,13 @@ namespace visutwin::canvas
         // shader variants are cached separately by the variant key.
         options.vsmShadows = _vsmShadowsEnabled;
 
-        const uint64_t key = makeVariantKey("shadow", options, nullptr);
+        const VariantKey key = makeVariantKey("shadow", options, nullptr);
         const auto cached = _forwardShaderCache.find(key);
         if (cached != _forwardShaderCache.end()) {
             return cached->second;
         }
 
-        auto shader = buildForwardShaderVariant("shadow", options, key);
+        auto shader = buildForwardShaderVariant("shadow", options, key.hash());
         _forwardShaderCache[key] = shader;
         return shader;
     }
