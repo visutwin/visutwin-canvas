@@ -39,6 +39,26 @@ constexpr const char* GREEN_GLOW_EMISSIVE_CHUNK = R"(
 #endif
 )";
 
+// The same two overrides in GLSL, for Vulkan. Chunk NAMES are shared across
+// backends; the SOURCE has to be in the language the device speaks, which is what
+// GraphicsDevice::shaderLanguage() reports. Overriding a chunk with the wrong
+// language fails to compile and the engine keeps the default shader.
+constexpr const char* GRAYSCALE_TONEMAP_CHUNK_GLSL = R"(
+vec3 applyToneMap(vec3 color) {
+    vec3 mapped = color / (color + vec3(1.0));
+    float gray = dot(mapped, vec3(0.299, 0.587, 0.114));
+    return vec3(gray);
+}
+)";
+
+constexpr const char* GREEN_GLOW_EMISSIVE_CHUNK_GLSL = R"(
+    vec3 emissive = material.emissiveColor.rgb + vec3(0.0, 0.35, 0.05);
+    if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
+        emissive *= texture(emissiveMap, uvEmissive).rgb;
+    }
+    color += emissive;
+)";
+
 class ShaderChunksExample final: public ExampleApp
 {
 public:
@@ -119,16 +139,19 @@ private:
     {
         _programLibrary->chunks().clearOverrides();
         _sphereMaterials[1]->clearShaderChunks();
+        const bool glsl = _programLibrary->chunks().language() == ShaderLanguage::Glsl;
         switch (phase) {
             case 1:
-                _programLibrary->chunks().set("common-tonemap", GRAYSCALE_TONEMAP_CHUNK);
-                spdlog::info("Phase 1: GLOBAL override 'common-tonemap' (grayscale) — hash {:#x}",
-                    _programLibrary->chunks().hash());
+                _programLibrary->chunks().set("common-tonemap", glsl ? GRAYSCALE_TONEMAP_CHUNK_GLSL
+                                                                    : GRAYSCALE_TONEMAP_CHUNK);
+                spdlog::info("Phase 1: GLOBAL override 'common-tonemap' (grayscale, {}) — hash {:#x}",
+                    glsl ? "GLSL" : "MSL", _programLibrary->chunks().hash());
                 break;
             case 2:
-                _sphereMaterials[1]->setShaderChunk("forward-fragment-emissive", GREEN_GLOW_EMISSIVE_CHUNK);
-                spdlog::info("Phase 2: PER-MATERIAL override 'forward-fragment-emissive' on middle sphere — hash {:#x}",
-                    _sphereMaterials[1]->shaderChunksHash());
+                _sphereMaterials[1]->setShaderChunk("forward-fragment-emissive",
+                    glsl ? GREEN_GLOW_EMISSIVE_CHUNK_GLSL : GREEN_GLOW_EMISSIVE_CHUNK);
+                spdlog::info("Phase 2: PER-MATERIAL override 'forward-fragment-emissive' on middle sphere ({}) — hash {:#x}",
+                    glsl ? "GLSL" : "MSL", _sphereMaterials[1]->shaderChunksHash());
                 break;
             default:
                 spdlog::info("Phase {}: default chunks", phase);

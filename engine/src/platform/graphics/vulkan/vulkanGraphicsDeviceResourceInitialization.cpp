@@ -917,6 +917,59 @@ namespace visutwin::canvas
                 computeSpv.data(), computeSpv.size());
         }
 
+        // Chunk-override path. ProgramLibrary hands over composed GLSL for a
+        // "program-*" shader only when a ShaderChunks override actually changed the
+        // source; without one it passes nothing and the prebuilt bundle below is
+        // used. Only the FRAGMENT stage is recompiled — the vertex stage is a family
+        // of prebuilt modules picked per draw by feature (instanced / skinned /
+        // morphed / sky / ...), and the chunk tree covers the fragment stage. The
+        // module keeps specializesFeatures() so the pipeline specializes it exactly
+        // like the bundled one.
+        const bool isProgramShader = definition.name.rfind("program-", 0) == 0;
+        if (isProgramShader && !sourceCode.empty() && looksLikeGlsl(sourceCode)) {
+            if (!vulkanShaderCompilerAvailable()) {
+                spdlog::error(
+                    "VulkanGraphicsDevice::createShader('{}'): shader chunk overrides "
+                    "need runtime GLSL compilation (shaderc), which this build lacks; "
+                    "falling back to the unmodified bundled shader",
+                    definition.name);
+            } else {
+                auto fragSpv = vulkanCompileGlsl(sourceCode,
+                    VulkanShaderStage::Fragment, definition.name + ".frag");
+                if (fragSpv.empty()) {
+                    spdlog::error(
+                        "VulkanGraphicsDevice::createShader('{}'): overridden shader "
+                        "chunks failed to compile; keeping the bundled shader",
+                        definition.name);
+                } else {
+                    spdlog::info(
+                        "VulkanGraphicsDevice::createShader('{}'): compiled overridden "
+                        "shader chunks at runtime", definition.name);
+                    return std::make_shared<VulkanShader>(this, definition,
+                        vulkan_generated::kForwardVert,
+                        vulkan_generated::kForwardVertWordCount,
+                        fragSpv.data(), fragSpv.size(),
+                        vulkan_generated::kForwardInstancedVert,
+                        vulkan_generated::kForwardInstancedVertWordCount,
+                        vulkan_generated::kForwardSkyVert,
+                        vulkan_generated::kForwardSkyVertWordCount,
+                        vulkan_generated::kForwardColorVert,
+                        vulkan_generated::kForwardColorVertWordCount,
+                        vulkan_generated::kForwardPointVert,
+                        vulkan_generated::kForwardPointVertWordCount,
+                        vulkan_generated::kForwardDynamicBatchVert,
+                        vulkan_generated::kForwardDynamicBatchVertWordCount,
+                        vulkan_generated::kForwardSkinnedVert,
+                        vulkan_generated::kForwardSkinnedVertWordCount,
+                        vulkan_generated::kForwardMorphedVert,
+                        vulkan_generated::kForwardMorphedVertWordCount,
+                        vulkan_generated::kForwardSkinnedMorphedVert,
+                        vulkan_generated::kForwardSkinnedMorphedVertWordCount,
+                        true);
+                }
+            }
+        }
+
         // Custom GLSL source: compile at runtime via shaderc. The single
         // source is compiled twice with VT_VERTEX_SHADER / VT_FRAGMENT_SHADER
         // defines so authors can guard the stages with #ifdef. A failed custom
@@ -944,7 +997,7 @@ namespace visutwin::canvas
             return nullptr;
         } else if (!sourceCode.empty() && !looksLikeGlsl(sourceCode)) {
             // ProgramLibrary composes MSL for Metal, but the definition also
-            // carries the shared feature mask consumed by the build-time
+            // carries the shared feature set consumed by the build-time
             // Vulkan module family. Arbitrary ShaderMaterial MSL is not a
             // Vulkan program and must fail explicitly.
             if (definition.name.rfind("program-", 0) != 0) {

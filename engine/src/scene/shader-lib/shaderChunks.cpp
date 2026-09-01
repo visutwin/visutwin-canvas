@@ -43,15 +43,23 @@ namespace visutwin::canvas
             return path;
         }
 
-        std::optional<DefaultChunkStore> loadDefaultChunks()
+        std::optional<DefaultChunkStore> loadDefaultChunks(const ShaderLanguage language)
         {
+            // Per-language chunk tree and file extension. Both trees use the same
+            // chunk NAMES (the file stem), so an override addresses one shader
+            // regardless of which backend is running.
+            const std::string subdir = language == ShaderLanguage::Glsl
+                ? "engine/shaders/vulkan/chunks" : "engine/shaders/metal/chunks";
+            const std::string extension =
+                language == ShaderLanguage::Glsl ? ".glsl" : ".metal";
+
             const auto sourceRoot = projectRootFromThisSource();
             const auto cwd = std::filesystem::current_path();
             const std::array<std::filesystem::path, 4> chunkRoots = {
-                sourceRoot / "engine/shaders/metal/chunks",
-                cwd / "engine/shaders/metal/chunks",
-                cwd.parent_path() / "engine/shaders/metal/chunks",
-                cwd.parent_path().parent_path() / "engine/shaders/metal/chunks"
+                sourceRoot / subdir,
+                cwd / subdir,
+                cwd.parent_path() / subdir,
+                cwd.parent_path().parent_path() / subdir
             };
 
             for (const auto& root : chunkRoots) {
@@ -62,7 +70,7 @@ namespace visutwin::canvas
                 DefaultChunkStore store;
                 store.rootPath = root;
                 for (const auto& entry : std::filesystem::directory_iterator(root)) {
-                    if (!entry.is_regular_file() || entry.path().extension() != ".metal") {
+                    if (!entry.is_regular_file() || entry.path().extension() != extension) {
                         continue;
                     }
                     const auto chunkName = entry.path().stem().string();
@@ -80,24 +88,34 @@ namespace visutwin::canvas
             return std::nullopt;
         }
 
-        const DefaultChunkStore* defaultChunkStore()
+        const DefaultChunkStore* defaultChunkStore(const ShaderLanguage language)
         {
-            static std::optional<DefaultChunkStore> store = loadDefaultChunks();
-            return store ? &*store : nullptr;
+            // One store per language, each loaded once. A process driving both
+            // backends (the Vulkan smoke test builds Metal-side objects too) gets
+            // an independent tree for each.
+            if (language == ShaderLanguage::Glsl) {
+                static std::optional<DefaultChunkStore> glsl =
+                    loadDefaultChunks(ShaderLanguage::Glsl);
+                return glsl ? &*glsl : nullptr;
+            }
+            static std::optional<DefaultChunkStore> msl =
+                loadDefaultChunks(ShaderLanguage::Msl);
+            return msl ? &*msl : nullptr;
         }
 
         const std::filesystem::path kEmptyPath;
     }
 
-    ShaderChunks::ShaderChunks()
+    ShaderChunks::ShaderChunks(const ShaderLanguage language)
+        : _language(language)
     {
-        const auto* store = defaultChunkStore();
+        const auto* store = defaultChunkStore(language);
         _defaults = store ? &store->sources : nullptr;
     }
 
     const std::filesystem::path& ShaderChunks::rootPath() const
     {
-        const auto* store = defaultChunkStore();
+        const auto* store = defaultChunkStore(_language);
         return store ? store->rootPath : kEmptyPath;
     }
 

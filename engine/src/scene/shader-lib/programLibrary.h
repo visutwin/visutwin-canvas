@@ -242,9 +242,23 @@ namespace visutwin::canvas
         std::string composeProgramVariantMetalSource(const std::string& programName, const ShaderVariantOptions& options,
             const std::string& vertexEntry, const std::string& fragmentEntry, const Material* material = nullptr);
 
+        // --- Vulkan/GLSL composition ---
+        void registerGlslPrograms();
+        /// Fragment-stage GLSL composed from the chunk tree, with the feature
+        /// preamble the bundled modules also carry. Empty when the program has no
+        /// chunked GLSL form.
+        std::string composeProgramVariantGlslSource(const std::string& programName,
+            const Material* material);
+        /// Runtime twin of the generated shader_features.glsl.
+        static std::string glslFeaturePreamble();
+        /// True when the registry or the material carries any chunk override.
+        bool hasChunkOverrides(const Material* material) const;
+        /// Warn (once per name) about overrides Vulkan cannot apply.
+        void warnUnsupportedGlslOverrides() const;
+
         std::shared_ptr<GraphicsDevice> _device;
         std::unordered_map<VariantKey, std::shared_ptr<Shader>, VariantKeyHash> _forwardShaderCache;
-        std::unordered_set<std::string> _warnedFeatureFlags;
+        mutable std::unordered_set<std::string> _warnedFeatureFlags;
         std::unordered_map<std::string, std::vector<std::string>> _registeredPrograms;
         bool _skyCubemapAvailable = false;
         bool _planarReflectionDepthPass = false;

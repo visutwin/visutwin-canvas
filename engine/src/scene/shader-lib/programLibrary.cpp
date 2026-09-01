@@ -116,12 +116,23 @@ namespace visutwin::canvas
         }
     }
 
-    ProgramLibrary::ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device) : _device(device)
+    ProgramLibrary::ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device)
+        : _device(device),
+          _chunks(device ? device->shaderLanguage() : ShaderLanguage::Msl)
     {
         // Mirrors upstream program registration model (program -> ordered chunk keys).
-        // Chunks are named micro-sections (upstream ShaderChunks granularity adapted
-        // to Metal); any of them can be overridden globally via chunks().set() or
-        // per material via Material::setShaderChunk().
+        // Chunks are named micro-sections; any of them can be overridden globally via
+        // chunks().set() or per material via Material::setShaderChunk().
+        //
+        // The two languages register DIFFERENT orders because the shaders are built
+        // differently: MSL composes one translation unit carrying both stages, while
+        // the Vulkan tree is the fragment stage only (its vertex stage is a family of
+        // prebuilt modules selected by feature). Chunk names are shared, so an
+        // override written against a name lands on whichever backend is running.
+        if (_chunks.language() == ShaderLanguage::Glsl) {
+            registerGlslPrograms();
+            return;
+        }
         registerProgram("forward", {
             "common-structs",
             "common-utils",
@@ -191,6 +202,40 @@ namespace visutwin::canvas
             "shadow-vertex",
             "shadow-fragment"
         });
+    }
+
+    void ProgramLibrary::registerGlslPrograms()
+    {
+        // Fragment-stage chunk order for Vulkan. MUST stay in step with the
+        // #include order in engine/shaders/vulkan/forward.frag — that file is the
+        // build-time composition of these same chunks, and this is the runtime one.
+        // "skybox" shares the order: one fragment shader serves both, gated by
+        // VT_FEATURE_SKYBOX.
+        const std::vector<std::string> forwardChunks = {
+            "forward-fragment-head",
+            "common-dither",
+            "common-parallax",
+            "common-shadow-pcss",
+            "common-shadow-vsm",
+            "common-cookie",
+            "common-utils",
+            "common-tonemap",
+            "common-material-flags",
+            "common-ltc",
+            "common-brdf",
+            "common-atmosphere",
+            "forward-fragment-surface",
+            "forward-fragment-lights",
+            "forward-fragment-clustered",
+            "forward-fragment-ambient",
+            "forward-fragment-emissive",
+            "forward-fragment-tail"
+        };
+        registerProgram("forward", forwardChunks);
+        registerProgram("skybox", forwardChunks);
+        // No "shadow": the Vulkan shadow pass is depth-only for PCF and uses the
+        // standalone shadow_vsm_moments.frag for VSM, neither of which is composed
+        // from chunks. Overriding a shadow chunk is reported by composeGlsl().
     }
 
     void ProgramLibrary::registerProgram(const std::string& name, const std::vector<std::string>& chunkOrder)
@@ -540,6 +585,104 @@ namespace visutwin::canvas
         return key;
     }
 
+    std::string ProgramLibrary::glslFeaturePreamble()
+    {
+        // Runtime twin of the shader_features.glsl that
+        // tools/generate_vulkan_shader_bundle.py writes at build time. Both are
+        // generated from the VT_SHADER_FEATURES list, so a runtime-composed module
+        // and a bundled one read the same specialization constants and the pipeline
+        // can specialize either identically.
+        std::string source;
+        source += "// Generated from platform/graphics/shaderFeatures.h at runtime.\n";
+        for (size_t word = 0; word < kShaderFeatureWordCount; ++word) {
+            source += "layout(constant_id = " + std::to_string(word) +
+                ") const uint vtFeatureMask" + std::to_string(word) + " = 0u;\n";
+        }
+        source += "bool vtFeatureEnabled(uint bit) {\n";
+        source += "    uint mask = 1u << (bit & 31u);\n";
+        source += "    uint word = bit >> 5u;\n";
+        for (size_t word = 0; word < kShaderFeatureWordCount; ++word) {
+            source += "    if (word == " + std::to_string(word) +
+                "u) return (vtFeatureMask" + std::to_string(word) + " & mask) != 0u;\n";
+        }
+        source += "    return false;\n}\n";
+        uint32_t index = 0;
+#define VT_APPEND_GLSL_FEATURE_BIT(symbol, defineName) \
+        source += "const uint " defineName "_BIT = " + std::to_string(index++) + "u;\n";
+        VT_SHADER_FEATURES(VT_APPEND_GLSL_FEATURE_BIT)
+#undef VT_APPEND_GLSL_FEATURE_BIT
+        return source;
+    }
+
+    std::string ProgramLibrary::composeProgramVariantGlslSource(const std::string& programName,
+        const Material* material)
+    {
+        if (!_chunks.loaded()) {
+            spdlog::error("Failed to load GLSL shader chunks from engine/shaders/vulkan/chunks.");
+            return {};
+        }
+        const auto programChunks = _registeredPrograms.find(programName);
+        if (programChunks == _registeredPrograms.end() || programChunks->second.empty()) {
+            // "shadow" lands here: it has no chunked GLSL form. Report rather than
+            // returning source that would silently replace the bundled module.
+            spdlog::warn("ProgramLibrary: no GLSL chunk order for program '{}'; "
+                "chunk overrides do not apply to it on Vulkan.", programName);
+            return {};
+        }
+
+        std::string source;
+        source.reserve(96 * 1024);
+        source += "#version 450\n";
+        source += glslFeaturePreamble();
+
+        const auto* materialChunks = material ? &material->shaderChunkOverrides() : nullptr;
+        for (const auto& chunkName : programChunks->second) {
+            const std::string* chunkSource = nullptr;
+            if (materialChunks) {
+                if (const auto it = materialChunks->find(chunkName); it != materialChunks->end()) {
+                    chunkSource = &it->second;
+                }
+            }
+            if (!chunkSource) {
+                chunkSource = _chunks.get(chunkName);
+            }
+            if (!chunkSource) {
+                spdlog::error("ProgramLibrary GLSL chunk '{}' is missing in '{}'.",
+                    chunkName, _chunks.rootPath().string());
+                return {};
+            }
+            source += *chunkSource;
+            source += "\n";
+        }
+        return source;
+    }
+
+    bool ProgramLibrary::hasChunkOverrides(const Material* material) const
+    {
+        if (_chunks.hash() != 0) {
+            return true;
+        }
+        return material && material->shaderChunksHash() != 0;
+    }
+
+    void ProgramLibrary::warnUnsupportedGlslOverrides() const
+    {
+        // Vertex chunks have no Vulkan counterpart (prebuilt module family), so an
+        // override of one would otherwise do nothing with no explanation. Warn once
+        // per name — the whole point of this path is that overrides stop being silent.
+        static const std::array<const char*, 2> vertexOnly = {"forward-vertex", "shadow-vertex"};
+        for (const char* name : vertexOnly) {
+            if (_chunks.overrides().count(name) == 0) {
+                continue;
+            }
+            if (_warnedFeatureFlags.insert(std::string("glsl-vertex-chunk:") + name).second) {
+                spdlog::warn("ProgramLibrary: chunk '{}' was overridden, but the Vulkan "
+                    "backend builds its vertex stage from prebuilt modules — the override "
+                    "applies on Metal only.", name);
+            }
+        }
+    }
+
     std::string ProgramLibrary::composeProgramVariantMetalSource(const std::string& programName, const ShaderVariantOptions& options,
         const std::string& vertexEntry, const std::string& fragmentEntry, const Material* material)
     {
@@ -613,6 +756,25 @@ namespace visutwin::canvas
         definition.vshader = entryPrefix + std::string("VS_") + std::to_string(variantId);
         definition.fshader = entryPrefix + std::string("FS_") + std::to_string(variantId);
         definition.features = makeFeatureSet(options);
+
+        if (_chunks.language() == ShaderLanguage::Glsl) {
+            // Vulkan's default path is the build-time SPIR-V bundle, which already IS
+            // these chunks compiled — composing and recompiling identical source every
+            // time would cost startup for nothing. Source is handed over only when an
+            // override actually changes it; an empty string selects the bundle.
+            if (!hasChunkOverrides(material)) {
+                return createShader(_device.get(), definition, {});
+            }
+            warnUnsupportedGlslOverrides();
+            const std::string glsl = composeProgramVariantGlslSource(programName, material);
+            if (glsl.empty()) {
+                // No chunked GLSL form for this program (e.g. shadow) — fall back to
+                // the bundled module rather than failing the draw. Already warned.
+                return createShader(_device.get(), definition, {});
+            }
+            return createShader(_device.get(), definition, glsl);
+        }
+
         const std::string sourceCode = composeProgramVariantMetalSource(programName, options, definition.vshader, definition.fshader, material);
         if (sourceCode.empty()) {
             return nullptr;
