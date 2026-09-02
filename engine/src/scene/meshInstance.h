@@ -169,9 +169,13 @@ namespace visutwin::canvas
         const std::shared_ptr<SkinInstance>& skinInstanceShared() const { return _skinInstance; }
 
         /**
-         * Attach a skin instance. DEVIATION: also disables frustum culling for this
-         * instance — the bind-pose AABB is not valid under animation and the port has
-         * no bone-based AABB path yet (upstream recomputes the AABB from bones).
+         * Attach a skin instance.
+         *
+         * Frustum culling stays ON when the skin carries per-bone AABBs (the GLB
+         * parser computes them), since aabb() then unions the used bones' boxes
+         * through their current transforms. It is disabled only for skins without
+         * them — a bind-pose AABB is not valid under animation. See the `_cull`
+         * assignment in setSkinInstance().
          */
         void setSkinInstance(const std::shared_ptr<SkinInstance>& skinInstance);
 

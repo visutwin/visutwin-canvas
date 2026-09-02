@@ -148,6 +148,9 @@ namespace visutwin::canvas
         options.vignetteOuter = rendering.vignetteOuter;
         options.vignetteCurvature = rendering.vignetteCurvature;
         options.vignetteIntensity = rendering.vignetteIntensity;
+        options.vignetteColor[0] = rendering.vignetteColor[0];
+        options.vignetteColor[1] = rendering.vignetteColor[1];
+        options.vignetteColor[2] = rendering.vignetteColor[2];
 
         options.fringingIntensity = rendering.fringingIntensity;
         options.gradingEnabled = rendering.gradingEnabled;
@@ -715,6 +718,8 @@ namespace visutwin::canvas
         _composePass->setVignetteOuter(options.vignetteOuter);
         _composePass->setVignetteCurvature(options.vignetteCurvature);
         _composePass->setVignetteIntensity(options.vignetteIntensity);
+        _composePass->setVignetteColor(options.vignetteColor[0],
+            options.vignetteColor[1], options.vignetteColor[2]);
 
         // Fringing: user value scaled to shader units (upstream: intensity / 1024).
         _composePass->setFringingIntensity(options.fringingIntensity / 1024.0f);

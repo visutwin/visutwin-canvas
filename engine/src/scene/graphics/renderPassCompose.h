@@ -88,6 +88,14 @@ namespace visutwin::canvas
         float vignetteIntensity() const { return _vignetteIntensity; }
         void setVignetteIntensity(const float value) { _vignetteIntensity = value; }
 
+        const float* vignetteColor() const { return _vignetteColor; }
+        void setVignetteColor(const float r, const float g, const float b)
+        {
+            _vignetteColor[0] = r;
+            _vignetteColor[1] = g;
+            _vignetteColor[2] = b;
+        }
+
         // Fringing (chromatic aberration); shader units (user value / 1024)
         void setFringingIntensity(const float value) { _fringingIntensity = value; }
 
@@ -154,6 +162,7 @@ namespace visutwin::canvas
         float _vignetteOuter = 1.0f;
         float _vignetteCurvature = 0.5f;
         float _vignetteIntensity = 0.3f;
+        float _vignetteColor[3] = {0.0f, 0.0f, 0.0f};
 
         float _fringingIntensity = 0.0f;
 

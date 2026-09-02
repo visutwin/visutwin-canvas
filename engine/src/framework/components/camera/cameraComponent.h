@@ -133,6 +133,9 @@ namespace visutwin::canvas
         float vignetteOuter = 1.0f;
         float vignetteCurvature = 0.5f;
         float vignetteIntensity = 0.3f;
+        // Darkening colour (upstream CameraFrame vignette.color). Black is the
+        // usual choice; a tinted vignette is what upstream exposes it for.
+        float vignetteColor[3] = {0.0f, 0.0f, 0.0f};
 
         // Fringing (chromatic aberration): user units 0..~100, 0 = disabled
         float fringingIntensity = 0.0f;

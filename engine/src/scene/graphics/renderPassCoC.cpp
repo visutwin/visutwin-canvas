@@ -5,14 +5,24 @@
 // linear scene depth. One implementation over QuadRender — a shader, one input
 // texture and one uniform block — rather than a pass class per backend.
 //
-// DIVERGENCE worth fixing separately: upstream's coc.js puts a dead zone of
-// +/- focusRange/2 around the focus distance (farRange = focus + range * 0.5)
-// and ramps over the full focusRange. This port ramps straight from the focus
-// distance, which is what the Metal path has always done; the Vulkan path used
-// to do something third (dead zone, but ramped over the HALF range, and with
-// the two channels swapped). Both backends now agree on Metal's behaviour and
-// on upstream's (cocFar, cocNear) channel order, so aligning the ramp with
-// upstream is a one-line change in a single place.
+// Ramp matches upstream's coc.js: a dead zone of +/- focusRange/2 around the
+// focus distance, then a ramp over the full focusRange, output as
+// (cocFar, cocNear). Before the passes were unified the two backends disagreed
+// here — Metal ramped straight from the focus distance, Vulkan had the dead zone
+// but ramped over the HALF range with the channels swapped — and BOTH disagreed
+// with applyDofSinglePass in composeShaders.h, which already followed upstream.
+// All three now agree.
+//
+//
+// CURRENTLY UNREACHABLE. RenderPassCameraFrame::setupDofPass() only does
+// `_dofPass.reset()`, so RenderPassDof — and with it this pass and
+// RenderPassDofBlur — is never constructed: the multi-pass DOF pipeline
+// (CoC -> Downsample -> Blur) is disabled because the parent RenderPassDof has
+// no render target, which corrupted the Metal encoder state and produced a black
+// screen. Depth of field runs through applyDofSinglePass in the compose shader
+// instead, reading the depth buffer directly. Anything "verified" about this
+// pass by screenshotting an example is therefore vacuous — it did not run.
+// Reviving the multi-pass path means giving RenderPassDof a render target first.
 //
 #include "renderPassCoC.h"
 
@@ -80,10 +90,16 @@ fragment float4 cocFragment(
     float rawDepth = depthTexture.sample(linearSampler, uv);
     float linearDepth = getLinearDepth(rawDepth, u.focus.z, u.focus.w);
 
-    float cocFar = saturate((linearDepth - u.focus.x) / u.focus.y);
+    // upstream coc.js: a dead zone of +/- focusRange/2 around the focus distance,
+    // then a ramp over the FULL focusRange. Matches applyDofSinglePass in
+    // composeShaders.h, which already followed upstream.
+    const float invRange = 1.0 / max(u.focus.y, 0.001);
+    const float farRange = u.focus.x + u.focus.y * 0.5;
+    float cocFar = saturate((linearDepth - farRange) * invRange);
 
     if (u.flags.x > 0.5) {
-        float cocNear = saturate((u.focus.x - linearDepth) / u.focus.y);
+        const float nearRange = u.focus.x - u.focus.y * 0.5;
+        float cocNear = saturate((nearRange - linearDepth) * invRange);
         return float4(cocFar, cocNear, 0.0, 1.0);
     }
     return float4(cocFar, 0.0, 0.0, 1.0);
@@ -121,11 +137,14 @@ void main() {
     float rawDepth = texture(depthTexture, uv).r;
     float linearDepth = getLinearDepth(rawDepth, u.focus.z, u.focus.w);
 
-    float cocFar = clamp((linearDepth - u.focus.x) / u.focus.y, 0.0, 1.0);
+    float invRange = 1.0 / max(u.focus.y, 0.001);
+    float farRange = u.focus.x + u.focus.y * 0.5;
+    float cocFar = clamp((linearDepth - farRange) * invRange, 0.0, 1.0);
 
     float cocNear = 0.0;
     if (u.flags.x > 0.5) {
-        cocNear = clamp((u.focus.x - linearDepth) / u.focus.y, 0.0, 1.0);
+        float nearRange = u.focus.x - u.focus.y * 0.5;
+        cocNear = clamp((nearRange - linearDepth) * invRange, 0.0, 1.0);
     }
     fragColor = vec4(cocFar, cocNear, 0.0, 1.0);
 }

@@ -78,11 +78,12 @@ namespace visutwin::canvas
         }
         rawDevice->setQuadRenderActive(true);
 
+        // One oversized triangle covering the screen — see quadVertexBuffer().
         Primitive quadPrimitive;
-        quadPrimitive.type = PRIMITIVE_TRISTRIP;
+        quadPrimitive.type = PRIMITIVE_TRIANGLES;
         quadPrimitive.base = 0;
         quadPrimitive.baseVertex = 0;
-        quadPrimitive.count = 4;
+        quadPrimitive.count = 3;
         quadPrimitive.indexed = false;
 
         rawDevice->draw(quadPrimitive, nullptr, 1, -1, true, true);

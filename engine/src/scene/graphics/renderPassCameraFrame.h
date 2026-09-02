@@ -64,6 +64,7 @@ namespace visutwin::canvas
         float vignetteOuter = 1.0f;
         float vignetteCurvature = 0.5f;
         float vignetteIntensity = 0.3f;
+        float vignetteColor[3] = {0.0f, 0.0f, 0.0f};
 
         // Fringing (chromatic aberration): user units 0..~100, 0 = disabled
         float fringingIntensity = 0.0f;

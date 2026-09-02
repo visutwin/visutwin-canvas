@@ -145,11 +145,18 @@ namespace visutwin::canvas
         // Upstream handles this via getImageEffectUV() Y-flip in shader.
         // We flip UV.y here in the vertex data so all post-processing fragment
         // shaders receive Metal-convention UVs matching texture layout.
-        static constexpr QuadVertex quadVertices[4] = {
-            {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-            {{ 1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-            {{-1.0f,  1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-            {{ 1.0f,  1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}}
+        //
+        // An oversized fullscreen TRIANGLE, not a quad: covering the screen with
+        // one triangle avoids the diagonal seam where a two-triangle quad's
+        // barycentric interpolation meets, and it is what every dedicated post
+        // pass class used before those effects moved onto QuadRender. Keeping the
+        // same geometry keeps their output bit-identical — with a quad, kernels
+        // that key off small UV differences (the bilateral depth-aware blur most
+        // of all) drifted in the low bits along depth discontinuities.
+        static constexpr QuadVertex quadVertices[3] = {
+            {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f,  1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f,  1.0f}},
+            {{ 3.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {2.0f,  1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f,  1.0f}},
+            {{-1.0f,  3.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, -1.0f}}
         };
 
         std::vector<uint8_t> data(sizeof(quadVertices));
@@ -161,7 +168,7 @@ namespace visutwin::canvas
         options.usage = BUFFER_STATIC;
         options.data = std::move(data);
 
-        _quadVertexBuffer = createVertexBuffer(format, 4, options);
+        _quadVertexBuffer = createVertexBuffer(format, 3, options);
         return _quadVertexBuffer;
     }
 }

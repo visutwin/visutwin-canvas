@@ -71,8 +71,9 @@ namespace visutwin::canvas
         uniforms.vignetteOuter = _vignetteOuter;
         uniforms.vignetteCurvature = _vignetteCurvature;
         uniforms.vignetteIntensity = _vignetteIntensity;
-        // NOTE: the pass has no vignette-colour setter yet, so this stays the
-        // default black the device path also used. Exposing it is a queued fix.
+        uniforms.vignetteColorR = _vignetteColor[0];
+        uniforms.vignetteColorG = _vignetteColor[1];
+        uniforms.vignetteColorB = _vignetteColor[2];
 
         uniforms.fringingIntensity = _fringingIntensity;
 
