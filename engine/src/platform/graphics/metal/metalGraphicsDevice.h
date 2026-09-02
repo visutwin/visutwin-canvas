@@ -26,10 +26,7 @@
 namespace visutwin::canvas
 {
     class Compute;
-    class MetalCoCPass;
     class MetalComposePass;
-    class MetalDepthAwareBlurPass;
-    class MetalDofBlurPass;
     class MetalEnvConvolvePass;
     class MetalEnvReprojectPass;
     class MetalEquirectToCubePass;
@@ -49,10 +46,7 @@ namespace visutwin::canvas
      */
     class MetalGraphicsDevice : public GraphicsDevice
     {
-        friend class MetalCoCPass;
         friend class MetalComposePass;
-        friend class MetalDepthAwareBlurPass;
-        friend class MetalDofBlurPass;
         friend class MetalEnvConvolvePass;
         friend class MetalEnvReprojectPass;
         friend class MetalEquirectToCubePass;
@@ -144,9 +138,6 @@ namespace visutwin::canvas
             const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
             bool highQuality, bool historyValid) override;
         void executeSsaoPass(const SsaoPassParams& params) override;
-        void executeCoCPass(const CoCPassParams& params) override;
-        void executeDofBlurPass(const DofBlurPassParams& params) override;
-        void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) override;
         void generateEnvReproject(const EnvReprojectPassParams& params) override;
         void generateEnvConvolve(const EnvConvolvePassParams& params) override;
         void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
@@ -331,12 +322,8 @@ namespace visutwin::canvas
         std::unique_ptr<MetalComputePipeline> _computePipeline;
 
         std::vector<std::shared_ptr<MetalBindGroupFormat>> _bindGroupFormats;
-        std::unique_ptr<MetalCoCPass> _cocPass;
         std::unique_ptr<MetalComposePass> _composePass;
-        std::unique_ptr<MetalDofBlurPass> _dofBlurPass;
         std::unique_ptr<MetalSsaoPass> _ssaoPass;
-        std::unique_ptr<MetalDepthAwareBlurPass> _blurPassH;
-        std::unique_ptr<MetalDepthAwareBlurPass> _blurPassV;
         std::unique_ptr<MetalTaaPass> _taaPass;
         std::unique_ptr<MetalEnvReprojectPass> _envReprojectPass;
         std::unique_ptr<MetalEnvConvolvePass> _envConvolvePass;

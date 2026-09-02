@@ -214,13 +214,10 @@ namespace visutwin::canvas
         //    shaders compiled at runtime from engine/shaders/vulkan) ────────
         void executeComposePass(const ComposePassParams& params) override;
         void executeSsaoPass(const SsaoPassParams& params) override;
-        void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal) override;
         void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
             const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
             const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
             bool highQuality, bool historyValid) override;
-        void executeCoCPass(const CoCPassParams& params) override;
-        void executeDofBlurPass(const DofBlurPassParams& params) override;
         void grabSceneColor(RenderTarget* source) override;
         void grabSceneDepth(RenderTarget* source) override;
         void generateCubemapMips(Texture* cubemap) override;
@@ -609,7 +606,7 @@ namespace visutwin::canvas
         // (pass, colorFormat, depthFormat); shaders are runtime-GLSL only —
         // without shaderc the passes no-op (pre-port behavior).
         enum class PostPassKind : uint32_t {
-            Compose = 0, Ssao, DepthBlur, Taa, CoC, DofBlur, Count
+            Compose = 0, Ssao, Taa, Count
         };
         bool ensurePostResources();
         VkShaderModule postFragmentModule(PostPassKind kind);

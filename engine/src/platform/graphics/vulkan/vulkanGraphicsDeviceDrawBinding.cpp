@@ -660,6 +660,19 @@ namespace visutwin::canvas
                 if (!isSeparateImageSlot(slot) && vkTex->sampler() != VK_NULL_HANDLE) {
                     imageInfos[slotIndex].sampler = vkTex->sampler();
                 }
+                if (vkTex->isDepth()) {
+                    // Depth reaches a quad pass in whichever read-only layout its
+                    // producer left it in: endRenderPass leaves a texture-backed
+                    // depth attachment in SHADER_READ_ONLY_OPTIMAL, grabSceneDepth
+                    // leaves its copy in DEPTH_STENCIL_READ_ONLY_OPTIMAL. Declaring
+                    // the wrong one is a validation error and the sampled values are
+                    // undefined. Same rule the post-process path already follows.
+                    const VkImageLayout tracked = vkTex->layout(0, 0);
+                    imageInfos[slotIndex].imageLayout =
+                        tracked == VK_IMAGE_LAYOUT_UNDEFINED
+                            ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                            : tracked;
+                }
             }
 
             const VkDescriptorSet texSet = getOrCreateImageDescriptorSet(

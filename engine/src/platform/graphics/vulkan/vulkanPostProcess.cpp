@@ -149,21 +149,9 @@ namespace visutwin::canvas
             words = vulkan_generated::kPostSsaoFrag;
             wordCount = vulkan_generated::kPostSsaoFragWordCount;
             break;
-        case PostPassKind::DepthBlur:
-            words = vulkan_generated::kPostDepthBlurFrag;
-            wordCount = vulkan_generated::kPostDepthBlurFragWordCount;
-            break;
         case PostPassKind::Taa:
             words = vulkan_generated::kPostTaaFrag;
             wordCount = vulkan_generated::kPostTaaFragWordCount;
-            break;
-        case PostPassKind::CoC:
-            words = vulkan_generated::kPostCocFrag;
-            wordCount = vulkan_generated::kPostCocFragWordCount;
-            break;
-        case PostPassKind::DofBlur:
-            words = vulkan_generated::kPostDofBlurFrag;
-            wordCount = vulkan_generated::kPostDofBlurFragWordCount;
             break;
         default:                      return VK_NULL_HANDLE;
         }
@@ -513,25 +501,6 @@ namespace visutwin::canvas
         executePostPass(PostPassKind::Ssao, textures, &ubo, sizeof(ubo));
     }
 
-    void VulkanGraphicsDevice::executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, const bool horizontal)
-    {
-        struct alignas(16) DepthBlurUbo
-        {
-            float p0[4]; // invResX, invResY, dirX, dirY
-            float p1[4]; // filterSize, cameraNear, cameraFar, pad
-        } ubo{};
-        ubo.p0[0] = params.sourceInvResolutionX;
-        ubo.p0[1] = params.sourceInvResolutionY;
-        ubo.p0[2] = horizontal ? 1.0f : 0.0f;
-        ubo.p0[3] = horizontal ? 0.0f : 1.0f;
-        ubo.p1[0] = static_cast<float>(params.filterSize);
-        ubo.p1[1] = params.cameraNear;
-        ubo.p1[2] = params.cameraFar;
-
-        Texture* textures[6] = {params.sourceTexture, params.depthTexture, nullptr, nullptr, nullptr, nullptr};
-        executePostPass(PostPassKind::DepthBlur, textures, &ubo, sizeof(ubo));
-    }
-
     void VulkanGraphicsDevice::executeTAAPass(Texture* sourceTexture, Texture* historyTexture,
         Texture* depthTexture, const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
         const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
@@ -560,37 +529,6 @@ namespace visutwin::canvas
         executePostPass(PostPassKind::Taa, textures, &ubo, sizeof(ubo));
     }
 
-    void VulkanGraphicsDevice::executeCoCPass(const CoCPassParams& params)
-    {
-        struct alignas(16) CocUbo {
-            float focus[4];
-            float flags[4];
-        } ubo{};
-        ubo.focus[0] = params.focusDistance;
-        ubo.focus[1] = params.focusRange;
-        ubo.focus[2] = params.cameraNear;
-        ubo.focus[3] = params.cameraFar;
-        ubo.flags[0] = params.nearBlur ? 1.0f : 0.0f;
-        Texture* textures[6] = {params.depthTexture, nullptr, nullptr, nullptr, nullptr, nullptr};
-        executePostPass(PostPassKind::CoC, textures, &ubo, sizeof(ubo));
-    }
-
-    void VulkanGraphicsDevice::executeDofBlurPass(const DofBlurPassParams& params)
-    {
-        struct alignas(16) DofUbo {
-            float radiiInvRes[4];
-            float rings[4];
-        } ubo{};
-        ubo.radiiInvRes[0] = params.blurRadiusNear;
-        ubo.radiiInvRes[1] = params.blurRadiusFar;
-        ubo.radiiInvRes[2] = params.invResolutionX;
-        ubo.radiiInvRes[3] = params.invResolutionY;
-        ubo.rings[0] = static_cast<float>(params.blurRings);
-        ubo.rings[1] = static_cast<float>(params.blurRingPoints);
-        Texture* textures[6] = {
-            params.nearTexture, params.farTexture, params.cocTexture, nullptr, nullptr, nullptr};
-        executePostPass(PostPassKind::DofBlur, textures, &ubo, sizeof(ubo));
-    }
 }
 
 #endif // VISUTWIN_HAS_VULKAN

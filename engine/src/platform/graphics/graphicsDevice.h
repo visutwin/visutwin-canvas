@@ -314,40 +314,6 @@ namespace visutwin::canvas
         float cameraFar = 1000.0f;
     };
 
-    struct CoCPassParams
-    {
-        Texture* depthTexture = nullptr;
-        float focusDistance = 100.0f;
-        float focusRange = 10.0f;
-        float cameraNear = 0.1f;
-        float cameraFar = 1000.0f;
-        bool nearBlur = false;
-    };
-
-    struct DofBlurPassParams
-    {
-        Texture* nearTexture = nullptr;   // half-res scene (for near blur)
-        Texture* farTexture = nullptr;    // far-field pre-multiplied texture
-        Texture* cocTexture = nullptr;    // CoC texture from the CoC pass
-        float blurRadiusNear = 3.0f;
-        float blurRadiusFar = 3.0f;
-        int blurRings = 4;
-        int blurRingPoints = 5;
-        float invResolutionX = 0.0f;
-        float invResolutionY = 0.0f;
-    };
-
-    struct DepthAwareBlurPassParams
-    {
-        Texture* sourceTexture = nullptr;
-        Texture* depthTexture = nullptr;
-        int filterSize = 4;
-        float sourceInvResolutionX = 0.0f;
-        float sourceInvResolutionY = 0.0f;
-        float cameraNear = 0.1f;
-        float cameraFar = 1000.0f;
-    };
-
     // VSM separable gaussian blur (upstream blurVSM equivalent).
     // Operates on the RGB channels of a 2D RGBA16F moments texture.
     // Run twice per shadow update — once horizontal, once vertical.
@@ -978,21 +944,6 @@ namespace visutwin::canvas
         {
             (void)params;
             VT_DEVICE_FEATURE_UNSUPPORTED("executeSsaoPass");
-        }
-        virtual void executeCoCPass(const CoCPassParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("executeCoCPass");
-        }
-        virtual void executeDofBlurPass(const DofBlurPassParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("executeDofBlurPass");
-        }
-        virtual void executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, bool horizontal)
-        {
-            (void)params; (void)horizontal;
-            VT_DEVICE_FEATURE_UNSUPPORTED("executeDepthAwareBlurPass");
         }
         virtual void generateEnvReproject(const EnvReprojectPassParams& params)
         {

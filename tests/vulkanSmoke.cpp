@@ -22,6 +22,7 @@
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/instanceCuller.h"
 #include "platform/graphics/renderPass.h"
+#include "scene/graphics/quadRender.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/uniformBinder.h"
@@ -780,11 +781,40 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             cocPass.init(cocTarget);
             device->frameStart();
             device->startRenderPass(&cocPass);
-            CoCPassParams cocParams{};
-            cocParams.depthTexture = depth.get();
-            cocParams.focusDistance = 2.0f;
-            cocParams.focusRange = 1.0f;
-            device->executeCoCPass(cocParams);
+            // The CoC effect no longer lives on the device — it is a QuadRender
+            // pass above it. Drive the same descriptor path (set 0 uniform block +
+            // set 1 texture) directly, which is what every migrated effect uses.
+            {
+                static constexpr const char* quadSource = R"(
+#version 450
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 2) in vec2 vertexUv0;
+layout(location = 0) out vec2 vUv;
+void main() { vUv = vertexUv0; gl_Position = vec4(vertexPosition, 1.0); }
+#endif
+#ifdef VT_FRAGMENT_SHADER
+layout(set = 0, binding = 0) uniform Params { vec4 a; vec4 b; } u;
+layout(set = 1, binding = 0) uniform sampler2D src;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 fragColor;
+void main() { fragColor = texture(src, vUv) * u.a.x + u.b; }
+#endif
+)";
+                auto quadShader = device->createShader(
+                    ShaderDefinition{.name = "vulkan-smoke-quad-uniforms"}, quadSource);
+                if (!quadShader) {
+                    spdlog::error("Vulkan smoke: quad uniform shader failed to compile");
+                    result = 1;
+                } else {
+                    struct { float a[4]; float b[4]; } quadUniforms{};
+                    quadUniforms.a[0] = 1.0f;
+                    QuadRender quad(quadShader);
+                    quad.setTexture(0, depth.get());
+                    quad.setUniforms(quadUniforms);
+                    quad.render();
+                }
+            }
             device->endRenderPass(&cocPass);
             device->frameEnd();
 
@@ -799,13 +829,39 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             dofPass.init(dofTarget);
             device->frameStart();
             device->startRenderPass(&dofPass);
-            DofBlurPassParams dofParams{};
-            dofParams.nearTexture = color.get();
-            dofParams.farTexture = color.get();
-            dofParams.cocTexture = coc.get();
-            dofParams.invResolutionX = 1.0f / 64.0f;
-            dofParams.invResolutionY = 1.0f / 64.0f;
-            device->executeDofBlurPass(dofParams);
+            {
+                // Second quad draw in its own pass — the descriptor-pool recycling
+                // assertion below needs more than one pass to have allocated.
+                auto quadShader = device->getCachedShader("vulkan-smoke-quad-uniforms");
+                if (!quadShader) {
+                    quadShader = device->createShader(
+                        ShaderDefinition{.name = "vulkan-smoke-quad-uniforms-2"},
+                        R"(
+#version 450
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 2) in vec2 vertexUv0;
+layout(location = 0) out vec2 vUv;
+void main() { vUv = vertexUv0; gl_Position = vec4(vertexPosition, 1.0); }
+#endif
+#ifdef VT_FRAGMENT_SHADER
+layout(set = 0, binding = 0) uniform Params { vec4 a; vec4 b; } u;
+layout(set = 1, binding = 0) uniform sampler2D src;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 fragColor;
+void main() { fragColor = texture(src, vUv) * u.a.x + u.b; }
+#endif
+)");
+                }
+                if (quadShader) {
+                    struct { float a[4]; float b[4]; } quadUniforms{};
+                    quadUniforms.a[0] = 0.5f;
+                    QuadRender quad(quadShader);
+                    quad.setTexture(0, coc.get());
+                    quad.setUniforms(quadUniforms);
+                    quad.render();
+                }
+            }
             device->endRenderPass(&dofPass);
             device->frameEnd();
 

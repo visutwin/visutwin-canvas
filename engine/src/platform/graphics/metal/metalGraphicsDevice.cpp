@@ -8,10 +8,7 @@
 #include <algorithm>
 #include <cstring>
 #include <ranges>
-#include "metalCoCPass.h"
 #include "metalComposePass.h"
-#include "metalDepthAwareBlurPass.h"
-#include "metalDofBlurPass.h"
 #include "metalEnvConvolvePass.h"
 #include "metalEnvReprojectPass.h"
 #include "metalEquirectToCubePass.h"
@@ -734,39 +731,6 @@ namespace visutwin::canvas
         if (!_ssaoPass) _ssaoPass = std::make_unique<MetalSsaoPass>(this, _composePass.get());
         _ssaoPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
             _bindGroupFormats, _postSampler, _defaultDepthStencilState);
-    }
-
-    void MetalGraphicsDevice::executeCoCPass(const CoCPassParams& params)
-    {
-        if (!_renderPassEncoder) return;
-        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
-        if (!_cocPass) _cocPass = std::make_unique<MetalCoCPass>(this, _composePass.get());
-        _cocPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-            _bindGroupFormats, _postSampler, _defaultDepthStencilState);
-    }
-
-    void MetalGraphicsDevice::executeDofBlurPass(const DofBlurPassParams& params)
-    {
-        if (!_renderPassEncoder) return;
-        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
-        if (!_dofBlurPass) _dofBlurPass = std::make_unique<MetalDofBlurPass>(this, _composePass.get());
-        _dofBlurPass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-            _bindGroupFormats, _postSampler, _defaultDepthStencilState);
-    }
-
-    void MetalGraphicsDevice::executeDepthAwareBlurPass(const DepthAwareBlurPassParams& params, const bool horizontal)
-    {
-        if (!_renderPassEncoder) return;
-        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
-        if (horizontal) {
-            if (!_blurPassH) _blurPassH = std::make_unique<MetalDepthAwareBlurPass>(this, _composePass.get(), true);
-            _blurPassH->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-                _bindGroupFormats, _postSampler, _defaultDepthStencilState);
-        } else {
-            if (!_blurPassV) _blurPassV = std::make_unique<MetalDepthAwareBlurPass>(this, _composePass.get(), false);
-            _blurPassV->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-                _bindGroupFormats, _postSampler, _defaultDepthStencilState);
-        }
     }
 
     void MetalGraphicsDevice::computeDispatch(const std::vector<Compute*>& computes, const std::string& label)
