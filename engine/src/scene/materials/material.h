@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include "scene/materials/materialUniformFields.h"
+
 #include <cmath>
 #include <cstdint>
 #include <unordered_map>
@@ -58,79 +60,17 @@ namespace visutwin::canvas
      * @ingroup group_scene_materials
      * GPU-side material uniform buffer layout. Must match MaterialData in common.metal exactly.
      */
+    /**
+     * Per-draw material block. Expanded from the one field list in
+     * materialUniformFields.h, which also emits the MSL and GLSL declarations —
+     * so adding a field here is a one-line edit there and every language follows.
+     */
     struct MaterialUniforms
     {
-        float baseColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-        float emissiveColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-        uint32_t flags = 0u;
-        uint32_t occludeSpecularMode = SPECOCC_AO;
-        float alphaCutoff = 0.5f;
-        float metallicFactor = 0.0f;
-        float roughnessFactor = 1.0f;
-        float normalScale = 1.0f;
-        float occlusionStrength = 1.0f;
-        float occludeSpecularIntensity = 1.0f;
-
-        // per-texture UV transforms as pre-computed 3×2 affine matrices.
-        // Each pair of float[4] encodes one row of the matrix:
-        //   row0 = {cos(θ)*sx, -sin(θ)*sy, ox, 0}
-        //   row1 = {sin(θ)*sx,  cos(θ)*sy, 1-sy-oy, 0}
-        // Identity: row0={1,0,0,0}, row1={0,1,0,0}
-        // GPU applies: uv' = float2(dot(float3(uv,1), row0.xyz), dot(float3(uv,1), row1.xyz))
-        float baseColorTransform0[4] = {1, 0, 0, 0};
-        float baseColorTransform1[4] = {0, 1, 0, 0};
-        float normalTransform0[4]    = {1, 0, 0, 0};
-        float normalTransform1[4]    = {0, 1, 0, 0};
-        float metalRoughTransform0[4] = {1, 0, 0, 0};
-        float metalRoughTransform1[4] = {0, 1, 0, 0};
-        float occlusionTransform0[4] = {1, 0, 0, 0};
-        float occlusionTransform1[4] = {0, 1, 0, 0};
-        float emissiveTransform0[4]  = {1, 0, 0, 0};
-        float emissiveTransform1[4]  = {0, 1, 0, 0};
-
-        // clearcoat dual-layer material properties.
-        // Ported from StandardMaterial clearCoat/clearCoatGloss/clearCoatBumpiness.
-        float clearCoatFactor = 0.0f;       // 0 = disabled, 1 = full clearcoat
-        float clearCoatRoughness = 0.0f;    // 0 = mirror, 1 = rough (computed from gloss)
-        float clearCoatBumpiness = 1.0f;    // clearcoat normal map intensity
-        float heightMapFactor = 0.0f;      // parallax height scale (0 = no parallax)
-
-        float anisotropy = 0.0f;           // anisotropic specular: -1..1 (0 = isotropic)
-        float transmissionFactor = 0.0f;   // 0 = opaque, 1 = fully transmissive
-        float refractionIndex = 1.5f;      // IOR (1.0 = air, 1.5 = glass, 1.33 = water)
-        float thickness = 0.0f;            // volume thickness for absorption scaling
-
-        // --- Sheen (KHR_materials_sheen) ---
-        // fabric/velvet sheen layer.
-        float sheenColor[4] = {0, 0, 0, 0};   // rgb=sheen color, w=sheen roughness
-
-        // --- Iridescence (KHR_materials_iridescence) ---
-        // thin-film interference layer.
-        float iridescenceParams[4] = {0, 1.3f, 100.0f, 400.0f}; // intensity, IOR, thicknessMin(nm), thicknessMax(nm)
-
-        // --- Spec-Gloss (KHR_materials_pbrSpecularGlossiness) ---
-        // alternative PBR parameterization.
-        float specGlossParams[4] = {1, 1, 1, 1};  // rgb=specular color, w=glossiness
-
-        // --- Detail Normals + Displacement ---
-        // detail normal overlay and vertex displacement.
-        float detailDisplacementParams[4] = {1, 0, 0.5f, 0}; // detailNormalScale, displacementScale, displacementBias, pad
-
-        // --- Detail Normal UV Transform ---
-        float detailNormalTransform0[4] = {1, 0, 0, 0};
-        float detailNormalTransform1[4] = {0, 1, 0, 0};
-
-        // --- Volume Attenuation (KHR_materials_volume) + Dispersion (KHR_materials_dispersion) ---
-        float attenuationParams[4] = {1, 1, 1, 0};  // rgb=attenuationColor, w=attenuationDistance (0 = disabled)
-        // x=dispersion strength, y=alphaDither (<0 = unset, dither follows opacity), zw=pad
-        float dispersionParams[4] = {0, -1.0f, 0, 0};
-
-        // --- Scalar maps (upstream glossMap / thicknessMap / refractionMap) ---
-        // x = the gloss factor that the gloss map modulates; y,z,w = which channel of
-        // the gloss / thickness / refraction map to read (0=r,1=g,2=b,3=a). A NEGATIVE
-        // channel means "no map bound": the flags word has no spare bits left (25-27
-        // and 29-31 carry the two dither modes), so presence rides in the sign here.
-        float mapChannelParams[4] = {1.0f, -1.0f, -1.0f, -1.0f};
+#define VT_DECLARE_MATERIAL_FIELD(type, name, ...) \
+        VT_MATERIAL_CPP_##type name VT_MATERIAL_DIM_##type = __VA_ARGS__;
+        VT_MATERIAL_UNIFORM_FIELDS(VT_DECLARE_MATERIAL_FIELD)
+#undef VT_DECLARE_MATERIAL_FIELD
     };
 
     /**

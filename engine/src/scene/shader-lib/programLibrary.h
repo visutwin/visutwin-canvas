@@ -251,6 +251,11 @@ namespace visutwin::canvas
             const Material* material);
         /// Runtime twin of the generated shader_features.glsl.
         static std::string glslFeaturePreamble();
+        /// Runtime twin of the generated shader_material.glsl.
+        static std::string glslMaterialBlock();
+        /// Replaces the VT_MATERIAL_DATA_BLOCK marker in composed MSL with the
+        /// declaration emitted from materialUniformFields.h.
+        static void substituteMaterialBlock(std::string& source, bool msl);
         /// True when the registry or the material carries any chunk override.
         bool hasChunkOverrides(const Material* material) const;
         /// Warn (once per name) about overrides Vulkan cannot apply.

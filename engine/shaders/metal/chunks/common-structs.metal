@@ -72,59 +72,8 @@ struct SceneData {
     float4x4 projViewMatrix;
 };
 
-struct MaterialData {
-    float4 baseColor;
-    float4 emissiveColor;
-    uint flags;
-    uint occludeSpecularMode;
-    float alphaCutoff;
-    float metallicFactor;
-    float roughnessFactor;
-    float normalScale;
-    float occlusionStrength;
-    float occludeSpecularIntensity;
-    // per-texture UV transforms as pre-computed 3×2 affine matrices.
-    // Each pair encodes one row: uv' = float2(dot(float3(uv,1), row0.xyz), dot(float3(uv,1), row1.xyz))
-    float4 baseColorTransform0;     // {cos(θ)*sx, -sin(θ)*sy, ox, 0}
-    float4 baseColorTransform1;     // {sin(θ)*sx,  cos(θ)*sy, 1-sy-oy, 0}
-    float4 normalTransform0;
-    float4 normalTransform1;
-    float4 metalRoughTransform0;
-    float4 metalRoughTransform1;
-    float4 occlusionTransform0;
-    float4 occlusionTransform1;
-    float4 emissiveTransform0;
-    float4 emissiveTransform1;
-    // clearcoat dual-layer material properties.
-    float clearCoatFactor;       // 0 = disabled, 1 = full clearcoat
-    float clearCoatRoughness;    // 0 = mirror, 1 = rough
-    float clearCoatBumpiness;    // clearcoat normal map intensity
-    float heightMapFactor;       // parallax height scale (0 = no parallax)
-
-    float anisotropy;            // anisotropic specular: -1..1 (0 = isotropic)
-    float transmissionFactor;    // 0 = opaque, 1 = fully transmissive
-    float refractionIndex;       // IOR (1.0 = air, 1.5 = glass, 1.33 = water)
-    float thickness;             // volume thickness for absorption scaling
-
-    // Sheen (KHR_materials_sheen): fabric/velvet sheen layer.
-    float4 sheenColor;               // rgb=sheen color, w=sheen roughness
-    // Iridescence (KHR_materials_iridescence): thin-film interference.
-    float4 iridescenceParams;        // x=intensity, y=IOR, z=thicknessMin(nm), w=thicknessMax(nm)
-    // Spec-Gloss (KHR_materials_pbrSpecularGlossiness): alternative PBR.
-    float4 specGlossParams;          // rgb=specular color, w=glossiness
-    // Detail normals + displacement.
-    float4 detailDisplacementParams; // x=detailNormalScale, y=displacementScale, z=displacementBias, w=pad
-    // Detail normal UV transform (3×2 affine matrix as two float4 rows).
-    float4 detailNormalTransform0;
-    float4 detailNormalTransform1;
-    // Volume attenuation (KHR_materials_volume): rgb=attenuationColor, w=attenuationDistance (0 = off).
-    float4 attenuationParams;
-    // Dispersion (KHR_materials_dispersion): x=strength, yzw=pad.
-    float4 dispersionParams;
-    /// x = gloss factor the gloss map scales; yzw = channel index of the gloss /
-    /// thickness / refraction map (0=r,1=g,2=b,3=a), NEGATIVE when no map is bound.
-    float4 mapChannelParams;
-};
+// Emitted by ProgramLibrary from scene/materials/materialUniformFields.h.
+VT_MATERIAL_DATA_BLOCK
 
 /// CPU-side packing layout for hardware instancing (VT_FEATURE_INSTANCING).
 /// Data is fed to the vertex shader via vertex descriptor layout(5) with perInstance step function.

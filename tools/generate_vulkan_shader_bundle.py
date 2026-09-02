@@ -36,6 +36,16 @@ MODULES = (
 # Matches one VT_SHADER_FEATURES entry: X(Symbol, "VT_FEATURE_NAME").
 # Feature indices are positional (declaration order), matching the C++ enum in
 # platform/graphics/shaderFeatures.h — neither side carries a hand-written bit.
+# std140/MSL size of the material block, computed from the field list rather than
+# hardcoded — the SPIR-V reflection below is checked against THIS, so adding a
+# field stays a one-line edit in materialUniformFields.h.
+MATERIAL_BLOCK_SIZE = 0
+
+# Matches one VT_MATERIAL_UNIFORM_FIELDS entry: X(vec4, name, default...).
+MATERIAL_FIELD_RE = re.compile(
+    r'X\(\s*(vec4|float|uint)\s*,\s*(\w+)\s*,'
+)
+
 FEATURE_RE = re.compile(
     r'X\(\s*(\w+)\s*,\s*"([^"]+)"\s*\)'
 )
@@ -206,7 +216,7 @@ def validate(module: str, reflection: dict) -> None:
         geometry_expected = {
             # Displacement is wired into the standard vertex path only.
             "ForwardVert": [
-                (0, 0, "UniformBuffer", 400),  # MaterialUniforms (+16: mapChannelParams)
+                (0, 0, "UniformBuffer", MATERIAL_BLOCK_SIZE),
                 (1, 24, "Sampler", 0),
                 (1, 25, "SampledImage", 0),
             ],
@@ -274,8 +284,8 @@ def validate(module: str, reflection: dict) -> None:
         for set_index, binding, kind, size in bindings
         if kind == "UniformBuffer"
     }
-    # (0,0) is MaterialUniforms; grew by 16 bytes for mapChannelParams.
-    if block_sizes != {(0, 0): 400, (2, 0): 2448}:
+    # (0,0) is MaterialUniforms, sized from the shared field list.
+    if block_sizes != {(0, 0): MATERIAL_BLOCK_SIZE, (2, 0): 2448}:
         raise RuntimeError(
             f"{module}: uniform block reflection mismatch: {block_sizes}"
         )
@@ -314,6 +324,7 @@ def main() -> None:
     parser.add_argument("--spirv-cross", required=True)
     parser.add_argument("--shader-dir", type=Path, required=True)
     parser.add_argument("--features", type=Path, required=True)
+    parser.add_argument("--material-fields", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work-dir", type=Path, required=True)
     args = parser.parse_args()
@@ -349,6 +360,36 @@ def main() -> None:
     for index, (symbol, define_name) in enumerate(features):
         feature_lines.append(f"const uint {define_name}_BIT = {index}u;")
     feature_glsl.write_text("\n".join(feature_lines) + "\n")
+
+    # Material block: emitted from the SAME field list the C++ struct expands
+    # from (scene/materials/materialUniformFields.h), so the struct and both
+    # shader stages cannot drift. forward.vert includes it too — MoltenVK
+    # miscompiles a UBO whose member list differs between stages.
+    material_fields = MATERIAL_FIELD_RE.findall(args.material_fields.read_text())
+    if not material_fields:
+        raise RuntimeError("material uniform field list is empty")
+    # std140: a vec4 is 16 bytes and 16-aligned; scalars are 4 bytes and pack
+    # consecutively. Every vec4 in this list already lands 16-aligned, so the
+    # running offset is the block size (rounded up to 16 at the end).
+    global MATERIAL_BLOCK_SIZE
+    offset = 0
+    for shader_type, _name in material_fields:
+        if shader_type == "vec4":
+            offset = (offset + 15) // 16 * 16 + 16
+        else:
+            offset += 4
+    MATERIAL_BLOCK_SIZE = (offset + 15) // 16 * 16
+
+    material_lines = [
+        "// Generated from scene/materials/materialUniformFields.h — do not edit.",
+        f"// {len(material_fields)} fields.",
+        "layout(set = 0, binding = 0) uniform MaterialData {",
+    ]
+    for shader_type, name in material_fields:
+        material_lines.append(f"    {shader_type} {name};")
+    material_lines.append("} material;")
+    (args.work_dir / "shader_material.glsl").write_text(
+        "\n".join(material_lines) + "\n")
 
     reflected: dict[str, dict] = {}
     blobs: dict[str, list[int]] = {}

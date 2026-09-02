@@ -5,6 +5,8 @@
 //
 #include "programLibrary.h"
 
+#include <cstring>
+
 #include "shaderChunks.h"
 
 #include <assert.h>
@@ -585,6 +587,28 @@ namespace visutwin::canvas
         return key;
     }
 
+    void ProgramLibrary::substituteMaterialBlock(std::string& source, const bool msl)
+    {
+        constexpr const char* marker = "VT_MATERIAL_DATA_BLOCK";
+        const auto at = source.find(marker);
+        if (at == std::string::npos) {
+            return;
+        }
+        std::string block = "struct MaterialData {\n";
+        block += materialUniformDeclaration(msl);
+        block += "};";
+        source.replace(at, std::strlen(marker), block);
+    }
+
+    std::string ProgramLibrary::glslMaterialBlock()
+    {
+        // Runtime twin of the shader_material.glsl the bundle generator writes.
+        std::string s = "layout(set = 0, binding = 0) uniform MaterialData {\n";
+        s += materialUniformDeclaration(/*msl=*/false);
+        s += "} material;\n";
+        return s;
+    }
+
     std::string ProgramLibrary::glslFeaturePreamble()
     {
         // Runtime twin of the shader_features.glsl that
@@ -634,6 +658,7 @@ namespace visutwin::canvas
         source.reserve(96 * 1024);
         source += "#version 450\n";
         source += glslFeaturePreamble();
+        source += glslMaterialBlock();
 
         const auto* materialChunks = material ? &material->shaderChunkOverrides() : nullptr;
         for (const auto& chunkName : programChunks->second) {
@@ -711,6 +736,9 @@ namespace visutwin::canvas
         // It is passed as a runtime uniform bit in LightingData.flagsAndPad
         // to avoid doubling the number of compiled shader variants.
 
+        // The material block is emitted from materialUniformFields.h, so the C++
+        // struct and the shader declaration cannot drift. The chunk carries a
+        // VT_MATERIAL_DATA_BLOCK marker where the struct used to be written out.
         source += "\n#define VT_VERTEX_ENTRY ";
         source += vertexEntry;
         source += "\n#define VT_FRAGMENT_ENTRY ";
@@ -739,6 +767,7 @@ namespace visutwin::canvas
             source += "\n";
         }
 
+        substituteMaterialBlock(source, /*msl=*/true);
         return source;
     }
 

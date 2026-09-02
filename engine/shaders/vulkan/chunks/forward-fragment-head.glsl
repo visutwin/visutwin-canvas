@@ -11,47 +11,9 @@ layout(location = 0) out vec4 outColor;
 // Set 0 (dynamic UBO): per-draw material. Declares the prefix of the engine's
 // MaterialUniforms struct that this shader consumes — std140 offsets match the
 // C++ MaterialUniforms layout exactly.
-layout(set = 0, binding = 0) uniform MaterialData {
-    vec4 baseColor;
-    vec4 emissiveColor;
-    uint flags;
-    uint occludeSpecularMode;
-    float alphaCutoff;
-    float metallicFactor;
-    float roughnessFactor;
-    float normalScale;
-    float occlusionStrength;
-    float occludeSpecularIntensity;
-    vec4 baseColorTransform0;
-    vec4 baseColorTransform1;
-    vec4 normalTransform0;
-    vec4 normalTransform1;
-    vec4 metalRoughTransform0;
-    vec4 metalRoughTransform1;
-    vec4 occlusionTransform0;
-    vec4 occlusionTransform1;
-    vec4 emissiveTransform0;
-    vec4 emissiveTransform1;
-    float clearCoatFactor;
-    float clearCoatRoughness;
-    float clearCoatBumpiness;
-    float heightMapFactor;
-    float anisotropy;
-    float transmissionFactor;
-    float refractionIndex;
-    float thickness;
-    vec4 sheenColor;
-    vec4 iridescenceParams;
-    vec4 specGlossParams;
-    vec4 detailDisplacementParams;
-    vec4 detailNormalTransform0;
-    vec4 detailNormalTransform1;
-    vec4 attenuationParams;
-    vec4 dispersionParams;
-    // x = gloss factor scaled by the gloss map; yzw = channel of the gloss /
-    // thickness / refraction map, NEGATIVE when that map is not bound.
-    vec4 mapChannelParams;
-} material;
+// Emitted from scene/materials/materialUniformFields.h (build time:
+// shader_material.glsl; runtime: ProgramLibrary).
+#include "shader_material.glsl"
 
 // Set 1: material texture slots (engine slot numbering).
 layout(set = 1, binding = 0) uniform sampler2D baseColorMap;     // 0

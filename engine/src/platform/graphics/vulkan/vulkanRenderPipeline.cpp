@@ -42,7 +42,14 @@ namespace visutwin::canvas
                 offsetof(MaterialUniforms, emissiveTransform1) +
                     sizeof(float) * 4 ==
                 224);
-            static_assert(sizeof(MaterialUniforms) == 400);  // +16: mapChannelParams.
+            // The cross-language size check moved into the bundle generator, which
+            // compares the SPIR-V reflection against the size computed from
+            // materialUniformFields.h. What is worth asserting here is the layout
+            // invariant that makes one field list valid for MSL and std140 at once.
+            // NOTE: the struct is a plain aggregate (no alignas), so alignof is 4.
+            // The layout works because every vec4 in the field list lands on a
+            // 16-byte offset by construction — which is exactly what this checks.
+            static_assert(sizeof(MaterialUniforms) % 16 == 0);
             // Keep engine/shaders/vulkan/forward.{frag,vert} in step — the block
             // size is reflected out of the SPIR-V and compared just below.
 

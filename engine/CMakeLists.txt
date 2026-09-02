@@ -161,11 +161,14 @@ if(VISUTWIN_BACKEND_VULKAN)
             --shader-dir "${_VK_SHADER_DIR}"
             --features
                 "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
+            --material-fields
+                "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
             --output "${_VK_SHADER_BUNDLE}"
             --work-dir "${_VK_GENERATED_DIR}/work"
         DEPENDS
             ${_VK_SHADER_SOURCES}
             "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
+            "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
             "${VISUTWIN_ROOT_DIR}/tools/generate_vulkan_shader_bundle.py"
         COMMENT "Compiling and reflecting Vulkan shader variants"
         VERBATIM)
