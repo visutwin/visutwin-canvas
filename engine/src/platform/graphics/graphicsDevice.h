@@ -33,6 +33,17 @@
 
 namespace visutwin::canvas
 {
+    /**
+     * Size of the per-draw uniform slot (Metal buffer 3 / Vulkan set 0 binding 0).
+     *
+     * Sized for the LARGEST block any shader declares there, not just
+     * MaterialUniforms: quad effects ride the same slot and some carry more —
+     * volumetric fog's block is 512 bytes. On Vulkan this is the dynamic
+     * descriptor's range, and the allocation behind it is padded to match, so a
+     * shader can never read past its own allocation.
+     */
+    inline constexpr size_t kPerDrawUniformCapacity = 512;
+
     class Compute;
     class Texture;
     class Material;
@@ -299,60 +310,6 @@ namespace visutwin::canvas
         float power = 6.0f;
         float projectionScaleRadius = 0.0f;
         float randomize = 0.0f;
-        float cameraNear = 0.1f;
-        float cameraFar = 1000.0f;
-    };
-
-    // Ray-marched volumetric fog. Writes in-scattered light (rgb) and transmittance (a) into a
-    // reduced-resolution texture. See CameraComponent::VolumetricFogSettings.
-    struct VolumetricFogPassParams
-    {
-        Texture* depthTexture = nullptr;
-
-        // Camera basis for reconstructing a world-space ray per pixel.
-        Matrix4 invView = Matrix4::identity();
-        float cameraPosition[3] = {0.0f, 0.0f, 0.0f};
-        float cameraForward[3] = {0.0f, 0.0f, -1.0f};
-        // tan(fovY/2) * aspect and tan(fovY/2) - scales NDC to the near plane.
-        float projScaleX = 1.0f;
-        float projScaleY = 1.0f;
-
-        float cameraNear = 0.1f;
-        float cameraFar = 1000.0f;
-
-        float tint[3] = {1.0f, 1.0f, 1.0f};
-        float lightColor[3] = {0.0f, 0.0f, 0.0f};    // already scaled by intensity and exposure
-        float lightDirection[3] = {0.0f, 1.0f, 0.0f};  // world direction TOWARDS the light
-        float ambient[3] = {0.0f, 0.0f, 0.0f};
-
-        float density = 0.01f;
-        float heightBase = 0.0f;
-        float heightFalloff = 0.05f;
-        float maxDistance = 300.0f;
-
-        float anisotropy = 0.6f;
-        float stepCount = 24.0f;
-        float noiseOffset = 0.0f;      // cycles per frame so TAA can converge the dither
-        float shadowIntensity = 1.0f;
-        float extinction = 1.0f;
-
-        // Directional shadow cascades. When shadowTexture is null the march is unshadowed.
-        Texture* shadowTexture = nullptr;
-        std::array<Matrix4, 4> shadowMatrixPalette = {};
-        float shadowCascadeDistances[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-        float shadowCascadeCount = 1.0f;
-        float shadowBias = 0.0f;
-        float shadowDistance = 0.0f;
-    };
-
-    // Depth-aware upsample of the fog texture, blended over the scene as
-    // `scene * transmittance + inscatter`.
-    struct VolumetricFogCombineParams
-    {
-        Texture* depthTexture = nullptr;
-        Texture* fogTexture = nullptr;
-        float fogTextureWidth = 1.0f;
-        float fogTextureHeight = 1.0f;
         float cameraNear = 0.1f;
         float cameraFar = 1000.0f;
     };
@@ -825,16 +782,24 @@ namespace visutwin::canvas
          * Uniform block for the next quad draw.
          *
          * A quad pass carries no Material, so the block rides the per-draw
-         * material uniform slot that would otherwise hold a default-constructed
+         * uniform slot that would otherwise hold a default-constructed
          * MaterialUniforms (Metal buffer 3 / Vulkan set 0 binding 0). The quad
          * shader declares whatever struct it wants there. This is what lets a
          * fullscreen effect live above GraphicsDevice instead of as a backend
          * pass class: shader + textures + this block is the whole contract.
          *
+         * Blocks up to kPerDrawUniformCapacity bytes are accepted; larger ones
+         * are rejected rather than silently truncated.
+         *
          * The bytes are copied, so the caller's struct need not outlive the draw.
          */
         void setQuadUniformData(const void* data, const size_t size)
         {
+            if (size > kPerDrawUniformCapacity) {
+                VT_DEVICE_FEATURE_UNSUPPORTED("quad uniform block exceeds kPerDrawUniformCapacity");
+                _quadUniformData.clear();
+                return;
+            }
             _quadUniformData.assign(static_cast<const uint8_t*>(data),
                                     static_cast<const uint8_t*>(data) + size);
         }
@@ -1013,16 +978,6 @@ namespace visutwin::canvas
         {
             (void)params;
             VT_DEVICE_FEATURE_UNSUPPORTED("executeSsaoPass");
-        }
-        virtual void executeVolumetricFogPass(const VolumetricFogPassParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("executeVolumetricFogPass");
-        }
-        virtual void executeVolumetricFogCombinePass(const VolumetricFogCombineParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("executeVolumetricFogCombinePass");
         }
         virtual void executeCoCPass(const CoCPassParams& params)
         {

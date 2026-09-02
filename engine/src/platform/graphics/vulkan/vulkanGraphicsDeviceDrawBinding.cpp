@@ -559,20 +559,10 @@ namespace visutwin::canvas
             MaterialUniforms materialUniforms;
             const void* uniformData = &materialUniforms;
             size_t uniformSize = sizeof(MaterialUniforms);
-            // A quad pass has no material, so its own uniform block takes this
-            // slot. The descriptor's range is sizeof(MaterialUniforms), so the
-            // allocation has to stay that size even when the quad block is
-            // smaller — a short allocation would leave the descriptor reading
-            // past it. Copy the block into the front of the full-size struct.
+            // A quad pass has no material, so its own uniform block takes this slot.
             if (quadRenderActive() && !quadUniformData().empty()) {
-                const size_t copySize =
-                    std::min(quadUniformData().size(), sizeof(MaterialUniforms));
-                if (quadUniformData().size() > sizeof(MaterialUniforms)) {
-                    spdlog::error("VulkanGraphicsDevice: quad uniform block is {} bytes, "
-                        "larger than the {}-byte material slot it rides in; truncated",
-                        quadUniformData().size(), sizeof(MaterialUniforms));
-                }
-                std::memcpy(&materialUniforms, quadUniformData().data(), copySize);
+                uniformData = quadUniformData().data();
+                uniformSize = quadUniformData().size();
             } else if (_material) {
                 size_t customSize = 0;
                 const void* customData = _material->customUniformData(customSize);
@@ -583,7 +573,14 @@ namespace visutwin::canvas
                     _material->updateUniforms(materialUniforms);
                 }
             }
-            const auto matOffset = allocateUniform(uniformData, uniformSize);
+            // The descriptor's range is kPerDrawUniformCapacity, so the allocation
+            // must be that large whatever the payload is — otherwise the descriptor
+            // would read past the bytes actually written.
+            std::array<uint8_t, kPerDrawUniformCapacity> perDrawBlock{};
+            std::memcpy(perDrawBlock.data(), uniformData,
+                std::min(uniformSize, perDrawBlock.size()));
+            const auto matOffset =
+                allocateUniform(perDrawBlock.data(), perDrawBlock.size());
             if (!matOffset) {
                 return;
             }

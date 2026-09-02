@@ -16,12 +16,97 @@
 #include "scene/light.h"
 #include "scene/renderer/shadowMap.h"
 #include "scene/scene.h"
+#include "scene/graphics/volumetricFogShaders.h"
+#include "platform/graphics/blendState.h"
+#include "platform/graphics/shader.h"
+#include "platform/graphics/texture.h"
 #include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
 {
     namespace
     {
+        struct VolumetricFogPassParams
+        {
+            Texture* depthTexture = nullptr;
+
+            // Camera basis for reconstructing a world-space ray per pixel.
+            Matrix4 invView = Matrix4::identity();
+            float cameraPosition[3] = {0.0f, 0.0f, 0.0f};
+            float cameraForward[3] = {0.0f, 0.0f, -1.0f};
+            // tan(fovY/2) * aspect and tan(fovY/2) - scales NDC to the near plane.
+            float projScaleX = 1.0f;
+            float projScaleY = 1.0f;
+
+            float cameraNear = 0.1f;
+            float cameraFar = 1000.0f;
+
+            float tint[3] = {1.0f, 1.0f, 1.0f};
+            float lightColor[3] = {0.0f, 0.0f, 0.0f};    // already scaled by intensity and exposure
+            float lightDirection[3] = {0.0f, 1.0f, 0.0f};  // world direction TOWARDS the light
+            float ambient[3] = {0.0f, 0.0f, 0.0f};
+
+            float density = 0.01f;
+            float heightBase = 0.0f;
+            float heightFalloff = 0.05f;
+            float maxDistance = 300.0f;
+
+            float anisotropy = 0.6f;
+            float stepCount = 24.0f;
+            float noiseOffset = 0.0f;      // cycles per frame so TAA can converge the dither
+            float shadowIntensity = 1.0f;
+            float extinction = 1.0f;
+
+            // Directional shadow cascades. When shadowTexture is null the march is unshadowed.
+            Texture* shadowTexture = nullptr;
+            std::array<Matrix4, 4> shadowMatrixPalette = {};
+            float shadowCascadeDistances[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float shadowCascadeCount = 1.0f;
+            float shadowBias = 0.0f;
+            float shadowDistance = 0.0f;
+        };
+
+        // Depth-aware upsample of the fog texture, blended over the scene as
+        // `scene * transmittance + inscatter`.
+        struct VolumetricFogCombineParams
+        {
+            Texture* depthTexture = nullptr;
+            Texture* fogTexture = nullptr;
+            float fogTextureWidth = 1.0f;
+            float fogTextureHeight = 1.0f;
+            float cameraNear = 0.1f;
+            float cameraFar = 1000.0f;
+        };
+        // Matrix4::getElement takes (col, row); both MSL float4x4 and GLSL mat4 are
+        // column-major, so element [col * 4 + row] matches directly.
+        void packMatrix(const Matrix4& m, float* dest)
+        {
+            for (int col = 0; col < 4; ++col) {
+                for (int row = 0; row < 4; ++row) {
+                    dest[col * 4 + row] = m.getElement(col, row);
+                }
+            }
+        }
+
+        std::shared_ptr<Shader> fogShader(GraphicsDevice* device, const char* cacheKey,
+            const char* vertexEntry, const char* fragmentEntry,
+            const char* msl, const char* glsl)
+        {
+            if (auto cached = device->getCachedShader(cacheKey)) {
+                return cached;
+            }
+            ShaderDefinition definition;
+            definition.name = cacheKey;
+            definition.vshader = vertexEntry;
+            definition.fshader = fragmentEntry;
+            auto shader = createShader(device,
+                definition, device->shaderLanguage() == ShaderLanguage::Glsl ? glsl : msl);
+            if (shader) {
+                device->setCachedShader(cacheKey, shader);
+            }
+            return shader;
+        }
+
         // The directional light the fog scatters. Upstream picks the first enabled, casting
         // directional light; mirror that.
         LightComponent* findDirectionalLight()
@@ -225,7 +310,56 @@ namespace visutwin::canvas
         params.noiseOffset = static_cast<float>(_frameIndex % 8) * (1.0f / 8.0f);
         ++_frameIndex;
 
-        gd->executeVolumetricFogPass(params);
+        // Pack into the GPU block and draw through the shared quad path — no
+        // backend pass class involved.
+        volumetric_fog::FogUniforms uniforms{};
+        packMatrix(params.invView, uniforms.invView);
+        for (int i = 0; i < 4; ++i) {
+            packMatrix(params.shadowMatrixPalette[i], uniforms.shadowMatrixPalette[i]);
+        }
+        for (int i = 0; i < 3; ++i) {
+            uniforms.cameraPosition[i] = params.cameraPosition[i];
+            uniforms.cameraForward[i] = params.cameraForward[i];
+            uniforms.tint[i] = params.tint[i];
+            uniforms.lightColor[i] = params.lightColor[i];
+            uniforms.lightDirection[i] = params.lightDirection[i];
+            uniforms.ambient[i] = params.ambient[i];
+        }
+        uniforms.projScale[0] = params.projScaleX;
+        uniforms.projScale[1] = params.projScaleY;
+        uniforms.fogParams[0] = params.density;
+        uniforms.fogParams[1] = params.heightBase;
+        uniforms.fogParams[2] = params.heightFalloff;
+        uniforms.fogParams[3] = params.maxDistance;
+        uniforms.scatterParams[0] = params.anisotropy;
+        uniforms.scatterParams[1] = params.stepCount;
+        uniforms.scatterParams[2] = params.noiseOffset;
+        uniforms.scatterParams[3] = params.shadowIntensity;
+        for (int i = 0; i < 4; ++i) {
+            uniforms.shadowCascadeDistances[i] = params.shadowCascadeDistances[i];
+        }
+        uniforms.shadowParams[0] = params.shadowCascadeCount;
+        uniforms.shadowParams[1] = params.shadowBias;
+        uniforms.shadowParams[2] = params.shadowTexture ? 1.0f : 0.0f;
+        uniforms.shadowParams[3] = params.shadowDistance;
+        uniforms.cameraParams[0] = params.cameraNear;
+        uniforms.cameraParams[1] = params.cameraFar;
+        uniforms.cameraParams[2] = params.extinction;
+
+        if (!shader()) {
+            setShader(fogShader(gd.get(), "volumetric-fog-march", "fogVertex", "fogFragment",
+                volumetric_fog::MARCH_MSL, volumetric_fog::MARCH_GLSL));
+        }
+        if (!shader()) {
+            return;
+        }
+        // The shadow slot must always carry a resource even on the unshadowed
+        // branch — a declared-but-unbound texture is invalid on both backends.
+        // Fall back to the depth texture, which is the same 2D depth format.
+        setQuadTextureBinding(0, depthTexture);
+        setQuadTextureBinding(1, params.shadowTexture ? params.shadowTexture : depthTexture);
+        setQuadUniforms(uniforms);
+        RenderPassShaderQuad::execute();
     }
 
     // -----------------------------------------------------------------------------------------
@@ -259,6 +393,35 @@ namespace visutwin::canvas
         params.cameraNear = camera->nearClip();
         params.cameraFar = camera->farClip();
 
-        gd->executeVolumetricFogCombinePass(params);
+        volumetric_fog::FogCombineUniforms uniforms{};
+        uniforms.textureSize[0] = params.fogTextureWidth;
+        uniforms.textureSize[1] = params.fogTextureHeight;
+        uniforms.textureSize[2] = 1.0f / params.fogTextureWidth;
+        uniforms.textureSize[3] = 1.0f / params.fogTextureHeight;
+        uniforms.cameraParams[0] = params.cameraNear;
+        uniforms.cameraParams[1] = params.cameraFar;
+
+        if (!shader()) {
+            setShader(fogShader(gd.get(), "volumetric-fog-combine",
+                "fogCombineVertex", "fogCombineFragment",
+                volumetric_fog::COMBINE_MSL, volumetric_fog::COMBINE_GLSL));
+            // scene * transmittance + inscatter
+            auto blend = std::make_shared<BlendState>();
+            blend->setEnabled(true);
+            blend->setColorOp(BLENDEQUATION_ADD);
+            blend->setColorSrcFactor(BLENDMODE_ONE);
+            blend->setColorDstFactor(BLENDMODE_SRC_ALPHA);
+            blend->setAlphaOp(BLENDEQUATION_ADD);
+            blend->setAlphaSrcFactor(BLENDMODE_ZERO);
+            blend->setAlphaDstFactor(BLENDMODE_ONE);
+            setBlendState(blend);
+        }
+        if (!shader()) {
+            return;
+        }
+        setQuadTextureBinding(0, depthTexture);
+        setQuadTextureBinding(1, _fogTexture);
+        setQuadUniforms(uniforms);
+        RenderPassShaderQuad::execute();
     }
 }

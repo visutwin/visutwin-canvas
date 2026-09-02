@@ -521,8 +521,11 @@ namespace visutwin::canvas
                 return set;
             };
 
+            // Range covers the largest block bound here, not just MaterialUniforms —
+            // quad effects share this slot and some carry more (volumetric fog: 512 B).
+            static_assert(sizeof(MaterialUniforms) <= kPerDrawUniformCapacity);
             _materialDescriptorSet = allocSet(_renderPipeline->materialSetLayout(),
-                sizeof(MaterialUniforms));
+                kPerDrawUniformCapacity);
             _lightingDescriptorSet = allocSet(_renderPipeline->lightingSetLayout(),
                 sizeof(VulkanLightingUBO));
         }

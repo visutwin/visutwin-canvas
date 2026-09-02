@@ -39,6 +39,10 @@ namespace visutwin::canvas
             gd->setQuadTextureBinding(i, _quadTextureBindings[i]);
         }
 
+        if (!_quadUniformData.empty()) {
+            gd->setQuadUniformData(_quadUniformData.data(), _quadUniformData.size());
+        }
+
         const Vector4* viewportPtr = _viewport ? &(*_viewport) : nullptr;
         const Vector4* scissorPtr = _scissor ? &(*_scissor) : nullptr;
         if (_quadRender) {

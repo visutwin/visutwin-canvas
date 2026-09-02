@@ -4,6 +4,10 @@
 //
 #pragma once
 
+#include <cstdint>
+#include <type_traits>
+#include <vector>
+
 #include <array>
 #include <memory>
 #include <optional>
@@ -39,6 +43,21 @@ namespace visutwin::canvas
             }
         }
         void clearQuadTextureBindings() { _quadTextureBindings.fill(nullptr); }
+
+        /// Uniform block for the quad shader (see GraphicsDevice::setQuadUniformData).
+        /// Bytes are copied; blocks must fit kPerDrawUniformCapacity.
+        void setQuadUniformData(const void* data, const size_t size)
+        {
+            const auto* bytes = static_cast<const uint8_t*>(data);
+            _quadUniformData.assign(bytes, bytes + size);
+        }
+        template <typename T>
+        void setQuadUniforms(const T& block)
+        {
+            static_assert(std::is_trivially_copyable_v<T>,
+                "quad uniform blocks are memcpy'd to the GPU");
+            setQuadUniformData(&block, sizeof(T));
+        }
 
         void execute() override;
 
@@ -91,6 +110,7 @@ namespace visutwin::canvas
         std::optional<Vector4> _viewport;
         std::optional<Vector4> _scissor;
 
+        std::vector<uint8_t> _quadUniformData;
         std::shared_ptr<Shader> _shader = nullptr;
         std::shared_ptr<QuadRender> _quadRender = nullptr;
         std::array<Texture*, 8> _quadTextureBindings{};
