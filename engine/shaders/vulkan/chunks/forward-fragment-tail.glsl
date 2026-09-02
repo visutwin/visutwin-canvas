@@ -159,6 +159,14 @@
         return;
     }
 
+    // When CameraFrame is active (bit 5 of flagsAndPad[0]) the forward pass
+    // outputs linear HDR and the compose pass applies exposure, tonemapping and
+    // gamma. Runtime check, not a shader variant — same as the Metal chunk.
+    if ((lighting.flagsAndPad[0] & (1u << 5)) != 0u) {
+        outColor = vec4(max(color, vec3(0.0)), albedo.a);
+        return;
+    }
+
     // Exposure, tonemap, then display-gamma encode (swapchain is a linear
     // UNORM target, matching the Metal BGRA8Unorm drawable).
     color *= lighting.cameraPosExposure.w;

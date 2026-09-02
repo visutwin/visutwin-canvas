@@ -535,6 +535,21 @@ namespace visutwin::canvas
             _pushConstantsDirty = false;
         }
 
+        // HDR pass flag (bit 5): under CameraFrame the forward pass outputs linear
+        // HDR and the compose pass owns exposure/tonemap/gamma. Metal has always
+        // set this; Vulkan never did, so its forward shader tonemapped and
+        // gamma-encoded, and compose did it AGAIN — a double gamma, which is why
+        // every camera-frame scene rendered washed out on this backend.
+        {
+            const uint32_t hdrBit = 1u << 5;
+            const uint32_t flags = hdrPass() ? (_lightingUbo.flagsAndPad[0] | hdrBit)
+                                             : (_lightingUbo.flagsAndPad[0] & ~hdrBit);
+            if (flags != _lightingUbo.flagsAndPad[0]) {
+                _lightingUbo.flagsAndPad[0] = flags;
+                _lightingNeedsUpload = true;
+            }
+        }
+
         // Set 2: per-pass lighting UBO.  Packed once per frame (or whenever
         // setLightingUniforms changed it) into the ring; every draw binds the
         // same descriptor set with the cached dynamic offset.
