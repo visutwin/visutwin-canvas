@@ -144,8 +144,6 @@ if(VISUTWIN_BACKEND_VULKAN)
         "${_VK_SHADER_DIR}/forward.frag"
         "${_VK_SHADER_DIR}/shadow_vsm_moments.frag"
         "${_VK_SHADER_DIR}/post_fullscreen.vert"
-        "${_VK_SHADER_DIR}/post_ssao.frag"
-        "${_VK_SHADER_DIR}/post_taa.frag"
         "${_VK_SHADER_DIR}/env_reproject.frag"
         "${_VK_SHADER_DIR}/instance_cull.comp"
         "${_VK_SHADER_DIR}/particle_sim.comp"

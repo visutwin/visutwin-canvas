@@ -33,8 +33,6 @@ namespace visutwin::canvas
     class MetalLICPass;
     class MetalMarchingCubesPass;
     class MetalParticleComputePass;
-    class MetalSsaoPass;
-    class MetalTaaPass;
     class MetalInstanceCullPass;
     class MetalRenderPipeline;
     class MetalComputePipeline;
@@ -53,8 +51,6 @@ namespace visutwin::canvas
         friend class MetalLICPass;
         friend class MetalMarchingCubesPass;
         friend class MetalParticleComputePass;
-        friend class MetalSsaoPass;
-        friend class MetalTaaPass;
         friend class MetalInstanceCullPass;
 
     public:
@@ -132,11 +128,6 @@ namespace visutwin::canvas
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) override;
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) override;
-        void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
-            const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
-            const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
-            bool highQuality, bool historyValid) override;
-        void executeSsaoPass(const SsaoPassParams& params) override;
         void generateEnvReproject(const EnvReprojectPassParams& params) override;
         void generateEnvConvolve(const EnvConvolvePassParams& params) override;
         void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
@@ -322,8 +313,6 @@ namespace visutwin::canvas
 
         std::vector<std::shared_ptr<MetalBindGroupFormat>> _bindGroupFormats;
         std::unique_ptr<MetalComposePass> _composePass;
-        std::unique_ptr<MetalSsaoPass> _ssaoPass;
-        std::unique_ptr<MetalTaaPass> _taaPass;
         std::unique_ptr<MetalEnvReprojectPass> _envReprojectPass;
         std::unique_ptr<MetalEnvConvolvePass> _envConvolvePass;
         std::unique_ptr<MetalEquirectToCubePass> _equirectToCubePass;

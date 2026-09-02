@@ -12,11 +12,39 @@
 #include "core/math/defines.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "scene/graphics/ssaoShaders.h"
 #include "platform/graphics/shader.h"
 #include "scene/camera.h"
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // Was a GraphicsDevice-level struct while SSAO was a device virtual; it is
+        // just this pass's local parameter bundle now.
+        struct SsaoPassParams
+        {
+            Texture* depthTexture = nullptr;
+            float aspect = 1.0f;
+            float invResolutionX = 0.0f;
+            float invResolutionY = 0.0f;
+            int sampleCount = 12;
+            float spiralTurns = 10.0f;
+            float angleIncCos = 0.0f;
+            float angleIncSin = 0.0f;
+            float invRadiusSquared = 0.0f;
+            float minHorizonAngleSineSquared = 0.0f;
+            float bias = 0.001f;
+            float peak2 = 0.0f;
+            float intensity = 0.0f;
+            float power = 6.0f;
+            float projectionScaleRadius = 0.0f;
+            float randomize = 0.0f;
+            float cameraNear = 0.1f;
+            float cameraFar = 1000.0f;
+        };
+    }
+
 
     RenderPassSsao::RenderPassSsao(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture,
         CameraComponent* cameraComponent, const bool blurEnabled)
@@ -160,7 +188,51 @@ namespace visutwin::canvas
         params.cameraNear = camera->nearClip();
         params.cameraFar = camera->farClip();
 
-        gd->executeSsaoPass(params);
+        if (!shader()) {
+            constexpr const char* cacheKey = "ssao-quad";
+            auto cached = gd->getCachedShader(cacheKey);
+            if (!cached) {
+                ShaderDefinition definition;
+                definition.name = cacheKey;
+                definition.vshader = "ssaoVertex";
+                definition.fshader = "ssaoFragment";
+                cached = createShader(gd.get(), definition,
+                    gd->shaderLanguage() == ShaderLanguage::Glsl
+                        ? ssao_shaders::SSAO_GLSL : ssao_shaders::SSAO_MSL);
+                if (cached) {
+                    gd->setCachedShader(cacheKey, cached);
+                }
+            }
+            setShader(cached);
+        }
+        if (!shader()) {
+            return;
+        }
+
+        ssao_shaders::SsaoUniforms uniforms{};
+        uniforms.aspect = params.aspect;
+        uniforms.invResolution[0] = params.invResolutionX;
+        uniforms.invResolution[1] = params.invResolutionY;
+        uniforms.sampleCount[0] = static_cast<float>(params.sampleCount);
+        uniforms.sampleCount[1] = 1.0f / static_cast<float>(params.sampleCount);
+        uniforms.spiralTurns = params.spiralTurns;
+        uniforms.angleIncCosSin[0] = params.angleIncCos;
+        uniforms.angleIncCosSin[1] = params.angleIncSin;
+        uniforms.maxLevel = 0.0f;
+        uniforms.invRadiusSquared = params.invRadiusSquared;
+        uniforms.minHorizonAngleSineSquared = params.minHorizonAngleSineSquared;
+        uniforms.bias = params.bias;
+        uniforms.peak2 = params.peak2;
+        uniforms.intensity = params.intensity;
+        uniforms.power = params.power;
+        uniforms.projectionScaleRadius = params.projectionScaleRadius;
+        uniforms.randomize = params.randomize;
+        uniforms.cameraNear = params.cameraNear;
+        uniforms.cameraFar = params.cameraFar;
+
+        setQuadTextureBinding(0, params.depthTexture);
+        setQuadUniforms(uniforms);
+        RenderPassShaderQuad::execute();
     }
 
     void RenderPassSsao::after()

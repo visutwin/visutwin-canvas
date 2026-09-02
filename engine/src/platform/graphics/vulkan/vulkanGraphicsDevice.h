@@ -208,15 +208,15 @@ namespace visutwin::canvas
         // device frees its child objects itself, so skipping is correct.
         [[nodiscard]] std::weak_ptr<bool> aliveToken() const { return _aliveToken; }
 
-        // VSM separable gaussian blur — fullscreen draw into the active
+        // Environment/IBL rendering (vulkanEnvironment.cpp): equirect->cube,
+        // reprojection, convolution and the env-atlas bake.
+        void renderEnvironment(Texture* target, Texture* sourceEquirect,
+            Texture* sourceCubemap, const std::vector<EnvReprojectOp>& ops,
+            bool encodeRgbp, bool decodeSrgb, bool clearTarget,
+            bool cubemapFaces, bool convolve = false,
+            TextureProjection sourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT,
+            TextureProjection targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT);
 
-        // ── Post-processing core (fullscreen draws inside the active pass,
-        //    shaders compiled at runtime from engine/shaders/vulkan) ────────
-        void executeSsaoPass(const SsaoPassParams& params) override;
-        void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
-            const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
-            const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
-            bool highQuality, bool historyValid) override;
         void grabSceneColor(RenderTarget* source) override;
         void grabSceneDepth(RenderTarget* source) override;
         void generateCubemapMips(Texture* cubemap) override;
@@ -597,38 +597,6 @@ namespace visutwin::canvas
         // null when the device/queue has no timestamp support.
         std::shared_ptr<gpu::VulkanGpuProfiler> _vulkanGpuProfiler;
 
-        // ── VSM blur pass (lazy) ─────────────────────────────────────────
-
-        // ── Post-processing framework (vulkanPostProcess.cpp) ────────────
-        // Shared layout: bindings 0-3 combined samplers + binding 4 params UBO
-        // (sub-allocated from _uniformRing). Pipelines cached per
-        // (pass, colorFormat, depthFormat); shaders are runtime-GLSL only —
-        // without shaderc the passes no-op (pre-port behavior).
-        enum class PostPassKind : uint32_t {
-            Ssao = 0, Taa, Count
-        };
-        bool ensurePostResources();
-        VkShaderModule postFragmentModule(PostPassKind kind);
-        VkPipeline getPostPipeline(PostPassKind kind, VkFormat colorFormat, VkFormat depthFormat);
-        // Draws a fullscreen triangle with up to 4 textures + a params blob.
-        void executePostPass(PostPassKind kind, Texture* const textures[6],
-            const void* paramsData, size_t paramsSize);
-        void destroyPostResources();
-        void renderEnvironment(Texture* target, Texture* sourceEquirect,
-            Texture* sourceCubemap, const std::vector<EnvReprojectOp>& ops,
-            bool encodeRgbp, bool decodeSrgb, bool clearTarget,
-            bool cubemapFaces, bool convolve = false,
-            TextureProjection sourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT,
-            TextureProjection targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT);
-
-        VkDescriptorSetLayout _postSetLayout = VK_NULL_HANDLE;
-        VkPipelineLayout _postPipelineLayout = VK_NULL_HANDLE;
-        VkShaderModule _postVertModule = VK_NULL_HANDLE;
-        std::array<VkShaderModule, static_cast<size_t>(PostPassKind::Count)> _postFragModules{};
-        std::array<bool, static_cast<size_t>(PostPassKind::Count)> _postFragCompileAttempted{};
-        VkSampler _postSampler = VK_NULL_HANDLE;   // linear, clamp-to-edge
-        std::unordered_map<uint64_t, VkPipeline> _postPipelines;
-        bool _postResourcesAttempted = false;
         uint32_t _lightingSlotOffset = 0;
         std::shared_ptr<Texture> _sceneColorGrabTexture;
         std::shared_ptr<Texture> _sceneDepthGrabTexture;

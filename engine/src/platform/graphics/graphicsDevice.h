@@ -234,28 +234,6 @@ namespace visutwin::canvas
         } localShadows[kMaxLocalShadows];
     };
 
-    struct SsaoPassParams
-    {
-        Texture* depthTexture = nullptr;
-        float aspect = 1.0f;
-        float invResolutionX = 0.0f;
-        float invResolutionY = 0.0f;
-        int sampleCount = 12;
-        float spiralTurns = 10.0f;
-        float angleIncCos = 0.0f;
-        float angleIncSin = 0.0f;
-        float invRadiusSquared = 0.0f;
-        float minHorizonAngleSineSquared = 0.0f;
-        float bias = 0.001f;
-        float peak2 = 0.0f;
-        float intensity = 0.0f;
-        float power = 6.0f;
-        float projectionScaleRadius = 0.0f;
-        float randomize = 0.0f;
-        float cameraNear = 0.1f;
-        float cameraFar = 1000.0f;
-    };
-
     // VSM separable gaussian blur (upstream blurVSM equivalent).
     // Operates on the RGB channels of a 2D RGBA16F moments texture.
     // Run twice per shadow update — once horizontal, once vertical.
@@ -867,21 +845,6 @@ namespace visutwin::canvas
         virtual void endEnvBatch() {}
 
         virtual std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) = 0;
-        virtual void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
-            const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
-            const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,
-            bool highQuality, bool historyValid)
-        {
-            (void)sourceTexture; (void)historyTexture; (void)depthTexture;
-            (void)viewProjectionPrevious; (void)viewProjectionInverse;
-            (void)jitters; (void)cameraParams; (void)highQuality; (void)historyValid;
-            VT_DEVICE_FEATURE_UNSUPPORTED("executeTAAPass");
-        }
-        virtual void executeSsaoPass(const SsaoPassParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("executeSsaoPass");
-        }
         virtual void generateEnvReproject(const EnvReprojectPassParams& params)
         {
             (void)params;

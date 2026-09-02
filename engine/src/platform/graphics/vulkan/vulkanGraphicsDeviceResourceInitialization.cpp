@@ -597,7 +597,6 @@ namespace visutwin::canvas
         flushDeferredDestroys(true);
         collectRetiredSwapchains(true);
 
-        destroyPostResources();
         destroyComputeResources();
 
 

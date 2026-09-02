@@ -1,33 +1,45 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// SSAO (Screen-Space Ambient Occlusion) pass implementation.
-// Shader ported from upstream scene/shader-lib/glsl/chunks/render-pass/frag/ssao.js
+// Scalable Ambient Obscurance (spiral-tap SAO from the depth buffer) in both
+// languages, driven through QuadRender — one implementation rather than a pass
+// class per backend. Texture: quad slot 0 = scene depth.
 //
-#include "metalSsaoPass.h"
+#pragma once
 
-#include "metalComposePass.h"
-#include "metalGraphicsDevice.h"
-#include "metalRenderPipeline.h"
-#include "metalTexture.h"
-#include "metalVertexBuffer.h"
-#include "platform/graphics/blendState.h"
-#include "platform/graphics/depthState.h"
-#include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/renderTarget.h"
-#include "platform/graphics/shader.h"
-#include "platform/graphics/texture.h"
-#include "platform/graphics/vertexBuffer.h"
-#include "platform/graphics/vertexFormat.h"
-#include "spdlog/spdlog.h"
+#include <cstdint>
 
-namespace visutwin::canvas
+namespace visutwin::canvas::ssao_shaders
 {
-    namespace
+    /**
+     * Must match the SsaoParams/SsaoUniforms block in both shaders below. Every
+     * vec2 is preceded by an explicit pad so it lands 8-byte aligned, which is
+     * what MSL and std140 both require — that keeps one C++ struct valid for both.
+     */
+    struct alignas(16) SsaoUniforms
     {
-        // SSAO (GLSL to Metal).
-        // Based on 'Scalable Ambient Obscurance' by Morgan McGuire, adapted by Naughty Dog.
-        constexpr const char* SSAO_SOURCE = R"(
+        float aspect = 1.0f;                      // offset  0
+        float _pad0 = 0.0f;                       // offset  4
+        float invResolution[2] = {0.0f, 0.0f};    // offset  8
+        float sampleCount[2] = {12.0f, 1.0f};     // offset 16  x = count, y = 1/count
+        float spiralTurns = 10.0f;                // offset 24
+        float _pad1 = 0.0f;                       // offset 28
+        float angleIncCosSin[2] = {0.0f, 0.0f};   // offset 32
+        float maxLevel = 0.0f;                    // offset 40
+        float invRadiusSquared = 0.0f;            // offset 44
+        float minHorizonAngleSineSquared = 0.0f;  // offset 48
+        float bias = 0.001f;                      // offset 52
+        float peak2 = 0.0f;                       // offset 56
+        float intensity = 0.0f;                   // offset 60
+        float power = 6.0f;                       // offset 64
+        float projectionScaleRadius = 0.0f;       // offset 68
+        float randomize = 0.0f;                   // offset 72
+        float cameraNear = 0.1f;                  // offset 76
+        float cameraFar = 1000.0f;                // offset 80
+    };
+    static_assert(sizeof(SsaoUniforms) == 96);
+
+    constexpr const char* SSAO_MSL = R"(
 #include <metal_stdlib>
 using namespace metal;
 
@@ -192,7 +204,7 @@ fragment float4 ssaoFragment(
     SsaoVarying in [[stage_in]],
     depth2d<float> depthTexture [[texture(0)]],
     sampler linearSampler [[sampler(0)]],
-    constant SsaoUniforms& uniforms [[buffer(5)]])
+    constant SsaoUniforms& uniforms [[buffer(3)]])
 {
     const float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
 
@@ -222,150 +234,122 @@ fragment float4 ssaoFragment(
     return float4(ao, ao, ao, 1.0);
 }
 )";
-    }
 
-    MetalSsaoPass::MetalSsaoPass(MetalGraphicsDevice* device, MetalComposePass* composePass)
-        : _device(device), _composePass(composePass)
-    {
-    }
+    constexpr const char* SSAO_GLSL = R"(#version 450
 
-    MetalSsaoPass::~MetalSsaoPass()
-    {
-        if (_depthStencilState) {
-            _depthStencilState->release();
-            _depthStencilState = nullptr;
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 2) in vec2 vertexUv0;
+layout(location = 0) out vec2 vUv;
+void main() { vUv = vertexUv0; gl_Position = vec4(vertexPosition, 1.0); }
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(location = 0) in vec2 vUv;
+
+// Scalable Ambient Obscurance — port of metalSsaoPass.cpp ssaoFragment
+// (spiral-tap SAO from the depth buffer, upstream algorithm).
+
+layout(set = 1, binding = 0) uniform sampler2D depthTex;
+
+layout(std140, set = 0, binding = 0) uniform SsaoParams {
+    // Mirrors SsaoUniforms in renderPassSsao.cpp field for field; the explicit
+    // pads keep each vec2 8-byte aligned, which std140 and MSL agree on.
+    float aspect;
+    float _pad0;
+    vec2 invResolution;
+    vec2 sampleCount;          // x = count, y = 1/count
+    float spiralTurns;
+    float _pad1;
+    vec2 angleIncCosSin;
+    float maxLevel;
+    float invRadiusSquared;
+    float minHorizonAngleSineSquared;
+    float bias;
+    float peak2;
+    float intensity;
+    float power;
+    float projectionScaleRadius;
+    float randomize;
+    float cameraNear;
+    float cameraFar;
+} pc;
+
+layout(location = 0) out vec4 outColor;
+
+const float PI = 3.14159265359;
+
+float getLinearDepth(float rawDepth) {
+    float n = pc.cameraNear, f = pc.cameraFar;
+    return (n * f) / (f - rawDepth * (f - n));
+}
+
+// Interleaved gradient noise.
+float randomIGN(vec2 fragCoord) {
+    const vec3 m = vec3(0.06711056, 0.00583715, 52.9829189);
+    return fract(m.z * fract(dot(fragCoord, m.xy)));
+}
+
+vec3 viewPosFromDepth(vec2 uv, float linearDepth, float aspect) {
+    return vec3((0.5 - uv) * vec2(aspect, 1.0) * linearDepth, linearDepth);
+}
+
+vec3 viewNormal(vec3 position, vec2 uv, vec2 invRes, float aspect) {
+    vec2 uvdx = uv + vec2(invRes.x, 0.0);
+    vec2 uvdy = uv + vec2(0.0, invRes.y);
+    vec3 px = viewPosFromDepth(uvdx, getLinearDepth(texture(depthTex, uvdx).r), aspect);
+    vec3 py = viewPosFromDepth(uvdy, getLinearDepth(texture(depthTex, uvdy).r), aspect);
+    return normalize(cross(px - position, py - position));
+}
+
+void main() {
+    float aspect = pc.aspect;
+    vec2 invRes = pc.invResolution;
+    vec2 uv = clamp(vUv, vec2(0.0), vec2(1.0));
+
+    float depth = getLinearDepth(texture(depthTex, uv).r);
+    vec3 origin = viewPosFromDepth(uv, depth, aspect);
+    // Negated: positive-depth reconstruction flips the cross-product direction
+    // relative to upstream's -Z convention (same DEVIATION as the Metal port).
+    vec3 normal = -viewNormal(origin, uv, invRes, aspect);
+
+    float occlusion = 0.0;
+    float intensity = pc.intensity;
+    if (intensity > 0.0) {
+        float noise = randomIGN(gl_FragCoord.xy) + pc.randomize;
+        float angle = (2.0 * PI * 2.4) * noise;
+        vec2 tapPos = vec2(cos(angle), sin(angle));
+        mat2 angleStep = mat2(pc.angleIncCosSin.x, pc.angleIncCosSin.y, -pc.angleIncCosSin.y, pc.angleIncCosSin.x);
+
+        float ssDiskRadius = pc.projectionScaleRadius / origin.z;
+        float sampleCount = pc.sampleCount.x;
+        float invSampleCount = pc.sampleCount.y;
+
+        for (float i = 0.0; i < sampleCount; i += 1.0) {
+            float radius = (i + noise + 0.5) * invSampleCount;
+            float ssRadius = max(1.0, radius * radius * ssDiskRadius);
+            vec2 uvSamplePos = uv + ssRadius * tapPos * invRes;
+
+            float occlusionDepth = getLinearDepth(texture(depthTex, uvSamplePos).r);
+            vec3 p = viewPosFromDepth(uvSamplePos, occlusionDepth, aspect);
+
+            vec3 v = p - origin;
+            float vv = dot(v, v);
+            float vn = dot(v, normal);
+
+            float w = max(0.0, 1.0 - vv * pc.invRadiusSquared);
+            w = w * w;
+            w *= step(vv * pc.minHorizonAngleSineSquared, vn * vn);
+            occlusion += w * max(0.0, vn + origin.z * pc.bias) / (vv + pc.peak2);
+
+            tapPos = angleStep * tapPos;
         }
     }
 
-    void MetalSsaoPass::ensureResources()
-    {
-        // Ensure the compose pass's shared vertex buffer/format are created first
-        _composePass->ensureResources();
-
-        if (_shader && _composePass->vertexBuffer() && _composePass->vertexFormat() &&
-            _blendState && _depthState && _depthStencilState) {
-            return;
-        }
-
-        if (!_shader) {
-            ShaderDefinition definition;
-            definition.name = "SsaoPass";
-            definition.vshader = "ssaoVertex";
-            definition.fshader = "ssaoFragment";
-            _shader = createShader(_device, definition, SSAO_SOURCE);
-        }
-
-        if (!_blendState) {
-            _blendState = std::make_shared<BlendState>();
-        }
-        if (!_depthState) {
-            _depthState = std::make_shared<DepthState>();
-        }
-        if (!_depthStencilState && _device->raw()) {
-            auto* depthDesc = MTL::DepthStencilDescriptor::alloc()->init();
-            depthDesc->setDepthCompareFunction(MTL::CompareFunctionAlways);
-            depthDesc->setDepthWriteEnabled(false);
-            _depthStencilState = _device->raw()->newDepthStencilState(depthDesc);
-            depthDesc->release();
-        }
-    }
-
-    void MetalSsaoPass::execute(MTL::RenderCommandEncoder* encoder,
-        const SsaoPassParams& params,
-        MetalRenderPipeline* pipeline, const std::shared_ptr<RenderTarget>& renderTarget,
-        const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats,
-        MTL::SamplerState* defaultSampler, MTL::DepthStencilState* defaultDepthStencilState)
-    {
-        if (!encoder || !params.depthTexture) {
-            return;
-        }
-
-        ensureResources();
-        if (!_shader || !_composePass->vertexBuffer() || !_composePass->vertexFormat() || !_blendState || !_depthState) {
-            spdlog::warn("[executeSsaoPass] missing SSAO resources");
-            return;
-        }
-
-        Primitive primitive;
-        primitive.type = PRIMITIVE_TRIANGLES;
-        primitive.base = 0;
-        primitive.count = 3;
-        primitive.indexed = false;
-
-        auto pipelineState = pipeline->get(primitive, _composePass->vertexFormat(), nullptr, -1, _shader, renderTarget,
-            bindGroupFormats, _blendState, _depthState, CullMode::CULLFACE_NONE, false, nullptr, nullptr);
-        if (!pipelineState) {
-            spdlog::warn("[executeSsaoPass] failed to get pipeline state");
-            return;
-        }
-
-        auto* vb = dynamic_cast<MetalVertexBuffer*>(_composePass->vertexBuffer().get());
-        if (!vb || !vb->raw()) {
-            spdlog::warn("[executeSsaoPass] missing vertex buffer");
-            return;
-        }
-
-        encoder->setRenderPipelineState(pipelineState);
-        encoder->setCullMode(MTL::CullModeNone);
-        encoder->setDepthStencilState(_depthStencilState ? _depthStencilState : defaultDepthStencilState);
-        encoder->setVertexBuffer(vb->raw(), 0, 0);
-
-        auto* depthHw = dynamic_cast<gpu::MetalTexture*>(params.depthTexture->impl());
-        encoder->setFragmentTexture(depthHw ? depthHw->raw() : nullptr, 0);
-        if (defaultSampler) {
-            encoder->setFragmentSamplerState(defaultSampler, 0);
-        }
-
-        // IMPORTANT: This struct must match the Metal shader's SsaoUniforms layout exactly.
-        // Metal float2 has 8-byte alignment, so padding is needed after scalar floats that
-        // precede float2 members (aspect before invResolution, spiralTurns before angleIncCosSin).
-        struct alignas(16) SsaoUniforms
-        {
-            float aspect;                       // offset 0
-            float _pad0;                        // offset 4  (align invResolution to 8-byte boundary)
-            float invResolution[2];             // offset 8  (matches Metal float2)
-            float sampleCount[2];               // offset 16 (matches Metal float2)
-            float spiralTurns;                  // offset 24
-            float _pad1;                        // offset 28 (align angleIncCosSin to 8-byte boundary)
-            float angleIncCosSin[2];            // offset 32 (matches Metal float2)
-            float maxLevel;                     // offset 40
-            float invRadiusSquared;             // offset 44
-            float minHorizonAngleSineSquared;   // offset 48
-            float bias;                         // offset 52
-            float peak2;                        // offset 56
-            float intensity;                    // offset 60
-            float power;                        // offset 64
-            float projectionScaleRadius;        // offset 68
-            float randomize;                    // offset 72
-            float cameraNear;                   // offset 76
-            float cameraFar;                    // offset 80
-        } uniforms{};
-
-        uniforms.aspect = params.aspect;
-        uniforms._pad0 = 0.0f;
-        uniforms.invResolution[0] = params.invResolutionX;
-        uniforms.invResolution[1] = params.invResolutionY;
-        uniforms.sampleCount[0] = static_cast<float>(params.sampleCount);
-        uniforms.sampleCount[1] = 1.0f / static_cast<float>(params.sampleCount);
-        uniforms.spiralTurns = params.spiralTurns;
-        uniforms._pad1 = 0.0f;
-        uniforms.angleIncCosSin[0] = params.angleIncCos;
-        uniforms.angleIncCosSin[1] = params.angleIncSin;
-        uniforms.maxLevel = 0.0f;
-        uniforms.invRadiusSquared = params.invRadiusSquared;
-        uniforms.minHorizonAngleSineSquared = params.minHorizonAngleSineSquared;
-        uniforms.bias = params.bias;
-        uniforms.peak2 = params.peak2;
-        uniforms.intensity = params.intensity;
-        uniforms.power = params.power;
-        uniforms.projectionScaleRadius = params.projectionScaleRadius;
-        uniforms.randomize = params.randomize;
-        uniforms.cameraNear = params.cameraNear;
-        uniforms.cameraFar = params.cameraFar;
-        encoder->setFragmentBytes(&uniforms, sizeof(SsaoUniforms), 5);
-
-        encoder->drawPrimitives(MTL::PrimitiveTypeTriangle, static_cast<NS::UInteger>(0),
-            static_cast<NS::UInteger>(3));
-        _device->recordDrawCall();
-    }
+    float ao = max(0.0, 1.0 - occlusion * intensity);
+    ao = pow(ao, pc.power);
+    outColor = vec4(ao, ao, ao, 1.0);
+}
+#endif
+)";
 }

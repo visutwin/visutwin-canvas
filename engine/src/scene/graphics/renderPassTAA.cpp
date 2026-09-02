@@ -10,6 +10,9 @@
 
 #include "framework/components/camera/cameraComponent.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "scene/graphics/taaShaders.h"
+#include "platform/graphics/texture.h"
+#include "platform/graphics/shader.h"
 #include "scene/camera.h"
 
 namespace visutwin::canvas
@@ -99,15 +102,59 @@ namespace visutwin::canvas
             camera->projection() == ProjectionType::Orthographic ? 1.0f : 0.0f
         };
 
-        gd->executeTAAPass(_sourceTexture,
-            _historyTextures[1 - _historyIndex].get(),
-            sceneDepth,
-            camera->viewProjectionPrevious(),
-            camera->viewProjectionInverse(),
-            camera->jitters(),
-            cameraParams,
-            _highQuality,
-            _historyValid);
+        if (!shader()) {
+            constexpr const char* cacheKey = "taa-quad";
+            auto cached = gd->getCachedShader(cacheKey);
+            if (!cached) {
+                ShaderDefinition definition;
+                definition.name = cacheKey;
+                definition.vshader = "taaVertex";
+                definition.fshader = "taaFragment";
+                cached = createShader(gd.get(), definition,
+                    gd->shaderLanguage() == ShaderLanguage::Glsl
+                        ? taa_shaders::TAA_GLSL : taa_shaders::TAA_MSL);
+                if (cached) {
+                    gd->setCachedShader(cacheKey, cached);
+                }
+            }
+            setShader(cached);
+        }
+        if (!shader()) {
+            return;
+        }
+
+        // Matrix4::getElement takes (col, row); MSL float4x4 and GLSL mat4 are
+        // both column-major, so [col * 4 + row] maps straight across.
+        const auto packMatrix = [](const Matrix4& m, float* dest) {
+            for (int col = 0; col < 4; ++col) {
+                for (int row = 0; row < 4; ++row) {
+                    dest[col * 4 + row] = m.getElement(col, row);
+                }
+            }
+        };
+
+        Texture* history = _historyTextures[1 - _historyIndex].get();
+
+        taa_shaders::TaaUniforms uniforms{};
+        packMatrix(camera->viewProjectionPrevious(), uniforms.viewProjectionPrevious);
+        packMatrix(camera->viewProjectionInverse(), uniforms.viewProjectionInverse);
+        const auto& jitters = camera->jitters();
+        for (int i = 0; i < 4; ++i) {
+            uniforms.jitters[i] = jitters[i];
+            uniforms.cameraParams[i] = cameraParams[i];
+        }
+        uniforms.texSizeFlags[0] = _sourceTexture
+            ? static_cast<float>(_sourceTexture->width()) : 1.0f;
+        uniforms.texSizeFlags[1] = _sourceTexture
+            ? static_cast<float>(_sourceTexture->height()) : 1.0f;
+        uniforms.texSizeFlags[2] = _highQuality ? 1.0f : 0.0f;
+        uniforms.texSizeFlags[3] = _historyValid ? 1.0f : 0.0f;
+
+        setQuadTextureBinding(0, _sourceTexture);
+        setQuadTextureBinding(1, history);
+        setQuadTextureBinding(2, sceneDepth);
+        setQuadUniforms(uniforms);
+        RenderPassShaderQuad::execute();
         _historyValid = true;
     }
 
