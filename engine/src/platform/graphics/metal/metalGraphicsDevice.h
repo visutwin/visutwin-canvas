@@ -132,7 +132,6 @@ namespace visutwin::canvas
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) override;
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) override;
-        void executeComposePass(const ComposePassParams& params) override;
         void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
             const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
             const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,

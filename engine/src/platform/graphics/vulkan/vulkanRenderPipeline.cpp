@@ -322,8 +322,7 @@ namespace visutwin::canvas
         // 17 (height/parallax), 23 (detail normal) and 25 (displacement) are
         // separate images sharing the sampler at 24, so they cost no additional
         // per-stage sampler slots. 25 is sampled in the vertex stage.
-        constexpr std::array<uint32_t, 10> textureSlots =
-            {0, 1, 3, 4, 5, 17, 19, 23, 24, 25};
+        constexpr auto& textureSlots = kMaterialTextureBindings;
         std::array<VkDescriptorSetLayoutBinding, textureSlots.size()> texBindings{};
         for (uint32_t i = 0; i < texBindings.size(); i++) {
             const uint32_t binding = textureSlots[i];

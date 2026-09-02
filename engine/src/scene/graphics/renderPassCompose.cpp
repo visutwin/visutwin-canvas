@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// The post chain, drawn once through QuadRender rather than through a device
+// virtual implemented separately per backend. Shader sources (MSL + GLSL) and
+// the shared uniform layout live in composeShaders.h.
 //
 #include "renderPassCompose.h"
 
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/shader.h"
+#include "platform/graphics/texture.h"
+#include "scene/graphics/composeShaders.h"
 
 namespace visutwin::canvas
 {
@@ -15,58 +21,96 @@ namespace visutwin::canvas
             return;
         }
 
-        ComposePassParams params;
-        params.sceneTexture = _sceneTexture;
-        params.bloomTexture = _bloomTexture;
-        params.cocTexture = _cocTexture;
-        params.blurTexture = _blurTexture;
-        params.ssaoTexture = _ssaoTexture;
-        params.bloomIntensity = _bloomIntensity;
-        params.dofIntensity = _dofIntensity;
-        params.dofEnabled = _dofEnabled;
-        params.taaEnabled = _taaEnabled;
-        params.blurTextureUpscale = _blurTextureUpscale;
-        params.sharpness = _sharpness;
-        params.toneMapping = _toneMapping;
-        params.exposure = _exposure;
-        // Single-pass DOF
-        params.depthTexture = _depthTexture;
-        params.dofFocusDistance = _dofFocusDistance;
-        params.dofFocusRange = _dofFocusRange;
-        params.dofBlurRadius = _dofBlurRadius;
-        params.dofCameraNear = _dofCameraNear;
-        params.dofCameraFar = _dofCameraFar;
+        if (!shader()) {
+            constexpr const char* cacheKey = "compose-quad";
+            auto cached = gd->getCachedShader(cacheKey);
+            if (!cached) {
+                ShaderDefinition definition;
+                definition.name = cacheKey;
+                definition.vshader = "composeVertex";
+                definition.fshader = "composeFragment";
+                cached = createShader(gd.get(), definition,
+                    gd->shaderLanguage() == ShaderLanguage::Glsl
+                        ? compose_shaders::COMPOSE_GLSL
+                        : compose_shaders::COMPOSE_MSL);
+                if (cached) {
+                    gd->setCachedShader(cacheKey, cached);
+                }
+            }
+            setShader(cached);
+        }
+        if (!shader()) {
+            return;
+        }
 
-        params.vignetteEnabled = _vignetteEnabled;
-        params.vignetteInner = _vignetteInner;
-        params.vignetteOuter = _vignetteOuter;
-        params.vignetteCurvature = _vignetteCurvature;
-        params.vignetteIntensity = _vignetteIntensity;
+        compose_shaders::ComposeUniforms uniforms{};
+        uniforms.dofEnabled = _dofEnabled ? 1u : 0u;
+        uniforms.taaEnabled = _taaEnabled ? 1u : 0u;
+        uniforms.ssaoEnabled = _ssaoTexture ? 1u : 0u;
+        uniforms.bloomEnabled = _bloomTexture ? 1u : 0u;
+        uniforms.blurTextureUpscale = _blurTextureUpscale ? 1u : 0u;
+        uniforms.bloomIntensity = _bloomIntensity;
+        uniforms.dofIntensity = _dofIntensity;
+        uniforms.sharpness = _sharpness;
+        uniforms.tonemapMode = static_cast<uint32_t>(_toneMapping);
+        uniforms.exposure = _exposure;
+        if (_sceneTexture && _sceneTexture->width() > 0 && _sceneTexture->height() > 0) {
+            uniforms.sceneTextureInvRes[0] = 1.0f / static_cast<float>(_sceneTexture->width());
+            uniforms.sceneTextureInvRes[1] = 1.0f / static_cast<float>(_sceneTexture->height());
+        }
 
-        params.fringingIntensity = _fringingIntensity;
+        // Single-pass DOF (from the scene depth buffer).
+        uniforms.dofFocusDistance = _dofFocusDistance;
+        uniforms.dofFocusRange = _dofFocusRange;
+        uniforms.dofBlurRadius = _dofBlurRadius;
+        uniforms.dofCameraNear = _dofCameraNear;
+        uniforms.dofCameraFar = _dofCameraFar;
 
-        params.gradingEnabled = _gradingEnabled;
-        params.gradingBrightness = _gradingBrightness;
-        params.gradingContrast = _gradingContrast;
-        params.gradingSaturation = _gradingSaturation;
-        params.gradingTint[0] = _gradingTint[0];
-        params.gradingTint[1] = _gradingTint[1];
-        params.gradingTint[2] = _gradingTint[2];
+        uniforms.vignetteEnabled = _vignetteEnabled ? 1u : 0u;
+        uniforms.vignetteInner = _vignetteInner;
+        uniforms.vignetteOuter = _vignetteOuter;
+        uniforms.vignetteCurvature = _vignetteCurvature;
+        uniforms.vignetteIntensity = _vignetteIntensity;
+        // NOTE: the pass has no vignette-colour setter yet, so this stays the
+        // default black the device path also used. Exposing it is a queued fix.
 
-        params.colorEnhanceEnabled = _colorEnhanceShadows != 0.0f || _colorEnhanceHighlights != 0.0f ||
-            _colorEnhanceVibrance != 0.0f || _colorEnhanceDehaze != 0.0f || _colorEnhanceMidtones != 0.0f;
-        params.colorEnhanceShadows = _colorEnhanceShadows;
-        params.colorEnhanceHighlights = _colorEnhanceHighlights;
-        params.colorEnhanceVibrance = _colorEnhanceVibrance;
-        params.colorEnhanceDehaze = _colorEnhanceDehaze;
-        params.colorEnhanceMidtones = _colorEnhanceMidtones;
+        uniforms.fringingIntensity = _fringingIntensity;
 
-        params.colorLUT = _colorLUT;
-        params.colorLUT2 = _colorLUT2;
-        params.colorLUTIntensity = _colorLUTIntensity;
-        params.colorLUTIntensity2 = _colorLUTIntensity2;
-        params.colorLUTBlend = _colorLUTBlend;
+        uniforms.gradingEnabled = _gradingEnabled ? 1u : 0u;
+        uniforms.gradingBrightness = _gradingBrightness;
+        uniforms.gradingContrast = _gradingContrast;
+        uniforms.gradingSaturation = _gradingSaturation;
+        uniforms.gradingTintR = _gradingTint[0];
+        uniforms.gradingTintG = _gradingTint[1];
+        uniforms.gradingTintB = _gradingTint[2];
 
-        gd->executeComposePass(params);
+        uniforms.colorEnhanceEnabled =
+            (_colorEnhanceShadows != 0.0f || _colorEnhanceHighlights != 0.0f ||
+             _colorEnhanceVibrance != 0.0f || _colorEnhanceDehaze != 0.0f ||
+             _colorEnhanceMidtones != 0.0f) ? 1u : 0u;
+        uniforms.ceShadows = _colorEnhanceShadows;
+        uniforms.ceHighlights = _colorEnhanceHighlights;
+        uniforms.ceVibrance = _colorEnhanceVibrance;
+        uniforms.ceDehaze = _colorEnhanceDehaze;
+        uniforms.ceMidtones = _colorEnhanceMidtones;
+
+        uniforms.lutEnabled = _colorLUT ? 1u : 0u;
+        uniforms.lut2Enabled = _colorLUT2 ? 1u : 0u;
+        uniforms.lutIntensity1 = _colorLUTIntensity;
+        uniforms.lutIntensity2 = _colorLUTIntensity2;
+        uniforms.lutBlend = _colorLUTBlend;
+
+        // Slots match the shader declarations in composeShaders.h. The old device
+        // path also bound _cocTexture and _blurTexture, but the multi-pass DOF
+        // branch that read them has been commented out for a long time — only
+        // applyDofSinglePass runs — so those two bindings are gone.
+        setQuadTextureBinding(0, _sceneTexture);
+        setQuadTextureBinding(1, _bloomTexture);
+        setQuadTextureBinding(2, _ssaoTexture);
+        setQuadTextureBinding(3, _depthTexture);
+        setQuadTextureBinding(4, _colorLUT);
+        setQuadTextureBinding(5, _colorLUT2);
+        setQuadUniforms(uniforms);
+        RenderPassShaderQuad::execute();
     }
 }

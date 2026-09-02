@@ -24,7 +24,6 @@ MODULES = (
     ("ForwardFrag", "forward.frag", "frag"),
     ("ShadowVsmFrag", "shadow_vsm_moments.frag", "frag"),
     ("PostFullscreenVert", "post_fullscreen.vert", "vert"),
-    ("PostComposeFrag", "post_compose.frag", "frag"),
     ("PostSsaoFrag", "post_ssao.frag", "frag"),
     ("PostTaaFrag", "post_taa.frag", "frag"),
     ("EnvReprojectFrag", "env_reproject.frag", "frag"),

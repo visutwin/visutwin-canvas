@@ -702,14 +702,6 @@ namespace visutwin::canvas
         return std::make_shared<MetalRenderTarget>(options);
     }
 
-    void MetalGraphicsDevice::executeComposePass(const ComposePassParams& params)
-    {
-        if (!_renderPassEncoder) return;
-        if (!_composePass) _composePass = std::make_unique<MetalComposePass>(this);
-        _composePass->execute(_renderPassEncoder, params, _renderPipeline.get(), renderTarget(),
-            _bindGroupFormats, _postSampler);
-    }
-
     void MetalGraphicsDevice::executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
         const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
         const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams, const bool highQuality,
@@ -1780,7 +1772,15 @@ namespace visutwin::canvas
             passEncoder->setFragmentBytes(&atmoUniforms, sizeof(atmoUniforms), 9);
         }
 
-        _textureBinder.bindSamplerCached(passEncoder, _defaultSampler);
+        // A quad pass is a screen-space post pass and needs the post sampler:
+        // linear, clamp-to-edge, no mip/aniso. The scene sampler REPEATS, so a
+        // kernel that taps past [0,1] wraps to the opposite edge — visible as
+        // wrong pixels along the frame border (CAS in compose does exactly this).
+        // Every dedicated post pass bound _postSampler itself; effects lifted onto
+        // QuadRender have to keep that, and effects that were already quad passes
+        // (bloom downsample, outline) get the same correction.
+        _textureBinder.bindSamplerCached(passEncoder,
+            quadRenderActive() ? _postSampler : _defaultSampler);
 
         // After the first draw in a pass has established all texture/sampler state,
         // subsequent draws can rely on the cache for deduplication.

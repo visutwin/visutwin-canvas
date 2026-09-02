@@ -165,8 +165,7 @@ namespace visutwin::canvas
         }
 
         std::array<VkWriteDescriptorSet, kMaxCachedImageBindings> writes{};
-        constexpr std::array<uint32_t, 10> materialBindings =
-            {0, 1, 3, 4, 5, 17, 19, 23, 24, 25};
+        constexpr auto& materialBindings = kMaterialTextureBindings;
         const bool materialSet =
             layout == _renderPipeline->textureSetLayout() &&
             key.count == materialBindings.size();

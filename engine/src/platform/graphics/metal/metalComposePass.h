@@ -34,11 +34,6 @@ namespace visutwin::canvas
         explicit MetalComposePass(MetalGraphicsDevice* device);
         ~MetalComposePass();
 
-        /// Execute the compose pass on the active render command encoder.
-        void execute(MTL::RenderCommandEncoder* encoder, const ComposePassParams& params,
-            MetalRenderPipeline* pipeline, const std::shared_ptr<RenderTarget>& renderTarget,
-            const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats,
-            MTL::SamplerState* defaultSampler);
 
         /// Shared vertex format (full-screen triangle, 14 floats per vertex).
         [[nodiscard]] std::shared_ptr<VertexFormat> vertexFormat() const { return _vertexFormat; }
@@ -54,7 +49,6 @@ namespace visutwin::canvas
 
         MetalGraphicsDevice* _device;
 
-        std::shared_ptr<Shader> _shader;
         std::shared_ptr<VertexFormat> _vertexFormat;
         std::shared_ptr<VertexBuffer> _vertexBuffer;
         std::shared_ptr<BlendState> _blendState;

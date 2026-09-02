@@ -594,8 +594,7 @@ namespace visutwin::canvas
         {
             // 17/23/25 are separate images and 24 is their shared sampler, so
             // the descriptor for each carries only the half it owns.
-            constexpr std::array<int, 10> materialSlots =
-                {0, 1, 3, 4, 5, 17, 19, 23, 24, 25};
+            constexpr auto& materialSlots = kMaterialTextureBindings;
             const auto isSeparateImageSlot = [](const int slot) {
                 return slot == 17 || slot == 23 || slot == 25;
             };

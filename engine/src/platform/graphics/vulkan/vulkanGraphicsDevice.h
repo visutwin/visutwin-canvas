@@ -212,7 +212,6 @@ namespace visutwin::canvas
 
         // ── Post-processing core (fullscreen draws inside the active pass,
         //    shaders compiled at runtime from engine/shaders/vulkan) ────────
-        void executeComposePass(const ComposePassParams& params) override;
         void executeSsaoPass(const SsaoPassParams& params) override;
         void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
             const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
@@ -606,7 +605,7 @@ namespace visutwin::canvas
         // (pass, colorFormat, depthFormat); shaders are runtime-GLSL only —
         // without shaderc the passes no-op (pre-port behavior).
         enum class PostPassKind : uint32_t {
-            Compose = 0, Ssao, Taa, Count
+            Ssao = 0, Taa, Count
         };
         bool ensurePostResources();
         VkShaderModule postFragmentModule(PostPassKind kind);

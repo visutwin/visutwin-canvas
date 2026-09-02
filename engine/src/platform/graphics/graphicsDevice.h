@@ -234,64 +234,6 @@ namespace visutwin::canvas
         } localShadows[kMaxLocalShadows];
     };
 
-    struct ComposePassParams
-    {
-        Texture* sceneTexture = nullptr;
-        Texture* bloomTexture = nullptr;
-        Texture* cocTexture = nullptr;
-        Texture* blurTexture = nullptr;
-        Texture* ssaoTexture = nullptr;
-        float bloomIntensity = 0.01f;
-        float dofIntensity = 1.0f;
-        float sharpness = 0.0f;
-        int toneMapping = 0;
-        float exposure = 1.0f;
-        bool dofEnabled = false;
-        bool taaEnabled = false;
-        bool blurTextureUpscale = false;
-
-        // Single-pass DOF (computed in compose shader from depth buffer)
-        Texture* depthTexture = nullptr;  // scene depth buffer
-        float dofFocusDistance = 1.0f;    // linear depth at perfect focus
-        float dofFocusRange = 0.5f;       // transition zone width
-        float dofBlurRadius = 3.0f;       // max blur in pixels
-        float dofCameraNear = 0.01f;
-        float dofCameraFar = 100.0f;
-
-        // Vignette
-        bool vignetteEnabled = false;
-        float vignetteInner = 0.5f;       // inner radius — fully clear inside this
-        float vignetteOuter = 1.0f;       // outer radius — darkest at this edge
-        float vignetteCurvature = 0.5f;   // edge curvature (higher = more rounded)
-        float vignetteIntensity = 0.3f;   // max darkness
-        float vignetteColor[3] = {0.0f, 0.0f, 0.0f};  // darkening color (black)
-
-        // Fringing (chromatic aberration) — shader units (user value / 1024); 0 = disabled
-        float fringingIntensity = 0.0f;
-
-        // Color grading (HDR, pre-tonemap); 1.0 = no change for every parameter
-        bool gradingEnabled = false;
-        float gradingBrightness = 1.0f;
-        float gradingContrast = 1.0f;
-        float gradingSaturation = 1.0f;
-        float gradingTint[3] = {1.0f, 1.0f, 1.0f};
-
-        // Color enhance (pre-tonemap); 0 = no change for every parameter
-        bool colorEnhanceEnabled = false;
-        float colorEnhanceShadows = 0.0f;     // -1..1 (exponential, ±1 stop)
-        float colorEnhanceHighlights = 0.0f;  // -1..1
-        float colorEnhanceVibrance = 0.0f;    // 0..1 saturation boost for muted colors
-        float colorEnhanceDehaze = 0.0f;      // 0..1 dark-channel dehaze strength
-        float colorEnhanceMidtones = 0.0f;    // -1..1 localized midtone exposure
-
-        // 3D color LUT (post-tonemap): 256x16 Unreal-format strip textures
-        Texture* colorLUT = nullptr;
-        Texture* colorLUT2 = nullptr;
-        float colorLUTIntensity = 1.0f;
-        float colorLUTIntensity2 = 1.0f;
-        float colorLUTBlend = 0.0f;           // 0 = LUT1 only, 1 = LUT2 only
-    };
-
     struct SsaoPassParams
     {
         Texture* depthTexture = nullptr;
@@ -925,11 +867,6 @@ namespace visutwin::canvas
         virtual void endEnvBatch() {}
 
         virtual std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) = 0;
-        virtual void executeComposePass(const ComposePassParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("executeComposePass");
-        }
         virtual void executeTAAPass(Texture* sourceTexture, Texture* historyTexture, Texture* depthTexture,
             const Matrix4& viewProjectionPrevious, const Matrix4& viewProjectionInverse,
             const std::array<float, 4>& jitters, const std::array<float, 4>& cameraParams,

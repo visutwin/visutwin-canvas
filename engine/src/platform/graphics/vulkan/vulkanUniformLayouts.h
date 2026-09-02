@@ -13,10 +13,29 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <array>
 #include <cstdint>
 
 namespace visutwin::canvas
 {
+    /**
+     * Set 1 binding numbers, which ARE the engine texture-slot numbers. Only
+     * statically-used slots are declared: unused gaps consume no sampler
+     * descriptors, which matters against MoltenVK's 16-per-stage limit.
+     *
+     * 17 (height/parallax), 23 (detail normal) and 25 (displacement) are separate
+     * images sharing the sampler at 24, so they cost no extra sampler slot; 25 is
+     * sampled in the vertex stage. Slot 2 carries no material texture but is
+     * declared so quad passes get contiguous slots 0..5 (compose binds six).
+     *
+     * This list was duplicated in three places — the layout, the binding loop and
+     * the descriptor writes — and the write path detected "is this the material
+     * set?" by matching its SIZE, so adding a slot in two of the three silently
+     * wrote every binding to the wrong index. One definition now.
+     */
+    inline constexpr std::array<uint32_t, 11> kMaterialTextureBindings =
+        {0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25};
+
     // One light, matching the GLSL `Light` struct (set 2).  64 bytes.
     struct VulkanGpuLight
     {

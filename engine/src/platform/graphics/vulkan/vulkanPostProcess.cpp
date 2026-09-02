@@ -141,10 +141,6 @@ namespace visutwin::canvas
         const uint32_t* words = nullptr;
         size_t wordCount = 0;
         switch (kind) {
-        case PostPassKind::Compose:
-            words = vulkan_generated::kPostComposeFrag;
-            wordCount = vulkan_generated::kPostComposeFragWordCount;
-            break;
         case PostPassKind::Ssao:
             words = vulkan_generated::kPostSsaoFrag;
             wordCount = vulkan_generated::kPostSsaoFragWordCount;
@@ -398,76 +394,6 @@ namespace visutwin::canvas
     // Pass entry points (params packed as float4 arrays — the GLSL blocks
     // declare vec4 members only, so std140 cannot introduce padding drift)
     // ─────────────────────────────────────────────────────────────────────
-
-    void VulkanGraphicsDevice::executeComposePass(const ComposePassParams& params)
-    {
-        struct alignas(16) ComposeUbo
-        {
-            float p0[4]; // invResX, invResY, sharpness, exposure
-            float p1[4]; // tonemapMode, ssaoEnabled, bloomEnabled, bloomIntensity
-            float p2[4]; // dofEnabled, dofFocusDistance, dofFocusRange, dofBlurRadius
-            float p3[4]; // dofCameraNear, dofCameraFar, vignetteEnabled, vignetteInner
-            float p4[4]; // vignetteOuter, vignetteCurvature, vignetteIntensity, pad
-            float p5[4]; // vignetteColor rgb, pad
-            float p6[4]; // fringing, gradingEnabled, brightness, contrast
-            float p7[4]; // saturation, tint rgb
-            float p8[4]; // enhanceEnabled, shadows, highlights, vibrance
-            float p9[4]; // dehaze, midtones, lut1 intensity, lut2 intensity
-            float p10[4]; // lut blend, has lut1, has lut2, pad
-        } ubo{};
-
-        // Resolution from the scene texture (the compose target matches it).
-        float invResX = 0.0f, invResY = 0.0f;
-        if (params.sceneTexture && params.sceneTexture->width() > 0 && params.sceneTexture->height() > 0) {
-            invResX = 1.0f / static_cast<float>(params.sceneTexture->width());
-            invResY = 1.0f / static_cast<float>(params.sceneTexture->height());
-        }
-        ubo.p0[0] = invResX;
-        ubo.p0[1] = invResY;
-        ubo.p0[2] = params.sharpness;
-        ubo.p0[3] = params.exposure;
-        ubo.p1[0] = static_cast<float>(params.toneMapping);
-        ubo.p1[1] = params.ssaoTexture ? 1.0f : 0.0f;
-        ubo.p1[2] = params.bloomTexture ? 1.0f : 0.0f;
-        ubo.p1[3] = params.bloomIntensity;
-        ubo.p2[0] = (params.dofEnabled && params.depthTexture) ? 1.0f : 0.0f;
-        ubo.p2[1] = params.dofFocusDistance;
-        ubo.p2[2] = params.dofFocusRange;
-        ubo.p2[3] = params.dofBlurRadius;
-        ubo.p3[0] = params.dofCameraNear;
-        ubo.p3[1] = params.dofCameraFar;
-        ubo.p3[2] = params.vignetteEnabled ? 1.0f : 0.0f;
-        ubo.p3[3] = params.vignetteInner;
-        ubo.p4[0] = params.vignetteOuter;
-        ubo.p4[1] = params.vignetteCurvature;
-        ubo.p4[2] = params.vignetteIntensity;
-        ubo.p5[0] = params.vignetteColor[0];
-        ubo.p5[1] = params.vignetteColor[1];
-        ubo.p5[2] = params.vignetteColor[2];
-        ubo.p6[0] = params.fringingIntensity;
-        ubo.p6[1] = params.gradingEnabled ? 1.0f : 0.0f;
-        ubo.p6[2] = params.gradingBrightness;
-        ubo.p6[3] = params.gradingContrast;
-        ubo.p7[0] = params.gradingSaturation;
-        ubo.p7[1] = params.gradingTint[0];
-        ubo.p7[2] = params.gradingTint[1];
-        ubo.p7[3] = params.gradingTint[2];
-        ubo.p8[0] = params.colorEnhanceEnabled ? 1.0f : 0.0f;
-        ubo.p8[1] = params.colorEnhanceShadows;
-        ubo.p8[2] = params.colorEnhanceHighlights;
-        ubo.p8[3] = params.colorEnhanceVibrance;
-        ubo.p9[0] = params.colorEnhanceDehaze;
-        ubo.p9[1] = params.colorEnhanceMidtones;
-        ubo.p9[2] = params.colorLUTIntensity;
-        ubo.p9[3] = params.colorLUTIntensity2;
-        ubo.p10[0] = params.colorLUTBlend;
-        ubo.p10[1] = params.colorLUT ? 1.0f : 0.0f;
-        ubo.p10[2] = params.colorLUT2 ? 1.0f : 0.0f;
-
-        Texture* textures[6] = {params.sceneTexture, params.bloomTexture,
-            params.ssaoTexture, params.depthTexture, params.colorLUT, params.colorLUT2};
-        executePostPass(PostPassKind::Compose, textures, &ubo, sizeof(ubo));
-    }
 
     void VulkanGraphicsDevice::executeSsaoPass(const SsaoPassParams& params)
     {
