@@ -106,7 +106,14 @@ void main() {
     // modulates opacity.
     bool diffuseVertexColorOff = (material.flags & (1u << 28)) != 0u;
     vec4 vertexTint = diffuseVertexColorOff ? vec4(1.0, 1.0, 1.0, fragColor.a) : fragColor;
-    vec4 albedo = material.baseColor * baseSample * vertexTint;
+    // Material colours are authored in gamma space (upstream's convention), so the
+    // factor AND the texture sample are decoded to linear before lighting. This
+    // backend did neither, which left every surface brighter and less saturated
+    // than Metal. Outside the camera-frame path the forward tonemap compressed the
+    // difference to a few percent, which is why it read as a camera-frame bug.
+    vec3 baseLinear = srgbToLinear(material.baseColor.rgb) * srgbToLinear(baseSample.rgb);
+    vec4 albedo = vec4(baseLinear * vertexTint.rgb,
+        material.baseColor.a * baseSample.a * vertexTint.a);
 
     // DEBUGPASS_LIGHTING (upstream debug-process-frontend.js): neutralize albedo
     // before it feeds diffuseAlbedo/F0 so the lit result shows the lighting

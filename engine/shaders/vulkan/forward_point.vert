@@ -35,5 +35,7 @@ void main() {
     fragWorldTangent = vec4(1.0, 0.0, 0.0, 1.0);
     fragUV0 = vec2(0.0);
     fragUV1 = vec2(0.0);
-    fragColor = inColor;
+    // sRGB -> linear once per vertex, matching forward-vertex.metal: the fragment
+    // stage multiplies this straight into the linear base colour.
+    fragColor = vec4(pow(max(inColor.rgb, vec3(0.0)), vec3(2.2)), inColor.a);
 }

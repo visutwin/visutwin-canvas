@@ -2373,9 +2373,15 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             const auto gamma = [](const float linear) {
                 return std::pow(std::max(linear, 0.0f) + 0.0000001f, 1.0f / 2.2f);
             };
-            // F0 = mix(0.04, albedo, metalness), the standard dielectric blend.
-            const auto f0 = [&](const float albedo) {
-                return 0.04f * (1.0f - kMetalness) + albedo * kMetalness;
+            // setDiffuse stores its colour RAW (see the EMISSION note below), so the
+            // shader decodes it to linear before lighting — on both backends.
+            const auto linearize = [](const float authored) {
+                return std::pow(std::max(authored, 0.0f), 2.2f);
+            };
+            // F0 = mix(0.04, albedo, metalness), the standard dielectric blend, over
+            // the LINEAR albedo the shader actually works with.
+            const auto f0 = [&](const float authored) {
+                return 0.04f * (1.0f - kMetalness) + linearize(authored) * kMetalness;
             };
 
             struct DebugExpectation {
@@ -2384,8 +2390,11 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 std::array<float, 3> expected;
             };
             const DebugExpectation expectations[] = {
+                // The shader decodes the authored colour and this mode re-encodes it,
+                // so the round trip lands back on exactly what was authored. NOT
+                // gamma(kDiffuse...), which would assume the shader never decoded.
                 {DebugShaderPass::DEBUGPASS_ALBEDO, "ALBEDO",
-                 {gamma(kDiffuseR), gamma(kDiffuseG), gamma(kDiffuseB)}},
+                 {kDiffuseR, kDiffuseG, kDiffuseB}},
                 {DebugShaderPass::DEBUGPASS_WORLDNORMAL, "WORLDNORMAL",
                  {0.5f, 0.5f, 1.0f}},
                 {DebugShaderPass::DEBUGPASS_OPACITY, "OPACITY",
