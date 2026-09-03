@@ -193,7 +193,6 @@
         vec3 F = fresnelSchlick(VdotH, F0);
 
         vec3 specular = (D * G) * F / max(4.0 * NdotV * NdotL, 1e-4);
-        vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
 
         vec3 radiance = light.colorIntensity.rgb * cookieMask * light.colorIntensity.w * atten;
         // Oren-Nayar rough diffuse (fast qualitative form): retro-reflection for
@@ -207,10 +206,15 @@
             float tTerm = sTerm <= 0.0 ? 1.0 : max(max(NdotL, NdotV), 1e-4);
             diffuseTerm = onA + onB * sTerm / tTerm;
         }
-        color += (kD * diffuseAlbedo / PI * diffuseTerm + specular) *
-            radiance * NdotL;
-        bakeDiffuseLight += kD / PI * diffuseTerm * radiance * NdotL;
-        bakeDirectLight += kD / PI * diffuseTerm * radiance * NdotL;
+        // Direct diffuse is albedo * radiance * NdotL — no 1/PI and no
+        // energy-conservation factor. Upstream's lightDiffuseLambert is a bare
+        // NdotL and its combine multiplies by albedo, and the Metal chunk matches
+        // it; this divided by PI and multiplied by kD = (1 - F)(1 - metallic),
+        // which made every direct light here about a third of Metal's. kD also
+        // applied (1 - metallic) a second time, since diffuseAlbedo carries it.
+        color += (diffuseAlbedo * diffuseTerm + specular) * radiance * NdotL;
+        bakeDiffuseLight += diffuseTerm * radiance * NdotL;
+        bakeDirectLight += diffuseTerm * radiance * NdotL;
         directSpecular += specular * radiance * NdotL;
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
             float ccRough = clamp(material.clearCoatRoughness, 0.04, 1.0);

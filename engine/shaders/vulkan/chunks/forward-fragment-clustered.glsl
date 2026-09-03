@@ -48,14 +48,14 @@
                 float D = distributionGGX(nh, roughness);
                 float G = geometrySmith(NdotV, nl, roughness);
                 vec3 F = fresnelSchlick(vh, F0);
-                vec3 kd = (1.0 - F) * (1.0 - metallic);
                 vec3 radiance = cl.colorIntensity.rgb *
                     cl.colorIntensity.w * atten;
-                color += (kd * diffuseAlbedo / PI +
+                // Same convention as the punctual path: no 1/PI, no kD.
+                color += (diffuseAlbedo +
                     D * G * F / max(4.0 * NdotV * nl, 1e-4)) *
                     radiance * nl;
-                bakeDiffuseLight += kd / PI * radiance * nl;
-                bakeDirectLight += kd / PI * radiance * nl;
+                bakeDiffuseLight += radiance * nl;
+                bakeDirectLight += radiance * nl;
             }
         }
     }
