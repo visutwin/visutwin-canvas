@@ -2218,8 +2218,11 @@ namespace visutwin::canvas
                             v1 = 1.0f - v1;
                         }
 
-                        // If glTF tangents are missing, keep tangent zero so shader can use
-                        // derivative-based fallback TBN instead of a bogus fixed tangent basis.
+                        // Leave the tangent zero when the file carries none; triangle
+                        // primitives get one generated below (generateTangents), and the
+                        // shaders skip normal mapping on a degenerate tangent rather than
+                        // building a bogus fixed basis. There is no derivative-based TBN
+                        // fallback in this port.
                         Vector4 tangent(0.0f, 0.0f, 0.0f, 1.0f);
                         if (tangentAccessor) {
                             Vector4 t;

@@ -45,9 +45,20 @@ namespace visutwin::canvas
         // Sort in splat model space: transform the camera into local coordinates.
         const Matrix4 invModel = model.inverse();
         const Vector3 localPosition = invModel.transformPoint(cameraPosition);
-        // Direction via point difference (affine transform, no transformVector API).
-        const Vector3 localDirection =
-            (invModel.transformPoint(cameraPosition + cameraForward) - localPosition).normalized();
+
+        // The sort key is dot(localCenter, localDirection), so localDirection has to
+        // weight each local axis the way the model matrix does. Weighting by the
+        // model's own basis vectors projected on the view direction gives exactly
+        // dot(model * localCenter, cameraForward) — the true world-space depth — for
+        // ANY affine transform.
+        //
+        // Transforming the view direction by the INVERSE instead (upstream's older
+        // form, and what this did) weights axis i by 1/s_i where the true depth
+        // weights it by s_i; the two cancel only when every scale is equal. Under a
+        // non-uniform scale the error depends on the view direction, so such a splat
+        // sorts wrongly against the rest of the scene at some camera angles and not
+        // others, with camera distance making no difference (upstream #9268).
+        const Vector3 localDirection = sortDirection(model, cameraForward);
         _sorter->setCamera(localPosition, localDirection);
 
         // Adopt a finished sort: upload into the inactive buffer and swap.
@@ -70,5 +81,26 @@ namespace visutwin::canvas
         _gpuParams.viewport[3] = viewportHeight > 0.0f ? 1.0f / viewportHeight : 0.0f;
         _gpuParams.splatCount = static_cast<uint32_t>(_resource->numSplats());
         _gpuParams.shBands = static_cast<uint32_t>(_resource->data().shBands());
+    }
+
+    Vector3 GSplatInstance::sortDirection(const Matrix4& model, const Vector3& cameraForward)
+    {
+        // Column-major: columns 0/1/2 are the transformed X/Y/Z axes.
+        const Vector3 weights(
+            model.getElement(0, 0) * cameraForward.getX() +
+            model.getElement(0, 1) * cameraForward.getY() +
+            model.getElement(0, 2) * cameraForward.getZ(),
+            model.getElement(1, 0) * cameraForward.getX() +
+            model.getElement(1, 1) * cameraForward.getY() +
+            model.getElement(1, 2) * cameraForward.getZ(),
+            model.getElement(2, 0) * cameraForward.getX() +
+            model.getElement(2, 1) * cameraForward.getY() +
+            model.getElement(2, 2) * cameraForward.getZ());
+
+        // Normalising is order-preserving — every key and the min/max bounds share
+        // the positive factor — and keeps the sorter's fixed camera-movement epsilon
+        // comparing a unit vector, as it did before.
+        const float length = weights.length();
+        return length > 1e-8f ? weights * (1.0f / length) : Vector3(0.0f, 0.0f, 1.0f);
     }
 }

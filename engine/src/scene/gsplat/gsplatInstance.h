@@ -52,6 +52,17 @@ namespace visutwin::canvas
                     const Matrix4& model, const Matrix4& view, const Matrix4& projection,
                     float viewportWidth, float viewportHeight);
 
+        /**
+         * The model-space direction the sorter projects splat centres onto, so that
+         * dot(localCentre, result) orders splats by their true world-space depth
+         * along cameraForward. Each local axis is weighted by the model matrix's own
+         * basis vector projected on the view direction, which is exact for any affine
+         * transform; the result is normalised, which is order-preserving.
+         *
+         * Public and static so it can be tested without a device or a loaded splat.
+         */
+        static Vector3 sortDirection(const Matrix4& model, const Vector3& cameraForward);
+
         const std::shared_ptr<VertexBuffer>& orderBuffer() const { return _orderBuffers[_activeOrderBuffer]; }
         uint32_t visibleCount() const { return _visibleCount; }
         const GpuGSplatParams& gpuParams() const { return _gpuParams; }

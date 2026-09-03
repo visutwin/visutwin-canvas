@@ -226,12 +226,22 @@ void main() {
             detailSample.xy *= material.detailDisplacementParams.x;
             tn = normalize(vec3(tn.xy + detailSample.xy, tn.z));
         }
-        vec3 T = normalize(fragWorldTangent.xyz);
-        // Re-orthonormalize (Gram-Schmidt) and build the bitangent with the
-        // handedness sign carried in tangent.w.
-        T = normalize(T - N * dot(N, T));
-        vec3 B = cross(N, T) * fragWorldTangent.w;
-        N = normalize(mat3(T, B, N) * tn);
+        // A mesh can reach here with no tangent stream at all: the glTF parser
+        // leaves the attribute zero when the file carries none and the primitive
+        // is not triangles, so CPU tangent generation cannot run. normalize() of a
+        // zero vector is NaN, which would poison the shading normal and the whole
+        // pixel — so skip normal mapping and keep the geometric normal, which is
+        // what the Metal chunk does. This port has no derivative-based TBN
+        // fallback (upstream's TBN.js), so there is nothing else to fall back to.
+        vec3 T = fragWorldTangent.xyz;
+        if (dot(T, T) >= 1e-6) {
+            T = normalize(T);
+            // Re-orthonormalize (Gram-Schmidt) and build the bitangent with the
+            // handedness sign carried in tangent.w.
+            T = normalize(T - N * dot(N, T));
+            vec3 B = cross(N, T) * fragWorldTangent.w;
+            N = normalize(mat3(T, B, N) * tn);
+        }
     }
 
     // Planar reflection DEPTH PASS: this camera exists only to produce the

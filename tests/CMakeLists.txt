@@ -51,3 +51,11 @@ if(VISUTWIN_BACKEND_VULKAN)
         TIMEOUT 60
     )
 endif()
+
+add_executable(visutwin-gsplat-sort-tests
+    gsplatSortTests.cpp
+)
+
+target_link_libraries(visutwin-gsplat-sort-tests PRIVATE visutwin-canvas)
+
+add_test(NAME gsplat-sort-direction COMMAND visutwin-gsplat-sort-tests)

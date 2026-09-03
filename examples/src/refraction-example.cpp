@@ -216,15 +216,20 @@ private:
         createPrimitive("capsule", material, Vector3(x, y, z), Vector3(scale, scale, scale));
     }
 
-    void applyToggles() const
+    void applyToggles()
     {
         _material->setUseDynamicRefraction(_dynamic);
         _material2->setUseDynamicRefraction(_dynamic);
 
         // Dynamic refraction reads the scene colour grab, which only exists when the
-        // camera asks for it.
-        if (_cameraComponent) {
+        // camera asks for it. requestSceneColorMap is a REFERENCE COUNT, not a
+        // boolean setter — several effects can want the grab at once — so it takes
+        // one call per change of mind, not one per toggle evaluation. Passing the
+        // flag straight through drove the count to -1 on the first call (the initial
+        // state is off) and tripped its assert.
+        if (_cameraComponent && _dynamic != _sceneColorMapRequested) {
             _cameraComponent->requestSceneColorMap(_dynamic);
+            _sceneColorMapRequested = _dynamic;
         }
 
         _material->setUseMetalness(_metalness);
@@ -250,6 +255,7 @@ private:
     float _time = 0.0f;
     bool _autoCycle = true;
     bool _dynamic = false;    // upstream initial UI value
+    bool _sceneColorMapRequested = false;   // what the camera was last asked for
     bool _metalness = true;   // upstream initial UI value
     int _phase = 0;
     float _cycleTimer = 0.0f;
