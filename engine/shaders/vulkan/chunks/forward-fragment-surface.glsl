@@ -36,6 +36,17 @@ void main() {
         } else {
             sky = material.baseColor.rgb;
         }
+        // Under the camera-frame path (bit 5 of flagsAndPad[0]) the sky, like
+        // every other forward draw, must leave linear HDR for compose to expose,
+        // tonemap and gamma-encode. Without this the sky was written already
+        // gamma-encoded into the linear HDR target and compose encoded it a
+        // second time, which is what made every camera-frame scene here brighter
+        // and bluer than Metal. Mirrors the same check in each sky path of
+        // forward-fragment-head.metal.
+        if ((lighting.flagsAndPad[0] & (1u << 5)) != 0u) {
+            outColor = vec4(max(sky, vec3(0.0)), 1.0);
+            return;
+        }
         sky *= lighting.cameraPosExposure.w;            // exposure
         sky = applyToneMap(sky);
         outColor = vec4(pow(max(sky, vec3(0.0)), vec3(1.0 / 2.2)), 1.0); // display-gamma encode
