@@ -54,7 +54,12 @@ namespace visutwin::canvas
         PIXELFORMAT_BC5 = 65,           // Block-compressed BC5: two channels
         PIXELFORMAT_BC6H = 66,          // Block-compressed BC6H: unsigned HDR RGB
         PIXELFORMAT_BC7 = 67,           // Block-compressed BC7: 4x4 blocks, 16 bytes/block (high-quality RGBA)
-        PIXELFORMAT_DEPTH16 = 69        // A 16-bit depth buffer format
+        PIXELFORMAT_DEPTH16 = 69,       // A 16-bit depth buffer format
+        PIXELFORMAT_BGRA8 = 70          // 32-bit BGRA — the swapchain/drawable layout on
+                                        // both backends. Needed so a copy FROM the back
+                                        // buffer can allocate a destination of the same
+                                        // format; a blit between differing formats is
+                                        // invalid.
     };
 
     enum class TexHint

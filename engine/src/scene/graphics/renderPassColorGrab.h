@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <memory>
+
 #include "platform/graphics/renderPass.h"
 
 namespace visutwin::canvas
@@ -27,5 +29,9 @@ namespace visutwin::canvas
     private:
         // The source render target to grab the color from
         std::shared_ptr<RenderTarget> _source = nullptr;
+
+        // The copy destination, resized with the source. Owned here rather than by
+        // the backend so both backends share one allocation policy.
+        std::shared_ptr<Texture> _grabTexture;
     };
 }

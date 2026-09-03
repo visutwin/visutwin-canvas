@@ -306,18 +306,6 @@ namespace visutwin::canvas
             _clusterCellBuffer = nullptr;
         }
 
-        // These resources are created with new* and wrapped as non-owning
-        // external textures, so the device remains responsible for releasing them.
-        _sceneGrabWrapper.reset();
-        _sceneDepthGrabWrapper.reset();
-        if (_sceneGrabRaw) {
-            _sceneGrabRaw->release();
-            _sceneGrabRaw = nullptr;
-        }
-        if (_sceneDepthGrabRaw) {
-            _sceneDepthGrabRaw->release();
-            _sceneDepthGrabRaw = nullptr;
-        }
         if (_particleSimPipeline) {
             _particleSimPipeline->release();
             _particleSimPipeline = nullptr;
@@ -1386,156 +1374,88 @@ namespace visutwin::canvas
         _uniformBinder.setAtmosphereUniforms(data, size);
     }
 
-    void MetalGraphicsDevice::grabSceneColor(RenderTarget* source)
+    void MetalGraphicsDevice::copyRenderTarget(RenderTarget* source,
+        Texture* colorDestination, Texture* depthDestination)
     {
-        // Resolve the source color texture: explicit RT color buffer, or the frame's
-        // drawable when rendering directly to the back buffer (framebufferOnly=false).
-        MTL::Texture* src = nullptr;
-        if (source && source->colorBufferCount() > 0) {
-            if (const auto* colorBuffer = source->getColorBuffer(0)) {
-                if (auto* hw = dynamic_cast<gpu::MetalTexture*>(colorBuffer->impl())) {
-                    src = hw->raw();
+        if (!_commandQueue || (!colorDestination && !depthDestination)) {
+            return;
+        }
+
+        // Resolve each source: the render target's own attachment, or the frame's
+        // drawable / back-buffer depth when copying from the back buffer.
+        const auto resolveColor = [&]() -> MTL::Texture* {
+            if (source && source->colorBufferCount() > 0) {
+                if (const auto* colorBuffer = source->getColorBuffer(0)) {
+                    if (auto* hw = dynamic_cast<gpu::MetalTexture*>(colorBuffer->impl())) {
+                        return hw->raw();
+                    }
                 }
             }
-        }
-        if (!src && _frameDrawable) {
-            src = _frameDrawable->texture();
-        }
-        if (!src || !_commandQueue) {
+            return _frameDrawable ? _frameDrawable->texture() : nullptr;
+        };
+        const auto resolveDepth = [&]() -> MTL::Texture* {
+            if (source && source->depthBuffer()) {
+                if (auto* hw = dynamic_cast<gpu::MetalTexture*>(source->depthBuffer()->impl())) {
+                    return hw->raw();
+                }
+            }
+            return _backBufferDepthTexture;
+        };
+        const auto rawOf = [](Texture* texture) -> MTL::Texture* {
+            if (!texture) return nullptr;
+            texture->upload();
+            auto* hw = dynamic_cast<gpu::MetalTexture*>(texture->impl());
+            return hw ? hw->raw() : nullptr;
+        };
+
+        MTL::Texture* colorSource = colorDestination ? resolveColor() : nullptr;
+        MTL::Texture* depthSource = depthDestination ? resolveDepth() : nullptr;
+        MTL::Texture* colorTarget = rawOf(colorDestination);
+        MTL::Texture* depthTarget = rawOf(depthDestination);
+
+        const bool doColor = colorSource && colorTarget;
+        const bool doDepth = depthSource && depthTarget;
+        if (!doColor && !doDepth) {
             return;
         }
 
-        // (Re)create the persistent grab texture when size/format changes. Full mip
-        // chain so rough refraction can sample blurred scene color at higher LODs.
-        if (!_sceneGrabRaw || _sceneGrabRaw->width() != src->width() ||
-            _sceneGrabRaw->height() != src->height() ||
-            _sceneGrabRaw->pixelFormat() != src->pixelFormat()) {
-            if (_sceneGrabRaw) {
-                _sceneGrabRaw->release();
-                _sceneGrabRaw = nullptr;
-            }
-            auto* descriptor = MTL::TextureDescriptor::texture2DDescriptor(
-                src->pixelFormat(), src->width(), src->height(), true);
-            descriptor->setUsage(MTL::TextureUsageShaderRead);
-            descriptor->setStorageMode(MTL::StorageModePrivate);
-            _sceneGrabRaw = _device->newTexture(descriptor);
-            if (!_sceneGrabRaw) {
-                return;
-            }
-            _sceneGrabRaw->setLabel(NS::String::string("sceneColorGrab", NS::UTF8StringEncoding));
-
-            // Engine-side wrapper so the texture binder can bind it like any Texture.
-            if (!_sceneGrabWrapper) {
-                TextureOptions wrapperOptions;
-                wrapperOptions.name = "sceneColorGrab";
-                wrapperOptions.width = 4;
-                wrapperOptions.height = 4;
-                wrapperOptions.mipmaps = false;
-                _sceneGrabWrapper = std::make_shared<Texture>(this, wrapperOptions);
-            }
-            if (auto* hw = dynamic_cast<gpu::MetalTexture*>(_sceneGrabWrapper->impl())) {
-                hw->setExternalTexture(_sceneGrabRaw);
-            }
-        }
-
-        // Copy + mip regenerate on a fresh command buffer: render passes each commit
-        // their own buffers, so in-order queue submission keeps this after the opaque
-        // scene render and before the transparent pass that samples it.
-        auto* cmdBuffer = _commandQueue->commandBuffer();
-        auto* blitEncoder = cmdBuffer ? cmdBuffer->blitCommandEncoder() : nullptr;
+        // Its own command buffer: render passes each commit their own, so in-order
+        // queue submission keeps this after the pass that produced the source and
+        // before the one that samples the copy.
+        auto* commandBuffer = _commandQueue->commandBuffer();
+        auto* blitEncoder = commandBuffer ? commandBuffer->blitCommandEncoder() : nullptr;
         if (!blitEncoder) {
             return;
         }
-        blitEncoder->copyFromTexture(src, 0, 0, MTL::Origin(0, 0, 0),
-            MTL::Size(src->width(), src->height(), 1),
-            _sceneGrabRaw, 0, 0, MTL::Origin(0, 0, 0));
-        blitEncoder->generateMipmaps(_sceneGrabRaw);
+        const auto blit = [blitEncoder](MTL::Texture* from, MTL::Texture* to) {
+            blitEncoder->copyFromTexture(from, 0, 0, MTL::Origin(0, 0, 0),
+                MTL::Size(from->width(), from->height(), 1),
+                to, 0, 0, MTL::Origin(0, 0, 0));
+        };
+        if (doColor) blit(colorSource, colorTarget);
+        if (doDepth) blit(depthSource, depthTarget);
         blitEncoder->endEncoding();
-        cmdBuffer->commit();
-
-        setSceneColorMap(_sceneGrabWrapper.get());
+        commandBuffer->commit();
     }
 
-    void MetalGraphicsDevice::grabSceneDepth(RenderTarget* source)
+    void MetalGraphicsDevice::generateMipmaps(Texture* texture)
     {
-        // Resolve the source depth texture: explicit RT depth buffer, or the
-        // frame's internal back-buffer depth attachment.
-        MTL::Texture* src = nullptr;
-        if (source && source->depthBuffer()) {
-            if (auto* hw = dynamic_cast<gpu::MetalTexture*>(source->depthBuffer()->impl())) {
-                src = hw->raw();
-            }
-        }
-        if (!src) {
-            src = _backBufferDepthTexture;
-        }
-        if (!src || !_commandQueue) {
+        if (!texture || !_commandQueue) {
             return;
         }
-
-        // (Re)create the persistent depth copy. No mip chain (depth can't be
-        // averaged meaningfully); ShaderRead so the SSR path can sample it.
-        if (!_sceneDepthGrabRaw || _sceneDepthGrabRaw->width() != src->width() ||
-            _sceneDepthGrabRaw->height() != src->height()) {
-            if (_sceneDepthGrabRaw) {
-                _sceneDepthGrabRaw->release();
-                _sceneDepthGrabRaw = nullptr;
-            }
-            auto* descriptor = MTL::TextureDescriptor::texture2DDescriptor(
-                src->pixelFormat(), src->width(), src->height(), false);
-            descriptor->setUsage(MTL::TextureUsageShaderRead);
-            descriptor->setStorageMode(MTL::StorageModePrivate);
-            _sceneDepthGrabRaw = _device->newTexture(descriptor);
-            if (!_sceneDepthGrabRaw) {
-                return;
-            }
-            _sceneDepthGrabRaw->setLabel(NS::String::string("sceneDepthGrab", NS::UTF8StringEncoding));
-
-            if (!_sceneDepthGrabWrapper) {
-                TextureOptions wrapperOptions;
-                wrapperOptions.name = "sceneDepthGrab";
-                wrapperOptions.width = 4;
-                wrapperOptions.height = 4;
-                wrapperOptions.mipmaps = false;
-                _sceneDepthGrabWrapper = std::make_shared<Texture>(this, wrapperOptions);
-            }
-            if (auto* hw = dynamic_cast<gpu::MetalTexture*>(_sceneDepthGrabWrapper->impl())) {
-                hw->setExternalTexture(_sceneDepthGrabRaw);
-            }
-        }
-
-        auto* cmdBuffer = _commandQueue->commandBuffer();
-        auto* blitEncoder = cmdBuffer ? cmdBuffer->blitCommandEncoder() : nullptr;
-        if (!blitEncoder) {
-            return;
-        }
-        blitEncoder->copyFromTexture(src, 0, 0, MTL::Origin(0, 0, 0),
-            MTL::Size(src->width(), src->height(), 1),
-            _sceneDepthGrabRaw, 0, 0, MTL::Origin(0, 0, 0));
-        blitEncoder->endEncoding();
-        cmdBuffer->commit();
-
-        setSceneDepthGrabMap(_sceneDepthGrabWrapper.get());
-    }
-
-    void MetalGraphicsDevice::generateCubemapMips(Texture* cubemap)
-    {
-        if (!cubemap || !_commandQueue) {
-            return;
-        }
-        auto* hw = dynamic_cast<gpu::MetalTexture*>(cubemap->impl());
+        auto* hw = dynamic_cast<gpu::MetalTexture*>(texture->impl());
         MTL::Texture* raw = hw ? hw->raw() : nullptr;
         if (!raw || raw->mipmapLevelCount() <= 1) {
             return;
         }
-        auto* cmdBuffer = acquireEnvCommandBuffer();
-        auto* blitEncoder = cmdBuffer ? cmdBuffer->blitCommandEncoder() : nullptr;
+        auto* commandBuffer = acquireEnvCommandBuffer();
+        auto* blitEncoder = commandBuffer ? commandBuffer->blitCommandEncoder() : nullptr;
         if (!blitEncoder) {
             return;
         }
         blitEncoder->generateMipmaps(raw);
         blitEncoder->endEncoding();
-        submitEnvCommandBuffer(cmdBuffer);
+        submitEnvCommandBuffer(commandBuffer);
     }
 
     uint32_t MetalGraphicsDevice::renderTargetFormatKey()

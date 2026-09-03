@@ -176,7 +176,7 @@ namespace visutwin::canvas
 
         // The six face cameras have just rendered the scene into cube level 0;
         // build the coarser roughness mips from them.
-        _engine->graphicsDevice()->generateCubemapMips(_cube.get());
+        _engine->graphicsDevice()->generateMipmaps(_cube.get());
 
         if (!_installed) {
             applyProbe();

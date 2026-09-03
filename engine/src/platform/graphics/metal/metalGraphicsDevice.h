@@ -84,9 +84,15 @@ namespace visutwin::canvas
             _clusterShadowAtlas = atlas;
         }
 
-        void grabSceneColor(RenderTarget* source) override;
-        void grabSceneDepth(RenderTarget* source) override;
-        void generateCubemapMips(Texture* cubemap) override;
+        void copyRenderTarget(RenderTarget* source, Texture* colorDestination,
+            Texture* depthDestination) override;
+        void generateMipmaps(Texture* texture) override;
+
+        // The CAMetalLayer is created BGRA8Unorm, and a blit needs matching formats.
+        PixelFormat backBufferColorFormat() const override
+        {
+            return PixelFormat::PIXELFORMAT_BGRA8;
+        }
         void setAtmosphereUniforms(const void* data, size_t size) override;
 
         [[nodiscard]] MTL::Device* raw() const { return _device; }
@@ -337,10 +343,6 @@ namespace visutwin::canvas
 
         // Scene color grab target (dynamic refraction): full-mip copy of the scene
         // color made by the depth-layer grab pass, wrapped for slot-22 binding.
-        MTL::Texture* _sceneGrabRaw = nullptr;
-        std::shared_ptr<Texture> _sceneGrabWrapper;
-        MTL::Texture* _sceneDepthGrabRaw = nullptr;
-        std::shared_ptr<Texture> _sceneDepthGrabWrapper;
 
         // Clustered lighting GPU buffers (fragment slots 7 and 8).
         MTL::Buffer* _clusterLightBuffer = nullptr;

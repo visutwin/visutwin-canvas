@@ -22,6 +22,8 @@ namespace visutwin::canvas::gpu
                 return MTL::PixelFormatRGBA8Unorm;
             case PixelFormat::PIXELFORMAT_RGBA8:
                 return MTL::PixelFormatRGBA8Unorm;
+            case PixelFormat::PIXELFORMAT_BGRA8:
+                return MTL::PixelFormatBGRA8Unorm;
             case PixelFormat::PIXELFORMAT_RGBA16F:
                 return MTL::PixelFormatRGBA16Float;
             case PixelFormat::PIXELFORMAT_RGBA32F:
@@ -81,6 +83,7 @@ namespace visutwin::canvas::gpu
             case PixelFormat::PIXELFORMAT_RGB8:
                 return 3;
             case PixelFormat::PIXELFORMAT_RGBA8:
+            case PixelFormat::PIXELFORMAT_BGRA8:
                 return 4;
             case PixelFormat::PIXELFORMAT_R32F:
                 return 4;

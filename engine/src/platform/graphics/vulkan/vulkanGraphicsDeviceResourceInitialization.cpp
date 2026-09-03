@@ -592,8 +592,6 @@ namespace visutwin::canvas
         // whose destructors need a live VkDevice/VMA allocator. Release them
         // before tearing down native state, then drain their deferred destroys.
         releaseGpuReferences();
-        _sceneColorGrabTexture.reset();
-        _sceneDepthGrabTexture.reset();
         flushDeferredDestroys(true);
         collectRetiredSwapchains(true);
 

@@ -180,6 +180,7 @@ namespace visutwin::canvas
         // barely supported by desktop drivers anyway.
         case PixelFormat::PIXELFORMAT_RGB8:         return VK_FORMAT_R8G8B8A8_UNORM;
         case PixelFormat::PIXELFORMAT_RGBA8:        return VK_FORMAT_R8G8B8A8_UNORM;
+        case PixelFormat::PIXELFORMAT_BGRA8:        return VK_FORMAT_B8G8R8A8_UNORM;
         case PixelFormat::PIXELFORMAT_DXT1:         return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
         case PixelFormat::PIXELFORMAT_DXT3:         return VK_FORMAT_BC2_UNORM_BLOCK;
         case PixelFormat::PIXELFORMAT_DXT5:         return VK_FORMAT_BC3_UNORM_BLOCK;

@@ -7,6 +7,7 @@
 
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/camera.h"
+#include "sceneGrab.h"
 
 namespace visutwin::canvas
 {
@@ -30,9 +31,14 @@ namespace visutwin::canvas
         }
         device->setSceneDepthMap(sceneDepth);
 
-        // Copy the post-opaque depth into a sampleable texture for SSR (sampling
-        // the still-attached depth buffer in the transparent pass is a feedback).
-        device->grabSceneDepth(sourceTarget.get());
+        // Copy the post-opaque depth into a sampleable texture for screen-space
+        // reflections: sampling the still-attached depth buffer in the transparent
+        // pass would be a feedback loop. No mip chain — depth cannot be averaged.
+        if (Texture* destination = ensureGrabTexture(device.get(), sourceTarget.get(),
+                _grabTexture, true, false, "sceneDepthGrab")) {
+            device->copyRenderTarget(sourceTarget.get(), nullptr, destination);
+            device->setSceneDepthGrabMap(destination);
+        }
     }
 
     void RenderPassDepthGrab::execute()

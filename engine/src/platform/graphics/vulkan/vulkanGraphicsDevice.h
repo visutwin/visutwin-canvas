@@ -217,9 +217,16 @@ namespace visutwin::canvas
             TextureProjection sourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT,
             TextureProjection targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT);
 
-        void grabSceneColor(RenderTarget* source) override;
-        void grabSceneDepth(RenderTarget* source) override;
-        void generateCubemapMips(Texture* cubemap) override;
+        void copyRenderTarget(RenderTarget* source, Texture* colorDestination,
+            Texture* depthDestination) override;
+        void generateMipmaps(Texture* texture) override;
+
+        // A blit needs matching formats, so report what the swapchain actually is.
+        PixelFormat backBufferColorFormat() const override
+        {
+            return _swapchainFormat == VK_FORMAT_R8G8B8A8_UNORM
+                ? PixelFormat::PIXELFORMAT_RGBA8 : PixelFormat::PIXELFORMAT_BGRA8;
+        }
         void generateEnvReproject(const EnvReprojectPassParams& params) override;
         void generateEnvConvolve(const EnvConvolvePassParams& params) override;
         void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
@@ -598,8 +605,6 @@ namespace visutwin::canvas
         std::shared_ptr<gpu::VulkanGpuProfiler> _vulkanGpuProfiler;
 
         uint32_t _lightingSlotOffset = 0;
-        std::shared_ptr<Texture> _sceneColorGrabTexture;
-        std::shared_ptr<Texture> _sceneDepthGrabTexture;
 
         // Scene-global environment atlas (equirectangular IBL + skybox source),
         // bound at set 3.  Non-owning — owned by the scene/asset system.  Read

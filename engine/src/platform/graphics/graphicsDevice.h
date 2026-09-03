@@ -752,32 +752,53 @@ namespace visutwin::canvas
         /// Scene color grab (dynamic refraction): copy the current scene color into a
         /// mipmapped texture bound at fragment slot 22. Backend-implemented; the base
         /// class only stores the published texture.
-        virtual void grabSceneColor(RenderTarget* source)
+        /// Pixel formats of the back buffer's colour and depth, so a pass that
+        /// allocates a copy destination can match them without asking the backend
+        /// to allocate on its behalf. Only needed when copying FROM the back
+        /// buffer, where there is no Texture to read the format off.
+        virtual PixelFormat backBufferColorFormat() const
+        {
+            return PixelFormat::PIXELFORMAT_RGBA8;
+        }
+        virtual PixelFormat backBufferDepthFormat() const
+        {
+            return PixelFormat::PIXELFORMAT_DEPTH;
+        }
+
+        /// Copy a render target's colour and/or depth into existing textures
+        /// (upstream `copyRenderTarget`). A generic device operation: it knows
+        /// nothing about WHY the copy is wanted, so the scene-colour grab that
+        /// feeds refraction and the scene-depth grab that feeds screen-space
+        /// reflections are both expressed with it, with the caching and
+        /// publishing policy living in their passes instead of here. A null
+        /// destination skips that aspect; a null source means the back buffer.
+        ///
+        /// This replaced grabSceneColor/grabSceneDepth, which were the same copy
+        /// twice per backend with the effect's policy baked in.
+        virtual void copyRenderTarget(RenderTarget* source, Texture* colorDestination,
+            Texture* depthDestination)
         {
             (void)source;
-            VT_DEVICE_FEATURE_UNSUPPORTED("grabSceneColor");
+            (void)colorDestination;
+            (void)depthDestination;
+            VT_DEVICE_FEATURE_UNSUPPORTED("copyRenderTarget");
         }
+
         Texture* sceneColorMap() const { return _sceneColorMap; }
         void setSceneColorMap(Texture* colorMap) { _sceneColorMap = colorMap; }
 
-        /// Copy the post-opaque scene depth into a sampleable texture (for SSR),
-        /// avoiding the feedback of sampling the still-attached depth buffer.
-        virtual void grabSceneDepth(RenderTarget* source)
-        {
-            (void)source;
-            VT_DEVICE_FEATURE_UNSUPPORTED("grabSceneDepth");
-        }
         Texture* sceneDepthGrabMap() const { return _sceneDepthGrabMap; }
         void setSceneDepthGrabMap(Texture* depthMap) { _sceneDepthGrabMap = depthMap; }
 
-        /// Regenerate the full mip chain of a (render-target) cubemap via a blit
-        /// pass on its own command buffer. Used after reflection-probe scene
-        /// capture, where the forward pass fills only level 0 of each cube face
-        /// and the probe shader samples coarser mips for higher roughness.
-        virtual void generateCubemapMips(Texture* cubemap)
+        /// Regenerate a texture's full mip chain with a blit. Generic: used after
+        /// a scene-colour grab so rough refraction can read blurred mips, and
+        /// after reflection-probe cube capture, where the forward pass fills only
+        /// level 0 of each face and the probe shader samples coarser mips for
+        /// higher roughness.
+        virtual void generateMipmaps(Texture* texture)
         {
-            (void)cubemap;
-            VT_DEVICE_FEATURE_UNSUPPORTED("generateCubemapMips");
+            (void)texture;
+            VT_DEVICE_FEATURE_UNSUPPORTED("generateMipmaps");
         }
 
         // DEVIATION: planar reflection texture, set by application-level code.

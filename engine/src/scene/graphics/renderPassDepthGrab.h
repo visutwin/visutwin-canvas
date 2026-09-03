@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <memory>
+
 #include "platform/graphics/renderPass.h"
 
 namespace visutwin::canvas
@@ -26,5 +28,8 @@ namespace visutwin::canvas
 
     private:
         Camera* _camera = nullptr;
+
+        // The copy destination, resized with the source (see RenderPassColorGrab).
+        std::shared_ptr<Texture> _grabTexture;
     };
 }

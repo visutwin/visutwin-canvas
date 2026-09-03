@@ -732,7 +732,16 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             device->setMaterial(nullptr);
 
             device->endRenderPass(&pass);
-            device->grabSceneColor(target.get());
+            // Generic copy + mip, the shape RenderPassColorGrab drives.
+            TextureOptions colorGrabOptions{};
+            colorGrabOptions.name = "vulkan-smoke-color-grab";
+            colorGrabOptions.width = 64;
+            colorGrabOptions.height = 64;
+            colorGrabOptions.mipmaps = true;
+            auto colorGrab = std::make_unique<Texture>(device.get(), colorGrabOptions);
+            colorGrab->upload();
+            device->copyRenderTarget(target.get(), colorGrab.get(), nullptr);
+            device->generateMipmaps(colorGrab.get());
             device->frameEnd();
 
             TextureOptions depthOptions{};
@@ -764,7 +773,15 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             device->setStencilState();
             device->draw(triangle);
             device->endRenderPass(&depthPass);
-            device->grabSceneDepth(depthTarget.get());
+            TextureOptions depthGrabOptions{};
+            depthGrabOptions.name = "vulkan-smoke-depth-grab";
+            depthGrabOptions.width = 64;
+            depthGrabOptions.height = 64;
+            depthGrabOptions.format = PixelFormat::PIXELFORMAT_DEPTH;
+            depthGrabOptions.mipmaps = false;
+            auto depthGrab = std::make_unique<Texture>(device.get(), depthGrabOptions);
+            depthGrab->upload();
+            device->copyRenderTarget(depthTarget.get(), nullptr, depthGrab.get());
             device->frameEnd();
 
             TextureOptions cocOptions{};
