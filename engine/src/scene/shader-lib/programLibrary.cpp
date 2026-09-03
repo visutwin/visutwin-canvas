@@ -878,7 +878,18 @@ namespace visutwin::canvas
     std::shared_ptr<Shader> ProgramLibrary::getShadowShader(const bool dynamicBatch, const bool skinning,
         const bool morphing, const bool instancing, const bool instancingColor)
     {
-        if (!_device || !hasProgram("shadow")) {
+        if (!_device) {
+            return nullptr;
+        }
+        // The GLSL backend builds its shadow shader from prebuilt bundle modules
+        // selected by the definition NAME, not by chunk composition, so
+        // registerGlslPrograms deliberately registers no "shadow" chunk program.
+        // Requiring one here silently disabled EVERY Vulkan shadow: the shadow
+        // passes return as soon as this is null, so nothing was ever drawn into the
+        // shadow map, it stayed at its cleared 1.0, and every fragment read as lit.
+        // buildForwardShaderVariant already falls back to the bundle for a program
+        // with no chunked GLSL form, so the check is only meaningful for MSL.
+        if (_chunks.language() != ShaderLanguage::Glsl && !hasProgram("shadow")) {
             return nullptr;
         }
 

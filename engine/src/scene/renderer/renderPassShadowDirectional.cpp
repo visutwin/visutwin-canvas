@@ -54,6 +54,17 @@ namespace visutwin::canvas
         auto shadowShader = programLibrary->getShadowShader(false);
         auto shadowShaderDynBatch = programLibrary->getShadowShader(true);
         if (!shadowShader) {
+            // Returning here draws NOTHING into the shadow map, which then reads as
+            // its cleared 1.0 and lights every fragment: a total, silent loss of
+            // shadows that looks like a shading bug rather than a missing shader.
+            // A program-registration mismatch did exactly this on Vulkan, so say it
+            // out loud once instead of failing quietly.
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                spdlog::warn("No shadow shader for this device — directional "
+                    "shadows are disabled");
+            }
             return;
         }
         // Skinned/morphed shadow variants are fetched lazily on first use — most
