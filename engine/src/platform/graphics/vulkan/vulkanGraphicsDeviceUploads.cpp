@@ -161,6 +161,88 @@ namespace visutwin::canvas
             fn();
         }
     }
+
+    // Offline work: GPU commands recorded outside the frame loop, for the
+    // environment bakes. Unlike an upload these need the full render path
+    // (pipelines, descriptors, a render pass), so rather than deferring a lambda
+    // this opens a one-shot command buffer that startRenderPass and draw record
+    // into via currentCommandBuffer(), then submits and WAITS.
+    //
+    // Waiting is what makes reusing the frame-scoped uniform ring and descriptor
+    // pools safe here: the work is finished before any frame can touch those
+    // regions again. The bakes happen at load time and between frames, so the
+    // stall costs nothing that matters.
+    void VulkanGraphicsDevice::beginOfflineWork()
+    {
+        if (_offlineDepth++ > 0) {
+            return;  // inner scope of a nested batch
+        }
+        if (_device == VK_NULL_HANDLE || _uploadCommandPool == VK_NULL_HANDLE) {
+            return;
+        }
+
+        // Pending uploads first. A texture created without host data records its
+        // transition to SHADER_READ_ONLY through the upload queue and marks its
+        // tracker immediately, so a freshly created image is DECLARED sampleable
+        // long before it actually is. Submitting offline work ahead of that flush
+        // put descriptors in flight against images still in UNDEFINED. Queue
+        // submission order does the rest: the flush lands first, so by the time
+        // this buffer executes every tracker matches reality.
+        flushUploads();
+
+        VkCommandBufferAllocateInfo allocInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocInfo.commandPool = _uploadCommandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        if (vkAllocateCommandBuffers(_device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+            spdlog::error("VulkanGraphicsDevice: failed to allocate an offline command buffer");
+            return;
+        }
+
+        VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+            vkFreeCommandBuffers(_device, _uploadCommandPool, 1, &commandBuffer);
+            spdlog::error("VulkanGraphicsDevice: failed to begin an offline command buffer");
+            return;
+        }
+        _offlineCommandBuffer = commandBuffer;
+    }
+
+    void VulkanGraphicsDevice::endOfflineWork()
+    {
+        if (_offlineDepth > 0 && --_offlineDepth > 0) {
+            return;  // inner scope
+        }
+        VkCommandBuffer commandBuffer = _offlineCommandBuffer;
+        _offlineCommandBuffer = VK_NULL_HANDLE;
+        if (commandBuffer == VK_NULL_HANDLE) {
+            return;
+        }
+
+        vkEndCommandBuffer(commandBuffer);
+
+        VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        VkFence fence = VK_NULL_HANDLE;
+        if (vkCreateFence(_device, &fenceInfo, nullptr, &fence) != VK_SUCCESS) {
+            vkFreeCommandBuffers(_device, _uploadCommandPool, 1, &commandBuffer);
+            return;
+        }
+
+        VkCommandBufferSubmitInfo commandInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+        commandInfo.commandBuffer = commandBuffer;
+        VkSubmitInfo2 submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+        submitInfo.commandBufferInfoCount = 1;
+        submitInfo.pCommandBufferInfos = &commandInfo;
+        if (vkQueueSubmit2(_graphicsQueue, 1, &submitInfo, fence) == VK_SUCCESS) {
+            vkWaitForFences(_device, 1, &fence, VK_TRUE, UINT64_MAX);
+        } else {
+            spdlog::error("VulkanGraphicsDevice: offline work submission failed");
+        }
+        vkDestroyFence(_device, fence, nullptr);
+        vkFreeCommandBuffers(_device, _uploadCommandPool, 1, &commandBuffer);
+    }
 }
 
-#endif // VISUTWIN_HAS_VULKAN
+#endif  // VISUTWIN_HAS_VULKAN

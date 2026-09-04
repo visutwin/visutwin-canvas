@@ -291,7 +291,7 @@ protected:
         // otherwise create, encode and commit a command buffer of its own, five per
         // frame. Encoding order inside the batch still orders the GPU work, so the
         // reprojections continue to read the mips generated just above them.
-        device()->beginEnvBatch();
+        device()->beginOfflineWork();
 
         // Regenerate the roughness mips from the freshly captured faces and keep the
         // probe installed (upstream's cubemapRenderer does this inside its own update).
@@ -299,7 +299,7 @@ protected:
 
         const auto& sourceCube = _probe->cubemapShared();
         if (!sourceCube) {
-            device()->endEnvBatch();
+            device()->endOfflineWork();
             return;
         }
 
@@ -312,7 +312,7 @@ protected:
         reproject(_textureEqui, _textureOcta2, false);
         reproject(_textureOcta, _textureEqui2, false);
 
-        device()->endEnvBatch();
+        device()->endOfflineWork();
 
         // The prefiltered atlas is built once — see the DEVIATIONS note. It is fed the
         // EQUIRECT reprojection rather than the cube: generateAtlas runs its source

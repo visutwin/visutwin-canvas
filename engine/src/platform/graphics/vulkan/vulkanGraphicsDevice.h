@@ -159,6 +159,25 @@ namespace visutwin::canvas
         [[nodiscard]] uint32_t presentQueueFamily() const { return _presentQueueFamily; }
         [[nodiscard]] VmaAllocator vmaAllocator() const { return _vmaAllocator; }
         [[nodiscard]] VkFormat swapchainFormat() const { return _swapchainFormat; }
+
+        // Commands go to the frame's buffer normally, and to a one-shot buffer
+        // while offline work is open (asset-time environment bakes, which run
+        // outside the frame loop entirely). Everything that records must go
+        // through here rather than reaching for the frame directly.
+        [[nodiscard]] VkCommandBuffer currentCommandBuffer() const
+        {
+            return _offlineCommandBuffer != VK_NULL_HANDLE
+                ? _offlineCommandBuffer : _frames[_frameIndex].commandBuffer;
+        }
+
+        // True while either a frame or an offline command buffer is recording.
+        [[nodiscard]] bool recording() const
+        {
+            return _frameActive || _offlineCommandBuffer != VK_NULL_HANDLE;
+        }
+
+        void beginOfflineWork() override;
+        void endOfflineWork() override;
         [[nodiscard]] VkFormat depthFormat() const { return _depthFormat; }
         [[nodiscard]] bool validationEnabled() const { return _validationEnabled; }
         [[nodiscard]] std::shared_ptr<const std::atomic_uint32_t> validationErrorCounter() const {
@@ -227,10 +246,8 @@ namespace visutwin::canvas
             return _swapchainFormat == VK_FORMAT_R8G8B8A8_UNORM
                 ? PixelFormat::PIXELFORMAT_RGBA8 : PixelFormat::PIXELFORMAT_BGRA8;
         }
-        void generateEnvReproject(const EnvReprojectPassParams& params) override;
         void generateEnvConvolve(const EnvConvolvePassParams& params) override;
         void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
-        void generateEquirectToCubemap(const EquirectToCubeParams& params) override;
         bool supportsCompute() const override { return true; }
         void computeDispatch(const std::vector<Compute*>& computes,
             const std::string& label = "") override;
@@ -338,6 +355,9 @@ namespace visutwin::canvas
         // ── Swapchain ────────────────────────────────────────────────────
         VkSwapchainKHR _swapchain = VK_NULL_HANDLE;
         VkFormat _swapchainFormat = VK_FORMAT_UNDEFINED;
+        // Non-null while offline (out-of-frame) work is recording.
+        VkCommandBuffer _offlineCommandBuffer = VK_NULL_HANDLE;
+        int _offlineDepth = 0;
         VkExtent2D _swapchainExtent = {0, 0};
         std::vector<VkImage> _swapchainImages;
         std::vector<VkImageView> _swapchainImageViews;

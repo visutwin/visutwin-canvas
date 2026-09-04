@@ -23,6 +23,7 @@
 #include "platform/graphics/instanceCuller.h"
 #include "platform/graphics/renderPass.h"
 #include "scene/graphics/quadRender.h"
+#include "scene/graphics/envBake.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/uniformBinder.h"
@@ -348,7 +349,9 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             cubeOptions.mipmaps = true;
             Texture cube(device.get(), cubeOptions);
             cube.upload();
-            device->generateEquirectToCubemap({&source, &cube, false});
+            // Now backend-agnostic: one implementation over QuadRender inside an
+            // offline-work scope (scene/graphics/envBake.h).
+            bakeEquirectToCubemap(device.get(), &source, &cube, false);
 
             TextureOptions atlasOptions{};
             atlasOptions.name = "vulkan-smoke-env-atlas";
@@ -357,11 +360,12 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             atlasOptions.mipmaps = false;
             Texture atlas(device.get(), atlasOptions);
             atlas.upload();
-            EnvReprojectPassParams reproject{};
+            EnvReprojectRequest reproject{};
             reproject.target = &atlas;
-            reproject.sourceCubemap = &cube;
-            reproject.ops.push_back({0, 0, 16, 8, 1});
-            device->generateEnvReproject(reproject);
+            reproject.source = &cube;
+            reproject.sourceProjection = TextureProjection::TEXTUREPROJECTION_CUBE;
+            reproject.rects.push_back({0, 0, 16, 8, 1});
+            bakeReproject(device.get(), reproject);
             device->flushUploads();
         }
 

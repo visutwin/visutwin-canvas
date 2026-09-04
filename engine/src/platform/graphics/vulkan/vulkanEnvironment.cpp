@@ -280,12 +280,6 @@ namespace visutwin::canvas
         });
     }
 
-    void VulkanGraphicsDevice::generateEnvReproject(const EnvReprojectPassParams& p)
-    {
-        renderEnvironment(p.target, p.sourceEquirect, p.sourceCubemap, p.ops,
-            p.encodeRgbp, p.decodeSrgb, true, false, false,
-            p.sourceProjection, p.targetProjection);
-    }
 
     void VulkanGraphicsDevice::generateEnvConvolve(const EnvConvolvePassParams& p)
     {
@@ -309,10 +303,5 @@ namespace visutwin::canvas
             p.encodeRgbp, p.decodeSrgb, false, false, true);
     }
 
-    void VulkanGraphicsDevice::generateEquirectToCubemap(const EquirectToCubeParams& p)
-    {
-        renderEnvironment(p.target, p.source, nullptr, {}, false,
-            p.decodeSrgb, true, true);
-    }
 }
 #endif

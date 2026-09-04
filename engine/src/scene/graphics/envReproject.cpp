@@ -7,6 +7,7 @@
 
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/texture.h"
+#include "envBake.h"
 
 namespace visutwin::canvas
 {
@@ -57,30 +58,17 @@ namespace visutwin::canvas
             targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
         }
 
-        EnvReprojectPassParams params;
-        params.target = options.target.get();
-        if (sourceProjection == TextureProjection::TEXTUREPROJECTION_CUBE) {
-            params.sourceCubemap = options.source.get();
-        } else {
-            params.sourceEquirect = options.source.get();
+        EnvReprojectRequest request;
+        request.target = options.target.get();
+        request.source = options.source.get();
+        request.sourceProjection = sourceProjection;
+        request.targetProjection = targetProjection;
+        request.encodeRgbp = options.encodeRgbp;
+        request.decodeSrgb = options.decodeSrgb;
+        for (const auto& rect : options.rects) {
+            request.rects.push_back({rect.rectX, rect.rectY, rect.rectW, rect.rectH, rect.seamPixels});
         }
-        params.sourceProjection = sourceProjection;
-        params.targetProjection = targetProjection;
-
-        params.ops.reserve(options.rects.size());
-        for (const auto& r : options.rects) {
-            EnvReprojectOp op;
-            op.rectX = r.rectX;
-            op.rectY = r.rectY;
-            op.rectW = r.rectW > 0 ? r.rectW : static_cast<int>(options.target->width());
-            op.rectH = r.rectH > 0 ? r.rectH : static_cast<int>(options.target->height());
-            op.seamPixels = r.seamPixels;
-            params.ops.push_back(op);
-        }
-        params.encodeRgbp = options.encodeRgbp;
-        params.decodeSrgb = options.decodeSrgb;
-
-        device->generateEnvReproject(params);
+        bakeReproject(device, request);
     }
 
     void convolveTexture(GraphicsDevice* device, const EnvConvolveOptions& options)
@@ -105,7 +93,6 @@ namespace visutwin::canvas
         } else {
             params.sourceEquirect = options.source.get();
         }
-
         params.ops.reserve(options.rects.size());
         for (const auto& r : options.rects) {
             EnvConvolveOp op;
@@ -141,6 +128,14 @@ namespace visutwin::canvas
         params.encodeRgbp = options.encodeRgbp;
         params.decodeSrgb = options.decodeSrgb;
 
+        const auto sized = [&](const auto& r, EnvReprojectOp& op) {
+            op.rectX = r.rectX;
+            op.rectY = r.rectY;
+            op.rectW = r.rectW > 0 ? r.rectW : static_cast<int>(options.target->width());
+            op.rectH = r.rectH > 0 ? r.rectH : static_cast<int>(options.target->height());
+            op.seamPixels = r.seamPixels;
+        };
+
         if (options.reprojectSource && !options.reprojectRects.empty()) {
             if (options.reprojectSourceIsCubemap) {
                 params.reprojectSourceCubemap = options.reprojectSource.get();
@@ -149,16 +144,11 @@ namespace visutwin::canvas
                 params.reprojectSourceEquirect = options.reprojectSource.get();
                 params.reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
             }
-            // The atlas layout is authored in equirect rects regardless of the source.
             params.reprojectTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
             params.reprojectOps.reserve(options.reprojectRects.size());
             for (const auto& r : options.reprojectRects) {
                 EnvReprojectOp op;
-                op.rectX = r.rectX;
-                op.rectY = r.rectY;
-                op.rectW = r.rectW > 0 ? r.rectW : static_cast<int>(options.target->width());
-                op.rectH = r.rectH > 0 ? r.rectH : static_cast<int>(options.target->height());
-                op.seamPixels = r.seamPixels;
+                sized(r, op);
                 params.reprojectOps.push_back(op);
             }
         }
@@ -172,11 +162,11 @@ namespace visutwin::canvas
             params.convolveOps.reserve(options.convolveRects.size());
             for (const auto& r : options.convolveRects) {
                 EnvConvolveOp op;
-                op.rectX = r.rectX;
-                op.rectY = r.rectY;
-                op.rectW = r.rectW > 0 ? r.rectW : static_cast<int>(options.target->width());
-                op.rectH = r.rectH > 0 ? r.rectH : static_cast<int>(options.target->height());
-                op.seamPixels = r.seamPixels;
+                EnvReprojectOp base;
+                sized(r, base);
+                op.rectX = base.rectX; op.rectY = base.rectY;
+                op.rectW = base.rectW; op.rectH = base.rectH;
+                op.seamPixels = base.seamPixels;
                 op.samples = r.samples;
                 op.numSamples = r.numSamples;
                 op.weightByNoL = r.weightByNoL;
@@ -208,12 +198,9 @@ namespace visutwin::canvas
         auto target = std::make_shared<Texture>(device, options);
         target->upload();
 
-        EquirectToCubeParams params;
-        params.source = source.get();
-        params.target = target.get();
-        params.decodeSrgb = decodeSrgb;
-        device->generateEquirectToCubemap(params);
-
+        if (!bakeEquirectToCubemap(device, source.get(), target.get(), decodeSrgb)) {
+            return nullptr;
+        }
         return target;
     }
 }

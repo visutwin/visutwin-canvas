@@ -37,12 +37,11 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::startRenderPass(RenderPass* renderPass)
     {
-        if (!_frameActive) {
-            return; // frame skipped at acquire — command buffer is not recording
+        if (!recording()) {
+            return; // frame skipped at acquire — no command buffer is recording
         }
 
-        auto& frame = _frames[_frameIndex];
-        VkCommandBuffer cmd = frame.commandBuffer;
+        VkCommandBuffer cmd = currentCommandBuffer();
 
         auto* offscreen = renderPass
             ? dynamic_cast<VulkanRenderTarget*>(renderPass->renderTarget().get())
@@ -252,8 +251,7 @@ namespace visutwin::canvas
             return;
         }
 
-        auto& frame = _frames[_frameIndex];
-        VkCommandBuffer cmd = frame.commandBuffer;
+        VkCommandBuffer cmd = currentCommandBuffer();
         vkCmdEndRendering(cmd);
         _dynamicRenderingActive = false;
 
@@ -344,7 +342,7 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::applyViewport()
     {
-        VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
+        VkCommandBuffer cmd = currentCommandBuffer();
 
         const float w = vw() > 0.0f ? vw() : static_cast<float>(_activeExtent.width);
         const float h = vh() > 0.0f ? vh() : static_cast<float>(_activeExtent.height);
@@ -367,7 +365,7 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::applyScissor()
     {
-        VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
+        VkCommandBuffer cmd = currentCommandBuffer();
 
         const int64_t requestedWidth = sw() > 0
             ? static_cast<int64_t>(sw())
@@ -396,7 +394,7 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::applyDepthBias()
     {
-        VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
+        VkCommandBuffer cmd = currentCommandBuffer();
         vkCmdSetDepthBias(cmd, _depthBiasConstant, _depthBiasClamp, _depthBiasSlope);
     }
 
@@ -406,8 +404,7 @@ namespace visutwin::canvas
     {
         if (!_shader || !_dynamicRenderingActive) return;
 
-        auto& frame = _frames[_frameIndex];
-        VkCommandBuffer cmd = frame.commandBuffer;
+        VkCommandBuffer cmd = currentCommandBuffer();
 
         auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(_shader);
         if (!vulkanShader || vulkanShader->vertexModule() == VK_NULL_HANDLE) return;
@@ -1052,10 +1049,10 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::copyRenderTarget(RenderTarget* source,
         Texture* colorDestination, Texture* depthDestination)
     {
-        if (!_frameActive || _dynamicRenderingActive) return;
+        if (!recording() || _dynamicRenderingActive) return;
         if (!colorDestination && !depthDestination) return;
 
-        VkCommandBuffer cmd = _frames[_frameIndex].commandBuffer;
+        VkCommandBuffer cmd = currentCommandBuffer();
 
         // One copy, parameterised by aspect. The colour and depth grabs used to be
         // two near-identical functions here; the only real differences are the
@@ -1128,10 +1125,10 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::generateMipmaps(Texture* texture)
     {
-        if (!_frameActive || _dynamicRenderingActive || !texture) return;
+        if (!recording() || _dynamicRenderingActive || !texture) return;
         auto* impl = dynamic_cast<gpu::VulkanTexture*>(texture->impl());
         if (impl) {
-            impl->generateMipmaps(_frames[_frameIndex].commandBuffer, 0,
+            impl->generateMipmaps(currentCommandBuffer(), 0,
                 texture->isCubemap() ? 6u : 1u);
         }
     }

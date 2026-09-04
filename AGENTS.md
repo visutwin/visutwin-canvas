@@ -404,9 +404,37 @@ does nothing, which is a misleading symptom.
 - **Dynamic reflection probes light wrongly on Vulkan.** Capture and sampling each
   verify OK in isolation; the shader's probe/indirect combination is the suspect.
   One speculative fix made it worse and was reverted.
-- **The env family is the last effects work on the device vtable.** It is not a
-  mechanical lift, and the reasons plus the existing verification path are in
-  `ARCHITECTURE.md`.
+- **The env family: HALF migrated (2026-09-04), two virtuals left.** Equirect-to-
+  cubemap and reproject now run as backend-agnostic code over QuadRender
+  (`scene/graphics/envBake.h` + `envShaders.h`); `generateEnvConvolve` and
+  `generateEnvAtlas` are still device virtuals. The seam that made this possible is
+  `GraphicsDevice::beginOfflineWork` / `endOfflineWork`, which replaced the
+  Metal-only begin/endEnvBatch: Metal only batches (its startRenderPass already
+  builds and commits a command buffer per pass, so it always worked out of frame),
+  while Vulkan opens a ONE-SHOT command buffer that startRenderPass and draw record
+  into through `currentCommandBuffer()`, then submits and WAITS — the wait is what
+  makes reusing the frame-scoped uniform ring and descriptor pools safe.
+
+  TRAP that cost a debugging round: `beginOfflineWork` must `flushUploads()` first.
+  A texture created without host data records its transition to SHADER_READ_ONLY
+  through the DEFERRED upload queue while marking its tracker immediately, so a
+  fresh image is declared sampleable long before it is; submitting offline work
+  ahead of that flush put descriptors in flight against images still UNDEFINED.
+
+  Migrating the remaining two is NOT just more of the same, and one attempt was
+  reverted for this reason: convolve needs its sample table (up to 1024 float4s,
+  far past the 512-byte per-draw block), which does fit as an RGBA32F data TEXTURE
+  on a quad slot — that part worked. What did not is the ATLAS. Its rects are drawn
+  into one pass, and after migrating it the two backends disagreed about the layout:
+  Metal moved to the staircase the rect maths in `EnvLighting::generateAtlas`
+  actually declares (each mip offset by the previous rect's height), while Vulkan
+  kept a full-width second row. Metal's new output looked MORE correct than its old
+  one, which is exactly why it could not be landed on a hunch. Note also that
+  `tools/generate-env-atlas` is NOT a usable baseline for this despite what an
+  earlier note claimed: it emits the same scattered noise before and after any
+  change, so verify with the `reflection-probe-dynamic` atlas panel instead, which
+  does show the layout clearly when cropped and magnified.
+
 - **Example coverage gaps**: morph weight animation, `ParticleSystemComponent`,
   gsplat SH bands 1-3, and clustered atlas shadows have no example.
 

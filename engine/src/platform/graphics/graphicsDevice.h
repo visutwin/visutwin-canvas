@@ -310,15 +310,6 @@ namespace visutwin::canvas
         bool decodeSrgb = false;
     };
 
-    // Builds a 6-face cubemap from an equirect source and generates its mip
-    // chain. `target` must already be created as a cubemap texture with
-    // mipmaps enabled.
-    struct EquirectToCubeParams
-    {
-        Texture* source = nullptr;
-        Texture* target = nullptr;
-        bool decodeSrgb = false;
-    };
 
     // DEVIATION: blurred planar reflection parameters.
     // Upstream implements these as per-material parameters on the BlurredPlanarReflection script;
@@ -862,15 +853,23 @@ namespace visutwin::canvas
          * submission cost repeatedly. Nesting is reference-counted; the batch must
          * be closed before the rendering that samples its results.
          */
-        virtual void beginEnvBatch() {}
-        virtual void endEnvBatch() {}
+        /// Open a scope for GPU work that runs OUTSIDE the frame loop — the
+        /// environment bakes, which happen at asset-load time and again after a
+        /// frame has already been presented. Between these calls the ordinary
+        /// render-pass and draw API is usable, so an offline effect is written once
+        /// over QuadRender rather than as a pass class per backend.
+        ///
+        /// Metal needs nothing structural (its startRenderPass already builds and
+        /// commits a command buffer of its own per pass), so its implementation
+        /// only batches the work into one buffer. Vulkan records into a one-shot
+        /// command buffer and waits for it, because its frame command buffer,
+        /// uniform ring and descriptor pools are all frame-scoped.
+        ///
+        /// Nesting is counted: only the outermost end submits.
+        virtual void beginOfflineWork() {}
+        virtual void endOfflineWork() {}
 
         virtual std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) = 0;
-        virtual void generateEnvReproject(const EnvReprojectPassParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("generateEnvReproject");
-        }
         virtual void generateEnvConvolve(const EnvConvolvePassParams& params)
         {
             (void)params;
@@ -880,11 +879,6 @@ namespace visutwin::canvas
         {
             (void)params;
             VT_DEVICE_FEATURE_UNSUPPORTED("generateEnvAtlas");
-        }
-        virtual void generateEquirectToCubemap(const EquirectToCubeParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("generateEquirectToCubemap");
         }
         virtual bool supportsCompute() const { return false; }
         virtual void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "")

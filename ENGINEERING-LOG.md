@@ -361,3 +361,46 @@ larger term that is wrong.
 
 Result: `depth-of-field`, `shadow-cascades` and `glb-loader` all at 1.00.
 `post-processing` sits at 0.93, now slightly dark, and is the last outlier.
+
+## Environment family: half off the vtable (2026-09-04)
+
+Four device virtuals; two are now backend-agnostic code over QuadRender and two are
+not. Net 593 lines deleted against 178 added, and the Metal pass classes for
+equirect-to-cube are gone entirely.
+
+**The seam.** Metal turned out to need nothing structural: its `startRenderPass`
+already builds and commits a command buffer per pass, so it always worked outside
+the frame loop and its old begin/endEnvBatch was only batching. Vulkan is the one
+that cannot, because its command buffer, uniform ring and descriptor pools are all
+frame-scoped. So `beginOfflineWork` / `endOfflineWork` replaced the Metal-only
+batch pair: Vulkan opens a one-shot command buffer that the normal render path
+records into via a new `currentCommandBuffer()`, then submits and waits. Waiting is
+what makes reusing the frame-scoped resources safe, and the bakes run at load time
+or between frames so the stall costs nothing.
+
+**Migrated and verified:** equirect-to-cubemap and reproject. Both render correctly
+on both backends in `reflection-probe-dynamic`, with zero validation errors. The
+equirect migration also FIXED a Vulkan bug: that example's atlas preview panel was
+black before and shows content now.
+
+**Two traps found.** `beginOfflineWork` has to flush pending uploads first — a
+texture created without host data records its SHADER_READ_ONLY transition through
+the deferred upload queue while marking its tracker immediately, so submitting
+offline work ahead of the flush put descriptors in flight against images still in
+UNDEFINED. And a quad bake must set blend, depth and cull state itself; outside the
+frame graph nothing else has, and the Metal pipeline cache asserts on a null blend
+state.
+
+**Not migrated: convolve and atlas.** The sample table (up to 1024 float4s, far
+past the 512-byte per-draw block) does fit as an RGBA32F data texture on a quad
+slot, and that worked. The atlas did not: after migrating it the backends disagreed
+about the layout, Metal moving to the staircase that `EnvLighting::generateAtlas`
+actually declares while Vulkan kept a full-width second row. Metal's new output
+looked more correct than its old one, which is precisely why landing it on a hunch
+was wrong — so it was reverted rather than left in, and the code removed rather
+than left dead.
+
+Also worth recording: `tools/generate-env-atlas` is not a usable baseline for this
+work, contrary to an earlier note. It is deterministic but emits the same scattered
+noise before and after any change. The `reflection-probe-dynamic` atlas panel,
+cropped and magnified, is what shows the layout.

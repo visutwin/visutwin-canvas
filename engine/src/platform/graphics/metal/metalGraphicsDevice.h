@@ -29,7 +29,6 @@ namespace visutwin::canvas
     class MetalComposePass;
     class MetalEnvConvolvePass;
     class MetalEnvReprojectPass;
-    class MetalEquirectToCubePass;
     class MetalLICPass;
     class MetalMarchingCubesPass;
     class MetalParticleComputePass;
@@ -47,7 +46,6 @@ namespace visutwin::canvas
         friend class MetalComposePass;
         friend class MetalEnvConvolvePass;
         friend class MetalEnvReprojectPass;
-        friend class MetalEquirectToCubePass;
         friend class MetalLICPass;
         friend class MetalMarchingCubesPass;
         friend class MetalParticleComputePass;
@@ -127,17 +125,15 @@ namespace visutwin::canvas
         // command buffer. Rendering on the same queue consumes the results later.
         void beginGpuCullBatch() override;
         void endGpuCullBatch() override;
-        void beginEnvBatch() override;
-        void endEnvBatch() override;
+        void beginOfflineWork() override;
+        void endOfflineWork() override;
         [[nodiscard]] MTL::CommandBuffer* gpuCullBatchCommandBuffer() const { return _gpuCullBatchCommandBuffer; }
 
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) override;
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) override;
-        void generateEnvReproject(const EnvReprojectPassParams& params) override;
         void generateEnvConvolve(const EnvConvolvePassParams& params) override;
         void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
-        void generateEquirectToCubemap(const EquirectToCubeParams& params) override;
         bool supportsCompute() const override { return true; }
         void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") override;
 
@@ -257,7 +253,7 @@ namespace visutwin::canvas
         /// batch buffer when one is open, otherwise a fresh one.
         MTL::CommandBuffer* acquireEnvCommandBuffer();
 
-        /// Commit `buffer` unless it belongs to an open batch, which commits at endEnvBatch.
+        /// Commit `buffer` unless it belongs to an open batch, which commits at endOfflineWork.
         void submitEnvCommandBuffer(MTL::CommandBuffer* buffer);
 
         // Dynamic batch palette: ring-buffer offset for slot 6.
@@ -321,7 +317,6 @@ namespace visutwin::canvas
         std::unique_ptr<MetalComposePass> _composePass;
         std::unique_ptr<MetalEnvReprojectPass> _envReprojectPass;
         std::unique_ptr<MetalEnvConvolvePass> _envConvolvePass;
-        std::unique_ptr<MetalEquirectToCubePass> _equirectToCubePass;
 
         // Triple-buffered ring buffers for per-draw uniform data.
         // Replaces setVertexBytes()/setFragmentBytes() with pre-allocated MTLBuffer
