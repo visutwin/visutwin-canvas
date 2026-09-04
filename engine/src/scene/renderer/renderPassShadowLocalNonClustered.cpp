@@ -83,6 +83,10 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> shadowShaderInstanced;
         std::shared_ptr<Shader> shadowShaderInstancedColor;
 
+        // This pass bypasses materials. Clear any binding left by the previous
+        // forward pass (commonly the skybox at the end of the preceding frame)
+        // before the backend resolves its vertex-stage and pipeline state.
+        _graphicsDevice->setMaterial(nullptr);
         _graphicsDevice->setShader(shadowShader);
 
         // Shadow pass needs blend/depth state set on the device — the forward pass

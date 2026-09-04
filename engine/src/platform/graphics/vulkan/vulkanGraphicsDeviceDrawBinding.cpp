@@ -473,8 +473,13 @@ namespace visutwin::canvas
             // combined with our negative-height (Y-flipped) viewport, makes
             // its CULLFACE_FRONT cull the visible inner faces.  Render it with
             // no culling so the environment shell is always drawn, and select
-            // the depth-pin skybox vertex stage.
-            const bool isSkybox = _material && _material->isSkybox();
+            // the depth-pin skybox vertex stage. Derive this from the shader
+            // variant, not mutable material binding state: material-less passes
+            // such as shadows can otherwise inherit the previous frame's skybox
+            // material and accidentally render every caster with the sky vertex
+            // stage at the far plane.
+            const bool isSkybox =
+                vulkanShader->features().test(ShaderFeature::Skybox);
             CullMode cullMode = isSkybox ? CullMode::CULLFACE_NONE : _cullMode;
 
             VkPipeline pipeline = _renderPipeline->get(primitive,

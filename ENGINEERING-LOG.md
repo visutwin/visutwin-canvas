@@ -9,7 +9,25 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
-## Vulkan lighting parity (2026-09-03)
+## Vulkan lighting parity (2026-09-03 / 04)
+
+### Local-light shadow casters inherited the skybox vertex stage
+**Vulkan spot and omni shadows cast nothing — FIXED (2026-09-04).** The local
+shadow passes were valid, submitted the same caster population as Metal (64
+spot draws and 47/46/7 draws for the populated omni faces in `pcss-local`), and
+produced no validation errors, but a direct D32 readback stayed at the clear
+value. The missing state reset was one frame earlier: the forward pass normally
+ends on the skybox, and `RenderPassShadowLocalNonClustered` bypassed materials
+without clearing that binding. `VulkanGraphicsDevice::draw` selected its special
+depth-pinned skybox vertex module from the stale material, even though the
+active shader was the shadow program, so every caster landed at the far plane.
+
+The local shadow pass now explicitly clears material state, matching the
+directional pass. Vulkan also derives skybox pipeline/module selection from the
+resolved shader feature set instead of mutable material state, which prevents
+any material-less draw from repeating the failure. Verified in `pcss-local` for
+both modes: PCF produces the two crisp spot/omni floor shadows and PCSS produces
+the expected contact-hardening blur, with Vulkan validation clean.
 
 ### Material colours were never sRGB-decoded
 **Vulkan material colours were never sRGB-decoded — FIXED (2026-09-03).** This was

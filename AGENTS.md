@@ -387,16 +387,6 @@ does nothing, which is a misleading symptom.
 
 ## Open items
 
-- **Vulkan local-light shadows** (spot and omni) cast nothing. `pcss-local` shows
-  the robot arm's floor shadow on Metal and none on Vulkan. Already narrowed, so
-  do not redo this: the pass runs with a valid shader, gathers 65 casters exactly
-  as Metal does, the bound map is non-null per slot, the slot uniforms are right,
-  the sampler runs and reaches the light, and projected coordinates land inside
-  [0,1]. What is wrong is that the SAMPLED REGION READS 1.0 under both V
-  orientations, so casters are gathered but nothing lands in the map. Look at the
-  local pass's render target and viewport setup, or whether its draws are
-  submitted at all — a draw counter scoped INSIDE the caster loop is the
-  measurement not yet taken. No Vulkan errors are logged.
 - **Camera-frame scenes `depth-of-field` and `post-processing` render ~1.65x Metal**
   where the others are close. Both are bloom-heavy compose scenes and both sat at
   1.6 before and after the diffuse fix, so look at bloom or compose. Do NOT chase
