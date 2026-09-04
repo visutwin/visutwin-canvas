@@ -1,0 +1,308 @@
+# Engineering Log
+
+Narrative record of completed work on VisuTwin Canvas: postmortems, migration
+accounting, and verification results. Split out of `CLAUDE.md` on 2026-09-04,
+verbatim, so that file could go back to being what an agent must READ BEFORE
+CHANGING CODE: rules, contracts, live gotchas and open items.
+
+Nothing here is a standing instruction. If a rule in this file still binds, it
+also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
+newest first within each topic.
+
+## Vulkan lighting parity (2026-09-03)
+
+### Material colours were never sRGB-decoded
+**Vulkan material colours were never sRGB-decoded — FIXED (2026-09-03).** This was
+the bulk of the "camera-frame" brightness gap, and it was never camera-frame
+specific. Material colours are authored in GAMMA space here (`setDiffuse` stores
+its colour raw — unlike `setEmissive`, which `StandardMaterial::updateUniforms`
+pre-linearises), so the shader owes them a decode. The Metal chunk decodes the
+base-colour FACTOR, the base-colour TEXTURE and the VERTEX colour (the last in the
+vertex stage, once per vertex). The Vulkan chunk decoded none of the three and
+multiplied the raw values straight together, which left every surface brighter and
+washed out. Fixed in `forward-fragment-surface.glsl` and in
+`forward_color.vert` / `forward_point.vert`.
+
+Why it read as a camera-frame bug: outside CameraFrame the forward pass tonemaps
+and gamma-encodes immediately, which compressed the error to a few percent; under
+CameraFrame the linear HDR carries it through to compose intact.
+
+The measurement that settled it is worth reusing: `DEBUGPASS_ALBEDO` and
+`DEBUGPASS_LIGHTING` (`Camera::setDebugShaderPass`, wired on BOTH backends) split
+the frame into its material frontend and its lighting. Albedo was off by 11-40 per
+channel and now matches Metal to 0.2. Whole-frame mean luminance is a BAD signal by
+comparison — scenes animate, content differs, and the tonemap compresses whatever
+you are chasing.
+
+### Direct diffuse was 1/PI * kD too dark
+**Vulkan direct diffuse was 1/PI * kD too dark — FIXED (2026-09-03).** The second
+half of the same gap, and it was DIRECT light, not the environment. Metal and
+upstream both compute direct diffuse as `albedo * radiance * NdotL`: upstream's
+`lightDiffuseLambert` is a bare NdotL and its combine multiplies by albedo, and the
+Metal chunk matches. The Vulkan chunks divided by PI and multiplied by
+`kD = (1 - F)(1 - metallic)`, which made every direct light about a third of
+Metal's — and kD applied `(1 - metallic)` a SECOND time, since `diffuseAlbedo`
+already carries it. Fixed in `forward-fragment-lights.glsl` (punctual and
+directional) and `forward-fragment-clustered.glsl` (local lights), including the
+lightmap-bake accumulators so a bake still matches the lit result.
+
+How it was isolated, which is the reusable part: strip the scene one term at a
+time with `DEBUGPASS_LIGHTING` and compare. Light off, no ambient, no env atlas →
+both backends agreed to 0.1, proving everything except the light matched. Light on
+→ Metal (165.9, 160.0, 148.7) against Vulkan (113.2, 111.1, 106.9), a constant
+0.356 ratio in all three channels, which is a single scalar and not a colour or
+texture problem. After the fix, (165.9, 160.0, 148.7) against (165.6, 159.8, 148.5).
+Whole-scene parity: 8 of 11 examples now within 10% of Metal where several were 40%
+or more out.
+
+DO NOT chase the environment specular first, as an earlier note here suggested.
+The ambient `kD` and Fresnel divergences in `forward-fragment-ambient.glsl` are
+real and still unfixed, but they are worth only a fraction of a percent on
+`shadow-cascades` — I tried them, they made `post-processing` much worse, and they
+were reverted. The env atlas contributed almost nothing to this gap.
+
+### There were no directional shadows at all
+**Vulkan had NO directional shadows at all — FIXED (2026-09-03).** Not a shading
+divergence: the shadow map was never written. `ProgramLibrary::getShadowShader`
+opened with `if (!_device || !hasProgram("shadow")) return nullptr;`, and
+`registerGlslPrograms` deliberately registers no "shadow" chunk program, because
+the Vulkan shadow shader comes from prebuilt bundle modules selected by the
+definition NAME rather than by chunk composition. So on Vulkan that call always
+returned null, every shadow pass returned at its `if (!shadowShader)` guard before
+drawing a single caster, the map stayed at its cleared 1.0, and every fragment read
+as lit. The guard now applies only to MSL; `buildForwardShaderVariant` already falls
+back to the bundle for a program with no chunked GLSL form.
+
+This was a REGRESSION from the ShaderChunks-on-Vulkan work: before the registration
+was split per language, "shadow" was registered for both.
+
+Verified: the pass now draws 68 casters per face on Vulkan, the same as Metal, the
+tree shadows are there, and `shadow-cascades` moved 162.0 -> 158.8 against Metal's
+158.5. Both shadow passes now log once when they have no shader, because a total,
+silent loss of shadows reads as a shading bug and cost a long search here.
+
+## Vulkan camera-frame gamma (2026-09-02 / 03)
+**Vulkan camera-frame washout — FIXED (2026-09-02).** Every camera-frame scene
+rendered pale and low-contrast on Vulkan (`shadow-cascades`, `depth-of-field`),
+which is what blocked pixel-validating the volumetric fog port. Cause: under
+CameraFrame the forward pass must output LINEAR HDR and leave exposure, tonemap
+and gamma to compose. Metal has always done that, gated on bit 5 of
+`LightingData::flagsAndPad[0]`. On Vulkan the field existed and was documented as
+mirroring Metal 1:1, but **nothing ever set the bit and the shader never read
+it** — so the forward pass tonemapped and gamma-encoded, then compose did both
+AGAIN. A double gamma is exactly "brighter, washed out". Fixed in two places:
+`vulkanGraphicsDeviceDrawBinding` now keeps bit 5 in step with `hdrPass()`, and
+`forward-fragment-tail.glsl` returns linear HDR early like the Metal chunk.
+Scene means moved 222 -> 185 and 206 -> 157 (Metal: 160 / 94); non-camera-frame
+scenes are byte-identical (clearcoat unchanged), since the bit is never set there.
+
+**Sky under CameraFrame — FIXED (2026-09-03).** The same double-gamma, one layer
+up: the Vulkan sky block in `forward-fragment-surface.glsl` applied exposure,
+tonemap and gamma unconditionally and returned, so it never saw bit 5. Under
+CameraFrame it wrote gamma-encoded sRGB into the linear HDR target and compose
+encoded it again. Metal checks the bit in all three of its sky paths
+(atmosphere / cubemap / env atlas); Vulkan now checks it too.
+
+## Backend-agnostic effect passes: the QuadRender migration (2026-09-01 to 03)
+The six migrations that emptied `PostPassKind` and deleted the Vulkan
+post-process framework, in the order they were done.
+**Migrated: `RenderPassVsmBlur`, `RenderPassVolumetricFog` (+ its combine).** It is now one implementation
+(`scene/renderer/renderPassVsmBlur.cpp`) carrying MSL and GLSL source selected by
+`GraphicsDevice::shaderLanguage()`, replacing `MetalVsmBlurPass` (347 lines),
+`VulkanGraphicsDevice::executeVsmBlurPass` + its pipeline/descriptor helpers (243
+lines), the `executeVsmBlurPass` virtual, `VsmBlurPassParams`, and the build-time
+`vsm_blur.{vert,frag}` modules — net -450 lines, verified pixel-identical on both
+backends. Blur direction became a uniform instead of two compiled variants.
+
+**Volumetric fog (2026-09-02)** was the second migration and the first to need
+more than the seam had: its uniform block is 512 bytes, larger than the
+400-byte `MaterialUniforms` the quad block was riding. `kPerDrawUniformCapacity`
+(512) now sizes that slot, the Vulkan material descriptor's range, and the padded
+allocation behind it. The effect deleted `MetalVolumetricFogPass` (549 lines) and
+both fog virtuals; shaders live in `scene/graphics/volumetricFogShaders.h`.
+**This gave the Vulkan backend volumetric fog, which it never had** — it is
+enabled and visibly affects the frame, but is NOT pixel-validated: the
+`shadow-cascades` scene renders paler on Vulkan than Metal *with fog disabled*,
+a pre-existing backend difference that swamps the comparison. Metal output is
+unchanged. DEVIATION: the GLSL shadow tap is a manual depth compare (the Vulkan
+backend samples shadow maps through a non-comparison sampler everywhere), where
+MSL gets hardware PCF from `sample_compare`.
+
+**CoC, DOF blur and depth-aware blur (2026-09-02)** went next — three simple
+quad effects, deleting `MetalCoCPass`/`MetalDofBlurPass`/`MetalDepthAwareBlurPass`,
+three device virtuals, their Vulkan `executePostPass` arms, three params structs
+and the `post_{coc,dof_blur,depth_blur}.frag` bundle modules. CoC and DOF blur are
+pixel-identical on Metal; the depth-aware blur differs on ~2.8% of pixels
+(visually identical, confined to AO contact edges). That last one is NOT a shader
+change — the MSL is semantically identical — it is the geometry: the old pass drew
+a 3-vertex fullscreen triangle, `QuadRender` draws a 4-vertex tri-strip, so UV
+interpolation differs in the low bits and the BILATERAL weight amplifies it at
+depth discontinuities. CoC and DOF don't expose it (CoC samples at texel centres,
+DOF clamps its taps).
+
+TWO TRAPS met here, both worth remembering. (1) The CoC effect was **divergent
+between backends**: Metal ramped from the focus distance with (far, near) channel
+order, Vulkan used a +/- range/2 dead zone ramped over the HALF range with the
+channels SWAPPED, and each backend's DOF blur read its own convention. Upstream's
+`coc.js` has the dead zone AND (far, near) — so each backend had half of it right.
+Both now follow Metal's behaviour; aligning the ramp with upstream is a one-line
+change in one place (noted in `renderPassCoC.cpp`). (2) Quad passes bind the SCENE
+sampler (repeat + mip + aniso), not `_postSampler` (clamp, no mip) which every
+dedicated post pass used. Switching the quad path to `_postSampler` looks correct
+and is probably what these effects want, but it also moves bloom downsample and
+DOF output — so it was left alone rather than smuggled into a migration commit.
+
+**Compose (2026-09-02)** was the sixth and largest: the whole post chain, six
+input textures and a 44-field uniform block, now one implementation in
+`scene/graphics/composeShaders.h`. A block of scalars plus one `vec2` packs
+identically under MSL and std140, so both shaders declare the SAME field list —
+the Vulkan shader's packed `p0..p10` vec4 accessors are gone. Metal output is
+unchanged within run-to-run noise. Two dead bindings went with it: the Metal
+shader declared `cocTexture`/`blurTexture` for a multi-pass DOF branch that has
+been commented out for a long time (only `applyDofSinglePass` runs).
+`MetalComposePass` SURVIVES as the shared fullscreen-quad geometry provider that
+env-convolve/reproject, TAA and SSAO still borrow; it lost its shader and draw.
+
+THREE things this uncovered, all fixed here. (1) Set 1 had no binding for slot 2,
+so any quad effect using three or more textures was broken on Vulkan — which
+silently included the DOF blur migrated earlier that day. (2) The set-1 slot list
+was duplicated in THREE places (layout creation, binding loop, descriptor writes)
+and the write path detected "is this the material set?" by matching its SIZE, so
+adding a slot in two of the three wrote every binding to the wrong index. It is
+now one `kMaterialTextureBindings` in `vulkanUniformLayouts.h`. (3) Quad passes
+bound the SCENE sampler (repeat + mip + aniso) where every dedicated post pass
+bound `_postSampler` (linear, clamp, no mip); with compose's CAS tapping outside
+[0,1] this wrapped to the opposite edge and put wrong pixels along the frame
+border. Quad passes now get `_postSampler`, which also corrects bloom's
+downsample chain at its borders (its targets have no mips, so this is purely an
+address-mode fix) and shifts bloom output slightly across the frame.
+
+KNOWN, PRE-EXISTING: the Vulkan camera-frame/compose path renders washed out
+compared to Metal — visible in `depth-of-field` and `shadow-cascades`, and
+present before this migration (it is why the volumetric fog port could not be
+pixel-validated). The GLSL was ported faithfully, so the bug came along with it;
+it is now a one-shader fix instead of two.
+
+**Debts cleared alongside (2026-09-02).** The CoC ramp now matches upstream's
+`coc.js` — a dead zone of +/- focusRange/2 then a ramp over the FULL focusRange —
+which also makes it agree with `applyDofSinglePass` in composeShaders.h, the one
+place that already followed upstream. `vignetteColor` is exposed end to end
+(`RenderingSettings` -> `CameraFrameOptions` -> `RenderPassCompose`); it had been
+plumbed as far as the shader with no way to set it. `QuadRender` draws an
+oversized fullscreen TRIANGLE rather than a two-triangle quad, matching what the
+dedicated post passes always used (no diagonal seam, 3 verts).
+
+### SSAO and TAA, which finished the category
+**SSAO and TAA (2026-09-02)** finished the fullscreen-quad category. Both follow
+the compose recipe — one implementation with MSL + GLSL selected by
+`shaderLanguage()`, in `scene/graphics/ssaoShaders.h` and `taaShaders.h`. SSAO's
+block keeps the explicit pads that make each `vec2` 8-byte aligned (MSL and
+std140 agree there); TAA adopted the Vulkan packing of size-and-flags into one
+`vec4`, so every member is a mat4 or vec4 and there is no padding to get wrong.
+
+That emptied `PostPassKind`, so the entire Vulkan post-process framework
+(`vulkanPostProcess.cpp`, 400 lines: the shared descriptor layout, the pipeline
+cache, `executePostPass`) is deleted along with the last four `post_*.frag`
+bundle modules. Metal lost `MetalSsaoPass` and `MetalTaaPass`. Combined with the
+earlier migrations this pass removed ~1600 lines.
+
+Verification: depth-of-field is pixel-identical; ambient-occlusion moves 147
+pixels of 630k (visually identical, AO contact edges — the same small unexplained
+delta the depth-aware blur showed, and NOT the triangle-vs-quad geometry, which
+was tested and ruled out). The `taa` example cannot be pixel-verified at all: it
+is temporally accumulative and moves 15% of pixels between two runs of the SAME
+binary, so the check there is that it renders cleanly with no ghosting.
+
+### Grabs and mips generalised off the vtable
+**Grabs and mips generalised (2026-09-03).** `grabSceneColor`, `grabSceneDepth`
+and `generateCubemapMips` were three effect-specific virtuals that each baked the
+effect's policy into the backend: which texture to cache, how to resize it,
+whether to mip it, which device slot to publish it to — written twice per backend
+and near-identical within each. They are now two GENERIC operations, which is the
+shape upstream's device has: `copyRenderTarget(source, colorDest, depthDest)` and
+`generateMipmaps(texture)`. The policy moved up into `RenderPassColorGrab` and
+`RenderPassDepthGrab`, which own their destination texture and share one
+allocation helper (`scene/graphics/sceneGrab.h`). Metal lost its raw-MTLTexture +
+external-wrapper machinery for the two grabs entirely.
+
+GOTCHA that this uncovered: a blit needs the source and destination pixel formats
+to MATCH, and copying from the back buffer had no Texture to read a format off —
+the drawable is BGRA8 while the engine's only 32-bit unorm format was RGBA8. So
+`PIXELFORMAT_BGRA8` now exists, both backends map it, and
+`backBufferColorFormat()` / `backBufferDepthFormat()` report what the back buffer
+actually is. The old code dodged this by allocating from the raw Metal format,
+which a backend-agnostic pass cannot see.
+
+## Gaussian splat sort direction under non-uniform scale (2026-09-03)
+**Sort direction under non-uniform scale (fixed 2026-09-03).** The sorter's key is
+`dot(localCentre, direction)`, so `direction` has to weight each local axis the way
+the model matrix does. It was built by transforming the view direction by the
+INVERSE model matrix and normalising, which weights axis i by 1/s_i where the true
+depth weights it by s_i — the two cancel only under a UNIFORM scale.
+`GSplatInstance::sortDirection` now weights each axis by the model matrix's own
+basis vector projected on the view direction, exact for any affine transform
+(upstream #9268). The error was a function of the VIEW DIRECTION, so a
+non-uniformly scaled splat drew over splats in front of it at some camera angles
+and not others, with distance making no difference — a splat flattened onto a
+ground plane (scale 4, 0.2, 4) was off by metres. Covered by
+`tests/gsplatSortTests.cpp`, which fits key against true depth over random points
+and sweeps the camera; the old form scores 0.8 normalised error there and the new
+one 1e-7.
+
+## Frame graph store propagation (2026-08-21)
+clearing it, marks the earlier pass on that target as having to STORE its results. Two bugs
+lived there until 2026-08-21:
+
+- **The back buffer was excluded.** The guard read `if (renderTarget != nullptr)` directly
+  under a comment saying "or null which represents the default back-buffer" — so no
+  back-buffer pass was ever told to store. Harmless while a frame had a single back-buffer
+  pass, which is the normal case; the moment the scene-color grab split the frame into two,
+  the second pass loaded a depth buffer the first had discarded. The skybox then passed the
+  depth test everywhere and repainted over every opaque draw, so **all opaque geometry
+  vanished** and only post-grab (transparent) draws survived. That silently broke
+  `refraction-example` — its columns were missing from the frame and visible only through
+  the refracting sphere — and blocked `requestSceneColorMap` for everyone else.
+- **`_renderTargetMap` was never cleared**, so the first pass of each frame propagated
+  stores onto the previous frame's pass (and kept it alive). It is per-frame state now.
+
+Grab passes carry no color ops of their own and must not displace the real draw pass in that
+map, or the pass that actually reads the surface would look at the grab instead.
+
+## Omni shadow bias is relative, not absolute (2026-08-17)
+**Omni shadow bias is RELATIVE** (fixed 2026-08-17): a fraction of the receiver
+distance applied BEFORE the perspective projection, not an offset after it.
+Cubemap shadow depth is crushed against 1.0 — with near 0.01 and far 30, half a
+world unit of separation is 8e-5 of stored depth, so the old fixed 0.001
+post-projection offset was more than ten times the gap it was meant to preserve
+and erased omni shadows entirely at ordinary light ranges. Both backends now bias
+`d` by 0.2% instead (`omniShadowParams[2]`).
+
+## Vulkan feature mask reached the fragment stage only (2026-08-16)
+**Vulkan specialization gotcha (fixed 2026-08-16):** the feature mask used to be
+specialized into the FRAGMENT stage only, so every `vtFeatureEnabled(...)` in a
+vertex shader read false — silently disabling Vulkan vertex displacement, and any
+future vertex-stage feature. Both stages now get it in `vulkanRenderPipeline`.
+
+## Single-sourcing the material uniform block (2026-08)
+That was four hand-maintained copies plus two size checks that had to agree, where
+a mismatch shifted every following field — silent corruption, not a compile error.
+Adding a field is now one line. Verified by temporarily appending a probe field:
+it appeared in the C++ struct, the generated GLSL and the size validator, and the
+build stayed green; then reverted. Rendering is unchanged (clearcoat pixel-identical
+on both backends; the generated GLSL declaration is textually identical to the
+hand-written one it replaced).
+
+The feature-index list got the same treatment. Indices are assigned from
+declaration order rather than a hand-written bit column, which was verified by
+temporarily growing the list to 66 entries: both sides moved to 3 words with no
+hand edits and the Vulkan smoke test still passed.
+
+## Lightmappers (2026-08-16 GPU, 2026-07-14 CPU)
+Full original notes for both bakers, kept because the option lists and the
+three easy-to-miss bake requirements are not written down anywhere else.
+**GPU lightmapper** (`framework/lightmapper/gpuLightmapper.h/.cpp`, 2026-08-16): upstream's own mechanism — each target mesh is rendered **in UV space** (`VT_FEATURE_LIGHTMAP_BAKE`: the vertex stage writes clip position from UV1, the fragment stage outputs the diffuse LIGHT with no albedo), so occlusion comes from the existing shadow maps instead of rays. ~40 ms for the house scene versus ~12 s for the CPU baker. The bake rides the normal frame graph like `ReflectionProbe`: one camera per target with `Camera::setLightmapBakePass(true)`, its own render target, and a private layer holding just that mesh; `bake()` then `update()` after `Engine::render()`. THREE things it must do that are easy to miss: the bake pass forces `CULLFACE_NONE` (UV winding follows the unwrap, so half the charts would be culled), every scene light gets the bake layer ids appended for the duration (lights are filtered per layer, else only ambient bakes), and the mesh wears `MASK_BAKE` during the bake and `MASK_AFFECT_LIGHTMAPPED` after (upstream's scheme — bake lights carry `MASK_BAKE` so they cannot light the mesh again at runtime). DEVIATIONS: no AO virtual lights, no bounces, no BAKE_COLORDIR, no GPU dilate/denoise, and **no cast shadows yet** — the bake captures direct light and ambient only (the CPU baker's shadows are ray-traced and still work). The CPU `Lightmapper` stays as the quality reference (ray-traced AO + soft shadows).
+
+**Lightmapper baker** (`framework/lightmapper/lightmapper.h/.cpp`, 2026-07-14): a **CPU** baker (upstream is a GPU UV-space renderer — DEVIATION). `addLight()` (directional/point/spot) + `addOccluder(mesh, worldTransform)` (world triangles for ray casting) + `bake(targetMesh, worldTransform, Options)` → RGBA8 texture (or `bakeAndApply(material, ...)`). Options mirror upstream's scene-level bake knobs: `sizeMultiplier`/`maxResolution` derive a per-mesh resolution from world bounds (upstream `calculateLightmapSize`), `ambientBake` + `ambientBakeNumSamples`/`SpherePart`/`OcclusionContrast`/`OcclusionBrightness` replace the flat AO term with rays distributed over the top part of the sphere shaped by upstream's `bakeLmEnd` curve, `filterEnabled`/`filterRange`/`filterSmoothness` run a bilateral denoise, and per-light `bakeNumSamples`/`bakeArea` give directional lights soft shadows (upstream spreads N virtual lights over the cone; the ray tracer jitters the shadow ray instead). Per target mesh it reads CPU vertex/index storage (`VertexBuffer::storage()` as 56-byte `PackedVertex`, uv1 at offset 48), rasterizes triangles in **UV1 space** (barycentric per texel → world pos+normal), and shades: direct lighting (Lambert × attenuation + spot cone) with **hard shadow rays**, cosine-weighted-hemisphere **ambient occlusion**, ambient+sky terms AO-modulated; then dilates seams and sRGB-encodes (the shader pow(2.2)-decodes). Ray any-hit uses a **median-split BVH** over occluder triangles; the expensive shading phase is multi-threaded (`std::thread::hardware_concurrency`). ~0.9 s for a 512² map with 24 AO samples over 4.6k triangles. DEVIATIONS: LDR RGBA8 only, single bounce (no GI), no color+dir directional lightmaps, no auto lightmap-size/UV-unwrap (uses the mesh's existing UV1 — box faces overlap, so bake receiver-only planes). Mask a lightmapped mesh out of realtime lights with `MeshInstance::setMask(MASK_AFFECT_LIGHTMAPPED)`. Example: `lightmap-bake-example.cpp` (floor baked with soft shadows + AO from occluder boxes/sphere; toggles the lightmap on/off). Test asset: `assets/textures/lightmap-pools.tga` (render-to-texture example ground).
+
+## Dynamic reflection probe scene capture (2026-07-14)
+**Dynamic scene-capture bake** (`framework/extras/reflectionProbe.h/.cpp`, 2026-07-14): `ReflectionProbe` renders the live scene into the probe cubemap at runtime instead of using a supplied/authored cube. It owns a mipmapped RGBA8 color cubemap + 6 face `RenderTarget`s + 6 `CameraComponent`s pointed along ±X/±Y/±Z (reusing `LightCamera::pointLightRotations`, 90° FOV, aspect 1). The six face cameras render as ordinary cameras in the normal frame graph (each `RenderTarget` targets one cube face via `RenderTargetOptions.face`), so **construct the probe BEFORE the main camera** (layer composition renders cameras in construction order → faces captured before the main camera samples the probe). Per frame `update()` (called AFTER `engine->render()`) runs `GraphicsDevice::generateCubemapMips` (blit `generateMipmaps` on its own command buffer) to rebuild the roughness mips from the freshly-rendered level-0 faces, and installs the cube via `setReflectionProbe` on the first call. Modes: `setDynamic(true)` re-captures every frame (reflections track the scene); `false` = one-shot then disable the face cameras. Two enabling engine changes: (1) `MetalGraphicsDevice::startRenderPass` now sets the **color** attachment slice from `activeTarget->face()` for cube textures (previously only the depth attachment did, for omni shadows); (2) `GraphicsDevice::generateCubemapMips`. Captured faces hold the normal tonemapped/gamma-encoded forward output, which the probe shader sRGB-decodes — matching the static path. DEVIATIONS: hardware-mip roughness (no GGX cube prefilter); the reflective object must sit on a layer excluded from the probe's capture layers or it self-captures (probe camera is at the probe center); probe faces miss directional-shadow cascades (fit only for the presentation camera). Example: `reflection-probe-dynamic-example.cpp` (chrome sphere on a probe-excluded layer reflects a ring of orbiting emissive boxes captured live — no env atlas/skybox, so the colored reflections come purely from the runtime capture).

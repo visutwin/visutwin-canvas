@@ -1,0 +1,442 @@
+# Agent Guidelines for VisuTwin Canvas
+
+Rules, contracts and known traps for AI agents and developers working on this
+codebase. Tool-neutral by design: Claude Code reaches it through `CLAUDE.md`,
+which imports this file, and any other agent that reads `AGENTS.md` gets the same
+instructions.
+
+C++23 real-time rendering engine for digital twins, geospatial scenes, and
+scientific visualization. Architecture originally derived from the PlayCanvas
+engine (referred to as **upstream** throughout the code and docs — never by
+name), rebuilt in C++ and substantially extended. Runs on Apple Metal and
+Vulkan 1.3.
+
+## Where things are written down
+
+- **This file (`AGENTS.md`)** — rules, contracts, live gotchas and open items.
+  Read before changing code. Keep it that way: it is loaded in full at the start
+  of every session, so a completed-work narrative does not belong here.
+- **`CLAUDE.md`** — a stub that imports this file. Do not put content in it.
+- **`ARCHITECTURE.md`** — per-subsystem reference: how each feature works, the
+  call that turns it on, and its deviations from upstream. Consult when you are
+  about to touch a subsystem.
+- **`ENGINEERING-LOG.md`** — postmortems, migration accounting and verification
+  numbers for work already finished. Consult when you need to know *why* a thing
+  is the way it is, or how a class of bug was isolated before.
+- **`FEATURES.md`** — user-facing inventory of what the engine implements.
+- **`CONTRIBUTING.md`**, **`README.md`** — the usual.
+- `docs/` is **gitignored**. Do not put tracked documentation there.
+
+## Project Structure
+
+```
+visutwin-canvas/
+  engine/          # Core 3D engine (278 .h + 220 .cpp = 498 files)
+    src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
+    src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
+    src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
+    src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
+    shaders/metal/chunks/   # 25 composable Metal shader micro-chunks (ShaderChunks registry)
+    shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
+    shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
+    shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
+  examples/        # 41 example applications, all derived from ExampleApp
+  tests/           # Unit tests + Vulkan validation smoke test
+  assets/          # Shared assets (models, textures, HDR environments)
+  tools/           # Build/utility scripts
+```
+
+Sibling repositories (separate CMake projects, same parent dir):
+- `visutwin-geo/` - Geospatial: WGS84 ellipsoid, 3D Tiles, terrain tiling, globe camera, atmosphere
+- `visutwin-viz/` - Scientific visualization: volume loading, marching cubes, streamlines, transfer functions
+
+## Build
+
+- **C++23**, CMake 3.28+, vcpkg manifest mode
+- `vcpkg.json` + `CMakePresets.json` at project root
+- Presets: `default` (Debug, Metal), `release`, `examples` (→ `build-examples/`), `vulkan` (→ `build-vulkan/`)
+- Backends selected explicitly with `VISUTWIN_BACKEND_METAL=ON|OFF` and
+  `VISUTWIN_BACKEND_VULKAN=ON|OFF`; at least one must be enabled
+- `VISUTWIN_BUILD_EXAMPLES` defaults to OFF — the `examples` preset turns it on
+- CLion: use "default" preset, ensure `/opt/homebrew/bin` in PATH for Ninja
+- `CMAKE_IGNORE_PATH=/usr/local/include;/usr/local/lib` to exclude stale system SDL3
+- Runtime backend override: `VISUTWIN_BACKEND=metal|vulkan` (lower case)
+
+```bash
+cmake --preset default
+cmake --build build
+```
+
+## Dependencies (vcpkg)
+
+**Core:** SDL3 (3.4+), spdlog (1.17+, bundled fmt, `default-features: false`), tinyobjloader, tinygltf (header-only, use `find_path`), draco, assimp, basisu (`basisu::basisu_encoder` — transcoder + encoder + CLI tool), boost-core, imgui (SDL3+Metal+docking), implot
+
+**Vendored:** metal-cpp, stb
+
+**Vulkan (`vulkan` feature):** vulkan-headers, vulkan-memory-allocator, vk-bootstrap
+
+## Graphics Backends
+
+Two production backends behind one `GraphicsDevice` abstraction, plus one planned.
+
+**Metal** — primary and most complete. MSL shader chunks hot-reload from the
+source dir per launch; `VT_FEATURE_*` flags are emitted as preprocessor defines
+and each combination compiles a distinct variant.
+
+**Vulkan 1.3** — dynamic rendering + synchronization2, MRT, PBR draw binding,
+PCSS/VSM shadows + clustered shadow atlas, SSR, dynamic refraction, planar
+reflections, shadow catcher, atmosphere, opacity dither, debug passes,
+dual-source blending, compute/particles/culling, post-processing, async uploads,
+GPU profiling. GLSL in `shaders/vulkan/` is compiled to SPIR-V at build time and
+bundled by `tools/generate_vulkan_shader_bundle.py`. Feature flags arrive as
+**specialization constants**, not runtime branches, in BOTH stages.
+
+`VulkanGraphicsDevice` is split across
+`vulkanGraphicsDevice{FrameSwapchain,Descriptors,Uploads,DrawBinding,Compute,ResourceInitialization}.cpp`
+— add new code to the matching component, not one monolith.
+
+**Metal-only today:** volumetric fog on the compute path, texture streaming, the
+ImGui/ImPlot overlay (`viz/overlay/`, uses `imgui_impl_metal`), marching cubes,
+LIC, and the gloss/thickness/refraction scalar maps.
+
+**Planned next backend: WebGPU** — targets browser and native (Dawn/wgpu). WGSL
+maps onto the same shared feature contract; the specialization-constant approach
+used for Vulkan is the closer model (WGSL `override` constants) than Metal's
+preprocessor variants. Keep new backend-specific code behind `GraphicsDevice`
+so a third implementation stays additive.
+
+Standard [0,1] depth (clear 1.0, `LESS_EQUAL` compare) — NOT reverse-Z. Vulkan is
+natively [0,1]; Metal vertex chunks remap clip.z from GL [-1,1], and the Vulkan
+vertex shaders apply the same remap, so both backends share the convention. A
+custom user shader that skips the remap wins every depth test on Vulkan.
+
+## Contracts you must not break
+
+### Adding a `MaterialUniforms` field
+
+`MaterialUniforms` is declared ONCE, in `scene/materials/materialUniformFields.h`,
+as an X-macro field list (`X(shaderType, name, default...)` — variadic so a braced
+initialiser's commas stay in one argument). Everything else is emitted from it:
+the C++ struct in `material.h`, the MSL `struct MaterialData` substituted into the
+`VT_MATERIAL_DATA_BLOCK` marker in `common-structs.metal`, the GLSL block written
+to `shader_material.glsl` and emitted at runtime by
+`ProgramLibrary::glslMaterialBlock()`, and the generator's size check. **Adding a
+field is one line.**
+
+The GLSL block is `#include`d by BOTH `forward-fragment-head.glsl` and
+`forward.vert`: MoltenVK miscompiles a UBO whose member list differs between
+stages. There is no `static_assert(sizeof(...) == 400)` any more; what is asserted
+is the real invariant, that the size is a multiple of 16. The struct is a plain
+aggregate so `alignof` is 4, not 16 — the layout works because every `vec4` in the
+list lands 16-aligned by construction.
+
+**NOT single-sourced: the LIGHTING block.** `UniformBinder::LightingUniforms` (49
+fields) and `VulkanLightingUBO` (54) are genuinely DIFFERENT layouts, not copies.
+Metal keeps atmosphere in its own buffer at slot 9 while Vulkan folds it into the
+lighting UBO, the per-light structs differ (6 vec4s with packed uints vs 7 with
+area-light data), and most shared fields sit at different indices. Unifying them
+means rewriting one backend's shaders, not extracting a header. When you change it,
+`VulkanLightingUBO`'s size is asserted in `vulkanRenderPipeline.cpp` AND in the
+shader-bundle validator.
+
+### Adding a shader feature
+
+`platform/graphics/shaderFeatures.h` defines the `VT_SHADER_FEATURES` entries used
+by both backends. Add the `X(Symbol, "VT_FEATURE_NAME")` line and nothing else:
+indices are assigned automatically from declaration order, `ShaderFeatureSet`
+stores them as `kShaderFeatureWordCount` 32-bit words and widens by one word
+every 32 features, `vulkanRenderPipeline` binds one
+specialization constant per word, and the bundle generator emits matching
+`vtFeatureMask<N>` constants plus `vtFeatureEnabled(bit)`. Nothing persists an
+index across builds, so the list may be reordered freely.
+
+Shader variants are cached on an exact `ProgramLibrary::VariantKey` (program-name
+hash + the feature set itself + chunk-override hashes), compared in full rather
+than folded into one integer, so no two variants can alias.
+
+### Adding a texture slot
+
+Bump `MetalTextureBinder::kMaxTextureSlots` AND add the slot to the
+`materialSlots` clear list in `bindMaterialTextures`. Slots 0-33 are taken today.
+On Vulkan, the fragment stage already declares 15 combined image samplers and
+MoltenVK inherits a 16-per-stage limit — a 16th needs the separate-image plus
+shared-sampler treatment the light cookies use.
+
+The set-1 slot list lives in exactly one place, `kMaterialTextureBindings` in
+`vulkanUniformLayouts.h`. It used to be duplicated across layout creation, the
+binding loop and the descriptor writes, and adding a slot to two of the three
+wrote every binding to the wrong index.
+
+### Metal buffer slots
+
+0=vertex, 1=index, 2=model, 3=material, 4=lighting, 5=scene, 6=palette (dynamic
+batch + skinning, **mutually exclusive**), 7-8=clustered (fragment) / gsplat data
+and order (vertex), 9=morph deltas, 10=morph params, 11=gsplat params.
+
+Vulkan does NOT mirror these numerically — it binds through descriptor sets
+(`vulkanUniformLayouts.h`). Keep the two mappings in sync conceptually, not by
+index.
+
+The particle, gsplat and storage-draw paths SHARE slots 7 and 11. One mesh
+instance is a storage draw, a particle draw, or a splat draw, never two at once.
+
+## Rendering Pipeline
+
+Forward PBR renderer with frame graph:
+`Engine::render()` -> `ForwardRenderer::buildFrameGraph()` -> `FrameGraph::compile()` -> `FrameGraph::render()`
+
+**Compose pass effect chain** (mirrors upstream `compose.js` order): CAS → SSAO →
+DOF → **fringing** → bloom → **color enhance** → **color grading** → tonemap →
+**3D color LUT** → vignette → gamma. Configured via
+`CameraComponent::RenderingSettings` → CameraFrameOptions → RenderPassCompose →
+ComposePassParams.
+
+- Fringing (chromatic aberration, user intensity /1024) **must stay BEFORE
+  bloom**: it re-samples the scene texture for R and B, so running it after bloom
+  leaves bloom in green only. It also overwrites R and B from the raw scene
+  texture, which paints magenta over occluded pixels if combined with
+  compose-mode SSAO. That is upstream's own design; fix the scene, not the engine.
+- The 3D LUT is a 256x16 Unreal strip with dual-LUT blend; the port loads it
+  non-sRGB so the sample is pow(2.2)-decoded in-shader. Test asset:
+  `assets/textures/lut-teal-orange.tga`.
+
+**Frame graph store propagation.** `FrameGraph::compile` walks the passes and,
+whenever a later pass reads a target WITHOUT clearing it, marks the earlier pass
+on that target as having to STORE. The back buffer is included (`nullptr` render
+target), and `_renderTargetMap` is per-frame state. Grab passes carry no color ops
+of their own and must not displace the real draw pass in that map.
+
+**Tone mapping.** 6 modes dispatched in `common.metal :: toneMap`: LINEAR (0),
+FILMIC (1), ACES (3), ACES2 (4, Stephen Hill RRT+ODT fit), NEUTRAL (5), NONE (6).
+Set scene-wide with `Scene::setToneMapping` or per camera with
+`CameraComponent::setToneMapping` (defaults to `TONEMAP_INHERIT` = -1). NOTE:
+`RenderingSettings::toneMapping` is a separate, currently **unread** field —
+`applyCameraSettings` never copies it into `CameraFrameOptions`. Use
+`setToneMapping`.
+
+**Under CameraFrame the forward pass must output LINEAR HDR** and leave exposure,
+tonemap and gamma to compose. The gate is bit 5 of `LightingData::flagsAndPad[0]`,
+kept in step with `hdrPass()`. Every shader path that returns early — the tail,
+and all three sky paths — has to check it, or compose applies gamma a second time.
+
+## Shader System
+
+`ProgramLibrary` with a two-level cache: variant key -> source composition ->
+compiled binary. **ShaderChunks registry** (`shader-lib/shaderChunks.h`): named
+micro-chunk files (file stem = chunk name) concatenated per registered program
+order with `#define VT_FEATURE_*` guards. Overridable globally via
+`getProgramLibrary(device)->chunks().set(name, src)` and per material via
+`Material::setShaderChunk(name, src)`; resolution is material > registry >
+default. Both override sets' FNV content hashes fold into the variant cache key.
+Metal chunks hot-reload from the source dir per launch.
+
+**Both backends.** `engine/shaders/vulkan/chunks/` holds 18 GLSL **fragment**
+chunks under the same names, and `forward.frag` is a 26-line file that `#include`s
+them, so the build-time bundle and the runtime composition share one source.
+
+- `ProgramLibrary` registers a separate GLSL chunk order that **must stay in step
+  with `forward.frag`'s `#include` order**.
+- Override source must be in the device's language (`GraphicsDevice::shaderLanguage()`).
+- Vulkan hands composed GLSL to `createShader` only when an override actually
+  changed it; otherwise it passes an empty string and gets the prebuilt bundle.
+- `forward-vertex`, `shadow-vertex` and `shadow` have no chunked GLSL form and are
+  Metal-only; overriding them on Vulkan logs a warning.
+- Keep each GLSL chunk a self-contained override target. The material-flag
+  constants and `applyUvTransform` live in `common-material-flags`, not in
+  `common-tonemap`, so a minimal tonemap override does not drop them.
+
+**Fullscreen effects use `QuadRender`** (`scene/graphics/quadRender.h`), not
+device virtuals: a shader, up to 8 input textures on fragment slots 0-7, and one
+uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
+set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
+(512) sizes that slot, the Vulkan material descriptor's range, and the padded
+allocation behind it. A smaller block is copied into the front of a full-size
+allocation, so never shorten the allocation. Quad passes draw an oversized
+fullscreen TRIANGLE and bind `_postSampler` (linear, clamp, no mip), not the scene
+sampler.
+
+Migrated so far: VSM blur, volumetric fog, CoC, DOF blur, depth-aware blur,
+compose, SSAO, TAA. **Still on the vtable (9 virtuals):** the env family
+(reproject / convolve / atlas, equirect-to-cube), the compute and state group
+(`simulateParticles`, `setParticleState`, `setGSplatState`, `setMorphState`), and
+`copyRenderTarget` / `generateMipmaps`, which BELONG on the device and are not
+migration debt.
+
+## Live gotchas
+
+Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
+
+- **A target-only Vulkan build does NOT regenerate the SPIR-V bundle.** After
+  touching ANY GLSL chunk, `touch engine/shaders/vulkan/forward.frag` and build
+  the whole `build-vulkan` target, or you measure the previous binary. This
+  produced two separate false conclusions in one session.
+- **The multi-pass DOF path is DEAD CODE.** `RenderPassCameraFrame::setupDofPass()`
+  only calls `_dofPass.reset()`, so `RenderPassDof`, `RenderPassCoC` and
+  `RenderPassDofBlur` are never constructed. Depth of field runs entirely through
+  `applyDofSinglePass` in the compose shader. Screenshot-verifying those passes
+  proves NOTHING. Reviving the path means giving `RenderPassDof` a render target.
+- **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
+  Apple GPUs. Every optional texture sample must be gated on its flags bit or its
+  runtime enable (`setEnvAtlasEnabled`, `hasSpecGlossMap` bit 21). This has bitten
+  three times.
+- **Screen-space derivatives are undefined inside the per-light loop**, which sits
+  behind fragment-varying `continue`s. An undefined mip LOD reads a fully averaged
+  mip — a heart-shaped cookie became a flat wash of its own average. Sample with
+  an explicit LOD 0 (`level(0)` / `textureLod`).
+- **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
+  shadow and cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
+  again in `renderer.cpp` or `worldClusters.cpp`.
+- **Omni shadow bias is RELATIVE** — a fraction (0.2%, `omniShadowParams[2]`) of
+  the receiver distance applied BEFORE the perspective projection. Cubemap shadow
+  depth is crushed against 1.0, so a fixed post-projection offset erases omni
+  shadows entirely at ordinary light ranges.
+- **`StandardMaterial` overwrites the base-Material factors.** Set surface
+  properties with `setDiffuse` / `setMetalness` / `setGloss` (+ `setGlossInvert`);
+  `setBaseColorFactor` / `setMetallicFactor` / `setRoughnessFactor` are overwritten
+  by `updateUniforms` when no base-color texture is present.
+- **Material colours are authored in GAMMA space** and owe the shader a decode.
+  `setDiffuse` stores raw; `setEmissive` is pre-linearised by `updateUniforms`.
+- **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
+  presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
+  SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.
+- **`Compute` parameter binding is by NAME in sorted order**, because this port has
+  no shader reflection: buffers 0..b-1, textures b..b+t-1, the uniform block at
+  b+t, and the block's members are the scalars again in name order. A shader that
+  declares them in a different order silently reads the wrong data.
+- **Leftover instance bindings follow the next draw.** The backends pick the
+  instancing vertex layout by scanning bound slots, so shadow passes must unbind
+  slot 5 after an instanced caster.
+- **metal-cpp framework extern constants** (e.g. `MTL::CommonCounterSetTimestamp`)
+  only link in the `*_PRIVATE_IMPLEMENTATION` TU. Compare string values instead
+  inside the engine library.
+- **`Matrix4::getElement` takes (col, row)**, not (row, col).
+- **Large ground planes must stay shadow CASTERS but not receivers-only.** The
+  directional shadow camera fits its depth range to casters, so a receiver-only
+  ground falls outside it and catches no shadow; a huge caster inflates the fitted
+  range into whole-plane acne (PCF) or blown-up penumbras (PCSS).
+
+## Measuring a backend divergence
+
+Whole-frame mean luminance is a BAD signal: scenes animate, content differs, and
+the tonemap compresses whatever you are chasing. Instead:
+
+1. Split the frame with `Camera::setDebugShaderPass` — `DEBUGPASS_ALBEDO` and
+   `DEBUGPASS_LIGHTING` separate the material frontend from the lighting, and both
+   are wired on both backends.
+2. Strip the scene one term at a time (light off, no ambient, no env atlas) until
+   the two backends agree, then add terms back.
+3. A constant ratio across all three channels is a single scalar bug, not a colour
+   or texture bug.
+4. Screenshot capture is in-engine on both backends via the `VISUTWIN_SCREENSHOT`
+   env var; drive examples with `run_example.py`.
+
+Animated examples cannot be screenshot-diffed across shader changes.
+
+## Feature notes
+
+Per-subsystem detail lives in `ARCHITECTURE.md`: how each feature works, the call
+that turns it on, and its deviations from upstream. Only the parts that bite
+during unrelated work are repeated here.
+
+- **Shadow bias convention.** `LightComponent::setShadowBias` takes upstream's
+  0..1 authoring value (default 0.05) and remaps it to `Light::shadowBias` as
+  `-0.01 * clamp(v,0,1)` — negative on purpose, because the passes apply
+  `shadowBias * -1000` as hardware polygon offset and that product must be
+  POSITIVE to push casters away from the light. Passing the component value
+  straight through inverts it, so a larger bias produces MORE shadow. Hardware
+  bias is skipped for PCSS and for non-clustered omni. The directional PCF shader
+  uses a fixed 0.0001 receiver bias, NOT the light's.
+- **PCSS `penumbraSize` has two scales.** Directional is world-space (0.02-0.05);
+  local spot and omni is in shadow-map PIXELS (~10-40).
+- **A lightmap REPLACES indirect diffuse**, it is not added. Upstream gates
+  ambient behind `addAmbient = !lightMapEnabled`, and adding both double-counts
+  what the bake already contains.
+- **Construct a dynamic `ReflectionProbe` BEFORE the main camera.** Layer
+  composition renders cameras in construction order, so the six face cameras must
+  come first. The reflective object also has to sit on a layer excluded from the
+  probe's capture layers, or it self-captures.
+- **GPU instance culling requires the 80-byte stride.** Its kernel compacts fixed
+  80-byte records. The instanced shader variant follows THE DRAW, not the
+  material: the renderer derives it from the mesh instance's buffer format.
+- **Opacity dither is an opaque-pass technique.** Keep the material
+  non-transparent; alpha comes from `setOpacity` or texture alpha. `setAlphaDither`
+  decouples dither density from opacity and rides in `dispersionParams.y`, where
+  NEGATIVE means unset.
+- **The gloss, thickness and refraction scalar maps are Metal only**, blocked on
+  Vulkan by the 16-sampler limit. The uniform field is plumbed on both backends,
+  so Vulkan renders the scene correctly minus the maps.
+- **`normalScale` means different things per backend**, deliberately: Metal blends
+  the sampled normal toward flat, Vulkan scales xy (upstream's form). Aligning
+  them changes every normal-mapped Metal scene, so it wants its own commit.
+- **The GPU lightmapper has no cast shadows yet.** It captures direct light and
+  ambient only. The CPU `Lightmapper` is the quality reference.
+
+
+### Atmosphere (Nishita)
+Two traps, both of which silently produce no sky at all:
+- **`Scene::setAtmosphereEnabled` must rebuild the sky mesh.** The atmosphere
+  branch of `Sky::updateSkyMesh` requires the flag to be set ALREADY, and every
+  caller writes `setSkyType` then `setAtmosphereEnabled`. The setter now calls
+  `resetSkyMesh()`.
+- **`planetCenterAndRadius.xyz` is CAMERA-LOCAL.** A viewer on the surface needs
+  the centre one radius BELOW: `{0, -6371000, 0}`. At the origin the viewer sits at
+  the planet's core and every ray starts underground.
+
+With the ray stuck underground, changing sun direction or intensity looks like it
+does nothing, which is a misleading symptom.
+
+## Open items
+
+- **Vulkan local-light shadows** (spot and omni) cast nothing. `pcss-local` shows
+  the robot arm's floor shadow on Metal and none on Vulkan. Already narrowed, so
+  do not redo this: the pass runs with a valid shader, gathers 65 casters exactly
+  as Metal does, the bound map is non-null per slot, the slot uniforms are right,
+  the sampler runs and reaches the light, and projected coordinates land inside
+  [0,1]. What is wrong is that the SAMPLED REGION READS 1.0 under both V
+  orientations, so casters are gathered but nothing lands in the map. Look at the
+  local pass's render target and viewport setup, or whether its draws are
+  submitted at all — a draw counter scoped INSIDE the caster loop is the
+  measurement not yet taken. No Vulkan errors are logged.
+- **Camera-frame scenes `depth-of-field` and `post-processing` render ~1.65x Metal**
+  where the others are close. Both are bloom-heavy compose scenes and both sat at
+  1.6 before and after the diffuse fix, so look at bloom or compose. Do NOT chase
+  the environment specular: the ambient `kD` and Fresnel divergences in
+  `forward-fragment-ambient.glsl` are real but worth a fraction of a percent, and
+  fixing them made `post-processing` much worse.
+- **Dynamic reflection probes light wrongly on Vulkan.** Capture and sampling each
+  verify OK in isolation; the shader's probe/indirect combination is the suspect.
+  One speculative fix made it worse and was reverted.
+- **The env family is the last effects work on the device vtable.** It is not a
+  mechanical lift, and the reasons plus the existing verification path are in
+  `ARCHITECTURE.md`.
+- **Example coverage gaps**: morph weight animation, `ParticleSystemComponent`,
+  gsplat SH bands 1-3, and clustered atlas shadows have no example.
+
+## Reference kept elsewhere
+
+`ARCHITECTURE.md` holds the per-subsystem detail: the examples harness and its two
+backend rules, layers and depth state, the ECS, the graphics abstraction, and the
+asset pipeline. The rules from those sections that matter during unrelated work
+are in the gotcha list above.
+
+## SIMD Math
+
+Multi-backend: scalar, SSE, Apple SIMD, NEON. Controlled via `USE_SIMD_MATH` /
+`USE_SIMD_PREFER_NEON` in `defines.h`. `USE_SIMD_MATH` **is** set, so on Apple
+Silicon the Apple SIMD backend is the active path and scalar is the fallback.
+
+
+## Coding Conventions
+
+- `shared_ptr` for ownership (replaces JS GC), raw pointers for non-owning references
+- `_camelCase` for private members
+- `camelCase()` for getters, `setCamelCase()` for setters
+- `DEVIATION:` comments where diverging from upstream behaviour or algorithms.
+  Put the deviation at the code it describes; this file records only the ones that
+  would change a design decision before you open a file.
+- In-code comments refer to PlayCanvas as **upstream** (never by name — the source
+  is clean of the name apart from the `playcanvas-grey` / `playcanvas-cube` asset
+  filenames; attribution lives in `NOTICE` and the README, which is where the MIT
+  obligation is discharged)
+- Shader features: `VT_FEATURE_*` prefix (not upstream `PC_*`), declared once in
+  `platform/graphics/shaderFeatures.h`
