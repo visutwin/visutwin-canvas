@@ -295,7 +295,13 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   `setBaseColorFactor` / `setMetallicFactor` / `setRoughnessFactor` are overwritten
   by `updateUniforms` when no base-color texture is present.
 - **Material colours are authored in GAMMA space** and owe the shader a decode.
-  `setDiffuse` stores raw; `setEmissive` is pre-linearised by `updateUniforms`.
+  The split is per-source, not per-material: `setDiffuse` stores raw, so the base
+  colour FACTOR is decoded in the shader, while `setEmissive` is pre-linearised by
+  `updateUniforms`, so the emissive factor is NOT. Every TEXTURE is authored in
+  sRGB and is decoded, base colour and emissive alike. Getting one half wrong is
+  invisible until a scene leans on it: a missing emissive-map decode left the
+  `depth-of-field` room 1.6x too bright on Vulkan while every other scene looked
+  fine, because only that scene has large emissive surfaces.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.
@@ -387,12 +393,14 @@ does nothing, which is a misleading symptom.
 
 ## Open items
 
-- **Camera-frame scenes `depth-of-field` and `post-processing` render ~1.65x Metal**
-  where the others are close. Both are bloom-heavy compose scenes and both sat at
-  1.6 before and after the diffuse fix, so look at bloom or compose. Do NOT chase
-  the environment specular: the ambient `kD` and Fresnel divergences in
-  `forward-fragment-ambient.glsl` are real but worth a fraction of a percent, and
-  fixing them made `post-processing` much worse.
+- **`post-processing` renders ~0.93x Metal.** The last brightness outlier, and it
+  is now Vulkan being slightly DARK rather than bright. Everything else measured
+  sits at 1.00. It was the environment-Fresnel alignment that moved this scene from
+  1.08 to 0.93, while the same change moved `depth-of-field` from 1.04 to 1.00 and
+  matched the environment specular term to Metal within 4% — so the alignment is
+  right and this scene has its own separate divergence that the old, hotter Fresnel
+  was partly cancelling. Isolate it the same way: probe one term at a time against
+  the Metal chunk rather than reading whole-frame means.
 - **Dynamic reflection probes light wrongly on Vulkan.** Capture and sampling each
   verify OK in isolation; the shader's probe/indirect combination is the suspect.
   One speculative fix made it worse and was reverted.

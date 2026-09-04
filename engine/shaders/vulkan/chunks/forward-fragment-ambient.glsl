@@ -42,8 +42,12 @@
         vec3 envB = decodeEnv(texture(envAtlas, mapRoughnessUv(envUv, l0 + 1.0)));
         vec3 prefiltered = mix(envA, envB, level - l0) * intensity;
 
-        // Schlick-roughness Fresnel for the environment term.
-        vec3 Fr = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
+        // Gloss-aware Fresnel for the environment term — the same curve the Metal
+        // chunk uses (getFresnel), and the same helper this file already uses for
+        // SSR. The hand-rolled Schlick-roughness variant here returned up to
+        // (1 - roughness) at grazing angles where this returns ~F0, so the
+        // environment specular ran far hotter than Metal's.
+        vec3 Fr = ssrFresnel(NdotV, 1.0 - roughness, F0);
         vec3 kD = (vec3(1.0) - Fr) * (1.0 - metallic);
 
         indirect = kD * irradiance * diffuseAlbedo + prefiltered * Fr;

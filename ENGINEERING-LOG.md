@@ -324,3 +324,40 @@ three easy-to-miss bake requirements are not written down anywhere else.
 
 ## Dynamic reflection probe scene capture (2026-07-14)
 **Dynamic scene-capture bake** (`framework/extras/reflectionProbe.h/.cpp`, 2026-07-14): `ReflectionProbe` renders the live scene into the probe cubemap at runtime instead of using a supplied/authored cube. It owns a mipmapped RGBA8 color cubemap + 6 face `RenderTarget`s + 6 `CameraComponent`s pointed along ±X/±Y/±Z (reusing `LightCamera::pointLightRotations`, 90° FOV, aspect 1). The six face cameras render as ordinary cameras in the normal frame graph (each `RenderTarget` targets one cube face via `RenderTargetOptions.face`), so **construct the probe BEFORE the main camera** (layer composition renders cameras in construction order → faces captured before the main camera samples the probe). Per frame `update()` (called AFTER `engine->render()`) runs `GraphicsDevice::generateCubemapMips` (blit `generateMipmaps` on its own command buffer) to rebuild the roughness mips from the freshly-rendered level-0 faces, and installs the cube via `setReflectionProbe` on the first call. Modes: `setDynamic(true)` re-captures every frame (reflections track the scene); `false` = one-shot then disable the face cameras. Two enabling engine changes: (1) `MetalGraphicsDevice::startRenderPass` now sets the **color** attachment slice from `activeTarget->face()` for cube textures (previously only the depth attachment did, for omni shadows); (2) `GraphicsDevice::generateCubemapMips`. Captured faces hold the normal tonemapped/gamma-encoded forward output, which the probe shader sRGB-decodes — matching the static path. DEVIATIONS: hardware-mip roughness (no GGX cube prefilter); the reflective object must sit on a layer excluded from the probe's capture layers or it self-captures (probe camera is at the probe center); probe faces miss directional-shadow cascades (fit only for the presentation camera). Example: `reflection-probe-dynamic-example.cpp` (chrome sphere on a probe-excluded layer reflects a ring of orbiting emissive boxes captured live — no env atlas/skybox, so the colored reflections come purely from the runtime capture).
+
+## Vulkan compose-side gap closed (2026-09-04)
+
+`depth-of-field` rendered 1.6x Metal and `post-processing` 1.65x, long after the
+other scenes had come into line. Neither was a compose bug at all — measuring the
+scene texture before compose showed the forward pass already 2.4x too bright, so
+compose was faithfully carrying an error handed to it.
+
+Two forward-pass divergences, found by probing one term at a time against the Metal
+chunk and comparing at MATCHING points in each shader:
+
+- **The emissive TEXTURE was never sRGB-decoded on Vulkan.** Metal does
+  `emissive *= srgbToLinear(sample)`; Vulkan multiplied the raw sample in. The
+  factor correctly stays undecoded on both, since `updateUniforms` pre-linearises
+  `setEmissive`. This was the dominant term: the probe read (44.8, 46.2, 45.4) on
+  Metal against (73.8, 76.0, 75.4) on Vulkan, and fixing it took `depth-of-field`
+  from 1.57 to 1.00. It hid for so long because only that scene has large emissive
+  surfaces.
+- **The environment Fresnel was a hand-rolled Schlick-roughness variant** returning
+  up to `(1 - roughness)` at grazing angles where Metal's gloss-aware `getFresnel`
+  returns about F0. The identical helper already existed in `common-brdf.glsl` as
+  `ssrFresnel`, used only for SSR. Swapping it brought the environment specular from
+  (16.8, 19.6, 20.6) to (11.3, 13.0, 12.9) against Metal's (10.9, 12.8, 12.7).
+
+Three earlier suspects were measured and CLEARED, so do not re-chase them: the
+diffuse irradiance lookup matches to 0.1, the prefiltered environment sample matches
+to 0.2, and ambient occlusion is not a factor in these scenes.
+
+Method notes worth keeping. Probe both backends at equivalent points — my first
+specular comparison read Metal post-occlusion against Vulkan pre-occlusion and was
+meaningless. And whole-frame means mislead twice over here: the Metal-only MiniStats
+overlay drags Metal's mean down (crop it out, which turns a false 1.11 on
+`shadow-cascades` into a true 1.00), and a term that is right can be masked by a
+larger term that is wrong.
+
+Result: `depth-of-field`, `shadow-cascades` and `glb-loader` all at 1.00.
+`post-processing` sits at 0.93, now slightly dark, and is the last outlier.
