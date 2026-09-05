@@ -19,8 +19,7 @@
                     cl.positionRange.w, cl.params.z);
                 if (cl.params.y > 0.5) {
                     float cone = dot(normalize(-cl.directionSpot.xyz), L);
-                    atten *= clamp((cone - cl.directionSpot.w) /
-                        max(cl.params.x - cl.directionSpot.w, 1e-4), 0.0, 1.0);
+                    atten *= getSpotEffect(cl.params.x, cl.directionSpot.w, cone);
                 }
                 if (atten < 1e-5) continue;
 

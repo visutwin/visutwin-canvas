@@ -29,8 +29,21 @@ float distanceAttenuation(float dist, float range, float linearFalloff) {
     if (linearFalloff > 0.5) {
         return clamp(1.0 - t, 0.0, 1.0);
     }
-    float invSq = 1.0 / max(dist * dist, 1e-4);
+    // Upstream's getFalloffInvSquared, which the Metal chunk already matches:
+    // 16 / (d^2 + 1), NOT 1 / d^2. The +1 keeps the curve finite at the light and
+    // the 16 restores the magnitude that softening costs; without them a light at
+    // four units reads 1/16 where upstream reads 16/17, roughly a fifteenth.
+    float sqrDist = dist * dist;
+    float invSq = 16.0 / (sqrDist + 1.0);
     float window = clamp(1.0 - t * t * t * t, 0.0, 1.0);
     return invSq * window * window;
+}
+
+// Spot cone falloff. SMOOTHSTEP between the two cone cosines, as upstream's
+// spot.js and the Metal chunk both do. A plain ramp, squared or not, is dimmer
+// through the whole penumbra — a squared ramp gives half the light at the middle
+// of it — and only agrees at the two ends.
+float getSpotEffect(float innerConeCos, float outerConeCos, float cosAngle) {
+    return smoothstep(outerConeCos, innerConeCos, cosAngle);
 }
 

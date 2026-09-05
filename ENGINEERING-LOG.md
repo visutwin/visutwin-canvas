@@ -1323,3 +1323,51 @@ and it does not. The top and middle thirds darken (mean 91.6 to 78.0 and 112.7 t
 
 Backend agreement is unaffected at this scale, 1.09 before and 1.68 after, both far
 under the change itself.
+
+## The parallax-mapping gap was the spot cone, and a worse bug beside it (2026-09-05)
+
+`parallax-mapping` rendered at 0.93 of Metal on Vulkan. It is now 0.997, and the
+spot light that caused it matches to 1.0000. A second divergence turned up in the
+same function, fifteen times larger, in a branch the scene does not use.
+
+**The bisect**, in the order it ran. Albedo agreed to 1.0002, which cleared the
+whole material frontend AND the parallax march itself, since the debug pass samples
+at the marched UV. The ambient-occlusion map, gloss and the shading normal all
+agreed. Lighting did not. Dropping the environment left the gap; dropping the cool
+omni left it and turned the ratio flat across the channels, which said one scalar
+on one light; dropping the warm spot removed it. Shadows were not involved: turning
+them off changed nothing on either backend, byte for byte.
+
+Then two switches settled it. Widening the cone to 89 degrees made the backends
+agree to 0.9999. Switching the falloff to inverse-squared drove Vulkan to 0.148 of
+Metal.
+
+**Bug one, the cone.** Upstream's `spot.js` is a `smoothstep` between the outer and
+inner cone cosines, and the Metal chunk matches it. Vulkan ramped linearly and
+squared the result. Since `smoothstep(t) = t^2(3 - 2t)` and `3 - 2t` is at least 1
+over the interval, the squared ramp is never brighter and is worst in the middle of
+the penumbra, where it gives half the light. The two agree only at the ends, which
+is why the cone core and the near floor matched while the walls did not.
+
+**Bug two, the falloff.** Upstream's `getFalloffInvSquared` is `16 / (d^2 + 1)`
+times a squared window, and Metal matches. Vulkan had `1 / d^2` with the same
+window. At four units that is 1/16 against 16/17, about a fifteenth. Two shipped
+examples select this mode, `procedural-sky` and `clustered-lighting`, so it was
+live rather than theoretical. It never surfaced because both scenes are animated
+and cannot be screenshot-diffed.
+
+Vulkan also carried three spellings of the cone falloff — non-clustered, clustered,
+and no shared function — so the clustered one was a plain linear ramp, a third
+curve again. `getSpotEffect` now sits beside `distanceAttenuation` and both call
+sites use it.
+
+| measurement (Vulkan / Metal) | before | after |
+|---|---|---|
+| spot light alone, lighting pass | 0.905 | 1.0000 |
+| spot light alone, inverse-squared falloff | 0.148 | 1.0003 |
+| full scene | 0.937 | 0.997 |
+
+**What is left** is the indirect term: with every light off, the environment-only
+frame reads 0.85 of Metal. That is a 20-to-30-count frame through a non-linear
+tonemap, so the number wants re-measuring against something brighter before anyone
+treats it as a 15% error.

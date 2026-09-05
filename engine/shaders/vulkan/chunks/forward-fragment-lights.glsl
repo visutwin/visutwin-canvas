@@ -172,9 +172,7 @@
 
             if (type == 2u && !cookieReplacesConeFalloff) {
                 float cd = dot(normalize(-light.directionType.xyz), L);
-                float spot = clamp((cd - light.coneParams.y) /
-                                   max(light.coneParams.x - light.coneParams.y, 1e-4), 0.0, 1.0);
-                atten *= spot * spot;
+                atten *= getSpotEffect(light.coneParams.x, light.coneParams.y, cd);
             }
 
             // Local light shadows: coneParams.w carries the shadow slot

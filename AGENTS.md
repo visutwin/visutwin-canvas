@@ -421,6 +421,15 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   on render" — and biases these with hardware polygon offset, which the atlas pass
   already sets. What the shader applies is the receiver NORMAL offset, and
   `ClusterLightData::shadowNormalBias` carries it.
+- **Spot cone falloff is a SMOOTHSTEP between the two cone cosines**, and local
+  inverse-squared falloff is `16 / (d^2 + 1)`, not `1 / d^2`. Upstream's `spot.js`
+  and `getFalloffInvSquared` define both and the Metal chunks follow them; Vulkan
+  had a squared linear ramp for the cone (half the light at the middle of the
+  penumbra, agreeing only at the two ends) and a bare inverse square (a light at
+  four units read a fifteenth of upstream). Both fixed 2026-09-05. Vulkan carried
+  THREE spellings of the cone — non-clustered, clustered, and none shared — so
+  `getSpotEffect` now lives beside `distanceAttenuation` in `common-material-flags`
+  and both call sites use it.
 - **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
   shadow and cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
   again in `renderer.cpp` or `worldClusters.cpp`.
@@ -614,13 +623,17 @@ does nothing, which is a misleading symptom.
   toggles diffuse, normal and AO detail maps and only the NORMAL one exists here. Morph weight animation is covered again as of
   2026-09-05 (`mesh-morph-example.cpp`), and clustered atlas shadows have a working
   example (`clustered-spot-shadows-example.cpp`).
-- **`parallax-mapping` renders ~0.93x Metal**, evenly across both halves of the
-  frame (0.94 red, 0.95 green, 0.97 blue), and `clustered-spot-shadows` differs by
-  19/255 on its normal-mapped cube faces. NEITHER is `normalScale`: both scenes
-  leave it at the default of 1, where the old and new forms are the same
-  expression. Under `DEBUGPASS_WORLDNORMAL` the two backends' shading normals now
-  agree to 0.139/255, so the shading normal is not the suspect either. Bisect the
-  parallax march and the light term next.
+- **The last of the Vulkan/Metal light gap is the INDIRECT term.** With the spot
+  cone and inverse-squared falloff fixed, `parallax-mapping` went from 0.93 to
+  0.997 and its direct spot light matches to 1.0000. What is left: with every
+  light disabled so only the environment contributes, that scene reads 0.85 of
+  Metal. Treat the number with suspicion before chasing it — the frame is 20-30
+  counts there and the tonemap is not linear in that range, so re-measure it
+  against a brighter configuration first.
+- **`clustered-spot-shadows` still differs by 19/255 on its normal-mapped cube
+  faces.** Not `normalScale`, which is now aligned and which that scene leaves at
+  the default anyway. Re-measure it: it predates both the spot cone fix and the
+  falloff fix, and its lights are spots.
 
 ## Reference kept elsewhere
 
