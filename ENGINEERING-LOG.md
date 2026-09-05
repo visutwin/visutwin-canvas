@@ -1111,3 +1111,35 @@ created, and says so at the declaration.
 
 That this port found a broken subsystem is the fourth time in two days that porting
 an upstream example rather than inventing one has surfaced something real.
+
+## Clustered spot shadows: half fixed, and one claim retracted (2026-09-05)
+
+**The retraction first.** I reported this scene as intermittently hanging. It does
+not. A sample of the "hung" process showed the main thread parked in
+`nextDrawable`, which is ordinary back-pressure, and the scene in fact renders 240
+frames in 5 seconds. The slow runs were a leftover example process of my own
+competing for the GPU. There was no hang and there is no race; I should have taken
+the sample before writing it down.
+
+**The real defect, found and fixed.** Only two of the ten spot lights ever had a
+chance of casting a shadow. Local shadow-casting lights are allocated a slot in the
+bounded main shadow array, and when that runs out — `kMaxLocalShadows` is two — the
+allocation clears `castShadows` so the shader will not sample a map that is not
+there. Correct for the non-clustered path. Wrong for a clustered spot, whose shadow
+comes from the atlas instead, and which therefore neither needs one of those two
+slots nor should lose its shadow when they are gone.
+
+The probe made it unambiguous: before the fix exactly two lights reached the
+renderer's clustered-shadow branch, with slices 0 and 1; after it, all ten do, with
+slices 0 through 9 and a shadow matrix each. Whatever the atlas capacity said, the
+feature was capped at two.
+
+**What is still wrong.** No shadow appears, even now that every light arrives with a
+valid slice. The CPU half is correct and the GPU half is not: the remaining
+candidates are whether the shadow passes actually render depth into the atlas
+slices, whether `clusterShadowAtlas` is bound for the draw, and whether the shader's
+in-range test on the projected coordinate passes. That is where the next session
+should start, and it now has a scene that reproduces it in five seconds.
+
+`clustered-lighting` still renders, both suites are green, and the Vulkan smoke test
+is clean.

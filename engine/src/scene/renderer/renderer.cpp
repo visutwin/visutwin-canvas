@@ -840,7 +840,19 @@ namespace visutwin::canvas
             // Wire local light shadow data (spot/point).
             // Assign shadow map index and populate ShadowParams.localShadows.
             // Omni lights use cubemap depth textures; spot lights use 2D textures.
-            if (lightData.castShadows && lightData.type != GpuLightType::Directional) {
+            // A clustered SPOT takes its shadow from the LightTextureAtlas, not from
+            // the bounded main array, so it must neither consume one of those two
+            // slots nor be stripped of castShadows when they run out. Leaving it in
+            // this branch capped the whole feature at kMaxLocalShadows: the third
+            // and later spots silently lost their shadows, which is what the
+            // clustered-spot-shadows example rendered.
+            const bool atlasedSpot = clusteredEnabled &&
+                lightData.type == GpuLightType::Spot && lightData.castShadows &&
+                lightComponent->light() != nullptr &&
+                lightComponent->light()->atlasSlice() >= 0;
+
+            if (lightData.castShadows && !atlasedSpot &&
+                lightData.type != GpuLightType::Directional) {
                 Light* sceneLight = lightComponent->light();
                 if (sceneLight && sceneLight->shadowMap() &&
                     shadowParams.localShadowCount < ShadowParams::kMaxLocalShadows) {

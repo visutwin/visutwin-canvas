@@ -403,6 +403,11 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   behind fragment-varying `continue`s. An undefined mip LOD reads a fully averaged
   mip — a heart-shaped cookie became a flat wash of its own average. Sample with
   an explicit LOD 0 (`level(0)` / `textureLod`).
+- **A clustered SPOT must not consume one of the two main local shadow slots.**
+  Its shadow comes from the LightTextureAtlas, and the main-array allocation clears
+  `castShadows` when it runs out — which silently capped clustered spot shadows at
+  `ShadowParams::kMaxLocalShadows` (two), whatever the atlas capacity said. Ten
+  lights, two of them with any chance of a shadow, and nothing anywhere said so.
 - **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
   shadow and cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
   again in `renderer.cpp` or `worldClusters.cpp`.
@@ -574,17 +579,14 @@ does nothing, which is a misleading symptom.
   panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
-- **Clustered spot shadows do not render, and the scene INTERMITTENTLY HANGS.**
-  `clustered-spot-shadows-example.cpp` (a port of upstream's) is the first thing
-  ever to drive the local shadow atlas, and it found both. The lighting is correct:
-  ten clustered spot lights light the scene and their pools land where they should.
-  What is missing is the shadows, and with ten shadow-casting spots the example
-  sometimes renders and sometimes produces no frames at all — the same binary, so
-  it is a race rather than a configuration. Start from `LightTextureAtlas::allocate`
-  and whether `Light::atlasSlice()` is ever >= 0 for these lights; the renderer's
-  clustered branch skips the shadow entirely when it is not.
-  Recreating the atlas live (to honour a resolution change after the first frame)
-  hangs outright, so `configure` deliberately only applies before first use.
+- **Clustered spot shadows: the CPU side is now correct, the GPU side is not.**
+  All ten lights in `clustered-spot-shadows-example.cpp` reach the shader with a
+  valid atlas slice and a shadow matrix, verified by probe, and no shadow appears.
+  What is left is the GPU half: whether the shadow passes actually render depth into
+  the atlas slices, whether `clusterShadowAtlas` is bound, and whether the shader's
+  `scoord` in-range test passes. NOTE the earlier claim that this scene "hangs" was
+  WRONG — it renders 240 frames in 5 seconds; the slow runs were a leftover process
+  of mine competing for the GPU.
 - **Example coverage gaps**: gsplat SH bands 1-3 have no example; upstream has the
   `gaussian-splatting/` folder. Morph weight animation is covered again as of
   2026-09-05 (`mesh-morph-example.cpp`), and clustered atlas shadows now have an
