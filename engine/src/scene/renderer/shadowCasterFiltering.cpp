@@ -10,6 +10,7 @@
 #include <algorithm>
 
 #include "framework/components/camera/cameraComponent.h"
+#include "framework/batching/batchManager.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/entity.h"
 #include "scene/camera.h"
@@ -72,15 +73,22 @@ namespace visutwin::canvas
         return cameraRendersRenderComponent(cameraComponent, renderComponent);
     }
 
-    bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera)
+    void collectShadowCasters(std::vector<MeshInstance*>& casters)
     {
-        const Frustum frustum = (shadowCamera && shadowCamera->node())
-            ? buildCameraFrustum(shadowCamera, shadowCamera->node()) : Frustum{};
-        return shouldRenderShadowMeshInstance(meshInstance, shadowCamera, frustum);
+        for (auto* renderComponent : RenderComponent::instances()) {
+            if (!shouldRenderShadowRenderComponent(renderComponent, nullptr)) {
+                continue;
+            }
+            for (auto* meshInstance : renderComponent->meshInstances()) {
+                casters.push_back(meshInstance);
+            }
+        }
+        for (auto* meshInstance : BatchManager::batchMeshInstances()) {
+            casters.push_back(meshInstance);
+        }
     }
 
-    bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera,
-        const Frustum& shadowFrustum)
+    bool shouldRenderShadowMeshInstanceIgnoringVisibility(MeshInstance* meshInstance)
     {
         if (!meshInstance || !meshInstance->mesh()) {
             return false;
@@ -104,7 +112,20 @@ namespace visutwin::canvas
             return false;
         }
 
-        if (!meshInstance->mesh()->getVertexBuffer()) {
+        return meshInstance->mesh()->getVertexBuffer() != nullptr;
+    }
+
+    bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera)
+    {
+        const Frustum frustum = (shadowCamera && shadowCamera->node())
+            ? buildCameraFrustum(shadowCamera, shadowCamera->node()) : Frustum{};
+        return shouldRenderShadowMeshInstance(meshInstance, shadowCamera, frustum);
+    }
+
+    bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera,
+        const Frustum& shadowFrustum)
+    {
+        if (!shouldRenderShadowMeshInstanceIgnoringVisibility(meshInstance)) {
             return false;
         }
 

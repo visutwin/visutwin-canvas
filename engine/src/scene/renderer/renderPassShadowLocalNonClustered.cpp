@@ -116,28 +116,33 @@ namespace visutwin::canvas
         const Frustum shadowFrustum = (_shadowCamera && _shadowCamera->node())
             ? buildCameraFrustum(_shadowCamera, _shadowCamera->node()) : Frustum{};
 
-        // Casters: every RenderComponent's mesh instances, PLUS the batch mesh
-        // instances, which belong to no RenderComponent (BatchManager registers them
-        // straight with the scene layers) and would otherwise cast no shadow.
+        // Casters. An OMNI light had all six faces classified in one sweep before the
+        // frame graph ran (cullShadowCastersOmni), so this face just draws its share:
+        // the list is already filtered and needs no frustum test. Every other light
+        // collects and culls here — every RenderComponent's mesh instances, plus the
+        // batch mesh instances, which belong to no RenderComponent (BatchManager
+        // registers them straight with the scene layers) and would otherwise cast
+        // no shadow.
+        const bool preClassified = _light->type() == LightType::LIGHTTYPE_OMNI;
         std::vector<MeshInstance*> casters;
-        for (auto* renderComponent : RenderComponent::instances()) {
-            if (!shouldRenderShadowRenderComponent(renderComponent, nullptr)) {
-                continue;
+        const std::vector<MeshInstance*>* casterList = &casters;
+        if (preClassified) {
+            LightRenderData* renderData = _light->getRenderData(nullptr, _face);
+            if (!renderData) {
+                return;
             }
-            for (auto* meshInstance : renderComponent->meshInstances()) {
-                casters.push_back(meshInstance);
-            }
-        }
-        for (auto* meshInstance : BatchManager::batchMeshInstances()) {
-            casters.push_back(meshInstance);
+            casterList = &renderData->visibleCasters;
+        } else {
+            collectShadowCasters(casters);
         }
 
         {
-            for (auto* meshInstance : casters) {
+            for (auto* meshInstance : *casterList) {
                 if (!meshInstance || !meshInstance->visible()) {
                     continue;
                 }
-                if (!shouldRenderShadowMeshInstance(meshInstance, _shadowCamera, shadowFrustum)) {
+                if (!preClassified &&
+                    !shouldRenderShadowMeshInstance(meshInstance, _shadowCamera, shadowFrustum)) {
                     continue;
                 }
 

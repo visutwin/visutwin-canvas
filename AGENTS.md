@@ -433,6 +433,15 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
 - **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
   shadow and cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
   again in `renderer.cpp` or `worldClusters.cpp`.
+- **An omni light's shadow casters are classified ONCE for all six faces**, in
+  `omniShadowCasterClassification.cpp`, before the frame graph runs; each face pass
+  then draws `LightRenderData::visibleCasters` with no culling of its own. The
+  classification relies on the face cameras looking down +X, -X, +Y, -Y, +Z, -Z in
+  that order. Nothing in `LightCamera::pointLightRotations` announces that — it is
+  six Euler triples — and reordering them would still render six shadow maps, just
+  with casters on the wrong faces. `tests/omniFaceAxisTests.cpp` is what holds the
+  order; if it fails, fix the table or rewrite the classification, do not adjust
+  the test.
 - **Omni shadow bias is RELATIVE** — a fraction (0.2%, `omniShadowParams[2]`) of
   the receiver distance applied BEFORE the perspective projection. Cubemap shadow
   depth is crushed against 1.0, so a fixed post-projection offset erases omni

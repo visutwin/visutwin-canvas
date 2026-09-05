@@ -67,3 +67,11 @@ add_executable(visutwin-physics-world-tests
 target_link_libraries(visutwin-physics-world-tests PRIVATE visutwin-canvas)
 
 add_test(NAME physics-world COMMAND visutwin-physics-world-tests)
+
+add_executable(visutwin-omni-face-axis-tests
+    omniFaceAxisTests.cpp
+)
+
+target_link_libraries(visutwin-omni-face-axis-tests PRIVATE visutwin-canvas)
+
+add_test(NAME omni-face-axes COMMAND visutwin-omni-face-axis-tests)

@@ -5,6 +5,8 @@
 //
 #include "shadowRendererLocal.h"
 
+#include "omniShadowCasterClassification.h"
+
 #include <cmath>
 #include <numbers>
 
@@ -119,6 +121,14 @@ namespace visutwin::canvas
                 if (renderTargetIndex < static_cast<int>(rts.size())) {
                     shadowCam->setRenderTarget(rts[renderTargetIndex]);
                 }
+            }
+
+            // Omni: classify every caster into the faces it touches in ONE sweep, so
+            // the six face passes draw a prepared list instead of each re-sweeping the
+            // scene and building its own frustum. Runs after the cameras above, whose
+            // near, far and fov it reads.
+            if (isOmni) {
+                cullShadowCastersOmni(light);
             }
 
             // Compute and store the shadow VP matrix.

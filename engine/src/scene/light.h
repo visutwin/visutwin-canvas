@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <vector>
+
 #include <algorithm>
 #include <array>
 #include <memory>
@@ -18,6 +20,7 @@
 namespace visutwin::canvas
 {
     class Light;
+    class MeshInstance;
 
     /**
      * @brief Per-face shadow rendering data: shadow camera, viewport, and scissor.
@@ -42,6 +45,12 @@ namespace visutwin::canvas
 
         // Scissor rectangle for the shadow rendering to the texture
         Vector4 shadowScissor;
+
+        // Casters this face must draw, filled once per frame for OMNI lights by
+        // cullShadowCastersOmni: one sweep of the scene classifies each caster
+        // into the faces it touches, instead of six independent frustum sweeps.
+        // Empty for every other light type, whose passes cull as they draw.
+        std::vector<MeshInstance*> visibleCasters;
     };
 
     /**

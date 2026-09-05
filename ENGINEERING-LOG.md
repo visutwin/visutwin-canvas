@@ -1371,3 +1371,44 @@ sites use it.
 frame reads 0.85 of Metal. That is a 20-to-30-count frame through a non-linear
 tonemap, so the number wants re-measuring against something brighter before anyone
 treats it as a 15% error.
+
+## One-pass omni shadow caster classification (2026-09-05)
+
+Ported from upstream. An omni light's six shadow faces used to cull independently,
+each sweeping every RenderComponent in the scene and testing each caster against a
+freshly built frustum. Now one sweep classifies every caster into the faces it
+touches, and each face pass draws a prepared list.
+
+The saving is more than the five extra sweeps. The six frusta share their near
+plane, far plane and side-plane slope, and their axes are the world axes, so a
+caster's box is tested against all six with a handful of comparisons on light-space
+coordinates instead of six times twenty-four plane evaluations. A cheap rejection
+against the cube bounding all six frusta comes first. That cube is deliberately
+larger than the light's range: each face's far plane is flat and perpendicular to
+its axis, so the frustum corners stick out past the range sphere, and rejecting
+against the sphere would drop casters that are genuinely lit.
+
+**Cost, measured with a runtime switch so both paths ran in one build, one process:**
+
+| shadow casters in scene | one pass | six passes |
+|---|---|---|
+| 8 | 15 us/frame | 59 us/frame |
+| 408 | 144 us/frame | 1100 us/frame |
+
+Just under a millisecond of CPU per shadow-casting omni light per frame at 400
+casters, and the gap widens with caster count. Frame time itself says nothing here:
+the examples are vsync-locked at 8.3 ms, which is why the measurement times the
+culling work specifically, in both modes, rather than the frame.
+
+**Correctness.** `parallax-mapping` is byte-identical to the six-pass build and
+`ambient-occlusion-davinci` differs by one count in one pixel.
+
+**The assumption, and how it is held.** The classification only works because the
+six face cameras look down +X, -X, +Y, -Y, +Z, -Z in that order.
+`LightCamera::pointLightRotations` puts them there, but it is six Euler triples and
+says nothing about the order; reordering them or flipping a sign would still render
+six shadow maps, just with casters assigned to the wrong faces — a partial, silent
+loss of shadows that no example would obviously show. So the order is pinned by
+`tests/omniFaceAxisTests.cpp`, which also checks the field of view is at least 90
+degrees, since a narrower one would leave wedges between the faces that a caster
+could fall into and be dropped from all six lists.
