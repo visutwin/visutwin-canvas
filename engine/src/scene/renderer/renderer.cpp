@@ -443,9 +443,20 @@ namespace visutwin::canvas
             _device->setAtmosphereUniforms(_scene->atmosphereUniformData(), _scene->atmosphereUniformSize());
         }
 
-        // Lazily create WorldClusters when clustering is first enabled.
+        // Lazily create WorldClusters when clustering is first enabled, with the
+        // grid the scene asked for.
         if (clusteredEnabled && !_worldClusters) {
-            _worldClusters = std::make_unique<WorldClusters>();
+            const auto& lightingParams = _scene->lighting();
+            ClusterConfig config;
+            config.cellsX = std::max(1, lightingParams.cellsX);
+            config.cellsY = std::max(1, lightingParams.cellsY);
+            config.cellsZ = std::max(1, lightingParams.cellsZ);
+            config.maxLightsPerCell = std::max(1, lightingParams.maxLightsPerCell);
+            _worldClusters = std::make_unique<WorldClusters>(config);
+            if (_lightTextureAtlas) {
+                _lightTextureAtlas->configure(lightingParams.shadowAtlasResolution,
+                    lightingParams.shadowAtlasCapacity);
+            }
         }
 
         const auto defaultMaterial = getDefaultMaterial(_device);

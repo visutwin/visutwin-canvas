@@ -40,7 +40,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
-  examples/        # 51 example applications, all derived from ExampleApp
+  examples/        # 52 example applications, all derived from ExampleApp
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -574,11 +574,21 @@ does nothing, which is a misleading symptom.
   panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
-- **Example coverage gaps**: gsplat SH bands 1-3 and clustered atlas shadows have
-  no example. Upstream has `graphics/clustered-spot-shadows` and
-  `clustered-omni-shadows` for the second, and the `gaussian-splatting/` folder for
-  the first. Morph weight animation is covered again as of 2026-09-05
-  (`mesh-morph-example.cpp`).
+- **Clustered spot shadows do not render, and the scene INTERMITTENTLY HANGS.**
+  `clustered-spot-shadows-example.cpp` (a port of upstream's) is the first thing
+  ever to drive the local shadow atlas, and it found both. The lighting is correct:
+  ten clustered spot lights light the scene and their pools land where they should.
+  What is missing is the shadows, and with ten shadow-casting spots the example
+  sometimes renders and sometimes produces no frames at all — the same binary, so
+  it is a race rather than a configuration. Start from `LightTextureAtlas::allocate`
+  and whether `Light::atlasSlice()` is ever >= 0 for these lights; the renderer's
+  clustered branch skips the shadow entirely when it is not.
+  Recreating the atlas live (to honour a resolution change after the first frame)
+  hangs outright, so `configure` deliberately only applies before first use.
+- **Example coverage gaps**: gsplat SH bands 1-3 have no example; upstream has the
+  `gaussian-splatting/` folder. Morph weight animation is covered again as of
+  2026-09-05 (`mesh-morph-example.cpp`), and clustered atlas shadows now have an
+  example, though it shows the feature is broken rather than working.
 
 ## Reference kept elsewhere
 

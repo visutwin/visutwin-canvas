@@ -6,6 +6,10 @@
 
 #include "lightTextureAtlas.h"
 
+#include <algorithm>
+
+#include <spdlog/spdlog.h>
+
 #include "scene/light.h"
 #include "scene/renderer/shadowMap.h"
 #include "platform/graphics/texture.h"
@@ -18,6 +22,8 @@ namespace visutwin::canvas
         if (_arrayTexture) {
             return;
         }
+        _resolution = _pendingResolution;
+        _capacity = _pendingCapacity;
 
         // One Depth texture2d_array: `_capacity` full-resolution slices, one per
         // shadow-casting spot light. Nearest filtering (hardware PCF compares per tap).
@@ -71,5 +77,10 @@ namespace visutwin::canvas
                 _sliceTargets[static_cast<size_t>(slice)]));
             ++slice;
         }
+    }
+    void LightTextureAtlas::configure(const int resolution, const int capacity)
+    {
+        _pendingResolution = std::max(1, resolution);
+        _pendingCapacity = std::max(1, capacity);
     }
 }

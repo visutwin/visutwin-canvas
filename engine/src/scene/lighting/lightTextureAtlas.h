@@ -39,6 +39,14 @@ namespace visutwin::canvas
         // the caller (e.g. left unshadowed).
         void allocate(const std::vector<Light*>& spotShadowLights);
 
+        /// Sets the per-slice resolution and how many slices the atlas holds. The
+        /// request is recorded and applied when the array texture is first created,
+        /// so it has to arrive BEFORE the first shadow pass; afterwards it is
+        /// ignored, because the ShadowMaps already wrapped around the slices cannot
+        /// follow a resize. TODO: recreating the atlas live hangs the renderer, so
+        /// the live path is deliberately not taken.
+        void configure(int resolution, int capacity);
+
         Texture* shadowArrayTexture() const { return _arrayTexture.get(); }
         int capacity() const { return _capacity; }
         int resolution() const { return _resolution; }
@@ -52,5 +60,8 @@ namespace visutwin::canvas
 
         int _capacity = 16;      // number of shadow-casting spot lights the atlas holds
         int _resolution = 1024;  // per-slice shadow map resolution
+        // What configure() asked for; applied on the next (re)creation.
+        int _pendingCapacity = 16;
+        int _pendingResolution = 1024;
     };
 }

@@ -1077,3 +1077,37 @@ Both suites green.
 **Not done.** Two of the three coverage gaps remain: gaussian splat spherical
 harmonic bands and clustered atlas shadows. Upstream has
 `graphics/clustered-spot-shadows` and `clustered-omni-shadows` for the second.
+
+## Clustered spot shadows: the example lands, the feature does not (2026-09-05)
+
+`graphics/clustered-spot-shadows` ported: ten cookie-projecting spot lights circling
+a field of tumbled cubes, every one of them a shadow caster, on the clustered path.
+Nothing had ever driven the local shadow atlas before, and the example found two
+problems rather than demonstrating a working feature.
+
+**What works.** Clustered lighting itself: ten coloured spots light the scene, their
+pools land where the lights point, and the cluster grid handles them. The scene-level
+settings upstream writes to `scene.lighting` are now reachable here too — the cell
+grid, the per-cell light budget, and the atlas's per-slice resolution and capacity —
+which the port needed and which did not exist before.
+
+**What does not.** No shadows appear, which is the entire point of the example. And
+with ten shadow-casting spots the scene INTERMITTENTLY produces no frames at all:
+the first run captured a screenshot at frame 120, later runs of the same binary hang
+after startup with nothing rendered. Reverting my renderer and atlas changes does not
+help, so it is neither, and it is a race rather than a configuration.
+
+I did not root-cause either, and I want to be plain about the state rather than leave
+a green-looking commit: the example is correct and the feature under it is not. The
+next step is `LightTextureAtlas::allocate` and whether `Light::atlasSlice()` ever
+comes back >= 0 for these lights, since the renderer's clustered branch drops the
+shadow entirely when it does not.
+
+**One thing I tried and backed out.** Making `configure` apply live — dropping the
+array texture and rebuilding it when the requested size changes — hangs the renderer
+outright, presumably because the ShadowMaps already wrapped around the old slices
+survive the reset. The setting therefore only applies before the atlas is first
+created, and says so at the declaration.
+
+That this port found a broken subsystem is the fourth time in two days that porting
+an upstream example rather than inventing one has surfaced something real.

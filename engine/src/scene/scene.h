@@ -38,6 +38,10 @@ namespace visutwin::canvas
         void setClusteredLightingEnabled(bool value) { _clusteredLightingEnabled = value; }
 
         const LightingParams& lighting() const { return _lighting; }
+        /// Mutable, so an application can set the cluster grid and atlas sizes the
+        /// way upstream's `scene.lighting` is written to. Read once per frame by the
+        /// renderer, so a change takes effect on the next one.
+        LightingParams& lighting() { return _lighting; }
         const std::shared_ptr<LayerComposition>& layers() const { return _layers; }
         const Color& ambientLight() const { return _ambientLight; }
         const FogParams& fog() const { return _fog; }
