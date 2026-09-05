@@ -544,9 +544,16 @@ during unrelated work are repeated here.
 - **The gloss, thickness and refraction scalar maps are Metal only**, blocked on
   Vulkan by the 16-sampler limit. The uniform field is plumbed on both backends,
   so Vulkan renders the scene correctly minus the maps.
-- **`normalScale` means different things per backend**, deliberately: Metal blends
-  the sampled normal toward flat, Vulkan scales xy (upstream's form). Aligning
-  them changes every normal-mapped Metal scene, so it wants its own commit.
+- **`normalScale` blends the sampled normal TOWARD FLAT.** It does not scale xy.
+  Upstream's `material_bumpiness` is a `mix(vec3(0,0,1), normalMap, s)` and both
+  backends now do that. Scaling xy leaves z alone, so it steepens the normal's
+  slope exactly where the mix flattens it; the two agree only at 0 and 1, which is
+  why the default of 1 hid this. Aligned 2026-09-05 — the earlier note here, that
+  Vulkan held upstream's form and aligning would move every Metal scene, was wrong
+  on both counts. There is also no Gram-Schmidt re-orthonormalization of the
+  interpolated tangent any more: upstream normalizes the tangent and binormal and
+  does nothing else. It measured as a no-op, so if a mesh ever shows tangent skew,
+  add it back to BOTH backends rather than one.
 - **The GPU lightmapper has no cast shadows yet.** It captures direct light and
   ambient only. The CPU `Lightmapper` is the quality reference.
 
@@ -575,10 +582,11 @@ does nothing, which is a misleading symptom.
   suspect: with the sky fixed, a probe's captured sky matches Metal exactly.
 - **`ambient-occlusion-davinci`'s floor still reads ~0.92x Metal in RED** (0.96
   green, 0.98 blue), down from 0.81 once the depth tap was aligned. Its sky
-  matches exactly. Part of the remainder is the known per-backend `normalScale`
-  difference on a normal-mapped surface; the rest is unattributed. The bilateral
-  blur multiplies whatever the SSAO pass disagrees about by roughly 2.5, so an
-  input difference worth 3% shows up as 8%.
+  matches exactly, and its whole-frame difference is under 1/255, so the red gap
+  lives in the darkest part of the floor where a 2-count difference is a large
+  ratio. NOT normal mapping: aligning `normalScale` left this scene bit-identical.
+  The bilateral blur multiplies whatever the SSAO pass disagrees about by roughly
+  2.5, so an input difference worth 3% shows up as 8%.
 - **`tools/generate-env-atlas` still does not produce a usable image.** Its
   readback calls `MTL::Texture::getBytes` on the baked atlas, which is a private-
   storage render target, so the values come back wrong even though the layout is
@@ -591,11 +599,13 @@ does nothing, which is a misleading symptom.
   `gaussian-splatting/` folder. Morph weight animation is covered again as of
   2026-09-05 (`mesh-morph-example.cpp`), and clustered atlas shadows have a working
   example (`clustered-spot-shadows-example.cpp`).
-- **Cube shading in `clustered-spot-shadows` differs between backends** (mean
-  absolute difference 19/255 with the animation frozen, concentrated on normal-
-  mapped cube faces and the light-pool rims; the floor and the shadows themselves
-  agree). Most likely the known per-backend `normalScale` deviation. Not measured
-  further.
+- **`parallax-mapping` renders ~0.93x Metal**, evenly across both halves of the
+  frame (0.94 red, 0.95 green, 0.97 blue), and `clustered-spot-shadows` differs by
+  19/255 on its normal-mapped cube faces. NEITHER is `normalScale`: both scenes
+  leave it at the default of 1, where the old and new forms are the same
+  expression. Under `DEBUGPASS_WORLDNORMAL` the two backends' shading normals now
+  agree to 0.139/255, so the shading normal is not the suspect either. Bisect the
+  parallax march and the light term next.
 
 ## Reference kept elsewhere
 

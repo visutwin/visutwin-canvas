@@ -246,7 +246,12 @@ void main() {
         vec3 tn = vec3(0.0, 0.0, 1.0);
         if (haveNormalMap) {
             tn = texture(normalMap, uvNormal).xyz * 2.0 - 1.0;
-            tn.xy *= material.normalScale;
+            // normalScale (upstream's material_bumpiness) blends the sampled
+            // normal TOWARD FLAT, it does not scale xy. The two are only equal at
+            // 0 and 1: scaling xy leaves z alone, so it steepens the normal's
+            // slope where the mix flattens it, and a normal-mapped surface lit at
+            // a grazing angle picks up several percent from the difference.
+            tn = mix(vec3(0.0, 0.0, 1.0), tn, material.normalScale);
         }
         if (haveDetailNormal) {
             // UDN blend: the detail map's xy perturbation is scaled by
@@ -268,10 +273,12 @@ void main() {
         vec3 T = fragWorldTangent.xyz;
         if (dot(T, T) >= 1e-6) {
             T = normalize(T);
-            // Re-orthonormalize (Gram-Schmidt) and build the bitangent with the
-            // handedness sign carried in tangent.w.
-            T = normalize(T - N * dot(N, T));
-            vec3 B = cross(N, T) * fragWorldTangent.w;
+            // Bitangent from the geometric normal with the handedness sign carried
+            // in tangent.w. Upstream normalizes the interpolated tangent and
+            // binormal and does nothing else, so no Gram-Schmidt here either — it
+            // was a Vulkan-only addition and it moved the shading normal wherever
+            // the interpolated tangent leaves the surface plane.
+            vec3 B = normalize(cross(N, T)) * fragWorldTangent.w;
             N = normalize(mat3(T, B, N) * tn);
         }
     }

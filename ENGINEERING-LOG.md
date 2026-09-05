@@ -1214,3 +1214,44 @@ Metal and 0.127 on Vulkan, and the per-pixel difference map is empty over the
 shadows and the floor. The residual (mean absolute difference 19/255) sits on
 normal-mapped cube faces and light-pool rims, which is the known per-backend
 `normalScale` deviation and not this feature.
+
+## normalScale: the backends agree, and the note about it was backwards (2026-09-05)
+
+Aligned. Vulkan moved onto Metal's form, which is upstream's; no Metal scene
+changed.
+
+**What the two were doing.** Upstream's `material_bumpiness` blends the sampled
+tangent-space normal toward flat, `mix(vec3(0,0,1), normalMap, s)`. Metal did that.
+Vulkan multiplied xy by the scale and left z alone, which steepens the normal's
+slope precisely where the mix flattens it. The two expressions agree only at 0 and
+at 1, and 1 is the default that every asset in the tree carries, which is why this
+survived unnoticed and why the standing note had the two backends the wrong way
+round. That note also predicted alignment would move every normal-mapped Metal
+scene. It moves none of them.
+
+Vulkan also re-orthonormalized the interpolated tangent against the normal
+(Gram-Schmidt) and left the bitangent unnormalized, where Metal and upstream
+normalize both and do nothing else. Removed for the same reason.
+
+**Verification.** The two scenes named in the open items both leave `normalScale`
+at 1, so neither could show anything: on `ambient-occlusion-davinci` the before and
+after frames are identical to four decimal places in every region. Isolating the
+term instead, with the scale forced to 0.5 and the camera in
+`DEBUGPASS_WORLDNORMAL` so only the shading normal reaches the pixel:
+
+| Vulkan form | shading-normal difference vs Metal, MAD | p99 |
+|---|---|---|
+| xy scale (old) | 0.992 | 10.0 |
+| mix toward flat | 0.139 | 2.0 |
+
+A seventh of the disagreement, and the whole improvement is the mix: keeping the
+Gram-Schmidt alongside the mix gives 0.139 and a p99 of 2.0 as well, so removing it
+measured as an exact no-op on this mesh. It is removed for convergence, not for a
+result. If a mesh ever shows tangent skew, the fix is to add it to both backends.
+
+**Two open items lost their explanation.** The davinci floor's red channel and the
+clustered scene's cube faces were both attributed in part to this. Neither is: both
+scenes sit at the default scale where the old and new code are the same expression,
+and the shading normals now agree to 0.139/255 regardless. `parallax-mapping`
+renders at 0.93 of Metal for a reason that is still unfound; that is a new open
+item, and the parallax march is the place to look, not the normal.

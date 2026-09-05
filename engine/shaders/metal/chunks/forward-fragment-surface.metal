@@ -184,7 +184,10 @@
             normalSample = normalTexture.sample(defaultSampler, uvNormal).xyz * 2.0 - 1.0;
             // blend toward flat (0,0,1) by bumpiness/normalScale.
             // At normalScale=1.0 → full normal map; at 0.0 → geometric surface normal.
-            normalSample = normalize(mix(float3(0.0, 0.0, 1.0), normalSample, material.normalScale));
+            // NOT normalized here, as upstream: the TBN product is normalized
+            // below, which makes a normalize on this line a no-op on its own and a
+            // silent reweighting of the detail overlay added after it.
+            normalSample = mix(float3(0.0, 0.0, 1.0), normalSample, material.normalScale);
             haveSample = true;
         }
 #endif
