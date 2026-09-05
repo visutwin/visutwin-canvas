@@ -6,7 +6,7 @@
 // implementation of the post chain instead of a pass class per backend.
 //
 // Chain order (mirrors upstream compose.js):
-//   CAS -> SSAO -> DOF -> Bloom -> Fringing -> ColorEnhance -> Grading
+//   CAS -> DOF -> SSAO -> Fringing -> Bloom -> ColorEnhance -> Grading
 //   -> ToneMap -> ColorLUT -> Vignette -> display gamma
 //
 // Textures (quad slots, both backends): 0 scene, 1 bloom, 2 ssao, 3 depth,
@@ -435,7 +435,7 @@ float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
 }
 
 // Compose pass order (mirrors upstream compose.js):
-// CAS -> SSAO -> DOF -> Bloom -> Fringing -> ColorEnhance -> Grading -> ToneMap -> ColorLUT -> Vignette
+// CAS -> DOF -> SSAO -> Fringing -> Bloom -> ColorEnhance -> Grading -> ToneMap -> ColorLUT -> Vignette
 fragment float4 composeFragment(
     ComposeVarying in [[stage_in]],
     texture2d<float> sceneTexture [[texture(0)]],
@@ -455,18 +455,22 @@ fragment float4 composeFragment(
         result = applyCas(result, uv, uniforms.sharpness, sceneTexture, linearSampler, uniforms.sceneTextureInvRes);
     }
 
-    // 2. SSAO
-    if (uniforms.ssaoEnabled != 0u && ssaoTexture.get_width() > 0) {
-        const float ssao = clamp(ssaoTexture.sample(linearSampler, uv).r, 0.0, 1.0);
-        result *= ssao;
-    }
-
-    // 3. DOF (single-pass from depth buffer)
+    // 2. DOF (single-pass from depth buffer). DOF runs BEFORE SSAO, as upstream's compose.js does.
+    // Occlusion therefore multiplies the already-defocused colour and is not itself
+    // blurred, so it keeps full strength in out-of-focus parts of the frame; run the
+    // other way round the defocus washes the occlusion out with everything else.
+    // Wherever DOF is not blurring, the order cannot matter and does not.
     if (uniforms.dofEnabled != 0u) {
         result = applyDofSinglePass(result, uv, uniforms.sceneTextureInvRes,
             sceneTexture, depthTexture, linearSampler,
             uniforms.dofFocusDistance, uniforms.dofFocusRange, uniforms.dofBlurRadius,
             uniforms.dofCameraNear, uniforms.dofCameraFar);
+    }
+
+    // 3. SSAO
+    if (uniforms.ssaoEnabled != 0u && ssaoTexture.get_width() > 0) {
+        const float ssao = clamp(ssaoTexture.sample(linearSampler, uv).r, 0.0, 1.0);
+        result *= ssao;
     }
     // Legacy multi-pass DOF (kept as dead code for future use):
     // if (uniforms.dofEnabled != 0u && cocTexture.get_width() > 0 && blurTexture.get_width() > 0) {
@@ -557,9 +561,10 @@ void main() { vUv = vertexUv0; gl_Position = vec4(vertexPosition, 1.0); }
 layout(location = 0) in vec2 vUv;
 
 // Compose pass — port of metalComposePass.cpp composeFragment.
-// Order: CAS -> SSAO -> DOF (single-pass from depth) -> Bloom -> ToneMap ->
-// Vignette -> display gamma. Runs as a fullscreen draw inside the compose
-// render pass (usually targeting the swapchain).
+// Order: CAS -> DOF (single-pass from depth) -> SSAO -> Fringing -> Bloom ->
+// ColorEnhance -> Grading -> ToneMap -> ColorLUT -> Vignette -> display gamma.
+// Runs as a fullscreen draw inside the compose render pass (usually targeting the
+// swapchain).
 
 layout(set = 1, binding = 0) uniform sampler2D sceneTex;
 layout(set = 1, binding = 1) uniform sampler2D bloomTex;
@@ -862,16 +867,20 @@ void main() {
         result = applyCas(result, uv, pc.sharpness, invRes);
     }
 
-    // 2. SSAO
-    if (float(pc.ssaoEnabled) > 0.5) {
-        float ssao = clamp(texture(ssaoTex, uv).r, 0.0, 1.0);
-        result *= ssao;
-    }
-
-    // 3. DOF (single-pass from depth)
+    // 2. DOF (single-pass from depth). DOF runs BEFORE SSAO, as upstream's compose.js does.
+    // Occlusion therefore multiplies the already-defocused colour and is not itself
+    // blurred, so it keeps full strength in out-of-focus parts of the frame; run the
+    // other way round the defocus washes the occlusion out with everything else.
+    // Wherever DOF is not blurring, the order cannot matter and does not.
     if (float(pc.dofEnabled) > 0.5) {
         result = applyDofSinglePass(result, uv, invRes,
             pc.dofFocusDistance, pc.dofFocusRange, pc.dofBlurRadius, pc.dofCameraNear, pc.dofCameraFar);
+    }
+
+    // 3. SSAO
+    if (float(pc.ssaoEnabled) > 0.5) {
+        float ssao = clamp(texture(ssaoTex, uv).r, 0.0, 1.0);
+        result *= ssao;
     }
 
     // 4. Fringing (chromatic aberration). Sits between DOF and bloom, matching upstream

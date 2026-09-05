@@ -237,12 +237,17 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
 Forward PBR renderer with frame graph:
 `Engine::render()` -> `ForwardRenderer::buildFrameGraph()` -> `FrameGraph::compile()` -> `FrameGraph::render()`
 
-**Compose pass effect chain** (mirrors upstream `compose.js` order): CAS → SSAO →
-DOF → **fringing** → bloom → **color enhance** → **color grading** → tonemap →
-**3D color LUT** → vignette → gamma. Configured via
+**Compose pass effect chain** (upstream `compose.js` order): CAS → DOF → SSAO →
+**fringing** → bloom → **color enhance** → **color grading** → tonemap → **3D
+color LUT** → vignette → gamma. Configured via
 `CameraComponent::RenderingSettings` → CameraFrameOptions → RenderPassCompose →
 ComposePassParams.
 
+- DOF runs BEFORE SSAO. Occlusion multiplies the already-defocused colour and is
+  not itself blurred, so it keeps full strength out of focus; the other way round
+  the defocus washes it out with everything else. Where DOF is not blurring the
+  order cannot matter, which is the check that says a change here landed: the
+  in-focus part of the frame must come back bit-identical.
 - Fringing (chromatic aberration, user intensity /1024) **must stay BEFORE
   bloom**: it re-samples the scene texture for R and B, so running it after bloom
   leaves bloom in green only. It also overwrites R and B from the raw scene

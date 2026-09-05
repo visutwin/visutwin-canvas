@@ -1295,3 +1295,31 @@ why two wrong lines survived since the feature landed in 2026-07, and why the pr
 above had to invent a material. Upstream's own coverage is `test/detail-map`, which
 it flags HIDDEN, and it cannot be ported faithfully yet because it toggles diffuse,
 normal and AO detail maps where only the normal one exists here.
+
+## Compose order: DOF before SSAO (2026-09-05)
+
+Swapped, matching upstream `compose.js`. The gap-audit entry that named this was
+right and the guidelines file was wrong: it claimed the whole chain mirrored
+upstream while this one pair was reversed. Both claims are now corrected.
+
+Depth of field runs first, so ambient occlusion multiplies the already-defocused
+colour and is not itself blurred. Occlusion keeps full strength in out-of-focus
+parts of the frame; the old order let the defocus wash it out along with
+everything else.
+
+**Verification.** No shipped example enables both effects, which is why the order
+never showed. Probed by turning SSAO on in the `depth-of-field` scene:
+
+| | change from the swap, MAD | p99 | max |
+|---|---|---|---|
+| Metal | 11.55 | 95 | 165 |
+| Vulkan | 11.59 | 95 | — |
+
+Two things make that convincing beyond its size. The backends move by the same
+amount, so the swap is symmetric. And the bottom third of the frame, the part in
+focus, comes back at MAD 0.03 — where DOF is not blurring, the order cannot matter,
+and it does not. The top and middle thirds darken (mean 91.6 to 78.0 and 112.7 to
+91.7) because the occlusion there is no longer being blurred away.
+
+Backend agreement is unaffected at this scale, 1.09 before and 1.68 after, both far
+under the change itself.
