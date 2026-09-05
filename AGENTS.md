@@ -443,11 +443,23 @@ does nothing, which is a misleading symptom.
 
 ## Open items
 
-- **Reflection probes: the LOD/prefilter approximation still differs slightly.**
-  Both backends now agree structurally (see the log for the 2026-09-05 fix), with
-  the residual confined to pattern edges and grid lines — hardware trilinear mips
-  approximate the GGX prefilter upstream bakes per level, and the two backends
-  round that differently. Not worth chasing unless a scene shows it.
+- **Vulkan reflections are slightly SOFTER than Metal's.** Re-measured 2026-09-05
+  with the scene frozen: `reflection-probe` matches to 0.3% in the mean, but the
+  reflection carries 6.5% less horizontal gradient energy where a direct texture
+  on the same frame carries 0.4% less. Hardware trilinear mips approximate the GGX
+  prefilter upstream bakes per level, and the two backends round it differently.
+  Not worth chasing unless a scene shows it. The probes themselves are no longer
+  suspect: with the sky fixed, a probe's captured sky matches Metal exactly.
+- **The `reflection-probe-dynamic` scene's indirect diffuse now runs ~5% HOT on
+  Vulkan, ~13% in blue on the ground.** Removing the double `(1 - metallic)` from
+  the env-atlas irradiance (see the log) moved that ground from 7% dark to 5%
+  bright, so a second, blue-weighted term is off by roughly 10% and the old bug
+  was masking it. Albedo matches EXACTLY under `DEBUGPASS_ALBEDO`, so it is
+  lighting, and the scene is unusual in setting `setSkyboxIntensity(2)` with
+  `setSkyboxMip(0)` and metalness 0.7 on every object, which is why it shows what
+  other scenes do not. Freeze the scene first — it orbits the camera AND spins the
+  objects with an incremental `rotate`, so a fixed frame number compares two
+  different scenes.
 - **`tools/generate-env-atlas` still does not produce a usable image.** Its
   readback calls `MTL::Texture::getBytes` on the baked atlas, which is a private-
   storage render target, so the values come back wrong even though the layout is

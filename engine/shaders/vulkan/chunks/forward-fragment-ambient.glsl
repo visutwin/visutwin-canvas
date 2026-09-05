@@ -48,11 +48,17 @@
         // (1 - roughness) at grazing angles where this returns ~F0, so the
         // environment specular ran far hotter than Metal's.
         vec3 Fr = ssrFresnel(NdotV, 1.0 - roughness, F0);
-        vec3 kD = (vec3(1.0) - Fr) * (1.0 - metallic);
 
-        indirect = kD * irradiance * diffuseAlbedo + prefiltered * Fr;
+        // No kD on the irradiance. This branch used to scale it by
+        // (1 - Fr) * (1 - metallic), which applied (1 - metallic) a SECOND time
+        // because diffuseAlbedo already carries it — the same double count that
+        // was fixed on the direct-light path, and a 3.3x deficit on a material at
+        // metalness 0.7. Every other branch below (light probes, flat ambient,
+        // lightmap) already multiplies the irradiance by diffuseAlbedo alone, and
+        // so does the Metal chunk.
+        indirect = irradiance * diffuseAlbedo + prefiltered * Fr;
         indirectSpecular = prefiltered * Fr;
-        bakeDiffuseLight += kD * irradiance;
+        bakeDiffuseLight += irradiance;
     } else if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
         vec3 shN = N;
         vec3 irradiance =

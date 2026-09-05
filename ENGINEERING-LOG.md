@@ -643,3 +643,47 @@ green.
 
 Every Vulkan scene with an env-atlas sky was affected, and so was every dynamic
 reflection probe, since a probe captures the sky through this same path.
+
+## Re-measuring the probe residual, and a double (1 - metallic) (2026-09-05)
+
+With the mirrored sky fixed, the standing claim that "dynamic reflection probes
+light wrongly on Vulkan" needed re-testing. It does not hold.
+
+**Freezing the scene first.** `reflection-probe-dynamic` orbits the camera AND
+spins its objects with an incremental `rotate`, so capturing both backends at the
+same frame number compares two different scenes — the earlier 0.98/0.93/0.97 was
+measuring the animation, not the backends. Pinning the clock and skipping the
+incremental spin is what made the numbers mean anything.
+
+**What the probe does now.** The captured cube's sky matches Metal at 1.0000, and
+so does the main view's background. The panels that reproject the captured cube
+sit at 0.97, and splitting one of them shows why: its sky band is 0.999 and its
+ground band is 0.82. So the capture is faithful and simply carries whatever the
+forward pass does — the probe path is not the problem. `DEBUGPASS_ALBEDO` matches
+at exactly 1.0000, `DEBUGPASS_LIGHTING` at 0.97/0.97/0.95, which places the whole
+residual in lighting.
+
+**The defect that found.** The Vulkan env-atlas branch scaled its irradiance by
+`kD = (1 - Fr) * (1 - metallic)` before multiplying by `diffuseAlbedo`, which
+already carries `(1 - metallic)`. That is the same double count fixed on the
+direct-light path earlier, still present on the indirect one, and it is a 3.3x
+deficit at metalness 0.7. Every other branch in the same function — light probes,
+flat ambient, lightmap — multiplies the irradiance by `diffuseAlbedo` alone, and
+so does the Metal chunk, which applies no `(1 - Fr)` to indirect diffuse at all.
+The env-atlas branch was the lone outlier.
+
+**Verification, including where it is imperfect.** The dynamic-probe ground moves
+from 0.949/0.927/0.956 to 1.034/1.054/1.057 and the whole frame from
+0.978/0.973/0.974 to 1.006/1.012/1.012. `clearcoat` improves marginally,
+0.983 to 0.984. `reflection-probe` is unmoved, since its ball reads a probe rather
+than the atlas. `depth-of-field` goes the wrong way by 0.6%, from 1.0006 to
+1.0061.
+
+That last number is worth stating plainly rather than burying: the change is
+justified by inspection, not by every measurement improving. `diffuseAlbedo`
+demonstrably contains `(1 - metallic)` and `kD` multiplied by it again — there is
+no reading under which that is correct — so the sign flip on the dynamic-probe
+ground (7% dark to 5% bright) means a SECOND, blue-weighted term is off by about
+10% and the old bug was cancelling part of it. That is now the open item, and it
+is the same shape as the two divergences before it: an error that measured well
+because another error was pulling the other way.
