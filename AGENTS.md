@@ -307,6 +307,13 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   quad, which every effect did until the env atlas started drawing a rect list in
   one pass: the convolve draws read the reproject block and wrote nothing. `draw()`
   now passes a null material for the uniform key whenever the quad block is in use.
+- **A shader that exists in MSL and GLSL is only shared by CONVENTION.** The two
+  bodies in a `*Shaders.h` sit in separate raw strings, and a migration that
+  unified the uniform BLOCK does not unify the code. Compose carried three stages
+  whose GLSL was an older, cruder implementation — colour enhance, colour grading
+  and the 3D LUT — for as long as the file has existed. Before blaming a backend's
+  lighting for a brightness gap, read the two bodies of the shader that produced
+  the pixel side by side.
 - **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
   Apple GPUs. Every optional texture sample must be gated on its flags bit or its
   runtime enable (`setEnvAtlasEnabled`, `hasSpecGlossMap` bit 21). This has bitten
@@ -432,14 +439,14 @@ does nothing, which is a misleading symptom.
 
 ## Open items
 
-- **`post-processing` renders ~0.93x Metal.** The last brightness outlier, and it
-  is now Vulkan being slightly DARK rather than bright. Everything else measured
-  sits at 1.00. It was the environment-Fresnel alignment that moved this scene from
-  1.08 to 0.93, while the same change moved `depth-of-field` from 1.04 to 1.00 and
-  matched the environment specular term to Metal within 4% — so the alignment is
-  right and this scene has its own separate divergence that the old, hotter Fresnel
-  was partly cancelling. Isolate it the same way: probe one term at a time against
-  the Metal chunk rather than reading whole-frame means.
+- **`ambient-occlusion-davinci` renders ~1.2x Metal, and it is the SKYBOX.** Lit
+  geometry sits at 0.96-0.97; the sky reads 1.16 on the left and 1.44 on the
+  upper right, warm-shifted. The one thing that separates it from every scene
+  whose sky matches to 0.999 is `setSkyboxMip(2)` — `post-processing` asks for mip
+  1 and agrees exactly. So suspect the env-atlas mip chain or the skybox LOD
+  mapping on Vulkan, not compose, and probe the sky region alone. Measured
+  2026-09-05, after the compose fix below; the old, wrong colour enhance was
+  darkening Vulkan and partly cancelling it, which is why it read 1.15 before.
 - **Reflection probes: the LOD/prefilter approximation still differs slightly.**
   Both backends now agree structurally (see the log for the 2026-09-05 fix), with
   the residual confined to pattern edges and grid lines — hardware trilinear mips

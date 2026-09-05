@@ -552,3 +552,56 @@ purely warm-up: Vulkan reaches its first frame later, so its particles were youn
 smaller and still on the warm end of the colour graph. Captured deeper into the run
 the two agree. Any future comparison of this example has to be made at a settled
 frame, not a fixed one — the scene is a continuous simulation and never repeats.
+
+## The last brightness outlier was compose, not lighting (2026-09-05)
+
+`post-processing` had been sitting at 0.92-0.94x Metal since the environment-Fresnel
+alignment, recorded as a lighting divergence to be chased term by term against the
+Metal shading chunks. It was not lighting. Turning the whole compose chain off made
+the two backends agree to 1.004 — the sky, which never touches the lighting code,
+matched to 0.9999 — so the forward pass was never in question.
+
+**Method.** The scene animates and runs TAA, which is why it had resisted a clean
+measurement. I temporarily gave the example a probe switch that pins its clock to a
+fixed time and strips any named term, then bisected the compose chain. The first
+pass was misleading: enabling grading, colour enhance, fringing or sharpness ALONE
+changed nothing at all, because none of them turns the camera frame on by itself.
+With vignette held on as an anchor the answer came out immediately — vignette plus
+colour enhance measured 0.948, against 1.004 for vignette alone.
+
+**Cause.** The GLSL half of the compose shader was never brought in line with the
+MSL half. Three stages were older, cruder implementations that happen to share the
+uniform block but not the maths:
+
+- **Colour enhance** computed saturation as `max - min` rather than
+  `(max - min) / max`, and mixed toward `vec3(luma)` rather than toward a grey
+  normalised against the largest channel. Both are SDR forms. In the HDR values
+  compose actually operates on, saturation exceeds 1 and the vibrance factor goes
+  negative, so bright pixels were pulled toward black. That alone was the 7%.
+- **Colour grading** applied its terms in a different order with different luma
+  weights and no HDR normalisation of the grey.
+- **The 3D LUT** used the linear colour as the lookup coordinate with no sRGB
+  encode and no decode of the sample, and chained the second LUT onto the first
+  LUT's output instead of blending both against the same input.
+
+All three are now translations of the Metal functions, term for term.
+
+**Verification.** `post-processing` moves from 0.922/0.926/0.938 to
+1.004/1.008/1.014, which is exactly the residual the scene shows with compose
+disabled entirely. Its sky matches to 0.9999 and the colour-enhance isolate lands
+back on the no-enhance baseline. `depth-of-field`, which uses none of the three
+stages, is unchanged at 1.006/1.003/0.999. Both suites green.
+
+**What this unmasked.** `ambient-occlusion-davinci` is the only other scene that
+uses these stages, and it now reads 1.21 where it read 1.15 — the wrong colour
+enhance had been darkening Vulkan and cancelling part of a larger divergence, the
+same shape as the Fresnel alignment before it. That scene's gap is in the SKY
+(1.44 in the upper right against 0.96-0.97 on lit geometry), and the one thing
+separating it from every scene whose sky matches is that it asks for skybox mip 2.
+Recorded as its own open item.
+
+**The lesson worth keeping.** The old note told the next session to probe lighting
+terms against the Metal chunks, and that would have been days of work in the wrong
+file. Two shader bodies in one header are shared by convention only; unifying a
+uniform block does not unify the code. Read both bodies before designing an
+experiment — the same mistake the reflection-probe entry above records.

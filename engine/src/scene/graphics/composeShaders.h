@@ -708,16 +708,46 @@ float linearizeSceneDepth(float rawDepth, float cameraNear, float cameraFar) {
     return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
 }
 
-vec3 sampleStripLut(sampler2D lut, vec3 color) {
-    color = clamp(color, 0.0, 1.0);
-    float blue = color.b * 15.0;
-    float slice0 = floor(blue);
-    float slice1 = min(slice0 + 1.0, 15.0);
-    vec2 uv0 = vec2((slice0 * 16.0 + color.r * 15.0 + 0.5) / 256.0,
-                    (color.g * 15.0 + 0.5) / 16.0);
-    vec2 uv1 = vec2((slice1 * 16.0 + color.r * 15.0 + 0.5) / 256.0,
-                    uv0.y);
-    return mix(texture(lut, uv0).rgb, texture(lut, uv1).rgb, fract(blue));
+// 3D color LUT via a 256x16 "horizontal strip" (unwrapped 16^3, Unreal format).
+// The lookup coordinate is sRGB-encoded and the sampled value is sRGB too, because
+// the port loads LUTs as non-sRGB RGBA8 — same DEVIATION as the MSL source above.
+vec3 sampleStripLut(sampler2D lut, vec2 uv_l, vec2 uv_h, float t) {
+    vec3 color_l = textureLod(lut, uv_l, 0.0).rgb;
+    vec3 color_h = textureLod(lut, uv_h, 0.0).rgb;
+    vec3 srgb = mix(color_l, color_h, t);
+    return pow(max(srgb, vec3(0.0)) + 0.0000001, vec3(2.2));
+}
+
+vec3 applyColorLUT(vec3 color, sampler2D lut1, sampler2D lut2,
+                   float lut2Enabled, float intensity1, float intensity2, float blend) {
+    const float LUT_N = 16.0;
+    const float LUT_MAX = LUT_N - 1.0;
+    const float LUT_HALF_PX_X = 0.5 / 256.0;
+    const float LUT_HALF_PX_Y = 0.5 / LUT_N;
+    const float LUT_R_SCALE = LUT_MAX / 256.0;
+    const float LUT_G_SCALE = LUT_MAX / LUT_N;
+    const float LUT_SLICE = 1.0 / LUT_N;
+
+    vec3 c = clamp(pow(max(color, vec3(0.0)) + 0.0000001, vec3(1.0 / 2.2)), 0.0, 1.0);
+
+    float cell = c.b * LUT_MAX;
+    float cell_l = floor(cell);
+    float cell_h = ceil(cell);
+    float t = fract(cell);
+
+    float r_offset = LUT_HALF_PX_X + c.r * LUT_R_SCALE;
+    float g_offset = LUT_HALF_PX_Y + c.g * LUT_G_SCALE;
+    vec2 uv_l = vec2(cell_l * LUT_SLICE + r_offset, g_offset);
+    vec2 uv_h = vec2(cell_h * LUT_SLICE + r_offset, g_offset);
+
+    vec3 lutColor1 = sampleStripLut(lut1, uv_l, uv_h, t);
+    if (lut2Enabled > 0.5) {
+        vec3 lutColor2 = sampleStripLut(lut2, uv_l, uv_h, t);
+        float w1 = intensity1 * (1.0 - blend);
+        float w2 = intensity2 * blend;
+        return color + (lutColor1 - color) * w1 + (lutColor2 - color) * w2;
+    }
+    return mix(color, lutColor1, intensity1);
 }
 
 // Single-pass DOF from the depth buffer (far blur only, upstream-style CoC).
@@ -755,6 +785,71 @@ vec3 applyDofSinglePass(vec3 sharpColor, vec2 uv, vec2 invRes,
 
     vec3 blurColor = (totalWeight > 0.0) ? blurSum / totalWeight : sharpColor;
     return mix(sharpColor, blurColor, cocFar);
+}
+
+// HDR color grading (upstream compose-grading.js); 1.0 = no change for all
+// parameters. Mirrors applyGrading in the MSL source above, term for term.
+vec3 applyGrading(vec3 color, float brt, float sat, float con, vec3 tint) {
+    color *= tint;
+    color = color * brt;
+    float grey = dot(color, vec3(0.3, 0.59, 0.11));
+    grey = grey / max(1.0, max(color.r, max(color.g, color.b)));  // normalize luminance in HDR
+    color = mix(vec3(grey), color, sat);
+    return mix(vec3(0.5), color, con);
+}
+
+// Color enhance (upstream compose-color-enhance.js): shadows/highlights, midtones,
+// vibrance and dark-channel dehaze — all in HDR before tonemapping. Mirrors
+// applyColorEnhance in the MSL source above, term for term.
+vec3 applyColorEnhance(vec3 color, float shadows, float highlights,
+                       float vibrance, float dehaze, float midtones) {
+    float lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+
+    // Shadows/Highlights: exponential curve, pow(2, param) = +/-1 stop at +/-1
+    if (shadows != 0.0 || highlights != 0.0) {
+        float logLum = clamp(log2(max(lum, 0.001)) / 10.0 + 0.5, 0.0, 1.0);
+        float shadowWeight = pow(1.0 - logLum, 2.0);
+        float highlightWeight = pow(logLum, 2.0);
+        color *= pow(2.0, shadows * shadowWeight);
+        color *= pow(2.0, highlights * highlightWeight);
+    }
+
+    // Midtones: localized exposure in log-luminance space
+    if (midtones != 0.0) {
+        const float pivot = 0.18;
+        const float widthStops = 1.25;
+        const float maxStops = 2.0;
+        float y = max(dot(color, vec3(0.2126, 0.7152, 0.0722)), 1e-6);
+        float d = log2(y / pivot);
+        float w = exp(-(d * d) / (2.0 * widthStops * widthStops));
+        color *= exp2(midtones * maxStops * w);
+    }
+
+    // Vibrance: boost saturation of muted colors only
+    if (vibrance != 0.0) {
+        float minChannel = min(color.r, min(color.g, color.b));
+        float maxChannel = max(color.r, max(color.g, color.b));
+        float sat = (maxChannel - minChannel) / max(maxChannel, 0.001);
+        lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+        float normalizedLum = lum / max(1.0, maxChannel);
+        vec3 grey = vec3(normalizedLum) * maxChannel;
+        float satBoost = vibrance * (1.0 - sat);
+        color = mix(grey, color, 1.0 + satBoost);
+    }
+
+    // Dehaze: dark channel prior — haze lifts the minimum RGB channel
+    if (dehaze != 0.0) {
+        float maxChannel = max(color.r, max(color.g, color.b));
+        float scale = max(1.0, maxChannel);
+        vec3 normalized = color / scale;
+        float darkChannel = min(normalized.r, min(normalized.g, normalized.b));
+        const float atmosphericLight = 0.95;
+        float t = max(1.0 - dehaze * darkChannel / atmosphericLight, 0.1);
+        vec3 dehazed = (normalized - atmosphericLight) / t + atmosphericLight;
+        color = dehazed * scale;
+    }
+
+    return max(vec3(0.0), color);
 }
 
 void main() {
@@ -796,24 +891,19 @@ void main() {
         result += texture(bloomTex, uv).rgb * max(pc.bloomIntensity, 0.0);
     }
 
+    // 5b. Color enhance (HDR), and 5c. grading. Both operate on unbounded HDR
+    // values, so every saturation and luminance term has to be normalised against
+    // the largest channel; the naive SDR forms desaturate bright pixels toward
+    // black and cost this pass ~7% of the frame against Metal.
     if (float(pc.colorEnhanceEnabled) > 0.5) {
-        float luma = dot(result, vec3(0.2126, 0.7152, 0.0722));
-        float shadowMask = 1.0 - smoothstep(0.0, 0.5, luma);
-        float highlightMask = smoothstep(0.5, 1.0, luma);
-        float midMask = 1.0 - abs(luma * 2.0 - 1.0);
-        result *= exp2(pc.ceShadows * shadowMask + pc.ceHighlights * highlightMask +
-                       pc.ceMidtones * midMask);
-        float saturation = maxComp(result) - min(result.r, min(result.g, result.b));
-        result = mix(vec3(dot(result, vec3(0.2126, 0.7152, 0.0722))), result,
-            1.0 + pc.ceVibrance * (1.0 - saturation));
-        result = max(result - vec3(pc.ceDehaze * 0.02), 0.0) *
-            (1.0 + pc.ceDehaze);
+        result = applyColorEnhance(result, pc.ceShadows, pc.ceHighlights,
+            pc.ceVibrance, pc.ceDehaze, pc.ceMidtones);
     }
+
     if (float(pc.gradingEnabled) > 0.5) {
-        result *= pc.gradingBrightness;
-        result = (result - 0.5) * pc.gradingContrast + 0.5;
-        float luma = dot(result, vec3(0.2126, 0.7152, 0.0722));
-        result = mix(vec3(luma), result, pc.gradingSaturation) * vec3(pc.gradingTintR, pc.gradingTintG, pc.gradingTintB);
+        result = applyGrading(result, pc.gradingBrightness, pc.gradingSaturation,
+            pc.gradingContrast,
+            vec3(pc.gradingTintR, pc.gradingTintG, pc.gradingTintB));
     }
 
     // 6. Tonemapping. Every curve consumes exposure-scaled color (Metal
@@ -830,14 +920,11 @@ void main() {
     else if (mode == 6) { /* TONEMAP_NONE: no curve, no exposure */ }
     else                result *= exposure;   // TONEMAP_LINEAR
 
+    // 6b. 3D color LUT (post-tonemap). The second LUT is a weighted blend against
+    // the SAME input, not a second pass chained onto the first result.
     if (float(pc.lutEnabled) > 0.5) {
-        result = mix(result, sampleStripLut(colorLut1, result),
-            clamp(pc.lutIntensity1, 0.0, 1.0));
-    }
-    if (float(pc.lut2Enabled) > 0.5) {
-        vec3 graded2 = mix(result, sampleStripLut(colorLut2, result),
-            clamp(pc.lutIntensity2, 0.0, 1.0));
-        result = mix(result, graded2, clamp(pc.lutBlend, 0.0, 1.0));
+        result = applyColorLUT(result, colorLut1, colorLut2, float(pc.lut2Enabled),
+            pc.lutIntensity1, pc.lutIntensity2, pc.lutBlend);
     }
 
     // 7. Vignette (tonemapped linear space, before gamma)
