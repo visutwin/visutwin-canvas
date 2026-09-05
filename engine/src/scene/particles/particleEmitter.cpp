@@ -311,6 +311,7 @@ namespace visutwin::canvas
         _renderParams.miscParams[0] = std::max(_options.intensity, 0.0f);
         _renderParams.miscParams[1] = static_cast<float>(_options.numParticles);
         _renderParams.miscParams[2] = _options.colorMap ? 1.0f : 0.0f;
+        _renderParams.miscParams[3] = static_cast<float>(std::max(_options.animIndex, 0));
     }
 
     std::unique_ptr<MeshInstance> ParticleEmitter::createMeshInstance(GraphNode* node)

@@ -78,7 +78,10 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
     // Sprite-sheet frame from particle life (tile 0 = top-left).
     const float2 tiles = max(params.animParams.xy, float2(1.0));
     const float numFrames = max(params.animParams.z, 1.0);
-    const float frame = floor(fmod(lifeT * numFrames * max(params.animParams.w, 0.0001), numFrames));
+    // animIndex selects WHICH animation in the sheet: each is numFrames tiles long
+    // and they run in reading order, so a 4x4 sheet at 4 frames holds four of them.
+    const float frame = floor(fmod(lifeT * numFrames * max(params.animParams.w, 0.0001), numFrames))
+        + params.miscParams.w * numFrames;
     const float2 tileUv = (corner * 0.5 + 0.5);
     const float2 frameOrigin = float2(fmod(frame, tiles.x), floor(frame / tiles.x));
     out.uv = (frameOrigin + float2(tileUv.x, 1.0 - tileUv.y)) / tiles;

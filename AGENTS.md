@@ -496,13 +496,16 @@ during unrelated work are repeated here.
   80-byte records. The instanced shader variant follows THE DRAW, not the
   material: the renderer derives it from the mesh instance's buffer format.
 - **Parallax `heightMapBase` shifts the ray's ENTRY UV, not just the depths.**
-  The base is the texel value that reads as the original surface, so a non-zero
-  base lifts part of the height field above the polygon and the view ray has to
-  enter higher up. Offsetting only the depths moves the ray and the field by the
-  same amount and changes nothing at all — the images come back bit-identical,
-  which is how the first attempt at this looked like it worked. The entry UV must
-  move by the lateral distance the ray covers over that height. Base 0 reproduces
-  the plain `1 - height` the port used before the parameter existed.
+  The base is the height-map value that sits at the level of the geometry, so
+  anything above it lifts off the polygon and the view ray has to enter higher up.
+  Offsetting only the depths moves the ray and the field by the same amount and
+  changes nothing at all — the images come back bit-identical, which is how the
+  first attempt at this looked like it worked. The entry UV must move by the
+  lateral distance the ray covers over that height. Base 1 is pure depth below the
+  surface; the default 0.5 pivots around mid-grey, as upstream.
+- **`heightMapFactor` is in TENTHS of a uv tile**, upstream's unit: a factor of 1
+  asks for a relief 0.1 uv deep. Used raw, upstream's own tuned value of 0.4 smears
+  brickwork into spikes, which is what the parallax-mapping port showed.
 - **Parallax self-shadowing costs a second march and only the DIRECTIONAL light
   pays it.** It runs inside the light loop, which is behind fragment-varying
   control flow, so its height taps use an explicit LOD; the view march sits in

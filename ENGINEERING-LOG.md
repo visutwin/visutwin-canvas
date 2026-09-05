@@ -964,3 +964,45 @@ axis, because there is no `screenToWorld` here.
 `particle-system` — were invented rather than ported, and upstream has
 counterparts for the second (`graphics/particles-spark`, `particles-snow`,
 `particles-anim-index`). They should be revisited.
+
+## Repaying the examples debt (2026-09-05)
+
+Two examples written earlier the same day were invented rather than ported. Both
+now have upstream counterparts behind them, and porting them found two real errors
+in the parallax work they were supposed to demonstrate.
+
+**`materials/parallax-mapping`.** A closed brick room and a brick sphere under a
+warm spot and a cool omni. Porting it corrected the parallax API twice:
+
+1. *The base convention was inverted.* Upstream's own comment states it plainly —
+   the base is "the height map value that sits at the level of the geometry", so 1
+   treats the map as pure depth below the surface and the engine default pivots
+   around mid-grey. Mine had 0 meaning pure depth. The shader now computes
+   `base - height` and the default is 0.5.
+2. *The height unit was wrong by ten.* Upstream's factor is in TENTHS of a uv
+   tile, so its tuned value of 0.4 asks for a relief 0.04 uv deep. Used raw it
+   smeared the brickwork into spikes — a picture that is unmistakable once you see
+   it, and that no amount of reading the source would have produced.
+
+Neither error was visible in the scene I had invented, because I chose the
+parameters to suit whatever the code happened to do. That is the argument for
+porting rather than inventing, and it is now a rule in `AGENTS.md`.
+
+**`graphics/particles-anim-index`.** Four emitters sharing one 4x4 sprite sheet,
+one `animIndex` each. The port needed `animIndex` itself, which the emitter did
+not have: each animation is `animNumFrames` tiles long and they run in reading
+order, so the index simply offsets the frame. One option, one line in each of the
+two particle shaders, and the four corners come out in four different colours.
+
+The brick texture set is upstream's Bricks076A, transcoded from WebP to PNG since
+this port's standalone texture loader is stb and has no WebP path.
+
+DEVIATIONS recorded in the file headers: the parallax port drops upstream's
+roughness map for a constant gloss, because this port's gloss map is a Metal-only
+scalar map with no tiling of its own and both backends have to render the same
+scene; its sphere is a primitive rather than a 128-band generated mesh; and the
+particle port leaves out upstream's screen-space reference panel.
+
+Vulkan renders the parallax room at 0.93-0.97 of Metal. That scene is heavily
+normal-mapped and the two backends interpret `normalScale` differently on purpose,
+so this is expected rather than new.

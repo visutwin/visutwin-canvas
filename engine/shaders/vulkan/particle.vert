@@ -26,7 +26,9 @@ void main() {
     vec4 clip=params.projection*view; clip.z=0.5*(clip.z+clip.w); gl_Position=clip;
     vec2 tiles=max(params.animParams.xy,vec2(1));
     float frames=max(params.animParams.z,1.0);
-    float frame=floor(mod(life*frames*max(params.animParams.w,0.0001),frames));
+    // miscParams.w is animIndex: which animation in the sheet to play.
+    float frame=floor(mod(life*frames*max(params.animParams.w,0.0001),frames))
+        +params.miscParams.w*frames;
     vec2 tile=corner*0.5+0.5, origin=vec2(mod(frame,tiles.x),floor(frame/tiles.x));
     outUv=(origin+vec2(tile.x,1.0-tile.y))/tiles;
     outColor=vec4(color.rgb*params.miscParams.x,color.a);

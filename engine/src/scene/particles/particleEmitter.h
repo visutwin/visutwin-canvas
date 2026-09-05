@@ -84,6 +84,10 @@ namespace visutwin::canvas
         int animTilesX = 1;               // sprite-sheet tiles
         int animTilesY = 1;
         int animNumFrames = 1;            // frames played over each particle's life
+        // Which animation in the sheet to play. Each animation is animNumFrames
+        // tiles long and they run in reading order, so a 4x4 sheet at 4 frames
+        // holds four animations, indices 0-3 (upstream animIndex).
+        int animIndex = 0;
         float animSpeed = 1.0f;
 
         ParticleBlendType blendType = ParticleBlendType::BLEND_ADDITIVE;

@@ -1,17 +1,16 @@
 // ── Parallax occlusion mapping (parity with common-parallax.metal) ──
 //
-// `heightBase` is the texel value that reads as the ORIGINAL surface: the marched
-// field is (sample - base), so texels above the base stand proud of the polygon and
-// texels below sink into it. A base of 0 leaves the whole map below the surface,
-// which is what this port did before the parameter existed.
+// `heightBase` is the height-map value that sits at the level of the geometry
+// (upstream's meaning): texels above it stand proud, texels below sink in. 1 treats
+// the map as pure depth below the surface; the default 0.5 pivots around mid-grey.
 // Implicit-LOD form, for the view march: uniform control flow, mips intact.
 float parallaxDepth(vec2 uv, float heightBase) {
-    return (1.0 - texture(heightMap, uv).r) - heightBase;
+    return heightBase - texture(heightMap, uv).r;
 }
 
 // Explicit-LOD form, for the self-shadow march inside the light loop.
 float parallaxSampleDepth(vec2 uv, float heightBase) {
-    return (1.0 - textureLod(heightMap, uv, 0.0).r) - heightBase;
+    return heightBase - textureLod(heightMap, uv, 0.0).r;
 }
 
 vec2 parallaxOcclusionMap(vec2 uv, vec3 viewDirTS, float heightScale, float heightBase) {
@@ -21,15 +20,19 @@ vec2 parallaxOcclusionMap(vec2 uv, vec3 viewDirTS, float heightScale, float heig
     int numSteps = int(mix(float(maxSteps), float(minSteps), abs(viewDirTS.z)));
     float layerDepth = 1.0 / float(numSteps);
 
+    // Upstream's height unit is a TENTH of a uv tile: a factor of 1 is a relief
+    // 0.1 uv deep. See the matching note in common-parallax.metal.
+    float scale = heightScale * 0.1;
     // UV travelled per unit of depth along the view ray, and the per-layer step.
-    vec2 uvPerDepth = viewDirTS.xy * heightScale / (abs(viewDirTS.z) + 1e-5);
+    vec2 uvPerDepth = viewDirTS.xy * scale / (abs(viewDirTS.z) + 1e-5);
     vec2 deltaUV = uvPerDepth / float(numSteps);
 
-    // With a non-zero base the field rises ABOVE the polygon, so the ray enters at
-    // that height and its entry UV is offset laterally by the distance travelled
-    // since. Shifting only the depths moves ray and field together, changing nothing.
-    float curLayerDepth = -heightBase;
-    vec2 curUV = uv + uvPerDepth * heightBase;
+    // Anything above the base stands proud, so the ray enters at the topmost point
+    // the map reaches, its entry UV offset by the distance travelled since. Shifting
+    // only the depths moves ray and field together, changing nothing.
+    float rise = 1.0 - heightBase;
+    float curLayerDepth = -rise;
+    vec2 curUV = uv + uvPerDepth * rise;
     float curHeight = parallaxDepth(curUV, heightBase);
 
     for (int i = 0; i < maxSteps; ++i) {
@@ -59,7 +62,9 @@ float parallaxSelfShadow(vec2 uv, vec3 lightDirTS, float heightScale,
 
     const int numSteps = 16;
     float layerDepth = surfaceDepth / float(numSteps);
-    vec2 deltaUV = lightDirTS.xy * heightScale / (lightDirTS.z + 1e-5) / float(numSteps);
+    // Same tenth-of-a-tile unit as the view march above.
+    vec2 deltaUV =
+        lightDirTS.xy * (heightScale * 0.1) / (lightDirTS.z + 1e-5) / float(numSteps);
 
     float occlusion = 0.0;
     vec2 curUV = uv;

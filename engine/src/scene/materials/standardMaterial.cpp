@@ -56,7 +56,7 @@ namespace visutwin::canvas
         _bumpiness = 1.0f;
         _heightMap = nullptr;
         _heightMapFactor = 0.1f;
-        _heightMapBase = 0.0f;
+        _heightMapBase = 0.5f;
         _heightMapShadow = 0.0f;
         _anisotropy = 0.0f;
         _transmissionFactor = 0.0f;

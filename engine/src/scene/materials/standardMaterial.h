@@ -168,9 +168,10 @@ namespace visutwin::canvas
         float heightMapFactor() const { return _heightMapFactor; }
         void setHeightMapFactor(const float value) { _heightMapFactor = value; markUniformsDirty(); }
         /**
-         * The height-map value that reads as the ORIGINAL surface. Texels above it
-         * stand proud of the polygon, texels below sink into it. 0 (the default)
-         * puts the whole displacement below the surface.
+         * The height-map value that sits at the level of the geometry. Texels above
+         * it stand proud of the polygon, texels below sink into it. 1 treats the map
+         * as pure depth carved below the surface; the default 0.5 pivots the relief
+         * around mid-grey, which is upstream's default too.
          */
         float heightMapBase() const { return _heightMapBase; }
         void setHeightMapBase(const float value) { _heightMapBase = value; markUniformsDirty(); }
@@ -366,7 +367,7 @@ namespace visutwin::canvas
         Texture* _heightMap = nullptr;
         Texture* _lightMap = nullptr;
         float _heightMapFactor = 0.1f;
-        float _heightMapBase = 0.0f;
+        float _heightMapBase = 0.5f;
         float _heightMapShadow = 0.0f;
 
         float _anisotropy = 0.0f;

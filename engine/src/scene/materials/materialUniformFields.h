@@ -98,9 +98,10 @@
     /* and 29-31 carry the two dither modes), so presence rides in the sign here. */ \
     X(vec4, mapChannelParams, {1.0f, -1.0f, -1.0f, -1.0f}) \
     /* --- Parallax occlusion mapping --- */ \
-    /* x = height-map base: the texel value that reads as the ORIGINAL surface, so */ \
-    /* anything above it stands proud and anything below sinks in. 0 keeps the whole */ \
-    /* map below the surface, which is what this port did before the field existed. */ \
+    /* x = height-map base: the map value that sits at the level of the geometry, so */ \
+    /* anything above it stands proud and anything below sinks in. 1 keeps the whole */ \
+    /* map below the surface (what this port did before the field existed); 0.5, the */ \
+    /* default, pivots the relief around mid-grey as upstream does. */ \
     /* y = self-shadow strength (0 = off); the directional light marches the height */ \
     /* field and darkens texels its ray passes over. zw = pad. */ \
     X(vec4, heightMapParams, {0.0f, 0.0f, 0.0f, 0.0f})
