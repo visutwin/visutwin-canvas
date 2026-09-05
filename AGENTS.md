@@ -457,12 +457,22 @@ does nothing, which is a misleading symptom.
   prefilter upstream bakes per level, and the two backends round it differently.
   Not worth chasing unless a scene shows it. The probes themselves are no longer
   suspect: with the sky fixed, a probe's captured sky matches Metal exactly.
-- **`ambient-occlusion-davinci`'s FLOOR renders ~0.95x Metal.** Its sky matches
-  exactly and its lit geometry is the gap. Measured 2026-09-05 right after the
-  ground-plane pole fix, which brightened Metal's floor here by 2-5% and left
-  Vulkan's where it was, so this is the term the pole bug had been cancelling.
-  This scene has now revealed three separate divergences in a row; expect a
-  fourth rather than assuming the number is noise.
+- **SSAO occludes ~5% more on Vulkan, and the bilateral blur multiplies that
+  by 2.5.** Isolated 2026-09-05 on `ambient-occlusion-davinci`'s floor, which is
+  the scene's whole gap: 0.976 with SSAO off, 0.926 with SSAO and no blur, 0.808
+  with both. The remaining 0.976 is a normal-mapped surface reading the known
+  per-backend `normalScale` difference, so it is expected.
+
+  The SSAO and depth-aware-blur bodies are textually equivalent in MSL and GLSL,
+  helper for helper, so the divergence is in the pass INPUTS, not its maths.
+  Suspect the depth tap. A tried and REVERTED hypothesis: that Vulkan forces
+  nearest filtering on depth (its format may not advertise linear filtering)
+  while Metal filters bilinearly. Point-sampling depth in the Metal SSAO and blur
+  moved the floor from 0.81 to 1.12 and the frame from 0.96 to 1.01 — better by
+  magnitude, but it OVERSHOT with a sign flip, and the Vulkan samplers are in
+  fact created `VK_FILTER_LINEAR`, so the premise was wrong and the improvement
+  coincidental. Establish what filter each backend actually applies to the depth
+  tap before trying again.
 - **`tools/generate-env-atlas` still does not produce a usable image.** Its
   readback calls `MTL::Texture::getBytes` on the baked atlas, which is a private-
   storage render target, so the values come back wrong even though the layout is

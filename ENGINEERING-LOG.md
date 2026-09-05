@@ -728,3 +728,50 @@ That is the fourth divergence in this chain and the third time this particular
 scene has been the one holding the next one. The pattern is now well established
 enough to state as a rule: a scene that measures well is as likely to hold two
 errors that cancel as none.
+
+## The davinci floor is SSAO, and one hypothesis that did not survive (2026-09-05)
+
+The floor gap turned out to be ambient occlusion, not albedo and not lighting.
+Nothing was landed this round: the characterisation is the result, and the one
+fix attempted was reverted.
+
+**Where it is.** Stripping the scene one term at a time on a pure floor patch:
+
+    SSAO on,  blur on     0.808
+    SSAO on,  blur off    0.926
+    SSAO off              0.976
+
+So Vulkan occludes about 5% more than Metal, and the bilateral blur multiplies
+that difference by roughly 2.5 rather than smoothing it away — which is what a
+bilateral filter does with a disagreement at a depth discontinuity, and the same
+amplification the depth-aware blur showed during its migration. The residual
+0.976 is a normal-mapped surface reading the `normalScale` difference the two
+backends keep on purpose.
+
+**Where it is not.** The SSAO and depth-aware-blur shader bodies are textually
+equivalent between MSL and GLSL, helper for helper: same noise function, same
+face normal, same view-space reconstruction, same weights. Unlike compose, there
+is no second implementation hiding in the GLSL half. That points the next attempt
+at the pass INPUTS rather than its maths.
+
+**The hypothesis that failed, and why it is recorded.** Depth reconstruction is
+sensitive to filtering: a bilinear tap straddling a silhouette returns a depth
+belonging to neither surface, which the kernel then treats as an occluder. Vulkan
+decides per format whether linear filtering is available and falls back to
+nearest, so I took Vulkan for nearest and Metal for bilinear, and made the Metal
+SSAO and blur point-sample depth. The floor moved from 0.808 to 1.115 and the
+frame from 0.961 to 1.011 — both closer to 1 in magnitude, and both with the sign
+flipped. Then checking what Vulkan actually creates showed `VK_FILTER_LINEAR` on
+the samplers those passes use, so the premise was wrong and the improvement was
+coincidental. Reverted.
+
+That is worth stating because the numbers alone would have justified keeping it.
+The previous round landed a change that also overshot, on the strength of a proof
+by inspection — a double `(1 - metallic)` that no reading makes correct. Here
+there was no such proof, only a number that got smaller. The difference between
+those two cases is the whole standard.
+
+**Next step for whoever picks this up:** establish what filter each backend
+actually applies to the SSAO depth tap, at runtime rather than by reading the
+sampler-creation code, since the quad path and the per-texture path do not
+necessarily use the same sampler.
