@@ -101,6 +101,81 @@ namespace visutwin::canvas
         [[nodiscard]] virtual bool isActive() const = 0;
     };
 
+
+    enum class PhysicsJointType
+    {
+        Fixed,   ///< welds two bodies; no relative motion
+        Ball,    ///< shared point, rotation limited by a swing/twist cone
+        Hinge,   ///< one rotation axis, optionally limited and motorised
+        Slider,  ///< one translation axis, optionally limited and motorised
+        SixDof   ///< per-axis motion with optional springs
+    };
+
+    /// One constraint, described in the JOINT FRAME rather than as a pair of
+    /// anchors: `framePosition` / `frameRotation` are the world pose of the joint
+    /// itself, and its local **X axis is the primary axis** — the hinge's rotation
+    /// axis, the slider's travel axis, the ball joint's twist axis. That is
+    /// upstream's convention, and it is why a joint lives on its own entity there:
+    /// the entity's transform IS the frame.
+    struct PhysicsJointDesc
+    {
+        PhysicsJointType type = PhysicsJointType::Ball;
+
+        /// End A. Required.
+        PhysicsBody* bodyA = nullptr;
+        /// End B. Null anchors that end to the world.
+        PhysicsBody* bodyB = nullptr;
+
+        Vector3 framePosition = Vector3(0.0f, 0.0f, 0.0f);
+        Quaternion frameRotation = Quaternion();
+
+        /// Hinge angle in RADIANS or slider offset in metres, about/along the
+        /// primary axis.
+        bool enableLimits = false;
+        float minLimit = 0.0f;
+        float maxLimit = 0.0f;
+
+        /// Hinge (radians/second) or slider (metres/second). The motor is only
+        /// active when `maxMotorForce` is above zero, matching upstream.
+        float motorSpeed = 0.0f;
+        float maxMotorForce = 0.0f;
+
+        /// Ball joint cone, in radians. Y and Z are the two swing half-angles
+        /// about the axes perpendicular to the primary one.
+        float swingLimitY = 0.0f;
+        float swingLimitZ = 0.0f;
+        float twistLimit = 0.0f;
+
+        /// Above zero, the joint breaks once the impulse it carries exceeds this,
+        /// and reports it through `isBroken()`.
+        float breakImpulse = 0.0f;
+
+        /// SixDof only: which linear axes are free, and an optional spring on each.
+        bool linearFree[3] = {false, false, false};
+        Vector3 linearStiffness = Vector3(0.0f, 0.0f, 0.0f);
+        Vector3 linearEquilibrium = Vector3(0.0f, 0.0f, 0.0f);
+    };
+
+    /// One constraint. Owned by the world; valid until destroyJoint.
+    class PhysicsJoint
+    {
+    public:
+        virtual ~PhysicsJoint() = default;
+
+        /// A disabled joint stays allocated but stops constraining.
+        virtual void setEnabled(bool enabled) = 0;
+        [[nodiscard]] virtual bool enabled() const = 0;
+
+        /// Hinge and slider only. Takes effect on the next step.
+        virtual void setMotorSpeed(float speed) = 0;
+        [[nodiscard]] virtual float motorSpeed() const = 0;
+
+        /// True once the joint has carried more impulse than its break threshold.
+        /// A broken joint disables itself and stays broken.
+        [[nodiscard]] virtual bool isBroken() const = 0;
+
+    };
+
     struct PhysicsRaycastHit
     {
         Entity* entity = nullptr;
@@ -124,7 +199,14 @@ namespace visutwin::canvas
         /// The returned body is owned by the world. Returns null when the
         /// description cannot be realised (a zero-extent shape, say).
         virtual PhysicsBody* createBody(const PhysicsBodyDesc& desc) = 0;
+        /// Destroys the body AND any joint still attached to it — a constraint
+        /// outliving one of its ends is a dangling reference inside the solver.
         virtual void destroyBody(PhysicsBody* body) = 0;
+
+        /// The returned joint is owned by the world. Returns null when the
+        /// description names no real body at either end.
+        virtual PhysicsJoint* createJoint(const PhysicsJointDesc& desc) = 0;
+        virtual void destroyJoint(PhysicsJoint* joint) = 0;
 
         /// Nearest hit along the segment, or nothing.
         [[nodiscard]] virtual std::optional<PhysicsRaycastHit> raycastFirst(

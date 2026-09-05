@@ -87,6 +87,10 @@ namespace visutwin::canvas
 
         CollisionComponent* collision() const;
 
+        /// The simulated body, or null before the first update has created it.
+        /// JointComponent needs this to name the ends of a constraint.
+        [[nodiscard]] PhysicsBody* physicsBody() const { return _body; }
+
         /// Called by RigidBodyComponentSystem; creates the body if it does not
         /// exist yet and mirrors its transform onto the entity.
         void syncFromSimulation(PhysicsWorld& world);

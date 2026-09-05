@@ -911,3 +911,56 @@ anything physics touched. Recorded here rather than chased.
 
 **Not ported: joints.** Upstream's `PhysicsJoint` and `JointComponent` are the
 obvious follow-up and have no equivalent yet.
+
+## Joints, and a correction about examples (2026-09-05)
+
+The physics seam gained constraints, and the examples around it were rebuilt as
+ports rather than inventions.
+
+**The instruction that changed the design mid-task.** The user asked that examples
+be ports of upstream's, not scenes invented here. Reading upstream's
+`physics/joints.example.mjs` immediately invalidated the joint API I had started
+building. I had put the joint ON one of the bodies with an anchor offset. Upstream
+puts it on its OWN entity, whose transform IS the joint frame, with the local X
+axis as the primary one, and names the two ends as `entityA` / `entityB`. That is
+a better model — a joint frame is a pose, not an offset — and it is now what the
+seam and the component expose. The five types follow upstream too: fixed, ball,
+hinge, slider, six-degree-of-freedom.
+
+**Three bugs the unit test caught that a screenshot would not have.**
+
+1. *A hinge test that could not have passed.* My first arm was centred ON the
+   rotation axis, where no rotation moves it. The test was wrong, not the engine —
+   worth recording because the failure looked exactly like a broken hinge.
+2. *Constraints were built in the wrong body order.* A slider told to run at
+   +1.5 m/s travelled at -1.5. The backend measures angle and travel from body 1
+   toward body 2, so the ANCHOR has to be body 1 for a positive motor speed to
+   move end A the way the caller means. Every constraint is now created as (B, A).
+3. *Two body locks cannot be taken separately.* Jolt asserts on the deadlock risk,
+   and with no assert handler installed that arrived as a bare SIGTRAP with
+   nothing on stderr. A handler is now installed, and the locks go through
+   `BodyLockMultiWrite`.
+
+**Verification.** The physics test now also covers joints: a fixed joint holds its
+two bodies 0.7 apart under gravity, a world-pinned hinge keeps its arm at a
+constant radius from the pivot while letting it swing down, a motorised slider
+drives its platform along the axis and reverses when the motor does, a weld with a
+1 N s threshold under a 500 kg load breaks and drops its body, and destroying a
+body takes its joints with it rather than leaving a dangling constraint for the
+solver to walk. Seven of seven tests pass; the Vulkan smoke test is clean.
+
+**Examples.** `physics-joints` is a port of upstream's scene — hinged door,
+motorised windmill, ball-joint chain, patrolling slider, sprung crate, breakable
+tower — at upstream's poses and parameters. The pyramid scene I had invented for
+the previous commit is gone, replaced by a port of `physics/falling-shapes`. Both
+run on Metal and Vulkan.
+
+DEVIATIONS recorded in the file headers: falling-shapes drops four primitives
+rather than five, because upstream's torus needs a mesh collision volume this port
+does not have; and the joints example fires its ball along the camera's forward
+axis, because there is no `screenToWorld` here.
+
+**Debt this leaves.** Two examples written earlier today — `parallax` and
+`particle-system` — were invented rather than ported, and upstream has
+counterparts for the second (`graphics/particles-spark`, `particles-snow`,
+`particles-anim-index`). They should be revisited.

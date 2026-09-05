@@ -40,7 +40,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
-  examples/        # 48 example applications, all derived from ExampleApp
+  examples/        # 49 example applications, all derived from ExampleApp
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -213,8 +213,24 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   overwrite a bare transform, and Jolt does not wake a body that was only moved.
 - `CollisionComponent::height` is the FULL height for a capsule, caps included;
   the backend converts to Jolt's cylindrical half-height.
-- **Not ported: joints.** Upstream's `PhysicsJoint` and `JointComponent` have no
-  equivalent here yet.
+- **A joint lives on its OWN entity, and that entity's transform is the joint
+  FRAME** — its local **X axis is the primary axis** (hinge rotation, slider
+  travel, ball twist). Position and orient the entity, parent it, THEN add the
+  component; the frame is captured from the final world transform. That is
+  upstream's convention, and it is why `JointComponent` takes `entityA` /
+  `entityB` rather than an anchor offset. A null `entityB` pins that end to the
+  world.
+- **Constraints are built as (B, A), not (A, B).** The backend measures a
+  constraint's angle and travel from body 1 toward body 2, so the ANCHOR has to go
+  first for a positive motor speed or limit to move end A the way the caller
+  means. Built the other way round a slider told to run at +1.5 travels at -1.5,
+  which is what the unit test caught.
+- **Two body locks cannot be taken separately.** Jolt asserts on the deadlock
+  risk; `BodyLockMultiWrite` takes both and orders them itself. Without a Jolt
+  assert handler installed this arrives as a bare SIGTRAP with nothing on stderr,
+  so `joltPhysicsWorld.cpp` installs one.
+- Joint limits and motor speeds are authored in DEGREES for a hinge and metres for
+  a slider, matching upstream; the component converts.
 
 ## Rendering Pipeline
 
@@ -321,6 +337,17 @@ also set its own blend, depth and cull state — nothing outside the frame graph
 has — and `beginOfflineWork` flushes pending uploads first, because a texture
 created without host data marks its tracker SHADER_READ_ONLY while the actual
 transition is still sitting in the deferred upload queue.
+
+## Examples
+
+**Port an upstream example; do not invent one.** Upstream's example set is the
+reference for what a feature demo should show, and a scene invented here cannot be
+compared against anything. The upstream sources are at
+`~/sources/visualization/playcanvas-engine/examples/src/examples/<category>/`;
+read the `.mjs` and match its scene, poses, materials and parameters, then record
+any DEVIATION in the file header where the port could not follow. Only where
+upstream genuinely has no counterpart is a new scene the right answer, and that
+should be said out loud in the header.
 
 ## Live gotchas
 

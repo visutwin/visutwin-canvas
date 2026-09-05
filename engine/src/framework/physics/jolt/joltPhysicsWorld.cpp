@@ -33,6 +33,7 @@ namespace visutwin::canvas
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Body/BodyLockMulti.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
@@ -41,6 +42,14 @@ namespace visutwin::canvas
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Constraints/ConeConstraint.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/SixDOFConstraint.h>
+#include <Jolt/Physics/Constraints/SliderConstraint.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -124,6 +133,18 @@ namespace visutwin::canvas
             return {q.GetX(), q.GetY(), q.GetZ(), q.GetW()};
         }
 
+#ifdef JPH_ENABLE_ASSERTS
+        // Without this Jolt aborts on a failed assert with nothing on stderr, which
+        // turns a mistake in a constraint description into a bare SIGTRAP.
+        bool joltAssertFailed(const char* expression, const char* message,
+            const char* file, const JPH::uint line)
+        {
+            spdlog::error("Jolt assert: {}:{}: ({}) {}", file, line, expression,
+                message != nullptr ? message : "");
+            return true;
+        }
+#endif
+
         void joltTrace(const char* format, ...)
         {
             char buffer[1024];
@@ -135,6 +156,7 @@ namespace visutwin::canvas
         }
 
         class JoltBody;
+        class JoltJoint;
 
         class JoltWorld final : public PhysicsWorld
         {
@@ -149,6 +171,9 @@ namespace visutwin::canvas
             PhysicsBody* createBody(const PhysicsBodyDesc& desc) override;
             void destroyBody(PhysicsBody* body) override;
 
+            PhysicsJoint* createJoint(const PhysicsJointDesc& desc) override;
+            void destroyJoint(PhysicsJoint* joint) override;
+
             [[nodiscard]] std::optional<PhysicsRaycastHit> raycastFirst(
                 const Vector3& start, const Vector3& end) const override;
             [[nodiscard]] std::vector<PhysicsRaycastHit> raycastAll(
@@ -162,6 +187,11 @@ namespace visutwin::canvas
             [[nodiscard]] Entity* entityFor(JPH::BodyID id) const;
 
         private:
+            /// Removes every joint that names `body` at either end. A constraint
+            /// left pointing at a destroyed body is a dangling reference the
+            /// solver will happily walk into.
+            void destroyJointsTouching(const JoltBody* body);
+
             JPH::PhysicsSystem _system;
             BroadPhaseLayerMap _broadPhaseLayers;
             ObjectVsBroadPhaseFilter _objectVsBroadPhase;
@@ -169,6 +199,7 @@ namespace visutwin::canvas
             std::unique_ptr<JPH::TempAllocatorImpl> _tempAllocator;
             std::unique_ptr<JPH::JobSystemThreadPool> _jobs;
             std::vector<std::unique_ptr<JoltBody>> _owned;
+            std::vector<std::unique_ptr<JoltJoint>> _joints;
             std::unordered_map<JPH::uint32, Entity*> _entities;
             // Jolt wants a fixed timestep; a long frame is split rather than
             // integrated in one jump, which is what makes a stack stay standing.
@@ -234,6 +265,103 @@ namespace visutwin::canvas
             JPH::BodyID _id;
         };
 
+        class JoltJoint final : public PhysicsJoint
+        {
+        public:
+            JoltJoint(JPH::PhysicsSystem* system, JPH::Ref<JPH::Constraint> constraint,
+                const JoltBody* bodyA, const JoltBody* bodyB, const float breakImpulse)
+                : _system(system), _constraint(std::move(constraint)),
+                  _bodyA(bodyA), _bodyB(bodyB), _breakImpulse(breakImpulse) {}
+
+            ~JoltJoint() override
+            {
+                if (_system != nullptr && _constraint != nullptr) {
+                    _system->RemoveConstraint(_constraint);
+                }
+            }
+
+            void setEnabled(const bool enabled) override
+            {
+                if (_constraint != nullptr && !_broken) { _constraint->SetEnabled(enabled); }
+            }
+
+            [[nodiscard]] bool enabled() const override
+            {
+                return _constraint != nullptr && _constraint->GetEnabled();
+            }
+
+            void setMotorSpeed(const float speed) override
+            {
+                // Dispatched on the sub-type rather than through DynamicCast,
+                // because Jolt's RTTI is an optional feature and this build does
+                // not enable it.
+                _motorSpeed = speed;
+                if (_constraint == nullptr) {
+                    return;
+                }
+                switch (_constraint->GetSubType()) {
+                case JPH::EConstraintSubType::Hinge:
+                    static_cast<JPH::HingeConstraint*>(_constraint.GetPtr())
+                        ->SetTargetAngularVelocity(speed);
+                    break;
+                case JPH::EConstraintSubType::Slider:
+                    static_cast<JPH::SliderConstraint*>(_constraint.GetPtr())
+                        ->SetTargetVelocity(speed);
+                    break;
+                default:
+                    break;
+                }
+            }
+
+            [[nodiscard]] float motorSpeed() const override { return _motorSpeed; }
+            [[nodiscard]] bool isBroken() const override { return _broken; }
+
+            [[nodiscard]] bool touches(const JoltBody* body) const
+            {
+                return body != nullptr && (body == _bodyA || body == _bodyB);
+            }
+
+            /// Polled once per step. Jolt does not break constraints itself, so the
+            /// world compares the impulse the solver applied last step against the
+            /// threshold and disables the constraint for good.
+            void updateBreak()
+            {
+                if (_broken || _breakImpulse <= 0.0f || _constraint == nullptr) {
+                    return;
+                }
+                float carried = 0.0f;
+                switch (_constraint->GetSubType()) {
+                case JPH::EConstraintSubType::Fixed:
+                    carried = static_cast<JPH::FixedConstraint*>(_constraint.GetPtr())
+                        ->GetTotalLambdaPosition().Length();
+                    break;
+                case JPH::EConstraintSubType::Point:
+                    carried = static_cast<JPH::PointConstraint*>(_constraint.GetPtr())
+                        ->GetTotalLambdaPosition().Length();
+                    break;
+                case JPH::EConstraintSubType::Hinge:
+                    carried = static_cast<JPH::HingeConstraint*>(_constraint.GetPtr())
+                        ->GetTotalLambdaPosition().Length();
+                    break;
+                default:
+                    return;
+                }
+                if (carried > _breakImpulse) {
+                    _broken = true;
+                    _constraint->SetEnabled(false);
+                }
+            }
+
+        private:
+            JPH::PhysicsSystem* _system;
+            JPH::Ref<JPH::Constraint> _constraint;
+            const JoltBody* _bodyA;
+            const JoltBody* _bodyB;
+            float _breakImpulse = 0.0f;
+            float _motorSpeed = 0.0f;
+            bool _broken = false;
+        };
+
         JoltWorld::JoltWorld()
         {
             _tempAllocator = std::make_unique<JPH::TempAllocatorImpl>(16 * 1024 * 1024);
@@ -250,6 +378,8 @@ namespace visutwin::canvas
 
         JoltWorld::~JoltWorld()
         {
+            // Joints reference bodies, so they go first.
+            _joints.clear();
             auto& bodyInterface = _system.GetBodyInterface();
             for (const auto& body : _owned) {
                 bodyInterface.RemoveBody(body->id());
@@ -274,6 +404,9 @@ namespace visutwin::canvas
             int steps = 0;
             while (_accumulator >= fixedStep && steps < maxSteps) {
                 _system.Update(fixedStep, 1, _tempAllocator.get(), _jobs.get());
+                for (const auto& joint : _joints) {
+                    joint->updateBreak();
+                }
                 _accumulator -= fixedStep;
                 ++steps;
             }
@@ -372,11 +505,192 @@ namespace visutwin::canvas
             if (it == _owned.end()) {
                 return;
             }
+            destroyJointsTouching(it->get());
             const JPH::BodyID id = (*it)->id();
             _system.GetBodyInterface().RemoveBody(id);
             _system.GetBodyInterface().DestroyBody(id);
             _entities.erase(id.GetIndexAndSequenceNumber());
             _owned.erase(it);
+        }
+
+        PhysicsJoint* JoltWorld::createJoint(const PhysicsJointDesc& desc)
+        {
+            const auto* a = static_cast<const JoltBody*>(desc.bodyA);
+            const auto* b = static_cast<const JoltBody*>(desc.bodyB);
+            if (a == nullptr && b == nullptr) {
+                spdlog::error("JoltPhysicsWorld: a joint needs a body at one end");
+                return nullptr;
+            }
+
+            // Both ends have to be locked at once, and Jolt refuses two separate
+            // same-priority locks — it asserts on the deadlock risk. BodyLockMulti
+            // takes them together and orders them itself.
+            JPH::BodyID ids[2];
+            int idCount = 0;
+            const int indexA = a != nullptr ? idCount++ : -1;
+            if (a != nullptr) { ids[indexA] = a->id(); }
+            const int indexB = b != nullptr ? idCount++ : -1;
+            if (b != nullptr) { ids[indexB] = b->id(); }
+
+            JPH::BodyLockMultiWrite lock(_system.GetBodyLockInterface(), ids, idCount);
+            JPH::Body* joltA = a != nullptr ? lock.GetBody(indexA) : &JPH::Body::sFixedToWorld;
+            JPH::Body* joltB = b != nullptr ? lock.GetBody(indexB) : &JPH::Body::sFixedToWorld;
+            // Every constraint below is created as (B, A), not (A, B). Jolt
+            // measures a constraint's angle and travel from body 1 toward body 2,
+            // so putting the ANCHOR first is what makes a positive motor speed and
+            // a positive limit move END A the way the caller means. Built the other
+            // way round, a slider told to run at +1.5 travels at -1.5.
+            if (joltA == nullptr || joltB == nullptr) {
+                spdlog::error("JoltPhysicsWorld: a joint names a body that is gone");
+                return nullptr;
+            }
+
+            // The frame's local X is the primary axis (upstream's convention); Y is
+            // the reference direction the limits are measured from.
+            const JPH::Quat frame = toJolt(desc.frameRotation).Normalized();
+            const JPH::Vec3 point = toJolt(desc.framePosition);
+            const JPH::Vec3 axisX = (frame * JPH::Vec3::sAxisX()).Normalized();
+            const JPH::Vec3 axisY = (frame * JPH::Vec3::sAxisY()).Normalized();
+
+            JPH::Ref<JPH::Constraint> constraint;
+            switch (desc.type) {
+            case PhysicsJointType::Fixed: {
+                JPH::FixedConstraintSettings settings;
+                settings.mSpace = JPH::EConstraintSpace::WorldSpace;
+                settings.mAutoDetectPoint = false;
+                settings.mPoint1 = settings.mPoint2 = point;
+                settings.mAxisX1 = settings.mAxisX2 = axisX;
+                settings.mAxisY1 = settings.mAxisY2 = axisY;
+                constraint = settings.Create(*joltB, *joltA);
+                break;
+            }
+            case PhysicsJointType::Hinge: {
+                JPH::HingeConstraintSettings settings;
+                settings.mSpace = JPH::EConstraintSpace::WorldSpace;
+                settings.mPoint1 = settings.mPoint2 = point;
+                settings.mHingeAxis1 = settings.mHingeAxis2 = axisX;
+                settings.mNormalAxis1 = settings.mNormalAxis2 = axisY;
+                if (desc.enableLimits) {
+                    settings.mLimitsMin = desc.minLimit;
+                    settings.mLimitsMax = desc.maxLimit;
+                }
+                if (desc.maxMotorForce > 0.0f) {
+                    settings.mMotorSettings.mMaxForceLimit = desc.maxMotorForce;
+                    settings.mMotorSettings.mMinForceLimit = -desc.maxMotorForce;
+                }
+                constraint = settings.Create(*joltB, *joltA);
+                if (desc.maxMotorForce > 0.0f && constraint != nullptr) {
+                    auto* hinge = static_cast<JPH::HingeConstraint*>(constraint.GetPtr());
+                    hinge->SetMotorState(JPH::EMotorState::Velocity);
+                    hinge->SetTargetAngularVelocity(desc.motorSpeed);
+                }
+                break;
+            }
+            case PhysicsJointType::Slider: {
+                JPH::SliderConstraintSettings settings;
+                settings.mSpace = JPH::EConstraintSpace::WorldSpace;
+                settings.mAutoDetectPoint = false;
+                settings.mPoint1 = settings.mPoint2 = point;
+                settings.mSliderAxis1 = settings.mSliderAxis2 = axisX;
+                settings.mNormalAxis1 = settings.mNormalAxis2 = axisY;
+                if (desc.enableLimits) {
+                    settings.mLimitsMin = desc.minLimit;
+                    settings.mLimitsMax = desc.maxLimit;
+                }
+                if (desc.maxMotorForce > 0.0f) {
+                    settings.mMotorSettings.mMaxForceLimit = desc.maxMotorForce;
+                    settings.mMotorSettings.mMinForceLimit = -desc.maxMotorForce;
+                }
+                constraint = settings.Create(*joltB, *joltA);
+                if (desc.maxMotorForce > 0.0f && constraint != nullptr) {
+                    auto* slider = static_cast<JPH::SliderConstraint*>(constraint.GetPtr());
+                    slider->SetMotorState(JPH::EMotorState::Velocity);
+                    slider->SetTargetVelocity(desc.motorSpeed);
+                }
+                break;
+            }
+            case PhysicsJointType::SixDof: {
+                JPH::SixDOFConstraintSettings settings;
+                settings.mSpace = JPH::EConstraintSpace::WorldSpace;
+                settings.mPosition1 = settings.mPosition2 = point;
+                settings.mAxisX1 = settings.mAxisX2 = axisX;
+                settings.mAxisY1 = settings.mAxisY2 = axisY;
+                using Axis = JPH::SixDOFConstraintSettings::EAxis;
+                const Axis linear[3] = {Axis::TranslationX, Axis::TranslationY, Axis::TranslationZ};
+                const float stiffness[3] = {desc.linearStiffness.getX(),
+                    desc.linearStiffness.getY(), desc.linearStiffness.getZ()};
+                const float equilibrium[3] = {desc.linearEquilibrium.getX(),
+                    desc.linearEquilibrium.getY(), desc.linearEquilibrium.getZ()};
+                for (int i = 0; i < 3; ++i) {
+                    if (!desc.linearFree[i]) {
+                        settings.MakeFixedAxis(linear[i]);
+                        continue;
+                    }
+                    settings.MakeFreeAxis(linear[i]);
+                    if (stiffness[i] > 0.0f) {
+                        // A sprung free axis: Jolt drives it to a target position
+                        // with a stiffness/damping pair rather than a hard limit.
+                        settings.mLimitsSpringSettings[static_cast<int>(linear[i])].mMode =
+                            JPH::ESpringMode::StiffnessAndDamping;
+                        settings.mLimitsSpringSettings[static_cast<int>(linear[i])].mStiffness =
+                            stiffness[i];
+                        settings.mLimitsSpringSettings[static_cast<int>(linear[i])].mDamping = 1.0f;
+                        settings.mLimitMin[static_cast<int>(linear[i])] = equilibrium[i];
+                        settings.mLimitMax[static_cast<int>(linear[i])] = equilibrium[i];
+                    }
+                }
+                constraint = settings.Create(*joltB, *joltA);
+                break;
+            }
+            case PhysicsJointType::Ball:
+            default: {
+                if (desc.swingLimitY > 0.0f || desc.swingLimitZ > 0.0f || desc.twistLimit > 0.0f) {
+                    JPH::SwingTwistConstraintSettings settings;
+                    settings.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    settings.mPosition1 = settings.mPosition2 = point;
+                    settings.mTwistAxis1 = settings.mTwistAxis2 = axisX;
+                    settings.mPlaneAxis1 = settings.mPlaneAxis2 = axisY;
+                    settings.mNormalHalfConeAngle = desc.swingLimitY;
+                    settings.mPlaneHalfConeAngle = desc.swingLimitZ;
+                    settings.mTwistMinAngle = -desc.twistLimit;
+                    settings.mTwistMaxAngle = desc.twistLimit;
+                    constraint = settings.Create(*joltB, *joltA);
+                } else {
+                    JPH::PointConstraintSettings settings;
+                    settings.mSpace = JPH::EConstraintSpace::WorldSpace;
+                    settings.mPoint1 = settings.mPoint2 = point;
+                    constraint = settings.Create(*joltB, *joltA);
+                }
+                break;
+            }
+            }
+
+            if (constraint == nullptr) {
+                spdlog::error("JoltPhysicsWorld: constraint creation failed");
+                return nullptr;
+            }
+
+            _system.AddConstraint(constraint);
+            _joints.push_back(
+                std::make_unique<JoltJoint>(&_system, constraint, a, b, desc.breakImpulse));
+            _joints.back()->setMotorSpeed(desc.motorSpeed);
+            return _joints.back().get();
+        }
+
+        void JoltWorld::destroyJoint(PhysicsJoint* joint)
+        {
+            const auto it = std::find_if(_joints.begin(), _joints.end(),
+                [joint](const std::unique_ptr<JoltJoint>& owned) { return owned.get() == joint; });
+            if (it != _joints.end()) {
+                _joints.erase(it);
+            }
+        }
+
+        void JoltWorld::destroyJointsTouching(const JoltBody* body)
+        {
+            std::erase_if(_joints, [body](const std::unique_ptr<JoltJoint>& joint) {
+                return joint->touches(body);
+            });
         }
 
         Entity* JoltWorld::entityFor(const JPH::BodyID id) const
@@ -443,6 +757,9 @@ namespace visutwin::canvas
             std::call_once(once, [] {
                 JPH::RegisterDefaultAllocator();
                 JPH::Trace = joltTrace;
+#ifdef JPH_ENABLE_ASSERTS
+                JPH::AssertFailed = joltAssertFailed;
+#endif
                 JPH::Factory::sInstance = new JPH::Factory();
                 JPH::RegisterTypes();
             });
