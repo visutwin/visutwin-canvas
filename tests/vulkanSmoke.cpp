@@ -24,6 +24,7 @@
 #include "platform/graphics/renderPass.h"
 #include "scene/graphics/quadRender.h"
 #include "scene/graphics/envBake.h"
+#include "scene/particles/particleEmitter.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/uniformBinder.h"
@@ -298,6 +299,30 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             compute.setupDispatch(1, 1, 1);
             device->computeDispatch({&compute});
             vkQueueWaitIdle(device->graphicsQueue());
+        }
+
+        // The GPU particle emitter's simulation step. It used to be a
+        // GraphicsDevice virtual with a kernel per backend and now runs over the
+        // same Compute seam as the block above, so what needs covering is that its
+        // bindings still line up: the kernel declares the storage buffer at 0 and
+        // the parameter block at 1, which is what Compute's name-order contract
+        // produces for one buffer plus a uniform block. A mismatch shows up as a
+        // validation error, which fails this test. ParticleSystemComponent has no
+        // example, so this is the only place the path is exercised at all.
+        {
+            ParticleEmitterOptions emitterOptions{};
+            emitterOptions.numParticles = 512;
+            emitterOptions.lifetime = 1.0f;
+            emitterOptions.lifetime2 = 2.0f;
+            // Non-owning handle: the emitter lives inside this block and the
+            // device outlives it, the same aliasing the render-pass blocks below use.
+            auto emitterDevice = std::shared_ptr<GraphicsDevice>(
+                device.get(), [](GraphicsDevice*) {});
+            ParticleEmitter emitter(emitterDevice, emitterOptions);
+            emitter.update(1.0f / 60.0f, Matrix4::identity());
+            vkQueueWaitIdle(device->graphicsQueue());
+            spdlog::info("Vulkan smoke: particle emitter simulated {} particles",
+                emitter.numParticles());
         }
 
         // GPU instance compaction and indirect-argument generation.

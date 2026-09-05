@@ -475,14 +475,14 @@ namespace visutwin::canvas
         /// Disabled by default — call gpuProfiler()->setEnabled(true) to start sampling.
         const std::shared_ptr<GpuProfiler>& gpuProfiler() const { return _gpuProfiler; }
 
-        /// Advance a GPU particle emitter one simulation step (compute dispatch on
-        /// its own command buffer, ordered before this frame's render encoding).
-        virtual void simulateParticles(const std::shared_ptr<VertexBuffer>& particles,
-            const GpuParticleSimParams& params)
-        {
-            (void)particles; (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("simulateParticles");
-        }
+
+        // The three state setters below are NOT migration debt, and were left when
+        // the effect passes moved to QuadRender. They bind per-draw resources at
+        // fixed slots, which is the same job as setVertexBuffer / setIndexBuffer and
+        // belongs to the device. They are kept separate rather than folded into one
+        // generic call because they differ in arity and in which slots they own
+        // (particle and gsplat share 7/11, morph uses 9/10), so a single call would
+        // need a kind tag and read worse than three named ones.
 
         /// Bind particle emitter state for the next draw call (consumed by one draw).
         /// particles: GpuParticle pool (vertex slot 7); params: GpuParticleRenderParams

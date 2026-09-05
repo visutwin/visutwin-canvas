@@ -4,6 +4,8 @@
 // Created by Arnis Lektauers on 13.07.2026.
 //
 #include "particleEmitter.h"
+#include "particleSimShaders.h"
+#include "platform/graphics/compute.h"
 
 #include <algorithm>
 #include <cmath>
@@ -252,7 +254,47 @@ namespace visutwin::canvas
         params.angleParams[2] = _time;   // per-frame hash seed
         params.angleParams[3] = 1.0f;
 
-        _device->simulateParticles(_particleBuffer, params);
+        simulate(params);
+    }
+
+    // One simulation step over the generic Compute seam. The kernel's bindings
+    // follow Compute's name-order contract: the single "particles" storage buffer
+    // takes binding 0 and the parameter block follows at binding 1.
+    void ParticleEmitter::simulate(const GpuParticleSimParams& params)
+    {
+        if (_simUnavailable || !_device || !_particleBuffer) {
+            return;
+        }
+        if (!_simCompute) {
+            if (!_device->supportsCompute()) {
+                _simUnavailable = true;
+                return;
+            }
+            ShaderDefinition definition;
+            definition.name = "particle-sim";
+            definition.cshader = "particleSimKernel";
+            // Both backends can be compiled in and chosen at runtime, so the source
+            // comes from the live device rather than a build-time #ifdef.
+            _simShader = createShader(_device.get(), definition,
+                _device->shaderLanguage() == ShaderLanguage::Glsl
+                    ? particle_sim_shaders::PARTICLE_SIM_GLSL
+                    : particle_sim_shaders::PARTICLE_SIM_MSL);
+            if (!_simShader) {
+                _simUnavailable = true;
+                return;
+            }
+            _simCompute = std::make_unique<Compute>(_device.get(), _simShader, "ParticleSim");
+            _simCompute->setParameter("particles", _particleBuffer);
+            _simCompute->setThreadgroupSize(kSimThreadgroupSize, 1u, 1u);
+        }
+
+        _simCompute->setUniformBlock(&params, sizeof(params));
+        const uint32_t count = _options.numParticles;
+        _simCompute->setupDispatch(
+            (count + kSimThreadgroupSize - 1u) / kSimThreadgroupSize, 1u, 1u);
+
+        Compute* dispatch = _simCompute.get();
+        _device->computeDispatch({dispatch}, "particle-sim");
     }
 
     void ParticleEmitter::prepareRender(const Matrix4& view, const Matrix4& projection,

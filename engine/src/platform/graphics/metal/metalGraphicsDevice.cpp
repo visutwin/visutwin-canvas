@@ -300,10 +300,6 @@ namespace visutwin::canvas
             _clusterCellBuffer = nullptr;
         }
 
-        if (_particleSimPipeline) {
-            _particleSimPipeline->release();
-            _particleSimPipeline = nullptr;
-        }
 
         if (_framePool) {
             _framePool->release();
@@ -801,71 +797,6 @@ namespace visutwin::canvas
         // This replaces the previous setVertexBytes() path which was limited to 4KB.
         // The ring buffer supports arbitrary palette sizes within the 256KB/frame budget.
         _pendingPaletteOffset = _paletteRing->allocate(data, size);
-    }
-
-    namespace
-    {
-        // GPU particle simulation kernel: ages, integrates, and (for looping
-        // emitters) respawns particles in place. One thread per particle;
-        // deterministic staggered respawn — no atomics. Birth state derives from
-        // a per-particle hash so the emitter needs no CPU round trip.
-        // PARTICLE_SIM_KERNEL is embedded from shaders/metal/embedded/particle-sim.metal at build
-        // time (see tools/embed_msl.cmake).
-#include "embedded_shaders/particle-sim.metal.inc"
-    }
-
-    void MetalGraphicsDevice::simulateParticles(const std::shared_ptr<VertexBuffer>& particles,
-        const GpuParticleSimParams& params)
-    {
-        if (!particles) {
-            return;
-        }
-        auto* buffer = static_cast<MTL::Buffer*>(particles->nativeBuffer());
-        if (!buffer) {
-            return;
-        }
-
-        if (!_particleSimPipeline) {
-            NS::Error* error = nullptr;
-            auto* source = NS::String::string(PARTICLE_SIM_KERNEL, NS::UTF8StringEncoding);
-            auto* library = _device->newLibrary(source, nullptr, &error);
-            if (!library) {
-                spdlog::error("Particle sim kernel compile failed: {}",
-                    error ? error->localizedDescription()->utf8String() : "unknown");
-                return;
-            }
-            auto* fn = library->newFunction(NS::String::string("particleSimKernel", NS::UTF8StringEncoding));
-            if (fn) {
-                _particleSimPipeline = _device->newComputePipelineState(fn, &error);
-                fn->release();
-            }
-            library->release();
-            if (!_particleSimPipeline) {
-                spdlog::error("Particle sim pipeline creation failed");
-                return;
-            }
-        }
-
-        // Own command buffer, committed immediately: ordered before this frame's
-        // render command buffer on the same queue, so the vertex stage sees the
-        // updated pool (Metal tracks the buffer hazard automatically).
-        auto* commandBuffer = _commandQueue->commandBuffer();
-        if (!commandBuffer) {
-            return;
-        }
-        auto* encoder = commandBuffer->computeCommandEncoder();
-        if (!encoder) {
-            return;
-        }
-        encoder->setComputePipelineState(_particleSimPipeline);
-        encoder->setBuffer(buffer, 0, 0);
-        encoder->setBytes(&params, sizeof(GpuParticleSimParams), 1);
-        const uint32_t count = static_cast<uint32_t>(params.timeParams[3]);
-        constexpr uint32_t kThreadsPerGroup = 256;
-        const uint32_t groups = (count + kThreadsPerGroup - 1) / kThreadsPerGroup;
-        encoder->dispatchThreadgroups(MTL::Size(groups, 1, 1), MTL::Size(kThreadsPerGroup, 1, 1));
-        encoder->endEncoding();
-        commandBuffer->commit();
     }
 
     void MetalGraphicsDevice::setParticleState(const std::shared_ptr<VertexBuffer>& particles,

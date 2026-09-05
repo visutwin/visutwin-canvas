@@ -26,7 +26,6 @@ MODULES = (
     ("PostFullscreenVert", "post_fullscreen.vert", "vert"),
     ("EnvReprojectFrag", "env_reproject.frag", "frag"),
     ("InstanceCullComp", "instance_cull.comp", "comp"),
-    ("ParticleSimComp", "particle_sim.comp", "comp"),
     ("ParticleVert", "particle.vert", "vert"),
     ("ParticleFrag", "particle.frag", "frag"),
     ("GSplatVert", "gsplat.vert", "vert"),
@@ -141,13 +140,6 @@ def validate(module: str, reflection: dict) -> None:
                 f"bindings={bindings}, push={push_constant_size(reflection)}"
             )
         return
-    if module == "ParticleSimComp":
-        expected = [
-            (0, 0, "StorageBuffer", 0),
-            (0, 1, "UniformBuffer", 176),
-        ]
-        if bindings != expected or push_constant_size(reflection):
-            raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
         return
     if module == "ParticleVert":
         expected = [

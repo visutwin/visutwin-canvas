@@ -128,8 +128,6 @@ namespace visutwin::canvas
         }
         void setMorphState(const std::shared_ptr<VertexBuffer>& deltaBuffer,
             const void* params, size_t paramsSize) override;
-        void simulateParticles(const std::shared_ptr<VertexBuffer>& particles,
-            const GpuParticleSimParams& params) override;
         void setParticleState(const std::shared_ptr<VertexBuffer>& particles,
             const void* params, size_t paramsSize) override;
         void setGSplatState(const std::shared_ptr<VertexBuffer>& splats,
@@ -307,7 +305,6 @@ namespace visutwin::canvas
         void flushDeferredDestroys(bool force);
         void collectUploads(bool wait);
         void destroyComputeResources();
-        bool ensureParticleSimResources();
 
         // Record current viewport/scissor/depth-bias state into the live
         // command buffer.  Only valid while a render pass is active.
@@ -492,9 +489,6 @@ namespace visutwin::canvas
             std::vector<VkDescriptorType> descriptorTypes;
         };
         std::unordered_map<int, ComputePipelineResources> _computePipelines;
-        VkDescriptorSetLayout _particleSimSetLayout = VK_NULL_HANDLE;
-        VkPipelineLayout _particleSimPipelineLayout = VK_NULL_HANDLE;
-        VkPipeline _particleSimPipeline = VK_NULL_HANDLE;
 
         std::shared_ptr<VertexBuffer> _pendingParticleBuffer;
         std::array<uint8_t, sizeof(GpuParticleRenderParams)> _pendingParticleParams{};

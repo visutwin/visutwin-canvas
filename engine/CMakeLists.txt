@@ -146,7 +146,6 @@ if(VISUTWIN_BACKEND_VULKAN)
         "${_VK_SHADER_DIR}/post_fullscreen.vert"
         "${_VK_SHADER_DIR}/env_reproject.frag"
         "${_VK_SHADER_DIR}/instance_cull.comp"
-        "${_VK_SHADER_DIR}/particle_sim.comp"
         "${_VK_SHADER_DIR}/particle.vert"
         "${_VK_SHADER_DIR}/particle.frag"
         "${_VK_SHADER_DIR}/gsplat.vert"
@@ -197,7 +196,6 @@ if(VISUTWIN_BACKEND_METAL)
     file(MAKE_DIRECTORY "${_MSL_EMBED_DIR}")
 
     set(_MSL_EMBEDS
-        "particle-sim.metal|PARTICLE_SIM_KERNEL"
         "particle-render.metal|PARTICLE_SHADER_SOURCE"
         "gsplat-render.metal|GSPLAT_SHADER_SOURCE"
     )

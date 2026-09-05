@@ -487,3 +487,44 @@ which "made it worse and was reverted": capture both examples, then read the two
 shader blocks side by side. The earlier session had ruled out capture and sampling
 by experiment and then guessed at the combination, without ever diffing the two
 blocks — where all five differences were sitting in plain sight.
+
+## GPU particle simulation off the vtable; effect migration complete (2026-09-05)
+
+`simulateParticles` was the last effect on the `GraphicsDevice` vtable. It is now a
+shared kernel in `scene/particles/particleSimShaders.h` dispatched through the
+generic `Compute` seam, deleting the Metal kernel, the Vulkan `.comp`, both
+backends' dispatch code and pipeline objects, and the bundle generator's entry for
+it: 379 lines removed against 107 added.
+
+The migration needed no binding changes at all. Both kernels already declared the
+storage buffer at 0 and the parameter block at 1, which is exactly what Compute's
+name-order contract produces for one buffer plus a uniform block, and the old
+dispatch on both backends already used 256 threads per group with
+`ceil(count / 256)` groups.
+
+The one gap was that Compute could only build its uniform block from named scalars,
+packed in NAME order. Expressing `GpuParticleSimParams` — a mat4 and seven vec4s —
+as 44 named floats would have been unreadable and fragile, so `Compute` gained
+`setUniformBlock`, which supplies the block verbatim at the same binding. The two
+paths are mutually exclusive and a scalar setter clears the raw block.
+
+**What was left alone, deliberately.** `setParticleState`, `setGSplatState` and
+`setMorphState` are still virtual and should stay that way: they bind per-draw
+resources at fixed slots, which is the device's job, and folding three calls that
+differ in arity and slot ownership into one tagged call would read worse. That is
+now stated at the declarations rather than left to be rediscovered.
+
+**A finding that made verification awkward, and is worth its own fix.**
+`ParticleSystemComponentSystem` subscribes the per-frame update, but nothing
+constructs or registers that system, so the component's `update` never runs and the
+emitter never simulates. The component is also the only thing that constructs a
+`ParticleEmitter`. Wiring one into a scene as a probe therefore rendered nothing and
+dispatched nothing — not because of the migration, but because the feature is
+dormant. The Vulkan smoke test now drives `ParticleEmitter::update` directly, which
+is the only exercise of this path anywhere; it reports 512 particles simulated with
+validation clean.
+
+Metal is verified by construction rather than by execution: the kernel, bindings,
+threadgroup size and dispatch count are unchanged, and Compute/computeDispatch is
+already the Metal path the compute-particles example uses. There is no Metal GPU
+test harness to drive the emitter through.

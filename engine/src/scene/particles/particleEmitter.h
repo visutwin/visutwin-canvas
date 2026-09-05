@@ -22,6 +22,7 @@
 #include "core/math/vector3.h"
 #include "core/math/color.h"
 #include "core/math/matrix4.h"
+#include "platform/graphics/compute.h"
 #include "platform/graphics/graphicsDevice.h"
 
 namespace visutwin::canvas
@@ -137,6 +138,17 @@ namespace visutwin::canvas
         ParticleEmitterOptions _options;
 
         std::shared_ptr<VertexBuffer> _particleBuffer;  // GpuParticle pool (compute-written)
+
+        // The simulation step, dispatched through the generic Compute seam rather
+        // than a GraphicsDevice virtual. Built lazily on the first update so a
+        // device without compute simply never simulates.
+        static constexpr uint32_t kSimThreadgroupSize = 256u;  // matches local_size_x
+
+        void simulate(const GpuParticleSimParams& params);
+
+        std::shared_ptr<Shader> _simShader;
+        std::unique_ptr<Compute> _simCompute;
+        bool _simUnavailable = false;
         std::shared_ptr<Mesh> _quadMesh;
         std::shared_ptr<Material> _material;
         std::shared_ptr<Shader> _shader;

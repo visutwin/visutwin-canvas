@@ -38,6 +38,7 @@ namespace visutwin::canvas
 
     void Compute::setParameter(const std::string& name, const float value)
     {
+        _uniformBlock.clear();
         uint32_t bits = 0u;
         std::memcpy(&bits, &value, sizeof(bits));
         _uniformParameters[name] = bits;
@@ -45,11 +46,22 @@ namespace visutwin::canvas
 
     void Compute::setParameter(const std::string& name, const uint32_t value)
     {
+        _uniformBlock.clear();
         _uniformParameters[name] = value;
+    }
+
+    void Compute::setUniformBlock(const void* data, const size_t size)
+    {
+        _uniformParameters.clear();
+        const auto* bytes = static_cast<const uint8_t*>(data);
+        _uniformBlock.assign(bytes, bytes + size);
     }
 
     std::vector<uint8_t> Compute::uniformData() const
     {
+        if (!_uniformBlock.empty()) {
+            return _uniformBlock;
+        }
         std::vector<uint8_t> data(_uniformParameters.size() * sizeof(uint32_t));
         size_t offset = 0;
         for (const auto& bits : _uniformParameters | std::views::values) {

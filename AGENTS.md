@@ -256,12 +256,22 @@ fullscreen TRIANGLE and bind `_postSampler` (linear, clamp, no mip), not the sce
 sampler.
 
 Migrated: VSM blur, volumetric fog, CoC, DOF blur, depth-aware blur, compose,
-SSAO, TAA, and the whole env family (equirect-to-cube, reproject, convolve,
-atlas — see `scene/graphics/envBake.h`). **Still on the vtable (4 virtuals):** the
-compute and state group (`simulateParticles`, `setParticleState`,
-`setGSplatState`, `setMorphState`), which needs a compute seam that does not exist
-yet. `copyRenderTarget` and `generateMipmaps` are also virtuals but BELONG on the
-device and are not migration debt.
+SSAO, TAA, the whole env family (equirect-to-cube, reproject, convolve, atlas —
+see `scene/graphics/envBake.h`), and the GPU particle simulation, which now runs
+over the generic `Compute` seam from `scene/particles/particleSimShaders.h`.
+**The effect-pass migration is DONE.**
+
+What is still virtual is not debt. `copyRenderTarget` and `generateMipmaps` are
+generic device operations. `setParticleState`, `setGSplatState` and `setMorphState`
+bind per-draw resources at fixed slots — the same job as `setVertexBuffer` — and
+stay three named calls rather than one tagged call because they differ in arity and
+own different slots (particle and gsplat share 7/11, morph uses 9/10).
+
+A compute effect goes through `Compute` + `GraphicsDevice::computeDispatch`, not a
+new virtual. Parameters bind by NAME in sorted order (see `compute.h`); when the
+parameters are a struct rather than a few scalars, use `Compute::setUniformBlock`
+to supply the block verbatim instead of naming 44 floats whose order would then
+depend on their spelling.
 
 **Offline (out-of-frame) work** goes through `GraphicsDevice::beginOfflineWork` /
 `endOfflineWork`. Between them the ordinary render-pass and draw API is usable, so
@@ -443,6 +453,14 @@ does nothing, which is a misleading symptom.
   panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
+- **`ParticleSystemComponent` is unreachable from an application.**
+  `ParticleSystemComponentSystem` subscribes the per-frame update, but NOTHING ever
+  constructs or registers that system, so `ParticleSystemComponent::update` is never
+  called and the emitter it owns never simulates. The component is also the only
+  thing that constructs a `ParticleEmitter`, so the whole path is dormant: wiring an
+  emitter into a scene today renders nothing, which is what made verifying the
+  simulation migration awkward. The Vulkan smoke test now drives
+  `ParticleEmitter::update` directly and is the only exercise of it anywhere.
 - **Example coverage gaps**: morph weight animation, `ParticleSystemComponent`,
   gsplat SH bands 1-3, and clustered atlas shadows have no example.
 

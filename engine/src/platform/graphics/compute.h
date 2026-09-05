@@ -65,6 +65,18 @@ namespace visutwin::canvas
         void setParameter(const std::string& name, float value);
         void setParameter(const std::string& name, uint32_t value);
 
+        /// Supply the uniform block VERBATIM instead of building it from named
+        /// scalars. The block still lands where the class comment says (binding
+        /// b+t), so a kernel declares it the same way — this only changes how the
+        /// bytes are produced. Use it when the parameters are a struct rather than
+        /// a handful of scalars: expressing a mat4 plus seven vec4s as 44 separately
+        /// named floats would be unreadable AND fragile, because the loose path
+        /// orders members by NAME.
+        ///
+        /// Mutually exclusive with the scalar setters; whichever is non-empty wins,
+        /// and setting a scalar clears the block.
+        void setUniformBlock(const void* data, size_t size);
+
         /// The packed uniform block, empty when no scalar parameters were set.
         std::vector<uint8_t> uniformData() const;
 
@@ -89,7 +101,9 @@ namespace visutwin::canvas
         std::unordered_map<std::string, Texture*> _textureParameters;
         // Ordered: the binding index of a buffer / uniform member is its position here.
         std::map<std::string, std::shared_ptr<VertexBuffer>> _bufferParameters;
-        std::map<std::string, uint32_t> _uniformParameters;   // raw 4-byte payload, float bit-cast
+        std::map<std::string, uint32_t> _uniformParameters;
+        // Set by setUniformBlock; takes precedence over _uniformParameters.
+        std::vector<uint8_t> _uniformBlock;
         uint32_t _dispatchX = 1u;
         uint32_t _dispatchY = 1u;
         uint32_t _dispatchZ = 1u;
