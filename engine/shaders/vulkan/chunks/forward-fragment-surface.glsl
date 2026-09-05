@@ -30,8 +30,15 @@ void main() {
             sky = decodeEnv(texture(skyboxCube, vec3(-dir.x, dir.y, dir.z))) * intensity;
         } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
                    lighting.envParams.y > 0.5) {
+            // Negate X, the same way every other env-atlas lookup in this
+            // backend does (see the diffuse and specular IBL directions in
+            // forward-fragment-ambient) and the cubemap branch just above.
+            // Without it the sky was rendered mirrored: an exact left-right
+            // flip, which a full-width mean cannot see because mirroring
+            // preserves it.
             float intensity = max(lighting.envParams.x, 0.0);
-            sky = decodeEnv(texture(envAtlas, mapRoughnessUv(dirToEquirect(dir),
+            vec3 atlasDir = vec3(-dir.x, dir.y, dir.z);
+            sky = decodeEnv(texture(envAtlas, mapRoughnessUv(dirToEquirect(atlasDir),
                                     max(lighting.envParams.w, 0.0)))) * intensity;
         } else {
             sky = material.baseColor.rgb;

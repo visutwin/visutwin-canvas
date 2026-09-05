@@ -605,3 +605,41 @@ terms against the Metal chunks, and that would have been days of work in the wro
 file. Two shader bodies in one header are shared by convention only; unifying a
 uniform block does not unify the code. Read both bodies before designing an
 experiment — the same mistake the reflection-probe entry above records.
+
+## The Vulkan sky was mirrored (2026-09-05)
+
+The `ambient-occlusion-davinci` scene, which the compose fix above had just
+unmasked at 1.21x Metal, was not a mip problem and not a compose problem. The
+Vulkan env-atlas sky was an exact left-right FLIP of Metal's.
+
+The Vulkan sky path sampled the atlas with the raw view direction. Every other
+env-atlas lookup in that backend already negates X — the diffuse and specular IBL
+directions in `forward-fragment-ambient`, and the cubemap branch two lines above
+the atlas branch in the same function — because that is the engine's atlas
+handedness. Only the sky was missing it. One line.
+
+**Why it survived this long.** A mean over a horizontally symmetric region is
+invariant under a mirror. `post-processing`'s sky measured 0.9999 across the full
+width and was written off as agreeing exactly; split into halves it reads 1.111 on
+the left and 0.879 on the right. The davinci scene only stood out because its sky
+is strongly asymmetric, with the sun's warm lobe near one edge.
+
+**How it was pinned down.** The row profiles gave it away — Metal at x=128 read
+144 where Vulkan at x=896 read 144, and so on inward — and a direct check
+confirmed it: mean absolute difference of the sky region is 22.3 compared
+straight, and 0.00 compared mirrored. Zero, not small.
+
+Two false starts are worth recording. The first mirror test, on the davinci
+capture, FAILED, because the mirror of a sky box there lands on walls and objects;
+I moved on instead of retrying it on a scene that is sky from edge to edge. And
+the mip hypothesis in the open item was disproved in one run by forcing the
+example to mip 1, which left the divergence untouched.
+
+**Verification.** The davinci sky matches Metal to 1.0000 in both corners and the
+frame goes from 1.21 to 0.978. `post-processing`'s sky halves land at 0.998 and
+1.001. `clearcoat` measures 1.0000 and 0.9995 on its sky halves and 0.983 overall.
+`depth-of-field` improves from 1.006/1.003/0.999 to 1.001/1.001/1.000. Both suites
+green.
+
+Every Vulkan scene with an env-atlas sky was affected, and so was every dynamic
+reflection probe, since a probe captures the sky through this same path.

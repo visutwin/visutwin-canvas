@@ -363,7 +363,11 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
 ## Measuring a backend divergence
 
 Whole-frame mean luminance is a BAD signal: scenes animate, content differs, and
-the tonemap compresses whatever you are chasing. Instead:
+the tonemap compresses whatever you are chasing. A mean over a symmetric REGION is
+just as bad in a different way — it is invariant under a mirror, which is how a
+horizontally flipped Vulkan sky measured 0.9999 against Metal for as long as the
+backend has existed. Split every region you measure into halves, and when two
+halves diverge in opposite directions, test the mirror before theorising. Instead:
 
 1. Split the frame with `Camera::setDebugShaderPass` — `DEBUGPASS_ALBEDO` and
    `DEBUGPASS_LIGHTING` separate the material frontend from the lighting, and both
@@ -439,14 +443,6 @@ does nothing, which is a misleading symptom.
 
 ## Open items
 
-- **`ambient-occlusion-davinci` renders ~1.2x Metal, and it is the SKYBOX.** Lit
-  geometry sits at 0.96-0.97; the sky reads 1.16 on the left and 1.44 on the
-  upper right, warm-shifted. The one thing that separates it from every scene
-  whose sky matches to 0.999 is `setSkyboxMip(2)` — `post-processing` asks for mip
-  1 and agrees exactly. So suspect the env-atlas mip chain or the skybox LOD
-  mapping on Vulkan, not compose, and probe the sky region alone. Measured
-  2026-09-05, after the compose fix below; the old, wrong colour enhance was
-  darkening Vulkan and partly cancelling it, which is why it read 1.15 before.
 - **Reflection probes: the LOD/prefilter approximation still differs slightly.**
   Both backends now agree structurally (see the log for the 2026-09-05 fix), with
   the residual confined to pattern edges and grid lines — hardware trilinear mips
