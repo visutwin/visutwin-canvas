@@ -314,6 +314,13 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   and the 3D LUT — for as long as the file has existed. Before blaming a backend's
   lighting for a brightness gap, read the two bodies of the shader that produced
   the pixel side by side.
+- **`atan2(0, 0)` is undefined, and a normal of exactly +/-Y hits it** — which is
+  every fragment of an unrotated ground plane, the most common surface there is.
+  Metal returned an out-of-range azimuth, so `mapAmbientUv` mapped outside its
+  rect and the plane read its irradiance from the ROUGHNESS column instead: a
+  ground plane lit by a blue sky came back dark navy. Both `toSphericalUv` and
+  `dirToEquirect` now pick azimuth 0 at the pole. Any new direction-to-equirect
+  code owes the same guard.
 - **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
   Apple GPUs. Every optional texture sample must be gated on its flags bit or its
   runtime enable (`setEnvAtlasEnabled`, `hasSpecGlossMap` bit 21). This has bitten
@@ -450,16 +457,12 @@ does nothing, which is a misleading symptom.
   prefilter upstream bakes per level, and the two backends round it differently.
   Not worth chasing unless a scene shows it. The probes themselves are no longer
   suspect: with the sky fixed, a probe's captured sky matches Metal exactly.
-- **The `reflection-probe-dynamic` scene's indirect diffuse now runs ~5% HOT on
-  Vulkan, ~13% in blue on the ground.** Removing the double `(1 - metallic)` from
-  the env-atlas irradiance (see the log) moved that ground from 7% dark to 5%
-  bright, so a second, blue-weighted term is off by roughly 10% and the old bug
-  was masking it. Albedo matches EXACTLY under `DEBUGPASS_ALBEDO`, so it is
-  lighting, and the scene is unusual in setting `setSkyboxIntensity(2)` with
-  `setSkyboxMip(0)` and metalness 0.7 on every object, which is why it shows what
-  other scenes do not. Freeze the scene first — it orbits the camera AND spins the
-  objects with an incremental `rotate`, so a fixed frame number compares two
-  different scenes.
+- **`ambient-occlusion-davinci`'s FLOOR renders ~0.95x Metal.** Its sky matches
+  exactly and its lit geometry is the gap. Measured 2026-09-05 right after the
+  ground-plane pole fix, which brightened Metal's floor here by 2-5% and left
+  Vulkan's where it was, so this is the term the pole bug had been cancelling.
+  This scene has now revealed three separate divergences in a row; expect a
+  fourth rather than assuming the number is noise.
 - **`tools/generate-env-atlas` still does not produce a usable image.** Its
   readback calls `MTL::Texture::getBytes` on the baked atlas, which is a private-
   storage render target, so the values come back wrong even though the layout is

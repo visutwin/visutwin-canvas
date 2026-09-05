@@ -42,7 +42,13 @@ static inline float3 decodeEnvironment(float4 raw, constant LightingData& lighti
 
 static inline float2 toSphericalUv(float3 dir)
 {
-    const float2 sph = float2(atan2(dir.x, dir.z), asin(clamp(dir.y, -1.0, 1.0)));
+    // atan2(0, 0) is undefined, and a direction of exactly +/-Y hits it — which is
+    // every fragment of an unrotated ground plane. Metal returned an out-of-range
+    // azimuth there, so the mapped UV left the intended atlas rect and the plane
+    // read its irradiance out of the roughness column instead. The azimuth is
+    // arbitrary at the pole; pick zero, as the Vulkan chunk's atan already did.
+    const float azimuth = (dir.x == 0.0 && dir.z == 0.0) ? 0.0 : atan2(dir.x, dir.z);
+    const float2 sph = float2(azimuth, asin(clamp(dir.y, -1.0, 1.0)));
     const float2 uv = sph / float2(PI * 2.0, PI) + 0.5;
     return float2(uv.x, 1.0 - uv.y);
 }

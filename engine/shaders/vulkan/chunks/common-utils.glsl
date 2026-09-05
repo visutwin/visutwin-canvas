@@ -4,7 +4,11 @@ const float ATLAS_SEAM = 1.0 / 512.0;
 
 // Equirectangular direction → atlas UV (atan2 azimuth, asin elevation).
 vec2 dirToEquirect(vec3 dir) {
-    vec2 sph = vec2(atan(dir.x, dir.z), asin(clamp(dir.y, -1.0, 1.0)));
+    // atan(0, 0) is undefined in GLSL too. This backend happened to return 0 and
+    // so read the right texel, but the guard is here so neither backend depends
+    // on that. See the matching note in common-utils.metal.
+    float azimuth = (dir.x == 0.0 && dir.z == 0.0) ? 0.0 : atan(dir.x, dir.z);
+    vec2 sph = vec2(azimuth, asin(clamp(dir.y, -1.0, 1.0)));
     vec2 uv = sph / vec2(6.28318530718, 3.14159265359) + 0.5;
     return vec2(uv.x, 1.0 - uv.y);
 }

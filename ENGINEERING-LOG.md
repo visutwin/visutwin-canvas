@@ -687,3 +687,44 @@ ground (7% dark to 5% bright) means a SECOND, blue-weighted term is off by about
 10% and the old bug was cancelling part of it. That is now the open item, and it
 is the same shape as the two divergences before it: an error that measured well
 because another error was pulling the other way.
+
+## Ground planes read their irradiance from the wrong atlas rect (2026-09-05)
+
+The blue-weighted term the previous fix exposed was not a Vulkan bug. It was a
+Metal one, and it had been mis-lighting every unrotated ground plane in the engine.
+
+**The bisect.** The scene's directional light is pure YELLOW, so blue is a clean
+readout of indirect light alone. With the light off the ground read 1.05/1.10/1.06
+on Vulkan; at metalness 1, where the diffuse term drops out, the two backends
+matched at 1.0006; at metalness 0 the gap opened to 1.12/1.19/1.12. That put the
+whole divergence in the diffuse irradiance and nowhere else.
+
+**Making the shader show its work.** Both chunks were temporarily made to return
+the raw irradiance instead of shading. The curved objects came back byte-identical
+and the ground plane came back dark navy on Metal against sky blue on Vulkan — a
+plane facing straight up cannot receive a dark navy irradiance, so this was a
+correctness bug, not a parity one. Returning the lookup UV instead named it: on
+the ground Metal produced u = 0.00 where Vulkan produced 0.314, and the ambient
+rect only spans 0.252 to 0.373.
+
+**Cause.** `atan2(0, 0)` is undefined, and a direction of exactly +/-Y hits it.
+That is every fragment of an unrotated ground plane. Metal returned an
+out-of-range azimuth, `mapUv` mapped outside the ambient rect, and the sample
+landed in the ROUGHNESS column further down the atlas — which is why the wrong
+value still looked like a plausible blurry environment colour rather than obvious
+garbage. GLSL's `atan` happens to return 0 for the same input, so Vulkan was
+right by luck. Both now pick azimuth 0 at the pole explicitly.
+
+**Verification.** The frozen `reflection-probe-dynamic` ground goes from
+1.034/1.054/1.057 to 0.998/0.998/1.000 and the whole frame to 0.999/0.999/1.000;
+its diffuse-IBL-only isolate lands at 1.000. `reflection-probe` improves to
+0.9997/1.0013/1.0006. `clearcoat` and `depth-of-field` do not move at all on
+Metal, which is the expected signature — neither has a surface whose normal is
+exactly axis-aligned. Both suites green.
+
+**What it unmasked, again.** Metal's floor in `ambient-occlusion-davinci`
+brightened 2-5% and Vulkan's stayed put, so that scene's floor now reads 0.95.
+That is the fourth divergence in this chain and the third time this particular
+scene has been the one holding the next one. The pattern is now well established
+enough to state as a rule: a scene that measures well is as likely to hold two
+errors that cancel as none.
