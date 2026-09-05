@@ -1006,3 +1006,41 @@ particle port leaves out upstream's screen-space reference panel.
 Vulkan renders the parallax room at 0.93-0.97 of Metal. That scene is heavily
 normal-mapped and the two backends interpret `normalScale` differently on purpose,
 so this is expected rather than new.
+
+## A wide line renderer (2026-09-05)
+
+The audit called this the best value-to-effort item among the feature gaps, and a
+scientific-visualization engine without per-point line colour and width is missing
+a primitive rather than a nicety: a hardware line is one pixel wide and takes
+neither.
+
+**What it is.** `WideLine` holds a polyline as packed position, colour and width
+arrays. `WideLineRenderer` draws every line it owns in ONE instanced draw, one
+instance per segment, expanded to a quad plus caps and joins in the vertex shader.
+Because everything that varies rides in the per-segment record, lines of different
+widths, colours, caps, joins and dash patterns stay in the same batch.
+
+**What made it cheap.** The storage-draw seam added for `compute/particles` in
+August is exactly the shape this needs: an app-owned buffer, one instance per
+record, and a params block, with a ShaderMaterial carrying both languages. No new
+device API, no custom instancing vertex format — which was the thing I expected to
+block it, since this engine's instancing layouts are fixed 64- and 80-byte strides.
+
+The template geometry comes from the VERTEX ID rather than a vertex buffer: a quad
+for the body, two 16-triangle discs for round caps and joins, and two bevel
+triangles. Every instance draws the same vertex count, and a piece the current
+style does not want collapses to zero size rather than being skipped, which is
+upstream's own trick and is what keeps it to a single draw.
+
+**Verification.** The example is a port of upstream `graphics/wide-line`: 96 points
+on a sine wave, width ramping 4 to 18 pixels, colour cyan to pink, round caps and
+joins. Metal and Vulkan render it BYTE-IDENTICAL, which is worth noting — a
+screen-space expansion driven entirely by one shared shader has nothing left to
+diverge on. Both suites green.
+
+One small engine addition fell out of it: `ExampleApp` now exposes its window size,
+because a screen-space width has to be told the render target's pixel dimensions
+before the first frame.
+
+**Not ported.** Upstream's controls panel exposes every setting live; the example
+cycles caps and joins and toggles dashes from the keyboard instead.

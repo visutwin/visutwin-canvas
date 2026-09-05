@@ -40,7 +40,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
-  examples/        # 49 example applications, all derived from ExampleApp
+  examples/        # 50 example applications, all derived from ExampleApp
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -492,6 +492,13 @@ during unrelated work are repeated here.
   composition renders cameras in construction order, so the six face cameras must
   come first. The reflective object also has to sit on a layer excluded from the
   probe's capture layers, or it self-captures.
+- **A wide line is one instance per SEGMENT, expanded in the vertex shader.** The
+  template geometry (quad body, two discs for round caps and joins, two bevel
+  triangles) comes from the VERTEX ID rather than a vertex buffer, so every
+  instance draws the same vertex count and a piece the current style does not want
+  collapses to zero size instead of being skipped. Widths are screen pixels by
+  default, which is why the expansion happens after the projection rather than in
+  world space.
 - **GPU instance culling requires the 80-byte stride.** Its kernel compacts fixed
   80-byte records. The instanced shader variant follows THE DRAW, not the
   material: the renderer derives it from the mesh instance's buffer format.

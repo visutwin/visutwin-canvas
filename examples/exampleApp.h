@@ -161,6 +161,11 @@ namespace visutwin::canvas
         /// Ends the frame loop after the current frame.
         void quit() { _running = false; }
 
+        /// The window size the example asked for, in points. A screen-space effect
+        /// that has to size itself needs this before the first frame.
+        [[nodiscard]] int windowWidth() const { return _options.width; }
+        [[nodiscard]] int windowHeight() const { return _options.height; }
+
         /// Absolute path to a shared asset, e.g. assetPath("models/fox.glb").
         [[nodiscard]] static std::string assetPath(std::string_view relative);
 

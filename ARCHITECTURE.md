@@ -231,6 +231,27 @@ Example: `parallax-mapping-example.cpp`, a port of upstream
 `materials/parallax-mapping` — a closed brick room and a brick sphere under a spot
 and an omni light.
 
+### Wide Lines
+`scene/graphics/wideLine.h` + `wideLineRenderer.h` (upstream
+`extras/renderers/wide-line*.js`): connected polylines with a colour and a width
+PER POINT, which a hardware line cannot do. `WideLine` holds the point data as
+packed arrays; `WideLineRenderer` owns an entity and draws every line it has been
+given in ONE instanced draw, one instance per segment, through the storage-draw
+seam (`MeshInstance::setStorageDraw`). Lines of different widths, colours, caps,
+joins and dash patterns stay in the same batch because all of it rides in the
+per-segment record.
+
+- Caps are butt, square or round; joins are miter, bevel or round; a line can be
+  closed, and can carry a dash/gap/offset pattern measured along its own length so
+  the pattern is continuous across segments.
+- `setWidthUnits` picks screen PIXELS (the default) or world units. Either way the
+  expansion happens in screen space after the projection, which is what keeps a
+  pixel width constant with distance.
+- The renderer uploads only when a line reports itself dirty, so `update()` every
+  frame costs nothing while the lines are still, and a line whose points move does
+  not reallocate its buffer unless the segment count grows.
+- Example: `wide-line-example.cpp`, a port of upstream `graphics/wide-line`.
+
 ### App-facing Compute + Storage Draws
 Upstream's `compute/particles` needs two things an application can reach: a compute
 shader over app-owned storage buffers, and a draw that expands one instance per record

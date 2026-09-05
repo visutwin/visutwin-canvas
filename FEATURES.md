@@ -7,6 +7,7 @@ the [README](README.md).
 ## Rendering & materials
 - **Forward PBR renderer** (metalness/roughness) with multi-light support (directional, point, spot, rectangular/disk/spherical **area lights** via LTC) and a frame-graph pass scheduler
 - **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, **parallax occlusion mapping** (height base + self-shadowing), **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (UDN), and vertex-stage **displacement mapping**
+- **Wide lines**: connected polylines with per-point colour and width, caps, joins and dash patterns, batched into one instanced draw
 - **Rigid-body physics** behind an application-supplied `PhysicsWorld` seam, with a Jolt backend: box/sphere/capsule/cylinder shapes, static/dynamic/kinematic bodies, forces, impulses, raycasts, and **joints** (fixed, ball, hinge, slider, 6dof) with limits, motors and break impulses
 - **Image-based lighting**: environment atlas (GGX/Lambert prefiltered), HDR cubemap skybox, **ambient SH light probes**, and **box-projected cubemap reflection probes** (parallax-corrected local reflections)
 - **Dynamic grab-pass refraction** with chromatic **dispersion** and KHR_materials_volume Beer-law attenuation
