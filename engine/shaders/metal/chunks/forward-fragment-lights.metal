@@ -419,6 +419,21 @@
         }
 #endif
 
+#if VT_FEATURE_PARALLAX
+        // Parallax self-shadowing: the height field casts onto itself, which the
+        // cascade map cannot see because it only knows the flat polygon. Only the
+        // directional light pays for the extra march.
+        if (lightType == 0u && parallaxShadowActive) {
+            const float3 lightDirTS = normalize(float3(
+                dot(parallaxTangent, L), dot(parallaxBitangent, L),
+                dot(parallaxNormalGeom, L)));
+            shadowFactor *= parallaxSelfShadow(parallaxUv, lightDirTS,
+                heightMapTexture, defaultSampler, material.heightMapFactor,
+                saturate(material.heightMapParams.x), parallaxSurfaceDepth,
+                material.heightMapParams.y);
+        }
+#endif
+
 #if VT_FEATURE_SHADOW_CATCHER
         // accumulate shadow factor for shadow catcher output.
         // Shadow catcher only cares about directional light shadows.

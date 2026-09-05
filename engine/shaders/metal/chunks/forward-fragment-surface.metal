@@ -12,6 +12,16 @@
     float2 uvEmissive = ((material.flags & (1u << 12)) != 0u) ? rd.uv1 : rd.uv0;
     uvEmissive = applyUvTransform(uvEmissive, material.emissiveTransform0, material.emissiveTransform1);
 
+    // Parallax self-shadowing state, consumed by the directional light in
+    // forward-fragment-lights. Declared unconditionally so that chunk needs no
+    // matching feature guard around the variables themselves.
+    float3 parallaxTangent = float3(1.0, 0.0, 0.0);
+    float3 parallaxBitangent = float3(0.0, 0.0, 1.0);
+    float3 parallaxNormalGeom = float3(0.0, 1.0, 0.0);
+    float2 parallaxUv = float2(0.0);
+    float parallaxSurfaceDepth = 0.0;
+    bool parallaxShadowActive = false;
+
 #if VT_FEATURE_PARALLAX
     // Parallax Occlusion Mapping: offset all texture UVs before any sampling.
     // Parallax mapping, enhanced with multi-step POM for quality close-ups.
@@ -28,9 +38,10 @@
             const float3 viewDirTS = normalize(
                 float3(dot(T_par, V_par), dot(B_par, V_par), dot(N_geom, V_par)));
 
+            const float heightBase = saturate(material.heightMapParams.x);
             const float2 pomUV = parallaxOcclusionMap(
                 uvBase, viewDirTS, heightMapTexture, defaultSampler,
-                material.heightMapFactor);
+                material.heightMapFactor, heightBase);
             const float2 uvDelta = pomUV - uvBase;
 
             uvBase       += uvDelta;
@@ -38,6 +49,14 @@
             uvMetalRough += uvDelta;
             uvOcclusion  += uvDelta;
             uvEmissive   += uvDelta;
+
+            parallaxTangent = T_par;
+            parallaxBitangent = B_par;
+            parallaxNormalGeom = N_geom;
+            parallaxUv = pomUV;
+            parallaxSurfaceDepth = parallaxSampleDepth(
+                heightMapTexture, defaultSampler, pomUV, heightBase);
+            parallaxShadowActive = material.heightMapParams.y > 0.0;
         }
     }
 #endif

@@ -12,6 +12,18 @@
             L = normalize(-light.directionType.xyz);
             // Directional light is the CSM shadow caster.
             atten = sampleDirectionalShadow(fragWorldPos, fragViewDepth, N, L);
+            // Parallax self-shadowing: the height field casts onto itself, which
+            // the cascade map cannot see because it only knows the flat polygon.
+            // Only the directional light pays for the extra march.
+            if (parallaxShadowActive) {
+                vec3 lightDirTS = normalize(vec3(
+                    dot(parallaxTangent, L), dot(parallaxBitangent, L),
+                    dot(parallaxNormalGeom, L)));
+                atten *= parallaxSelfShadow(parallaxUv, lightDirTS,
+                    material.heightMapFactor,
+                    clamp(material.heightMapParams.x, 0.0, 1.0),
+                    parallaxSurfaceDepth, material.heightMapParams.y);
+            }
             // Shadow catcher only tracks directional shadows, and accumulates
             // here — before the NdotL early-out below — so back-facing texels
             // still report the shadow they receive (parity with

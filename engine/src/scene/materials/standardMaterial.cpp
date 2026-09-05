@@ -55,7 +55,9 @@ namespace visutwin::canvas
         _normalMap = nullptr;
         _bumpiness = 1.0f;
         _heightMap = nullptr;
-        _heightMapFactor = 0.05f;
+        _heightMapFactor = 0.1f;
+        _heightMapBase = 0.0f;
+        _heightMapShadow = 0.0f;
         _anisotropy = 0.0f;
         _transmissionFactor = 0.0f;
         _refractionIndex = 1.5f;
@@ -211,6 +213,8 @@ namespace visutwin::canvas
         // parallax / height map uniform packing.
         if (_heightMap) {
             uniforms.heightMapFactor = _heightMapFactor;
+            uniforms.heightMapParams[0] = std::clamp(_heightMapBase, 0.0f, 1.0f);
+            uniforms.heightMapParams[1] = std::clamp(_heightMapShadow, 0.0f, 1.0f);
             uniforms.flags |= (1u << 17);   // bit 17: hasHeightMap
         }
 

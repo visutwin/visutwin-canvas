@@ -167,6 +167,20 @@ namespace visutwin::canvas
         void setLightMap(Texture* texture) { _lightMap = texture; _dirtyShader = true; markUniformsDirty(); }
         float heightMapFactor() const { return _heightMapFactor; }
         void setHeightMapFactor(const float value) { _heightMapFactor = value; markUniformsDirty(); }
+        /**
+         * The height-map value that reads as the ORIGINAL surface. Texels above it
+         * stand proud of the polygon, texels below sink into it. 0 (the default)
+         * puts the whole displacement below the surface.
+         */
+        float heightMapBase() const { return _heightMapBase; }
+        void setHeightMapBase(const float value) { _heightMapBase = value; markUniformsDirty(); }
+        /**
+         * Parallax self-shadowing strength, 0..1. Above 0 the directional light
+         * marches the height field and darkens texels its ray passes over. Costs a
+         * second march per shaded fragment, so it is off by default.
+         */
+        float heightMapShadow() const { return _heightMapShadow; }
+        void setHeightMapShadow(const float value) { _heightMapShadow = value; markUniformsDirty(); }
         // --- Anisotropy ---
         float anisotropy() const { return _anisotropy; }
         void setAnisotropy(const float value) { _anisotropy = value; _dirtyShader = true; markUniformsDirty(); }
@@ -351,7 +365,9 @@ namespace visutwin::canvas
 
         Texture* _heightMap = nullptr;
         Texture* _lightMap = nullptr;
-        float _heightMapFactor = 0.05f;
+        float _heightMapFactor = 0.1f;
+        float _heightMapBase = 0.0f;
+        float _heightMapShadow = 0.0f;
 
         float _anisotropy = 0.0f;
 

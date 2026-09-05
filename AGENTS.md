@@ -40,7 +40,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
-  examples/        # 46 example applications, all derived from ExampleApp
+  examples/        # 47 example applications, all derived from ExampleApp
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -421,6 +421,19 @@ during unrelated work are repeated here.
 - **GPU instance culling requires the 80-byte stride.** Its kernel compacts fixed
   80-byte records. The instanced shader variant follows THE DRAW, not the
   material: the renderer derives it from the mesh instance's buffer format.
+- **Parallax `heightMapBase` shifts the ray's ENTRY UV, not just the depths.**
+  The base is the texel value that reads as the original surface, so a non-zero
+  base lifts part of the height field above the polygon and the view ray has to
+  enter higher up. Offsetting only the depths moves the ray and the field by the
+  same amount and changes nothing at all — the images come back bit-identical,
+  which is how the first attempt at this looked like it worked. The entry UV must
+  move by the lateral distance the ray covers over that height. Base 0 reproduces
+  the plain `1 - height` the port used before the parameter existed.
+- **Parallax self-shadowing costs a second march and only the DIRECTIONAL light
+  pays it.** It runs inside the light loop, which is behind fragment-varying
+  control flow, so its height taps use an explicit LOD; the view march sits in
+  uniform flow at the top of the shader and keeps implicit LOD so the height map
+  keeps its mips. `setHeightMapShadow` defaults to 0, so nothing pays unless asked.
 - **Opacity dither is an opaque-pass technique.** Keep the material
   non-transparent; alpha comes from `setOpacity` or texture alpha. `setAlphaDither`
   decouples dither density from opacity and rides in `dispersionParams.y`, where

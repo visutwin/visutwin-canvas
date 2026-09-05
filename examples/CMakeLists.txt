@@ -70,6 +70,7 @@ function(visutwin_add_example example_name)
 endfunction()
 
 visutwin_add_example(particle-system)
+visutwin_add_example(parallax)
 visutwin_add_example(taa)
 visutwin_add_example(area-picker)
 visutwin_add_example(render-to-texture)

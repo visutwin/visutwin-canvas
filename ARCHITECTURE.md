@@ -202,6 +202,34 @@ it widens every existing spot-light example to upstream's geometry.
 ### GPU Particle System
 `engine/src/scene/particles/` + `framework/components/particlesystem/` (upstream particle-system component, GPU-sim subset; implemented 2026-07-13): **ParticleSystemComponent** — mutate `options()` then `apply()`; `play/pause/stop/reset`. Simulation is a backend-agnostic compute dispatch (`ParticleEmitter::simulate` builds a `Compute` over the kernels in `scene/particles/particleSimShaders.h` — MSL and GLSL under one name — and calls `GraphicsDevice::computeDispatch`, ordered before the frame's render encoding) over a persistent 48-byte `GpuParticle` pool: deterministic staggered births (no atomics; particle i born at `i*birthInterval`, respawn keeps the stream continuous), hash-seeded spawn (box/sphere shapes), velocity base+spread, gravity, damping, per-particle lifetime/rotation ranges. Rendering mirrors the gsplat branch: `MeshInstance::particleEmitter()` keyed instanced tri-strip quad per particle, self-contained billboard shader (particle pool vertex slot 7, `GpuParticleRenderParams` slot 11 — SHARED with gsplat slots, a draw is one or the other), curves (`scaleGraph`/`colorGraph`/`alphaGraph`) quantized to 16-sample LUTs in the render params, sprite-sheet animation (`animTilesX/Y`, `animNumFrames`), additive/normal/premultiplied blending, optional `colorMap` bound via the material baseColor slot (procedural soft disc when null), `intensity` for HDR glow. Component update hooks the engine "update" event; the emitter mesh instance sets `cull=false` (world-space particles ignore the node transform). DEVIATIONS: GPU path only (no CPU sim), no sorting, unlit, screen-aligned billboards only (no stretch/alignToMotion/mesh particles), constant initial velocity instead of velocity/radial graphs, no wrap/depth-softening/pre-warm. NOTE: `MetalParticleComputePass` (flow-viz velocity-field advector) is a separate, unrelated compute pass. The sim kernel + billboard shader (and the gsplat shader) live as editable `.metal` files under `engine/shaders/metal/embedded/` and are wrapped into raw-string constants at build time by `tools/embed_msl.cmake` (CMake `add_custom_command` → generated `.inc` `#include`d inside the anonymous namespace; regenerates on `.metal` edit, no runtime filesystem dependency — DEVIATION from the runtime-loaded ShaderChunks registry, matching the compile-time `areaLightLuts` embed). Example: `particle-system-example.cpp` (an additive box fountain on the numbered sprite sheet plus an alpha-blended damped sphere puff), verified on both backends 2026-09-05. It has to call `options.registerComponentSystem<ParticleSystemComponentSystem>()` in `configure`: component systems come from `AppOptions::componentSystems`, so a component whose system no application registers is constructed and then never updated. Upstream's own counterparts are `graphics/particles-spark` / `particles-snow` / `particles-anim-index`, none of which are ported.
 
+### Parallax Occlusion Mapping
+`VT_FEATURE_PARALLAX` (upstream `parallax.js`, plus the 2.22 additions): the height
+map displaces every texture UV before any map is sampled, so colour, normal,
+metal/rough, occlusion and emissive all read the displaced point. Turn it on with
+`StandardMaterial::setHeightMap`; `setHeightMapFactor` is the displacement depth
+(default **0.1**, upstream's 2.22 value — this was 0.05 before, a deliberate
+BREAKING change for anything that relied on the default).
+
+- **`setHeightMapBase`** is the texel value that reads as the ORIGINAL surface.
+  Below it the field sinks into the polygon, above it the field stands proud. 0
+  (the default) puts the whole map below the surface, which is exactly the
+  `1 - height` the port marched before the parameter existed, so existing
+  materials are unchanged. The base moves the ray's ENTRY UV as well as the
+  depths — see the gotcha in `AGENTS.md`, because shifting only the depths is a
+  no-op that looks like it works.
+- **`setHeightMapShadow`** (0..1, default 0 = off) marches the height field a
+  second time toward the light and darkens texels the ray passes over, which is
+  self-shadowing the cascade map cannot do because it only knows the flat polygon.
+  DEVIATION: only the DIRECTIONAL light pays for it; local lights would each need
+  their own march. The shadow march samples at an explicit LOD because it runs
+  inside the light loop, behind fragment-varying control flow; the view march
+  keeps implicit LOD and therefore the height map's mips.
+
+The march itself is an adaptive 8-32 step search with a linear crossing solve,
+shared by both backends as `common-parallax.metal` / `common-parallax.glsl`.
+Example: `parallax-example.cpp` — four quads of the seaside-rocks material that
+differ only in these settings, read at a grazing angle.
+
 ### App-facing Compute + Storage Draws
 Upstream's `compute/particles` needs two things an application can reach: a compute
 shader over app-owned storage buffers, and a draw that expands one instance per record

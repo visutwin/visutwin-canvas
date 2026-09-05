@@ -96,7 +96,14 @@
     /* the gloss / thickness / refraction map to read (0=r,1=g,2=b,3=a). A NEGATIVE */ \
     /* channel means "no map bound": the flags word has no spare bits left (25-27 */ \
     /* and 29-31 carry the two dither modes), so presence rides in the sign here. */ \
-    X(vec4, mapChannelParams, {1.0f, -1.0f, -1.0f, -1.0f})
+    X(vec4, mapChannelParams, {1.0f, -1.0f, -1.0f, -1.0f}) \
+    /* --- Parallax occlusion mapping --- */ \
+    /* x = height-map base: the texel value that reads as the ORIGINAL surface, so */ \
+    /* anything above it stands proud and anything below sinks in. 0 keeps the whole */ \
+    /* map below the surface, which is what this port did before the field existed. */ \
+    /* y = self-shadow strength (0 = off); the directional light marches the height */ \
+    /* field and darkens texels its ray passes over. zw = pad. */ \
+    X(vec4, heightMapParams, {0.0f, 0.0f, 0.0f, 0.0f})
 
 namespace visutwin::canvas
 {

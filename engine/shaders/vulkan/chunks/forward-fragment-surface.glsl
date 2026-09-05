@@ -81,6 +81,15 @@ void main() {
     // Parallax occlusion mapping offsets all material UVs before any sampling.
     // The flags bit matters as well as the feature gate: an unbound image reads
     // as white here, which would offset UVs on a material that has no height map.
+    // Parallax self-shadowing state, consumed by the directional light in
+    // forward-fragment-lights.
+    vec3 parallaxTangent = vec3(1.0, 0.0, 0.0);
+    vec3 parallaxBitangent = vec3(0.0, 0.0, 1.0);
+    vec3 parallaxNormalGeom = vec3(0.0, 1.0, 0.0);
+    vec2 parallaxUv = vec2(0.0);
+    float parallaxSurfaceDepth = 0.0;
+    bool parallaxShadowActive = false;
+
     if (vtFeatureEnabled(VT_FEATURE_PARALLAX_BIT) &&
         (material.flags & FLAG_HAS_HEIGHTMAP) != 0u &&
         material.heightMapFactor > 0.0) {
@@ -93,13 +102,22 @@ void main() {
             // dot(basis, V) transforms the world view vector into tangent space.
             vec3 viewDirTS = normalize(
                 vec3(dot(tPar, vPar), dot(bPar, vPar), dot(nGeom, vPar)));
-            vec2 uvDelta = parallaxOcclusionMap(
-                uvBase, viewDirTS, material.heightMapFactor) - uvBase;
+            float heightBase = clamp(material.heightMapParams.x, 0.0, 1.0);
+            vec2 pomUv = parallaxOcclusionMap(
+                uvBase, viewDirTS, material.heightMapFactor, heightBase);
+            vec2 uvDelta = pomUv - uvBase;
             uvBase       += uvDelta;
             uvNormal     += uvDelta;
             uvMetalRough += uvDelta;
             uvOcclusion  += uvDelta;
             uvEmissive   += uvDelta;
+
+            parallaxTangent = tPar;
+            parallaxBitangent = bPar;
+            parallaxNormalGeom = nGeom;
+            parallaxUv = pomUv;
+            parallaxSurfaceDepth = parallaxSampleDepth(pomUv, heightBase);
+            parallaxShadowActive = material.heightMapParams.y > 0.0;
         }
     }
 

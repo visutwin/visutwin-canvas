@@ -775,3 +775,42 @@ those two cases is the whole standard.
 actually applies to the SSAO depth tap, at runtime rather than by reading the
 sampler-creation code, since the quad path and the per-texture path do not
 necessarily use the same sampler.
+
+## Parallax occlusion mapping, the 2.22 additions (2026-09-05)
+
+The port already marched a height field; what 2.22 added was a reference plane, a
+self-shadow pass and a new default. All three landed on both backends.
+
+**`heightMapBase`, and the mistake worth keeping.** The base is the texel value
+that reads as the original surface, so a non-zero base lifts part of the field
+above the polygon. My first implementation offset the sampled depths by the base
+and started the march at `-base` — which is a pure shift of both the ray and the
+field, and produced images that were bit-identical to base 0. The controlled A/B
+caught it: the quad under test matched its own no-base render exactly, where a
+working parameter should have moved it. The fix is that the ray's ENTRY UV has to
+move too, by the lateral distance the ray covers while descending from the base
+plane to the polygon. After that the same A/B reports a mean absolute difference
+of 31.2 levels on the quad under test and 0.00 on its neighbour.
+
+**Self-shadowing.** A second march from the displaced point toward the light,
+folded into the directional light's attenuation. Only that light pays for it;
+giving every local light its own march is not worth the cost, and is recorded as a
+deviation rather than left to be discovered. The shadow march samples at an
+explicit LOD because it sits inside the light loop, behind fragment-varying
+control flow, where derivatives are undefined; the view march stays on implicit
+LOD so the height map keeps its mips. Verified the same way: 6.8 levels mean
+absolute difference on the quad it applies to, 0.00 on its neighbour.
+
+My first scaling for it multiplied the accumulated occlusion by the step count,
+which drove the quad to 0.59 of its unshadowed brightness — the occlusion term is
+already a fraction of the marched range, so the extra factor of 16 saturated it.
+A factor of 2 gives 0.94, which reads as a shadow rather than as a stain.
+
+**The breaking default.** `heightMapFactor` went from 0.05 to 0.1, matching
+upstream's change from 0.025. Nothing in the repository relied on it: no example
+set a height map before this one, and the glTF parser does not bind one at all.
+
+**Verification.** The new `parallax-example` renders 0.9995/0.9996/0.9997 Vulkan
+against Metal, which is the run-to-run floor for this harness. `clearcoat` is
+byte-identical on Metal before and after, confirming the extra locals the surface
+chunk now declares cost nothing when no height map is bound. Both suites green.
