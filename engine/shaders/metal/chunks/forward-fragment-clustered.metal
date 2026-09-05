@@ -49,9 +49,15 @@
                 if (attenuation < 0.00001) continue;
 
                 // Clustered spot shadow: sample this light's slice of the shadow atlas.
-                // shadowData: x=castShadows, y=bias, z=intensity, w=atlasSlice.
+                // shadowData: x=castShadows, y=normalOffsetBias, z=intensity, w=atlasSlice.
+                // The compare depth carries NO bias of its own: the atlas pass already
+                // applied hardware polygon offset, and a shader bias on this projection
+                // is hopeless — a spot with near 0.01 and range 150 crushes the whole
+                // scene into ~0.001 of depth, which any bias worth the name swamps.
+                // Only the receiver's normal offset is applied, as upstream does.
                 if (cl.shadowData.x > 0.5) {
-                    const float4 sc = cl.shadowMatrix * float4(rd.worldPos, 1.0);
+                    const float3 shadowPosW = rd.worldPos + N * cl.shadowData.y;
+                    const float4 sc = cl.shadowMatrix * float4(shadowPosW, 1.0);
                     const float sw = max(sc.w, 1e-6);
                     const float3 scoord = sc.xyz / sw;
                     if (scoord.x >= 0.0 && scoord.x <= 1.0 &&
@@ -61,7 +67,7 @@
                         const float res = float(clusterShadowAtlas.get_width());
                         if (res > 0.0) {
                             const float vis = getShadowPCF3x3Array(clusterShadowAtlas, scoord.xy,
-                                scoord.z - cl.shadowData.y, res, slice);
+                                scoord.z, res, slice);
                             attenuation *= mix(1.0, vis, cl.shadowData.z);
                         }
                     }

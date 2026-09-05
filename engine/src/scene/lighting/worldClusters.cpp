@@ -231,7 +231,7 @@ namespace visutwin::canvas
             // with an allocated atlas slice cast a clustered shadow.
             const bool hasShadow = ld.castShadows && ld.isSpot && ld.atlasSlice >= 0;
             gpu.shadowData[0] = hasShadow ? 1.0f : 0.0f;
-            gpu.shadowData[1] = ld.shadowBias;
+            gpu.shadowData[1] = ld.shadowNormalBias;
             gpu.shadowData[2] = ld.shadowIntensity;
             gpu.shadowData[3] = static_cast<float>(ld.atlasSlice);
             if (hasShadow) {

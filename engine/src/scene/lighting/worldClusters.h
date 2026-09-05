@@ -43,7 +43,8 @@ namespace visutwin::canvas
         float params[4] = {};            // x=innerConeCos, y=isSpot(0/1), z=falloffLinear(0/1), w=reserved
         // Clustered spot shadows (LightTextureAtlas): world→atlas-slice shadow VP.
         float shadowMatrix[16] = {};     // column-major float4x4 (GPU convention)
-        float shadowData[4] = {};        // x=castShadows(0/1), y=bias, z=intensity, w=atlasSlice(float)
+        float shadowData[4] = {};        // x=castShadows(0/1), y=normalOffsetBias,
+                                         // z=intensity, w=atlasSlice(float)
     };
 
     /**
@@ -65,7 +66,10 @@ namespace visutwin::canvas
         // Clustered spot shadow (via LightTextureAtlas). castShadows=false → no shadow.
         bool castShadows = false;
         Matrix4 shadowMatrix = Matrix4::identity();  // world→atlas-slice shadow VP
-        float shadowBias = 0.0005f;
+        // Upstream's clustered spot shadow applies NO depth bias in the shader
+        // ("depth bias is already applied on render" — the pass sets hardware
+        // polygon offset). What it DOES apply is a normal offset on the receiver.
+        float shadowNormalBias = 0.0f;
         float shadowIntensity = 1.0f;
         int atlasSlice = -1;                         // depth-array slice index
     };

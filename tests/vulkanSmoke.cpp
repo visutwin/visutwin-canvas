@@ -1489,7 +1489,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 light.falloffModeLinear = true;
                 light.castShadows = castShadows;
                 light.shadowMatrix = lightShadowMatrix;
-                light.shadowBias = 0.0005f;
+                light.shadowNormalBias = 0.0f;
                 light.shadowIntensity = 1.0f;
                 light.atlasSlice = 1;
 

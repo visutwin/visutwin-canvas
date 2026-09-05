@@ -1052,8 +1052,14 @@ namespace visutwin::canvas
                     lcd.castShadows = true;
                     lcd.shadowMatrix = dispatchEntry.sceneLight->shadowViewProjection();
                     lcd.atlasSlice = dispatchEntry.sceneLight->atlasSlice();
-                    // Same convention as the non-clustered local path above.
-                    lcd.shadowBias = -dispatchEntry.sceneLight->shadowBias() * 20.0f;
+                    // NOT the non-clustered path's depth bias. A clustered spot's
+                    // depth is crushed against 1.0 by a near clip of 0.01 against a
+                    // range of 150, so the whole scene spans ~0.001 of depth while
+                    // that bias is 0.08 — it lit every fragment and erased the
+                    // feature. Upstream biases these on render (hardware polygon
+                    // offset, which the atlas pass already applies) and offsets the
+                    // receiver along its normal in the shader instead.
+                    lcd.shadowNormalBias = dispatchEntry.sceneLight->normalBias();
                     lcd.shadowIntensity = dispatchEntry.sceneLight->shadowIntensity();
                 }
                 clusterLocalLights.push_back(lcd);

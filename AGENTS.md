@@ -408,6 +408,14 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   `castShadows` when it runs out — which silently capped clustered spot shadows at
   `ShadowParams::kMaxLocalShadows` (two), whatever the atlas capacity said. Ten
   lights, two of them with any chance of a shadow, and nothing anywhere said so.
+- **A clustered spot shadow takes NO depth bias in the shader.** Its projection has
+  near 0.01 against a range of 150, which crushes the whole scene into about 0.001
+  of depth; the non-clustered path's spot bias (upstream's `shadowBias * 20`, so
+  0.08 at an authoring value of 0.4) is eighty times that range and lights every
+  fragment. Upstream says so in one line of comment — "depth bias is already applied
+  on render" — and biases these with hardware polygon offset, which the atlas pass
+  already sets. What the shader applies is the receiver NORMAL offset, and
+  `ClusterLightData::shadowNormalBias` carries it.
 - **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
   shadow and cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
   again in `renderer.cpp` or `worldClusters.cpp`.
@@ -579,24 +587,15 @@ does nothing, which is a misleading symptom.
   panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
-- **Clustered spot shadows: everything up to the sample is correct, and the sample
-  still reads the clear value.** Narrowed 2026-09-05 with
-  `clustered-spot-shadows-example.cpp`, which reproduces in five seconds. RULED OUT:
-  all ten passes are built every frame; each draws 9-14 casters into its slice; the
-  shader's branch runs and its projected coordinate passes the in-range test (a
-  probe multiplying attenuation at each step darkened the scene twice); and
-  `setClusterShadowAtlas` is called with the array texture, which `bindCached` puts
-  at Metal slot 26. WHAT IS LEFT: a raw `sample()` of the atlas — not the depth
-  comparison, the stored value — reads >= 0.999 everywhere, i.e. the clear value,
-  even though the passes demonstrably wrote depth. So the texture the shader reads
-  is not the texture the slice targets write, or the render target's array LAYER is
-  not honoured. Check at the Metal level that slot 26 holds the same MTLTexture the
-  slice render targets write into, and that `RenderTargetOptions::face` selects the
-  array layer for a DEPTH array.
 - **Example coverage gaps**: gsplat SH bands 1-3 have no example; upstream has the
   `gaussian-splatting/` folder. Morph weight animation is covered again as of
-  2026-09-05 (`mesh-morph-example.cpp`), and clustered atlas shadows now have an
-  example, though it shows the feature is broken rather than working.
+  2026-09-05 (`mesh-morph-example.cpp`), and clustered atlas shadows have a working
+  example (`clustered-spot-shadows-example.cpp`).
+- **Cube shading in `clustered-spot-shadows` differs between backends** (mean
+  absolute difference 19/255 with the animation frozen, concentrated on normal-
+  mapped cube faces and the light-pool rims; the floor and the shadows themselves
+  agree). Most likely the known per-backend `normalScale` deviation. Not measured
+  further.
 
 ## Reference kept elsewhere
 

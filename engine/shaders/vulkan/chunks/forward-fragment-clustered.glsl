@@ -25,17 +25,19 @@
                 if (atten < 1e-5) continue;
 
                 // Clustered spot shadow: each shadow-casting light owns one
-                // slice of the atlas. shadowData = {castShadows, bias,
+                // slice of the atlas. shadowData = {castShadows, normalOffsetBias,
                 // intensity, slice}. Mirrors forward-fragment-clustered.metal:
-                // depth bias only (no normal bias) and an intensity blend.
+                // a receiver normal offset and an intensity blend, and NO depth
+                // bias — the atlas pass biases on render, and this projection's
+                // depth is far too crushed for a shader bias to be harmless.
                 if (cl.shadowData.x > 0.5) {
-                    vec4 sc = cl.shadowMatrix * vec4(fragWorldPos, 1.0);
+                    vec3 shadowPosW = fragWorldPos + N * cl.shadowData.y;
+                    vec4 sc = cl.shadowMatrix * vec4(shadowPosW, 1.0);
                     if (sc.w > 0.0) {
                         vec3 scoord = sc.xyz / sc.w;
                         if (all(greaterThanEqual(scoord, vec3(0.0))) &&
                             all(lessThanEqual(scoord, vec3(1.0)))) {
-                            float vis = pcf3x3Array(scoord.xy, cl.shadowData.w,
-                                scoord.z - cl.shadowData.y);
+                            float vis = pcf3x3Array(scoord.xy, cl.shadowData.w, scoord.z);
                             atten *= mix(1.0, vis, clamp(cl.shadowData.z, 0.0, 1.0));
                         }
                     }

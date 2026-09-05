@@ -1173,3 +1173,44 @@ stored depth of 0.99 and one of 1.0 produce images I cannot tell apart, and I
 initially read "looks the same" as "reads 1.0" without earning it. Replacing the
 multiply with a `step(0.999, stored)` made the answer black-and-white, literally.
 When a probe's output is a continuous value, threshold it.
+
+## Clustered spot shadows: the bug was a bias, not the GPU (2026-09-05)
+
+Fixed. The clustered spot shadow chunk subtracted a depth bias that the projection
+cannot afford, so every comparison passed and nothing was ever in shadow.
+
+**The arithmetic.** The example's spot has range 150 and the shadow camera a near
+clip of 0.01. Standard [0,1] depth is `f(d-n) / (d(f-n))`, which puts the entire
+useful distance range inside about 0.001 of stored depth. The shader subtracted
+`-shadowBias * 20`, the non-clustered path's spot convention: at the example's
+authoring value of 0.4 that is 0.08, eighty times the depth the whole scene
+occupies. Every receiver compared as nearer than every caster. Fully lit.
+
+**What upstream does**, in a one-line comment in its clustered shadow chunk: the
+depth bias is applied on render, not in the shader. The atlas pass already sets
+hardware polygon offset, so the shader needs nothing. What upstream does apply is a
+receiver NORMAL offset, and that is what `shadowData.y` now carries on both
+backends.
+
+**Why two sessions of probing missed it.** I had been testing the hypothesis "the
+atlas holds no depth", and the probe I used was `step(0.999, stored)`. A correctly
+written depth in this projection is about 0.9996, which that threshold cannot tell
+from the clear value of 1.0 — so every probe agreed with the wrong hypothesis while
+the texture was fine all along. Thresholding a continuous probe is the right
+technique, and I had picked the threshold from what an unwritten texture looks like
+rather than from what a written one does. The lesson is narrower than "measure
+don't guess": choose the threshold from the range the SIGNAL occupies, and if a
+probe cannot separate the two hypotheses, it is not evidence for either.
+
+Everything eliminated across the two sessions — pass construction, the array layer,
+the store action, the texture identity, the binder cache, the matrix convention —
+was eliminated correctly. None of it was the bug, and the bug was four lines away in
+the arithmetic.
+
+**Verification.** Metal renders hard spot shadows in all ten light pools. Vulkan
+agrees: with the light orbit frozen to a fixed timestep so the two frames are
+comparable, the fraction of the floor darker than half the region mean is 0.120 on
+Metal and 0.127 on Vulkan, and the per-pixel difference map is empty over the
+shadows and the floor. The residual (mean absolute difference 19/255) sits on
+normal-mapped cube faces and light-pool rims, which is the known per-backend
+`normalScale` deviation and not this feature.
