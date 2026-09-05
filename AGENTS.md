@@ -379,6 +379,13 @@ during unrelated work are repeated here.
 - **A lightmap REPLACES indirect diffuse**, it is not added. Upstream gates
   ambient behind `addAmbient = !lightMapEnabled`, and adding both double-counts
   what the bake already contains.
+- **A captured probe cube is GAMMA-encoded and owes a decode**, like every other
+  texture the shader reads. It also needs the engine's cube-convention X flip, a
+  gloss-aware Fresnel rather than a raw F0 multiply, and box projection re-aimed
+  from the BOX CENTRE (normalised), not the probe's position. Missing the decode
+  alone washes every metallic surface out to pale pastel. And because the probe
+  REPLACES the environment specular, add only `probe - indirectSpecular` to the
+  accumulated colour; adding the probe outright counts both.
 - **Construct a dynamic `ReflectionProbe` BEFORE the main camera.** Layer
   composition renders cameras in construction order, so the six face cameras must
   come first. The reflective object also has to sit on a layer excluded from the
@@ -423,9 +430,11 @@ does nothing, which is a misleading symptom.
   right and this scene has its own separate divergence that the old, hotter Fresnel
   was partly cancelling. Isolate it the same way: probe one term at a time against
   the Metal chunk rather than reading whole-frame means.
-- **Dynamic reflection probes light wrongly on Vulkan.** Capture and sampling each
-  verify OK in isolation; the shader's probe/indirect combination is the suspect.
-  One speculative fix made it worse and was reverted.
+- **Reflection probes: the LOD/prefilter approximation still differs slightly.**
+  Both backends now agree structurally (see the log for the 2026-09-05 fix), with
+  the residual confined to pattern edges and grid lines — hardware trilinear mips
+  approximate the GGX prefilter upstream bakes per level, and the two backends
+  round that differently. Not worth chasing unless a scene shows it.
 - **`tools/generate-env-atlas` still does not produce a usable image.** Its
   readback calls `MTL::Texture::getBytes` on the baked atlas, which is a private-
   storage render target, so the values come back wrong even though the layout is

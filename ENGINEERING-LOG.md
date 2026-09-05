@@ -457,3 +457,33 @@ resources; Metal has no such need and that example re-bakes every frame, where a
 stall would serialise CPU and GPU. An experiment adding the wait to Metal confirmed
 it does not fix `tools/generate-env-atlas`, whose readback is broken for an
 unrelated reason: it calls `getBytes` on a private-storage render target.
+
+## Vulkan reflection probes fixed (2026-09-05)
+
+Both probe examples rendered wrongly on Vulkan: the chrome ball lost its mirror and
+every metallic surface washed out to pale pastel. The 2026-08 note recorded this as
+dynamic-only, with capture and sampling each "verified OK in isolation" and the
+combination as the suspect. Capturing both examples first showed that was wrong on
+two counts — the STATIC probe example was equally broken, and the fault was five
+plain divergences in the Vulkan probe block, all visible by reading it beside the
+Metal one:
+
+- no sRGB decode of the captured cube (it is gamma-encoded, like every other
+  texture the shader reads) — this is the one that caused the pale wash;
+- no cube-convention X flip, which every sky path here does;
+- a raw `F0` multiply instead of a gloss-aware Fresnel;
+- box projection re-aimed from the probe's POSITION, unnormalised, where it must be
+  re-aimed from the box CENTRE;
+- the probe ADDED to the accumulated colour while also overwriting
+  `indirectSpecular`, so the environment specular was counted twice — it has to add
+  only the difference, exactly as the SSR block below it already did.
+
+Static probe, Metal against Vulkan: 149,760 of 630,000 pixels differed by more than
+8 before, 23,615 after, and mean luma went from 23.2 vs 24.3 to 23.2 vs 23.2. The
+residual is confined to pattern edges and grid lines.
+
+Worth noting how cheap this was compared to the earlier attempt recorded in memory,
+which "made it worse and was reverted": capture both examples, then read the two
+shader blocks side by side. The earlier session had ruled out capture and sampling
+by experiment and then guessed at the combination, without ever diffing the two
+blocks — where all five differences were sitting in plain sight.

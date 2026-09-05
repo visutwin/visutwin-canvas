@@ -83,24 +83,47 @@
     color += indirect * ao;
     indirectSpecular *= ao;
     if (vtFeatureEnabled(VT_FEATURE_REFLECTION_PROBE_BIT)) {
-        vec3 probeDirection = reflect(-V, N);
+        vec3 reflectDir = reflect(-V, N);
+        vec3 sampleDir = reflectDir;
+
+        // Box projection (upstream cubeMapProject BOX): intersect the reflection
+        // ray with the probe box, then re-aim from the box CENTRE — that is what
+        // makes a flat cubemap track a room's walls as the surface moves. Aiming
+        // from the probe's own position instead, and leaving the result
+        // unnormalised, pointed the lookup somewhere else entirely.
         if (lighting.reflectionProbeParams.x > 0.5) {
-            vec3 rbmax = (lighting.reflectionProbeBoxMax.xyz - fragWorldPos) /
-                max(abs(probeDirection), vec3(1e-5));
-            vec3 rbmin = (lighting.reflectionProbeBoxMin.xyz - fragWorldPos) /
-                max(abs(probeDirection), vec3(1e-5));
-            vec3 distances = mix(rbmin, rbmax,
-                greaterThan(probeDirection, vec3(0.0)));
-            float distance = min(distances.x, min(distances.y, distances.z));
-            probeDirection = fragWorldPos + probeDirection * distance -
-                lighting.reflectionProbePosition.xyz;
+            vec3 boxMin = lighting.reflectionProbeBoxMin.xyz;
+            vec3 boxMax = lighting.reflectionProbeBoxMax.xyz;
+            vec3 invDir = 1.0 / reflectDir;
+            vec3 rbmax = (boxMax - fragWorldPos) * invDir;
+            vec3 rbmin = (boxMin - fragWorldPos) * invDir;
+            vec3 rbminmax = mix(rbmin, rbmax, greaterThan(reflectDir, vec3(0.0)));
+            float fa = min(min(rbminmax.x, rbminmax.y), rbminmax.z);
+            vec3 posOnBox = fragWorldPos + reflectDir * fa;
+            sampleDir = normalize(posOnBox - (boxMin + boxMax) * 0.5);
         }
-        vec3 probeSpecular = textureLod(reflectionProbeCube, probeDirection,
-            roughness * lighting.reflectionProbeParams.z).rgb *
-            F0 * lighting.reflectionProbeParams.y;
-        color += probeSpecular;
-        // The probe replaces the environment specular rather than adding to it.
-        indirectSpecular = probeSpecular;
+
+        // The engine's cube convention flips X, the same as every sky path here.
+        vec3 cubeDir = vec3(-sampleDir.x, sampleDir.y, sampleDir.z);
+        float gloss = 1.0 - roughness;
+        float probeLod = clamp(1.0 - gloss, 0.0, 1.0) * lighting.reflectionProbeParams.z;
+        // The captured cube is written gamma-encoded, so it owes a decode before it
+        // can be added to linear light — the same split the base-colour and
+        // emissive maps follow. Without it the probe reads far too bright, which is
+        // what washed every metallic surface here out to pale pastel.
+        vec3 probeSpecular =
+            pow(max(textureLod(reflectionProbeCube, cubeDir, probeLod).rgb, vec3(0.0)),
+                vec3(2.2)) * lighting.reflectionProbeParams.y;
+
+        // Gloss-aware Fresnel, not a raw F0 multiply (parity with the Metal chunk).
+        vec3 probeFresnel = ssrFresnel(NdotV, gloss, F0);
+
+        // The probe REPLACES the environment specular. `color` already carries that
+        // term from the block above, so add only the difference — adding the probe
+        // outright counted both.
+        vec3 replaced = probeSpecular * probeFresnel;
+        color += replaced - indirectSpecular;
+        indirectSpecular = replaced;
     }
     // Screen-space reflections: march the reflection ray against the scene depth
     // grab and sample the scene color grab at the hit, blending OVER the
