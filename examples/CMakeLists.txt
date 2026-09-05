@@ -69,6 +69,7 @@ function(visutwin_add_example example_name)
     visutwin_set_macos_bundle(${target} com.visutwin.${example_name})
 endfunction()
 
+visutwin_add_example(particle-system)
 visutwin_add_example(taa)
 visutwin_add_example(area-picker)
 visutwin_add_example(render-to-texture)

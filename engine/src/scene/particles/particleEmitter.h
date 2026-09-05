@@ -3,10 +3,11 @@
 //
 // GPU particle emitter (upstream particle-emitter.js, GPU-simulation subset).
 //
-// Simulation runs entirely on the GPU: a Metal compute kernel (dispatched via
-// GraphicsDevice::simulateParticles) ages, integrates, and respawns particles
-// in a persistent storage buffer; rendering draws one camera-facing quad per
-// particle through a self-contained shader (gsplat-style renderer branch).
+// Simulation runs entirely on the GPU: a compute kernel (particleSimShaders.h,
+// dispatched through the backend-agnostic Compute seam) ages, integrates, and
+// respawns particles in a persistent storage buffer; rendering draws one
+// camera-facing quad per particle through a self-contained shader
+// (gsplat-style renderer branch).
 //
 // DEVIATIONS from upstream: GPU path only (no CPU sim), no particle sorting,
 // unlit only, screen-aligned billboards only (no stretch/alignToMotion/mesh

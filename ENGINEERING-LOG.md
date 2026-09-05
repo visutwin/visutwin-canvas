@@ -514,17 +514,41 @@ resources at fixed slots, which is the device's job, and folding three calls tha
 differ in arity and slot ownership into one tagged call would read worse. That is
 now stated at the declarations rather than left to be rediscovered.
 
-**A finding that made verification awkward, and is worth its own fix.**
-`ParticleSystemComponentSystem` subscribes the per-frame update, but nothing
-constructs or registers that system, so the component's `update` never runs and the
-emitter never simulates. The component is also the only thing that constructs a
-`ParticleEmitter`. Wiring one into a scene as a probe therefore rendered nothing and
-dispatched nothing — not because of the migration, but because the feature is
-dormant. The Vulkan smoke test now drives `ParticleEmitter::update` directly, which
-is the only exercise of this path anywhere; it reports 512 particles simulated with
-validation clean.
+**A finding that made verification awkward.** Wiring a `ParticleSystemComponent`
+into a scene as a probe rendered nothing and dispatched nothing. I first wrote that
+down as if the system were unconstructable, which was wrong: component systems come
+from `AppOptions::componentSystems`, so `ParticleSystemComponentSystem` was inert
+only because no application had ever asked for it. The correct statement is that
+this was a coverage gap, and the fix is one line in an example. The Vulkan smoke
+test now also drives `ParticleEmitter::update` directly and reports 512 particles
+simulated with validation clean.
 
-Metal is verified by construction rather than by execution: the kernel, bindings,
-threadgroup size and dispatch count are unchanged, and Compute/computeDispatch is
-already the Metal path the compute-particles example uses. There is no Metal GPU
-test harness to drive the emitter through.
+Metal was verified by construction rather than by execution at the time of the
+migration: the kernel, bindings, threadgroup size and dispatch count are unchanged,
+and Compute/computeDispatch is already the Metal path the compute-particles example
+uses. The example below closed that gap the next day.
+
+## An example for the particle system component (2026-09-05)
+
+`particle-system-example.cpp` is the component's first consumer since
+`particles-example` was rewritten as upstream's `compute/particles` in August. It
+runs two emitters: an additive box fountain that plays the 4x4 numbered sprite sheet
+once per particle life, and an alpha-blended sphere puff damped to 0.8 with a
+warm-to-cool colour graph. Between them they cover both emitter shapes, both blend
+modes, the sprite-sheet animation, and all three curve LUTs.
+
+The one thing the example must do that no other example does is register the
+component system:
+
+```cpp
+void configure(AppOptions& options) override
+{
+    options.registerComponentSystem<ParticleSystemComponentSystem>();
+}
+```
+
+Both backends render it. Captured at the same frame the two disagreed, which was
+purely warm-up: Vulkan reaches its first frame later, so its particles were younger,
+smaller and still on the warm end of the colour graph. Captured deeper into the run
+the two agree. Any future comparison of this example has to be made at a settled
+frame, not a fixed one — the scene is a continuous simulation and never repeats.

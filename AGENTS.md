@@ -40,7 +40,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
-  examples/        # 41 example applications, all derived from ExampleApp
+  examples/        # 46 example applications, all derived from ExampleApp
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -453,16 +453,8 @@ does nothing, which is a misleading symptom.
   panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
-- **`ParticleSystemComponent` is unreachable from an application.**
-  `ParticleSystemComponentSystem` subscribes the per-frame update, but NOTHING ever
-  constructs or registers that system, so `ParticleSystemComponent::update` is never
-  called and the emitter it owns never simulates. The component is also the only
-  thing that constructs a `ParticleEmitter`, so the whole path is dormant: wiring an
-  emitter into a scene today renders nothing, which is what made verifying the
-  simulation migration awkward. The Vulkan smoke test now drives
-  `ParticleEmitter::update` directly and is the only exercise of it anywhere.
-- **Example coverage gaps**: morph weight animation, `ParticleSystemComponent`,
-  gsplat SH bands 1-3, and clustered atlas shadows have no example.
+- **Example coverage gaps**: morph weight animation, gsplat SH bands 1-3, and
+  clustered atlas shadows have no example.
 
 ## Reference kept elsewhere
 
