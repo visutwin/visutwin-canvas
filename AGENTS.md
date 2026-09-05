@@ -579,14 +579,20 @@ does nothing, which is a misleading symptom.
   panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
-- **Clustered spot shadows: the CPU side is now correct, the GPU side is not.**
-  All ten lights in `clustered-spot-shadows-example.cpp` reach the shader with a
-  valid atlas slice and a shadow matrix, verified by probe, and no shadow appears.
-  What is left is the GPU half: whether the shadow passes actually render depth into
-  the atlas slices, whether `clusterShadowAtlas` is bound, and whether the shader's
-  `scoord` in-range test passes. NOTE the earlier claim that this scene "hangs" was
-  WRONG — it renders 240 frames in 5 seconds; the slow runs were a leftover process
-  of mine competing for the GPU.
+- **Clustered spot shadows: everything up to the sample is correct, and the sample
+  still reads the clear value.** Narrowed 2026-09-05 with
+  `clustered-spot-shadows-example.cpp`, which reproduces in five seconds. RULED OUT:
+  all ten passes are built every frame; each draws 9-14 casters into its slice; the
+  shader's branch runs and its projected coordinate passes the in-range test (a
+  probe multiplying attenuation at each step darkened the scene twice); and
+  `setClusterShadowAtlas` is called with the array texture, which `bindCached` puts
+  at Metal slot 26. WHAT IS LEFT: a raw `sample()` of the atlas — not the depth
+  comparison, the stored value — reads >= 0.999 everywhere, i.e. the clear value,
+  even though the passes demonstrably wrote depth. So the texture the shader reads
+  is not the texture the slice targets write, or the render target's array LAYER is
+  not honoured. Check at the Metal level that slot 26 holds the same MTLTexture the
+  slice render targets write into, and that `RenderTargetOptions::face` selects the
+  array layer for a DEPTH array.
 - **Example coverage gaps**: gsplat SH bands 1-3 have no example; upstream has the
   `gaussian-splatting/` folder. Morph weight animation is covered again as of
   2026-09-05 (`mesh-morph-example.cpp`), and clustered atlas shadows now have an

@@ -1143,3 +1143,33 @@ should start, and it now has a scene that reproduces it in five seconds.
 
 `clustered-lighting` still renders, both suites are green, and the Vulkan smoke test
 is clean.
+
+## Clustered spot shadows: four suspects eliminated, one left (2026-09-05)
+
+No fix this round. What there is instead is a much smaller search space, arrived at
+by making the shader and the renderer report rather than by reading them.
+
+**Eliminated, in order.**
+
+1. *The shader's in-range test.* A probe multiplying the light by 0.5 where the
+   shadow branch runs and again by 0.5 where the projected coordinate is in range
+   darkened the whole scene twice over. Both fire.
+2. *Passes not being built.* A counter in the local shadow pass builder reports ten
+   of ten built, every frame, each with a valid atlas slice.
+3. *Passes drawing nothing.* The same probe inside the pass reports 9 to 14 casters
+   drawn per slice out of 99 candidates, which is what the light cones should see.
+4. *The atlas not being bound.* `setClusterShadowAtlas` is called with the array
+   texture each frame, and `bindCached` puts it at Metal slot 26.
+
+**What is left.** A raw `sample()` of the atlas — the stored depth, not the
+comparison — reads at or above 0.999 everywhere. That is the clear value, from a
+texture that was demonstrably written. So the texture the shader reads is not the
+texture the slice render targets write into, or the render target's array LAYER is
+not honoured for a depth array. The next session should check both at the Metal
+level rather than in the engine's own abstractions, which is where I stopped.
+
+**A note on method.** Judging the first raw-depth probe by eye was a mistake: a
+stored depth of 0.99 and one of 1.0 produce images I cannot tell apart, and I
+initially read "looks the same" as "reads 1.0" without earning it. Replacing the
+multiply with a `step(0.999, stored)` made the answer black-and-white, literally.
+When a probe's output is a continuous value, threshold it.
