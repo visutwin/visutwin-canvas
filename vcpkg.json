@@ -19,6 +19,12 @@
     { "name": "implot"                               }
   ],
   "features": {
+    "jolt": {
+      "description": "Jolt Physics backend for the PhysicsWorld seam",
+      "dependencies": [
+        { "name": "joltphysics" }
+      ]
+    },
     "vulkan": {
       "description": "Vulkan rendering backend",
       "dependencies": [

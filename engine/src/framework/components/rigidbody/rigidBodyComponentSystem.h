@@ -12,6 +12,7 @@
 
 namespace visutwin::canvas
 {
+    class PhysicsWorld;
     struct RaycastResult
     {
         Entity* entity = nullptr;
@@ -22,12 +23,32 @@ namespace visutwin::canvas
         float hitFraction = 0.0f;
     };
 
+    /**
+     * Drives whatever `AppOptions::physicsWorld` supplied: steps it once per
+     * update, then mirrors body transforms onto entities.
+     *
+     * With no world supplied the system still exists and still answers raycasts,
+     * from a CPU sweep over collision bounds. That is the behaviour that predates
+     * the physics seam, and it is what a scene that only needs picking wants.
+     */
     class RigidBodyComponentSystem : public ComponentSystem<RigidBodyComponent, RigidBodyComponentData>
     {
     public:
-        RigidBodyComponentSystem(Engine* engine) : ComponentSystem(engine, "rigidbody") {}
+        explicit RigidBodyComponentSystem(Engine* engine);
+        ~RigidBodyComponentSystem() override;
 
+        /// Nearest hit along the segment. Goes to the physics world when there is
+        /// one, and to the CPU bounds sweep otherwise.
         std::optional<RaycastResult> raycastFirst(const Vector3& start, const Vector3& end) const;
         std::vector<RaycastResult> raycastAll(const Vector3& start, const Vector3& end) const;
+
+        /// The world this system is driving, or null.
+        [[nodiscard]] PhysicsWorld* world() const { return _world; }
+
+    private:
+        std::optional<RaycastResult> raycastFirstCpu(const Vector3& start, const Vector3& end) const;
+        std::vector<RaycastResult> raycastAllCpu(const Vector3& start, const Vector3& end) const;
+
+        PhysicsWorld* _world = nullptr;
     };
 }

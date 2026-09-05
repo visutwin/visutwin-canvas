@@ -861,3 +861,53 @@ per-backend `normalScale` difference on a normal-mapped surface, which the proje
 keeps on purpose; the rest is unattributed. Worth remembering that the bilateral
 blur multiplies any SSAO input disagreement by about 2.5, so 3% of input error
 presents as 8% on screen.
+
+## Physics: a seam, and Jolt behind it (2026-09-05)
+
+`RigidBodyComponent` was a raycast-only stub: it held a type, answered which
+collision component it sat next to, and nothing moved. It now drives a real
+simulation, and the engine still owns none of it.
+
+**The shape of it.** `framework/physics/physicsWorld.h` declares `PhysicsWorld`,
+`PhysicsBody` and a body description; an application supplies an implementation
+through `AppOptions::physicsWorld`, exactly the way it supplies component systems.
+`createJoltPhysicsWorld()` provides the Jolt-backed one, compiled in behind
+`VISUTWIN_PHYSICS_JOLT` and the `jolt` vcpkg feature. Nothing in the engine
+constructs a world.
+
+With no world supplied the old behaviour survives intact: the component holds
+settings and the raycasts fall back to the CPU sweep over collision bounds. The
+`raycast` example still runs on that path and measures 1.0007 across backends,
+unchanged.
+
+**The bug that cost the most time, and what it taught.** The first working build
+rendered a pyramid that never moved — two captures 190 frames apart were
+byte-identical. `RigidBodyComponentSystem` read `engine->physicsWorld()` in its
+constructor, and `Engine::init` stored the world AFTER building component systems,
+so the world was null forever. The ordering is now correct, and the system also
+resolves the world lazily on its first update so the ordering is no longer
+load-bearing. A seam that silently does nothing is worse than one that fails: a
+frozen scene looks like a physics bug, not a plumbing one.
+
+**Verification.** A new `physics-world` test drives the backend directly and
+checks the properties a stub silently fails: half a second of free fall matches
+0.5*g*t^2 within 0.2 units, a sphere comes to rest exactly at its radius above the
+floor rather than through it, a raycast reports the top of that sphere with an
+upward normal, `raycastAll` returns nearest-first and finds both the sphere and
+the ground, an impulse lifts a sleeping body, restitution rebounds, and a
+kinematic body ignores gravity. It also creates and destroys eight worlds in a row,
+since the backend spins up a job system per world and a teardown that races its
+own workers would show up as a crash on exit rather than a test failure. Seven of
+seven tests pass, and the Vulkan smoke test is clean.
+
+The `physics` example runs on both backends: a pyramid of boxes on a static floor,
+with an auto-demo that drops a heavy sphere every two seconds and rebuilds the
+stack once it has been knocked apart.
+
+**One thing found and NOT fixed.** Every Vulkan example, physics or not, throws
+`mutex lock failed` when killed with SIGTERM; `clearcoat` and `parallax` do it
+too, so it predates this work and is a shutdown-under-kill path rather than
+anything physics touched. Recorded here rather than chased.
+
+**Not ported: joints.** Upstream's `PhysicsJoint` and `JointComponent` are the
+obvious follow-up and have no equivalent yet.

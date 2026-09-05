@@ -246,6 +246,10 @@ namespace visutwin::canvas
         _scenes = std::make_shared<SceneRegistry>(shared_from_this());
         _scripts = std::make_shared<ScriptRegistry>(shared_from_this());
 
+        // Before the component systems, because RigidBodyComponentSystem reads it
+        // in its constructor.
+        _physicsWorld = appOptions.physicsWorld;
+
         _systems = std::make_shared<ComponentSystemRegistry>();
         for (auto componentSystem : appOptions.componentSystems)
         {

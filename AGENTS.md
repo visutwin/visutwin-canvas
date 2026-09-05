@@ -40,7 +40,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
-  examples/        # 47 example applications, all derived from ExampleApp
+  examples/        # 48 example applications, all derived from ExampleApp
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -72,6 +72,10 @@ cmake --build build
 **Core:** SDL3 (3.4+), spdlog (1.17+, bundled fmt, `default-features: false`), tinyobjloader, tinygltf (header-only, use `find_path`), draco, assimp, basisu (`basisu::basisu_encoder` — transcoder + encoder + CLI tool), boost-core, imgui (SDL3+Metal+docking), implot
 
 **Vendored:** metal-cpp, stb
+
+**Physics (`jolt` feature):** joltphysics. `VISUTWIN_PHYSICS_JOLT` (ON by default)
+decides whether the Jolt-backed `PhysicsWorld` is compiled in; the seam itself is
+always there, and the option degrades to a warning if the package is missing.
 
 **Vulkan (`vulkan` feature):** vulkan-headers, vulkan-memory-allocator, vk-bootstrap
 
@@ -179,6 +183,38 @@ index.
 
 The particle, gsplat and storage-draw paths SHARE slots 7 and 11. One mesh
 instance is a storage draw, a particle draw, or a splat draw, never two at once.
+
+## Physics
+
+The engine owns NO simulation. `framework/physics/physicsWorld.h` declares
+`PhysicsWorld` / `PhysicsBody` / `PhysicsBodyDesc`, and an application supplies an
+implementation through `AppOptions::physicsWorld` — the same rule component
+systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
+
+    options.registerComponentSystem<CollisionComponentSystem>();
+    options.registerComponentSystem<RigidBodyComponentSystem>();
+    options.physicsWorld = createJoltPhysicsWorld();
+
+- **With no world supplied nothing simulates and nothing breaks.** The rigid-body
+  component holds its settings, and `raycastFirst`/`raycastAll` fall back to the
+  CPU sweep over collision bounds that predates the seam. That is what the
+  `raycast` example still uses.
+- `RigidBodyComponentSystem` resolves the world on its first update, not in its
+  constructor. Component systems are built from `AppOptions` before the engine has
+  finished storing everything else that came with it, and a world read once at
+  construction is null forever — a whole scene frozen with nothing to show why.
+- The body is created lazily from the component's settings plus the sibling
+  `CollisionComponent`'s shape, and any setter marks it stale so it is rebuilt.
+  Authoring order therefore does not matter.
+- **Static bodies do not get their transform written back** (nothing else should
+  be fighting whatever placed them) and **kinematic bodies are pushed the other
+  way**: the entity's transform goes INTO the simulation.
+- `teleport()` rather than `setPosition()` on a simulated entity: the step would
+  overwrite a bare transform, and Jolt does not wake a body that was only moved.
+- `CollisionComponent::height` is the FULL height for a capsule, caps included;
+  the backend converts to Jolt's cylindrical half-height.
+- **Not ported: joints.** Upstream's `PhysicsJoint` and `JointComponent` have no
+  equivalent here yet.
 
 ## Rendering Pipeline
 

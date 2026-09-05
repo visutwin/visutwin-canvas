@@ -8,6 +8,9 @@
 
 #include "core/shape/boundingSphere.h"
 #include "framework/components/collision/collisionComponent.h"
+#include "framework/engine.h"
+#include "framework/entity.h"
+#include "framework/physics/physicsWorld.h"
 
 namespace visutwin::canvas
 {
@@ -237,7 +240,7 @@ namespace visutwin::canvas
         }
     }
 
-    std::optional<RaycastResult> RigidBodyComponentSystem::raycastFirst(const Vector3& start, const Vector3& end) const
+    std::optional<RaycastResult> RigidBodyComponentSystem::raycastFirstCpu(const Vector3& start, const Vector3& end) const
     {
         const auto all = raycastAll(start, end);
         if (all.empty()) {
@@ -246,7 +249,7 @@ namespace visutwin::canvas
         return all.front();
     }
 
-    std::vector<RaycastResult> RigidBodyComponentSystem::raycastAll(const Vector3& start, const Vector3& end) const
+    std::vector<RaycastResult> RigidBodyComponentSystem::raycastAllCpu(const Vector3& start, const Vector3& end) const
     {
         std::vector<RaycastResult> results;
         results.reserve(RigidBodyComponent::instances().size());
@@ -285,6 +288,98 @@ namespace visutwin::canvas
             return a.entity < b.entity;
         });
 
+        return results;
+    }
+
+    RigidBodyComponentSystem::RigidBodyComponentSystem(Engine* engine)
+        : ComponentSystem(engine, "rigidbody")
+    {
+        if (engine == nullptr || engine->systems() == nullptr) {
+            return;
+        }
+
+        engine->systems()->on("update", [this](const float dt) {
+            // Resolved here rather than in the constructor: a component system is
+            // free to be built before the engine has stored everything AppOptions
+            // carried, and a null world read once at construction would leave the
+            // whole scene frozen with nothing to show why.
+            if (_world == nullptr) {
+                _world = _engine ? _engine->physicsWorld() : nullptr;
+            }
+            if (_world == nullptr) {
+                return;
+            }
+            // Create bodies BEFORE stepping so an entity added this frame is part
+            // of the very first step rather than a frame behind.
+            for (auto* body : RigidBodyComponent::instances()) {
+                if (body && body->enabled() && body->entity() && body->entity()->enabled()) {
+                    body->syncFromSimulation(*_world);
+                }
+            }
+            _world->step(dt);
+            for (auto* body : RigidBodyComponent::instances()) {
+                if (body && body->enabled() && body->entity() && body->entity()->enabled()) {
+                    body->syncFromSimulation(*_world);
+                }
+            }
+        }, this);
+    }
+
+    RigidBodyComponentSystem::~RigidBodyComponentSystem()
+    {
+        if (_engine && _engine->systems()) {
+            _engine->systems()->off("update", HandleEventCallback(), this);
+        }
+        if (_world != nullptr) {
+            // Components can outlive the system, so hand their bodies back before
+            // the world goes; a body freed twice is a crash on the way out.
+            for (auto* body : RigidBodyComponent::instances()) {
+                if (body) { body->releaseBody(*_world); }
+            }
+        }
+    }
+
+    std::optional<RaycastResult> RigidBodyComponentSystem::raycastFirst(
+        const Vector3& start, const Vector3& end) const
+    {
+        if (_world == nullptr) {
+            return raycastFirstCpu(start, end);
+        }
+        const auto hit = _world->raycastFirst(start, end);
+        if (!hit) {
+            return std::nullopt;
+        }
+        RaycastResult result;
+        result.entity = hit->entity;
+        result.point = hit->point;
+        result.normal = hit->normal;
+        result.hitFraction = hit->fraction;
+        if (result.entity) {
+            result.collision = result.entity->findComponent<CollisionComponent>();
+            result.rigidbody = result.entity->findComponent<RigidBodyComponent>();
+        }
+        return result;
+    }
+
+    std::vector<RaycastResult> RigidBodyComponentSystem::raycastAll(
+        const Vector3& start, const Vector3& end) const
+    {
+        if (_world == nullptr) {
+            return raycastAllCpu(start, end);
+        }
+        std::vector<RaycastResult> results;
+        for (const auto& hit : _world->raycastAll(start, end)) {
+            RaycastResult result;
+            result.entity = hit.entity;
+            result.point = hit.point;
+            result.normal = hit.normal;
+            result.hitFraction = hit.fraction;
+            if (result.entity) {
+                result.collision = result.entity->findComponent<CollisionComponent>();
+                result.rigidbody = result.entity->findComponent<RigidBodyComponent>();
+            }
+            results.push_back(result);
+        }
         return results;
     }
 }

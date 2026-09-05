@@ -59,3 +59,11 @@ add_executable(visutwin-gsplat-sort-tests
 target_link_libraries(visutwin-gsplat-sort-tests PRIVATE visutwin-canvas)
 
 add_test(NAME gsplat-sort-direction COMMAND visutwin-gsplat-sort-tests)
+
+add_executable(visutwin-physics-world-tests
+    physicsWorldTests.cpp
+)
+
+target_link_libraries(visutwin-physics-world-tests PRIVATE visutwin-canvas)
+
+add_test(NAME physics-world COMMAND visutwin-physics-world-tests)

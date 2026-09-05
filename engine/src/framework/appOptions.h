@@ -26,6 +26,8 @@ namespace visutwin::canvas
     /*
      * AppOptions holds configuration settings utilized in the creation of an {@link AppBase} instance
      */
+    class PhysicsWorld;
+
     struct AppOptions
     {
         using ComponentSystemCreator = std::function<std::unique_ptr<IComponentSystem>(Engine*)>;
@@ -55,5 +57,11 @@ namespace visutwin::canvas
         std::shared_ptr<TouchDevice> touch;
         std::shared_ptr<ElementInput> elementInput;
         std::shared_ptr<XrManager> xr;
+
+        /// The physics backend. RigidBodyComponentSystem steps this and mirrors
+        /// body transforms onto entities. Leave it null and the rigid-body
+        /// component stays inert: it holds settings and answers raycasts from a CPU
+        /// sweep over collision bounds, and nothing simulates.
+        std::shared_ptr<PhysicsWorld> physicsWorld;
     };
 }

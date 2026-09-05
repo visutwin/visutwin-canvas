@@ -22,6 +22,10 @@ endif()
 
 option(VISUTWIN_BACKEND_METAL "Enable Metal backend" ${_VISUTWIN_METAL_DEFAULT})
 option(VISUTWIN_BACKEND_VULKAN "Enable Vulkan backend" ${_VISUTWIN_VULKAN_DEFAULT})
+# Physics is a seam, not a dependency: the engine defines PhysicsWorld and an
+# application supplies one. This option only decides whether the Jolt-backed
+# implementation is compiled in alongside it.
+option(VISUTWIN_PHYSICS_JOLT "Build the Jolt Physics backend" ON)
 
 if(VISUTWIN_BACKEND_METAL AND NOT APPLE)
     message(FATAL_ERROR "VISUTWIN_BACKEND_METAL is only supported on Apple platforms")
@@ -90,6 +94,19 @@ if(VISUTWIN_BACKEND_METAL)
 endif()
 
 # ── Vulkan backend setup ─────────────────────────────────────────────
+if(VISUTWIN_PHYSICS_JOLT)
+    find_package(unofficial-joltphysics CONFIG QUIET)
+    if(NOT TARGET unofficial::joltphysics::Jolt)
+        find_package(Jolt CONFIG QUIET)
+    endif()
+    if(NOT TARGET unofficial::joltphysics::Jolt AND NOT TARGET Jolt::Jolt)
+        message(WARNING
+            "VISUTWIN_PHYSICS_JOLT is ON but the joltphysics package was not found; "
+            "building without a physics backend")
+        set(VISUTWIN_PHYSICS_JOLT OFF)
+    endif()
+endif()
+
 if(VISUTWIN_BACKEND_VULKAN)
     find_package(VulkanHeaders CONFIG REQUIRED)
     find_package(Vulkan REQUIRED)
@@ -183,7 +200,7 @@ if(NOT VISUTWIN_BACKEND_METAL)
     list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/framework/extras/miniStats\\.cpp$")
 endif()
 if(NOT VISUTWIN_BACKEND_VULKAN)
-    list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/vulkan/.*")
+    list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/platform/graphics/vulkan/.*")
 endif()
 
 # ── Embedded Metal shaders ────────────────────────────────────────────
@@ -308,6 +325,16 @@ if(VISUTWIN_BACKEND_METAL)
 endif()
 
 # ── Vulkan backend linking ────────────────────────────────────────────
+# ── Physics backend linking ───────────────────────────────────────────
+if(VISUTWIN_PHYSICS_JOLT)
+    target_compile_definitions(visutwin-canvas PUBLIC VISUTWIN_PHYSICS_JOLT)
+    if(TARGET unofficial::joltphysics::Jolt)
+        target_link_libraries(visutwin-canvas PUBLIC unofficial::joltphysics::Jolt)
+    else()
+        target_link_libraries(visutwin-canvas PUBLIC Jolt::Jolt)
+    endif()
+endif()
+
 if(VISUTWIN_BACKEND_VULKAN)
     target_compile_definitions(visutwin-canvas PUBLIC VISUTWIN_HAS_VULKAN)
     target_link_libraries(visutwin-canvas PUBLIC

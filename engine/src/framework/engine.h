@@ -24,6 +24,7 @@
 
 namespace visutwin::canvas
 {
+    class PhysicsWorld;
     class ComponentSystemRegistry;
 
     /**
@@ -105,6 +106,10 @@ namespace visutwin::canvas
         /**batcher accessor. */
         BatchManager* batcher() { return _batcher.get(); }
 
+        /// The physics backend supplied through AppOptions, or null when the
+        /// application asked for none. RigidBodyComponentSystem drives it.
+        PhysicsWorld* physicsWorld() const { return _physicsWorld.get(); }
+
         /** Async resource loader — single background I/O thread with main-thread callbacks. */
         const std::shared_ptr<ResourceLoader>& loader() const { return _loader; }
 
@@ -184,6 +189,7 @@ namespace visutwin::canvas
         std::shared_ptr<TouchDevice> _touch;
         std::shared_ptr<ElementInput> _elementInput;
         std::shared_ptr<XrManager> _xr;
+        std::shared_ptr<PhysicsWorld> _physicsWorld;
 
         MakeTickCallback _tick;
 
