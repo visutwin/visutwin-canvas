@@ -27,8 +27,6 @@ namespace visutwin::canvas
 {
     class Compute;
     class MetalComposePass;
-    class MetalEnvConvolvePass;
-    class MetalEnvReprojectPass;
     class MetalLICPass;
     class MetalMarchingCubesPass;
     class MetalParticleComputePass;
@@ -44,8 +42,6 @@ namespace visutwin::canvas
     class MetalGraphicsDevice : public GraphicsDevice
     {
         friend class MetalComposePass;
-        friend class MetalEnvConvolvePass;
-        friend class MetalEnvReprojectPass;
         friend class MetalLICPass;
         friend class MetalMarchingCubesPass;
         friend class MetalParticleComputePass;
@@ -132,8 +128,6 @@ namespace visutwin::canvas
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) override;
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) override;
-        void generateEnvConvolve(const EnvConvolvePassParams& params) override;
-        void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
         bool supportsCompute() const override { return true; }
         void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") override;
 
@@ -315,8 +309,6 @@ namespace visutwin::canvas
 
         std::vector<std::shared_ptr<MetalBindGroupFormat>> _bindGroupFormats;
         std::unique_ptr<MetalComposePass> _composePass;
-        std::unique_ptr<MetalEnvReprojectPass> _envReprojectPass;
-        std::unique_ptr<MetalEnvConvolvePass> _envConvolvePass;
 
         // Triple-buffered ring buffers for per-draw uniform data.
         // Replaces setVertexBytes()/setFragmentBytes() with pre-allocated MTLBuffer

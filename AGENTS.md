@@ -255,12 +255,26 @@ allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and bind `_postSampler` (linear, clamp, no mip), not the scene
 sampler.
 
-Migrated so far: VSM blur, volumetric fog, CoC, DOF blur, depth-aware blur,
-compose, SSAO, TAA. **Still on the vtable (9 virtuals):** the env family
-(reproject / convolve / atlas, equirect-to-cube), the compute and state group
-(`simulateParticles`, `setParticleState`, `setGSplatState`, `setMorphState`), and
-`copyRenderTarget` / `generateMipmaps`, which BELONG on the device and are not
-migration debt.
+Migrated: VSM blur, volumetric fog, CoC, DOF blur, depth-aware blur, compose,
+SSAO, TAA, and the whole env family (equirect-to-cube, reproject, convolve,
+atlas — see `scene/graphics/envBake.h`). **Still on the vtable (4 virtuals):** the
+compute and state group (`simulateParticles`, `setParticleState`,
+`setGSplatState`, `setMorphState`), which needs a compute seam that does not exist
+yet. `copyRenderTarget` and `generateMipmaps` are also virtuals but BELONG on the
+device and are not migration debt.
+
+**Offline (out-of-frame) work** goes through `GraphicsDevice::beginOfflineWork` /
+`endOfflineWork`. Between them the ordinary render-pass and draw API is usable, so
+a bake is written once over QuadRender. The two backends differ deliberately:
+Metal only batches the work into one command buffer and commits WITHOUT waiting
+(its `startRenderPass` already makes a command buffer per pass, and
+`reflection-probe-dynamic` re-bakes every frame, where a stall would serialise CPU
+and GPU); Vulkan records into a one-shot buffer and WAITS, because that is what
+makes reusing the frame-scoped uniform ring and descriptor pools safe. A bake must
+also set its own blend, depth and cull state — nothing outside the frame graph
+has — and `beginOfflineWork` flushes pending uploads first, because a texture
+created without host data marks its tracker SHADER_READ_ONLY while the actual
+transition is still sitting in the deferred upload queue.
 
 ## Live gotchas
 
@@ -275,6 +289,14 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   `RenderPassDofBlur` are never constructed. Depth of field runs entirely through
   `applyDofSinglePass` in the compose shader. Screenshot-verifying those passes
   proves NOTHING. Reviving the path means giving `RenderPassDof` a render target.
+- **A Metal quad draw must not key its uniform allocation on the material.**
+  `submitPerDrawUniforms` reuses the previous ring offset when the material pointer
+  is unchanged, and a quad pass has no material of its own — nothing clears the
+  bound material for an offline bake either — so every quad draw after the first in
+  a pass silently shared ONE uniform block. Invisible while a pass drew a single
+  quad, which every effect did until the env atlas started drawing a rect list in
+  one pass: the convolve draws read the reproject block and wrote nothing. `draw()`
+  now passes a null material for the uniform key whenever the quad block is in use.
 - **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
   Apple GPUs. Every optional texture sample must be gated on its flags bit or its
   runtime enable (`setEnvAtlasEnabled`, `hasSpecGlossMap` bit 21). This has bitten
@@ -404,37 +426,14 @@ does nothing, which is a misleading symptom.
 - **Dynamic reflection probes light wrongly on Vulkan.** Capture and sampling each
   verify OK in isolation; the shader's probe/indirect combination is the suspect.
   One speculative fix made it worse and was reverted.
-- **The env family: HALF migrated (2026-09-04), two virtuals left.** Equirect-to-
-  cubemap and reproject now run as backend-agnostic code over QuadRender
-  (`scene/graphics/envBake.h` + `envShaders.h`); `generateEnvConvolve` and
-  `generateEnvAtlas` are still device virtuals. The seam that made this possible is
-  `GraphicsDevice::beginOfflineWork` / `endOfflineWork`, which replaced the
-  Metal-only begin/endEnvBatch: Metal only batches (its startRenderPass already
-  builds and commits a command buffer per pass, so it always worked out of frame),
-  while Vulkan opens a ONE-SHOT command buffer that startRenderPass and draw record
-  into through `currentCommandBuffer()`, then submits and WAITS — the wait is what
-  makes reusing the frame-scoped uniform ring and descriptor pools safe.
-
-  TRAP that cost a debugging round: `beginOfflineWork` must `flushUploads()` first.
-  A texture created without host data records its transition to SHADER_READ_ONLY
-  through the DEFERRED upload queue while marking its tracker immediately, so a
-  fresh image is declared sampleable long before it is; submitting offline work
-  ahead of that flush put descriptors in flight against images still UNDEFINED.
-
-  Migrating the remaining two is NOT just more of the same, and one attempt was
-  reverted for this reason: convolve needs its sample table (up to 1024 float4s,
-  far past the 512-byte per-draw block), which does fit as an RGBA32F data TEXTURE
-  on a quad slot — that part worked. What did not is the ATLAS. Its rects are drawn
-  into one pass, and after migrating it the two backends disagreed about the layout:
-  Metal moved to the staircase the rect maths in `EnvLighting::generateAtlas`
-  actually declares (each mip offset by the previous rect's height), while Vulkan
-  kept a full-width second row. Metal's new output looked MORE correct than its old
-  one, which is exactly why it could not be landed on a hunch. Note also that
-  `tools/generate-env-atlas` is NOT a usable baseline for this despite what an
-  earlier note claimed: it emits the same scattered noise before and after any
-  change, so verify with the `reflection-probe-dynamic` atlas panel instead, which
-  does show the layout clearly when cropped and magnified.
-
+- **`tools/generate-env-atlas` still does not produce a usable image.** Its
+  readback calls `MTL::Texture::getBytes` on the baked atlas, which is a private-
+  storage render target, so the values come back wrong even though the layout is
+  now visibly correct. Fixing it means blitting to a shared staging texture first.
+  Until then, verify an atlas change with the `reflection-probe-dynamic` atlas
+  panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
+  is at a fixed screen position, so it compares cleanly even though the scene
+  animates.
 - **Example coverage gaps**: morph weight animation, `ParticleSystemComponent`,
   gsplat SH bands 1-3, and clustered atlas shadows have no example.
 

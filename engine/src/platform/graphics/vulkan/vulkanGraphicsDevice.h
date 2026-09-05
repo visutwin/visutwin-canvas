@@ -227,14 +227,6 @@ namespace visutwin::canvas
         // device frees its child objects itself, so skipping is correct.
         [[nodiscard]] std::weak_ptr<bool> aliveToken() const { return _aliveToken; }
 
-        // Environment/IBL rendering (vulkanEnvironment.cpp): equirect->cube,
-        // reprojection, convolution and the env-atlas bake.
-        void renderEnvironment(Texture* target, Texture* sourceEquirect,
-            Texture* sourceCubemap, const std::vector<EnvReprojectOp>& ops,
-            bool encodeRgbp, bool decodeSrgb, bool clearTarget,
-            bool cubemapFaces, bool convolve = false,
-            TextureProjection sourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT,
-            TextureProjection targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT);
 
         void copyRenderTarget(RenderTarget* source, Texture* colorDestination,
             Texture* depthDestination) override;
@@ -246,8 +238,6 @@ namespace visutwin::canvas
             return _swapchainFormat == VK_FORMAT_R8G8B8A8_UNORM
                 ? PixelFormat::PIXELFORMAT_RGBA8 : PixelFormat::PIXELFORMAT_BGRA8;
         }
-        void generateEnvConvolve(const EnvConvolvePassParams& params) override;
-        void generateEnvAtlas(const EnvAtlasBakeParams& params) override;
         bool supportsCompute() const override { return true; }
         void computeDispatch(const std::vector<Compute*>& computes,
             const std::string& label = "") override;

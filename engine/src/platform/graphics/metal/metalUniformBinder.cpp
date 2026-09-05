@@ -495,11 +495,19 @@ namespace visutwin::canvas
         const size_t uniformSize,
         const bool hdrPass)
     {
-        // Material uniforms at slot 3 — skip ring allocation when same material is
-        // bound as previous draw (consecutive draws sharing a material produce
-        // identical uniform data, so we can reuse the previous ring offset).
+        // Material uniforms at slot 3 — skip ring allocation when the same material
+        // is bound as the previous draw (consecutive draws sharing a material
+        // produce identical uniform data, so the previous ring offset is reusable).
+        //
+        // A null material is NOT a cache key: a quad pass has no material and puts
+        // its own block in this slot, so every quad draw would compare equal to the
+        // last and silently reuse the FIRST draw's uniforms. That is invisible while
+        // a pass draws one quad, which every effect did until the environment bakes
+        // started drawing a rect list in one pass — there the convolve draws read
+        // the reproject block and produced nothing.
         size_t materialOffset;
-        if (_materialBoundThisPass && currentMaterial == _lastBoundMaterial) {
+        if (currentMaterial != nullptr && _materialBoundThisPass &&
+            currentMaterial == _lastBoundMaterial) {
             materialOffset = _lastMaterialOffset;
         } else {
             materialOffset = uniformRing->allocate(uniformData, uniformSize);

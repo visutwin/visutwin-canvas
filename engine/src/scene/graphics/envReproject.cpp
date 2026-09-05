@@ -86,30 +86,24 @@ namespace visutwin::canvas
             return;
         }
 
-        EnvConvolvePassParams params;
-        params.target = options.target.get();
-        if (options.sourceIsCubemap) {
-            params.sourceCubemap = options.source.get();
-        } else {
-            params.sourceEquirect = options.source.get();
-        }
-        params.ops.reserve(options.rects.size());
+        EnvConvolveRequest request;
+        request.target = options.target.get();
+        request.source = options.source.get();
+        request.encodeRgbp = options.encodeRgbp;
+        request.decodeSrgb = options.decodeSrgb;
+        request.rects.reserve(options.rects.size());
         for (const auto& r : options.rects) {
-            EnvConvolveOp op;
-            op.rectX = r.rectX;
-            op.rectY = r.rectY;
-            op.rectW = r.rectW > 0 ? r.rectW : static_cast<int>(options.target->width());
-            op.rectH = r.rectH > 0 ? r.rectH : static_cast<int>(options.target->height());
-            op.seamPixels = r.seamPixels;
-            op.samples = r.samples;
-            op.numSamples = r.numSamples;
-            op.weightByNoL = r.weightByNoL;
-            params.ops.push_back(op);
+            EnvConvolveBakeRect entry;
+            entry.rect = {r.rectX, r.rectY,
+                r.rectW > 0 ? r.rectW : static_cast<int>(options.target->width()),
+                r.rectH > 0 ? r.rectH : static_cast<int>(options.target->height()),
+                r.seamPixels};
+            entry.samples = r.samples;
+            entry.numSamples = r.numSamples;
+            entry.weightByNoL = r.weightByNoL;
+            request.rects.push_back(entry);
         }
-        params.encodeRgbp = options.encodeRgbp;
-        params.decodeSrgb = options.decodeSrgb;
-
-        device->generateEnvConvolve(params);
+        bakeConvolve(device, request);
     }
 
     void bakeEnvAtlas(GraphicsDevice* device, const EnvAtlasBakeOptions& options)
@@ -123,58 +117,45 @@ namespace visutwin::canvas
             return;
         }
 
-        EnvAtlasBakeParams params;
-        params.target = options.target.get();
-        params.encodeRgbp = options.encodeRgbp;
-        params.decodeSrgb = options.decodeSrgb;
+        EnvAtlasRequest request;
+        request.target = options.target.get();
+        request.encodeRgbp = options.encodeRgbp;
+        request.decodeSrgb = options.decodeSrgb;
 
-        const auto sized = [&](const auto& r, EnvReprojectOp& op) {
-            op.rectX = r.rectX;
-            op.rectY = r.rectY;
-            op.rectW = r.rectW > 0 ? r.rectW : static_cast<int>(options.target->width());
-            op.rectH = r.rectH > 0 ? r.rectH : static_cast<int>(options.target->height());
-            op.seamPixels = r.seamPixels;
+        // A zero width or height means "the whole target", the convention the
+        // callers already used.
+        const auto sized = [&](const auto& r) {
+            return EnvBakeRect{r.rectX, r.rectY,
+                r.rectW > 0 ? r.rectW : static_cast<int>(options.target->width()),
+                r.rectH > 0 ? r.rectH : static_cast<int>(options.target->height()),
+                r.seamPixels};
         };
 
         if (options.reprojectSource && !options.reprojectRects.empty()) {
-            if (options.reprojectSourceIsCubemap) {
-                params.reprojectSourceCubemap = options.reprojectSource.get();
-                params.reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_CUBE;
-            } else {
-                params.reprojectSourceEquirect = options.reprojectSource.get();
-                params.reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
-            }
-            params.reprojectTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
-            params.reprojectOps.reserve(options.reprojectRects.size());
+            request.reprojectSource = options.reprojectSource.get();
+            request.reprojectSourceProjection = options.reprojectSourceIsCubemap
+                ? TextureProjection::TEXTUREPROJECTION_CUBE
+                : TextureProjection::TEXTUREPROJECTION_EQUIRECT;
+            // The atlas layout is authored in equirect rects whatever the source is.
+            request.reprojectTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
             for (const auto& r : options.reprojectRects) {
-                EnvReprojectOp op;
-                sized(r, op);
-                params.reprojectOps.push_back(op);
+                request.reprojectRects.push_back(sized(r));
             }
         }
 
         if (options.convolveSource && !options.convolveRects.empty()) {
-            if (options.convolveSourceIsCubemap) {
-                params.convolveSourceCubemap = options.convolveSource.get();
-            } else {
-                params.convolveSourceEquirect = options.convolveSource.get();
-            }
-            params.convolveOps.reserve(options.convolveRects.size());
+            request.convolveSource = options.convolveSource.get();
             for (const auto& r : options.convolveRects) {
-                EnvConvolveOp op;
-                EnvReprojectOp base;
-                sized(r, base);
-                op.rectX = base.rectX; op.rectY = base.rectY;
-                op.rectW = base.rectW; op.rectH = base.rectH;
-                op.seamPixels = base.seamPixels;
-                op.samples = r.samples;
-                op.numSamples = r.numSamples;
-                op.weightByNoL = r.weightByNoL;
-                params.convolveOps.push_back(op);
+                EnvConvolveBakeRect entry;
+                entry.rect = sized(r);
+                entry.samples = r.samples;
+                entry.numSamples = r.numSamples;
+                entry.weightByNoL = r.weightByNoL;
+                request.convolveRects.push_back(entry);
             }
         }
 
-        device->generateEnvAtlas(params);
+        bakeEnvAtlas(device, request);
     }
 
     std::shared_ptr<Texture> equirectToCubemap(GraphicsDevice* device,

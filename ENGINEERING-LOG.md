@@ -404,3 +404,56 @@ Also worth recording: `tools/generate-env-atlas` is not a usable baseline for th
 work, contrary to an earlier note. It is deterministic but emits the same scattered
 noise before and after any change. The `reflection-probe-dynamic` atlas panel,
 cropped and magnified, is what shows the layout.
+
+## Environment family fully off the vtable (2026-09-05)
+
+The remaining two virtuals, `generateEnvConvolve` and `generateEnvAtlas`, are gone.
+All four env bakes are now one implementation each over QuadRender inside a
+`beginOfflineWork` scope. Both backends' pass classes and the entire
+`vulkanEnvironment.cpp` are deleted: 1465 lines removed against 552 added.
+
+The convolve sample table (up to 1024 float4s, far past the 512-byte per-draw
+block) rides the existing quad texture seam as a 1-row RGBA32F data texture,
+uploaded before the offline scope opens because that scope flushes uploads on entry.
+
+**The previous attempt was reverted for the wrong reason.** I had concluded the
+backends disagreed about the atlas layout, with Vulkan keeping a "full-width second
+row". That reading was simply wrong: the GGX convolve rects occupy the left column
+starting at y = size/2 while the reproject mip chain steps diagonally from
+x = size/2, so a full-width second row is exactly right and Vulkan was correct.
+Metal was the broken one. Two lessons: read the layout the caller declares before
+judging which backend is wrong, and a hypothesis that survives only because it was
+never checked against the source is not evidence.
+
+**Two real bugs found on the way, one of them latent since the QuadRender seam
+was built.**
+
+- Metal's `submitPerDrawUniforms` reuses the previous ring offset when the material
+  pointer is unchanged. A quad pass has no material, and nothing clears the bound
+  material for an offline bake, so every quad draw after the first in a pass shared
+  ONE uniform block. Invisible while a pass drew a single quad — which every
+  migrated effect did — but the atlas draws a rect list in one pass, so the convolve
+  draws read the reproject block and produced nothing. `draw()` now passes a null
+  material for the uniform key whenever the quad block is in use.
+- The MSL convolve shader sampled its data table through the quad path's linear
+  sampler. Apple GPUs cannot linearly filter a 32-bit float format, so that returns
+  nothing; it now uses an `access::read` texel fetch, matching the GLSL `texelFetch`.
+
+**How the false lead was cleared.** A three-rect staircase drawn through the
+already-landed `bakeReproject` — the atlas's own layout, in one pass — landed
+identically on both backends. That took multi-rect viewports off the table in one
+experiment and pointed straight at the convolve draws. It also showed Vulkan
+leaves unwritten target regions as uninitialised garbage where Metal reads black,
+which is why the atlas pass clears first.
+
+Verified: the `reflection-probe-dynamic` atlas panel matches structurally on both
+backends, all five reprojection panels render, no validation errors, both suites
+green, and `depth-of-field` and `shadow-cascades` are unchanged at 1.00 against
+Metal.
+
+The offline seam's two backends stay deliberately asymmetric: Metal commits without
+waiting, Vulkan waits. Vulkan waits because it must, to reuse frame-scoped
+resources; Metal has no such need and that example re-bakes every frame, where a
+stall would serialise CPU and GPU. An experiment adding the wait to Metal confirmed
+it does not fix `tools/generate-env-atlas`, whose readback is broken for an
+unrelated reason: it calls `getBytes` on a private-storage render target.

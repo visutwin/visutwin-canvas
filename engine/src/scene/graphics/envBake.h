@@ -58,4 +58,49 @@ namespace visutwin::canvas
      * rects across passes loses everything but the last.
      */
     bool bakeReproject(GraphicsDevice* device, const EnvReprojectRequest& request);
+
+    /// One convolution rectangle. `samples` is `numSamples` float4s of
+    /// (tangentX, tangentY, tangentZ, mipLevel): the hemisphere direction for
+    /// Lambert, the reflected direction for GGX. A sample with a non-positive z is
+    /// skipped by the shader. The table is uploaded as an RGBA32F data texture.
+    struct EnvConvolveBakeRect
+    {
+        EnvBakeRect rect;
+        const float* samples = nullptr;
+        int numSamples = 0;
+        bool weightByNoL = false;
+    };
+
+    struct EnvConvolveRequest
+    {
+        Texture* target = nullptr;
+        Texture* source = nullptr;
+        std::vector<EnvConvolveBakeRect> rects;
+        bool encodeRgbp = true;
+        bool decodeSrgb = false;
+    };
+
+    /// Importance-sampled convolution of `source` into `target`'s rects.
+    bool bakeConvolve(GraphicsDevice* device, const EnvConvolveRequest& request);
+
+    /// The combined atlas bake: the reproject rects first, then the convolve rects,
+    /// all inside ONE render pass. That single pass is required, not an
+    /// optimisation — on Apple-Silicon tile GPUs a load-and-scissor pass does not
+    /// preserve content outside its scissor, so splitting the atlas across passes
+    /// keeps only the last rect. The two sources differ in practice: reprojection
+    /// resamples the environment while convolution reads a mipped cubemap.
+    struct EnvAtlasRequest
+    {
+        Texture* target = nullptr;
+        Texture* reprojectSource = nullptr;
+        TextureProjection reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
+        TextureProjection reprojectTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
+        std::vector<EnvBakeRect> reprojectRects;
+        Texture* convolveSource = nullptr;
+        std::vector<EnvConvolveBakeRect> convolveRects;
+        bool encodeRgbp = true;
+        bool decodeSrgb = false;
+    };
+
+    bool bakeEnvAtlas(GraphicsDevice* device, const EnvAtlasRequest& request);
 }

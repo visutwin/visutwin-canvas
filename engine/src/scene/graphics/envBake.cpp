@@ -105,6 +105,86 @@ namespace visutwin::canvas
             device->setStencilState();
         }
 
+
+        std::shared_ptr<Shader> convolveShader(GraphicsDevice* device, const bool cubeSource)
+        {
+            const char* cacheKey = cubeSource ? "env-convolve-cube-quad"
+                                              : "env-convolve-2d-quad";
+            if (auto cached = device->getCachedShader(cacheKey)) {
+                return cached;
+            }
+            ShaderDefinition definition;
+            definition.name = cacheKey;
+            definition.vshader = "convolveVertex";
+            definition.fshader = "convolveFragment";
+            auto shader = createShader(device, definition,
+                composeSource(device,
+                    device->shaderLanguage() == ShaderLanguage::Glsl
+                        ? env_shaders::CONVOLVE_GLSL : env_shaders::CONVOLVE_MSL,
+                    cubeSource));
+            if (shader) {
+                device->setCachedShader(cacheKey, shader);
+            }
+            return shader;
+        }
+
+        // The sample table as a 1-row RGBA32F texture. Built and uploaded BEFORE the
+        // offline scope opens: that scope flushes pending uploads on entry, and
+        // nothing may be uploaded once it is recording.
+        std::shared_ptr<Texture> makeSampleTable(GraphicsDevice* device,
+            const float* samples, const int numSamples)
+        {
+            if (!samples || numSamples <= 0) {
+                return nullptr;
+            }
+            TextureOptions options;
+            options.name = "envConvolveSamples";
+            options.width = static_cast<uint32_t>(numSamples);
+            options.height = 1;
+            options.format = PixelFormat::PIXELFORMAT_RGBA32F;
+            options.mipmaps = false;
+            options.minFilter = FilterMode::FILTER_NEAREST;
+            options.magFilter = FilterMode::FILTER_NEAREST;
+            auto table = std::make_shared<Texture>(device, options);
+            table->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+            table->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+            table->setLevelData(0, reinterpret_cast<const uint8_t*>(samples),
+                static_cast<size_t>(numSamples) * 4u * sizeof(float));
+            table->upload();
+            return table;
+        }
+
+        Vector4 rectViewport(const EnvBakeRect& rect)
+        {
+            return Vector4(static_cast<float>(rect.x), static_cast<float>(rect.y),
+                static_cast<float>(rect.width), static_cast<float>(rect.height));
+        }
+
+        // Shared body of the convolve draws, used alone and inside the atlas.
+        void drawConvolveRects(QuadRender& quad,
+            const std::vector<EnvConvolveBakeRect>& rects,
+            const std::vector<std::shared_ptr<Texture>>& tables,
+            const bool encodeRgbp, const bool decodeSrgb)
+        {
+            for (size_t i = 0; i < rects.size(); ++i) {
+                const auto& entry = rects[i];
+                if (entry.rect.width <= 0 || entry.rect.height <= 0 || !tables[i]) {
+                    continue;
+                }
+                env_shaders::ConvolveUniforms uniforms{};
+                fillUvMod(uniforms.uvMod, entry.rect);
+                uniforms.encodeRgbp = encodeRgbp ? 1u : 0u;
+                uniforms.decodeSrgb = decodeSrgb ? 1u : 0u;
+                uniforms.numSamples = static_cast<uint32_t>(entry.numSamples);
+                uniforms.weightByNoL = entry.weightByNoL ? 1u : 0u;
+                quad.setUniforms(uniforms);
+                quad.setTexture(1, tables[i].get());
+
+                const Vector4 viewport = rectViewport(entry.rect);
+                quad.render(&viewport);
+            }
+        }
+
         // One shader per device, cached like every other quad effect's.
         std::shared_ptr<Shader> equirectToCubeShader(GraphicsDevice* device)
         {
@@ -238,27 +318,156 @@ namespace visutwin::canvas
                 continue;
             }
             env_shaders::ReprojectUniforms uniforms{};
-            // Expand the sampled UV range so the seam border repeats the edge
-            // texels instead of leaving them unwritten.
-            const int seam = std::max(0, rect.seamPixels);
-            const int innerWidth = rect.width - seam * 2;
-            const int innerHeight = rect.height - seam * 2;
-            if (seam > 0 && innerWidth > 0 && innerHeight > 0) {
-                uniforms.uvMod[0] = static_cast<float>(rect.width) / static_cast<float>(innerWidth);
-                uniforms.uvMod[1] = static_cast<float>(rect.height) / static_cast<float>(innerHeight);
-                uniforms.uvMod[2] = -static_cast<float>(seam) / static_cast<float>(innerWidth);
-                uniforms.uvMod[3] = -static_cast<float>(seam) / static_cast<float>(innerHeight);
-            }
+            fillUvMod(uniforms.uvMod, rect);
             uniforms.sourceProjection = static_cast<uint32_t>(request.sourceProjection);
             uniforms.targetProjection = static_cast<uint32_t>(request.targetProjection);
             uniforms.encodeRgbp = request.encodeRgbp ? 1u : 0u;
             uniforms.decodeSrgb = request.decodeSrgb ? 1u : 0u;
             quad.setUniforms(uniforms);
 
-            const Vector4 viewport(static_cast<float>(rect.x), static_cast<float>(rect.y),
-                static_cast<float>(rect.width), static_cast<float>(rect.height));
+            const Vector4 viewport = rectViewport(rect);
             quad.render(&viewport);
         }
+        device->endRenderPass(&pass);
+        device->endOfflineWork();
+        return true;
+    }
+
+    bool bakeConvolve(GraphicsDevice* device, const EnvConvolveRequest& request)
+    {
+        if (!device || !request.source || !request.target || request.rects.empty()) {
+            spdlog::warn("bakeConvolve: source, target or rects missing");
+            return false;
+        }
+        auto shader = convolveShader(device, request.source->isCubemap());
+        if (!shader) {
+            spdlog::error("bakeConvolve: no shader for this device");
+            return false;
+        }
+        request.source->upload();
+        request.target->upload();
+
+        std::vector<std::shared_ptr<Texture>> tables;
+        tables.reserve(request.rects.size());
+        for (const auto& entry : request.rects) {
+            tables.push_back(makeSampleTable(device, entry.samples, entry.numSamples));
+        }
+
+        RenderTargetOptions targetOptions;
+        targetOptions.graphicsDevice = device;
+        targetOptions.colorBuffer = request.target;
+        targetOptions.depth = false;
+        targetOptions.samples = 1;
+        targetOptions.flipY = false;
+        targetOptions.name = "envConvolveTarget";
+        auto renderTarget = device->createRenderTarget(targetOptions);
+        if (!renderTarget) {
+            return false;
+        }
+
+        QuadRender quad(shader);
+        quad.setTexture(0, request.source);
+
+        EnvBakePass pass(device, "EnvConvolve");
+        pass.init(renderTarget);
+
+        device->beginOfflineWork();
+        device->startRenderPass(&pass);
+        setBakeRenderState(device);
+        drawConvolveRects(quad, request.rects, tables,
+            request.encodeRgbp, request.decodeSrgb);
+        device->endRenderPass(&pass);
+        device->endOfflineWork();
+        return true;
+    }
+
+    bool bakeEnvAtlas(GraphicsDevice* device, const EnvAtlasRequest& request)
+    {
+        if (!device || !request.target) {
+            spdlog::warn("bakeEnvAtlas: target is null");
+            return false;
+        }
+        const bool wantReproject = request.reprojectSource && !request.reprojectRects.empty();
+        const bool wantConvolve = request.convolveSource && !request.convolveRects.empty();
+        if (!wantReproject && !wantConvolve) {
+            spdlog::warn("bakeEnvAtlas: nothing to bake");
+            return false;
+        }
+
+        std::shared_ptr<Shader> reproject;
+        std::shared_ptr<Shader> convolve;
+        if (wantReproject) {
+            reproject = reprojectShader(device, request.reprojectSource->isCubemap());
+            request.reprojectSource->upload();
+        }
+        if (wantConvolve) {
+            convolve = convolveShader(device, request.convolveSource->isCubemap());
+            request.convolveSource->upload();
+        }
+        if ((wantReproject && !reproject) || (wantConvolve && !convolve)) {
+            spdlog::error("bakeEnvAtlas: no shader (reproject={} convolve={})",
+                static_cast<const void*>(reproject.get()), static_cast<const void*>(convolve.get()));
+            return false;
+        }
+        request.target->upload();
+
+        std::vector<std::shared_ptr<Texture>> tables;
+        tables.reserve(request.convolveRects.size());
+        for (const auto& entry : request.convolveRects) {
+            tables.push_back(makeSampleTable(device, entry.samples, entry.numSamples));
+        }
+
+        RenderTargetOptions targetOptions;
+        targetOptions.graphicsDevice = device;
+        targetOptions.colorBuffer = request.target;
+        targetOptions.depth = false;
+        targetOptions.samples = 1;
+        targetOptions.flipY = false;
+        targetOptions.name = "envAtlasTarget";
+        auto renderTarget = device->createRenderTarget(targetOptions);
+        if (!renderTarget) {
+            return false;
+        }
+
+        EnvBakePass pass(device, "EnvAtlas");
+        pass.init(renderTarget);
+        // The rects do not tile the whole atlas, and what they miss is whatever the
+        // allocation happened to hold — black on one backend, uninitialised garbage
+        // on the other. One bake writes every rect it owns, so clearing first costs
+        // nothing and makes the gaps deterministic.
+        const Color clearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        pass.setClearColor(&clearColor);
+
+        device->beginOfflineWork();
+        device->startRenderPass(&pass);
+        setBakeRenderState(device);
+
+        if (wantReproject) {
+            QuadRender quad(reproject);
+            quad.setTexture(0, request.reprojectSource);
+            for (const auto& rect : request.reprojectRects) {
+                if (rect.width <= 0 || rect.height <= 0) {
+                    continue;
+                }
+                env_shaders::ReprojectUniforms uniforms{};
+                fillUvMod(uniforms.uvMod, rect);
+                uniforms.sourceProjection = static_cast<uint32_t>(request.reprojectSourceProjection);
+                uniforms.targetProjection = static_cast<uint32_t>(request.reprojectTargetProjection);
+                uniforms.encodeRgbp = request.encodeRgbp ? 1u : 0u;
+                uniforms.decodeSrgb = request.decodeSrgb ? 1u : 0u;
+                quad.setUniforms(uniforms);
+
+                const Vector4 viewport = rectViewport(rect);
+                quad.render(&viewport);
+            }
+        }
+        if (wantConvolve) {
+            QuadRender quad(convolve);
+            quad.setTexture(0, request.convolveSource);
+            drawConvolveRects(quad, request.convolveRects, tables,
+                request.encodeRgbp, request.decodeSrgb);
+        }
+
         device->endRenderPass(&pass);
         device->endOfflineWork();
         return true;

@@ -237,55 +237,14 @@ namespace visutwin::canvas
     // VSM separable gaussian blur (upstream blurVSM equivalent).
     // Operates on the RGB channels of a 2D RGBA16F moments texture.
     // Run twice per shadow update — once horizontal, once vertical.
-    struct EnvReprojectOp
-    {
-        int rectX = 0;
-        int rectY = 0;
-        int rectW = 0;
-        int rectH = 0;
-        int seamPixels = 1;
-    };
 
-    struct EnvReprojectPassParams
-    {
-        Texture* target = nullptr;
-        Texture* sourceEquirect = nullptr;   // bound when sourceProjection != CUBE
-        Texture* sourceCubemap  = nullptr;   // bound when sourceProjection == CUBE
-        std::vector<EnvReprojectOp> ops;
-        // How to read the source and how to lay out the target. CUBE is only valid as a
-        // source; a cube TARGET is produced face-by-face by the caller instead.
-        TextureProjection sourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
-        TextureProjection targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
-        bool encodeRgbp = true;
-        bool decodeSrgb = false;
-    };
 
     // Importance-sampled convolution. `samples` is an array of numSamples
     // float4s: (tangentX, tangentY, tangentZ, mipLevel). For Lambert the
     // tangent vector is the hemisphere sample; for GGX it is the reflected
     // direction. A sample with tangentZ <= 0 is treated as invalid and
     // skipped by the shader.
-    struct EnvConvolveOp
-    {
-        int rectX = 0;
-        int rectY = 0;
-        int rectW = 0;
-        int rectH = 0;
-        int seamPixels = 1;
-        const float* samples = nullptr;
-        int numSamples = 0;
-        bool weightByNoL = false;
-    };
 
-    struct EnvConvolvePassParams
-    {
-        Texture* target = nullptr;
-        Texture* sourceEquirect = nullptr;
-        Texture* sourceCubemap  = nullptr;
-        std::vector<EnvConvolveOp> ops;
-        bool encodeRgbp = true;
-        bool decodeSrgb = false;
-    };
 
     // Combined bake — reproject ops run first, then convolve ops, all inside
     // a single render pass. Required on Apple-Silicon tile-based GPUs where
@@ -295,20 +254,6 @@ namespace visutwin::canvas
     // reprojectSource is the source for the reproject ops (straight resample);
     // convolveSource is the source for the convolve ops (usually a mipmapped
     // HDR cubemap). They may differ.
-    struct EnvAtlasBakeParams
-    {
-        Texture* target = nullptr;
-        Texture* reprojectSourceEquirect = nullptr;
-        Texture* reprojectSourceCubemap  = nullptr;
-        TextureProjection reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
-        TextureProjection reprojectTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
-        std::vector<EnvReprojectOp> reprojectOps;
-        Texture* convolveSourceEquirect = nullptr;
-        Texture* convolveSourceCubemap  = nullptr;
-        std::vector<EnvConvolveOp> convolveOps;
-        bool encodeRgbp = true;
-        bool decodeSrgb = false;
-    };
 
 
     // DEVIATION: blurred planar reflection parameters.
@@ -870,16 +815,6 @@ namespace visutwin::canvas
         virtual void endOfflineWork() {}
 
         virtual std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) = 0;
-        virtual void generateEnvConvolve(const EnvConvolvePassParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("generateEnvConvolve");
-        }
-        virtual void generateEnvAtlas(const EnvAtlasBakeParams& params)
-        {
-            (void)params;
-            VT_DEVICE_FEATURE_UNSUPPORTED("generateEnvAtlas");
-        }
         virtual bool supportsCompute() const { return false; }
         virtual void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "")
         {
