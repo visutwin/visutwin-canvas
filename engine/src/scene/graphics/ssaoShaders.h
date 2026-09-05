@@ -93,6 +93,13 @@ static inline float getLinearDepth(float rawDepth, float cameraNear, float camer
 static constant float kLog2LodRate = 3.0;
 
 // Random number between 0 and 1 using interleaved gradient noise
+// Point-sampled depth. These passes reconstruct view-space positions from depth,
+// and a bilinear tap straddling a silhouette returns a depth that belongs to
+// NEITHER surface — a position in mid-air that the kernel then treats as real.
+// The Vulkan side binds a nearest sampler for the same reason.
+constexpr sampler ssaoDepthSampler(coord::normalized, filter::nearest,
+                                   mip_filter::none, address::clamp_to_edge);
+
 static inline float random(float2 fragCoord)
 {
     const float3 m = float3(0.06711056, 0.00583715, 52.9829189);
@@ -115,8 +122,8 @@ static inline float3 computeViewSpaceNormal(float3 position, float2 uv, float2 i
 {
     float2 uvdx = uv + float2(invResolution.x, 0.0);
     float2 uvdy = uv + float2(0.0, invResolution.y);
-    float depthDx = depthTexture.sample(linearSampler, uvdx);
-    float depthDy = depthTexture.sample(linearSampler, uvdy);
+    float depthDx = depthTexture.sample(ssaoDepthSampler, uvdx);
+    float depthDy = depthTexture.sample(ssaoDepthSampler, uvdy);
     float3 px = computeViewSpacePositionFromDepth(uvdx, getLinearDepth(depthDx, cameraNear, cameraFar), aspect);
     float3 py = computeViewSpacePositionFromDepth(uvdy, getLinearDepth(depthDy, cameraNear, cameraFar), aspect);
     float3 dpdx = px - position;
@@ -156,7 +163,7 @@ static inline void computeAmbientOcclusionSAO(
 
     float2 uvSamplePos = uv + float2(ssRadius * tap.xy) * invResolution;
 
-    float occlusionDepth = getLinearDepth(depthTexture.sample(linearSampler, uvSamplePos), cameraNear, cameraFar);
+    float occlusionDepth = getLinearDepth(depthTexture.sample(ssaoDepthSampler, uvSamplePos), cameraNear, cameraFar);
     float3 p = computeViewSpacePositionFromDepth(uvSamplePos, occlusionDepth, aspect);
 
     // now we have the sample, compute AO
@@ -208,7 +215,7 @@ fragment float4 ssaoFragment(
 {
     const float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
 
-    float rawDepth = depthTexture.sample(linearSampler, uv);
+    float rawDepth = depthTexture.sample(ssaoDepthSampler, uv);
     float depth = getLinearDepth(rawDepth, uniforms.cameraNear, uniforms.cameraFar);
     float3 origin = computeViewSpacePositionFromDepth(uv, depth, uniforms.aspect);
     // DEVIATION: upstream reconstructs positions with negative Z (depth = -getLinearScreenDepth),

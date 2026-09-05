@@ -677,6 +677,15 @@ namespace visutwin::canvas
                     imageInfos[slotIndex].sampler = vkTex->sampler();
                 }
                 if (vkTex->isDepth()) {
+                    // Point-sample depth. A quad pass reconstructs positions from
+                    // it, and a bilinear tap straddling a silhouette returns a
+                    // depth belonging to NEITHER surface. Whether the hardware
+                    // filters a depth format at all is a per-format capability, so
+                    // leaving it to the texture's own sampler made SSAO read
+                    // linearly here and point-sampled there; the shadow sampler is
+                    // already nearest, clamp-to-edge and mip-less, which is exactly
+                    // what this tap wants.
+                    imageInfos[slotIndex].sampler = _shadowSampler;
                     // Depth reaches a quad pass in whichever read-only layout its
                     // producer left it in: endRenderPass leaves a texture-backed
                     // depth attachment in SHADER_READ_ONLY_OPTIMAL, grabSceneDepth

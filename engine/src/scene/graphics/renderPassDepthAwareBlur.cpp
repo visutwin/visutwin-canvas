@@ -58,6 +58,13 @@ static inline float getLinearDepth(float rawDepth, float cameraNear, float camer
     return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
 }
 
+// Point-sampled depth. These passes reconstruct view-space positions from depth,
+// and a bilinear tap straddling a silhouette returns a depth that belongs to
+// NEITHER surface — a position in mid-air that the kernel then treats as real.
+// The Vulkan side binds a nearest sampler for the same reason.
+constexpr sampler blurDepthSampler(coord::normalized, filter::nearest,
+                                   mip_filter::none, address::clamp_to_edge);
+
 static inline float bilateralWeight(float depth, float sampleDepth)
 {
     float diff = (sampleDepth - depth);
@@ -80,7 +87,7 @@ fragment float4 blurFragment(
     const float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
 
     // handle the center pixel separately because it doesn't participate in bilateral filtering
-    float depth = getLinearDepth(depthTexture.sample(linearSampler, uv), cameraNear, cameraFar);
+    float depth = getLinearDepth(depthTexture.sample(blurDepthSampler, uv), cameraNear, cameraFar);
     float totalWeight = 1.0;
     float color = sourceTexture.sample(linearSampler, uv).r;
     float sum = color * totalWeight;
@@ -97,7 +104,7 @@ fragment float4 blurFragment(
         float2 position = uv + offset;
 
         float tapColor = sourceTexture.sample(linearSampler, position).r;
-        float textureDepth = getLinearDepth(depthTexture.sample(linearSampler, position), cameraNear, cameraFar);
+        float textureDepth = getLinearDepth(depthTexture.sample(blurDepthSampler, position), cameraNear, cameraFar);
         float bilateral = bilateralWeight(depth, textureDepth) * weight;
         sum += tapColor * bilateral;
         totalWeight += bilateral;

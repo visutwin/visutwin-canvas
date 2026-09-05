@@ -814,3 +814,50 @@ set a height map before this one, and the glTF parser does not bind one at all.
 against Metal, which is the run-to-run floor for this harness. `clearcoat` is
 byte-identical on Metal before and after, confirming the extra locals the surface
 chunk now declares cost nothing when no height map is bound. Both suites green.
+
+## The SSAO depth tap: measuring the filter instead of guessing it (2026-09-05)
+
+The previous round guessed which backend point-sampled depth, guessed wrong, and
+reverted. This round made the shader report it.
+
+**The probe.** Sample the raw depth at a texel centre, one texel across, and
+exactly halfway between. Under linear filtering the halfway tap is the average of
+the two ends; under nearest it equals one of them. The SSAO pass was temporarily
+made to output that verdict as its occlusion value — one shade for "no depth step
+here to tell from", one for linear, one for nearest — with the bilateral blur
+bypassed so the answer survived to the frame. Classifying the result against a
+normal render of the same scene:
+
+    Metal    of stepped pixels:  100% linear,   0% nearest
+    Vulkan   of stepped pixels:   64% linear,  36% nearest
+
+So the two backends genuinely disagree, and it is VULKAN that point-samples part
+of the time — the opposite of last round's assumption, which is why making Metal
+nearest overshot: it aligned Metal to a behaviour Vulkan only has a third of the
+time.
+
+**The fix.** Make both deterministic rather than trying to make both linear, since
+whether hardware filters a depth format at all is a per-format capability and not
+something a sampler flag settles. Point sampling is also the defensible choice on
+its own terms: a bilinear tap across a silhouette is a position in mid-air. Vulkan
+now binds the existing shadow sampler (nearest, clamp-to-edge, mip-less) for any
+depth texture in the quad path, and the MSL SSAO and depth-aware-blur passes
+declare their own point sampler.
+
+**Verification.**
+
+    davinci frame   0.961 / 0.970 / 0.972  ->  0.986 / 0.992 / 0.995
+    davinci floor   0.808 / 0.853 / 0.895  ->  0.918 / 0.959 / 0.985
+    davinci sky     1.000 (unchanged)
+
+Both moved toward 1 with no sign flip, which is what distinguishes this from the
+reverted attempt. `depth-of-field` and `clearcoat` are byte-identical on Metal and
+their parity numbers are unchanged to four decimals — neither runs SSAO, and the
+grabbed depth copy the compose DOF reads is not a depth-format texture, so the
+Vulkan branch does not touch it. Both suites green.
+
+**What is left.** The floor still reads 0.92 in red. Some of that is the
+per-backend `normalScale` difference on a normal-mapped surface, which the project
+keeps on purpose; the rest is unattributed. Worth remembering that the bilateral
+blur multiplies any SSAO input disagreement by about 2.5, so 3% of input error
+presents as 8% on screen.
