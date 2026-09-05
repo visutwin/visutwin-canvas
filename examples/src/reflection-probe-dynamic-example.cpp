@@ -104,8 +104,12 @@ static std::shared_ptr<Mesh> createHighQualitySphere(const std::shared_ptr<Graph
         for (int lon = 0; lon < longitudeBands; ++lon) {
             const auto first = static_cast<uint32_t>(lat * (longitudeBands + 1) + lon);
             const auto second = static_cast<uint32_t>(first + longitudeBands + 1);
-            indices.insert(indices.end(), {first, second, first + 1u});
-            indices.insert(indices.end(), {second, second + 1u, first + 1u});
+            // Counter-clockwise seen from OUTSIDE. The opposite order builds a
+            // sphere whose normals face inward, which a mirror ball hides — it
+            // still reflects something — and which mesh-morph found by rendering
+            // the same generator with a diffuse material, where it comes out black.
+            indices.insert(indices.end(), {first, first + 1u, second});
+            indices.insert(indices.end(), {second, first + 1u, second + 1u});
         }
     }
 

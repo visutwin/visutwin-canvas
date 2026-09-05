@@ -40,7 +40,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
-  examples/        # 50 example applications, all derived from ExampleApp
+  examples/        # 51 example applications, all derived from ExampleApp
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -436,6 +436,12 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   only link in the `*_PRIVATE_IMPLEMENTATION` TU. Compare string values instead
   inside the engine library.
 - **`Matrix4::getElement` takes (col, row)**, not (row, col).
+- **A hand-built sphere's triangle winding has to be counter-clockwise seen from
+  OUTSIDE**, or its normals face inward. A mirror ball HIDES this — it still
+  reflects something — so the inverted winding in the reflection-probe example went
+  unnoticed until the same generator was reused with a diffuse material in
+  mesh-morph and came out black. `DEBUGPASS_WORLDNORMAL` says it in one frame: a
+  correct sphere is blue in the middle, an inverted one is not.
 - **Large ground planes must stay shadow CASTERS but not receivers-only.** The
   directional shadow camera fits its depth range to casters, so a receiver-only
   ground falls outside it and catches no shadow; a huge caster inflates the fitted
@@ -568,8 +574,11 @@ does nothing, which is a misleading symptom.
   panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
-- **Example coverage gaps**: morph weight animation, gsplat SH bands 1-3, and
-  clustered atlas shadows have no example.
+- **Example coverage gaps**: gsplat SH bands 1-3 and clustered atlas shadows have
+  no example. Upstream has `graphics/clustered-spot-shadows` and
+  `clustered-omni-shadows` for the second, and the `gaussian-splatting/` folder for
+  the first. Morph weight animation is covered again as of 2026-09-05
+  (`mesh-morph-example.cpp`).
 
 ## Reference kept elsewhere
 

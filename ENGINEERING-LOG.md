@@ -1044,3 +1044,36 @@ before the first frame.
 
 **Not ported.** Upstream's controls panel exposes every setting live; the example
 cycles caps and joins and toggles dashes from the keyboard instead.
+
+## Morph coverage restored, and a sphere that was inside out (2026-09-05)
+
+`graphics/mesh-morph` ported: three spheres, each carrying three morph targets built
+by extruding the part of the sphere nearest an axis plane along its own normals,
+with the weights driven by three sine curves. It builds the targets on the CPU
+rather than loading them, so it covers `MorphTarget` as well as the blend, and it
+restores coverage that was deleted in August.
+
+**What it found.** The spheres rendered black. The morph path was not to blame —
+disabling the morph instance changed nothing, and a built-in primitive sphere added
+to the same scene with the same material lit correctly. `DEBUGPASS_WORLDNORMAL`
+settled it in one frame: the control sphere is blue in the middle, where a surface
+faces the camera, and mine was not. The triangle winding in the sphere generator
+was inverted, so its normals faced inward.
+
+That generator was copied from `reflection-probe-dynamic-example.cpp`, which has
+carried the same inverted winding since it was written. A mirror ball hides it —
+an inside-out normal still reflects SOMETHING — which is exactly why it survived.
+Both are fixed.
+
+This is the third time in two days that porting an upstream example has surfaced a
+defect that the invented scene it replaced could not: the parallax port found an
+inverted base convention and a height unit wrong by ten, and this one found a mesh
+that has been inside out for months.
+
+**Verification.** Metal and Vulkan render the example identically (1.0000 on all
+three channels). `reflection-probe-dynamic` still renders after the winding fix.
+Both suites green.
+
+**Not done.** Two of the three coverage gaps remain: gaussian splat spherical
+harmonic bands and clustered atlas shadows. Upstream has
+`graphics/clustered-spot-shadows` and `clustered-omni-shadows` for the second.
