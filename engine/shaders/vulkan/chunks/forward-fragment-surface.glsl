@@ -254,14 +254,21 @@ void main() {
             tn = mix(vec3(0.0, 0.0, 1.0), tn, material.normalScale);
         }
         if (haveDetailNormal) {
-            // UDN blend: the detail map's xy perturbation is scaled by
-            // detailNormalScale and added on top of the base normal (or the flat
-            // normal when no base map is bound).
+            // Detail normal overlay. detailNormalScale blends the DETAIL map toward
+            // flat, exactly as normalScale does for the base map, and the two normals
+            // are then combined with upstream's reoriented ("detail oriented") blend
+            // rather than by adding their xy. Adding xy treats the detail's
+            // slope as if the base were flat, so the combined slope is wrong wherever
+            // the base is not; the reoriented blend rotates the detail into the base
+            // normal's own frame, which is the whole point of it.
             vec2 uvDetail = applyUvTransform(fragUV0,
                 material.detailNormalTransform0, material.detailNormalTransform1);
             vec3 detailSample = texture(detailNormal, uvDetail).xyz * 2.0 - 1.0;
-            detailSample.xy *= material.detailDisplacementParams.x;
-            tn = normalize(vec3(tn.xy + detailSample.xy, tn.z));
+            detailSample = mix(vec3(0.0, 0.0, 1.0), detailSample,
+                material.detailDisplacementParams.x);
+            vec3 n1 = tn + vec3(0.0, 0.0, 1.0);
+            vec3 n2 = detailSample * vec3(-1.0, -1.0, 1.0);
+            tn = n1 * (dot(n1, n2) / n1.z) - n2;
         }
         // A mesh can reach here with no tangent stream at all: the glTF parser
         // leaves the attribute zero when the file carries none and the primitive

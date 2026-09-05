@@ -192,15 +192,22 @@
         }
 #endif
 #if VT_FEATURE_DETAIL_NORMALS
-        // Detail normal overlay (UDN blend): the detail map's xy perturbation is
-        // scaled by detailNormalScale and added in tangent space on top of the
-        // base normal sample (or the flat normal when no base map is bound).
+        // Detail normal overlay. detailNormalScale blends the DETAIL map toward
+        // flat, exactly as normalScale does for the base map, and the two normals
+        // are then combined with upstream's reoriented ("detail oriented") blend
+        // rather than by adding their xy. Adding xy treats the detail's
+        // slope as if the base were flat, so the combined slope is wrong wherever
+        // the base is not; the reoriented blend rotates the detail into the base
+        // normal's own frame, which is the whole point of it.
         if (detailNormalTexture.get_width() > 0 && detailNormalTexture.get_height() > 0) {
             const float2 uvDetail = applyUvTransform(rd.uv0,
                 material.detailNormalTransform0, material.detailNormalTransform1);
             float3 detailSample = detailNormalTexture.sample(defaultSampler, uvDetail).xyz * 2.0 - 1.0;
-            detailSample.xy *= material.detailDisplacementParams.x;  // detailNormalScale
-            normalSample = normalize(float3(normalSample.xy + detailSample.xy, normalSample.z));
+            detailSample = mix(float3(0.0, 0.0, 1.0), detailSample,
+                material.detailDisplacementParams.x);  // detailNormalScale
+            const float3 n1 = normalSample + float3(0.0, 0.0, 1.0);
+            const float3 n2 = detailSample * float3(-1.0, -1.0, 1.0);
+            normalSample = n1 * (dot(n1, n2) / n1.z) - n2;
             haveSample = true;
         }
 #endif

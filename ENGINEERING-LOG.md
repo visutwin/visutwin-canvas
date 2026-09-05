@@ -1255,3 +1255,43 @@ scenes sit at the default scale where the old and new code are the same expressi
 and the shading normals now agree to 0.139/255 regardless. `parallax-mapping`
 renders at 0.93 of Metal for a reason that is still unfound; that is a new open
 item, and the parallax march is the place to look, not the normal.
+
+## The detail-normal blend, the other half of the same defect (2026-09-05)
+
+The base-map fix in the previous entry left the detail map beneath it wrong in the
+same two ways, on both backends. Fixed together with upstream's chunk as the
+reference.
+
+**What was wrong.** `detailNormalScale` multiplied the detail map's xy instead of
+blending it toward flat, exactly the base map's bug one block lower. And the two
+normals were combined by adding their xy, which treats the detail's slope as though
+the base were flat, so the combined slope is wrong wherever the base is not.
+Upstream reorients instead, rotating the detail into the base normal's own frame:
+
+    n1 = base + (0,0,1)
+    n2 = detail * (-1,-1,1)
+    out = n1 * dot(n1, n2) / n1.z - n2
+
+left unnormalized, because the TBN product is normalized afterwards. It degrades
+correctly at both ends: a flat detail map returns the base exactly, and a flat base
+returns the detail exactly.
+
+**This is not an alignment fix.** Both backends carried the identical defect and
+both move by the same amount, which is itself the cleanest evidence the port is
+symmetric. Measured on a normal-mapped scene given a second copy of its normal map
+as a detail map at four times the tiling, with the camera in
+`DEBUGPASS_WORLDNORMAL`:
+
+| | shading-normal change, MAD | p99 |
+|---|---|---|
+| Metal | 1.84 | 15 |
+| Vulkan | 1.86 | 16 |
+
+Backend agreement is unchanged either way, 0.588 before and 0.645 after, both far
+below the change itself.
+
+**No example covers this.** Nothing in the tree sets a detail normal map, which is
+why two wrong lines survived since the feature landed in 2026-07, and why the probe
+above had to invent a material. Upstream's own coverage is `test/detail-map`, which
+it flags HIDDEN, and it cannot be ported faithfully yet because it toggles diffuse,
+normal and AO detail maps where only the normal one exists here.

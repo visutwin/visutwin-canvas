@@ -544,6 +544,14 @@ during unrelated work are repeated here.
 - **The gloss, thickness and refraction scalar maps are Metal only**, blocked on
   Vulkan by the 16-sampler limit. The uniform field is plumbed on both backends,
   so Vulkan renders the scene correctly minus the maps.
+- **`detailNormalScale` blends the DETAIL map toward flat too, and the two normals
+  combine with a REORIENTED blend, not by adding xy.** Adding xy treats the detail
+  slope as if the base were flat, so the combined slope is wrong wherever the base
+  is not. Upstream's `blendNormals` rotates the detail into the base normal's frame:
+  `n1 = base + (0,0,1)`, `n2 = detail * (-1,-1,1)`, `n1 * dot(n1,n2) / n1.z - n2`,
+  left unnormalized because the TBN product is normalized after. Ported to both
+  backends 2026-09-05; it was the same defect on both, so this is a correctness fix
+  and not an alignment one.
 - **`normalScale` blends the sampled normal TOWARD FLAT.** It does not scale xy.
   Upstream's `material_bumpiness` is a `mix(vec3(0,0,1), normalMap, s)` and both
   backends now do that. Scaling xy leaves z alone, so it steepens the normal's
@@ -596,7 +604,9 @@ does nothing, which is a misleading symptom.
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
 - **Example coverage gaps**: gsplat SH bands 1-3 have no example; upstream has the
-  `gaussian-splatting/` folder. Morph weight animation is covered again as of
+  `gaussian-splatting/` folder. Detail normals have no example either, and upstream's
+  (`test/detail-map`, itself flagged HIDDEN) cannot be ported faithfully yet: it
+  toggles diffuse, normal and AO detail maps and only the NORMAL one exists here. Morph weight animation is covered again as of
   2026-09-05 (`mesh-morph-example.cpp`), and clustered atlas shadows have a working
   example (`clustered-spot-shadows-example.cpp`).
 - **`parallax-mapping` renders ~0.93x Metal**, evenly across both halves of the
