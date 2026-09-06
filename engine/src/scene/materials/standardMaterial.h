@@ -204,8 +204,20 @@ namespace visutwin::canvas
         float dispersion() const { return _dispersion; }
         void setDispersion(const float value) { _dispersion = value; markUniformsDirty(); }
         // --- Ambient Occlusion ---
-        Texture* aoMap() const { return _aoMap; }
-        void setAoMap(Texture* texture) { _aoMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        // The AO map and the base Material's occlusion texture are ONE slot (4) and one
+        // shader feature; the GLB parser fills the base property, upstream code and the
+        // examples talk to aoMap. Keep the two in step here, or `setAoMap(nullptr)` on a
+        // loaded material clears nothing (the ambient-occlusion example did exactly that
+        // and rendered with its baked AO all along).
+        Texture* aoMap() const { return _aoMap ? _aoMap : occlusionTexture(); }
+        void setAoMap(Texture* texture)
+        {
+            _aoMap = texture;
+            setOcclusionTexture(texture);
+            setHasOcclusionTexture(texture != nullptr);
+            _dirtyShader = true;
+            markUniformsDirty();
+        }
         // --- Texture Transforms ---
         const Vector2& diffuseMapTiling() const { return _diffuseMapTiling; }
         void setDiffuseMapTiling(const Vector2& v) { _diffuseMapTiling = v; markUniformsDirty(); }

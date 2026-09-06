@@ -329,6 +329,9 @@ void main() {
     // Dynamic refraction replaces the surface's diffuse with the refracted scene
     // but must keep specular, so the specular share is tracked separately.
     vec3 directSpecular = vec3(0.0);
+    // Direct diffuse share (albedo folded in), so occludeDirect can occlude it after
+    // the fact — see the occlusion block in forward-fragment-ambient.
+    vec3 directDiffuse = vec3(0.0);
 
     // Shadow catcher accumulates directional shadow factors multiplicatively:
     // 1.0 = fully lit, 0.0 = fully shadowed. Mirrors the declaration in

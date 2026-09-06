@@ -96,8 +96,10 @@
                 ltcDiffuse = ltcEvaluateRect(N, V, fragWorldPos, ltcIdentity,
                     p0, p1, p2, p3);
             }
-            color += diffuseAlbedo * areaRadiance * ltcDiffuse * 16.0 *
+            vec3 areaDiffuse = diffuseAlbedo * areaRadiance * ltcDiffuse * 16.0 *
                 (vec3(1.0) - specFres);
+            color += areaDiffuse;
+            directDiffuse += areaDiffuse;
 
             // Specular: LTC with the inverse transform from LUT1 (the sphere
             // uses the disk evaluator on its billboarded quad).
@@ -223,6 +225,7 @@
         // which made every direct light here about a third of Metal's. kD also
         // applied (1 - metallic) a second time, since diffuseAlbedo carries it.
         color += (diffuseAlbedo * diffuseTerm + specular) * radiance * NdotL;
+        directDiffuse += diffuseAlbedo * diffuseTerm * radiance * NdotL;
         bakeDiffuseLight += diffuseTerm * radiance * NdotL;
         bakeDirectLight += diffuseTerm * radiance * NdotL;
         directSpecular += specular * radiance * NdotL;

@@ -16,8 +16,9 @@
     // Indirect lighting.  With an environment atlas: image-based diffuse
     // irradiance + roughness-prefiltered specular reflection.  Without one:
     // a flat ambient term plus a Fresnel-weighted specular floor so metals
-    // aren't pitch black.
-    vec3 indirect;
+    // aren't pitch black. Diffuse and specular are kept apart so ambient
+    // occlusion can treat them as upstream does (see the occlusion block below).
+    vec3 indirectDiffuse;
     // Mirrors the specular part of the indirect contribution exactly as it lands
     // in `color` below, AO factor included. SSR replaces that term where the
     // reflection ray hits on-screen geometry, so it only has to add the
@@ -56,7 +57,7 @@
         // metalness 0.7. Every other branch below (light probes, flat ambient,
         // lightmap) already multiplies the irradiance by diffuseAlbedo alone, and
         // so does the Metal chunk.
-        indirect = irradiance * diffuseAlbedo + prefiltered * Fr;
+        indirectDiffuse = irradiance * diffuseAlbedo;
         indirectSpecular = prefiltered * Fr;
         bakeDiffuseLight += irradiance;
     } else if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
@@ -71,23 +72,27 @@
             lighting.ambientSH[6].rgb * (shN.y * shN.x) +
             lighting.ambientSH[7].rgb * (3.0 * shN.z * shN.z - 1.0) +
             lighting.ambientSH[8].rgb * (shN.x * shN.x - shN.y * shN.y);
-        indirect = max(irradiance, vec3(0.0)) * diffuseAlbedo;
+        indirectDiffuse = max(irradiance, vec3(0.0)) * diffuseAlbedo;
         bakeDiffuseLight += max(irradiance, vec3(0.0));
     } else {
-        indirect = lighting.ambient.rgb * diffuseAlbedo + lighting.ambient.rgb * F0;
+        indirectDiffuse = lighting.ambient.rgb * diffuseAlbedo;
         indirectSpecular = lighting.ambient.rgb * F0;
         bakeDiffuseLight += lighting.ambient.rgb;
     }
+    // Ambient occlusion on the AMBIENT diffuse: upstream (litForwardBackend.js)
+    // runs occludeDiffuse before addLightMap and before the light loop, so the
+    // bake and the direct light are occluded only under occludeDirect — handled
+    // in the occlusion block after the specular terms are final.
+    indirectDiffuse *= ao;
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
         // The bake REPLACES the ambient diffuse rather than adding to it — upstream
         // gates the ambient behind `addAmbient = !lightMapEnabled` (lit-shader.js),
         // so that a lightmapped surface is not lit twice by what the bake already
         // contains. Matches the Metal chunk (forward-fragment-tail).
         // Lightmaps store LINEAR light (see the bake output and Lightmapper's encoder).
-        indirect = max(texture(lightMap, fragUV1).rgb, vec3(0.0)) * diffuseAlbedo;
+        indirectDiffuse = max(texture(lightMap, fragUV1).rgb, vec3(0.0)) * diffuseAlbedo;
     }
-    color += indirect * ao;
-    indirectSpecular *= ao;
+    color += indirectDiffuse + indirectSpecular;
     if (vtFeatureEnabled(VT_FEATURE_REFLECTION_PROBE_BIT)) {
         vec3 reflectDir = reflect(-V, N);
         vec3 sampleDir = reflectDir;
@@ -186,6 +191,35 @@
             indirectSpecular = replaced;
         }
     }
+    // Occlusion, applied once every specular term is final (probe and SSR
+    // replace indirectSpecular above). `color` already holds the direct and
+    // indirect terms, so an occluded share is taken back out as `x * (f - 1)`,
+    // which is exactly `x *= f` on the total. Parity with
+    // forward-fragment-ambient.metal and upstream's occludeDiffuse /
+    // occludeSpecular (aoSpecOcc.js).
+    if ((material.flags & FLAG_OCCLUDE_DIRECT) != 0u) {
+        // occludeDirect: the direct diffuse, and the bake if there is one — upstream's
+        // second occludeDiffuse runs after addLightMap and the light loop.
+        vec3 occludedDiffuse = directDiffuse;
+        if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
+            occludedDiffuse += indirectDiffuse;
+        }
+        color += occludedDiffuse * (ao - 1.0);
+    }
+    if (material.occludeSpecularMode != SPECOCC_NONE) {
+        float specOcc = 1.0;
+        if (material.occludeSpecularMode == SPECOCC_AO) {
+            specOcc = ao;
+        } else if (material.occludeSpecularMode == SPECOCC_GLOSSDEPENDENT) {
+            // Approximated specular occlusion from AO (tri-Ace, CEDEC 2011).
+            float specPow = exp2((1.0 - roughness) * 11.0);
+            specOcc = clamp(pow(NdotV + ao, 0.01 * specPow) - 1.0 + ao, 0.0, 1.0);
+        }
+        specOcc = mix(1.0, specOcc, clamp(material.occludeSpecularIntensity, 0.0, 1.0));
+        color += (directSpecular + indirectSpecular) * (specOcc - 1.0);
+        directSpecular *= specOcc;
+        indirectSpecular *= specOcc;
+    }
     if (vtFeatureEnabled(VT_FEATURE_TRANSMISSION_BIT)) {
         if (vtFeatureEnabled(VT_FEATURE_DYNAMIC_REFRACTION_BIT) &&
             lighting.cameraNearFar.z > 0.5 && material.transmissionFactor > 0.0) {
@@ -263,7 +297,7 @@
             color = mix(color, refrColor + specPart, clamp(transmission, 0.0, 1.0));
         } else {
             float transmission = clamp(material.transmissionFactor, 0.0, 1.0);
-            vec3 transmitted = indirect;
+            vec3 transmitted = indirectDiffuse + indirectSpecular;
             if (material.attenuationParams.w > 0.0) {
                 // Same Beer's law as the dynamic path: a^(t/d) == exp(-(-ln a/d)*t).
                 transmitted *= pow(max(material.attenuationParams.rgb, vec3(1e-4)),

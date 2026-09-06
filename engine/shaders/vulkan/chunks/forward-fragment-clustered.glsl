@@ -55,6 +55,7 @@
                 color += (diffuseAlbedo +
                     D * G * F / max(4.0 * NdotV * nl, 1e-4)) *
                     radiance * nl;
+                directDiffuse += diffuseAlbedo * radiance * nl;
                 bakeDiffuseLight += radiance * nl;
                 bakeDirectLight += radiance * nl;
             }

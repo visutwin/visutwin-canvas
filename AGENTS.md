@@ -450,6 +450,14 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   properties with `setDiffuse` / `setMetalness` / `setGloss` (+ `setGlossInvert`);
   `setBaseColorFactor` / `setMetallicFactor` / `setRoughnessFactor` are overwritten
   by `updateUniforms` when no base-color texture is present.
+- **Ambient occlusion occludes the AMBIENT diffuse by default, the direct diffuse
+  and a lightmap only under `occludeDirect`, and the specular through
+  `occludeSpecular` mode and intensity.** That is upstream's split and both
+  chunks follow it. `StandardMaterial::aoMap` and `Material::occlusionTexture`
+  are one texture slot and one shader feature; the GLB parser fills the base
+  property and `setAoMap` writes through to it. Clearing only one of them used
+  to clear nothing, which is how the ambient-occlusion example rendered with
+  its "disabled" baked AO for as long as it existed.
 - **Material colours are authored in GAMMA space** and owe the shader a decode.
   The split is per-source, not per-material: `setDiffuse` stores raw, so the base
   colour FACTOR is decoded in the shader, while `setEmissive` is pre-linearised by

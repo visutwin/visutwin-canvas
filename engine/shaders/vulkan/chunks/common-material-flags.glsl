@@ -12,7 +12,13 @@ const uint FLAG_HAS_OCCLUSION  = 1u << 9;
 const uint FLAG_OCCLUSION_UV1  = 1u << 10;
 const uint FLAG_HAS_EMISSIVE   = 1u << 11;
 const uint FLAG_EMISSIVE_UV1   = 1u << 12;
+const uint FLAG_OCCLUDE_DIRECT = 1u << 13;   // Material::setOccludeDirect
 const uint FLAG_HAS_HEIGHTMAP  = 1u << 17;
+
+// Specular occlusion modes (scene/constants.h SPECOCC_*, Material::setOccludeSpecular).
+const uint SPECOCC_NONE = 0u;
+const uint SPECOCC_AO = 1u;
+const uint SPECOCC_GLOSSDEPENDENT = 2u;
 
 vec2 applyUvTransform(vec2 uv, vec4 row0, vec4 row1) {
     vec3 h = vec3(uv, 1.0);

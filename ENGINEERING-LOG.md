@@ -9,6 +9,38 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
+## Ambient occlusion never reached the diffuse light (2026-09-06)
+
+**An AO map had no effect on diffuse lighting on Metal — FIXED.** The
+2026-09-06 upstream audit found that `forward-fragment-ambient.metal` multiplied
+only `directDiffuse` by the occlusion term, and only under `occludeDirect`;
+`indirectDiffuse` was never touched. Upstream's `litForwardBackend.js` does the
+opposite split: `occludeDiffuse` runs on the AMBIENT term unconditionally
+(before `addLightMap` and before the light loop), and runs a second time over
+everything only under `occludeDirect`. So with the default material a baked AO
+map, or lighting-mode SSAO, only ever darkened the specular. Both backends now
+follow upstream: the ambient diffuse is occluded always, the direct diffuse and
+any lightmap only under `occludeDirect`. The Vulkan chunk gained the
+`occludeDirect` gate and the `occludeSpecular` mode and intensity switch it
+had been ignoring; it needed a `directDiffuse` accumulator and a split of
+`indirect` into diffuse and specular halves, and because `color` is accumulated
+in place there, an occluded share is taken back out as `x * (f - 1)`.
+
+Two things made this invisible. The ambient-occlusion example "disables the
+baked AO map" with `setAoMap(nullptr)`, but the GLB parser fills the base
+`Material::occlusionTexture`, a separate property on the same texture slot, and
+the shader feature was `aoMap() || occlusionTexture()` — so the example rendered
+with its AO all along and the toggle did nothing. `StandardMaterial::setAoMap`
+now writes through to the base property. And the effect is subtle in that
+scene: 8.5% of pixels get darker by up to 85 counts, none brighter, in the
+crevices of the ORM texture's red channel.
+
+Verified on Metal with the laboratory scene, same binary, chunks hot-reloaded:
+map on, old vs new chunk, 8.46% of pixels darker and 0.002% brighter, mean
+113.43 to 112.97; map genuinely off (after the setter fix), old vs new chunk,
+mean absolute difference 0.001, i.e. the change is a no-op when `ao == 1` as it
+must be. Run-to-run noise on the same binary measured 0.003.
+
 ## Vulkan lighting parity (2026-09-03 / 04)
 
 ### Local-light shadow casters inherited the skybox vertex stage

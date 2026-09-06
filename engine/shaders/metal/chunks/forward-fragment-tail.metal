@@ -38,6 +38,11 @@
     // set); stored sRGB → decoded to linear like the other LDR material textures.
     // Lightmaps store LINEAR light (see the bake output above and Lightmapper's encoder).
     indirectDiffuse = max(lightMapTexture.sample(defaultSampler, rd.uv1).rgb, float3(0.0));
+    // occludeDirect (flag bit 13) occludes the bake as well: upstream's second
+    // occludeDiffuse runs after addLightMap. The default path leaves it alone.
+    if ((material.flags & (1u << 13)) != 0u) {
+        indirectDiffuse *= ao;
+    }
 #endif
 
 #if VT_FEATURE_LIGHTMAP_BAKE

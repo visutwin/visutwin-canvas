@@ -251,7 +251,16 @@
     }
 #endif
 
-    // AO diffuse/specular occlusion are applied separately (not as global output multiply).
+    // Diffuse occlusion. Upstream (litForwardBackend.js) runs occludeDiffuse on the
+    // AMBIENT term unconditionally — before addLightMap and before the light loop —
+    // and only under occludeDirect (flag bit 13) runs it again after the loop, over
+    // everything. The two diffuse accumulators are still separate here, so the same
+    // split holds: the ambient is always occluded, the direct only when asked. A
+    // lightmap replaces indirectDiffuse in the tail, after this point, so the bake
+    // is occluded only under occludeDirect, as upstream. Before this the indirect
+    // term was never multiplied at all, so an AO map (or lighting-mode SSAO) had no
+    // effect on diffuse light with the default material.
+    indirectDiffuse *= ao;
     if ((material.flags & (1u << 13)) != 0u) {
         directDiffuse *= ao;
     }
