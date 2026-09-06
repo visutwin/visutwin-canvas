@@ -225,6 +225,8 @@ namespace visutwin::canvas
             "common-material-flags",
             "common-ltc",
             "common-brdf",
+            "common-sheen",
+            "common-iridescence",
             "common-atmosphere",
             "forward-fragment-surface",
             "forward-fragment-lights",

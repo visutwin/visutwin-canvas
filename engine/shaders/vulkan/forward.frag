@@ -17,6 +17,8 @@
 #include "chunks/common-material-flags.glsl"
 #include "chunks/common-ltc.glsl"
 #include "chunks/common-brdf.glsl"
+#include "chunks/common-sheen.glsl"
+#include "chunks/common-iridescence.glsl"
 #include "chunks/common-atmosphere.glsl"
 #include "chunks/forward-fragment-surface.glsl"
 #include "chunks/forward-fragment-lights.glsl"
