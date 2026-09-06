@@ -478,6 +478,11 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   no shader reflection: buffers 0..b-1, textures b..b+t-1, the uniform block at
   b+t, and the block's members are the scalars again in name order. A shader that
   declares them in a different order silently reads the wrong data.
+- **Transparent draws sort on SIGNED view-axis depth, not radial distance**
+  (`scene/renderer/sortDistance.h`, upstream's `_calculateSortDistances`).
+  Radial distance ranks an off-axis surface farther than a centred one at the
+  same depth by up to 1/cos(fov/2), and cannot tell behind from in front.
+  `MeshInstance::setCalculateSortDistance` overrides it per instance.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.

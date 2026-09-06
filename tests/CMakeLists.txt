@@ -75,3 +75,11 @@ add_executable(visutwin-omni-face-axis-tests
 target_link_libraries(visutwin-omni-face-axis-tests PRIVATE visutwin-canvas)
 
 add_test(NAME omni-face-axes COMMAND visutwin-omni-face-axis-tests)
+
+add_executable(visutwin-sort-distance-tests
+    sortDistanceTests.cpp
+)
+
+target_link_libraries(visutwin-sort-distance-tests PRIVATE visutwin-canvas)
+
+add_test(NAME sort-distance COMMAND visutwin-sort-distance-tests)

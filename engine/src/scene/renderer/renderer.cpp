@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 11.09.2025.
 //
 #include "renderer.h"
+#include "scene/renderer/sortDistance.h"
 
 #include <algorithm>
 #include <array>
@@ -74,7 +75,9 @@ namespace visutwin::canvas
             std::shared_ptr<IndexBuffer> indexBuffer;
             Primitive primitive;
             uint64_t sortKey = 0;
-            float distanceToCameraSq = 0.0f;
+            // Signed depth along the camera forward vector (see sortDistance.h), NOT a
+            // radial distance: transparent draws sort back-to-front on this.
+            float sortDistance = 0.0f;
         };
 
         struct LightDispatchEntry
@@ -463,6 +466,8 @@ namespace visutwin::canvas
 
         auto* cameraNode = camera->node();
         const auto cameraPosition = cameraNode ? cameraNode->position() : Vector3{};
+        const auto cameraForward = cameraNode ? cameraForwardOf(cameraNode->worldTransform())
+                                              : Vector3(0.0f, 0.0f, -1.0f);
         const auto viewMatrix = cameraNode ? cameraNode->worldTransform().inverse() : Matrix4::identity();
         const auto activeTarget = renderTarget ? renderTarget : camera->renderTarget().get();
         const int targetWidth = std::max(activeTarget ? activeTarget->width() : _device->size().first, 1);
@@ -610,10 +615,15 @@ namespace visutwin::canvas
 
             auto* node = meshInstance->node();
             if (node && !isSkyboxMaterial) {
-                const auto delta = worldBounds.center() - cameraPosition;
-                entry->distanceToCameraSq = delta.lengthSquared();
+                // Signed view-axis depth, as upstream's _calculateSortDistances. This
+                // used to be the squared radial distance, which ranked an off-axis
+                // transparent surface behind a centred one at the same depth.
+                const auto& customDistance = meshInstance->calculateSortDistance();
+                entry->sortDistance = customDistance
+                    ? customDistance(*meshInstance, cameraPosition, cameraForward)
+                    : forwardSortDistance(worldBounds.center(), cameraPosition, cameraForward);
             } else {
-                entry->distanceToCameraSq = 0.0f;
+                entry->sortDistance = 0.0f;
             }
 
             drawEntries.push_back(entry);
@@ -649,10 +659,10 @@ namespace visutwin::canvas
             // transparent sublayer is sorted back-to-front.
             std::stable_sort(drawEntries.begin(), drawEntries.end(),
                 [](const ForwardDrawEntry* a, const ForwardDrawEntry* b) {
-                    if (a->distanceToCameraSq == b->distanceToCameraSq) {
+                    if (a->sortDistance == b->sortDistance) {
                         return a->sortKey < b->sortKey;
                     }
-                    return a->distanceToCameraSq > b->distanceToCameraSq;
+                    return a->sortDistance > b->sortDistance;
                 });
         } else {
             // opaque sublayer prioritizes material/mesh sort, then front-to-back.
@@ -661,7 +671,7 @@ namespace visutwin::canvas
                     if (a->sortKey != b->sortKey) {
                         return a->sortKey < b->sortKey;
                     }
-                    return a->distanceToCameraSq < b->distanceToCameraSq;
+                    return a->sortDistance < b->sortDistance;
                 });
         }
 
@@ -1329,12 +1339,6 @@ namespace visutwin::canvas
                 // per-instance order buffer filled by the background depth sorter.
                 const Matrix4 modelMatrix = entry->meshInstance->node()
                     ? entry->meshInstance->node()->worldTransform() : Matrix4::identity();
-                Vector3 cameraForward(0.0f, 0.0f, -1.0f);
-                if (cameraNode) {
-                    const Matrix4& cameraWorld = cameraNode->worldTransform();
-                    cameraForward = (cameraWorld.transformPoint(Vector3(0.0f, 0.0f, -1.0f)) -
-                                     cameraWorld.transformPoint(Vector3(0.0f))).normalized();
-                }
                 gsplat->update(cameraPosition, cameraForward, modelMatrix, viewMatrix, projMatrix,
                     static_cast<float>(viewportW), static_cast<float>(viewportH));
                 if (gsplat->visibleCount() > 0) {

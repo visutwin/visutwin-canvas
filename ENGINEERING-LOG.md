@@ -9,6 +9,28 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
+## Transparent draws sorted on radial distance (2026-09-06)
+
+**Off-axis transparent surfaces sorted behind centred ones at the same view
+depth — FIXED.** The forward pass ranked draws by the squared radial distance
+from the camera to the AABB centre. Upstream's `_calculateSortDistances`
+(layer.js) uses the signed depth along the camera's forward vector, and the two
+disagree by up to `1 / cos(fov / 2)`: at an 80 degree field of view a surface at
+the edge of the frame read 30% farther than one at the centre at the same depth,
+so two overlapping transparent quads could swap order as the camera panned. The
+radial form also cannot tell "behind the camera" from "in front". The renderer
+now computes `forwardSortDistance` (scene/renderer/sortDistance.h) once per
+draw, the camera forward once per layer, and `MeshInstance` gained upstream's
+`calculateSortDistance` hook for instances that know a better answer (a
+particle system, a large sheet). The gsplat path already derived the same
+forward vector inline and now shares the helper.
+
+Held by `tests/sortDistanceTests.cpp`: an off-axis and a centred point at the
+same depth read the same distance (radially they did not), a nearer off-axis
+point sorts in front of a farther centred one that was radially a tie, a point
+behind the camera reads negative, and a yawed or scaled camera node still
+yields a unit forward. Refraction and layers render as before on Metal.
+
 ## CAS sharpness was a blur (2026-09-06)
 
 **Raising `RenderingSettings::sharpness` softened the image — FIXED.** Upstream's

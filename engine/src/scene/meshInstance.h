@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 #include <core/shape/boundingBox.h>
@@ -251,6 +252,17 @@ namespace visutwin::canvas
         bool isDynamicBatch() const { return _dynamicBatch; }
         void setDynamicBatch(bool v) { _dynamicBatch = v; }
 
+        /**
+         * Optional override of the distance the forward pass sorts this instance on
+         * (upstream MeshInstance.calculateSortDistance). The default is the signed
+         * depth of the world AABB centre along the camera forward vector; a particle
+         * system or a large transparent sheet can supply something better.
+         */
+        using SortDistanceCallback =
+            std::function<float(const MeshInstance&, const Vector3& cameraPosition, const Vector3& cameraForward)>;
+        const SortDistanceCallback& calculateSortDistance() const { return _calculateSortDistance; }
+        void setCalculateSortDistance(SortDistanceCallback callback) { _calculateSortDistance = std::move(callback); }
+
         /** Override the computed AABB with a custom value (used by dynamic batch AABB updates). */
         void setCustomAabb(const BoundingBox& aabb) {
             _aabb = aabb;
@@ -278,6 +290,7 @@ namespace visutwin::canvas
         bool _updateAabb = true;
         std::function<BoundingBox&(BoundingBox&)> _updateAabbFunc = nullptr;
         BoundingBox* _customAabb = nullptr;
+        SortDistanceCallback _calculateSortDistance;
         int _aabbVer = -1;
         int _aabbMeshVer = -1;
 
