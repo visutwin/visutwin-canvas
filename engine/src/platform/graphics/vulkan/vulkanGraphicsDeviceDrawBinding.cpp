@@ -1559,7 +1559,8 @@ namespace visutwin::canvas
         _lightingUbo.fogColorDensity[3] = fogParams.density;
         _lightingUbo.fogStartEndType[0] = fogParams.start;
         _lightingUbo.fogStartEndType[1] = fogParams.end;
-        _lightingUbo.fogStartEndType[2] = fogParams.enabled ? 1.0f : 0.0f;
+        _lightingUbo.fogStartEndType[2] = fogParams.enabled
+            ? static_cast<float>(fogParams.type) : 0.0f;   // 0 = off, else FogType
         _lightingUbo.fogStartEndType[3] = 0.0f;
 
         // Re-upload into the ring on the next draw.

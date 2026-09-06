@@ -115,6 +115,9 @@ namespace visutwin::canvas
             _fog.end = end;
         }
         void setFogDensity(const float density) { _fog.density = density; }
+        /// Falloff curve. LINEAR reads start/end, EXP and EXP2 read density.
+        [[nodiscard]] FogType fogType() const { return _fog.type; }
+        void setFogType(const FogType type) { _fog.type = type; }
 
         /**
          * Set prefiltered cubemaps and generate an environment atlas from them.

@@ -373,17 +373,37 @@
 #endif
 
 #if VT_FEATURE_FOG
-    if (lighting.fogStartEndType.z > 0.5) {
-        const float viewDistance = distance(rd.worldPos, cameraPosition);
-        const float fogStart = lighting.fogStartEndType.x;
-        const float fogEnd = max(lighting.fogStartEndType.y, fogStart + 1e-3);
-        float fogFactor = clamp((fogEnd - viewDistance) / (fogEnd - fogStart), 0.0, 1.0);
+    // Fog. The three curves are upstream's (fog.js): LINEAR over [start, end], EXP
+    // on density, EXP2 on density squared. This backend used to run one of them and
+    // the other backend a different one, because the type was never uploaded — the
+    // slot only ever held 0 or 1 — so EXP and EXP2 were unreachable in both.
+    //
+    // DEVIATION: depth is the LINEAR view-space depth (clip.w), where upstream uses
+    // gl_FragCoord.z / gl_FragCoord.w. That quantity is an old GL convenience: it
+    // reaches 0 at the near plane rather than the near distance. Both backends here
+    // take clip.w so they agree exactly and the falloff is metric. It is NOT the
+    // radial distance to the camera, which is what this used to be: at a wide field
+    // of view that fogged the edges of the frame harder than the centre, by
+    // 1/cos(fov/2).
+    //
+    // rd.position.w is 1 / clip.w for a fragment-stage [[position]] input, the same
+    // as gl_FragCoord.w, so its reciprocal is the view depth without a new varying.
+    const uint fogType = uint(lighting.fogStartEndType.z + 0.5);
+    if (fogType != 0u) {
+        const float depth = 1.0 / max(rd.position.w, 1e-6);
         const float density = max(lighting.fogColorDensity.w, 0.0);
-        if (density > 0.0) {
-            const float expFog = exp(-viewDistance * density);
-            fogFactor = min(fogFactor, expFog);
+        float fogFactor;
+        if (fogType == 1u) {
+            const float fogStart = lighting.fogStartEndType.x;
+            const float fogEnd = max(lighting.fogStartEndType.y, fogStart + 1e-3);
+            fogFactor = (fogEnd - depth) / (fogEnd - fogStart);
+        } else if (fogType == 2u) {
+            fogFactor = exp(-depth * density);
+        } else {
+            const float d = depth * density;
+            fogFactor = exp(-d * d);
         }
-        litLinear = mix(lighting.fogColorDensity.xyz, litLinear, fogFactor);
+        litLinear = mix(lighting.fogColorDensity.xyz, litLinear, saturate(fogFactor));
     }
 #endif
     // when CameraFrame is active (bit 5 of flagsAndPad.x),

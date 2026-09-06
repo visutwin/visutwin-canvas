@@ -131,20 +131,37 @@
         }
     }
 
-    // Fog (linear or exponential) toward the fog color.
-    float fogType = vtFeatureEnabled(VT_FEATURE_FOG_BIT)
-        ? lighting.fogStartEndType.z : 0.0;
-    if (fogType > 0.5) {
-        float dist = length(lighting.cameraPosExposure.xyz - fragWorldPos);
+    // Fog. The three curves are upstream's (fog.js): LINEAR over [start, end], EXP
+    // on density, EXP2 on density squared. This backend used to run one of them and
+    // the other backend a different one, because the type was never uploaded — the
+    // slot only ever held 0 or 1 — so EXP and EXP2 were unreachable in both.
+    //
+    // DEVIATION: depth is the LINEAR view-space depth (clip.w), where upstream uses
+    // gl_FragCoord.z / gl_FragCoord.w. That quantity is an old GL convenience: it
+    // reaches 0 at the near plane rather than the near distance. Both backends here
+    // take clip.w so they agree exactly and the falloff is metric. It is NOT the
+    // radial distance to the camera, which is what this used to be: at a wide field
+    // of view that fogged the edges of the frame harder than the centre, by
+    // 1/cos(fov/2).
+    //
+    // fragViewDepth is gl_Position.w from the vertex stage — see forward.vert.
+    uint fogType = vtFeatureEnabled(VT_FEATURE_FOG_BIT)
+        ? uint(lighting.fogStartEndType.z + 0.5) : 0u;
+    if (fogType != 0u) {
+        float depth = fragViewDepth;
+        float density = max(lighting.fogColorDensity.w, 0.0);
         float f;
-        if (fogType < 1.5) {
-            f = clamp((lighting.fogStartEndType.y - dist) /
-                      max(lighting.fogStartEndType.y - lighting.fogStartEndType.x, 1e-4), 0.0, 1.0);
+        if (fogType == 1u) {
+            float fogStart = lighting.fogStartEndType.x;
+            float fogEnd = max(lighting.fogStartEndType.y, fogStart + 1e-3);
+            f = (fogEnd - depth) / (fogEnd - fogStart);
+        } else if (fogType == 2u) {
+            f = exp(-depth * density);
         } else {
-            float d = dist * lighting.fogColorDensity.w;
-            f = clamp(exp(-d * d), 0.0, 1.0);
+            float d = depth * density;
+            f = exp(-d * d);
         }
-        color = mix(lighting.fogColorDensity.rgb, color, f);
+        color = mix(lighting.fogColorDensity.rgb, color, clamp(f, 0.0, 1.0));
     }
 
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_BIT)) {

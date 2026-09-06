@@ -172,9 +172,23 @@ namespace visutwin::canvas
         uint32_t areaShape = 0u;
     };
 
+    /// Fog falloff curve, upstream's FOG_* constants. The value is uploaded as a
+    /// float in `fogStartEndType.z`, where 0 also means "fog off" — `enabled` is the
+    /// master switch and a disabled scene uploads NONE whatever the type says.
+    enum class FogType : uint32_t
+    {
+        FOG_NONE = 0u,
+        FOG_LINEAR = 1u,   ///< (end - depth) / (end - start), uses start/end
+        FOG_EXP = 2u,      ///< exp(-depth * density)
+        FOG_EXP2 = 3u      ///< exp(-(depth * density)^2)
+    };
+
     struct FogParams
     {
         bool enabled = false;
+        /// LINEAR by default so a scene that only calls setFogEnabled(true) and
+        /// setFogLinear() keeps behaving as it did before the type existed.
+        FogType type = FogType::FOG_LINEAR;
         Color color = Color(0.0f, 0.0f, 0.0f, 1.0f);
         float start = 10.0f;
         float end = 100.0f;

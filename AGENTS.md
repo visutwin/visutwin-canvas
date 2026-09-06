@@ -311,6 +311,17 @@ them, so the build-time bundle and the runtime composition share one source.
   changed it; otherwise it passes an empty string and gets the prebuilt bundle.
 - `forward-vertex`, `shadow-vertex` and `shadow` have no chunked GLSL form and are
   Metal-only; overriding them on Vulkan logs a warning.
+- **Fog has a TYPE** (`FogParams::type`, `Scene::setFogType`): NONE/LINEAR/EXP/
+  EXP2, uploaded in `fogStartEndType.z`, where 0 also means off. It used to be a
+  0/1 flag, which made EXP and EXP2 unreachable on both backends. Fog depth is
+  the LINEAR VIEW DEPTH (`fragViewDepth` on Vulkan, `1 / rd.position.w` on
+  Metal), not the radial distance to the camera. No example uses fog, so a change
+  here has to be driven deliberately to be seen at all.
+- **Vulkan's `shadowParams2.y` does not carry `cascadeBlend`.** Probed
+  2026-09-06: it holds a constant while the adjacent `shadowParams.y` (cascade
+  count) is correct and the same value reaches Metal. The cross-cascade blend is
+  therefore NOT ported to GLSL; fix the plumbing before porting it, and verify
+  with a shader probe rather than by eye.
 - **`common-brdf.glsl` is the twin of `common-brdf.metal` and both must change
   together.** It owns `distributionGGX`, `getVisibilitySmithGGX` (a VISIBILITY
   term — the `1/(4 NdotL NdotV)` is folded in, so call sites write `D * Vis * F`

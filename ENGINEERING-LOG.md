@@ -9,6 +9,85 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
+## Phase B, second pass: fog, the shiny mip, ambient order, omni filtering (2026-09-06)
+
+**Fog was the last P0 from the audit, and it was worse than "the two backends
+disagree" — FIXED.** The type was never uploaded: both binders wrote
+`fogStartEndType.z = enabled ? 1 : 0`, so the slot only ever held 0 or 1. Metal
+read it as a flag and computed `min(linear, exp(-d*density))`, a hybrid of two
+curves that is neither; the GLSL chunk had an EXP2 branch behind `> 1.5` that
+nothing could ever reach. So EXP and EXP2 were unreachable on both backends and
+LINEAR meant something different on each. `FogParams` now carries upstream's
+`FogType` (NONE/LINEAR/EXP/EXP2), `Scene::setFogType` selects it, both binders
+upload it, and both shaders switch on it with upstream's formulas.
+
+Both also stopped measuring fog along the RADIAL distance to the camera, which
+fogged the edges of a wide frame harder than its centre by 1/cos(fov/2). Depth is
+now the linear view-space depth: `fragViewDepth` (already `gl_Position.w`) on
+Vulkan, and `1 / rd.position.w` on Metal, which is the same quantity without a
+new varying. DEVIATION recorded in both chunks: upstream uses
+`gl_FragCoord.z / gl_FragCoord.w`, an old GL convenience that reaches 0 at the
+near plane rather than the near distance.
+
+No example uses fog, which is why none of this was noticed. Verified by driving
+`shadow-cascades` through an environment variable, comparing frame 90 across
+both backends, and measuring the fog CONTRIBUTION (fogged minus unfogged) so the
+scene's own pre-existing 13% backend gap could not mask it:
+
+| Curve | Metal contribution | Vulkan | Difference |
+|---|---|---|---|
+| LINEAR | 9.207 | 9.247 | 0.443 |
+| EXP | 13.702 | 13.745 | 0.525 |
+| EXP2 | 6.679 | 6.704 | 0.436 |
+
+The three curves are also genuinely distinct now, differing from each other on
+about 60% of pixels — they were identical before because two of them could not
+be selected. A first attempt used a 10-120 unit range on a scene whose depth runs
+to thousands, which saturated every curve to fully fogged and made them look
+identical for a completely different reason; the numbers above are from a range
+matched to the scene.
+
+**Three smaller twins came with it.** The env atlas gained its shiny path: level
+0 now samples the sharp diagonal rect through `mapShinyUv` with the screen-space
+mip that Metal derives from `dFdx`/`dFdy` on `fract(u + 0.5)`, so mirrors stop
+sampling the roughness-convolved chain and coming out blurred. Ambient source
+precedence was reordered to probes, then atlas, then flat, matching Metal — this
+backend tested the atlas first, so a scene carrying both took its ambient from
+the wrong one — and the invented `ambient * F0` specular floor in the flat branch
+is gone. Omni shadows take four diagonal taps instead of a single unfiltered
+compare, since Metal gets bilinear filtering free from a hardware
+`sample_compare` and a `texture().r` fetch does not.
+
+**One item was withdrawn rather than shipped.** The cross-cascade blend was
+written and then taken back out, because a shader probe showed its input is not
+what it claims: `shadowParams2.y` holds a constant that does NOT track
+`LightComponent::setCascadeBlend`, while the adjacent `shadowParams.y` (cascade
+count) reads correctly and the same value does reach Metal, which responds to the
+setting. Blending against a uniform carrying something else would have silently
+blended cascades in every Vulkan scene. **That plumbing bug is the open item;**
+the shader helper the blend needs is already factored out, so the port is a few
+lines once the uniform is trustworthy. The max-distance fade, which reads the
+verified cascade distances, was kept.
+
+Cumulative Vulkan-vs-Metal agreement across this phase, frame 90, static scenes:
+
+| Scene | Start of phase B | Now |
+|---|---|---|
+| `parallax-mapping` | 0.9944 (diff 0.933) | 1.0003 (diff 0.345) |
+| `clearcoat` | 0.9852 (diff 2.322) | 0.9861 (diff 2.119) |
+| `shadow-cascades` | 1.1353 (diff 20.918) | 1.1351 (diff 20.896) |
+
+`shadow-cascades` barely moves and should not: its 13% gap is a documented
+pre-existing divergence in that scene, and nothing in this pass targets it. It
+also emits ten Vulkan validation errors per run about a descriptor being updated
+with `DEPTH_STENCIL_ATTACHMENT_OPTIMAL` where a sampled layout is required —
+present identically before this work, so not from it, and worth its own fix.
+
+**Still outstanding in phase B:** sheen (a velvet power where Metal has Charlie
+plus Ashikhmin) and iridescence (a static cosine tint where Metal has the
+Belcour model), both needing new GLSL chunks; and the cascade blend above, which
+is blocked on its uniform.
+
 ## The Vulkan backend ran a different BRDF (2026-09-06)
 
 **Phase B of the 2026-09-06 audit, first part: the direct-lighting BRDF is now

@@ -24,6 +24,22 @@ float sampleShadowVSM16(vec2 uv, float receiverZ, float vsmBias) {
 // position, using view-space depth to pick the cascade.  Returns 1.0 when
 // shadows are disabled or the point falls outside every cascade.
 // shadowParams.x encodes the mode: 0 = off, 1 = PCF depth, 2 = EVSM moments.
+// One cascade's visibility tap. Factored out of sampleDirectionalShadow so the
+// cross-cascade blend below samples the neighbouring cascade through exactly the
+// same filter — VSM, PCSS or PCF — rather than a second spelling of it.
+float sampleCascadeVisibility(vec3 coord, int cascade) {
+    if (lighting.shadowParams.x > 1.5) {
+        return sampleShadowVSM16(coord.xy, coord.z, max(lighting.shadowParams.z, 1e-4));
+    }
+    if (vtFeatureEnabled(VT_FEATURE_PCSS_SHADOWS_BIT)) {
+        return getShadowPCSSDirectional(coord.xy,
+            coord.z - lighting.shadowParams.z,
+            lighting.pcssCascadeRadii[cascade],
+            lighting.pcssCascadeDepthRanges[cascade]);
+    }
+    return pcf3x3(shadowMap, coord.xy, coord.z - lighting.shadowParams.z);
+}
+
 float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
     if (lighting.shadowParams.x < 0.5) {
         return 1.0;
@@ -65,19 +81,29 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
     // PCSS replaces the PCF tap when the shader is specialized for it — a light
     // has exactly one shadow type, so VSM and PCSS are mutually exclusive and
     // the ordering here matches the Metal chunk's #if/#elif chain.
-    float visible;
-    if (lighting.shadowParams.x > 1.5) {
-        visible = sampleShadowVSM16(coord.xy, coord.z, max(lighting.shadowParams.z, 1e-4));
-    } else if (vtFeatureEnabled(VT_FEATURE_PCSS_SHADOWS_BIT)) {
-        visible = getShadowPCSSDirectional(coord.xy,
-            coord.z - lighting.shadowParams.z,
-            lighting.pcssCascadeRadii[cascade],
-            lighting.pcssCascadeDepthRanges[cascade]);
-    } else {
-        float receiver = coord.z - lighting.shadowParams.z;
-        visible = pcf3x3(shadowMap, coord.xy, receiver);
+    float visible = sampleCascadeVisibility(coord, cascade);
+    float shadowFactor = mix(1.0, visible, lighting.shadowParams.w);
+
+    // NOT PORTED YET: the cross-cascade blend Metal applies here
+    // (forward-fragment-lights.metal). The shader side is straightforward — sample
+    // the next cascade through sampleCascadeVisibility and mix on
+    // (cascadeFar - viewDepth) / blendWidth — but the input is not trustworthy on
+    // this backend: a shader probe on 2026-09-06 showed `shadowParams2.y` holding a
+    // constant that does NOT track LightComponent::setCascadeBlend, while the
+    // adjacent `shadowParams.y` (cascade count) reads correctly and the same value
+    // reaches Metal. Writing the blend against a uniform that carries something else
+    // would silently blend cascades in every scene. Fix the plumbing first, then
+    // port this: the helper it needs is already factored out.
+
+    // Fade the shadow out over the last tenth of the cascade range, so geometry
+    // does not step from shadowed to lit at the edge of the furthest cascade.
+    float maxDist = lighting.shadowCascadeDistances[cascadeCount - 1];
+    float fadeStart = maxDist * 0.9;
+    if (viewDepth > fadeStart && maxDist > fadeStart) {
+        shadowFactor = mix(shadowFactor, 1.0,
+            clamp((viewDepth - fadeStart) / (maxDist - fadeStart), 0.0, 1.0));
     }
-    return mix(1.0, visible, lighting.shadowParams.w);
+    return shadowFactor;
 }
 
 // Spot-light 2D shadow visibility (1 = lit, 0 = shadowed).  Mirrors the
@@ -148,9 +174,25 @@ float sampleOmniShadow(int slot, vec3 worldPos, vec3 lightPos) {
         float denom = (farV - nearV) * dBiased;
         float compareValue = farV * (dBiased - nearV) / max(denom, 1e-6);
 
-        float occluder = (slot == 0) ? texture(omniShadowCube0, dir).r
-                                     : texture(omniShadowCube1, dir).r;
-        visible = (compareValue <= occluder) ? 1.0 : 0.0;
+        // Four diagonal taps around the sample direction (upstream shadowPCF3's
+        // omni form). Metal gets bilinear filtering for free from a hardware
+        // sample_compare; a plain texture().r fetch here does not, so a single tap
+        // left point-light shadows visibly stair-stepped on this backend alone.
+        vec3 t0 = normalize(dir);
+        vec3 up = abs(t0.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+        vec3 tx = normalize(cross(up, t0));
+        vec3 ty = cross(t0, tx);
+        const float kOmniTapRadius = 0.0035;   // radians of cone half-angle
+        visible = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            vec2 o = (i == 0) ? vec2(-1.0, -1.0)
+                   : (i == 1) ? vec2( 1.0, -1.0)
+                   : (i == 2) ? vec2(-1.0,  1.0) : vec2(1.0, 1.0);
+            vec3 tapDir = normalize(t0 + (tx * o.x + ty * o.y) * kOmniTapRadius);
+            float tapOccluder = (slot == 0) ? texture(omniShadowCube0, tapDir).r
+                                            : texture(omniShadowCube1, tapDir).r;
+            visible += (compareValue <= tapOccluder) ? 0.25 : 0.0;
+        }
     }
     return mix(1.0 - clamp(intensity, 0.0, 1.0), 1.0, visible);
 }

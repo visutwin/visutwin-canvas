@@ -239,7 +239,8 @@ namespace visutwin::canvas
         _lightingUniforms.fogColorDensity[3] = fogParams.density;
         _lightingUniforms.fogStartEndType[0] = fogParams.start;
         _lightingUniforms.fogStartEndType[1] = fogParams.end;
-        _lightingUniforms.fogStartEndType[2] = fogParams.enabled ? 1.0f : 0.0f;
+        _lightingUniforms.fogStartEndType[2] = fogParams.enabled
+            ? static_cast<float>(fogParams.type) : 0.0f;   // 0 = off, else FogType
         _lightingUniforms.fogStartEndType[3] = 0.0f;
 
         _lightingUniforms.shadowBiasNormalStrength[0] = shadowParams.bias;

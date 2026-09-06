@@ -31,6 +31,16 @@ vec2 mapRoughnessUv(vec2 uv, float level) {
     return mapRect(uv, vec4(0.0, 1.0 - t, t, t * 0.5));
 }
 
+// Sharp ("shiny") mip chain down the diagonal: rect (1-t, 1-t, t, t/2). The
+// prefiltered chain above is convolved for roughness; level 0 of THIS one is the
+// unconvolved environment, which is what a mirror must sample. Twin of
+// mapShinyUv in common-utils.metal — this backend had no shiny path at all, so
+// every mirror sampled the roughness rect and came out blurred.
+vec2 mapShinyUv(vec2 uv, float level) {
+    float t = 1.0 / exp2(level);
+    return mapRect(uv, vec4(1.0 - t, 1.0 - t, t, t * 0.5));
+}
+
 vec3 decodeRGBP(vec4 raw) { vec3 c = raw.rgb * (-raw.a * 7.0 + 8.0); return c * c; }
 vec3 decodeRGBM(vec4 raw) { vec3 c = (8.0 * raw.a) * raw.rgb; return c * c; }
 vec3 srgbToLinear(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }

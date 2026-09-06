@@ -24,7 +24,24 @@
     // reflection ray hits on-screen geometry, so it only has to add the
     // difference rather than restructure the accumulation.
     vec3 indirectSpecular = vec3(0.0);
-    if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
+    // Precedence: SH light probes, then the environment atlas, then a flat ambient.
+    // This backend used to test the atlas FIRST, so a scene carrying both rendered
+    // its ambient from the atlas where Metal rendered it from the probes.
+    if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
+        vec3 shN = N;
+        vec3 irradiance =
+            lighting.ambientSH[0].rgb +
+            lighting.ambientSH[1].rgb * shN.x +
+            lighting.ambientSH[2].rgb * shN.y +
+            lighting.ambientSH[3].rgb * shN.z +
+            lighting.ambientSH[4].rgb * (shN.x * shN.z) +
+            lighting.ambientSH[5].rgb * (shN.z * shN.y) +
+            lighting.ambientSH[6].rgb * (shN.y * shN.x) +
+            lighting.ambientSH[7].rgb * (3.0 * shN.z * shN.z - 1.0) +
+            lighting.ambientSH[8].rgb * (shN.x * shN.x - shN.y * shN.y);
+        indirectDiffuse = max(irradiance, vec3(0.0)) * diffuseAlbedo;
+        bakeDiffuseLight += max(irradiance, vec3(0.0));
+    } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
         lighting.envParams.y > 0.5) {
         float intensity = max(lighting.envParams.x, 0.0);
 
@@ -33,13 +50,39 @@
         vec3 diffDir = vec3(-N.x, N.y, N.z);
         vec3 irradiance = decodeEnv(texture(envAtlas, mapAmbientUv(dirToEquirect(diffDir)))) * intensity;
 
-        // Specular: reflect, pick a roughness mip, trilinear between levels.
+        // Specular: reflect, pick a mip, trilinear between levels. Twin of the
+        // block in forward-fragment-ambient.metal, including its shiny path.
         vec3 R = reflect(-V, N);
         vec3 specDir = vec3(-R.x, R.y, R.z);
         vec2 envUv = dirToEquirect(specDir);
         float level = clamp(roughness * 5.0, 0.0, 5.0);
         float l0 = floor(level);
-        vec3 envA = decodeEnv(texture(envAtlas, mapRoughnessUv(envUv, l0)));
+
+        // Screen-space mip for the sharp rect (upstream shinyMipLevel). The second
+        // derivative pair is taken on fract(u + 0.5) so the azimuthal wrap, where u
+        // jumps 1 -> 0 across one pixel, does not read as an enormous gradient and
+        // force the blurriest mip along that seam.
+        vec2 shinyUvFull = envUv * ATLAS_SIZE;
+        vec2 dxA = dFdx(shinyUvFull);
+        vec2 dyA = dFdy(shinyUvFull);
+        vec2 uvWrapped = vec2(fract(envUv.x + 0.5), envUv.y) * ATLAS_SIZE;
+        vec2 dxB = dFdx(uvWrapped);
+        vec2 dyB = dFdy(uvWrapped);
+        float maxd = min(max(dot(dxA, dxA), dot(dyA, dyA)),
+                         max(dot(dxB, dxB), dot(dyB, dyB)));
+        float shinyLevel = clamp(0.5 * log2(max(maxd, 1e-12)) - 1.0, 0.0, 5.0);
+        float shinyL0 = floor(shinyLevel);
+
+        // A mirror (level 0) takes the unconvolved shiny rect; anything rougher
+        // takes the prefiltered chain, and both blend toward the next roughness mip.
+        vec3 envA;
+        if (l0 == 0.0) {
+            vec3 shinyA = decodeEnv(texture(envAtlas, mapShinyUv(envUv, shinyL0)));
+            vec3 shinyB = decodeEnv(texture(envAtlas, mapShinyUv(envUv, shinyL0 + 1.0)));
+            envA = mix(shinyA, shinyB, shinyLevel - shinyL0);
+        } else {
+            envA = decodeEnv(texture(envAtlas, mapRoughnessUv(envUv, l0)));
+        }
         vec3 envB = decodeEnv(texture(envAtlas, mapRoughnessUv(envUv, l0 + 1.0)));
         vec3 prefiltered = mix(envA, envB, level - l0) * intensity;
 
@@ -60,23 +103,11 @@
         indirectDiffuse = irradiance * diffuseAlbedo;
         indirectSpecular = prefiltered * Fr;
         bakeDiffuseLight += irradiance;
-    } else if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
-        vec3 shN = N;
-        vec3 irradiance =
-            lighting.ambientSH[0].rgb +
-            lighting.ambientSH[1].rgb * shN.x +
-            lighting.ambientSH[2].rgb * shN.y +
-            lighting.ambientSH[3].rgb * shN.z +
-            lighting.ambientSH[4].rgb * (shN.x * shN.z) +
-            lighting.ambientSH[5].rgb * (shN.z * shN.y) +
-            lighting.ambientSH[6].rgb * (shN.y * shN.x) +
-            lighting.ambientSH[7].rgb * (3.0 * shN.z * shN.z - 1.0) +
-            lighting.ambientSH[8].rgb * (shN.x * shN.x - shN.y * shN.y);
-        indirectDiffuse = max(irradiance, vec3(0.0)) * diffuseAlbedo;
-        bakeDiffuseLight += max(irradiance, vec3(0.0));
     } else {
         indirectDiffuse = lighting.ambient.rgb * diffuseAlbedo;
-        indirectSpecular = lighting.ambient.rgb * F0;
+        // No specular floor here: `ambient * F0` is not a term Metal or upstream
+        // has, and it lit metals from nothing in scenes with no environment.
+        indirectSpecular = vec3(0.0);
         bakeDiffuseLight += lighting.ambient.rgb;
     }
     // Ambient occlusion on the AMBIENT diffuse: upstream (litForwardBackend.js)
