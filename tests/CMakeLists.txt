@@ -91,3 +91,11 @@ add_executable(visutwin-pixel-format-tests
 target_link_libraries(visutwin-pixel-format-tests PRIVATE visutwin-canvas)
 
 add_test(NAME pixel-format-table COMMAND visutwin-pixel-format-tests)
+
+add_executable(visutwin-simd-math-tests
+    simdMathTests.cpp
+)
+
+target_link_libraries(visutwin-simd-math-tests PRIVATE visutwin-canvas)
+
+add_test(NAME simd-math COMMAND visutwin-simd-math-tests)

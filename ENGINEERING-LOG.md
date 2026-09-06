@@ -9,6 +9,48 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
+## SIMD backend defects: a wrong horizontal sum, an ungated SSE path, a missing determinant guard (2026-09-06)
+
+**Four fixes across the math backends, none of them reachable on Apple silicon
+except the last — FIXED.**
+
+`Vector2::dot` and `Vector4::planeNormalize` both ended their SSE horizontal sum
+by broadcasting lane 1 (`_MM_SHUFFLE(1,1,1,1)`) instead of bringing lane 2 down
+(`_MM_SHUFFLE(1,0,3,2)`, which the correct sibling `Vector4::dot` already used).
+`Vector2::dot` therefore returned twice the dot product, making `length()` a
+factor of sqrt(2) too large. `planeNormalize` returned `2*(x*x + y*y)` with
+`z*z` dropped entirely, and it is the only consumer in `Frustum::create`: a
+plane whose normal lies along Z — the near plane of any axis-aligned camera —
+measured as zero length, failed the `len > 0` test and collapsed to
+`(0,0,0,0)`, a frustum plane that culls nothing.
+
+The SSE path could not have compiled in the first place. It was selected on
+`__SSE__`, which every x86-64 target defines, while using SSE4.1 intrinsics
+(`_mm_dp_ps`, `_mm_insert_ps`) that clang's x86-64 baseline stops short of, and
+no `-msse4.1` appears anywhere in the build. It is now gated on `__SSE4_1__`, so
+a stock x86-64 target falls through to the scalar path rather than failing to
+build. That also means these two arithmetic fixes are **unverified by execution**:
+they are correct by inspection against `Vector4::dot`, and the argument for an
+x86 build in CI is now concrete.
+
+`Matrix4::inverse` on the Apple backend returned `simd_inverse` unguarded, where
+the scalar branch and upstream (mat4.js) return identity on a zero determinant.
+A zero component in a node's local scale is the ordinary way to reach it, and
+the resulting NaN flows through `GraphNode` into the view matrix and every
+frustum plane derived from it. This one IS live on Apple silicon: removing the
+new guard makes `tests/simdMathTests.cpp` fail with infinities, which is how it
+was confirmed rather than assumed.
+
+**A correction to the audit.** It also listed `Quaternion::normalized` as
+NaN-producing on the Apple backend. That is wrong: `Quaternion::simd` is a
+`simd_quatf` there, and `simd_normalize` of a zero quaternion returns identity
+already (probed directly — the zero *float4* overload is what returns NaN, and
+this type does not use it). The zero guard was still added, because the SSE path
+(`_mm_rsqrt_ps` of zero) and the NEON path (`1/sqrt(0)`) genuinely do produce
+NaN, and `invert()` routes through it. The SSE path also swapped
+`_mm_rsqrt_ps` for an exact reciprocal square root: ~12 bits of mantissa drifts
+visibly through repeatedly renormalised rotations.
+
 ## KTX2 always transcoded to ASTC, and three pixel formats had no descriptor (2026-09-06)
 
 **Two defects from the 2026-09-06 upstream audit, both invisible on Apple

@@ -478,6 +478,15 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   no shader reflection: buffers 0..b-1, textures b..b+t-1, the uniform block at
   b+t, and the block's members are the scalars again in name order. A shader that
   declares them in a different order silently reads the wrong data.
+- **Only ONE SIMD backend compiles per target, so a defect in another one is
+  invisible here.** Apple silicon selects the Apple backend; the SSE path is now
+  gated on `__SSE4_1__` (it uses `_mm_dp_ps` / `_mm_insert_ps`, so `__SSE__`
+  alone could not compile) and x86 without SSE4.1 falls through to scalar. Two
+  wrong SSE horizontal sums lived in `Vector2::dot` and
+  `Vector4::planeNormalize` for as long as the files existed. When you touch one
+  backend, check the same function in the other three, and add the contract to
+  `tests/simdMathTests.cpp` — which only covers the backend the build selected,
+  so an x86 CI build is what would actually guard the SSE path.
 - **A block-compressed format must be asked for, not assumed, and there are
   FOUR KTX2 call sites.** `GraphicsDevice::preferredCompressedRgbaFormat()`
   picks ASTC → BC7 → DXT5 → RGBA8 from `supportsCompressedFormat()`; ASTC is

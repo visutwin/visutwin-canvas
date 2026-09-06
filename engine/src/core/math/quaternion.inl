@@ -189,9 +189,19 @@ namespace visutwin::canvas
 
     inline Quaternion Quaternion::normalized() const
     {
+        // A zero quaternion normalises to identity on every backend, as upstream
+        // (quat.js) does. The SSE and Apple paths used to divide by zero and return
+        // NaN; invert() routes through here, so the NaN spread to anything inverting a
+        // degenerate rotation.
+        if (lengthSquared() == 0.0f) {
+            return Quaternion();
+        }
 #if defined(USE_SIMD_SSE)
+        // An exact reciprocal square root, not _mm_rsqrt_ps: that approximation carries
+        // ~12 bits of mantissa, and repeatedly renormalised rotations (skinning,
+        // accumulated deltas) drift visibly at that precision.
         __m128 dot = _mm_dp_ps(simd, simd, 0xFF); // Dot product of all 4 parts
-        __m128 invSqrt = _mm_rsqrt_ps(dot); // Approximate reciprocal sqrt
+        __m128 invSqrt = _mm_div_ps(_mm_set1_ps(1.0f), _mm_sqrt_ps(dot));
         return Quaternion(_mm_mul_ps(simd, invSqrt)); // Normalize
 #elif defined(USE_SIMD_APPLE)
         return Quaternion(simd_normalize(simd));

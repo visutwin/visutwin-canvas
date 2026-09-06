@@ -10,7 +10,15 @@ namespace visutwin::canvas
     inline Matrix4 Matrix4::inverse() const
     {
 #if defined(USE_SIMD_APPLE)
-        // Use the Accelerate framework for optimal general inverse
+        // Use the Accelerate framework for optimal general inverse. simd_inverse of a
+        // singular matrix returns infinities/NaN, so the determinant is checked first and
+        // identity returned instead — matching the scalar branch below and upstream
+        // (mat4.js). A node with a zero component in its local scale is the ordinary way
+        // to reach this, and the NaN would otherwise reach the view matrix through
+        // GraphNode and poison every frustum plane and draw derived from it.
+        if (simd_determinant(cm) == 0.0f) {
+            return Matrix4(); // fallback: identity
+        }
         return Matrix4(simd_inverse(cm));
 #else
         // General 4x4 inverse using cofactors + determinant (GLM / MESA implementation).

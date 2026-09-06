@@ -25,9 +25,15 @@
 //   2. SSE on x86
 //   3. Apple SIMD on Apple platforms (preferred on Apple Silicon — uses Accelerate framework)
 //   4. NEON on non-Apple ARM (e.g., Android, Linux ARM)
+//
+// The SSE path requires SSE4.1, not merely SSE: it uses _mm_dp_ps and _mm_insert_ps
+// (vector3.inl, vector4.h, matrix4.inl, util/simd.h). Selecting it on __SSE__ alone —
+// which every x86-64 target defines — meant it could not compile at all on a stock
+// x86-64 baseline, where clang stops at SSE2 and no -msse4.1 is set anywhere in the
+// build. Falling through leaves x86 on the scalar path rather than failing to build.
 #if defined(USE_SIMD_MATH) && defined(USE_SIMD_PREFER_NEON) && defined(__ARM_NEON)
     #define USE_SIMD_NEON
-#elif defined(USE_SIMD_MATH) && defined(__SSE__)
+#elif defined(USE_SIMD_MATH) && defined(__SSE4_1__)
     #define USE_SIMD_SSE
 #elif defined(USE_SIMD_MATH) && defined(__APPLE__)
     #define USE_SIMD_APPLE
