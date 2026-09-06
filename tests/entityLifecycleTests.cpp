@@ -145,6 +145,36 @@ int main()
             "the destructor alone still releases components");
     }
 
+    // Explicit component removal: disabled, announced, then released.
+    {
+        events.clear();
+        auto entity = std::make_unique<Entity>();
+        entity->addComponentInstance(std::make_unique<ProbeComponent>("keep", 0), 9001);
+        auto* doomed = entity->addComponentInstance(
+            std::make_unique<ProbeComponent>("doomed", 0), 9002);
+
+        entity->onHierarchyStateChanged(true);
+        events.clear();
+
+        bool announced = false;
+        doomed->on("beforeremove", [&announced]() { announced = true; }, nullptr);
+
+        check(entity->removeComponentInstance(9002), "removeComponentInstance reports success");
+        check(announced, "beforeremove fires while the component is still valid");
+        check(before("disable:doomed", "destroy:doomed"),
+            "a removed component is disabled before it is released");
+        check(indexOf("destroy:keep") == static_cast<size_t>(-1),
+            "removing one component leaves its siblings alone");
+        check(!entity->removeComponentInstance(9002),
+            "removing an absent component reports false");
+
+        // The survivor must still take part in the lifecycle.
+        events.clear();
+        entity->onHierarchyStateChanged(false);
+        check(indexOf("disable:keep") != static_cast<size_t>(-1),
+            "the surviving component is still dispatched to");
+    }
+
     if (failures == 0) {
         std::cout << "entity lifecycle ordering: all checks passed\n";
         return 0;

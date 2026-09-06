@@ -15,13 +15,21 @@
 
 namespace visutwin::canvas
 {
-    class IComponentSystem
+    /// Systems are event emitters: `add` when a component is created, then
+    /// `beforeremove` (while it is still valid) and `remove` when one goes. Editors
+    /// and asset reloads need those; before they existed a component could only ever
+    /// be added, and only an entity's destruction took one away.
+    class IComponentSystem : public EventHandler
     {
     public:
         virtual ~IComponentSystem() = default;
         IComponentSystem(Engine* engine, const std::string& id) : _engine(engine), _id(id) {}
 
         virtual std::unique_ptr<Component> addComponent(Entity* entity) = 0;
+
+        /// Remove this entity's component of this system's type, if it has one.
+        /// Returns false when it does not.
+        virtual bool removeComponent(Entity* entity) = 0;
 
         [[nodiscard]] const std::string& id() const { return _id; }
         Engine* engine() const { return _engine; }
@@ -43,6 +51,8 @@ namespace visutwin::canvas
 
         // Create new Component and component data instances and attach them to the entity.
         std::unique_ptr<Component> addComponent(Entity* entity) override;
+
+        bool removeComponent(Entity* entity) override;
 
         const std::type_info& componentType() const override { return typeid(ComponentType); }
     };

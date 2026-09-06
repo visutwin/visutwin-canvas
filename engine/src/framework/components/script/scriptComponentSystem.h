@@ -37,8 +37,10 @@ namespace visutwin::canvas
         }
 
         // Called from ~ScriptComponent so a destroyed component (e.g. its entity was
-        // deleted) is never left dangling in the update list.
-        void removeComponent(ScriptComponent* component)
+        // deleted) is never left dangling in the update list. NOT the virtual
+        // removeComponent(Entity*) — this is bookkeeping for a component that is
+        // already being destroyed, and an overload here would hide the virtual.
+        void unregisterComponent(ScriptComponent* component)
         {
             _components.remove(component);
         }

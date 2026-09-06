@@ -557,6 +557,16 @@ present, but the rule below never depends on reading it.
   query it. `onPostStateChange()` then runs over every component, which is where
   one wires itself to a sibling that had to exist first. This used to iterate an
   `unordered_map`, so the order varied per run.
+- **Component systems emit `add` / `beforeremove` / `remove`, and
+  `removeComponent(Entity*)` is the way to take a component away.** A system that
+  needs its own bookkeeping on destruction must not declare an overload named
+  `removeComponent` — that hides the virtual (`ScriptComponentSystem` calls its
+  one `unregisterComponent` for exactly this reason).
+- **`ComponentSystemRegistry::add` REJECTS a duplicate id, or a second system for
+  the same component type, and keeps the first.** It used to overwrite the lookup
+  maps while leaving the original alive, owned and still subscribed behind an id
+  that no longer resolved to it. `remove` erases from the owning vector and both
+  maps together — partial erasure is the bug this pairing exists to prevent.
 - **`Entity::destroy()` is the teardown path, and it does NOT free the node.**
   Descendants first, disable in order, `destroy` event, then components released
   in reverse creation order. It is idempotent and the destructor calls it.

@@ -20,7 +20,17 @@ namespace visutwin::canvas
     class ComponentSystemRegistry : public EventHandler
     {
     public:
+        /// Register a system. A duplicate id, or a second system for the same
+        /// component type, is REJECTED with an error and the first one kept — it is
+        /// already wired up, and overwriting the lookup maps would leave it alive,
+        /// owned and still subscribed behind an id that no longer resolved to it.
+        /// Fires `add` on success.
         void add(std::unique_ptr<IComponentSystem> system);
+
+        /// Unregister and destroy a system, erasing it from the owning vector and
+        /// both lookup maps together. Fires `beforeremove` while the system is still
+        /// valid, then `remove`. Returns false if it was not registered here.
+        bool remove(IComponentSystem* system);
 
         IComponentSystem* getById(const std::string& id) const;
 

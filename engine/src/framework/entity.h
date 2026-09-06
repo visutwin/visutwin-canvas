@@ -72,6 +72,19 @@ namespace visutwin::canvas
             return raw;
         }
 
+        /// Detach and destroy the component registered under `typeId`, if any.
+        /// Disables it first, so it tears down the same way it would during entity
+        /// destruction, and fires `beforeremove` on the component while it is still
+        /// valid. Returns false when the entity has no such component.
+        bool removeComponentInstance(ComponentTypeID typeId);
+
+        /// Remove this entity's component of the given type.
+        template <class ComponentType>
+        bool removeComponent()
+        {
+            return removeComponentInstance(componentTypeID<ComponentType>());
+        }
+
         template <class ComponentType>
         Component* addComponent()
         {

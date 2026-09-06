@@ -107,3 +107,11 @@ add_executable(visutwin-entity-lifecycle-tests
 target_link_libraries(visutwin-entity-lifecycle-tests PRIVATE visutwin-canvas)
 
 add_test(NAME entity-lifecycle COMMAND visutwin-entity-lifecycle-tests)
+
+add_executable(visutwin-component-registry-tests
+    componentRegistryTests.cpp
+)
+
+target_link_libraries(visutwin-component-registry-tests PRIVATE visutwin-canvas)
+
+add_test(NAME component-registry COMMAND visutwin-component-registry-tests)

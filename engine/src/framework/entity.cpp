@@ -74,6 +74,38 @@ namespace visutwin::canvas
         }
     }
 
+    bool Entity::removeComponentInstance(const ComponentTypeID typeId)
+    {
+        const auto it = _components.find(typeId);
+        if (it == _components.end()) {
+            return false;
+        }
+        Component* component = it->second;
+
+        // Disabled before it is unhooked, so it releases whatever onEnable acquired
+        // — the same teardown it would get through destroy(), rather than dying
+        // still holding a body, a light or a draw registration.
+        if (component && component->enabled()) {
+            component->onDisable();
+        }
+        if (component) {
+            component->fire("beforeremove");
+        }
+
+        _components.erase(it);
+        if (typeId == componentTypeID<ScriptComponent>()) {
+            _script = nullptr;
+        }
+        for (auto storage = _componentStorage.begin();
+             storage != _componentStorage.end(); ++storage) {
+            if (storage->get() == component) {
+                _componentStorage.erase(storage);   // destroys it
+                break;
+            }
+        }
+        return true;
+    }
+
     void Entity::onHierarchyStateChanged(const bool enabled)
     {
         // Let GraphNode update _enabledInHierarchy and handle frozen state.

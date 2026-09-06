@@ -13,7 +13,7 @@ namespace visutwin::canvas
     ScriptComponent::~ScriptComponent()
     {
         if (auto* scriptSystem = dynamic_cast<ScriptComponentSystem*>(system())) {
-            scriptSystem->removeComponent(this);
+            scriptSystem->unregisterComponent(this);
         }
     }
 
