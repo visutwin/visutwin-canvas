@@ -593,6 +593,8 @@ namespace visutwin::canvas
 
         if (_stats) {
             _stats->frame().fixedUpdateTime = 0.0;
+            // Accumulated by RigidBodyComponentSystem::step across this frame's substeps.
+            _stats->frame().physicsTime = 0.0;
         }
 
         _graphicsDevice->update();

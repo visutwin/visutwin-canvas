@@ -209,6 +209,14 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
 - **Static bodies do not get their transform written back** (nothing else should
   be fighting whatever placed them) and **kinematic bodies are pushed the other
   way**: the entity's transform goes INTO the simulation.
+- **The world is stepped on `fixedUpdate`, not `update`.** `Engine::update` owns
+  the accumulator and fires it zero or more times a frame at
+  `Engine::fixedDeltaTime()`; `RigidBodyComponentSystem::step(dt)` is public for
+  driving the simulation from another clock, and `setTimeScale(0)` pauses it
+  (nothing steps, nothing is written back) while the rest of the engine runs on.
+- **`raycastAll` returns hits NEAREST FIRST on both paths.** It used to sort only
+  on the CPU fallback, so the order depended on whether a physics world had been
+  supplied.
 - `teleport()` rather than `setPosition()` on a simulated entity: the step would
   overwrite a bare transform, and Jolt does not wake a body that was only moved.
 - `CollisionComponent::height` is the FULL height for a capsule, caps included;

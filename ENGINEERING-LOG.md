@@ -9,6 +9,47 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
+## Physics stepped on the variable frame delta (2026-09-06)
+
+**The simulation advanced by the frame delta while the fixed-timestep
+accumulator built for it had no subscribers — FIXED.** `Engine::update` has run
+an accumulator since it was written: it fires `fixedUpdate` zero or more times a
+frame at a constant `_fixedDeltaTime`, clamps the accumulator, and tracks an
+interpolation alpha. Nothing subscribed to it. `RigidBodyComponentSystem`
+subscribed to `update` and passed the raw frame delta to `PhysicsWorld::step`,
+so the trajectory of every simulation depended on the frame rate and one long
+frame integrated a single large step that a thin floor does not stop.
+
+The system now subscribes to `fixedUpdate`, and the body of the old lambda
+became a public `step(dt)`. Two things came with it, both named in the audit and
+both cheap once the step is a method: `timeScale()` scales the fixed delta, with
+zero pausing the simulation outright while the rest of the engine keeps running,
+and `step()` can be called directly to drive the simulation from another clock.
+`Engine::_timeScale` and its siblings are still private with no accessors, which
+is a separate gap.
+
+`raycastAll` also had two different ordering contracts: the CPU fallback sorted
+by hit fraction, the physics-world path returned whatever order the broadphase
+walked. Ordering therefore depended on whether a world had been supplied. Both
+now sort nearest-first through one comparator. Upstream leaves these unordered
+unless asked, but a single contract is cheaper to reason about than a flag.
+
+`FrameStats::physicsTime` was documented and never written; `step` now
+accumulates into it across a frame's substeps and `Engine::update` zeroes it
+alongside `fixedUpdateTime`.
+
+Verified end to end on `falling-shapes`, comparing frame 30 against frame 150:
+
+| Configuration | Pixels changed |
+|---|---|
+| Normal | 7.06% |
+| `timeScale(0)` | 0.33% |
+| `timeScale(0)` + manual `step(1/60)` per frame | 6.50% |
+
+The paused run is not exactly zero because the example spawns a shape on its own
+timer regardless of physics — those appear and then do not fall, which is the
+contract holding rather than breaking. Both suites green.
+
 ## SIMD backend defects: a wrong horizontal sum, an ungated SSE path, a missing determinant guard (2026-09-06)
 
 **Four fixes across the math backends, none of them reachable on Apple silicon

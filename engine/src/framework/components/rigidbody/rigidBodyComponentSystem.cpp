@@ -3,6 +3,7 @@
 #include "rigidBodyComponentSystem.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -14,6 +15,22 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        /// Nearest first, with the entity pointer as a tiebreak so two hits at the same
+        /// fraction keep a stable relative order across calls.
+        void sortByHitFraction(std::vector<RaycastResult>& results)
+        {
+            std::sort(results.begin(), results.end(),
+                [](const RaycastResult& a, const RaycastResult& b) {
+                    if (std::abs(a.hitFraction - b.hitFraction) > 1e-6f) {
+                        return a.hitFraction < b.hitFraction;
+                    }
+                    return a.entity < b.entity;
+                });
+        }
+    }
+
     namespace
     {
         constexpr float EPS = 1e-6f;
@@ -281,14 +298,48 @@ namespace visutwin::canvas
             results.push_back(result);
         }
 
-        std::sort(results.begin(), results.end(), [](const RaycastResult& a, const RaycastResult& b) {
-            if (std::abs(a.hitFraction - b.hitFraction) > 1e-6f) {
-                return a.hitFraction < b.hitFraction;
-            }
-            return a.entity < b.entity;
-        });
-
+        sortByHitFraction(results);
         return results;
+    }
+
+    PhysicsWorld* RigidBodyComponentSystem::resolveWorld()
+    {
+        if (_world == nullptr) {
+            _world = _engine ? _engine->physicsWorld() : nullptr;
+        }
+        return _world;
+    }
+
+    void RigidBodyComponentSystem::step(const float dt)
+    {
+        if (resolveWorld() == nullptr) {
+            return;
+        }
+
+        const auto physicsStart = std::chrono::high_resolution_clock::now();
+
+        // Create bodies BEFORE stepping so an entity added this frame is part of the
+        // very first step rather than a frame behind. The same call writes kinematic
+        // transforms into the simulation and reads dynamic ones back out, which is why
+        // it runs on both sides of the step.
+        for (auto* body : RigidBodyComponent::instances()) {
+            if (body && body->enabled() && body->entity() && body->entity()->enabled()) {
+                body->syncFromSimulation(*_world);
+            }
+        }
+        _world->step(dt);
+        for (auto* body : RigidBodyComponent::instances()) {
+            if (body && body->enabled() && body->entity() && body->entity()->enabled()) {
+                body->syncFromSimulation(*_world);
+            }
+        }
+
+        // Accumulated across the substeps of one frame; Engine::update zeroes it.
+        if (_engine && _engine->stats()) {
+            const auto physicsEnd = std::chrono::high_resolution_clock::now();
+            _engine->stats()->frame().physicsTime +=
+                std::chrono::duration<double, std::milli>(physicsEnd - physicsStart).count();
+        }
     }
 
     RigidBodyComponentSystem::RigidBodyComponentSystem(Engine* engine)
@@ -298,37 +349,25 @@ namespace visutwin::canvas
             return;
         }
 
-        engine->systems()->on("update", [this](const float dt) {
-            // Resolved here rather than in the constructor: a component system is
-            // free to be built before the engine has stored everything AppOptions
-            // carried, and a null world read once at construction would leave the
-            // whole scene frozen with nothing to show why.
-            if (_world == nullptr) {
-                _world = _engine ? _engine->physicsWorld() : nullptr;
-            }
-            if (_world == nullptr) {
+        // "fixedUpdate", not "update": Engine::update owns a fixed-timestep accumulator
+        // and fires this zero or more times per frame with a constant delta. Stepping on
+        // the variable frame delta made the simulation frame-rate dependent, and the
+        // accumulator that exists to prevent exactly that had no subscribers at all.
+        engine->systems()->on("fixedUpdate", [this](const float fixedDt) {
+            if (resolveWorld() == nullptr) {
                 return;
             }
-            // Create bodies BEFORE stepping so an entity added this frame is part
-            // of the very first step rather than a frame behind.
-            for (auto* body : RigidBodyComponent::instances()) {
-                if (body && body->enabled() && body->entity() && body->entity()->enabled()) {
-                    body->syncFromSimulation(*_world);
-                }
+            if (!(_timeScale > 0.0f)) {
+                return;    // paused: nothing simulated, nothing written back
             }
-            _world->step(dt);
-            for (auto* body : RigidBodyComponent::instances()) {
-                if (body && body->enabled() && body->entity() && body->entity()->enabled()) {
-                    body->syncFromSimulation(*_world);
-                }
-            }
+            step(fixedDt * _timeScale);
         }, this);
     }
 
     RigidBodyComponentSystem::~RigidBodyComponentSystem()
     {
         if (_engine && _engine->systems()) {
-            _engine->systems()->off("update", HandleEventCallback(), this);
+            _engine->systems()->off("fixedUpdate", HandleEventCallback(), this);
         }
         if (_world != nullptr) {
             // Components can outlive the system, so hand their bodies back before
@@ -380,6 +419,10 @@ namespace visutwin::canvas
             }
             results.push_back(result);
         }
+        // Nearest first, the same order the CPU fallback returns. The physics world is
+        // free to report hits in whatever order its broadphase walked them, so without
+        // this the ordering silently depended on whether a world was supplied.
+        sortByHitFraction(results);
         return results;
     }
 }
