@@ -67,11 +67,41 @@ namespace visutwin::canvas
         fire("destroy");
 
         // Release in the reverse of creation order, the C++ convention and the one
-        // that undoes construction dependencies.
+        // that undoes construction dependencies — and through the SYSTEM that owns
+        // each component, so a system caching its components hears `beforeremove`
+        // and `remove` here exactly as it would for an explicit removal. Teardown
+        // used to clear the containers directly, so a cache learned only when the
+        // component's destructor got round to telling it.
+        const auto ordered = orderedComponents();
+        for (auto it = ordered.rbegin(); it != ordered.rend(); ++it) {
+            Component* component = *it;
+            if (!component) {
+                continue;
+            }
+            if (auto* system = component->system()) {
+                system->removeComponent(this);
+            } else if (const auto typeId = componentTypeIdOf(component)) {
+                // No owning system: an entity assembled by hand, or a test probe.
+                removeComponentInstance(*typeId);
+            }
+        }
+
+        // Anything the loop could not place — a component whose system removed a
+        // different one, say — still has to go, or it would outlive its entity.
         _components.clear();
         while (!_componentStorage.empty()) {
             _componentStorage.pop_back();
         }
+    }
+
+    std::optional<ComponentTypeID> Entity::componentTypeIdOf(const Component* component) const
+    {
+        for (const auto& [typeId, candidate] : _components) {
+            if (candidate == component) {
+                return typeId;
+            }
+        }
+        return std::nullopt;
     }
 
     bool Entity::removeComponentInstance(const ComponentTypeID typeId)
@@ -83,9 +113,11 @@ namespace visutwin::canvas
         Component* component = it->second;
 
         // Disabled before it is unhooked, so it releases whatever onEnable acquired
-        // — the same teardown it would get through destroy(), rather than dying
-        // still holding a body, a light or a draw registration.
-        if (component && component->enabled()) {
+        // rather than dying still holding a body, a light or a draw registration.
+        // Skipped during destroy(), which has already disabled every component in
+        // order — doing it again here would deliver a second onDisable, and the
+        // ordered sweep is the whole reason destroy() disables before it releases.
+        if (!_destroying && component && component->enabled()) {
             component->onDisable();
         }
         if (component) {

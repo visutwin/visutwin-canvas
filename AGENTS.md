@@ -568,10 +568,14 @@ present, but the rule below never depends on reading it.
   that no longer resolved to it. `remove` erases from the owning vector and both
   maps together — partial erasure is the bug this pairing exists to prevent.
 - **`Entity::destroy()` is the teardown path, and it does NOT free the node.**
-  Descendants first, disable in order, `destroy` event, then components released
-  in reverse creation order. It is idempotent and the destructor calls it.
-  Ownership stays with the parent's `unique_ptr`: freeing inside `destroy()`
-  would leave `this` dangling for the rest of the call.
+  Descendants first, disable in order, `destroy` event, then each component
+  released THROUGH the system that owns it (so `beforeremove` / `remove` fire for
+  a destroyed entity exactly as for an explicit removal), in reverse creation
+  order. It is idempotent and the destructor calls it. Ownership stays with the
+  parent's `unique_ptr`: freeing inside `destroy()` would leave `this` dangling
+  for the rest of the call. Note the `_destroying` guard in
+  `removeComponentInstance` — teardown has already disabled everything in order,
+  and without it each component would get a second `onDisable`.
 - **`Engine::start()` must be called AFTER the scene exists.** It fires the
   initialize phase (`start`, then systems `initialize` / `postInitialize`, then
   the app's `initialize` / `postinitialize`) and then ticks. `ExampleApp` starts

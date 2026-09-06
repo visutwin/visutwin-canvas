@@ -20,6 +20,7 @@
 
 #include "framework/entity.h"
 #include "framework/components/component.h"
+#include "framework/components/componentSystem.h"
 
 using namespace visutwin::canvas;
 
@@ -57,6 +58,25 @@ namespace
     private:
         std::string _tag;
         int _order;
+    };
+
+    /// A component that belongs to a real system, so teardown can be checked to go
+    /// THROUGH that system rather than around it.
+    class OwnedComponent : public Component
+    {
+    public:
+        OwnedComponent(IComponentSystem* system, Entity* entity)
+            : Component(system, entity) {}
+        void initializeComponentData() override {}
+        ~OwnedComponent() override { events.push_back("destroy:owned"); }
+    };
+
+    struct EmptyData {};
+
+    class OwnedSystem : public ComponentSystem<OwnedComponent, EmptyData>
+    {
+    public:
+        OwnedSystem() : ComponentSystem<OwnedComponent, EmptyData>(nullptr, "owned") {}
     };
 
     size_t indexOf(const std::string& what)
@@ -173,6 +193,50 @@ int main()
         entity->onHierarchyStateChanged(false);
         check(indexOf("disable:keep") != static_cast<size_t>(-1),
             "the surviving component is still dispatched to");
+    }
+
+    // Teardown must deliver exactly ONE onDisable per component: destroy() sweeps
+    // them in order, and the per-component release must not repeat it.
+    {
+        events.clear();
+        auto entity = std::make_unique<Entity>();
+        entity->addComponentInstance(std::make_unique<ProbeComponent>("solo", 0), 9001);
+        entity->onHierarchyStateChanged(true);
+        events.clear();
+
+        entity->destroy();
+        int disables = 0;
+        for (const auto& e : events) {
+            if (e == "disable:solo") {
+                ++disables;
+            }
+        }
+        check(disables == 1, "destroy() disables each component exactly once");
+        check(before("disable:solo", "destroy:solo"),
+            "and disables it before releasing it");
+    }
+
+    // Destroying an entity must announce each component through the system that
+    // owns it. Teardown used to clear the containers directly, so a system caching
+    // its components heard nothing until the component's destructor ran.
+    {
+        events.clear();
+        OwnedSystem system;
+        int beforeRemoves = 0;
+        int removes = 0;
+        system.on("beforeremove", [&beforeRemoves]() { ++beforeRemoves; }, nullptr);
+        system.on("remove", [&removes]() { ++removes; }, nullptr);
+
+        auto entity = std::make_unique<Entity>();
+        entity->addComponentInstance(
+            std::make_unique<OwnedComponent>(&system, entity.get()),
+            componentTypeID<OwnedComponent>());
+
+        entity->destroy();
+        check(beforeRemoves == 1, "destroy() fires the system's beforeremove");
+        check(removes == 1, "destroy() fires the system's remove");
+        check(indexOf("destroy:owned") != static_cast<size_t>(-1),
+            "and the component is actually released");
     }
 
     if (failures == 0) {

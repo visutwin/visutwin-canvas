@@ -6,6 +6,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
@@ -77,6 +78,10 @@ namespace visutwin::canvas
         /// destruction, and fires `beforeremove` on the component while it is still
         /// valid. Returns false when the entity has no such component.
         bool removeComponentInstance(ComponentTypeID typeId);
+
+        /// The type id this component is registered under, or nothing if it is not
+        /// on this entity.
+        [[nodiscard]] std::optional<ComponentTypeID> componentTypeIdOf(const Component* component) const;
 
         /// Remove this entity's component of the given type.
         template <class ComponentType>
