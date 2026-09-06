@@ -248,6 +248,11 @@ ComposePassParams.
   the defocus washes it out with everything else. Where DOF is not blurring the
   order cannot matter, which is the check that says a change here landed: the
   in-focus part of the frame must come back bit-identical.
+- **The CAS uniform is NEGATIVE.** `RenderPassCompose` remaps the user
+  sharpness to upstream's `lerp(-0.125, -0.2, s)` and the shaders gate on `< 0`;
+  a positive weight turns the same kernel into a 5-tap blur, which is what the
+  pass did until 2026-09-06. Verify a sharpness change with gradient energy over
+  a static crop, not by eye.
 - Fringing (chromatic aberration, user intensity /1024) **must stay BEFORE
   bloom**: it re-samples the scene texture for R and B, so running it after bloom
   leaves bloom in green only. It also overwrites R and B from the raw scene

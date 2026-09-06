@@ -51,7 +51,13 @@ namespace visutwin::canvas
         uniforms.blurTextureUpscale = _blurTextureUpscale ? 1u : 0u;
         uniforms.bloomIntensity = _bloomIntensity;
         uniforms.dofIntensity = _dofIntensity;
-        uniforms.sharpness = _sharpness;
+        // Upstream (render-pass-compose.js) feeds the CAS kernel
+        // lerp(-0.125, -0.2, sharpness): the weight must be NEGATIVE to sharpen.
+        // With the raw positive user value the same kernel is a convex blend of
+        // the pixel with its four neighbours, i.e. a blur, which is what this
+        // pass did for as long as it existed. Zero keeps the stage off; the
+        // shaders gate on `< 0`.
+        uniforms.sharpness = _sharpness > 0.0f ? (-0.125f - 0.075f * _sharpness) : 0.0f;
         uniforms.tonemapMode = static_cast<uint32_t>(_toneMapping);
         uniforms.exposure = _exposure;
         if (_sceneTexture && _sceneTexture->width() > 0 && _sceneTexture->height() > 0) {

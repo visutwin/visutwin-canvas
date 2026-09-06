@@ -233,7 +233,7 @@ float3 toneMapAces2(float3 color, float exposure) {
 
 float maxComp(float x, float y, float z) { return max(x, max(y, z)); }
 float3 toSDR(float3 c) { return c / (1.0 + maxComp(c.r, c.g, c.b)); }
-float3 toHDR(float3 c) { return c / (1.0 - maxComp(c.r, c.g, c.b)); }
+float3 toHDR(float3 c) { return c / max(1.0 - maxComp(c.r, c.g, c.b), 1e-4); }
 
 float3 applyCas(float3 color, float2 uv, float sharpness,
                 texture2d<float> sceneTexture, sampler s, float2 invRes) {
@@ -245,7 +245,8 @@ float3 applyCas(float3 color, float2 uv, float sharpness,
 
     float min_g = min(a.g, min(b.g, min(c.g, min(d.g, e.g))));
     float max_g = max(a.g, max(b.g, max(c.g, max(d.g, e.g))));
-    float sharpening_amount = sqrt(min(1.0 - max_g, min_g) / max_g);
+    // The uniform is already lerp(-0.125, -0.2, userSharpness), negative, as upstream.
+    float sharpening_amount = sqrt(min(1.0 - max_g, min_g) / max(max_g, 1e-4));
     float w = sharpening_amount * sharpness;
     float3 res = (w * (a + b + d + e) + c) / (4.0 * w + 1.0);
     return toHDR(max(res, float3(0.0)));
@@ -451,7 +452,8 @@ fragment float4 composeFragment(
     float3 result = sceneTexture.sample(linearSampler, uv).rgb;
 
     // 1. CAS (Contrast Adaptive Sharpening)
-    if (uniforms.sharpness > 0.0) {
+    // Negative = on: the CPU side remaps the user value to upstream's negative kernel weight.
+    if (uniforms.sharpness < 0.0) {
         result = applyCas(result, uv, uniforms.sharpness, sceneTexture, linearSampler, uniforms.sceneTextureInvRes);
     }
 
@@ -683,7 +685,7 @@ vec3 toneMapNeutral(vec3 color) {
 
 float maxComp(vec3 c) { return max(c.r, max(c.g, c.b)); }
 vec3 toSDR(vec3 c) { return c / (1.0 + maxComp(c)); }
-vec3 toHDR(vec3 c) { return c / (1.0 - maxComp(c)); }
+vec3 toHDR(vec3 c) { return c / max(1.0 - maxComp(c), 1e-4); }
 
 // Contrast Adaptive Sharpening.
 vec3 applyCas(vec3 color, vec2 uv, float sharpness, vec2 invRes) {
@@ -695,7 +697,8 @@ vec3 applyCas(vec3 color, vec2 uv, float sharpness, vec2 invRes) {
 
     float min_g = min(a.g, min(b.g, min(c.g, min(d.g, e.g))));
     float max_g = max(a.g, max(b.g, max(c.g, max(d.g, e.g))));
-    float sharpening_amount = sqrt(min(1.0 - max_g, min_g) / max(max_g, 1e-6));
+    // The uniform is already lerp(-0.125, -0.2, userSharpness), negative, as upstream.
+    float sharpening_amount = sqrt(min(1.0 - max_g, min_g) / max(max_g, 1e-4));
     float w = sharpening_amount * sharpness;
     vec3 res = (w * (a + b + d + e) + c) / (4.0 * w + 1.0);
     return toHDR(max(res, vec3(0.0)));
@@ -863,7 +866,8 @@ void main() {
     vec3 result = texture(sceneTex, uv).rgb;
 
     // 1. CAS
-    if (pc.sharpness > 0.0) {
+    // Negative = on: the CPU side remaps the user value to upstream's negative kernel weight.
+    if (pc.sharpness < 0.0) {
         result = applyCas(result, uv, pc.sharpness, invRes);
     }
 

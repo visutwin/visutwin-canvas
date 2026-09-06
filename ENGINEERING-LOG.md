@@ -9,6 +9,27 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
+## CAS sharpness was a blur (2026-09-06)
+
+**Raising `RenderingSettings::sharpness` softened the image — FIXED.** Upstream's
+compose pass feeds its CAS kernel `lerp(-0.125, -0.2, sharpness)`: the neighbour
+weight is NEGATIVE, which is what makes `(w*(a+b+d+e) + c) / (4w + 1)` an
+unsharp mask. This port passed the raw positive user value into the identical
+kernel, where a positive weight is a convex blend of the pixel with its four
+neighbours, and the shaders gated the stage on `sharpness > 0`. Every scene that
+asked for sharpening got a 5-tap blur instead. The remap now lives in
+`RenderPassCompose::execute`, zero keeps the stage off, and both shader bodies
+gate on `< 0`. Both bodies also gained upstream's `max(max_g, 1e-4)` guard on the
+contrast estimate (Metal divided by `max_g` raw, GLSL used a different epsilon)
+and the same guard on the HDR re-expansion.
+
+Measured on the post-processing scene with gradient energy over a static crop of
+the statue (the orbs animate, so whole-frame diffs are meaningless): at
+sharpness 0.4 the old pass read 6.96 against 7.44 with sharpening off — below
+the reference, a blur — and the new pass reads 8.54. Vulkan shows the same
+ordering. A "settings in, uniform block out" table test is the right guard for
+this class of defect and is on the test list from the 2026-09-06 audit.
+
 ## Ambient occlusion never reached the diffuse light (2026-09-06)
 
 **An AO map had no effect on diffuse lighting on Metal — FIXED.** The
