@@ -21,8 +21,11 @@ Vulkan 1.3.
   call that turns it on, and its deviations from upstream. Consult when you are
   about to touch a subsystem.
 - **`ENGINEERING-LOG.md`** — postmortems, migration accounting and verification
-  numbers for work already finished. Consult when you need to know *why* a thing
-  is the way it is, or how a class of bug was isolated before.
+  numbers for work already finished. NOT tracked in the repository: it is a local
+  working record, so a fresh clone will not have it and nothing here may depend
+  on it. Every rule that still binds is in THIS file; the log only says how a
+  thing was measured and what was already ruled out. Keep appending to it where
+  it exists.
 - **`FEATURES.md`** — user-facing inventory of what the engine implements.
 - **`CONTRIBUTING.md`**, **`README.md`** — the usual.
 - `docs/` is **gitignored**. Do not put tracked documentation there.
@@ -327,20 +330,15 @@ them, so the build-time bundle and the runtime composition share one source.
   passes, which is indistinguishable from writing it, and the quad texture
   bindings are not known at `startRenderPass` because passes set them in
   `execute()`.
-- **A screenshot comparison is only valid against a reference built from the
-  SAME example source.** Re-instrumenting an example, then diffing the result
-  against a screenshot taken before the instrumentation, reads every unrelated
-  difference as a regression. That mistake invented a "sheen feature-resolution
-  bug" on 2026-09-06 (see the ENGINEERING-LOG correction) and cost a full
-  withdraw-and-reland cycle. Capture the reference and the change from one source
-  state, in the same session.
-- **When a probe says a uniform is stuck, check the SETTER first.** A
-  cascade-blend "plumbing bug" was diagnosed and documented on 2026-09-06 that
-  did not exist: the test hook setting it had been placed two lines above the
-  example's own setter, which overwrote it, so both runs used the same value. A
-  one-line `spdlog` of what the binder receives settles this class of question in
-  one run; a shader probe puts a transfer curve and a bundle rebuild between you
-  and the answer.
+- **Verify the measurement before believing the finding.** Two "bugs" were
+  diagnosed, documented and withdrawn on 2026-09-06 that did not exist, both from
+  a bad experiment rather than bad code. Three rules, each of which would have
+  caught one: capture the reference and the change from ONE source state (a
+  screenshot taken before an example was instrumented reads every unrelated
+  difference as a regression); check the STIMULUS actually reached the code (a
+  test hook placed above the example's own setter was overwritten every run); and
+  prefer a one-line `spdlog` of what the binder receives over a shader probe,
+  which puts a transfer curve and a bundle rebuild between you and the answer.
 - **`common-brdf.glsl` is the twin of `common-brdf.metal` and both must change
   together.** It owns `distributionGGX`, `getVisibilitySmithGGX` (a VISIBILITY
   term — the `1/(4 NdotL NdotV)` is folded in, so call sites write `D * Vis * F`
@@ -408,7 +406,9 @@ should be said out loud in the header.
 
 ## Live gotchas
 
-Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
+Each of these has cost real time, and each is self-contained — the incident that
+produced it is recorded in the local `ENGINEERING-LOG.md` where that file is
+present, but the rule below never depends on reading it.
 
 - **A target-only Vulkan build does NOT regenerate the SPIR-V bundle.** After
   touching ANY GLSL chunk, `touch engine/shaders/vulkan/forward.frag` and build
@@ -712,23 +712,21 @@ does nothing, which is a misleading symptom.
   panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
-- **Example coverage gaps**: gsplat SH bands 1-3 have no example; upstream has the
-  `gaussian-splatting/` folder. Detail normals have no example either, and upstream's
-  (`test/detail-map`, itself flagged HIDDEN) cannot be ported faithfully yet: it
-  toggles diffuse, normal and AO detail maps and only the NORMAL one exists here. Morph weight animation is covered again as of
-  2026-09-05 (`mesh-morph-example.cpp`), and clustered atlas shadows have a working
-  example (`clustered-spot-shadows-example.cpp`).
-- **The last of the Vulkan/Metal light gap is the INDIRECT term.** With the spot
-  cone and inverse-squared falloff fixed, `parallax-mapping` went from 0.93 to
-  0.997 and its direct spot light matches to 1.0000. What is left: with every
-  light disabled so only the environment contributes, that scene reads 0.85 of
-  Metal. Treat the number with suspicion before chasing it — the frame is 20-30
-  counts there and the tonemap is not linear in that range, so re-measure it
-  against a brighter configuration first.
-- **`clustered-spot-shadows` still differs by 19/255 on its normal-mapped cube
-  faces.** Not `normalScale`, which is now aligned and which that scene leaves at
-  the default anyway. Re-measure it: it predates both the spot cone fix and the
-  falloff fix, and its lights are spots.
+- **Example coverage gaps.** Nothing exercises: gsplat SH bands 1-3, detail
+  normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles
+  diffuse, normal and AO detail maps and only NORMAL exists here), fog of any
+  type, sheen, or iridescence. The last three mean a change to those paths has to
+  be driven deliberately to be seen at all.
+- **What is left of the Vulkan/Metal gap is the INDIRECT term.** Direct lighting
+  is done: after the shared BRDF landed (2026-09-06) `parallax-mapping` reads
+  1.0003 of Metal. `clearcoat`, which is environment-dominated, still reads
+  0.986. Treat that number with suspicion before chasing it — the frame is 20-30
+  counts in the region that differs and the tonemap is not linear there, so
+  re-measure against a brighter configuration first.
+- **`clustered-spot-shadows`'s 19/255 difference on its normal-mapped cube faces
+  is UNMEASURED since 2026-09-06.** It predates the spot cone fix, the falloff fix
+  and the shared BRDF, all of which touch what it measures. Re-measure before
+  treating it as a finding.
 
 ## Reference kept elsewhere
 

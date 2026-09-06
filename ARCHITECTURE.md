@@ -7,7 +7,7 @@ every session.
 
 Read `CLAUDE.md` first. It holds the rules and the live gotchas, and where the two
 files overlap, `CLAUDE.md` is authoritative. Completed-work narrative lives in
-`ENGINEERING-LOG.md`.
+`ENGINEERING-LOG.md`, which is a local file and not part of the repository.
 
 ## Contents
 

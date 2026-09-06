@@ -38,3 +38,8 @@ tools/deploy-docs.sh
 # Claude Code
 .claude/
 CLAUDE.md
+
+# Local working record: postmortems, verification numbers and dead ends for work
+# already finished. Deliberately untracked — AGENTS.md holds every rule that still
+# binds, and nothing tracked may depend on this file.
+ENGINEERING-LOG.md
