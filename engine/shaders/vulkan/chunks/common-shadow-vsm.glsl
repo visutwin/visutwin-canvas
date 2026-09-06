@@ -84,16 +84,29 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
     float visible = sampleCascadeVisibility(coord, cascade);
     float shadowFactor = mix(1.0, visible, lighting.shadowParams.w);
 
-    // NOT PORTED YET: the cross-cascade blend Metal applies here
-    // (forward-fragment-lights.metal). The shader side is straightforward — sample
-    // the next cascade through sampleCascadeVisibility and mix on
-    // (cascadeFar - viewDepth) / blendWidth — but the input is not trustworthy on
-    // this backend: a shader probe on 2026-09-06 showed `shadowParams2.y` holding a
-    // constant that does NOT track LightComponent::setCascadeBlend, while the
-    // adjacent `shadowParams.y` (cascade count) reads correctly and the same value
-    // reaches Metal. Writing the blend against a uniform that carries something else
-    // would silently blend cascades in every scene. Fix the plumbing first, then
-    // port this: the helper it needs is already factored out.
+    // Cross-cascade blend, twin of the block in forward-fragment-lights.metal.
+    // Without it each cascade ends in a hard line across the ground where the
+    // filter radius changes; Metal has blended since cascades were added and this
+    // backend never did, so the same scene showed seams on one backend only.
+    float blendWidth = lighting.shadowParams2.y;
+    if (blendWidth > 0.0 && cascade < cascadeCount - 1) {
+        float cascadeFar = lighting.shadowCascadeDistances[cascade];
+        float fade = clamp((cascadeFar - viewDepth) / blendWidth, 0.0, 1.0);
+        if (fade < 1.0) {
+            int nextCascade = cascade + 1;
+            vec4 nsc = lighting.shadowMatrices[nextCascade] * vec4(biased, 1.0);
+            float nextFactor = 1.0;
+            if (nsc.w > 0.0) {
+                vec3 ncoord = nsc.xyz / nsc.w;
+                if (all(greaterThanEqual(ncoord, vec3(0.0))) &&
+                    all(lessThanEqual(ncoord, vec3(1.0)))) {
+                    nextFactor = mix(1.0, sampleCascadeVisibility(ncoord, nextCascade),
+                        lighting.shadowParams.w);
+                }
+            }
+            shadowFactor = mix(nextFactor, shadowFactor, fade);
+        }
+    }
 
     // Fade the shadow out over the last tenth of the cascade range, so geometry
     // does not step from shadowed to lit at the edge of the furthest cascade.

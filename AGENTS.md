@@ -317,11 +317,13 @@ them, so the build-time bundle and the runtime composition share one source.
   the LINEAR VIEW DEPTH (`fragViewDepth` on Vulkan, `1 / rd.position.w` on
   Metal), not the radial distance to the camera. No example uses fog, so a change
   here has to be driven deliberately to be seen at all.
-- **Vulkan's `shadowParams2.y` does not carry `cascadeBlend`.** Probed
-  2026-09-06: it holds a constant while the adjacent `shadowParams.y` (cascade
-  count) is correct and the same value reaches Metal. The cross-cascade blend is
-  therefore NOT ported to GLSL; fix the plumbing before porting it, and verify
-  with a shader probe rather than by eye.
+- **When a probe says a uniform is stuck, check the SETTER first.** A
+  cascade-blend "plumbing bug" was diagnosed and documented on 2026-09-06 that
+  did not exist: the test hook setting it had been placed two lines above the
+  example's own setter, which overwrote it, so both runs used the same value. A
+  one-line `spdlog` of what the binder receives settles this class of question in
+  one run; a shader probe puts a transfer curve and a bundle rebuild between you
+  and the answer.
 - **`common-brdf.glsl` is the twin of `common-brdf.metal` and both must change
   together.** It owns `distributionGGX`, `getVisibilitySmithGGX` (a VISIBILITY
   term — the `1/(4 NdotL NdotV)` is folded in, so call sites write `D * Vis * F`

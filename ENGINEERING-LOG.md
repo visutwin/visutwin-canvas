@@ -58,16 +58,9 @@ is gone. Omni shadows take four diagonal taps instead of a single unfiltered
 compare, since Metal gets bilinear filtering free from a hardware
 `sample_compare` and a `texture().r` fetch does not.
 
-**One item was withdrawn rather than shipped.** The cross-cascade blend was
-written and then taken back out, because a shader probe showed its input is not
-what it claims: `shadowParams2.y` holds a constant that does NOT track
-`LightComponent::setCascadeBlend`, while the adjacent `shadowParams.y` (cascade
-count) reads correctly and the same value does reach Metal, which responds to the
-setting. Blending against a uniform carrying something else would have silently
-blended cascades in every Vulkan scene. **That plumbing bug is the open item;**
-the shader helper the blend needs is already factored out, so the port is a few
-lines once the uniform is trustworthy. The max-distance fade, which reads the
-verified cascade distances, was kept.
+**One item was withdrawn and then restored — see the correction below.** The
+cross-cascade blend was written, taken back out on the belief that its uniform
+was not plumbed, and re-landed once that belief turned out to be wrong.
 
 Cumulative Vulkan-vs-Metal agreement across this phase, frame 90, static scenes:
 
@@ -85,8 +78,39 @@ present identically before this work, so not from it, and worth its own fix.
 
 **Still outstanding in phase B:** sheen (a velvet power where Metal has Charlie
 plus Ashikhmin) and iridescence (a static cosine tint where Metal has the
-Belcour model), both needing new GLSL chunks; and the cascade blend above, which
-is blocked on its uniform.
+Belcour model), both needing new GLSL chunks.
+
+### Correction: there was no cascade-blend plumbing bug (2026-09-06)
+
+The withdrawal above was wrong, and the reasoning behind it is worth recording
+because the experiment looked convincing. A shader probe appeared to show
+`shadowParams2.y` frozen while `LightComponent::setCascadeBlend` changed, so the
+uniform was declared untrustworthy and the blend was pulled.
+
+The uniform was fine. The test hook was not: the environment-variable override
+had been injected two lines ABOVE the example's own
+`_lightComp->setCascadeBlend(_cascadeBlend)`, which overwrote it every run. Both
+runs therefore shipped the example's default of 5.0, the probe read a constant
+because the value *was* constant, and the shader was innocent. A one-line
+`spdlog` in the Vulkan binder settled it in a single run — printing what the CPU
+hands the GPU is ground truth, where a shader probe adds a transfer curve and a
+recompile between the value and the answer.
+
+With the override moved below the example's own call, the binder receives 0 and
+30 as asked, and the blend responds on both backends: Metal changes 2.22% of
+pixels between blend 0 and 30, Vulkan 5.59%. Backend agreement on that scene is
+unmoved (1.1350 vs 1.1347), as expected — the blend is a shadow-edge effect and
+the scene's 13% gap is a separate pre-existing divergence.
+
+Two lessons. Verify the *stimulus* before concluding anything about the response:
+the probe was measuring a setter that never ran. And prefer a CPU-side log over a
+shader probe when the question is "what value arrived" — it has fewer moving
+parts and cannot be confounded by a stale shader bundle, which had already caught
+me once in the same session.
+
+Noted in passing: `shadow-cascades` defaults `_cascadeBlend` to 5.0 while its own
++/- keys clamp the same value to 0.2, so the default is outside the range the
+example lets a user reach. Not touched here.
 
 ## The Vulkan backend ran a different BRDF (2026-09-06)
 
