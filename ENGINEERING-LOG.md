@@ -23,37 +23,38 @@ actually took. Nine consecutive suite runs pass, three of them under four
 saturating background processes; the good case still drains in three frames, so
 the budget tolerates a hiccup without hiding a regression.
 
-**The validation errors are a real feedback loop, and the fix needs an API
-change — NOT done.** Ten per run in `shadow-cascades`: a
+**The validation errors were a real feedback loop — FIXED with a
+`RenderPass::depthReadOnly()` declaration.** Ten per run in `shadow-cascades`: a
 `COMBINED_IMAGE_SAMPLER` updated with `DEPTH_STENCIL_ATTACHMENT_OPTIMAL`, which
 is not a layout that descriptor type accepts. Traced step by step:
 
 - The image is the full-screen scene depth, bound at quad texture slot 0.
-- The consumer is an unnamed quad pass, and that pass has **the same depth
-  texture attached as its own depth attachment** — confirmed by comparing the
-  `VkImage` handle at descriptor-write time against the active attachment.
+- The consumer is `RenderPassVolumetricFogCombine`, which composites fog using
+  scene depth **while rendering into the scene target that carries that same
+  depth as its attachment** — confirmed by comparing the `VkImage` handle at
+  descriptor-write time against the active attachment.
 - So the image is legitimately in attachment layout when the descriptor is
-  written. Nothing is failing to transition it.
+  written. Nothing was failing to transition it.
 
 Vulkan permits sampling an attachment only when it is bound read-only, so the
-fix is to attach that depth read-only. Two attempts did not work and are worth
-recording so they are not retried:
+pass now says so: `setDepthReadOnly(true)` in its constructor, and the Vulkan
+backend chooses `DEPTH_STENCIL_READ_ONLY_OPTIMAL` for the attachment, its
+transition, and — through the texture's tracked layout — the descriptor that
+samples it. Errors go from ten per run to zero, in that scene and in
+`clearcoat`, `parallax-mapping`, `post-processing`, `refraction` and
+`depth-of-field`, with the rendered frame unchanged.
 
-1. Transitioning the texture at `startRenderPass`. Impossible — quad passes set
-   their texture bindings inside `execute()`, which runs *after*
-   `startRenderPass`, so the bindings are not yet known when the layout must be
-   chosen. Inside the pass a transition is illegal.
+Two approaches were tried first and do not work, recorded so they are not
+retried:
+
+1. Transitioning the texture at `startRenderPass` by inspecting the quad texture
+   bindings. Impossible — quad passes set those bindings inside `execute()`,
+   which runs *after* `startRenderPass`, so they are not yet known when the
+   layout must be chosen, and inside the pass a transition is illegal.
 2. Inferring read-only from the depth ops (`!clearDepth && !storeDepth`). The
-   offending pass has `store = true`: it keeps the scene depth for later passes
-   while not writing it itself, so the store op does not distinguish "writes
-   depth" from "preserves depth".
-
-What is actually needed is for the pass to declare its intent — a read-only-depth
-flag on `RenderPass`, set by the quad passes that keep the scene depth attached
-while sampling it — so `startRenderPass` can choose
-`DEPTH_STENCIL_READ_ONLY_OPTIMAL` for both the attachment and, through the
-tracked layout, the descriptor. That is a small, deliberate API addition rather
-than a heuristic, and it was left undone rather than guessed at.
+   pass has `storeDepth = true`: it preserves the scene depth for later passes
+   without writing it, so the store op cannot distinguish preserving from
+   writing. This is exactly why the intent needs its own declaration.
 
 ## Sheen and iridescence ported, and a bug that never existed (2026-09-06)
 

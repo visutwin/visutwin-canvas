@@ -110,6 +110,17 @@ namespace visutwin::canvas
         bool requiresCubemaps() const { return _requiresCubemaps; }
         void setRequiresCubemaps(bool value) { _requiresCubemaps = value; }
 
+        /// True when this pass READS its depth attachment without writing it — a
+        /// fullscreen effect that composites using scene depth while keeping that
+        /// depth attached for later passes. Vulkan permits sampling an attachment
+        /// only when it is bound read-only, so this makes the backend choose
+        /// DEPTH_STENCIL_READ_ONLY_OPTIMAL for the attachment and, through the
+        /// texture's tracked layout, for the descriptor that samples it. The depth
+        /// ops cannot express this: such a pass sets storeDepth to preserve the
+        /// contents, which is indistinguishable from writing them.
+        bool depthReadOnly() const { return _depthReadOnly; }
+        void setDepthReadOnly(const bool value) { _depthReadOnly = value; }
+
         virtual void onEnable() {}
         virtual void onDisable() {}
 
@@ -127,6 +138,7 @@ namespace visutwin::canvas
         std::shared_ptr<GraphicsDevice> device() const { return _device; }
 
         bool _requiresCubemaps = true;
+        bool _depthReadOnly = false;
 
         std::string _name;
 

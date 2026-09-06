@@ -115,27 +115,39 @@ namespace visutwin::canvas
                 VkImageLayout fromLayout = da.texture
                     ? da.texture->layout(depthMip, depthLayer)
                     : da.currentLayout;
-                if (depthImg != VK_NULL_HANDLE &&
-                    fromLayout != VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+
+                // A pass that declares depthReadOnly() samples this same depth while
+                // keeping it attached (RenderPassVolumetricFogCombine does exactly
+                // that). Vulkan allows that feedback only with a read-only
+                // attachment, and a COMBINED_IMAGE_SAMPLER may never be updated with
+                // DEPTH_STENCIL_ATTACHMENT_OPTIMAL — binding it was a validation
+                // error with undefined sampled values. Texture-backed only:
+                // internally-owned depth is never sampled.
+                const bool depthReadOnly = renderPass && renderPass->depthReadOnly() &&
+                    da.texture != nullptr;
+                const VkImageLayout depthAttachLayout = depthReadOnly
+                    ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                    : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+                if (depthImg != VK_NULL_HANDLE && fromLayout != depthAttachLayout) {
                     // Omni-shadow cubemap depth carves per-face attachment views —
                     // barrier the face being rendered, not just layer 0 (the
                     // default), or faces 1-5 render in the wrong layout.
                     if (da.texture) {
-                        da.texture->transitionLayout(cmd,
-                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                        da.texture->transitionLayout(cmd, depthAttachLayout,
                             depthMip, 1, depthLayer, 1);
                     } else {
                         vulkanTransitionImageLayout(cmd, depthImg,
-                            fromLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                            fromLayout, depthAttachLayout,
                             depthAspect, 0, 1, 0, 1);
                         // Internal depth — track via the RT itself.
                         const_cast<VulkanDepthAttachment&>(da).currentLayout =
-                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                            depthAttachLayout;
                     }
                 }
 
                 depthInfo.imageView = da.view;
-                depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                depthInfo.imageLayout = depthAttachLayout;
                 depthInfo.loadOp = (dsOps && dsOps->clearDepth)
                     ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
                 depthInfo.storeOp = (dsOps && dsOps->storeDepth)

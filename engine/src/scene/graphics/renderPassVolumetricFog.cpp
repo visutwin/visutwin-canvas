@@ -369,6 +369,14 @@ namespace visutwin::canvas
         Texture* fogTexture)
         : RenderPassShaderQuad(device), _cameraComponent(cameraComponent), _fogTexture(fogTexture)
     {
+        // This pass composites fog over the scene using the scene DEPTH, and it
+        // renders into the scene target — which carries that same depth as its
+        // attachment. It reads depth and never writes it, so the attachment must be
+        // bound read-only: sampling an attachment is legal only in that case, and a
+        // combined image sampler cannot be given an attachment-optimal layout at all.
+        // The depth ops cannot express this, since storeDepth is set to preserve the
+        // contents for later passes.
+        setDepthReadOnly(true);
     }
 
     void RenderPassVolumetricFogCombine::execute()
