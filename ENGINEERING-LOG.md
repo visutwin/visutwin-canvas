@@ -9,6 +9,46 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
+## KTX2 always transcoded to ASTC, and three pixel formats had no descriptor (2026-09-06)
+
+**Two defects from the 2026-09-06 upstream audit, both invisible on Apple
+silicon — FIXED.**
+
+`pixelFormatInfo` (platform/graphics/constants.cpp) is a map the enum does not
+enforce, and `R32F`, `DEPTH16` and `BGRA8` had enumerators with no entry, so
+`pixelFormatBytesPerPixel()` returned 0 for them. The Vulkan upload path sizes
+its staging copy from exactly that value (vulkanTexture.cpp), and R32F is the
+format `renderTarget.cpp` blesses for MSAA depth resolve while BGRA8 is the
+back-buffer copy format. `tests/pixelFormatTests.cpp` now lists every
+enumerator and fails if one has no descriptor; it cannot iterate the enum, so
+adding a format means adding a line there too.
+
+The KTX2 transcode target was a hard-coded ASTC 4x4 default with no capability
+query anywhere, following upstream's `basis.js chooseTargetFormat` in neither
+spirit nor letter. ASTC is native to Apple GPUs and absent from desktop
+NVIDIA/AMD, so every KTX2 asset on a desktop Vulkan GPU would have attempted an
+image creation in an unsupported format. `GraphicsDevice` gained
+`supportsCompressedFormat()` — Metal answers from `supportsFamily(Apple2)` and
+`supportsBCTextureCompression()`, Vulkan from `textureCompressionASTC_LDR` /
+`textureCompressionBC` plus the sampled-image bit for the mapped `VkFormat` —
+and `preferredCompressedRgbaFormat()` picks ASTC, then BC7, then DXT5, then
+uncompressed RGBA8. The transcoder gained the uncompressed path (which counts
+pixels, not 4x4 blocks, in both the buffer size and the count it is handed).
+
+**There are FOUR KTX2 call sites, not one.** The audit named
+`resourceLoader.cpp`, but the path every example actually uses is
+`asset.cpp:149`, and the GLB parser has two more for `KHR_texture_basisu`.
+Fixing only the one the audit cited would have changed nothing observable. The
+format is chosen once on the main thread and passed down, because all three of
+the other sites run on a worker that must not touch the device;
+`TextureResourceHandler` and `ContainerResourceHandler` take it at construction.
+
+Verified on both backends with `render-to-texture`, which loads a KTX2
+checkerboard: each logs the target it picked at startup, both choose ASTC 4x4 on
+this Apple silicon machine, and both render with zero errors. The hardware here
+cannot exercise the BC branch — that needs a desktop GPU, and the startup log
+line exists so the choice is visible when someone runs it there.
+
 ## Transparent draws sorted on radial distance (2026-09-06)
 
 **Off-axis transparent surfaces sorted behind centred ones at the same view

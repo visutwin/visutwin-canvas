@@ -12,6 +12,23 @@
 
 namespace visutwin::canvas
 {
+    bool GraphicsDevice::supportsCompressedFormat(const PixelFormat format) const
+    {
+        return !isCompressedPixelFormat(format);
+    }
+
+    PixelFormat GraphicsDevice::preferredCompressedRgbaFormat() const
+    {
+        for (const PixelFormat candidate : {PixelFormat::PIXELFORMAT_ASTC_4x4,
+                                            PixelFormat::PIXELFORMAT_BC7,
+                                            PixelFormat::PIXELFORMAT_DXT5}) {
+            if (supportsCompressedFormat(candidate)) {
+                return candidate;
+            }
+        }
+        return PixelFormat::PIXELFORMAT_RGBA8;
+    }
+
     void logUnsupportedDeviceFeature(const char* name)
     {
         spdlog::warn("GraphicsDevice::{} is not implemented by the active backend — "

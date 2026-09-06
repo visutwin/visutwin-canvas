@@ -83,3 +83,11 @@ add_executable(visutwin-sort-distance-tests
 target_link_libraries(visutwin-sort-distance-tests PRIVATE visutwin-canvas)
 
 add_test(NAME sort-distance COMMAND visutwin-sort-distance-tests)
+
+add_executable(visutwin-pixel-format-tests
+    pixelFormatTests.cpp
+)
+
+target_link_libraries(visutwin-pixel-format-tests PRIVATE visutwin-canvas)
+
+add_test(NAME pixel-format-table COMMAND visutwin-pixel-format-tests)

@@ -825,6 +825,8 @@ namespace visutwin::canvas
         // hardware offers it; supportsDualSourceBlending() reports the result so
         // callers can check before building such a blend state.
         _dualSrcBlendEnabled = supported.dualSrcBlend == VK_TRUE;
+        _textureCompressionAstcLdr = supported.textureCompressionASTC_LDR == VK_TRUE;
+        _textureCompressionBc = supported.textureCompressionBC == VK_TRUE;
         _maxDualSrcDrawBuffers = _dualSrcBlendEnabled
             ? props.limits.maxFragmentDualSrcAttachments : 0;
         if (_dualSrcBlendEnabled) {
@@ -1084,6 +1086,46 @@ namespace visutwin::canvas
             opts.graphicsDevice = this;
         }
         return std::make_shared<VulkanRenderTarget>(opts);
+    }
+
+    bool VulkanGraphicsDevice::supportsCompressedFormat(const PixelFormat format) const
+    {
+        if (!isCompressedPixelFormat(format)) {
+            return true;
+        }
+        if (_physicalDevice == VK_NULL_HANDLE) {
+            return false;
+        }
+        switch (format) {
+            case PixelFormat::PIXELFORMAT_ASTC_4x4:
+            case PixelFormat::PIXELFORMAT_ASTC_5x5:
+            case PixelFormat::PIXELFORMAT_ASTC_6x6:
+            case PixelFormat::PIXELFORMAT_ASTC_8x8:
+            case PixelFormat::PIXELFORMAT_ASTC_10x10:
+            case PixelFormat::PIXELFORMAT_ASTC_12x12:
+                if (!_textureCompressionAstcLdr) return false;
+                break;
+            case PixelFormat::PIXELFORMAT_DXT1:
+            case PixelFormat::PIXELFORMAT_DXT3:
+            case PixelFormat::PIXELFORMAT_DXT5:
+            case PixelFormat::PIXELFORMAT_BC4:
+            case PixelFormat::PIXELFORMAT_BC5:
+            case PixelFormat::PIXELFORMAT_BC6H:
+            case PixelFormat::PIXELFORMAT_BC7:
+                if (!_textureCompressionBc) return false;
+                break;
+            default:
+                return false;
+        }
+        // The feature bit promises the family; the format itself still has to be
+        // sampleable with optimal tiling on this device.
+        const VkFormat vkFormat = vulkanMapPixelFormat(format);
+        if (vkFormat == VK_FORMAT_UNDEFINED) {
+            return false;
+        }
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(_physicalDevice, vkFormat, &properties);
+        return (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) != 0;
     }
 }
 

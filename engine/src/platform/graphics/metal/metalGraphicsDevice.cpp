@@ -1690,4 +1690,34 @@ namespace visutwin::canvas
             _renderPassEncoder->setScissorRect(scissor);
         }
     }
+
+    bool MetalGraphicsDevice::supportsCompressedFormat(const PixelFormat format) const
+    {
+        if (!isCompressedPixelFormat(format)) {
+            return true;
+        }
+        if (!_device) {
+            return false;
+        }
+        switch (format) {
+            case PixelFormat::PIXELFORMAT_ASTC_4x4:
+            case PixelFormat::PIXELFORMAT_ASTC_5x5:
+            case PixelFormat::PIXELFORMAT_ASTC_6x6:
+            case PixelFormat::PIXELFORMAT_ASTC_8x8:
+            case PixelFormat::PIXELFORMAT_ASTC_10x10:
+            case PixelFormat::PIXELFORMAT_ASTC_12x12:
+                // ASTC LDR is part of the Apple GPU family from Apple2 on.
+                return _device->supportsFamily(MTL::GPUFamilyApple2);
+            case PixelFormat::PIXELFORMAT_DXT1:
+            case PixelFormat::PIXELFORMAT_DXT3:
+            case PixelFormat::PIXELFORMAT_DXT5:
+            case PixelFormat::PIXELFORMAT_BC4:
+            case PixelFormat::PIXELFORMAT_BC5:
+            case PixelFormat::PIXELFORMAT_BC6H:
+            case PixelFormat::PIXELFORMAT_BC7:
+                return _device->supportsBCTextureCompression();
+            default:
+                return false;
+        }
+    }
 }

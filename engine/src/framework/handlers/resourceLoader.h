@@ -13,6 +13,8 @@
 #include <mutex>
 #include <optional>
 #include <string>
+
+#include "platform/graphics/constants.h"
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -234,7 +236,18 @@ namespace visutwin::canvas
     class TextureResourceHandler : public ResourceHandler
     {
     public:
+        /// `ktx2TargetFormat` is the block-compressed format a Basis/KTX2 payload is
+        /// transcoded to. It is decided ONCE here, on the main thread, from
+        /// GraphicsDevice::preferredCompressedRgbaFormat(): load() runs on the worker
+        /// thread and must not ask the device itself. Until 2026-09-06 this was a
+        /// hard-coded ASTC 4x4, which no desktop Vulkan GPU can create.
+        explicit TextureResourceHandler(PixelFormat ktx2TargetFormat)
+            : _ktx2TargetFormat(ktx2TargetFormat) {}
+
         std::unique_ptr<LoadedData> load(const std::string& url) override;
+
+    private:
+        PixelFormat _ktx2TargetFormat;
     };
 
     /** Reads raw file bytes and, for GLB files, also pre-parses the tinygltf
@@ -244,7 +257,15 @@ namespace visutwin::canvas
     class ContainerResourceHandler : public ResourceHandler
     {
     public:
+        /// See TextureResourceHandler: the KHR_texture_basisu transcode target is chosen
+        /// from the device here, on the main thread, because load() runs on a worker.
+        explicit ContainerResourceHandler(PixelFormat ktx2TargetFormat)
+            : _ktx2TargetFormat(ktx2TargetFormat) {}
+
         std::unique_ptr<LoadedData> load(const std::string& url) override;
+
+    private:
+        PixelFormat _ktx2TargetFormat;
     };
 
     /** Reads raw font file bytes on the background thread. */

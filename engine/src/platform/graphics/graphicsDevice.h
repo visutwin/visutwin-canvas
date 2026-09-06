@@ -771,6 +771,17 @@ namespace visutwin::canvas
         /// would be invalid.
         virtual bool supportsDualSourceBlending() const { return false; }
 
+        /// True when textures of this block-compressed format can be created and sampled
+        /// on this device. ASTC is native to Apple GPUs, BC to desktop GPUs, and neither is
+        /// universal: a transcoder must ask before choosing its target, or the image
+        /// creation fails on the other kind of hardware. Uncompressed formats return true.
+        virtual bool supportsCompressedFormat(PixelFormat format) const;
+
+        /// The block-compressed RGBA format a Basis/KTX2 transcode should target here, in
+        /// upstream's order of preference (basis.js chooseTargetFormat): ASTC, then BC,
+        /// then uncompressed RGBA8 as the last resort.
+        PixelFormat preferredCompressedRgbaFormat() const;
+
         /// True when this backend can create an InstanceCuller via createInstanceCuller().
         /// Used by MeshInstance::enableGpuInstanceCulling() to decide whether to allocate
         /// the per-instance culler resources or fall back to CPU-only path.

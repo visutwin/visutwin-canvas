@@ -43,7 +43,9 @@ namespace visutwin::canvas
         /** True when the byte stream starts with the KTX2 identifier. */
         static bool isKtx2(const uint8_t* data, size_t size);
 
-        /** Transcode every mip level. Target defaults to ASTC 4x4. */
+        /** Transcode every mip level. Pass the device's
+         *  preferredCompressedRgbaFormat(); the ASTC default exists for callers
+         *  that have no device and is wrong on every desktop GPU. */
         static TranscodedTexture transcode(const uint8_t* data, size_t size,
             const std::string& debugName,
             PixelFormat targetFormat = PixelFormat::PIXELFORMAT_ASTC_4x4);

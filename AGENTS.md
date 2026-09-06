@@ -478,6 +478,18 @@ Each of these has cost real time. See `ENGINEERING-LOG.md` for the incidents.
   no shader reflection: buffers 0..b-1, textures b..b+t-1, the uniform block at
   b+t, and the block's members are the scalars again in name order. A shader that
   declares them in a different order silently reads the wrong data.
+- **A block-compressed format must be asked for, not assumed, and there are
+  FOUR KTX2 call sites.** `GraphicsDevice::preferredCompressedRgbaFormat()`
+  picks ASTC → BC7 → DXT5 → RGBA8 from `supportsCompressedFormat()`; ASTC is
+  Apple-only and BC is desktop-only, and the image creation fails rather than
+  degrades. The target is chosen on the MAIN thread and passed to the worker
+  (`asset.cpp` — the path examples use, `resourceLoader.cpp`, and two in
+  `glbParser.cpp` for `KHR_texture_basisu`). Changing one changes nothing.
+- **`pixelFormatInfo` is a map the `PixelFormat` enum does not enforce.** An
+  enumerator with no entry makes `pixelFormatBytesPerPixel()` return 0, which
+  the Vulkan upload path uses to size its staging copy.
+  `tests/pixelFormatTests.cpp` lists every enumerator by hand — add a format
+  there when you add one to the enum.
 - **Transparent draws sort on SIGNED view-axis depth, not radial distance**
   (`scene/renderer/sortDistance.h`, upstream's `_calculateSortDistances`).
   Radial distance ranks an off-axis surface farther than a centred one at the

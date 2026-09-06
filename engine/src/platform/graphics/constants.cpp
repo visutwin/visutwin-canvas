@@ -30,6 +30,13 @@ namespace visutwin::canvas
         { PixelFormat::PIXELFORMAT_DEPTH, { .size = 4 } },
         { PixelFormat::PIXELFORMAT_R8, { .size = 1 } },
         { PixelFormat::PIXELFORMAT_RG8, { .size = 2 } },
+        // These three had enumerators but no entry, so pixelFormatBytesPerPixel()
+        // returned 0 for them — and the Vulkan upload path sizes its staging copy
+        // from that. R32F is the blessed MSAA depth-resolve format and BGRA8 the
+        // back-buffer copy format. tests/pixelFormatTests.cpp holds the table.
+        { PixelFormat::PIXELFORMAT_R32F, { .size = 4 } },
+        { PixelFormat::PIXELFORMAT_DEPTH16, { .size = 2 } },
+        { PixelFormat::PIXELFORMAT_BGRA8, { .size = 4 } },
         // Block-compressed formats (4x4 blocks; blockSize = bytes per block).
         { PixelFormat::PIXELFORMAT_DXT1, { .size = 0, .blockSize = 8, .blockWidth = 4, .blockHeight = 4 } },
         { PixelFormat::PIXELFORMAT_DXT3, { .size = 0, .blockSize = 16, .blockWidth = 4, .blockHeight = 4 } },

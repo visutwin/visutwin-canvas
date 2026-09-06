@@ -1246,7 +1246,8 @@ namespace visutwin::canvas
         std::shared_ptr<Texture> createTextureFromKtx2(const std::vector<uint8_t>& ktx2Bytes,
             const std::string& name, const std::shared_ptr<GraphicsDevice>& device)
         {
-            auto transcoded = Ktx2Transcoder::transcode(ktx2Bytes.data(), ktx2Bytes.size(), name);
+            auto transcoded = Ktx2Transcoder::transcode(ktx2Bytes.data(), ktx2Bytes.size(), name,
+                device->preferredCompressedRgbaFormat());
             if (!transcoded.valid) {
                 return nullptr;
             }
@@ -2928,7 +2929,8 @@ namespace visutwin::canvas
 
     // ── prepareFromModel: CPU-heavy work on background thread ────────
 
-    PreparedGlbData GlbParser::prepareFromModel(tinygltf::Model& model)
+    PreparedGlbData GlbParser::prepareFromModel(tinygltf::Model& model,
+        const PixelFormat ktx2TargetFormat)
     {
         PreparedGlbData result;
 
@@ -2940,7 +2942,8 @@ namespace visutwin::canvas
             if (imageHoldsKtx2(srcImage)) {
                 // KHR_texture_basisu: transcode on this background thread.
                 auto transcoded = Ktx2Transcoder::transcode(srcImage.image.data(),
-                    srcImage.image.size(), srcImage.name.empty() ? "ktx2" : srcImage.name);
+                    srcImage.image.size(), srcImage.name.empty() ? "ktx2" : srcImage.name,
+                    ktx2TargetFormat);
                 if (transcoded.valid) {
                     img.isCompressed = true;
                     img.compressedFormat = static_cast<uint32_t>(transcoded.format);

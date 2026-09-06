@@ -124,7 +124,11 @@ namespace visutwin::canvas
          * @param model  Pre-parsed tinygltf model.
          * @return       Prepared data ready for GPU resource creation.
          */
-        static PreparedGlbData prepareFromModel(tinygltf::Model& model);
+        /// `ktx2TargetFormat` is the block-compressed format KHR_texture_basisu images
+        /// transcode to. It must be decided from the device on the MAIN thread and passed
+        /// in, because this runs on a worker; see GraphicsDevice::preferredCompressedRgbaFormat.
+        static PreparedGlbData prepareFromModel(tinygltf::Model& model,
+            PixelFormat ktx2TargetFormat);
 
         /**
          * Create GPU resources from fully pre-processed model data.

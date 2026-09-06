@@ -207,6 +207,12 @@ namespace visutwin::canvas
 
         // True when the optional dualSrcBlend device feature was available and
         // enabled at device creation, so VK_BLEND_FACTOR_SRC1_* may be used.
+        /// The physical device's textureCompression{ASTC_LDR,BC} features AND the
+        /// optimal-tiling sampled-image bit for the mapped VkFormat: desktop GPUs have
+        /// no ASTC and MoltenVK on Apple GPUs has no BC, and either way the image
+        /// creation fails rather than degrades.
+        [[nodiscard]] bool supportsCompressedFormat(PixelFormat format) const override;
+
         [[nodiscard]] bool supportsDualSourceBlending() const override
         {
             return _dualSrcBlendEnabled;
@@ -587,6 +593,8 @@ namespace visutwin::canvas
         bool _samplerAnisotropyEnabled = false;
         float _maxSamplerAnisotropy = 1.0f;
         bool _dualSrcBlendEnabled = false;
+        bool _textureCompressionAstcLdr = false;
+        bool _textureCompressionBc = false;
         uint32_t _maxDualSrcDrawBuffers = 0;
 
         // Dies with the device — see aliveToken().

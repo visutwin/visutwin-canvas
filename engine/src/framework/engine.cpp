@@ -238,8 +238,17 @@ namespace visutwin::canvas
         registerSceneImmediate(_scene);
 
         _loader = std::make_shared<ResourceLoader>(shared_from_this());
-        _loader->addHandler(AssetType::TEXTURE,   std::make_unique<TextureResourceHandler>());
-        _loader->addHandler(AssetType::CONTAINER,  std::make_unique<ContainerResourceHandler>());
+        // One query, reused by every KTX2/Basis path. Logged because it is hardware
+        // dependent and silent otherwise: ASTC on Apple GPUs, BC on desktop, and
+        // uncompressed RGBA8 if a device somehow offers neither.
+        const PixelFormat ktx2Target = _graphicsDevice->preferredCompressedRgbaFormat();
+        spdlog::info("Engine: KTX2/Basis transcode target for this device: pixel format {}",
+            static_cast<uint32_t>(ktx2Target));
+
+        _loader->addHandler(AssetType::TEXTURE,   std::make_unique<TextureResourceHandler>(
+            ktx2Target));
+        _loader->addHandler(AssetType::CONTAINER,  std::make_unique<ContainerResourceHandler>(
+            ktx2Target));
         _loader->addHandler(AssetType::FONT,       std::make_unique<FontResourceHandler>());
         _assets = std::make_shared<AssetRegistry>(_loader);
         _bundles = std::make_shared<BundleRegistry>(_assets);

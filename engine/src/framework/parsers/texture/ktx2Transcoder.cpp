@@ -31,6 +31,9 @@ namespace visutwin::canvas
                     return KTX_TTF_BC1_RGB;
                 case PixelFormat::PIXELFORMAT_DXT5:
                     return KTX_TTF_BC3_RGBA;
+                case PixelFormat::PIXELFORMAT_RGBA8:
+                    // Uncompressed last resort for a device with neither ASTC nor BC.
+                    return KTX_TTF_RGBA32;
                 case PixelFormat::PIXELFORMAT_ASTC_4x4:
                 default:
                     return KTX_TTF_ASTC_4x4_RGBA;
@@ -140,6 +143,9 @@ namespace visutwin::canvas
                     return basist::transcoder_texture_format::cTFBC1_RGB;
                 case PixelFormat::PIXELFORMAT_DXT5:
                     return basist::transcoder_texture_format::cTFBC3_RGBA;
+                case PixelFormat::PIXELFORMAT_RGBA8:
+                    // Uncompressed last resort for a device with neither ASTC nor BC.
+                    return basist::transcoder_texture_format::cTFRGBA32;
                 case PixelFormat::PIXELFORMAT_ASTC_4x4:
                 default:
                     return basist::transcoder_texture_format::cTFASTC_4x4_RGBA;
@@ -169,6 +175,9 @@ namespace visutwin::canvas
             const uint32_t levelCount = std::max(1u, transcoder.get_levels());
             const auto basisFormat = toBasisFormat(targetFormat);
             const uint32_t bytesPerBlock = basist::basis_get_bytes_per_block_or_pixel(basisFormat);
+            // For an uncompressed target the transcoder counts PIXELS, not 4x4 blocks,
+            // in both the buffer size and the count it is handed.
+            const bool uncompressedTarget = basist::basis_transcoder_format_is_uncompressed(basisFormat);
 
             result.levels.reserve(levelCount);
             for (uint32_t level = 0; level < levelCount; ++level) {
@@ -178,9 +187,12 @@ namespace visutwin::canvas
                     return false;
                 }
 
-                std::vector<uint8_t> blocks(static_cast<size_t>(levelInfo.m_total_blocks) * bytesPerBlock);
+                const uint32_t units = uncompressedTarget
+                    ? levelInfo.m_orig_width * levelInfo.m_orig_height
+                    : levelInfo.m_total_blocks;
+                std::vector<uint8_t> blocks(static_cast<size_t>(units) * bytesPerBlock);
                 if (!transcoder.transcode_image_level(level, 0, 0, blocks.data(),
-                        levelInfo.m_total_blocks, basisFormat)) {
+                        units, basisFormat)) {
                     spdlog::error("Ktx2Transcoder [{}]: transcode failed at level {}", debugName, level);
                     return false;
                 }

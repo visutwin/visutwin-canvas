@@ -210,7 +210,8 @@ namespace visutwin::canvas
                 return nullptr;
             }
 
-            auto transcoded = Ktx2Transcoder::transcode(bytes.data(), bytes.size(), url);
+            auto transcoded = Ktx2Transcoder::transcode(bytes.data(), bytes.size(), url,
+                _ktx2TargetFormat);
             if (!transcoded.valid) {
                 return nullptr;
             }
@@ -350,7 +351,7 @@ namespace visutwin::canvas
                 // (Draco decompression, vertex extraction, tangent generation,
                 //  pixel format conversion, animation parsing).
                 auto prepared = std::make_shared<PreparedGlbData>(
-                    GlbParser::prepareFromModel(*model));
+                    GlbParser::prepareFromModel(*model, _ktx2TargetFormat));
                 result->preparsed = std::move(model);
                 result->preparedData = std::move(prepared);
                 spdlog::info("ContainerResourceHandler: pre-parsed + prepared {} on bg thread [{}]",

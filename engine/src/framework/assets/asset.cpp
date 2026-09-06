@@ -142,7 +142,12 @@ namespace visutwin::canvas
                     std::vector<uint8_t> ktxBytes(static_cast<size_t>(fileSize));
                     ktxFile.read(reinterpret_cast<char*>(ktxBytes.data()), fileSize);
 
-                    auto transcoded = Ktx2Transcoder::transcode(ktxBytes.data(), ktxBytes.size(), _file);
+                    // Target format comes from the device, not a hard-coded ASTC: desktop
+                    // Vulkan GPUs have no ASTC and Apple GPUs no BC, and the image creation
+                    // fails rather than degrades. NOTE there are two KTX2 load paths — this
+                    // one (used by every example) and TextureResourceHandler; both must ask.
+                    auto transcoded = Ktx2Transcoder::transcode(ktxBytes.data(), ktxBytes.size(),
+                        _file, graphicsDevice->preferredCompressedRgbaFormat());
                     if (!transcoded.valid) {
                         spdlog::error("Failed to transcode KTX2 texture asset '{}' from '{}'", _name, _file);
                         return std::nullopt;
