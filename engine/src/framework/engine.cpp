@@ -331,6 +331,32 @@ namespace visutwin::canvas
     void Engine::start()
     {
         _frame = 0;
+
+        // The initialize phase. Upstream (app-base.js) fires this before the first
+        // tick and nothing here ever did — `Script::initialize` was reachable only
+        // through ScriptComponent at creation time, so a component system had no
+        // point at which to do deferred setup, and a script created before start()
+        // never saw an application-wide phase at all.
+        //
+        // Two phases, not one: every script initializes before any script
+        // post-initializes, which is exactly what Script::postInitialize promises.
+        fire("start");
+        _systems->fire("initialize");
+        if (auto* scriptSystemBase = _systems->getByComponentType<ScriptComponent>()) {
+            if (auto* scriptSystem = dynamic_cast<ScriptComponentSystem*>(scriptSystemBase)) {
+                scriptSystem->initialize();
+            }
+        }
+        fire("initialize");
+
+        _systems->fire("postInitialize");
+        if (auto* scriptSystemBase = _systems->getByComponentType<ScriptComponent>()) {
+            if (auto* scriptSystem = dynamic_cast<ScriptComponentSystem*>(scriptSystemBase)) {
+                scriptSystem->postInitialize();
+            }
+        }
+        fire("postinitialize");
+
         tick();
     }
 

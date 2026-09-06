@@ -38,6 +38,11 @@ namespace visutwin::canvas
     class RigidBodyComponent : public Component
     {
     public:
+        /// Enabled before, and disabled after, every sibling component (upstream
+        /// gives RigidBodyComponent `static order = -1`): the collision body must
+        /// exist before anything can move or raycast against it.
+        [[nodiscard]] int order() const override { return -1; }
+
         RigidBodyComponent(IComponentSystem* system, Entity* entity);
         ~RigidBodyComponent() override;
 

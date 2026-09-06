@@ -93,6 +93,37 @@ namespace visutwin::canvas
         }
     }
 
+    void ScriptComponent::initializeScripts()
+    {
+        if (!_enabled) {
+            return;
+        }
+        for (auto& entry : _scripts) {
+            Script* script = entry.instance.get();
+            if (!script || !script->enabled() || script->_initialized) {
+                continue;
+            }
+            script->_initialized = true;
+            script->initialize();
+        }
+    }
+
+    void ScriptComponent::postInitializeScripts()
+    {
+        if (!_enabled) {
+            return;
+        }
+        for (auto& entry : _scripts) {
+            Script* script = entry.instance.get();
+            if (!script || !script->enabled() || !script->_initialized ||
+                script->_postInitialized) {
+                continue;
+            }
+            script->_postInitialized = true;
+            script->postInitialize();
+        }
+    }
+
     void ScriptComponent::fixedUpdateScripts(const float fixedDt)
     {
         if (!_enabled) {

@@ -551,6 +551,23 @@ present, but the rule below never depends on reading it.
   Radial distance ranks an off-axis surface farther than a centred one at the
   same depth by up to 1/cos(fov/2), and cannot tell behind from in front.
   `MeshInstance::setCalculateSortDistance` overrides it per instance.
+- **Component lifecycle runs in `Component::order()`, not container order.**
+  Lowest first on enable, reverse on disable, creation order as the tiebreak;
+  `RigidBodyComponent` returns -1 so its body exists before anything can move or
+  query it. `onPostStateChange()` then runs over every component, which is where
+  one wires itself to a sibling that had to exist first. This used to iterate an
+  `unordered_map`, so the order varied per run.
+- **`Entity::destroy()` is the teardown path, and it does NOT free the node.**
+  Descendants first, disable in order, `destroy` event, then components released
+  in reverse creation order. It is idempotent and the destructor calls it.
+  Ownership stays with the parent's `unique_ptr`: freeing inside `destroy()`
+  would leave `this` dangling for the rest of the call.
+- **`Engine::start()` must be called AFTER the scene exists.** It fires the
+  initialize phase (`start`, then systems `initialize` / `postInitialize`, then
+  the app's `initialize` / `postinitialize`) and then ticks. `ExampleApp` starts
+  the engine in `run()` once `create()` has returned, for exactly this reason —
+  starting it in `initEngine()` initialized an empty world and rendered an empty
+  first frame. Every script initializes before any script post-initializes.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.

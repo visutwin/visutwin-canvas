@@ -43,6 +43,36 @@ namespace visutwin::canvas
             _components.remove(component);
         }
 
+        /// Application-wide initialize phase, fired once from Engine::start(). Every
+        /// script initializes before any script post-initializes, which is the
+        /// contract Script::postInitialize documents and which nothing honoured
+        /// before: the phase existed but nothing ever fired it.
+        void initialize()
+        {
+            // Same loopIndex walk the update phases use, so a script that adds or
+            // removes a component while initializing does not invalidate the sweep.
+            for (_components.loopIndex = 0;
+                 _components.loopIndex < static_cast<int>(_components.length);
+                 _components.loopIndex++) {
+                auto* component = _components.items[_components.loopIndex];
+                if (component && component->enabled()) {
+                    component->initializeScripts();
+                }
+            }
+        }
+
+        void postInitialize()
+        {
+            for (_components.loopIndex = 0;
+                 _components.loopIndex < static_cast<int>(_components.length);
+                 _components.loopIndex++) {
+                auto* component = _components.items[_components.loopIndex];
+                if (component && component->enabled()) {
+                    component->postInitializeScripts();
+                }
+            }
+        }
+
         void fixedUpdate(float fixedDt)
         {
             for (_components.loopIndex = 0; _components.loopIndex < static_cast<int>(_components.length); _components.loopIndex++) {

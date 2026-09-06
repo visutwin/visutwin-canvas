@@ -42,6 +42,17 @@ namespace visutwin::canvas
         void initializeComponentData() override {};
 
         void setEnabled(bool value) override;
+        /// Run initialize() on every script that has not had it, and nothing else.
+        /// Separate from postInitialize because the whole point of the second phase
+        /// is that it runs after EVERY script in the application has initialized —
+        /// running the pair back to back per script, which is what happens for a
+        /// script created after start(), lets one script's postInitialize observe a
+        /// sibling that has not initialized yet.
+        void initializeScripts();
+
+        /// Run postInitialize() on every script that has initialized and not had it.
+        void postInitializeScripts();
+
         void fixedUpdateScripts(float fixedDt);
         void updateScripts(float dt);
         void postUpdateScripts(float dt);

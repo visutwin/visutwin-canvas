@@ -99,3 +99,11 @@ add_executable(visutwin-simd-math-tests
 target_link_libraries(visutwin-simd-math-tests PRIVATE visutwin-canvas)
 
 add_test(NAME simd-math COMMAND visutwin-simd-math-tests)
+
+add_executable(visutwin-entity-lifecycle-tests
+    entityLifecycleTests.cpp
+)
+
+target_link_libraries(visutwin-entity-lifecycle-tests PRIVATE visutwin-canvas)
+
+add_test(NAME entity-lifecycle COMMAND visutwin-entity-lifecycle-tests)

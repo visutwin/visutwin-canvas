@@ -61,6 +61,12 @@ namespace visutwin::canvas
         // Called after all hierarchy state changes have been processed.
         virtual void onPostStateChange() {}
 
+        /// Relative order for enable/disable dispatch, lowest first (upstream's
+        /// `static order`). A rigid body returns -1 so its body exists before any
+        /// sibling that might move or query it, and is torn down after them.
+        /// Components with equal order keep their creation order.
+        [[nodiscard]] virtual int order() const { return 0; }
+
         /**
          * Copy component data from a source component during Entity::clone().
          *— each system copies its properties.

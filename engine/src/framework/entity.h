@@ -33,6 +33,25 @@ namespace visutwin::canvas
     public:
         virtual ~Entity();
 
+        /// Tear the entity down in a DEFINED order: descendants first, then this
+        /// entity's components disabled lowest-`order()` first and released in the
+        /// reverse of their creation order, then a `destroy` event. Idempotent, and
+        /// called by the destructor — before it existed, components died in
+        /// `unordered_map` order while siblings they referenced might already be
+        /// gone. It does NOT free the node: ownership stays with the parent's
+        /// `unique_ptr` (or the caller's), which is what actually reclaims memory.
+        void destroy();
+
+        /// True once destroy() has begun. Component teardown can reach back into
+        /// the entity, and this is how it can tell.
+        [[nodiscard]] bool destroying() const { return _destroying; }
+
+        /// Components sorted for lifecycle dispatch: by `Component::order()`, ties
+        /// broken by creation order. Enable and disable walk this rather than the
+        /// component map, whose iteration order is a hash detail and varies run to
+        /// run.
+        [[nodiscard]] std::vector<Component*> orderedComponents() const;
+
         Component* addComponentInstance(std::unique_ptr<Component> component, ComponentTypeID typeId)
         {
             if (!component) {
@@ -161,6 +180,8 @@ namespace visutwin::canvas
 
     private:
         Engine* _engine = nullptr;
+
+        bool _destroying = false;
 
         // Component map for generic access
         std::unordered_map<ComponentTypeID, Component*> _components;

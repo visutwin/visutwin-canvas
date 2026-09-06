@@ -3,6 +3,8 @@
 //
 // Created by Arnis Lektasuers on 18.10.2025.
 //
+#include <algorithm>
+
 #include "entity.h"
 
 #include "components/componentSystem.h"
@@ -12,7 +14,64 @@ namespace visutwin::canvas
 {
     Entity::~Entity()
     {
+        // Idempotent: an entity destroyed explicitly has already run this, and one
+        // that was not still gets the defined teardown order rather than whatever
+        // order its storage happens to release in.
+        destroy();
+    }
 
+    std::vector<Component*> Entity::orderedComponents() const
+    {
+        // Creation order first — _componentStorage is a vector, where _components is
+        // a hash map whose iteration order is unspecified and differs between runs.
+        std::vector<Component*> ordered;
+        ordered.reserve(_componentStorage.size());
+        for (const auto& owned : _componentStorage) {
+            if (owned) {
+                ordered.push_back(owned.get());
+            }
+        }
+        // Stable, so equal orders keep that creation order.
+        std::stable_sort(ordered.begin(), ordered.end(),
+            [](const Component* a, const Component* b) {
+                return a->order() < b->order();
+            });
+        return ordered;
+    }
+
+    void Entity::destroy()
+    {
+        if (_destroying) {
+            return;
+        }
+        _destroying = true;
+
+        // Descendants first: a child component that reaches for a parent component
+        // while tearing down still finds it alive.
+        for (const auto& child : children()) {
+            if (auto* childEntity = dynamic_cast<Entity*>(child.get())) {
+                childEntity->destroy();
+            }
+        }
+
+        // Disable in order, so a component that expects a rigid body during its own
+        // onDisable still has one (the body is disabled last, being order -1... and
+        // therefore FIRST in this list — which is why the release below runs the
+        // other way round).
+        for (auto* component : orderedComponents()) {
+            if (component && component->enabled()) {
+                component->onDisable();
+            }
+        }
+
+        fire("destroy");
+
+        // Release in the reverse of creation order, the C++ convention and the one
+        // that undoes construction dependencies.
+        _components.clear();
+        while (!_componentStorage.empty()) {
+            _componentStorage.pop_back();
+        }
     }
 
     void Entity::onHierarchyStateChanged(const bool enabled)
@@ -24,15 +83,37 @@ namespace visutwin::canvas
         //
         // A component is "active" when BOTH its own enabled flag AND the
         // entity's hierarchy enabled state are true.
-        for (auto& [_, component] : _components) {
+        //
+        // Dispatched in Component::order(), not in map order: a rigid body must be
+        // enabled before any sibling that could move or query it, and disabled after
+        // them. Iterating _components gave whatever order the hash produced, so the
+        // guarantee held only by luck. Disable walks the reverse.
+        const auto ordered = orderedComponents();
+        const auto dispatch = [enabled](Component* component) {
             if (!component || !component->enabled()) {
-                continue;
+                return;
             }
-
             if (enabled) {
                 component->onEnable();
             } else {
                 component->onDisable();
+            }
+        };
+        if (enabled) {
+            for (auto* component : ordered) {
+                dispatch(component);
+            }
+        } else {
+            for (auto it = ordered.rbegin(); it != ordered.rend(); ++it) {
+                dispatch(*it);
+            }
+        }
+
+        // Second pass, after every component has seen the state change — this is
+        // where a component wires itself to a sibling that had to exist first.
+        for (auto* component : ordered) {
+            if (component) {
+                component->onPostStateChange();
             }
         }
     }

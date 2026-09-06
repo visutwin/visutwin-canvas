@@ -62,6 +62,9 @@ namespace visutwin::canvas
             return -1;
         }
 
+        // The scene exists now, so the initialize phase has something to initialize.
+        _engine->start();
+
         const uint64_t perfFrequency = SDL_GetPerformanceFrequency();
         uint64_t previousCounter = SDL_GetPerformanceCounter();
 
@@ -171,8 +174,12 @@ namespace visutwin::canvas
         _engine->init(appOptions);
         _engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
         _engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-        _engine->start();
 
+        // NOT start() here: the engine's initialize phase runs from start(), and
+        // create() has not built the scene yet, so anything it registers would be
+        // initialized before it exists — and the first tick would render an empty
+        // frame. run() starts the engine once create() has returned, which is the
+        // order upstream uses (build the scene, then app.start()).
         return true;
     }
 
