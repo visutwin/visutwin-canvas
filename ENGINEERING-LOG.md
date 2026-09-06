@@ -9,6 +9,52 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
+## The flaky Vulkan smoke test, and what the validation errors actually are (2026-09-06)
+
+**The smoke test's swapchain-retirement check was written to the exact minimum
+schedule — FIXED.** A retired swapchain bundle is destroyed by the frameStart of
+frame N + kMaxFramesInFlight, so with two frames in flight it takes exactly three
+RENDERED frames, and the test ran exactly three. It had no slack at all.
+`frameEnd` returns early without advancing the frame counter whenever a frame is
+skipped, and an acquire that comes back out-of-date under load is enough to skip
+one, so the check failed for a reason that was never a leak. The test now pumps
+until the queue drains, with a budget of twelve frames, and logs how many it
+actually took. Nine consecutive suite runs pass, three of them under four
+saturating background processes; the good case still drains in three frames, so
+the budget tolerates a hiccup without hiding a regression.
+
+**The validation errors are a real feedback loop, and the fix needs an API
+change — NOT done.** Ten per run in `shadow-cascades`: a
+`COMBINED_IMAGE_SAMPLER` updated with `DEPTH_STENCIL_ATTACHMENT_OPTIMAL`, which
+is not a layout that descriptor type accepts. Traced step by step:
+
+- The image is the full-screen scene depth, bound at quad texture slot 0.
+- The consumer is an unnamed quad pass, and that pass has **the same depth
+  texture attached as its own depth attachment** — confirmed by comparing the
+  `VkImage` handle at descriptor-write time against the active attachment.
+- So the image is legitimately in attachment layout when the descriptor is
+  written. Nothing is failing to transition it.
+
+Vulkan permits sampling an attachment only when it is bound read-only, so the
+fix is to attach that depth read-only. Two attempts did not work and are worth
+recording so they are not retried:
+
+1. Transitioning the texture at `startRenderPass`. Impossible — quad passes set
+   their texture bindings inside `execute()`, which runs *after*
+   `startRenderPass`, so the bindings are not yet known when the layout must be
+   chosen. Inside the pass a transition is illegal.
+2. Inferring read-only from the depth ops (`!clearDepth && !storeDepth`). The
+   offending pass has `store = true`: it keeps the scene depth for later passes
+   while not writing it itself, so the store op does not distinguish "writes
+   depth" from "preserves depth".
+
+What is actually needed is for the pass to declare its intent — a read-only-depth
+flag on `RenderPass`, set by the quad passes that keep the scene depth attached
+while sampling it — so `startRenderPass` can choose
+`DEPTH_STENCIL_READ_ONLY_OPTIMAL` for both the attachment and, through the
+tracked layout, the descriptor. That is a small, deliberate API addition rather
+than a heuristic, and it was left undone rather than guessed at.
+
 ## Sheen and iridescence ported, and a bug that never existed (2026-09-06)
 
 **Both GLSL twins are landed and wired, closing phase B.** `common-sheen.glsl`

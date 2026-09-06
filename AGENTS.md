@@ -317,6 +317,15 @@ them, so the build-time bundle and the runtime composition share one source.
   the LINEAR VIEW DEPTH (`fragViewDepth` on Vulkan, `1 / rd.position.w` on
   Metal), not the radial distance to the camera. No example uses fog, so a change
   here has to be driven deliberately to be seen at all.
+- **A quad pass may sample the same depth texture it has attached**, which is
+  why `shadow-cascades` emits ten `COMBINED_IMAGE_SAMPLER ... invalid
+  imageLayout DEPTH_STENCIL_ATTACHMENT_OPTIMAL` validation errors per run. It is
+  a genuine feedback loop, legal only with a read-only attachment. It cannot be
+  fixed at `startRenderPass` (quad texture bindings are set later, in
+  `execute()`) nor inferred from the depth ops (the pass stores depth to preserve
+  it for later passes without writing it). It needs a read-only-depth flag on
+  `RenderPass` that the pass sets itself. Until then the errors are expected —
+  do not read them as new.
 - **A screenshot comparison is only valid against a reference built from the
   SAME example source.** Re-instrumenting an example, then diffing the result
   against a screenshot taken before the instrumentation, reads every unrelated
