@@ -92,6 +92,9 @@
         // (1 - roughness) at grazing angles where this returns ~F0, so the
         // environment specular ran far hotter than Metal's.
         vec3 Fr = ssrFresnel(NdotV, 1.0 - roughness, F0);
+        if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
+            Fr = mix(Fr, iridFresnel, iridIntensity);
+        }
 
         // No kD on the irradiance. This branch used to scale it by
         // (1 - Fr) * (1 - metallic), which applied (1 - metallic) a SECOND time
@@ -110,6 +113,32 @@
         indirectSpecular = vec3(0.0);
         bakeDiffuseLight += lighting.ambient.rgb;
     }
+    // Sheen image-based lighting: sample the atlas along the reflection at the
+    // sheen roughness, scaled by the analytical directional albedo instead of the
+    // DFG lookup upstream samples. Twin of the block in
+    // forward-fragment-ambient.metal; this backend had no sheen IBL at all, so a
+    // sheened surface lit only by an environment showed nothing.
+    if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT) &&
+        vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) && lighting.envParams.y > 0.5) {
+        vec3 sheenR = reflect(-V, N);
+        vec2 sheenEnvUv = dirToEquirect(normalize(vec3(-sheenR.x, sheenR.y, sheenR.z)));
+        float sheenLevel = clamp(sheenRoughness, 0.0, 1.0) * 5.0;
+        float sheenL0 = floor(sheenLevel);
+
+        vec3 sheenEnvColor;
+        if (sheenL0 == 0.0) {
+            vec3 sa = decodeEnv(texture(envAtlas, mapShinyUv(sheenEnvUv, 0.0)));
+            vec3 sb = decodeEnv(texture(envAtlas, mapShinyUv(sheenEnvUv, 1.0)));
+            sheenEnvColor = mix(sa, sb, sheenLevel);
+        } else {
+            vec3 sa = decodeEnv(texture(envAtlas, mapRoughnessUv(sheenEnvUv, sheenL0)));
+            vec3 sb = decodeEnv(texture(envAtlas, mapRoughnessUv(sheenEnvUv, sheenL0 + 1.0)));
+            sheenEnvColor = mix(sa, sb, sheenLevel - sheenL0);
+        }
+        sheenSpecularIndirect = sheenEnvColor * max(lighting.envParams.x, 0.0)
+            * sheenTint * sheenIBLApprox(max(dot(N, V), 0.001), sheenRoughness);
+    }
+
     // Ambient occlusion on the AMBIENT diffuse: upstream (litForwardBackend.js)
     // runs occludeDiffuse before addLightMap and before the light loop, so the
     // bake and the direct light are occluded only under occludeDirect — handled
@@ -159,6 +188,9 @@
 
         // Gloss-aware Fresnel, not a raw F0 multiply (parity with the Metal chunk).
         vec3 probeFresnel = ssrFresnel(NdotV, gloss, F0);
+        if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
+            probeFresnel = mix(probeFresnel, iridFresnel, iridIntensity);
+        }
 
         // The probe REPLACES the environment specular. `color` already carries that
         // term from the block above, so add only the difference — adding the probe
@@ -250,6 +282,12 @@
         color += (directSpecular + indirectSpecular) * (specOcc - 1.0);
         directSpecular *= specOcc;
         indirectSpecular *= specOcc;
+        if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
+            // Sheen is not in `color` yet — the tail adds it after scaling the base
+            // layer — so it is occluded in place rather than corrected out.
+            sheenSpecularDirect *= specOcc;
+            sheenSpecularIndirect *= specOcc;
+        }
     }
     if (vtFeatureEnabled(VT_FEATURE_TRANSMISSION_BIT)) {
         if (vtFeatureEnabled(VT_FEATURE_DYNAMIC_REFRACTION_BIT) &&

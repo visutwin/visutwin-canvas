@@ -317,14 +317,13 @@ them, so the build-time bundle and the runtime composition share one source.
   the LINEAR VIEW DEPTH (`fragViewDepth` on Vulkan, `1 / rd.position.w` on
   Metal), not the radial distance to the camera. No example uses fog, so a change
   here has to be driven deliberately to be seen at all.
-- **`VT_FEATURE_SHEEN` resolves TRUE for materials with no sheen, and
-  `material.sheenColor` arrives non-zero in the Vulkan shader.** Probed
-  2026-09-06 on `clearcoat`, whose asset has no `KHR_materials_sheen` and whose
-  materials keep the `Color(0,0,0,1)` default that `ProgramLibrary` gates the
-  feature on. This is why `common-sheen.glsl` and `common-iridescence.glsl` are
-  registered but NOT called: a correct sheen implementation amplifies the bad
-  value where the old velvet approximation hid it. Fix the feature/uniform
-  question before wiring them.
+- **A screenshot comparison is only valid against a reference built from the
+  SAME example source.** Re-instrumenting an example, then diffing the result
+  against a screenshot taken before the instrumentation, reads every unrelated
+  difference as a regression. That mistake invented a "sheen feature-resolution
+  bug" on 2026-09-06 (see the ENGINEERING-LOG correction) and cost a full
+  withdraw-and-reland cycle. Capture the reference and the change from one source
+  state, in the same session.
 - **When a probe says a uniform is stuck, check the SETTER first.** A
   cascade-blend "plumbing bug" was diagnosed and documented on 2026-09-06 that
   did not exist: the test hook setting it had been placed two lines above the

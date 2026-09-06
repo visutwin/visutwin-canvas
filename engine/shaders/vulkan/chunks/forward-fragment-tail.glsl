@@ -131,6 +131,16 @@
         }
     }
 
+    // Sheen energy conservation: the sheen layer takes energy from the base layer
+    // rather than adding on top of it. 0.157 is the average directional albedo of
+    // the Charlie BRDF, from fitting its DFG integral. Twin of the block in
+    // forward-fragment-tail.metal.
+    if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
+        float sheenScaling = 1.0 -
+            max(sheenTint.r, max(sheenTint.g, sheenTint.b)) * 0.157;
+        color = color * sheenScaling + sheenSpecularDirect + sheenSpecularIndirect;
+    }
+
     // Fog. The three curves are upstream's (fog.js): LINEAR over [start, end], EXP
     // on density, EXP2 on density squared. This backend used to run one of them and
     // the other backend a different one, because the type was never uploaded — the

@@ -9,48 +9,72 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
-## Sheen and iridescence: chunks landed, wiring blocked on a prerequisite (2026-09-06)
+## Sheen and iridescence ported, and a bug that never existed (2026-09-06)
 
-**The two GLSL twins are written and registered. The code that would call them is
-NOT landed, because wiring it exposed a bug underneath.**
+**Both GLSL twins are landed and wired, closing phase B.** `common-sheen.glsl`
+(Charlie distribution, Ashikhmin visibility, the analytical directional-albedo
+fit) and `common-iridescence.glsl` (Belcour thin-film: both interface Fresnels,
+the spectral sensitivity, the two-order Airy summation) are faithful
+transliterations of their Metal twins, called from the same four places Metal
+calls them: the surface computes the iridescence Fresnel and the sheen state, the
+light loop accumulates Charlie sheen and blends iridescence into the direct
+Fresnel, the ambient chunk adds the sheen IBL and blends iridescence into the IBL
+and probe Fresnels, and the tail takes the sheen layer's energy out of the base
+before adding it.
 
-`common-sheen.glsl` (Charlie distribution, Ashikhmin visibility, the analytical
-directional-albedo fit) and `common-iridescence.glsl` (Belcour thin-film: both
-interface Fresnels, the spectral sensitivity, the two-order Airy summation) are
-faithful transliterations of their Metal twins and are in `forward.frag` and
-`ProgramLibrary`'s GLSL order. They compile and cost nothing unused.
+What each replaced: a `pow(1 - NdotH, mix(2, 8, roughness))` velvet term with no
+distribution, no visibility, no image-based lighting and no energy conservation;
+and a fixed `0.5 + 0.5 * cos(phase + rgb offsets)` tint that did not move with the
+view direction, which is the one thing iridescence is.
 
-**What blocked the wiring.** With the four call sites connected — surface, light
-loop, ambient IBL, tail energy scaling — the `clearcoat` scene changed on 31.5%
-of its pixels with no sheen configured anywhere, and Vulkan moved AWAY from
-Metal: mean absolute difference 2.1 to 16.4. Bisecting file by file put it in the
-tail, which is arithmetically a no-op when the sheen colour is black:
-`color * (1 - 0 * 0.157) + 0 + 0`.
+Verified on `clearcoat`, driving both features from the environment because no
+example ships either. Effect is the mean absolute change against the same
+backend with the feature off:
 
-It is not a no-op because the sheen colour is not black. A shader probe showed
-`VT_FEATURE_SHEEN` enabled across the model and `material.sheenColor.rgb`
-arriving non-zero, even though `ClearCoatTest.glb` carries no
-`KHR_materials_sheen`, the parser never calls `setSheenColor`, `StandardMaterial`
-defaults it to `Color(0,0,0,1)`, and `ProgramLibrary` gates the feature on
-exactly that default. Every step of the chain says sheen should be off, and the
-shader disagrees. Until that is understood, implementing sheen properly makes
-things worse rather than better: the old velvet term multiplied the same bad
-colour by a small factor and hid it, and a correct implementation with image-based
-lighting and energy scaling amplifies it.
+| Configuration | Metal effect | Vulkan effect | Vulkan/Metal | mean abs diff |
+|---|---|---|---|---|
+| neither (baseline) | 0.000 | 0.000 | 0.9861 | 2.119 |
+| sheen | 18.840 | 19.764 | 0.9935 | 1.140 |
+| iridescence | 5.343 | 6.291 | 0.9902 | 1.800 |
 
-So the wiring was reverted. Both backends are bit-identical to their pre-change
-output (0.000 mean difference, 0.00% of pixels), and the next step is to find out
-why `VT_FEATURE_SHEEN` resolves true and what `material.sheenColor` actually
-holds on the Vulkan path — a uniform-block question, not a shading one.
+Both features now render on Vulkan at magnitudes within about 5% of Metal, and
+the backends agree BETTER with either feature on than the scene's own baseline
+gap — that gap is the known indirect-term divergence, not this work. With both
+features off the wiring is bit-identical to the previous output, 0.0000 mean
+difference across 0.00% of pixels.
 
-**One fix did land: Metal's iridescence colour matrix was transposed.**
-`float3x3` takes COLUMNS and the constructor was being fed the rows of the CIE
-XYZ to Rec.709 matrix, so the matrix was its own transpose and every iridescent
-hue was wrong. Upstream (`iridescenceDiffraction.js`) writes the columns, and the
-new GLSL chunk matches upstream. No shipped scene enables iridescence, so the
-change is a no-op on every current example — verified, both backends
-bit-identical — but it is the difference between right and wrong the moment one
-does.
+**Also fixed: Metal's iridescence colour matrix was transposed.** `float3x3`
+takes columns and the constructor was fed the rows of the CIE XYZ to Rec.709
+matrix, so every iridescent hue was wrong. Upstream
+(`iridescenceDiffraction.js`) writes the columns and the GLSL chunk matches. A
+verified no-op on every current example, since none enables iridescence.
+
+### Correction: the "sheen feature-resolution bug" did not exist
+
+An earlier entry here claimed `VT_FEATURE_SHEEN` resolved true for materials with
+no sheen and that `material.sheenColor` arrived non-zero, and used that to
+justify withdrawing this wiring. Both claims were false, and the way they were
+reached is the part worth keeping.
+
+The wiring appeared to change `clearcoat` on 31.5% of its pixels with no sheen
+configured, moving Vulkan away from Metal. It did not. The comparison was against
+a screenshot captured BEFORE the example had been instrumented for the test, so
+it was measuring the reference against a different source state, not the shader
+change. A CPU-side log then showed the resolution is entirely correct — a real
+`StandardMaterial`, `sheen=false`, colour `(0,0,0,1)` — and a fresh reference
+taken from the identical source shows the wiring is a perfect no-op with sheen
+off.
+
+A shader probe had seemed to corroborate the bug by showing the sheen gate
+covering a third of the frame. It did not: the probe's colour mask was catching
+sky pixels, which the sky path writes before the tail ever runs.
+
+Three habits would each have caught this earlier, and are now in AGENTS.md:
+capture the reference and the change from one source state; prefer a CPU log over
+a shader probe for "what value arrived"; and when a probe implicates a value,
+verify the value's own source before believing it. This is the second
+false-positive of the same family in one session — the cascade-blend "plumbing
+bug" was the first — and both cost more than the fixes they were chasing.
 
 ## Phase B, second pass: fog, the shiny mip, ambient order, omni filtering (2026-09-06)
 

@@ -309,12 +309,27 @@ void main() {
     vec3 dielectricF0 = vtFeatureEnabled(VT_FEATURE_SPEC_GLOSS_BIT)
         ? material.specGlossParams.rgb : vec3(0.04);
     vec3 F0 = mix(dielectricF0, albedo.rgb, metallic);
+
+    // Thin-film iridescence, computed once before the light loop and blended into
+    // each Fresnel (direct, IBL, probe) by intensity — the shape
+    // forward-fragment-surface.metal uses. iridescenceParams: x=intensity, y=IOR,
+    // z=thicknessMin(nm), w=thicknessMax(nm). What stood here was a fixed cosine
+    // tint blended into F0, which did not move with the view direction and so was
+    // not iridescence.
+    float iridIntensity = 0.0;
+    vec3 iridFresnel = F0;
     if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
-        float film = material.iridescenceParams.x;
-        float phase = material.iridescenceParams.z * 0.01;
-        vec3 filmTint = 0.5 + 0.5 * cos(phase + vec3(0.0, 2.094, 4.189));
-        F0 = mix(F0, filmTint, clamp(film, 0.0, 1.0));
+        iridIntensity = clamp(material.iridescenceParams.x, 0.0, 1.0);
+        iridFresnel = getIridescence(max(dot(N, V), 0.001), F0,
+            material.iridescenceParams.w, max(material.iridescenceParams.y, 1.001));
     }
+
+    // Sheen (Charlie + Ashikhmin). The colour is authored in gamma space like every
+    // other material colour; the alpha channel carries the sheen roughness.
+    vec3 sheenTint = srgbToLinear(material.sheenColor.rgb);
+    float sheenRoughness = max(material.sheenColor.w, 0.04);
+    vec3 sheenSpecularDirect = vec3(0.0);
+    vec3 sheenSpecularIndirect = vec3(0.0);
     vec3 diffuseAlbedo = albedo.rgb * (1.0 - metallic);
 
     // Lightmap bake (VT_FEATURE_LIGHTMAP_BAKE): the diffuse LIGHT reaching this texel,

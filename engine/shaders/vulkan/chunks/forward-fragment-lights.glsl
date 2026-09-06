@@ -209,6 +209,9 @@
         // chunk does. Applying the Fresnel to every light type over-brightened the
         // rim of everything lit by a point or spot light on this backend.
         vec3 F = (type == 0u) ? getFresnel(VdotH, 1.0 - roughness, F0) : F0;
+        if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
+            F = mix(F, iridFresnel, iridIntensity);
+        }
 
         vec3 specular = D * Vis * F;
 
@@ -253,9 +256,12 @@
             color += material.clearCoatFactor * radiance * NdotL * ccD * ccVis * ccF;
         }
         if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
-            float velvet = pow(1.0 - max(NdotH, 0.0),
-                mix(2.0, 8.0, material.sheenColor.w));
-            color += material.sheenColor.rgb * velvet * radiance * NdotL;
+            // Charlie distribution + Ashikhmin visibility (common-sheen.glsl),
+            // accumulated apart so the tail can take its energy out of the base
+            // layer. Was an ad-hoc velvet power added straight into color.
+            sheenSpecularDirect += radiance * NdotL * sheenTint
+                * sheenDistribution(NdotH, sheenRoughness)
+                * sheenVisibility(NdotV, NdotL);
         }
     }
 
