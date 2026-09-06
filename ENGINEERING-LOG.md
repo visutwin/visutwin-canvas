@@ -9,6 +9,59 @@ Nothing here is a standing instruction. If a rule in this file still binds, it
 also appears in `CLAUDE.md`, and that copy is the authoritative one. Entries are
 newest first within each topic.
 
+## The Vulkan backend ran a different BRDF (2026-09-06)
+
+**Phase B of the 2026-09-06 audit, first part: the direct-lighting BRDF is now
+one shared definition per backend rather than two implementations — FIXED.**
+
+The GLSL forward path had its own specular: a separable Schlick-GGX geometry
+term with `k = (roughness + 1)^2 / 8` and an explicit `/(4 NdotV NdotL)`, and a
+Schlick Fresnel with `F90 = 1` applied to every light type. Metal and upstream
+use a height-correlated Smith *visibility* (the denominator folded in) and a
+gloss-aware `F90 = gloss^2 * max(F0)` gated to directional lights only, which
+upstream's `lightFunctionLight.js` does through a per-light-type define. The
+distributions already agreed. So the two backends were not drifting on a
+constant, they were evaluating different reflectance.
+
+Worse, the helpers lived in `common-atmosphere.glsl` — a file about sky
+scattering — while a *correct* gloss-aware Fresnel sat in `common-brdf.glsl`
+under the name `ssrFresnel`, used only by the image-based lighting paths. Three
+spellings of the same idea, two of them wrong.
+
+`common-brdf.glsl` is now the twin of `common-brdf.metal` and owns
+`distributionGGX`, `getVisibilitySmithGGX`, `getFresnel`, `getFresnelCC` and
+`getVisibilityKelemen`; the atmosphere chunk keeps only atmosphere.
+`ssrFresnel` survives as a one-line alias so the ambient call sites read
+unchanged. Both light loops — punctual and clustered — call the shared terms.
+
+Clearcoat came with it, because it was the same defect one layer down: the GLSL
+block took the base normal's half vector, used the base Smith term, divided by
+`4 * NdotV` **with no NdotL anywhere**, and added straight into `color` with no
+energy taken from the base layer. It now mirrors the Metal block: clearcoat
+half vector, Kelemen visibility, fixed F0 = 0.04, and the missing `NdotL`.
+
+Verified against Metal on the two static examples that exercise this path
+(animated scenes cannot be compared across backends because the two runs reach
+frame 90 with different animation state):
+
+| Scene | Vulkan/Metal before | after | mean abs diff before | after |
+|---|---|---|---|---|
+| `parallax-mapping` (spot, direct specular) | 0.9944 | 1.0003 | 0.933 | 0.345 |
+| `clearcoat` (skybox 1.5 + one directional) | 0.9852 | 0.9856 | 2.322 | 2.265 |
+
+`parallax-mapping` converges, brightest decile included (0.9969 → 0.9996).
+`clearcoat` barely moves and that is the honest result: it is environment
+dominated, the change touches 1.04% of its pixels, and its residual ~1.5% gap
+is the indirect term — a different, still-open item from the same audit. A
+direct-lighting fix should not have closed it, and did not.
+
+**Phase B is not finished.** Still outstanding from that audit item: sheen (a
+velvet power where Metal has Charlie plus Ashikhmin), iridescence (a static
+cosine tint where Metal has the Belcour model), omni shadows (a single unfiltered
+compare), cascade blending and distance fade (absent), the env-atlas shiny mip
+(absent, so mirrors are blurry), fog type (the P0 backend divergence), and the
+ambient source precedence. Each needs its own GLSL twin.
+
 ## Physics stepped on the variable frame delta (2026-09-06)
 
 **The simulation advanced by the frame delta while the fixed-timestep

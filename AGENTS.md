@@ -311,6 +311,15 @@ them, so the build-time bundle and the runtime composition share one source.
   changed it; otherwise it passes an empty string and gets the prebuilt bundle.
 - `forward-vertex`, `shadow-vertex` and `shadow` have no chunked GLSL form and are
   Metal-only; overriding them on Vulkan logs a warning.
+- **`common-brdf.glsl` is the twin of `common-brdf.metal` and both must change
+  together.** It owns `distributionGGX`, `getVisibilitySmithGGX` (a VISIBILITY
+  term — the `1/(4 NdotL NdotV)` is folded in, so call sites write `D * Vis * F`
+  with no division), `getFresnel` (gloss-aware, DIRECTIONAL lights only —
+  punctual lights take bare specularity), `getFresnelCC` and
+  `getVisibilityKelemen`. A shading edit that lands in one language only is a
+  backend divergence by construction; that is how a separable UE4 Smith term and
+  an `F90 = 1` Schlick lived in `common-atmosphere.glsl` while the IBL paths used
+  a third, correct spelling.
 - Keep each GLSL chunk a self-contained override target. The material-flag
   constants and `applyUvTransform` live in `common-material-flags`, not in
   `common-tonemap`, so a minimal tonemap override does not drop them.

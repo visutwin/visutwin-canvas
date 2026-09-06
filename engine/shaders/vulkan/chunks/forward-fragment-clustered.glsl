@@ -46,15 +46,19 @@
                 vec3 H = normalize(L + V);
                 float nh = max(dot(N, H), 0.0);
                 float vh = max(dot(V, H), 0.0);
+                // Same BRDF as the non-clustered loop (common-brdf.glsl). Clustered
+                // lights are punctual, so the Fresnel is bare specularity — the
+                // gloss-aware curve is the directional case only.
                 float D = distributionGGX(nh, roughness);
-                float G = geometrySmith(NdotV, nl, roughness);
-                vec3 F = fresnelSchlick(vh, F0);
+                float Vis = getVisibilitySmithGGX(NdotV, nl, roughness);
+                vec3 F = F0;
                 vec3 radiance = cl.colorIntensity.rgb *
                     cl.colorIntensity.w * atten;
-                // Same convention as the punctual path: no 1/PI, no kD.
-                color += (diffuseAlbedo +
-                    D * G * F / max(4.0 * NdotV * nl, 1e-4)) *
-                    radiance * nl;
+                // Same convention as the punctual path: no 1/PI, no kD, and no
+                // explicit 1/(4 NdotL NdotV) because the visibility term carries it.
+                vec3 clusteredSpecular = D * Vis * F;
+                color += (diffuseAlbedo + clusteredSpecular) * radiance * nl;
+                directSpecular += clusteredSpecular * radiance * nl;
                 directDiffuse += diffuseAlbedo * radiance * nl;
                 bakeDiffuseLight += radiance * nl;
                 bakeDirectLight += radiance * nl;

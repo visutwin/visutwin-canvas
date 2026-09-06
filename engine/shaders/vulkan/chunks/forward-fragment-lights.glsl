@@ -201,10 +201,16 @@
         float VdotH = max(dot(V, H), 0.0);
 
         float D = distributionGGX(NdotH, roughness);
-        float G = geometrySmith(NdotV, NdotL, roughness);
-        vec3 F = fresnelSchlick(VdotH, F0);
+        // Height-correlated visibility folds in 1/(4 NdotL NdotV), so there is no
+        // explicit division here — see common-brdf.glsl.
+        float Vis = getVisibilitySmithGGX(NdotV, NdotL, roughness);
+        // Directional lights take the gloss-aware Fresnel; punctual lights take bare
+        // specularity, as upstream's lightFunctionLight.js gates it and the Metal
+        // chunk does. Applying the Fresnel to every light type over-brightened the
+        // rim of everything lit by a point or spot light on this backend.
+        vec3 F = (type == 0u) ? getFresnel(VdotH, 1.0 - roughness, F0) : F0;
 
-        vec3 specular = (D * G) * F / max(4.0 * NdotV * NdotL, 1e-4);
+        vec3 specular = D * Vis * F;
 
         vec3 radiance = light.colorIntensity.rgb * cookieMask * light.colorIntensity.w * atten;
         // Oren-Nayar rough diffuse (fast qualitative form): retro-reflection for
@@ -230,12 +236,21 @@
         bakeDirectLight += diffuseTerm * radiance * NdotL;
         directSpecular += specular * radiance * NdotL;
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+            // Twin of the clearcoat block in forward-fragment-lights.metal: GGX
+            // distribution, Kelemen visibility (a coat is smooth enough that
+            // Smith-GGX is not worth its cost) and a fixed F0 = 0.04 Fresnel, all
+            // taken at the clearcoat's own half vector. This used to divide by
+            // 4*NdotV with no NdotL anywhere, which is not a reflectance integral
+            // at all — the coat brightened as the surface turned away from the light.
             float ccRough = clamp(material.clearCoatRoughness, 0.04, 1.0);
-            float ccD = distributionGGX(NdotH, ccRough);
-            float ccG = geometrySmith(NdotV, NdotL, ccRough);
-            vec3 ccF = fresnelSchlick(VdotH, vec3(0.04));
-            color += material.clearCoatFactor * ccD * ccG * ccF /
-                max(4.0 * NdotV, 1e-4) * radiance;
+            float ccLdotH = max(dot(L, H), 0.0);
+            float ccA = ccRough * ccRough;
+            float ccA2 = ccA * ccA;
+            float ccDenom = NdotH * NdotH * (ccA2 - 1.0) + 1.0;
+            float ccD = ccA2 / max(PI * ccDenom * ccDenom, 1e-7);
+            float ccVis = getVisibilityKelemen(ccLdotH);
+            float ccF = getFresnelCC(ccLdotH);
+            color += material.clearCoatFactor * radiance * NdotL * ccD * ccVis * ccF;
         }
         if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
             float velvet = pow(1.0 - max(NdotH, 0.0),
