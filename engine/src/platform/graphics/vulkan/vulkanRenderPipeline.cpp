@@ -476,6 +476,7 @@ namespace visutwin::canvas
         const std::shared_ptr<StencilParameters>& stencilBack,
         const std::span<const VkFormat> colorFormats,
         VkFormat depthFormat,
+        VkSampleCountFlagBits samples,
         bool isSkybox)
     {
         // FNV-1a hash of pipeline state
@@ -495,6 +496,7 @@ namespace visutwin::canvas
             mix(static_cast<uint64_t>(colorFormat));
         }
         mix(static_cast<uint64_t>(depthFormat));
+        mix(static_cast<uint64_t>(samples));
         mix(instanceFormat ? instanceFormat->renderingHash() : 0);
         mix(isSkybox ? 1ull : 0ull);
 
@@ -503,7 +505,7 @@ namespace visutwin::canvas
 
         VkPipeline pipeline = create(primitive, vertexFormat, instanceFormat, shader,
             blendState, depthState, cullMode, stencilEnabled, stencilFront, stencilBack,
-            colorFormats, depthFormat, isSkybox);
+            colorFormats, depthFormat, samples, isSkybox);
         if (pipeline != VK_NULL_HANDLE) {
             _cache[hash] = pipeline;
         }
@@ -522,6 +524,7 @@ namespace visutwin::canvas
         const std::shared_ptr<StencilParameters>& stencilBack,
         const std::span<const VkFormat> colorFormats,
         VkFormat depthFormat,
+        VkSampleCountFlagBits samples,
         bool isSkybox)
     {
         VkDevice vk = _device->device();
@@ -681,7 +684,7 @@ namespace visutwin::canvas
 
         // --- Multisample ---
         VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        multisampling.rasterizationSamples = samples;
 
         // --- Depth/stencil ---
         VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};

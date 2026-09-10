@@ -39,7 +39,11 @@ namespace visutwin::canvas::compose_shaders
         float dofBlurRadius = 3.0f;
         float dofCameraNear = 0.01f;
         float dofCameraFar = 100.0f;
-        float _pad0 = 0.0f;  // padding to maintain alignment
+        // How many source texels across map to one output pixel: the camera
+        // frame's render target scale. One means the scene was rendered at the
+        // output resolution. Occupies what used to be alignment padding, so the
+        // block is the same size it always was.
+        float sceneDownscale = 1.0f;
         // Vignette
         uint32_t vignetteEnabled = 0u;
         float vignetteInner = 0.5f;
@@ -113,7 +117,7 @@ struct ComposeUniforms {
     float dofBlurRadius;
     float dofCameraNear;
     float dofCameraFar;
-    float _pad0;  // padding to maintain 8-byte alignment for next field
+    float sceneDownscale;
     // Vignette (use float4 for color to match C++ alignment)
     uint vignetteEnabled;
     float vignetteInner;
@@ -435,6 +439,36 @@ float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
     return mix(sharpColor, blurColor, cocFar);
 }
 
+// Reduce the supersampled scene to one output pixel.
+//
+// One output pixel covers `scale` x `scale` source texels. A single bilinear tap
+// averages a 2x2 block, which is exactly the footprint at a scale of two and only
+// a corner of it above that — so a scale of three or four used to throw away most
+// of the detail it had just paid to render, and aliased for it. Take a grid of
+// bilinear taps instead, each centred on its own 2x2 block, so the whole
+// footprint is covered whatever the scale. At scale one and two the arithmetic
+// collapses back to the single centred tap this replaced.
+float3 sampleSceneReduced(texture2d<float> sceneTexture, sampler s, float2 uv,
+                          float2 invRes, float scale) {
+    const float span = max(scale, 1.0);
+    const int taps = int(clamp(floor(span * 0.5 + 0.5), 1.0, 4.0));
+    if (taps <= 1) {
+        return sceneTexture.sample(s, uv).rgb;
+    }
+
+    const float step = span / float(taps);
+    const float start = -0.5 * (span - step);
+
+    float3 sum = float3(0.0);
+    for (int y = 0; y < taps; ++y) {
+        for (int x = 0; x < taps; ++x) {
+            const float2 offset = float2(start + step * float(x), start + step * float(y));
+            sum += sceneTexture.sample(s, uv + offset * invRes).rgb;
+        }
+    }
+    return sum / float(taps * taps);
+}
+
 // Compose pass order (mirrors upstream compose.js):
 // CAS -> DOF -> SSAO -> Fringing -> Bloom -> ColorEnhance -> Grading -> ToneMap -> ColorLUT -> Vignette
 fragment float4 composeFragment(
@@ -449,7 +483,8 @@ fragment float4 composeFragment(
     constant ComposeUniforms& uniforms [[buffer(3)]])
 {
     const float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
-    float3 result = sceneTexture.sample(linearSampler, uv).rgb;
+    float3 result = sampleSceneReduced(sceneTexture, linearSampler, uv,
+        uniforms.sceneTextureInvRes, uniforms.sceneDownscale);
 
     // 1. CAS (Contrast Adaptive Sharpening)
     // Negative = on: the CPU side remaps the user value to upstream's negative kernel weight.
@@ -595,7 +630,7 @@ layout(std140, set = 0, binding = 0) uniform ComposeParams {
     float dofBlurRadius;
     float dofCameraNear;
     float dofCameraFar;
-    float _pad0;
+    float sceneDownscale;
     uint vignetteEnabled;
     float vignetteInner;
     float vignetteOuter;
@@ -860,10 +895,32 @@ vec3 applyColorEnhance(vec3 color, float shadows, float highlights,
     return max(vec3(0.0), color);
 }
 
+// Reduce the supersampled scene to one output pixel. See the Metal twin above for
+// why a single bilinear tap is only correct up to a scale of two.
+vec3 sampleSceneReduced(vec2 uv, vec2 invRes, float scale) {
+    float span = max(scale, 1.0);
+    int taps = int(clamp(floor(span * 0.5 + 0.5), 1.0, 4.0));
+    if (taps <= 1) {
+        return texture(sceneTex, uv).rgb;
+    }
+
+    float step = span / float(taps);
+    float start = -0.5 * (span - step);
+
+    vec3 sum = vec3(0.0);
+    for (int y = 0; y < taps; ++y) {
+        for (int x = 0; x < taps; ++x) {
+            vec2 offset = vec2(start + step * float(x), start + step * float(y));
+            sum += texture(sceneTex, uv + offset * invRes).rgb;
+        }
+    }
+    return sum / float(taps * taps);
+}
+
 void main() {
     vec2 invRes = pc.sceneTextureInvRes;
     vec2 uv = clamp(vUv, vec2(0.0), vec2(1.0));
-    vec3 result = texture(sceneTex, uv).rgb;
+    vec3 result = sampleSceneReduced(uv, invRes, pc.sceneDownscale);
 
     // 1. CAS
     // Negative = on: the CPU side remaps the user value to upstream's negative kernel weight.

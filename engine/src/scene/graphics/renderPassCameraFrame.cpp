@@ -689,6 +689,10 @@ namespace visutwin::canvas
         _composePass->setDofEnabled(options.dofEnabled);
         _composePass->setSsaoTexture(options.ssaoType == SSAOTYPE_COMBINE && _ssaoPass ? _ssaoPass->ssaoTexture() : nullptr);
         _composePass->setSharpness(options.sharpness);
+        // The compose fetch has to reduce over the whole footprint a supersampled
+        // scene puts under one output pixel. Set whatever the effects do, since a
+        // scaled scene target exists whether or not anything else is enabled.
+        _composePass->setSceneDownscale(_renderTargetScale);
         // Per-camera tone mapping wins over the scene-wide value, so the HDR path
         // resolves it the same way the standard forward path does.
         const int sceneToneMapping = _scene ? _scene->toneMapping() : TONEMAP_LINEAR;

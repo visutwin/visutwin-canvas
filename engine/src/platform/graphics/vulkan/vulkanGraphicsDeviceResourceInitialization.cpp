@@ -804,6 +804,41 @@ namespace visutwin::canvas
             VK_API_VERSION_MINOR(props.apiVersion),
             VK_API_VERSION_PATCH(props.apiVersion));
 
+        // Highest MSAA sample count a color+depth render target can use here.
+        // Left at the base-class default of 1 the RenderTarget clamp silently
+        // disabled every multisampled target on this backend, which is what
+        // made RenderingSettings::samples a no-op under Vulkan.
+        const VkSampleCountFlags framebufferSampleCounts =
+            props.limits.framebufferColorSampleCounts &
+            props.limits.framebufferDepthSampleCounts;
+        for (const int candidate : {8, 4, 2}) {
+            if (framebufferSampleCounts & vulkanSampleCountFlag(candidate)) {
+                setMaxSamples(candidate);
+                break;
+            }
+        }
+
+        // Depth resolve is a separate capability from color resolve. The spec
+        // requires SAMPLE_ZERO, but ask rather than assume: without a supported
+        // mode a multisampled depth buffer simply is not resolved (nothing but
+        // a later depth *sample* needs it, and the pass still antialiases).
+        VkPhysicalDeviceDepthStencilResolveProperties depthResolveProps{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES};
+        VkPhysicalDeviceProperties2 props2{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+        props2.pNext = &depthResolveProps;
+        vkGetPhysicalDeviceProperties2(_physicalDevice, &props2);
+        // Depth and stencil must resolve with the SAME mode unless the device
+        // advertises independentResolve, so require sample-zero in both sets and
+        // resolve a combined depth-stencil attachment with one mode either way.
+        _depthResolveMode =
+            (depthResolveProps.supportedDepthResolveModes & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT) &&
+            (depthResolveProps.supportedStencilResolveModes & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT)
+                ? VK_RESOLVE_MODE_SAMPLE_ZERO_BIT
+                : VK_RESOLVE_MODE_NONE;
+        spdlog::info("Vulkan MSAA: max {} samples, depth resolve {}", maxSamples(),
+            _depthResolveMode == VK_RESOLVE_MODE_NONE ? "unsupported" : "sample-zero");
+
         // Dynamic UBO offsets must be a multiple of this (256 on MoltenVK).
         _uboOffsetAlignment = std::max(
             props.limits.minUniformBufferOffsetAlignment,

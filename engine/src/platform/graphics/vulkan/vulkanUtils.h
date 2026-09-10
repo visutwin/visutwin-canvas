@@ -31,6 +31,10 @@ namespace visutwin::canvas
         uint32_t baseMipLevel = 0, uint32_t levelCount = 1,
         uint32_t baseArrayLayer = 0, uint32_t layerCount = 1);
 
+    // MSAA sample count as the enum bit Vulkan wants. Anything that is not a
+    // power of two in 1..64 falls back to a single sample.
+    VkSampleCountFlagBits vulkanSampleCountFlag(int samples);
+
     // Picks a device-supported depth-stencil format: D24_UNORM_S8_UINT when
     // available, else D32_SFLOAT_S8_UINT (MoltenVK on Apple GPUs has no D24S8).
     VkFormat vulkanSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice);

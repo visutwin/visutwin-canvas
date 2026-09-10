@@ -17,6 +17,13 @@ namespace visutwin::canvas
         Texture* sceneTexture() const { return _sceneTexture; }
         void setSceneTexture(Texture* value) { _sceneTexture = value; }
 
+        /// How many source texels across map to one output pixel, i.e. the camera
+        /// frame's render target scale. The compose fetch reduces over that
+        /// footprint; without it a supersampled scene is point-sampled back down
+        /// and the extra resolution is wasted.
+        float sceneDownscale() const { return _sceneDownscale; }
+        void setSceneDownscale(const float value) { _sceneDownscale = value; }
+
         Texture* bloomTexture() const { return _bloomTexture; }
         void setBloomTexture(Texture* value) { _bloomTexture = value; }
 
@@ -137,6 +144,7 @@ namespace visutwin::canvas
 
     private:
         Texture* _sceneTexture = nullptr;
+        float _sceneDownscale = 1.0f;
         Texture* _bloomTexture = nullptr;
         Texture* _cocTexture = nullptr;
         Texture* _blurTexture = nullptr;

@@ -42,6 +42,11 @@ namespace visutwin::canvas
         void remove(WideLine* line);
         [[nodiscard]] const std::vector<WideLine*>& lines() const { return _lines; }
 
+        /// The scene entity the batch draws through, owned by the engine root.
+        /// Disabling it hides every line the renderer holds without giving up the
+        /// uploaded instance data.
+        [[nodiscard]] Entity* entity() const { return _entity; }
+
         LineWidthUnits widthUnits() const { return _widthUnits; }
         void setWidthUnits(const LineWidthUnits value) { _widthUnits = value; _dirty = true; }
 

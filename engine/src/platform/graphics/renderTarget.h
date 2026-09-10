@@ -85,6 +85,13 @@ namespace visutwin::canvas
     protected:
         GraphicsDevice* device() const { return _device; }
 
+        // Lower the sample count after construction. A backend calls this when
+        // the multisampled surfaces could not be created (an attachment format
+        // with no MSAA support, say); everything downstream — the pass's cached
+        // sample count and the pipeline it is keyed on — reads samples(), so the
+        // fallback has to be visible there rather than kept in the backend.
+        void setSamples(const int value) { _samples = value > 1 ? value : 1; }
+
         // Validates that all MRT color buffers have the same dimensions and settings
         void validateMrt();
 

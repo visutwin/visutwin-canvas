@@ -33,6 +33,15 @@ namespace visutwin::canvas
         VkFormat    format = VK_FORMAT_UNDEFINED;
         gpu::VulkanTexture* texture = nullptr;  // for layout tracking; may be null
         bool ownView = false;                    // RT created `view` and must destroy it
+
+        // Multisampled surface, owned here, present only when samples() > 1.
+        // Rendering targets `msaaView` and `view` becomes the resolve
+        // destination, which is what keeps every later pass sampling a plain
+        // single-sample texture.
+        VkImage msaaImage = VK_NULL_HANDLE;
+        VmaAllocation msaaAllocation = VK_NULL_HANDLE;
+        VkImageView msaaView = VK_NULL_HANDLE;
+        mutable VkImageLayout msaaLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     };
 
     struct VulkanDepthAttachment
@@ -48,6 +57,15 @@ namespace visutwin::canvas
         VmaAllocation internalAllocation = VK_NULL_HANDLE;
         VkImageLayout currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         bool ownView = false;
+
+        // Multisampled depth, owned here. Only allocated over a TEXTURE-backed
+        // depth buffer: an internally-owned depth image is nothing but the
+        // pass's own scratch depth, so it is simply created multisampled and
+        // never resolved.
+        VkImage msaaImage = VK_NULL_HANDLE;
+        VmaAllocation msaaAllocation = VK_NULL_HANDLE;
+        VkImageView msaaView = VK_NULL_HANDLE;
+        mutable VkImageLayout msaaLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     };
 
     class VulkanRenderTarget : public RenderTarget
@@ -64,12 +82,22 @@ namespace visutwin::canvas
         VkExtent2D extent() const { return {static_cast<uint32_t>(width()),
                                             static_cast<uint32_t>(height())}; }
 
+        // Sample count of the attachments as the enum bit a pipeline wants.
+        // Always in step with samples(): a target whose multisampled surfaces
+        // could not be created reports one sample from both.
+        VkSampleCountFlagBits sampleCountFlag() const;
+
     protected:
         void destroyFrameBuffers() override;
         void createFrameBuffers() override;
 
     private:
         VulkanGraphicsDevice* vulkanDevice() const;
+
+        // Allocate the multisampled color/depth surfaces for samples() > 1.
+        // Returns false when the device cannot render this format at that
+        // sample count, which drops the target back to single-sample.
+        bool createMultisampledSurfaces(VkFormat internalDepthFormat);
 
         std::vector<VulkanColorAttachment> _colorAttachments;
         VulkanDepthAttachment _depthAttachment{};

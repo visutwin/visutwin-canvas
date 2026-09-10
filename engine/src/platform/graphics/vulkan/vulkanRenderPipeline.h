@@ -45,6 +45,9 @@ namespace visutwin::canvas
             const std::shared_ptr<StencilParameters>& stencilBack,
             std::span<const VkFormat> colorFormats,
             VkFormat depthFormat,
+            // Raster sample count, which must match the attachments the pass
+            // begins rendering with — MSAA targets get their own pipelines.
+            VkSampleCountFlagBits samples,
             bool isSkybox = false);
 
         [[nodiscard]] VkPipelineLayout pipelineLayout() const { return _pipelineLayout; }
@@ -69,6 +72,7 @@ namespace visutwin::canvas
             const std::shared_ptr<StencilParameters>& stencilBack,
             std::span<const VkFormat> colorFormats,
             VkFormat depthFormat,
+            VkSampleCountFlagBits samples,
             bool isSkybox);
 
         void createLayouts();

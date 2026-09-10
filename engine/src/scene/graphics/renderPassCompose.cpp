@@ -64,6 +64,7 @@ namespace visutwin::canvas
             uniforms.sceneTextureInvRes[0] = 1.0f / static_cast<float>(_sceneTexture->width());
             uniforms.sceneTextureInvRes[1] = 1.0f / static_cast<float>(_sceneTexture->height());
         }
+        uniforms.sceneDownscale = _sceneDownscale;
 
         // Single-pass DOF (from the scene depth buffer).
         uniforms.dofFocusDistance = _dofFocusDistance;

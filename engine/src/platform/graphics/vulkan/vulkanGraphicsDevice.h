@@ -597,6 +597,10 @@ namespace visutwin::canvas
         bool _textureCompressionBc = false;
         uint32_t _maxDualSrcDrawBuffers = 0;
 
+        // Resolve mode a multisampled depth attachment is resolved with, or
+        // VK_RESOLVE_MODE_NONE when the device offers none.
+        VkResolveModeFlagBits _depthResolveMode = VK_RESOLVE_MODE_NONE;
+
         // Dies with the device — see aliveToken().
         std::shared_ptr<bool> _aliveToken = std::make_shared<bool>(true);
 

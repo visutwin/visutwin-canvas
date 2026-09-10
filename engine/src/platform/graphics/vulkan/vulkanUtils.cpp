@@ -160,6 +160,19 @@ namespace visutwin::canvas
         vkCmdPipelineBarrier2(cmd, &dependency);
     }
 
+    VkSampleCountFlagBits vulkanSampleCountFlag(const int samples)
+    {
+        switch (samples) {
+        case 64: return VK_SAMPLE_COUNT_64_BIT;
+        case 32: return VK_SAMPLE_COUNT_32_BIT;
+        case 16: return VK_SAMPLE_COUNT_16_BIT;
+        case 8:  return VK_SAMPLE_COUNT_8_BIT;
+        case 4:  return VK_SAMPLE_COUNT_4_BIT;
+        case 2:  return VK_SAMPLE_COUNT_2_BIT;
+        default: return VK_SAMPLE_COUNT_1_BIT;
+        }
+    }
+
     VkDescriptorType vulkanSceneDescriptorType(const uint32_t binding)
     {
         if (binding < 6) {

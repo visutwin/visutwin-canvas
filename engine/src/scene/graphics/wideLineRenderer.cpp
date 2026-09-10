@@ -141,6 +141,12 @@ namespace visutwin::canvas
         _params.screenSize[1] = height;
         _params.screenSize[2] = width > 0.0f ? 1.0f / width : 1.0f;
         _params.screenSize[3] = height > 0.0f ? 1.0f / height : 1.0f;
+
+        // The draw carries its own COPY of the params, taken at rebuild time, so
+        // touching them here reaches nothing until the next one. Without this a
+        // size set after the lines were built is silently ignored, and every width
+        // stays measured against the default one-pixel screen.
+        _dirty = true;
     }
 
     void WideLineRenderer::update()

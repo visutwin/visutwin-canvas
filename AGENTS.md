@@ -94,7 +94,7 @@ and each combination compiles a distinct variant.
 PCSS/VSM shadows + clustered shadow atlas, SSR, dynamic refraction, planar
 reflections, shadow catcher, atmosphere, opacity dither, debug passes,
 dual-source blending, compute/particles/culling, post-processing, async uploads,
-GPU profiling. GLSL in `shaders/vulkan/` is compiled to SPIR-V at build time and
+MSAA, GPU profiling. GLSL in `shaders/vulkan/` is compiled to SPIR-V at build time and
 bundled by `tools/generate_vulkan_shader_bundle.py`. Feature flags arrive as
 **specialization constants**, not runtime branches, in BOTH stages.
 
@@ -627,6 +627,25 @@ Per-subsystem detail lives in `ARCHITECTURE.md`: how each feature works, the cal
 that turns it on, and its deviations from upstream. Only the parts that bite
 during unrelated work are repeated here.
 
+- **MSAA is a property of the RENDER TARGET on both backends, and the sample
+  count reaches the pipeline through it.** `RenderTargetOptions::samples` is
+  clamped to `GraphicsDevice::maxSamples()`, which each backend fills in from the
+  hardware; a backend that never sets it silently renders every target
+  single-sampled, which is what Vulkan did until 2026-09-10. A multisampled
+  target owns a multisampled twin of each attachment, renders into that, and
+  resolves into the plain texture the later passes sample — so `autoResolve` plus
+  `ColorAttachmentOps::resolve` is what makes MSAA visible at all, and a target
+  with neither antialiases into a surface nobody reads. Vulkan additionally keys
+  its pipeline cache on the sample count (a raster count that disagrees with the
+  attachments is invalid), resolves depth with SAMPLE_ZERO rather than an average
+  (an averaged depth belongs to no surface), and skips the depth resolve for a
+  pass that samples that same depth. An internally-owned depth buffer — the
+  `RenderTargetOptions::depth` case with no depth texture — is created
+  multisampled and never resolved, since nothing can sample it; that also costs
+  it `TRANSFER_SRC`, so a multisampled target whose depth must be GRABBED needs a
+  real depth texture. Verify a change here by edge statistics, not by eye: MSAA
+  leaves whole-frame mean untouched and trades hard gradient steps for
+  intermediate ones.
 - **Shadow bias convention.** `LightComponent::setShadowBias` takes upstream's
   0..1 authoring value (default 0.05) and remaps it to `Light::shadowBias` as
   `-0.01 * clamp(v,0,1)` — negative on purpose, because the passes apply

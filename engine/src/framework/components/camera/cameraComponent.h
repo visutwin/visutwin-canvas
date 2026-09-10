@@ -200,10 +200,19 @@ namespace visutwin::canvas
 
         const Camera* camera() const { return _camera; }
 
+        /// Non-null when the camera has to render through an offscreen frame rather
+        /// than straight to its target. Every effect that reads the scene back needs
+        /// one, and so do the two settings that describe the scene target itself:
+        /// multisampling and a render scale have nowhere to live without it, and
+        /// asking for either used to be silently ignored on an otherwise plain
+        /// camera.
         void* onPostprocessing() const
         {
+            const bool needsSceneTarget =
+                _rendering.samples > 1 || _rendering.renderTargetScale != 1.0f;
             return (_dof.enabled || _taa.enabled || _ssao.enabled || _volumetricFog.enabled ||
-                    _rendering.bloomIntensity > 0.0f || _rendering.vignetteEnabled)
+                    _rendering.bloomIntensity > 0.0f || _rendering.vignetteEnabled ||
+                    needsSceneTarget)
                 ? const_cast<CameraComponent*>(this) : nullptr;
         }
 

@@ -85,8 +85,23 @@ namespace visutwin::canvas
                         mip, 1, layer, 1);
                 }
 
+                // MSAA: draws go to the multisampled surface and `att.view`
+                // becomes the resolve destination, which is the single-sample
+                // texture every later pass samples.
+                const bool multisampled = att.msaaView != VK_NULL_HANDLE;
+                if (multisampled) {
+                    // Nothing ever samples this surface, so it simply stays in
+                    // attachment layout. Barrier it regardless: the same-layout
+                    // barrier is what orders this pass's writes after the
+                    // previous pass's, exactly as the round trip through
+                    // SHADER_READ_ONLY does for the resolved texture.
+                    vulkanTransitionImageLayout(cmd, att.msaaImage,
+                        att.msaaLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                    att.msaaLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                }
+
                 VkRenderingAttachmentInfo info{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-                info.imageView = att.view;
+                info.imageView = multisampled ? att.msaaView : att.view;
                 info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
                 if (colorOps && colorOps->clear) {
@@ -95,6 +110,11 @@ namespace visutwin::canvas
                                               colorOps->clearValue.b, colorOps->clearValue.a}};
                 } else {
                     info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                }
+                if (multisampled && offscreen->autoResolve() && colorOps && colorOps->resolve) {
+                    info.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                    info.resolveImageView = att.view;
+                    info.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 }
                 colorInfos.push_back(info);
             }
@@ -146,8 +166,30 @@ namespace visutwin::canvas
                     }
                 }
 
-                depthInfo.imageView = da.view;
-                depthInfo.imageLayout = depthAttachLayout;
+                // MSAA depth mirrors the color case, with two differences: the
+                // resolve mode is sample-zero (an averaged depth belongs to no
+                // surface), and a pass that SAMPLES this depth while it is
+                // attached must not also resolve into it — the resolve would be
+                // writing the very texture the pass reads.
+                const bool depthMsaa = da.msaaView != VK_NULL_HANDLE;
+                if (depthMsaa) {
+                    vulkanTransitionImageLayout(cmd, da.msaaImage,
+                        da.msaaLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                        depthAspect);
+                    da.msaaLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                }
+
+                depthInfo.imageView = depthMsaa ? da.msaaView : da.view;
+                depthInfo.imageLayout = depthMsaa
+                    ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                    : depthAttachLayout;
+                if (depthMsaa && offscreen->autoResolve() && !depthReadOnly &&
+                    dsOps && dsOps->resolveDepth &&
+                    _depthResolveMode != VK_RESOLVE_MODE_NONE) {
+                    depthInfo.resolveMode = _depthResolveMode;
+                    depthInfo.resolveImageView = da.view;
+                    depthInfo.resolveImageLayout = depthAttachLayout;
+                }
                 depthInfo.loadOp = (dsOps && dsOps->clearDepth)
                     ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
                 depthInfo.storeOp = (dsOps && dsOps->storeDepth)
@@ -466,6 +508,10 @@ namespace visutwin::canvas
             // VUID-vkCmdDrawIndexed-dynamicRenderingUnusedAttachments-08910.
             std::vector<VkFormat> colorFormats{_swapchainFormat};
             VkFormat depthFmt = _depthFormat;
+            // The swapchain is always single-sample (as it is on Metal); only an
+            // offscreen target can be multisampled, and the pipeline's raster
+            // sample count has to match what the pass attached.
+            VkSampleCountFlagBits rasterSamples = VK_SAMPLE_COUNT_1_BIT;
             if (_activeOffscreenTarget) {
                 const auto& colors = _activeOffscreenTarget->colorAttachments();
                 colorFormats.clear();
@@ -476,6 +522,7 @@ namespace visutwin::canvas
                 depthFmt = _activeOffscreenTarget->hasDepthAttachment()
                     ? _activeOffscreenTarget->depthAttachment().format
                     : VK_FORMAT_UNDEFINED;
+                rasterSamples = _activeOffscreenTarget->sampleCountFlag();
             }
 
             // The skybox is an inward-facing shell whose authored winding,
@@ -496,7 +543,7 @@ namespace visutwin::canvas
                 instanceFormat,
                 vulkanShader, _blendState, _depthState, cullMode,
                 _stencilEnabled, _stencilFront, _stencilBack,
-                colorFormats, depthFmt, isSkybox);
+                colorFormats, depthFmt, rasterSamples, isSkybox);
 
             if (pipeline == VK_NULL_HANDLE) {
                 spdlog::error("VulkanGraphicsDevice: draw skipped because pipeline creation failed");
