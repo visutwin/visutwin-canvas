@@ -6,7 +6,7 @@
 #include "cameraControls.h"
 #include <algorithm>
 #include <cmath>
-#include <SDL3/SDL.h>
+#include <framework/engine.h>
 #include <framework/entity.h>
 
 namespace visutwin::canvas
@@ -126,15 +126,24 @@ namespace visutwin::canvas
             return;
         }
 
+        // The engine's input devices, not SDL: they are fed from the event loop and
+        // end their frame in Engine::inputUpdate, so a key tapped between two frames
+        // is still seen. A null device (an application that asked for none) leaves
+        // the camera stationary rather than crashing.
+        const Engine* engine = entity() ? entity()->engine() : nullptr;
+        const Keyboard* keyboard = engine ? engine->keyboard() : nullptr;
+        const Mouse* mouse = engine ? engine->mouse() : nullptr;
+        if (!keyboard || !mouse) {
+            return;
+        }
+
         if (_mode == Mode::ORBIT && _hasFocusPoint) {
-            float mouseX = 0.0f;
-            float mouseY = 0.0f;
-            const uint32_t rawButtons = SDL_GetMouseState(&mouseX, &mouseY);
-            const uint32_t mouseButtons = _inputBlocked ? 0u : rawButtons;
-            const bool orbitMouseDown = (mouseButtons & SDL_BUTTON_LMASK) != 0u || (mouseButtons & SDL_BUTTON_RMASK) != 0u;
-            const bool middleMouseDown = (mouseButtons & SDL_BUTTON_MMASK) != 0u;
-            const bool* keys = SDL_GetKeyboardState(nullptr);
-            const bool shiftDown = keys && (keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT]);
+            const float mouseX = mouse->x();
+            const float mouseY = mouse->y();
+            const bool orbitMouseDown = !_inputBlocked &&
+                (mouse->isPressed(MouseButton::Left) || mouse->isPressed(MouseButton::Right));
+            const bool middleMouseDown = !_inputBlocked && mouse->isPressed(MouseButton::Middle);
+            const bool shiftDown = keyboard->shift();
             const bool panMouseDown = middleMouseDown || (shiftDown && orbitMouseDown);
 
             if (panMouseDown) {
@@ -174,9 +183,9 @@ namespace visutwin::canvas
             _prevMouseX = mouseX;
             _prevMouseY = mouseY;
 
-            if (keys) {
-                const bool fast = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
-                const bool slow = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL];
+            {
+                const bool fast = keyboard->shift();
+                const bool slow = keyboard->control();
 
                 float zoomSpeed = _moveSpeed;
                 if (fast) {
@@ -188,24 +197,24 @@ namespace visutwin::canvas
                 const float distanceScale = std::max(_orbitDistance * 0.25f, 1.0f);
                 zoomSpeed = std::max(zoomSpeed * distanceScale, 0.1f);
 
-                if (keys[SDL_SCANCODE_W]) {
+                if (keyboard->isPressed(Key::W)) {
                     _orbitDistance -= zoomSpeed * dt;
                 }
-                if (keys[SDL_SCANCODE_S]) {
+                if (keyboard->isPressed(Key::S)) {
                     _orbitDistance += zoomSpeed * dt;
                 }
 
                 const float rotateSpeed = 70.0f * dt;
-                if (keys[SDL_SCANCODE_A]) {
+                if (keyboard->isPressed(Key::A)) {
                     _yaw += rotateSpeed;
                 }
-                if (keys[SDL_SCANCODE_D]) {
+                if (keyboard->isPressed(Key::D)) {
                     _yaw -= rotateSpeed;
                 }
-                if (keys[SDL_SCANCODE_Q]) {
+                if (keyboard->isPressed(Key::Q)) {
                     _pitch += rotateSpeed;
                 }
-                if (keys[SDL_SCANCODE_E]) {
+                if (keyboard->isPressed(Key::E)) {
                     _pitch -= rotateSpeed;
                 }
                 _pitch = std::clamp(_pitch, _pitchRange.x, _pitchRange.y);

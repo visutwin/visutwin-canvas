@@ -161,6 +161,15 @@ namespace visutwin::canvas
         AppOptions appOptions;
         appOptions.graphicsDevice = _device;
 
+        // Real input devices, which the engine then feeds from the event loop and
+        // ends the frame for. Every example gets them: the camera controls read the
+        // keyboard and mouse through the engine rather than polling SDL from here,
+        // and an example wanting a gamepad or a named action already has one.
+        appOptions.keyboard = std::make_shared<Keyboard>();
+        appOptions.mouse = std::make_shared<Mouse>();
+        appOptions.touch = std::make_shared<TouchDevice>();
+        appOptions.gamepads = std::make_shared<GamePads>();
+
         // The four systems every example uses. Registering an unused one costs a
         // single allocation, which is a better trade than 41 copies of the list.
         appOptions.registerComponentSystem<RenderComponentSystem>();
@@ -185,7 +194,14 @@ namespace visutwin::canvas
 
     void ExampleApp::handleEvent(const SDL_Event& event)
     {
-        // The example sees every event first, so it can override a default
+        // Devices first, and unconditionally: an example that consumes an event
+        // must not leave the keyboard believing a key is still held. They record
+        // state and fire their own events; they do not consume anything.
+        if (_engine) {
+            _engine->handleInputEvent(event);
+        }
+
+        // The example sees every event next, so it can override a default
         // binding (several bind R to something of their own).
         if (onEvent(event)) {
             return;

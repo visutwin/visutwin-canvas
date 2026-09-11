@@ -302,6 +302,12 @@ namespace visutwin::canvas
         _keyboard = appOptions.keyboard;
         _mouse = appOptions.mouse;
         _touch = appOptions.touch;
+        if (_touch && _graphicsDevice) {
+            // SDL reports touches in normalized window coordinates; the device
+            // converts to pixels, which needs the size. Refreshed on resize below.
+            const auto [width, height] = _graphicsDevice->size();
+            _touch->setWindowSize(width, height);
+        }
         _gamepads = appOptions.gamepads;
         _elementInput = appOptions.elementInput;
         if (_elementInput) {
@@ -595,6 +601,25 @@ namespace visutwin::canvas
         particleStats.frameTime = particleStats._frameTime;
         particleStats._updatesPerFrame = 0;
         particleStats._frameTime = 0;
+    }
+
+    void Engine::handleInputEvent(const SDL_Event& event)
+    {
+        if (_touch && event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+            _touch->setWindowSize(event.window.data1, event.window.data2);
+        }
+        if (_keyboard) {
+            _keyboard->handleEvent(event);
+        }
+        if (_mouse) {
+            _mouse->handleEvent(event);
+        }
+        if (_touch) {
+            _touch->handleEvent(event);
+        }
+        if (_gamepads) {
+            _gamepads->handleEvent(event);
+        }
     }
 
     void Engine::inputUpdate(float dt)

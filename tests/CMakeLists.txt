@@ -139,3 +139,11 @@ add_executable(visutwin-shadow-map-invalidation-tests
 target_link_libraries(visutwin-shadow-map-invalidation-tests PRIVATE visutwin-canvas)
 
 add_test(NAME shadow-map-invalidation COMMAND visutwin-shadow-map-invalidation-tests)
+
+add_executable(visutwin-input-device-tests
+    inputDeviceTests.cpp
+)
+
+target_link_libraries(visutwin-input-device-tests PRIVATE visutwin-canvas)
+
+add_test(NAME input-devices COMMAND visutwin-input-device-tests)

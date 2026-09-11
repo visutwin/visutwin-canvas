@@ -19,7 +19,10 @@
 #include "handlers/resourceLoader.h"
 #include "i18n/i18n.h"
 #include "platform/input/controller.h"
+#include "platform/input/gamePads.h"
+#include "platform/input/keyboard.h"
 #include "platform/input/mouse.h"
+#include "platform/input/touchDevice.h"
 #include "script/scriptRegistry.h"
 
 namespace visutwin::canvas
@@ -105,6 +108,26 @@ namespace visutwin::canvas
 
         /**batcher accessor. */
         BatchManager* batcher() { return _batcher.get(); }
+
+        /// Input devices supplied through AppOptions, or null when the application
+        /// asked for none. Engine ends each one's frame in inputUpdate, so the edge
+        /// queries (wasPressed / wasReleased) describe the frame that just ran.
+        Keyboard* keyboard() const { return _keyboard.get(); }
+        Mouse* mouse() const { return _mouse.get(); }
+        TouchDevice* touch() const { return _touch.get(); }
+        GamePads* gamepads() const { return _gamepads.get(); }
+        Controller* controller() const { return _controller.get(); }
+
+        /**
+         * Feed one window-system event to every input device that exists.
+         *
+         * SDL delivers input by pumping a single queue, so there is nothing for a
+         * device to subscribe to and the application has to forward what it polls.
+         * One call rather than one per device: which devices exist is the engine's
+         * business, and a device added later should not need every application to
+         * learn about it.
+         */
+        void handleInputEvent(const SDL_Event& event);
 
         /// The physics backend supplied through AppOptions, or null when the
         /// application asked for none. RigidBodyComponentSystem drives it.

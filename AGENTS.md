@@ -187,6 +187,40 @@ index.
 The particle, gsplat and storage-draw paths SHARE slots 7 and 11. One mesh
 instance is a storage draw, a particle draw, or a splat draw, never two at once.
 
+## Input
+
+The engine owns the input DEVICES; the application owns the event loop.
+
+    appOptions.keyboard = std::make_shared<Keyboard>();
+    appOptions.mouse    = std::make_shared<Mouse>();
+    appOptions.touch    = std::make_shared<TouchDevice>();
+    appOptions.gamepads = std::make_shared<GamePads>();
+    // then, for every event the application polls:
+    engine->handleInputEvent(event);
+
+- **A device with no events fed to it reports nothing and breaks nothing.** Every
+  accessor is safe on an absent device, which is what lets a script read
+  `entity()->engine()->keyboard()` without the application having supplied one.
+- **`Engine::inputUpdate` ends each device's frame**, after the app's update and the
+  script phases. That is what makes `wasPressed` / `wasReleased` mean "during the
+  frame that just ran", so nothing else may call `update()` on a device.
+- **The edges record TRANSITIONS, not a snapshot comparison.** DEVIATION from
+  upstream, which diffs this frame's key map against last frame's and therefore
+  cannot see a key pressed AND released inside one frame. Auto-repeat is not a new
+  press; the edge is recorded only when the key was actually up.
+- **Losing window focus releases everything held.** A key or button held while
+  focus moves away never sends its release, and would otherwise read as held for
+  the rest of the process. The release EDGE is recorded too, so a caller watching
+  for it is not left waiting.
+- **`Key` enumerators ARE SDL scancodes**, so a key the list does not name still
+  works through a cast, and the list needs no translation table to get wrong. They
+  are POSITIONAL: `Key::W` is the key left of `Key::S` whatever it types.
+- **Touch positions need the window size.** SDL reports normalized coordinates;
+  `TouchDevice::setWindowSize` converts to pixels and Engine keeps it current from
+  the resize event. Without it every touch lands in the top-left corner.
+- Examples must not poll SDL for input. `CameraControls` reads the engine's
+  keyboard and mouse; the old six-key `platform/input.h` sink is gone.
+
 ## Physics
 
 The engine owns NO simulation. `framework/physics/physicsWorld.h` declares
