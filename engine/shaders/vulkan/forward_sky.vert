@@ -1,5 +1,7 @@
 #version 450
 
+#include "normal_matrix.glsl"
+
 // Skybox vertex stage.  Identical to forward.vert except the clip-space
 // depth is pinned to the far plane (z = w → depth 1.0 after the perspective
 // divide).  The sky shell is authored at a huge radius so it always clears the
@@ -40,7 +42,7 @@ void main() {
 
     fragWorldPos = worldPos.xyz;
 
-    mat3 normalMatrix = mat3(pc.model);
+    mat3 normalMatrix = normalMatrixFrom(pc.model);
     fragWorldNormal = normalize(normalMatrix * inNormal);
     fragWorldTangent = vec4(normalize(normalMatrix * inTangent.xyz), inTangent.w);
     fragUV0 = inUV0;

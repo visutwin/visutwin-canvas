@@ -1,5 +1,7 @@
 #version 450
 
+#include "normal_matrix.glsl"
+
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV0;
@@ -61,7 +63,10 @@ void main() {
     gl_Position = pc.viewProjection * worldPos;
     // GL [-1,1] -> Vulkan [0,1] clip z. See forward.vert for why.
     gl_Position.z = 0.5 * (gl_Position.z + gl_Position.w);
-    mat3 normalMatrix = mat3(modelSkin);
+    // The skin matrix is a weighted blend of rigid bone transforms, so its bare
+    // 3x3 carries the normal correctly; the NODE's matrix may scale non-uniformly
+    // and needs the inverse transpose. Same composition the Metal chunk uses.
+    mat3 normalMatrix = normalMatrixFrom(pc.model) * mat3(skin);
     fragWorldPos = worldPos.xyz;
     fragWorldNormal = normalize(normalMatrix * normal);
     fragWorldTangent =

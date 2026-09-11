@@ -1,5 +1,7 @@
 #version 450
 
+#include "normal_matrix.glsl"
+
 // Vertex-color variant: the 72-byte interleaved layout appends a vec4 color
 // after uv1 (attribute location 5, offset 56). Identical to forward.vert
 // otherwise; the color reaches the fragment stage at location 6 and is
@@ -34,7 +36,7 @@ void main() {
     fragViewDepth = gl_Position.w;
     fragWorldPos = worldPos.xyz;
 
-    mat3 normalMatrix = mat3(pc.model);
+    mat3 normalMatrix = normalMatrixFrom(pc.model);
     fragWorldNormal = normalize(normalMatrix * inNormal);
     fragWorldTangent = vec4(normalize(normalMatrix * inTangent.xyz), inTangent.w);
     fragUV0 = inUV0;

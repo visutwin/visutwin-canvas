@@ -1,5 +1,7 @@
 #version 450
 
+#include "normal_matrix.glsl"
+
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV0;
@@ -69,7 +71,7 @@ void main() {
 
     fragWorldPos = worldPos.xyz;
 
-    mat3 normalMatrix = mat3(pc.model);
+    mat3 normalMatrix = normalMatrixFrom(pc.model);
     fragWorldNormal = normalize(normalMatrix * inNormal);
     fragWorldTangent = vec4(normalize(normalMatrix * inTangent.xyz), inTangent.w);
     fragUV0 = inUV0;

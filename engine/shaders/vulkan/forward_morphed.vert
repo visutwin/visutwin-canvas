@@ -1,5 +1,7 @@
 #version 450
 
+#include "normal_matrix.glsl"
+
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV0;
@@ -50,7 +52,7 @@ void main() {
     gl_Position = pc.viewProjection * worldPos;
     // GL [-1,1] -> Vulkan [0,1] clip z. See forward.vert for why.
     gl_Position.z = 0.5 * (gl_Position.z + gl_Position.w);
-    mat3 normalMatrix = mat3(pc.model);
+    mat3 normalMatrix = normalMatrixFrom(pc.model);
     fragWorldPos = worldPos.xyz;
     fragWorldNormal = normalize(normalMatrix * normal);
     fragWorldTangent =
