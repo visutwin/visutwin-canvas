@@ -665,6 +665,33 @@ present, but the rule below never depends on reading it.
   and unbatched, which costs draw calls and nothing else. The split happens once,
   at `prepare()`, from the transforms in place THEN, so a dynamic batch whose
   instances wander apart later keeps the grouping it was built with.
+- **A camera frame OWNS the scene-colour grab, and three things have to line up
+  for it.** `CameraComponent::requestSceneColorMap` is the request on both paths;
+  `RenderPassCameraFrame::applyCameraSettings` copies it into
+  `CameraFrameOptions::sceneColorMap` (upstream reads the same flag off
+  `CameraFrame.rendering`), and `ForwardRenderer` must NOT end a block of render
+  actions at the depth layer for a camera that has post-processing — a camera frame
+  is built from one such block, and splitting it hands the frame only the actions
+  after the grab while the opaque world and the sky go to the back buffer for
+  compose to overwrite. That is a black frame, not a missing reflection. Outside a
+  camera frame the standalone grab pass copies the back buffer as before.
+- **The grabbed scene colour is LINEAR HDR under a camera frame and GAMMA-encoded
+  otherwise**, so every consumer gates its decode on bit 5 of
+  `LightingData::flagsAndPad[0]`, the same bit the sky and the tail check. There are
+  four such consumers — refraction and SSR, in each language — and a decode applied
+  unconditionally darkens whatever samples it by roughly a stop.
+- **Vulkan's clip space is NOT Y-down for this engine.** The backend rasterises
+  through a negated-height viewport so Metal projection matrices work unchanged,
+  which puts NDC +Y at the TOP row of every target, back buffer and offscreen
+  alike. A point projected in a shader therefore maps to a texture coordinate
+  exactly as it does on Metal, `* vec2(0.5, -0.5) + 0.5`. Two GLSL call sites
+  believed otherwise and sampled the grab upside down.
+- **A grab pass OWNS the texture it publishes, and the device only borrows a raw
+  pointer to it.** So a grab pass is persisted across frames rather than rebuilt
+  (the next frame's scene pass binds the pointer before the grab re-runs), and its
+  destructor clears `setSceneColorMap` / `setSceneDepthGrabMap` when the device
+  still points at it — `requestSceneColorMap(false)` and any camera-frame option
+  change that rebuilds render targets both destroy one.
 - **Large ground planes must stay shadow CASTERS but not receivers-only.** The
   directional shadow camera fits its depth range to casters, so a receiver-only
   ground falls outside it and catches no shadow; a huge caster inflates the fitted
@@ -851,6 +878,13 @@ does nothing, which is a misleading symptom.
   panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
   is at a fixed screen position, so it compares cleanly even though the scene
   animates.
+- **Under a camera frame nothing publishes the sampleable depth COPY.** The frame
+  publishes scene DEPTH from its own attachment, and it owns the colour grab, but
+  `sceneDepthGrabMap` — the post-opaque depth copy that only SSR reads — is
+  produced solely by the standalone `RenderPassDepthGrab`, which that path skips.
+  It is absent rather than stale (the pass clears it on destruction). Nothing in
+  the tree drives SSR, so this is untested either way; giving the camera frame its
+  own depth grab means letting that pass take an explicit source render target.
 - **Example coverage gaps.** Nothing exercises: gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles
   diffuse, normal and AO detail maps and only NORMAL exists here), fog of any

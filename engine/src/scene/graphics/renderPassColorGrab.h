@@ -20,6 +20,13 @@ namespace visutwin::canvas
         explicit RenderPassColorGrab(const std::shared_ptr<GraphicsDevice>& device)
             : RenderPass(device) {}
 
+        /// The device holds a raw pointer to the grab destination, so a pass that goes
+        /// away while it is still published leaves every later draw binding freed memory.
+        /// Destroying a grab pass is ordinary - the camera drops it when the request is
+        /// withdrawn, and a camera frame drops it on any option change that rebuilds its
+        /// render targets - so the pass itself has to withdraw what it published.
+        ~RenderPassColorGrab();
+
         std::shared_ptr<RenderTarget> source() const { return _source; }
 
         void setSource(const std::shared_ptr<RenderTarget>& source) { _source = source; }

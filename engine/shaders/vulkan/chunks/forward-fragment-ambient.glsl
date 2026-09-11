@@ -219,9 +219,12 @@
             vec3 samplePos = fragWorldPos + ssrR * (ssrStep * float(i));
             vec4 clip = lighting.viewProjection * vec4(samplePos, 1.0);
             if (clip.w <= 0.0) break;                     // behind the camera
-            // Vulkan clip space is already Y-down, so NDC maps straight to UV
-            // (the Metal path flips Y here).
-            vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+            // The backend rasterises through a NEGATED-height viewport so that
+            // projection matrices written for Metal work unchanged, which puts
+            // NDC +Y at the TOP row of every target, back buffer and offscreen
+            // alike. A projected point therefore maps to a texture coordinate
+            // exactly as it does on Metal, Y included.
+            vec2 uv = clip.xy / clip.w * vec2(0.5, -0.5) + 0.5;
             if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
             float marchedZ = clip.w;                      // view-space distance
             float rawDepth = texture(ssrSceneDepth, uv).r;
@@ -236,10 +239,15 @@
         }
 
         if (ssrHit > 0.0) {
-            // The Vulkan forward pass always tonemaps and gamma-encodes, so the
-            // grab is display-encoded unconditionally (the Metal path has to
-            // check its HDR camera-frame flag before decoding).
-            vec3 ssrColor = srgbToLinear(texture(ssrSceneColor, ssrHitUv).rgb);
+            // The standalone grab copies the tonemapped, gamma-encoded back buffer
+            // and owes a decode. Under the camera-frame path (bit 5 of
+            // flagsAndPad[0]) the forward pass writes linear HDR into an offscreen
+            // target and the grab copies THAT, so decoding it a second time would
+            // darken every reflection. Metal gates the same decode the same way.
+            vec3 ssrColor = texture(ssrSceneColor, ssrHitUv).rgb;
+            if ((lighting.flagsAndPad[0] & (1u << 5)) == 0u) {
+                ssrColor = srgbToLinear(ssrColor);
+            }
             // Fade at screen edges (reflections pop as rays exit the frame) and
             // on rough surfaces (this port marches sharp — no roughness cone).
             vec2 eLo = smoothstep(vec2(0.0), vec2(0.12), ssrHitUv);
@@ -327,17 +335,22 @@
                 vec4 projected = lighting.viewProjection *
                     vec4(fragWorldPos + refractionVector, 1.0);
                 float invW = 1.0 / max(projected.w, 1e-6);
-                // No Y flip: Vulkan clip space is already Y-down.
-                vec2 grabUv = clamp(projected.xy * invW * 0.5 + 0.5, 0.001, 0.999);
+                // Same NDC-to-texture mapping as the SSR march above.
+                vec2 grabUv = clamp(projected.xy * invW * vec2(0.5, -0.5) + 0.5,
+                    0.001, 0.999);
 
                 float iorCh = 1.0 / etaCh;
                 float iorToRoughness = clamp(1.0 - gloss, 0.0, 1.0) *
                     clamp(iorCh * 2.0 - 2.0, 0.0, 1.0);
                 float refractionLod = grabMips * iorToRoughness;
-                // The Vulkan forward pass always tonemaps, so the grab is
-                // display-encoded unconditionally.
-                vec3 sampleColor = srgbToLinear(
-                    textureLod(ssrSceneColor, grabUv, refractionLod).rgb);
+                // Decoded only when the grab came from the gamma-encoded back
+                // buffer; the camera-frame grab is already linear (see the SSR
+                // block above).
+                vec3 sampleColor =
+                    textureLod(ssrSceneColor, grabUv, refractionLod).rgb;
+                if ((lighting.flagsAndPad[0] & (1u << 5)) == 0u) {
+                    sampleColor = srgbToLinear(sampleColor);
+                }
                 if (refrSamples == 1) {
                     refrColor = sampleColor;
                 } else {

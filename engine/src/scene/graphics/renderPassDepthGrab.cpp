@@ -11,6 +11,14 @@
 
 namespace visutwin::canvas
 {
+    RenderPassDepthGrab::~RenderPassDepthGrab()
+    {
+        if (const auto device = this->device();
+            device && _grabTexture && device->sceneDepthGrabMap() == _grabTexture.get()) {
+            device->setSceneDepthGrabMap(nullptr);
+        }
+    }
+
     void RenderPassDepthGrab::before()
     {
         if (!_camera) {

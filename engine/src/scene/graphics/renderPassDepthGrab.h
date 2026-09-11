@@ -23,6 +23,10 @@ namespace visutwin::canvas
         RenderPassDepthGrab(const std::shared_ptr<GraphicsDevice>& device, Camera* camera)
             : RenderPass(device), _camera(camera) {}
 
+        /// Withdraws the published depth grab for the reason RenderPassColorGrab's
+        /// destructor gives: the device keeps a raw pointer to a texture this pass owns.
+        ~RenderPassDepthGrab();
+
         void before() override;
         void execute() override;
 

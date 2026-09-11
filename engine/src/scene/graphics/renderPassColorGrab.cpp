@@ -10,6 +10,14 @@
 
 namespace visutwin::canvas
 {
+    RenderPassColorGrab::~RenderPassColorGrab()
+    {
+        if (const auto device = this->device();
+            device && _grabTexture && device->sceneColorMap() == _grabTexture.get()) {
+            device->setSceneColorMap(nullptr);
+        }
+    }
+
     void RenderPassColorGrab::execute()
     {
         // Copy the scene colour rendered so far (opaque + depth layers) into a

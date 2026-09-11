@@ -25,12 +25,17 @@ namespace visutwin::canvas
         }
 
         // Fall back to the back buffer's geometry: copying from it is legal, but
-        // it has no Texture to read a size or format off.
+        // it has no Texture to read a size or format off. Only Metal publishes a
+        // back-buffer RenderTarget, so the device's own size is the last resort -
+        // without it every grab from the back buffer measured 0x0 on Vulkan and
+        // allocated nothing, which is why dynamic refraction there had no scene
+        // colour to sample outside a camera frame.
         const RenderTarget* sizeSource = source ? source : device->backBuffer().get();
+        const auto [deviceWidth, deviceHeight] = device->size();
         const uint32_t width = sourceTexture ? sourceTexture->width()
-            : static_cast<uint32_t>(sizeSource ? sizeSource->width() : 0);
+            : static_cast<uint32_t>(sizeSource ? sizeSource->width() : deviceWidth);
         const uint32_t height = sourceTexture ? sourceTexture->height()
-            : static_cast<uint32_t>(sizeSource ? sizeSource->height() : 0);
+            : static_cast<uint32_t>(sizeSource ? sizeSource->height() : deviceHeight);
         if (width == 0 || height == 0) {
             return nullptr;
         }

@@ -165,7 +165,22 @@ namespace visutwin::canvas
                 };
             } else {
                 const auto isDepthLayer = renderAction->layer->id() == LAYERID_DEPTH;
-                const auto  isGrabPass = isDepthLayer &&
+                // A camera that renders through a frame does its own grabbing, from the
+                // offscreen scene target rather than the back buffer, so the depth layer
+                // must NOT break its block: the camera frame has to receive every render
+                // action of the camera. Splitting there handed it only the actions after
+                // the grab - the opaque world and the sky went straight to the back buffer
+                // and compose then overwrote them with a target holding just the
+                // transparent tail, which is a black frame for any camera that asked for a
+                // grab and for any post-processing at the same time.
+                // NOTE: the camera frame owns the scene COLOUR grab and publishes the scene
+                // depth from its own attachment, but it has no counterpart for the
+                // sampleable depth COPY this path also produces (sceneDepthGrabMap, read
+                // only by SSR). Nothing in the tree drives SSR, so that copy is absent
+                // rather than wrong under a camera frame.
+                const auto cameraOwnsGrabs = renderAction->camera &&
+                    renderAction->camera->onPostprocessing() != nullptr;
+                const auto  isGrabPass = isDepthLayer && !cameraOwnsGrabs &&
                     (renderAction->camera->renderSceneColorMap() || renderAction->camera->renderSceneDepthMap());
 
                 // start of block of render actions rendering to the same render target
@@ -178,7 +193,7 @@ namespace visutwin::canvas
                 // info about the next render action
                 auto* nextRenderAction = (i + 1 < renderActions.size()) ? renderActions[i + 1] : nullptr;
                 const auto isNextLayerDepth = nextRenderAction ? (!nextRenderAction->useCameraPasses && nextRenderAction->layer->id() == LAYERID_DEPTH) : false;
-                const auto isNextLayerGrabPass = isNextLayerDepth &&
+                const auto isNextLayerGrabPass = isNextLayerDepth && !cameraOwnsGrabs &&
                     (renderAction->camera->renderSceneColorMap() || renderAction->camera->renderSceneDepthMap());
 
                 auto* camera = (nextRenderAction && nextRenderAction->camera) ? nextRenderAction->camera->camera() : nullptr;

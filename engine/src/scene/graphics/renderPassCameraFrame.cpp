@@ -135,6 +135,16 @@ namespace visutwin::canvas
         }
         options.ssaoBlurEnabled = ssao.blurEnabled;
 
+        // The scene-colour grab is a camera-level REQUEST (requestSceneColorMap,
+        // reference counted so several effects can want it at once), where upstream
+        // reads it off CameraFrame.rendering.sceneColorMap. ForwardRenderer skips the
+        // standalone grab pass whenever a camera frame is active, because the scene
+        // renders into this offscreen target rather than the back buffer, so without
+        // this line the request was silently dropped the moment any post-processing
+        // was switched on and every material reading the scene colour sampled a null
+        // or stale texture.
+        options.sceneColorMap = _cameraComponent->renderSceneColorMap();
+
         options.samples = std::max(rendering.samples, 1);
         // Clamped rather than trusted: the scene target is quadratic in this value,
         // so a stray 8.0 would ask for 64x the pixels of a native-resolution frame.
@@ -224,19 +234,21 @@ namespace visutwin::canvas
 
         _prePass.reset();
         _scenePass.reset();
-        _colorGrabPass.reset();
         _scenePassTransparent.reset();
         _afterPass.reset();
         _composePass.reset();
         _sceneTextureResolved = nullptr;
-        // Note: _ssaoPass, _taaPass, _scenePassHalf, _bloomPass, _dofPass are NOT
-        // reset here — they persist across frames to avoid per-frame GPU texture
-        // allocation (each creates Metal textures + render targets in constructors).
+        // Note: _ssaoPass, _taaPass, _scenePassHalf, _bloomPass, _dofPass and
+        // _colorGrabPass are NOT reset here — they persist across frames to avoid
+        // per-frame GPU texture allocation (each creates Metal textures + render
+        // targets in constructors). The grab pass has a second reason: the device
+        // holds a raw pointer to its destination texture, which the next frame's
+        // scene pass binds before the grab itself re-runs.
 
         // Also apply any option changes from CameraComponent (e.g. TAA/SSAO toggled).
         if (_cameraComponent) {
             // Start from the current options so fields the camera does not own
-            // (formats, layer ids, sceneColorMap) survive the rebuild.
+            // (formats, layer ids) survive the rebuild.
             CameraFrameOptions options = _options;
             applyCameraSettings(options);
             auto sanitized = sanitizeOptions(options);
@@ -519,30 +531,66 @@ namespace visutwin::canvas
         _scenePass->setHdrPass(true);
         _scenePass->init(_sceneRenderTarget, _sceneOptions);
 
+        const int lastActionIndex = static_cast<int>(_sourceActions.size()) - 1;
         const int lastLayerId = options.sceneColorMap ? options.lastGrabLayerId : options.lastSceneLayerId;
         const bool lastLayerTransparent = options.sceneColorMap ? options.lastGrabLayerIsTransparent : options.lastSceneLayerIsTransparent;
-        const int sceneEndIndex = findActionIndex(lastLayerId, lastLayerTransparent, 0);
 
+        // Upstream's addCameraLayers walks the whole layer list and only BREAKS once it
+        // reaches the requested layer, so a composition that does not contain that layer
+        // renders every layer rather than nothing. Returning here on a missing layer made
+        // the scene pass draw no actions at all: harmless while the default camera always
+        // had an immediate layer to stop at, but the grab path stops at the SKYBOX instead,
+        // which a camera with a custom layer set need not render.
+        int sceneEndIndex = findActionIndex(lastLayerId, lastLayerTransparent, 0);
         if (sceneEndIndex < 0) {
-            return info;
+            sceneEndIndex = lastActionIndex;
         }
 
         info.lastAddedIndex = appendActionsToPass(_scenePass, 0, sceneEndIndex, _sceneRenderTarget);
         info.clearRenderTarget = false;
 
         if (options.sceneColorMap) {
-            _colorGrabPass = std::make_shared<RenderPassColorGrab>(device());
+            // Persisted across frames like the other sub-passes that own a texture: the
+            // grab destination is allocated on first use and resized with the scene target,
+            // and the device holds a raw pointer to it that the next frame's scene pass
+            // binds before this pass re-runs.
+            if (!_colorGrabPass) {
+                _colorGrabPass = std::make_shared<RenderPassColorGrab>(device());
+            }
             _colorGrabPass->setSource(_sceneRenderTarget);
 
-            const int transparentEndIndex = findActionIndex(options.lastSceneLayerId, options.lastSceneLayerIsTransparent,
-                std::max(info.lastAddedIndex + 1, 0));
-            if (transparentEndIndex >= 0) {
-                _scenePassTransparent = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene, _renderer);
-                _scenePassTransparent->setHdrPass(true);
-                _scenePassTransparent->init(_sceneRenderTarget);
-                info.lastAddedIndex = appendActionsToPass(_scenePassTransparent, info.lastAddedIndex + 1, transparentEndIndex,
-                    _sceneRenderTarget);
+            // Layers after the grab render in their own pass, so they can read what the
+            // grab captured. The target already holds the opaque result, so this pass must
+            // not clear it - only layer-level clear flags apply, which is what
+            // firstLayerClears = false expresses.
+            const int transparentFromIndex = info.lastAddedIndex + 1;
+            int transparentEndIndex = findActionIndex(options.lastSceneLayerId, options.lastSceneLayerIsTransparent,
+                std::max(transparentFromIndex, 0));
+            if (transparentEndIndex < 0) {
+                transparentEndIndex = lastActionIndex;
             }
+
+            _scenePassTransparent = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene, _renderer);
+            _scenePassTransparent->setHdrPass(true);
+            _scenePassTransparent->init(_sceneRenderTarget);
+            const int appended = appendActionsToPass(_scenePassTransparent, transparentFromIndex, transparentEndIndex,
+                _sceneRenderTarget, false /* firstLayerClears */);
+            if (appended < transparentFromIndex) {
+                // Nothing left to draw after the grab - drop the pass rather than open a
+                // render pass that only reloads and stores the target (upstream does the
+                // same through RenderPassForward.rendersAnything).
+                _scenePassTransparent.reset();
+            } else {
+                info.lastAddedIndex = appended;
+                // A prepass discards depth by default; the grab split means this pass,
+                // not the scene pass, is the last writer, so it has to keep it for the
+                // effects that sample scene depth.
+                if (options.prepassEnabled && _scenePassTransparent->depthStencilOps()) {
+                    _scenePassTransparent->depthStencilOps()->storeDepth = true;
+                }
+            }
+        } else {
+            _colorGrabPass.reset();
         }
 
         return info;
