@@ -127,8 +127,10 @@ namespace visutwin::canvas
         /// `ktx2TargetFormat` is the block-compressed format KHR_texture_basisu images
         /// transcode to. It must be decided from the device on the MAIN thread and passed
         /// in, because this runs on a worker; see GraphicsDevice::preferredCompressedRgbaFormat.
+        /// `debugName` names the file in any warning this raises (it runs on a
+        /// worker, where nothing else identifies the load).
         static PreparedGlbData prepareFromModel(tinygltf::Model& model,
-            PixelFormat ktx2TargetFormat);
+            PixelFormat ktx2TargetFormat, const std::string& debugName = {});
 
         /**
          * Create GPU resources from fully pre-processed model data.

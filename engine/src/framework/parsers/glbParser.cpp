@@ -17,6 +17,7 @@
 #include <cstring>
 #include <limits>
 #include <queue>
+#include <set>
 #include <vector>
 
 #include <draco/compression/decode.h>
@@ -293,11 +294,54 @@ namespace visutwin::canvas
             return buffer.data.data() + offset;
         }
 
-        bool readFloatVec3(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, Vector3& out)
+        // One component of one element, de-quantised. glTF stores an attribute as
+        // float OR as an integer type, raw or normalized: TEXCOORD_n and COLOR_n
+        // may be normalized byte/short in CORE glTF, and KHR_mesh_quantization
+        // extends that to POSITION, NORMAL and TANGENT. The de-quantisation is the
+        // spec's: an unsigned normalized value divides by the type's maximum, a
+        // signed one divides by its largest magnitude and clamps at -1 (the extra
+        // negative step is not part of the range), and a value that is not
+        // normalized is the integer itself — for a quantised POSITION the node
+        // transform carries the scale back.
+        float decodeComponent(const uint8_t* element, const int componentType,
+            const bool normalized, const int component)
         {
-            if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT ||
-                accessor.type != TINYGLTF_TYPE_VEC3 ||
-                index >= static_cast<size_t>(accessor.count)) {
+            switch (componentType) {
+            case TINYGLTF_COMPONENT_TYPE_FLOAT:
+                return reinterpret_cast<const float*>(element)[component];
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: {
+                const auto value = static_cast<float>(element[component]);
+                return normalized ? value / 255.0f : value;
+            }
+            case TINYGLTF_COMPONENT_TYPE_BYTE: {
+                const auto value = static_cast<float>(reinterpret_cast<const int8_t*>(element)[component]);
+                return normalized ? std::max(value / 127.0f, -1.0f) : value;
+            }
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
+                const auto value = static_cast<float>(reinterpret_cast<const uint16_t*>(element)[component]);
+                return normalized ? value / 65535.0f : value;
+            }
+            case TINYGLTF_COMPONENT_TYPE_SHORT: {
+                const auto value = static_cast<float>(reinterpret_cast<const int16_t*>(element)[component]);
+                return normalized ? std::max(value / 32767.0f, -1.0f) : value;
+            }
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+                return static_cast<float>(reinterpret_cast<const uint32_t*>(element)[component]);
+            case TINYGLTF_COMPONENT_TYPE_INT:
+                return static_cast<float>(reinterpret_cast<const int32_t*>(element)[component]);
+            default:
+                return 0.0f;
+            }
+        }
+
+        // Reads `count` components of one element into `out`, whatever the accessor's
+        // component type. The accessor's TYPE (VEC2/VEC3/...) still has to be the one
+        // the caller asked for: a reader that quietly accepted a VEC2 where a VEC3 was
+        // wanted would read a neighbouring element's bytes as the third component.
+        bool readElement(const tinygltf::Model& model, const tinygltf::Accessor& accessor,
+            const size_t index, const int expectedType, float* out, const int count)
+        {
+            if (accessor.type != expectedType || index >= static_cast<size_t>(accessor.count)) {
                 return false;
             }
             const auto* base = getAccessorBase(model, accessor);
@@ -305,61 +349,47 @@ namespace visutwin::canvas
                 return false;
             }
             const auto stride = accessorStride(model, accessor);
-            const auto* ptr = reinterpret_cast<const float*>(base + index * static_cast<size_t>(stride));
-            out = Vector3(ptr[0], ptr[1], ptr[2]);
+            const auto* element = base + index * static_cast<size_t>(stride);
+            for (int c = 0; c < count; ++c) {
+                out[c] = decodeComponent(element, accessor.componentType, accessor.normalized, c);
+            }
+            return true;
+        }
+
+        bool readFloatVec3(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, Vector3& out)
+        {
+            float v[3];
+            if (!readElement(model, accessor, index, TINYGLTF_TYPE_VEC3, v, 3)) {
+                return false;
+            }
+            out = Vector3(v[0], v[1], v[2]);
             return true;
         }
 
         bool readFloatVec2(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, float& u, float& v)
         {
-            if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT ||
-                accessor.type != TINYGLTF_TYPE_VEC2 ||
-                index >= static_cast<size_t>(accessor.count)) {
+            float value[2];
+            if (!readElement(model, accessor, index, TINYGLTF_TYPE_VEC2, value, 2)) {
                 return false;
             }
-            const auto* base = getAccessorBase(model, accessor);
-            if (!base) {
-                return false;
-            }
-            const auto stride = accessorStride(model, accessor);
-            const auto* ptr = reinterpret_cast<const float*>(base + index * static_cast<size_t>(stride));
-            u = ptr[0];
-            v = ptr[1];
+            u = value[0];
+            v = value[1];
             return true;
         }
 
         bool readFloatVec4(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, Vector4& out)
         {
-            if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT ||
-                accessor.type != TINYGLTF_TYPE_VEC4 ||
-                index >= static_cast<size_t>(accessor.count)) {
+            float v[4];
+            if (!readElement(model, accessor, index, TINYGLTF_TYPE_VEC4, v, 4)) {
                 return false;
             }
-            const auto* base = getAccessorBase(model, accessor);
-            if (!base) {
-                return false;
-            }
-            const auto stride = accessorStride(model, accessor);
-            const auto* ptr = reinterpret_cast<const float*>(base + index * static_cast<size_t>(stride));
-            out = Vector4(ptr[0], ptr[1], ptr[2], ptr[3]);
+            out = Vector4(v[0], v[1], v[2], v[3]);
             return true;
         }
 
         bool readFloatScalar(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, float& out)
         {
-            if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT ||
-                accessor.type != TINYGLTF_TYPE_SCALAR ||
-                index >= static_cast<size_t>(accessor.count)) {
-                return false;
-            }
-            const auto* base = getAccessorBase(model, accessor);
-            if (!base) {
-                return false;
-            }
-            const auto stride = accessorStride(model, accessor);
-            const auto* ptr = reinterpret_cast<const float*>(base + index * static_cast<size_t>(stride));
-            out = ptr[0];
-            return true;
+            return readElement(model, accessor, index, TINYGLTF_TYPE_SCALAR, &out, 1);
         }
 
         // Apply glTF sparse-accessor overrides (indices + values bufferViews) on top
@@ -399,15 +429,21 @@ namespace visutwin::canvas
             if (idxBytes != 1 && idxBytes != 2 && idxBytes != 4) {
                 return false;
             }
+            // The sparse VALUES carry the accessor's own component type, so they are
+            // de-quantised exactly like the dense data they override.
+            const int valueBytes = componentBytes(accessor.componentType);
+            if (valueBytes <= 0) {
+                return false;
+            }
             const auto* idxPtr = viewBytes(sparse.indices.bufferView, sparse.indices.byteOffset,
                 sparseCount * static_cast<size_t>(idxBytes));
+            const auto valueStride = static_cast<size_t>(numComponents) * static_cast<size_t>(valueBytes);
             const auto* valPtr = viewBytes(sparse.values.bufferView, sparse.values.byteOffset,
-                sparseCount * static_cast<size_t>(numComponents) * sizeof(float));
+                sparseCount * valueStride);
             if (!idxPtr || !valPtr) {
                 return false;
             }
 
-            const auto* values = reinterpret_cast<const float*>(valPtr);
             const size_t elementCount = out.size() / static_cast<size_t>(numComponents);
             for (size_t i = 0; i < sparseCount; ++i) {
                 size_t index = 0;
@@ -419,25 +455,27 @@ namespace visutwin::canvas
                 if (index >= elementCount) {
                     return false;
                 }
+                const auto* element = valPtr + i * valueStride;
                 for (int c = 0; c < numComponents; ++c) {
                     out[index * static_cast<size_t>(numComponents) + static_cast<size_t>(c)] =
-                        values[i * static_cast<size_t>(numComponents) + static_cast<size_t>(c)];
+                        decodeComponent(element, accessor.componentType, accessor.normalized, c);
                 }
             }
             return true;
         }
 
-        // Read all float data from an accessor into a flat vector.
-        // Works for SCALAR, VEC2, VEC3, VEC4 — all written as sequential floats.
+        // Read all data from an accessor into a flat vector of floats.
+        // Works for SCALAR, VEC2, VEC3, VEC4, and for every component type glTF
+        // allows — the values are de-quantised on the way out.
         // Supports sparse accessors, including the base-less form (bufferView absent,
         // base = zeros) that morph-target deltas commonly use.
+        // De-quantises like readElement: an animation sampler's output may be
+        // normalized byte/short in core glTF, and a morph target's deltas may be
+        // quantised under KHR_mesh_quantization.
         bool readFloatArray(const tinygltf::Model& model, const tinygltf::Accessor& accessor, std::vector<float>& out)
         {
-            if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
-                return false;
-            }
             const int numComponents = tinygltf::GetNumComponentsInType(accessor.type);
-            if (numComponents <= 0) {
+            if (numComponents <= 0 || componentBytes(accessor.componentType) <= 0) {
                 return false;
             }
             const size_t count = static_cast<size_t>(accessor.count);
@@ -450,9 +488,10 @@ namespace visutwin::canvas
                 }
                 const auto stride = accessorStride(model, accessor);
                 for (size_t i = 0; i < count; ++i) {
-                    const auto* ptr = reinterpret_cast<const float*>(base + i * static_cast<size_t>(stride));
+                    const auto* element = base + i * static_cast<size_t>(stride);
                     for (int c = 0; c < numComponents; ++c) {
-                        out[i * static_cast<size_t>(numComponents) + static_cast<size_t>(c)] = ptr[c];
+                        out[i * static_cast<size_t>(numComponents) + static_cast<size_t>(c)] =
+                            decodeComponent(element, accessor.componentType, accessor.normalized, c);
                     }
                 }
             } else if (!accessor.sparse.isSparse) {
@@ -1359,6 +1398,188 @@ namespace visutwin::canvas
     }
 
     /**
+     * Report glTF extensions the file says it REQUIRES that this parser does not
+     * implement. `extensionsRequired` is the asset stating it cannot be loaded
+     * correctly without them, so a file listing meshopt compression or an
+     * unimplemented material model loads PARTIALLY — geometry missing, or a
+     * material silently plain — and every later oddity looks like an engine bug.
+     *
+     * DEVIATION: upstream's parser does not consult the field at all (only its
+     * exporter writes one). It is a warning rather than a refusal because the
+     * usual case is one cosmetic extension on an otherwise usable file, and the
+     * name in the log is what turns an hour of bisecting into a one-line answer.
+     */
+    static void warnUnsupportedRequiredExtensions(const tinygltf::Model& model, const std::string& debugName)
+    {
+        // What the parser actually acts on. The texture-container extensions are
+        // here because the parser resolves the image index through them; whether
+        // the image PAYLOAD decodes is a separate question the image loader
+        // answers with its own per-image warning.
+        static const std::set<std::string> supported = {
+            "KHR_draco_mesh_compression",
+            "KHR_materials_clearcoat",
+            "KHR_materials_dispersion",
+            "KHR_materials_emissive_strength",
+            "KHR_materials_ior",
+            "KHR_materials_pbrSpecularGlossiness",
+            "KHR_materials_transmission",
+            "KHR_materials_unlit",
+            "KHR_materials_volume",
+            "KHR_mesh_quantization",
+            "KHR_texture_basisu",
+            "KHR_texture_transform",
+            "EXT_texture_avif",
+            "EXT_texture_webp",
+            "MSFT_texture_dds",
+        };
+
+        std::string missing;
+        for (const auto& extension : model.extensionsRequired) {
+            if (supported.contains(extension)) {
+                continue;
+            }
+            if (!missing.empty()) {
+                missing += ", ";
+            }
+            missing += extension;
+        }
+        if (!missing.empty()) {
+            spdlog::warn("GLB [{}] requires extensions this parser does not implement: {}. "
+                "The file will load, but not as its author intended.", debugName, missing);
+        }
+    }
+
+    /**
+     * Apply KHR_materials_emissive_strength: a linear multiplier on the emissive
+     * term, which is how a glTF asset asks for an emitter brighter than white.
+     * It lands on emissiveIntensity because StandardMaterial::updateUniforms
+     * uploads pow(emissive, 2.2) * emissiveIntensity — the factor is already
+     * linearised there, so the strength must not be gamma-corrected with it.
+     */
+    static void applyEmissiveStrength(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    {
+        const auto it = srcMaterial.extensions.find("KHR_materials_emissive_strength");
+        if (it == srcMaterial.extensions.end() || !it->second.IsObject()) {
+            return;
+        }
+        if (const auto& ext = it->second; ext.Has("emissiveStrength")) {
+            if (const auto value = ext.Get("emissiveStrength"); value.IsNumber()) {
+                material->setEmissiveIntensity(static_cast<float>(value.GetNumberAsDouble()));
+            }
+        }
+    }
+
+    /**
+     * Apply KHR_texture_transform to every texture slot that carries one. The
+     * extension lives on the texture INFO, not on the material, so each slot is
+     * read separately: base colour, metallic-roughness, normal, occlusion and
+     * emissive, which are the five StandardMaterial can transform.
+     *
+     * DEVIATION from upstream's `extractTextureTransform`, which cannot be copied
+     * literally: upstream feeds its shader the glTF UVs unchanged, while this
+     * parser flips V into the vertex (v = 1 - v) — so the transform is composed
+     * with a flip on both sides and the constants come out different.
+     *
+     * glTF maps uv by [[sx cosT, sy sinT, gx], [-sx sinT, sy cosT, gy]], where T is
+     * the rotation counter-clockwise in radians. Substituting v_engine = 1 - v_gltf
+     * on both sides and matching `packTransform`'s
+     *     u' = cos(r) tx u - sin(r) ty v + ox
+     *     v' = sin(r) tx u + cos(r) ty v + (1 - ty - oy)
+     * term by term gives tiling = scale, rotation = +T (upstream negates it), and
+     * an offset that picks up the rotation:
+     *     ox = gx + sy sinT
+     *     oy = gy - sy (1 - cosT)
+     * At rotation 0 that is just the raw glTF offset. Verified by rendering a
+     * transform against the same transform baked into the mesh UVs; a sign error
+     * in the V term is invisible under a pure SCALE, because the two spellings
+     * then differ by a whole number of tiles and REPEAT wrapping hides it.
+     *
+     * These are the STANDARDMATERIAL per-map properties, not the base Material's
+     * TextureTransform fields: `StandardMaterial::updateUniforms` pushes its own
+     * tiling/offset/rotation into those base fields on every pack, so anything
+     * written there directly is overwritten before it reaches the GPU — the same
+     * trap as setDiffuse versus setBaseColorFactor.
+     *
+     * DEVIATION: the extension's own `texCoord` override is ignored, as upstream
+     * ignores it. The texture info's texCoord still selects the UV set.
+     */
+    static void applyTextureTransforms(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    {
+        struct Transform
+        {
+            Vector2 tiling{1.0f, 1.0f};
+            Vector2 offset{0.0f, 0.0f};
+            float rotation = 0.0f;
+        };
+
+        const auto readTransform = [](const tinygltf::ExtensionMap& extensions, Transform& out) -> bool {
+            const auto it = extensions.find("KHR_texture_transform");
+            if (it == extensions.end() || !it->second.IsObject()) {
+                return false;
+            }
+            const auto& ext = it->second;
+
+            const auto readPair = [&ext](const char* key, float& x, float& y) {
+                if (!ext.Has(key)) {
+                    return;
+                }
+                if (const auto array = ext.Get(key); array.IsArray() && array.ArrayLen() >= 2) {
+                    if (const auto v0 = array.Get(0); v0.IsNumber()) x = static_cast<float>(v0.GetNumberAsDouble());
+                    if (const auto v1 = array.Get(1); v1.IsNumber()) y = static_cast<float>(v1.GetNumberAsDouble());
+                }
+            };
+
+            float offsetX = 0.0f, offsetY = 0.0f, scaleX = 1.0f, scaleY = 1.0f;
+            readPair("offset", offsetX, offsetY);
+            readPair("scale", scaleX, scaleY);
+
+            float rotation = 0.0f;
+            if (ext.Has("rotation")) {
+                if (const auto value = ext.Get("rotation"); value.IsNumber()) {
+                    rotation = static_cast<float>(value.GetNumberAsDouble());
+                }
+            }
+
+            constexpr float RAD_TO_DEG = 180.0f / 3.14159265358979323846f;
+            const float sinRotation = std::sin(rotation);
+            const float cosRotation = std::cos(rotation);
+            out.tiling = Vector2(scaleX, scaleY);
+            out.offset = Vector2(offsetX + scaleY * sinRotation,
+                offsetY - scaleY * (1.0f - cosRotation));
+            out.rotation = rotation * RAD_TO_DEG;
+            return true;
+        };
+
+        Transform transform;
+        const auto& pbr = srcMaterial.pbrMetallicRoughness;
+        if (readTransform(pbr.baseColorTexture.extensions, transform)) {
+            material->setDiffuseMapTiling(transform.tiling);
+            material->setDiffuseMapOffset(transform.offset);
+            material->setDiffuseMapRotation(transform.rotation);
+        }
+        if (readTransform(pbr.metallicRoughnessTexture.extensions, transform)) {
+            material->setMetalnessMapTiling(transform.tiling);
+            material->setMetalnessMapOffset(transform.offset);
+            material->setMetalnessMapRotation(transform.rotation);
+        }
+        if (readTransform(srcMaterial.normalTexture.extensions, transform)) {
+            material->setNormalMapTiling(transform.tiling);
+            material->setNormalMapOffset(transform.offset);
+            material->setNormalMapRotation(transform.rotation);
+        }
+        if (readTransform(srcMaterial.occlusionTexture.extensions, transform)) {
+            material->setAoMapTiling(transform.tiling);
+            material->setAoMapOffset(transform.offset);
+            material->setAoMapRotation(transform.rotation);
+        }
+        if (readTransform(srcMaterial.emissiveTexture.extensions, transform)) {
+            material->setEmissiveMapTiling(transform.tiling);
+            material->setEmissiveMapOffset(transform.offset);
+            material->setEmissiveMapRotation(transform.rotation);
+        }
+    }
+
+    /**
      * Apply KHR_materials_clearcoat to a StandardMaterial. glTF stores coat
      * roughness while the material stores gloss, so the factor routes through
      * setClearCoatGloss + setClearCoatGlossInvert(true). DEVIATION: the shader
@@ -1570,6 +1791,7 @@ namespace visutwin::canvas
             spdlog::error("GLB parse failed [{}]: {}", path, err);
             return nullptr;
         }
+        warnUnsupportedRequiredExtensions(model, path);
 
         auto container = std::make_unique<GlbContainerResource>();
         auto vertexFormat = std::make_shared<VertexFormat>(
@@ -1749,6 +1971,8 @@ namespace visutwin::canvas
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
                 applyVolumeExtensions(srcMaterial, material.get());
                 applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
+                applyEmissiveStrength(srcMaterial, material.get());
+                applyTextureTransforms(srcMaterial, material.get());
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto baseColorTexture = getOrCreateTexture(pbr.baseColorTexture.index)) {
@@ -1962,8 +2186,12 @@ namespace visutwin::canvas
                     if (!positionAccessor || positionAccessor->count <= 0) {
                         continue;
                     }
-                    if (positionAccessor->componentType != TINYGLTF_COMPONENT_TYPE_FLOAT ||
-                        positionAccessor->type != TINYGLTF_TYPE_VEC3) {
+                    // A quantised POSITION is still a POSITION: the readers de-quantise
+                    // every component type glTF allows, so only an unreadable one is
+                    // grounds for dropping the primitive. Requiring float here dropped
+                    // each one whole and silently.
+                    if (positionAccessor->type != TINYGLTF_TYPE_VEC3 ||
+                        componentBytes(positionAccessor->componentType) <= 0) {
                         continue;
                     }
 
@@ -2174,8 +2402,12 @@ namespace visutwin::canvas
                     if (!positionAccessor || positionAccessor->count <= 0) {
                         continue;
                     }
-                    if (positionAccessor->componentType != TINYGLTF_COMPONENT_TYPE_FLOAT ||
-                        positionAccessor->type != TINYGLTF_TYPE_VEC3) {
+                    // A quantised POSITION is still a POSITION: the readers de-quantise
+                    // every component type glTF allows, so only an unreadable one is
+                    // grounds for dropping the primitive. Requiring float here dropped
+                    // each one whole and silently.
+                    if (positionAccessor->type != TINYGLTF_TYPE_VEC3 ||
+                        componentBytes(positionAccessor->componentType) <= 0) {
                         continue;
                     }
 
@@ -2573,6 +2805,7 @@ namespace visutwin::canvas
             spdlog::error("GLB createFromModel failed: graphics device is null");
             return nullptr;
         }
+        warnUnsupportedRequiredExtensions(model, debugName);
 
         auto container = std::make_unique<GlbContainerResource>();
         auto vertexFormat = std::make_shared<VertexFormat>(
@@ -2721,6 +2954,8 @@ namespace visutwin::canvas
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
                 applyVolumeExtensions(srcMaterial, material.get());
                 applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
+                applyEmissiveStrength(srcMaterial, material.get());
+                applyTextureTransforms(srcMaterial, material.get());
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {
@@ -2788,7 +3023,8 @@ namespace visutwin::canvas
                     if (!primitive.attributes.contains("POSITION")) continue;
                     const auto* posAcc = getAccessor(model, primitive.attributes.at("POSITION"));
                     if (!posAcc || posAcc->count <= 0) continue;
-                    if (posAcc->componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || posAcc->type != TINYGLTF_TYPE_VEC3) continue;
+                    // See the note on the same guard in parse(): quantised positions read fine.
+                    if (posAcc->type != TINYGLTF_TYPE_VEC3 || componentBytes(posAcc->componentType) <= 0) continue;
 
                     const auto* normalAcc = primitive.attributes.contains("NORMAL") ? getAccessor(model, primitive.attributes.at("NORMAL")) : nullptr;
                     const auto* uvAcc = primitive.attributes.contains("TEXCOORD_0") ? getAccessor(model, primitive.attributes.at("TEXCOORD_0")) : nullptr;
@@ -2930,8 +3166,12 @@ namespace visutwin::canvas
     // ── prepareFromModel: CPU-heavy work on background thread ────────
 
     PreparedGlbData GlbParser::prepareFromModel(tinygltf::Model& model,
-        const PixelFormat ktx2TargetFormat)
+        const PixelFormat ktx2TargetFormat, const std::string& debugName)
     {
+        // The async path never reaches createFromModel — its main-thread half is
+        // createFromPrepared — so it is checked here, once, on the worker.
+        warnUnsupportedRequiredExtensions(model, debugName.empty() ? "glTF" : debugName);
+
         PreparedGlbData result;
 
         // ── Pre-convert all images to RGBA8 ──────────────────────────
@@ -2992,7 +3232,8 @@ namespace visutwin::canvas
                     if (!primitive.attributes.contains("POSITION")) continue;
                     const auto* posAcc = getAccessor(model, primitive.attributes.at("POSITION"));
                     if (!posAcc || posAcc->count <= 0) continue;
-                    if (posAcc->componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || posAcc->type != TINYGLTF_TYPE_VEC3) continue;
+                    // See the note on the same guard in parse(): quantised positions read fine.
+                    if (posAcc->type != TINYGLTF_TYPE_VEC3 || componentBytes(posAcc->componentType) <= 0) continue;
 
                     const auto* normalAcc = primitive.attributes.contains("NORMAL") ? getAccessor(model, primitive.attributes.at("NORMAL")) : nullptr;
                     const auto* uvAcc = primitive.attributes.contains("TEXCOORD_0") ? getAccessor(model, primitive.attributes.at("TEXCOORD_0")) : nullptr;
@@ -3275,6 +3516,8 @@ namespace visutwin::canvas
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
                 applyVolumeExtensions(srcMaterial, material.get());
                 applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
+                applyEmissiveStrength(srcMaterial, material.get());
+                applyTextureTransforms(srcMaterial, material.get());
 
                 if (pbr.baseColorTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {

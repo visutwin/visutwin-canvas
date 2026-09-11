@@ -351,7 +351,7 @@ namespace visutwin::canvas
                 // (Draco decompression, vertex extraction, tangent generation,
                 //  pixel format conversion, animation parsing).
                 auto prepared = std::make_shared<PreparedGlbData>(
-                    GlbParser::prepareFromModel(*model, _ktx2TargetFormat));
+                    GlbParser::prepareFromModel(*model, _ktx2TargetFormat, url));
                 result->preparsed = std::move(model);
                 result->preparedData = std::move(prepared);
                 spdlog::info("ContainerResourceHandler: pre-parsed + prepared {} on bg thread [{}]",

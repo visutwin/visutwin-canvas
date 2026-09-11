@@ -534,6 +534,36 @@ present, but the rule below never depends on reading it.
   backend, check the same function in the other three, and add the contract to
   `tests/simdMathTests.cpp` — which only covers the backend the build selected,
   so an x86 CI build is what would actually guard the SSE path.
+- **A glTF attribute is not always float, and refusing a quantised one drops the
+  whole primitive in silence.** `TEXCOORD_n` and `COLOR_n` may be normalized
+  byte/short in CORE glTF, and `KHR_mesh_quantization` extends that to `POSITION`,
+  `NORMAL` and `TANGENT`. One `decodeComponent` in `glbParser.cpp` does the spec's
+  de-quantisation for every reader, sparse overrides included, so a new reader
+  should go through `readElement` rather than casting to `const float*`. The gate
+  that actually rejected such a file was not the readers: FOUR per-primitive guards
+  tested `componentType != FLOAT` and `continue`d, so the mesh simply was not there
+  and nothing was logged. Verify a change here by rendering the quantised asset
+  against the same geometry written as floats — they must agree to rounding.
+- **`KHR_texture_transform` cannot be copied from upstream, because this parser
+  flips V into the vertex and upstream does not.** The composed transform is
+  derived in the comment above `applyTextureTransforms`; what matters outside it is
+  that a sign error in the V term is INVISIBLE under a pure scale (the two
+  spellings differ by a whole number of tiles, which REPEAT wrapping hides) and
+  that `toy_car.glb`, the only shipped asset with the extension, puts it on a
+  black fabric where it cannot be seen either. Test it by rendering a transform
+  against the same transform baked into the mesh UVs, with a rotation AND an
+  offset, not just a scale.
+- **A glTF material property must be written to the STANDARDMATERIAL slot, not the
+  base Material one.** `StandardMaterial::updateUniforms` pushes its own per-map
+  tiling/offset/rotation into `Material`'s `TextureTransform` fields on every pack,
+  so `setBaseColorTransform` from the parser was overwritten before it ever reached
+  the GPU — the same trap as `setDiffuse` versus `setBaseColorFactor`, one field
+  further out. The parser writes `setDiffuseMapTiling` and its four siblings.
+- **`extensionsRequired` is consulted, and the list of what the parser supports
+  lives in `warnUnsupportedRequiredExtensions`.** Add an extension there when you
+  implement it, or a file that needs it keeps warning; leave it out when you only
+  half-implement one, or the warning that would have named the cause goes quiet.
+  DEVIATION from upstream, which does not read the field at all.
 - **A block-compressed format must be asked for, not assumed, and there are
   FOUR KTX2 call sites.** `GraphicsDevice::preferredCompressedRgbaFormat()`
   picks ASTC → BC7 → DXT5 → RGBA8 from `supportsCompressedFormat()`; ASTC is
