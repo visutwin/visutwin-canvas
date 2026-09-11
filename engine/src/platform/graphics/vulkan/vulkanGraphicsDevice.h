@@ -323,6 +323,19 @@ namespace visutwin::canvas
         [[nodiscard]] VkDescriptorSet getOrCreateImageDescriptorSet(
             VkDescriptorSetLayout layout,
             std::span<const VkDescriptorImageInfo> imageInfos);
+        /**
+         * Reallocate the uniform ring when the previous frame asked for more than it
+         * holds, and rewrite the two persistent descriptor sets that name the buffer.
+         * Waits for the device to go idle first: offsets handed to frames still in
+         * flight point into the buffer being replaced. Called once per frame, does
+         * nothing in the ordinary case.
+         */
+        void growUniformRingIfNeeded();
+
+        /// Points the persistent material and lighting descriptor sets at the ring's
+        /// current VkBuffer. Also used at initialization, so the two cannot drift.
+        void writeUniformRingDescriptors();
+
         [[nodiscard]] std::optional<uint32_t> allocateUniform(
             const void* data, VkDeviceSize size);
 
@@ -587,7 +600,7 @@ namespace visutwin::canvas
         // Once-per-frame throttle for terminal allocation failures. Pool
         // exhaustion itself is recovered by advancing to a larger pool.
         bool _descriptorAllocationErrorWarned = false;
-        bool _uniformOverflowWarned = false;
+        bool _uniformOverflowReportedThisFrame = false;
 
         // Anisotropic-filtering support, resolved at device creation.
         bool _samplerAnisotropyEnabled = false;

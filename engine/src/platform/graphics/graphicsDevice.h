@@ -16,7 +16,6 @@
 
 #include "blendState.h"
 #include "depthState.h"
-#include "dynamicBuffers.h"
 #include "gpuProfiler.h"
 #include "indexBuffer.h"
 #include "renderPass.h"
@@ -937,8 +936,6 @@ namespace visutwin::canvas
         int _sy = 0;
         int _sw = 0;
         int _sh = 0;
-
-        std::shared_ptr<DynamicBuffers> _dynamicBuffers;
 
         int _samples = 0;
 

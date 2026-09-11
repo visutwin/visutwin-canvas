@@ -197,15 +197,64 @@ namespace visutwin::canvas
         return set;
     }
 
+    void VulkanGraphicsDevice::writeUniformRingDescriptors()
+    {
+        if (!_uniformRing) {
+            return;
+        }
+        const std::array<std::pair<VkDescriptorSet, VkDeviceSize>, 2> sets{{
+            {_materialDescriptorSet, kPerDrawUniformCapacity},
+            {_lightingDescriptorSet, sizeof(VulkanLightingUBO)},
+        }};
+        std::array<VkDescriptorBufferInfo, 2> infos{};
+        std::array<VkWriteDescriptorSet, 2> writes{};
+        uint32_t count = 0;
+        for (const auto& [set, range] : sets) {
+            if (set == VK_NULL_HANDLE) {
+                continue;
+            }
+            infos[count].buffer = _uniformRing->buffer();
+            infos[count].offset = 0;   // base; the per-draw dynamic offset supplies the slot
+            infos[count].range = range;
+            writes[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            writes[count].dstSet = set;
+            writes[count].dstBinding = 0;
+            writes[count].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+            writes[count].descriptorCount = 1;
+            writes[count].pBufferInfo = &infos[count];
+            ++count;
+        }
+        if (count > 0) {
+            vkUpdateDescriptorSets(_device, count, writes.data(), 0, nullptr);
+        }
+    }
+
+    void VulkanGraphicsDevice::growUniformRingIfNeeded()
+    {
+        if (!_uniformRing || !_uniformRing->wantsGrowth()) {
+            return;
+        }
+        // The old buffer is named by descriptor sets that in-flight command buffers
+        // are still using, so nothing may be rebuilt until the queue has drained.
+        // This costs a stall, once per size increase — the alternative is a frame
+        // whose later draws are simply missing, every frame, for as long as the
+        // scene stays this heavy.
+        vkDeviceWaitIdle(_device);
+        if (_uniformRing->growIfNeeded()) {
+            writeUniformRingDescriptors();
+        }
+    }
+
     std::optional<uint32_t> VulkanGraphicsDevice::allocateUniform(
         const void* data, const VkDeviceSize size)
     {
         const auto offset = _uniformRing->allocate(data, size);
-        if (!offset && !_uniformOverflowWarned) {
-            _uniformOverflowWarned = true;
-            spdlog::error(
+        if (!offset && !_uniformOverflowReportedThisFrame) {
+            _uniformOverflowReportedThisFrame = true;
+            spdlog::warn(
                 "VulkanGraphicsDevice: uniform ring allocation failed "
-                "(requested {}, used {} of {} bytes); skipping affected draws",
+                "(requested {}, used {} of {} bytes); the draws past this point are "
+                "skipped for this frame and the ring grows before the next one",
                 size, _uniformRing->usedBytes(),
                 _uniformRing->capacityPerFrame());
         }

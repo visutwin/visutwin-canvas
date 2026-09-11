@@ -17,12 +17,14 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <optional>
 #include <stdexcept>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
+#include <spdlog/spdlog.h>
 
 namespace visutwin::canvas
 {
@@ -34,8 +36,48 @@ namespace visutwin::canvas
             : _allocator(allocator)
             , _framesInFlight(framesInFlight)
             , _alignment(offsetAlignment > 0 ? offsetAlignment : 1)
-            , _regionSize(alignUp(regionSize, offsetAlignment))
         {
+            createBuffer(alignUp(regionSize, _alignment));
+        }
+
+        /**
+         * Reallocate to fit the demand the PREVIOUS frame actually had, returning
+         * false when nothing needed to change. Upstream's DynamicBuffers grows by
+         * taking another buffer from its pool; that cannot be done mid-frame here,
+         * because every offset this ring hands out is interpreted against the ONE
+         * buffer the persistent descriptor sets name. So growth happens at a frame
+         * boundary, and the caller owes two things around it: the device must be
+         * idle (offsets from frames still in flight point into the buffer this
+         * replaces), and the descriptor sets that name the buffer must be rewritten
+         * afterwards. VulkanGraphicsDevice::growUniformRingIfNeeded does both.
+         */
+        bool growIfNeeded()
+        {
+            if (_requestedBytes <= _regionSize) {
+                return false;
+            }
+            const VkDeviceSize wanted = alignUp(
+                std::max(_requestedBytes, _regionSize * 2), _alignment);
+            const VkDeviceSize previous = _regionSize;
+            createBuffer(wanted);
+            spdlog::warn("VulkanUniformRingBuffer: {} bytes requested but only {} fit; the "
+                         "draws past that point were skipped for that frame. Grown to {} "
+                         "({} MB); the next frame is correct.",
+                         _requestedBytes, previous, _regionSize, _totalSize / (1024 * 1024));
+            _requestedBytes = 0;
+            return true;
+        }
+
+    private:
+        void createBuffer(const VkDeviceSize regionSize)
+        {
+            if (_buffer != VK_NULL_HANDLE) {
+                vmaDestroyBuffer(_allocator, _buffer, _allocation);
+                _buffer = VK_NULL_HANDLE;
+                _allocation = VK_NULL_HANDLE;
+                _mapped = nullptr;
+            }
+            _regionSize = regionSize;
             _totalSize = _regionSize * _framesInFlight;
 
             VkBufferCreateInfo bufInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -65,6 +107,7 @@ namespace visutwin::canvas
             _mapped = static_cast<uint8_t*>(info.pMappedData);
         }
 
+    public:
         ~VulkanUniformRingBuffer()
         {
             if (_allocator != VK_NULL_HANDLE && _buffer != VK_NULL_HANDLE) {
@@ -81,6 +124,7 @@ namespace visutwin::canvas
         {
             _frameIndex = frameIndex % _framesInFlight;
             _cursor = 0;
+            _requestedBytes = 0;
         }
 
         // Copy `size` bytes into the current region and return the absolute
@@ -95,6 +139,9 @@ namespace visutwin::canvas
                 return std::nullopt;
             }
             const VkDeviceSize aligned = alignUp(size, _alignment);
+            // Counted whether or not it fits: the shortfall is what the ring has to
+            // grow by at the next frame boundary.
+            _requestedBytes += aligned;
             if (_cursor > _regionSize - aligned) {
                 return std::nullopt;
             }
@@ -114,6 +161,9 @@ namespace visutwin::canvas
             return static_cast<uint32_t>(offset);
         }
 
+        /// True when the last frame asked for more than one region holds.
+        [[nodiscard]] bool wantsGrowth() const { return _requestedBytes > _regionSize; }
+
         [[nodiscard]] VkBuffer buffer() const { return _buffer; }
         [[nodiscard]] VkDeviceSize usedBytes() const { return _cursor; }
         [[nodiscard]] VkDeviceSize capacityPerFrame() const { return _regionSize; }
@@ -124,6 +174,8 @@ namespace visutwin::canvas
             if (alignment <= 1) return value;
             return (value + alignment - 1) & ~(alignment - 1);
         }
+
+        VkDeviceSize _requestedBytes = 0;
 
         VmaAllocator _allocator = VK_NULL_HANDLE;
         VkBuffer _buffer = VK_NULL_HANDLE;

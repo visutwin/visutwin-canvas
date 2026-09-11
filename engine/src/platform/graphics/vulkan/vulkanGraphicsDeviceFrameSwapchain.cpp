@@ -361,6 +361,9 @@ namespace visutwin::canvas
         // overwrite.  Lighting is re-packed into the fresh region on the next
         // draw (the prior frame's slot offset is now stale).
         if (_uniformRing) {
+            // Before the cursor is reset, so the demand the PREVIOUS frame recorded
+            // is still there to size the growth by.
+            growUniformRingIfNeeded();
             _uniformRing->beginFrame(_frameIndex);
         }
         _lightingNeedsUpload = true;
@@ -400,7 +403,7 @@ namespace visutwin::canvas
         frame.activeDescriptorPool = 0;
         frame.imageDescriptorCache.clear();
         _descriptorAllocationErrorWarned = false;
-        _uniformOverflowWarned = false;
+        _uniformOverflowReportedThisFrame = false;
     }
 
     void VulkanGraphicsDevice::recordScreenshotCopy(VkCommandBuffer cmd,

@@ -635,6 +635,25 @@ present, but the rule below never depends on reading it.
   the engine in `run()` once `create()` has returned, for exactly this reason —
   starting it in `initEngine()` initialized an empty world and rendered an empty
   first frame. Every script initializes before any script post-initializes.
+- **The per-draw uniform rings GROW, and the growth is why an overflow is only
+  ever one bad frame.** Both backends size a frame region for a draw count, count
+  what the frame actually ASKED for (including what did not fit), and reallocate at
+  the next frame boundary. Growth cannot happen mid-frame: every offset already
+  handed out is interpreted against the one buffer bound at the start of the render
+  pass (Metal) or named by the persistent dynamic-UBO descriptor sets (Vulkan). So
+  it happens behind a full drain — Metal waits out the other two in-flight regions
+  on its own semaphore, Vulkan calls `vkDeviceWaitIdle` and then REWRITES the two
+  descriptor sets through `writeUniformRingDescriptors`, which is also what
+  initialization calls so the two cannot describe the buffer differently.
+  The overflowing frame itself still degrades, and the two backends degrade
+  differently because their allocators differ: Metal's fixed-slot ring hands the
+  excess draws the last slot's uniforms, while Vulkan's variable-size bump
+  allocator cannot alias safely (the previous allocation may be a different struct
+  entirely) and skips them. Both say so in one message per frame. Note that the
+  demand measured DURING an overflowing frame is an underestimate on Vulkan,
+  because a skipped draw never asks for what it would have needed — which is why
+  growth is `max(requested, current * 2)` and why a first overflow can take two
+  frames to settle.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.

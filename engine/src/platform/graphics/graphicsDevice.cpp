@@ -53,10 +53,6 @@ namespace visutwin::canvas
             _quadVertexBuffer.reset();
         }
 
-        if (_dynamicBuffers) {
-            _dynamicBuffers.reset();
-        }
-
         if (_gpuProfiler) {
             _gpuProfiler.reset();
         }
@@ -71,7 +67,6 @@ namespace visutwin::canvas
         _renderTarget.reset();
         _backBuffer.reset();
         _textures.clear();
-        _dynamicBuffers.reset();
         _gpuProfiler.reset();
     }
 

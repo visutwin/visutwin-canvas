@@ -496,7 +496,10 @@ namespace visutwin::canvas
                     "VulkanGraphicsDevice: persistent descriptor pool creation failed");
             }
 
-            auto allocSet = [&](VkDescriptorSetLayout layout, VkDeviceSize range) {
+            // Allocation only: the buffer the set NAMES is written by
+            // writeUniformRingDescriptors below, which also runs after the ring
+            // grows — so the two paths cannot describe the buffer differently.
+            auto allocSet = [&](VkDescriptorSetLayout layout) {
                 VkDescriptorSet set = VK_NULL_HANDLE;
                 VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
                 ai.descriptorPool = _persistentDescriptorPool;
@@ -506,28 +509,15 @@ namespace visutwin::canvas
                     throw std::runtime_error(
                         "VulkanGraphicsDevice: persistent descriptor allocation failed");
                 }
-
-                VkDescriptorBufferInfo bi{};
-                bi.buffer = _uniformRing->buffer();
-                bi.offset = 0;            // base; per-draw dynamic offset supplies the slot
-                bi.range = range;         // size of one struct, not the whole buffer
-                VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                w.dstSet = set;
-                w.dstBinding = 0;
-                w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-                w.descriptorCount = 1;
-                w.pBufferInfo = &bi;
-                vkUpdateDescriptorSets(_device, 1, &w, 0, nullptr);
                 return set;
             };
 
             // Range covers the largest block bound here, not just MaterialUniforms —
             // quad effects share this slot and some carry more (volumetric fog: 512 B).
             static_assert(sizeof(MaterialUniforms) <= kPerDrawUniformCapacity);
-            _materialDescriptorSet = allocSet(_renderPipeline->materialSetLayout(),
-                kPerDrawUniformCapacity);
-            _lightingDescriptorSet = allocSet(_renderPipeline->lightingSetLayout(),
-                sizeof(VulkanLightingUBO));
+            _materialDescriptorSet = allocSet(_renderPipeline->materialSetLayout());
+            _lightingDescriptorSet = allocSet(_renderPipeline->lightingSetLayout());
+            writeUniformRingDescriptors();
         }
 
         // GPU pass profiler. Disabled by default (sampling costs a little), so
