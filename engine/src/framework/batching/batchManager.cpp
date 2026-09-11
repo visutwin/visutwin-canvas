@@ -6,6 +6,7 @@
 //
 //
 #include "batchManager.h"
+#include "batchSplit.h"
 #include "skinBatchInstance.h"
 
 #include <algorithm>
@@ -55,6 +56,79 @@ namespace visutwin::canvas
     };
 
     static_assert(sizeof(DynamicBatchVertex) == 60, "DynamicBatchVertex must be 60 bytes (15 floats)");
+
+    static_assert(sizeof(PackedVertex) == kPackedVertexStride,
+        "batchSplit's packed stride must be the struct the merge paths read");
+
+    namespace
+    {
+        /**
+         * Both merge loops reinterpret a source vertex buffer as `PackedVertex[]`.
+         * That is only meaningful when the buffer IS that layout, so ask rather than
+         * assume: a skinned mesh (88 bytes), a point cloud (28) or any custom format
+         * tagged into a batch group would otherwise be merged as garbage geometry,
+         * reading past the end of its own storage on the way. The storage check is the
+         * memory-safety half — the cast walks numVertices() strides, and nothing else
+         * guarantees the bytes are there.
+         */
+        bool isPackedVertexLayout(const VertexBuffer* vertexBuffer)
+        {
+            if (!vertexBuffer || !vertexBuffer->format()) {
+                return false;
+            }
+            if (!formatIsPackedVertexLayout(*vertexBuffer->format())) {
+                return false;
+            }
+            const size_t needed = static_cast<size_t>(vertexBuffer->numVertices()) * sizeof(PackedVertex);
+            return vertexBuffer->storage().size() >= needed;
+        }
+
+        /**
+         * True when every mesh instance in the list can be merged. Reports the first
+         * one that cannot, because a rejected batch is invisible otherwise: the
+         * originals simply stay unbatched and the scene renders correctly but slower.
+         */
+        bool listIsMergeable(const std::vector<MeshInstance*>& meshInstances)
+        {
+            for (const auto* mi : meshInstances) {
+                const auto casterName = mi->node() ? mi->node()->name() : std::string("<no node>");
+                const auto vertexBuffer = mi->mesh()->getVertexBuffer();
+                if (!isPackedVertexLayout(vertexBuffer.get())) {
+                    spdlog::warn("[BatchManager] Skipping batch: '{}' has a {}-byte vertex layout "
+                                 "that is not the {}-byte packed one merging reads "
+                                 "(position, normal, uv0, tangent, uv1)",
+                                 casterName,
+                                 vertexBuffer && vertexBuffer->format() ? vertexBuffer->format()->size() : 0,
+                                 static_cast<int>(sizeof(PackedVertex)));
+                    return false;
+                }
+                // The merged mesh declares PRIMITIVE_TRIANGLES and rebuilds its index
+                // buffer, so a strip or a fan would come out as unrelated triangles.
+                if (mi->mesh()->getPrimitive().type != PrimitiveType::PRIMITIVE_TRIANGLES) {
+                    spdlog::warn("[BatchManager] Skipping batch: '{}' is primitive type {}, "
+                                 "and merging produces triangle lists",
+                                 casterName,
+                                 static_cast<int>(mi->mesh()->getPrimitive().type));
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /** Describes one mesh instance for splitBatchLists(). */
+        BatchCandidate describeCandidate(MeshInstance* meshInstance)
+        {
+            BatchCandidate candidate;
+            const auto vertexBuffer = meshInstance->mesh()->getVertexBuffer();
+            candidate.formatBatchingHash = vertexBuffer && vertexBuffer->format()
+                ? vertexBuffer->format()->batchingHash() : 0u;
+            candidate.primitiveType = static_cast<int>(meshInstance->mesh()->getPrimitive().type);
+            candidate.castShadow = meshInstance->castShadow();
+            candidate.receiveShadow = meshInstance->receiveShadow();
+            candidate.aabb = meshInstance->aabb();
+            return candidate;
+        }
+    }
 
     // -------------------------------------------------------------------------
 
@@ -128,27 +202,49 @@ namespace visutwin::canvas
             }
         }
 
-        // 3. Build a batch for each (group, material) bucket with >=2 mesh instances.
+        // 3. Build batches. A (group, material) bucket is not one batch: mesh
+        //    instances that disagree about their vertex layout, primitive type or
+        //    shadow flags cannot share a draw, and a batch may not grow past the
+        //    group's maxAabbSize. splitBatchLists applies those rules and hands back
+        //    one list per batch.
         int batchCount = 0;
         int totalOrigMeshInstances = 0;
         for (auto& [key, meshInstances] : groups) {
             if (meshInstances.size() < 2) continue;  // No point batching a single mesh.
 
-            // Dispatch to dynamic or static batch creation based on group config.
             const auto* group = getGroupById(key.groupId);
-            std::unique_ptr<Batch> batch;
-            if (group && group->dynamic) {
-                batch = createDynamicBatch(meshInstances, key.groupId);
-            } else {
-                batch = createBatch(meshInstances, key.groupId);
+            const bool dynamic = group && group->dynamic;
+
+            std::vector<BatchCandidate> candidates;
+            candidates.reserve(meshInstances.size());
+            for (auto* mi : meshInstances) {
+                candidates.push_back(describeCandidate(mi));
             }
-            if (batch) {
-                totalOrigMeshInstances += static_cast<int>(meshInstances.size());
+
+            const auto lists = splitBatchLists(candidates,
+                group ? group->maxAabbSize : 0.0f, dynamic);
+
+            for (const auto& indices : lists) {
+                if (indices.size() < 2) continue;  // A batch of one saves nothing.
+
+                std::vector<MeshInstance*> listInstances;
+                listInstances.reserve(indices.size());
+                for (const size_t index : indices) {
+                    listInstances.push_back(meshInstances[index]);
+                }
+
+                std::unique_ptr<Batch> batch = dynamic
+                    ? createDynamicBatch(listInstances, key.groupId)
+                    : createBatch(listInstances, key.groupId);
+                if (!batch) {
+                    continue;
+                }
+
+                totalOrigMeshInstances += static_cast<int>(listInstances.size());
                 batchCount++;
 
                 // Register batch MeshInstance with scene layers.
                 if (scene && scene->layers()) {
-                    const auto* group = getGroupById(key.groupId);
                     if (group && !group->layers.empty()) {
                         for (int layerId : group->layers) {
                             auto layer = scene->layers()->getLayerById(layerId);
@@ -222,6 +318,7 @@ namespace visutwin::canvas
         const std::vector<MeshInstance*>& meshInstances, int batchGroupId)
     {
         if (meshInstances.empty() || !_device) return nullptr;
+        if (!listIsMergeable(meshInstances)) return nullptr;
 
         // --- 1. Count total vertices and indices. ---
         int totalVertices = 0;
@@ -445,6 +542,7 @@ namespace visutwin::canvas
         const std::vector<MeshInstance*>& meshInstances, int batchGroupId)
     {
         if (meshInstances.empty() || !_device) return nullptr;
+        if (!listIsMergeable(meshInstances)) return nullptr;
 
         // --- 1. Count total vertices and indices. ---
         int totalVertices = 0;

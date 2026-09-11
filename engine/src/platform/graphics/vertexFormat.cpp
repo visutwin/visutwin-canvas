@@ -5,6 +5,7 @@
 //
 #include "vertexFormat.h"
 
+#include <algorithm>
 #include <functional>
 #include <sstream>
 #include <utility>
@@ -33,6 +34,27 @@ namespace visutwin::canvas
         }
         _renderingHashString = hash.str();
         _renderingHash = static_cast<uint32_t>(std::hash<std::string>{}(_renderingHashString));
+
+        // Batching hash: the attribute set without its byte layout. Sorted, so two
+        // formats that declare the same attributes in a different order hash alike —
+        // that is the whole point, since a batcher rewrites offsets anyway.
+        std::vector<std::string> batchElements;
+        batchElements.reserve(_elements.size());
+        for (const auto& element : _elements) {
+            std::ostringstream elementHash;
+            elementHash << static_cast<int>(element.semantic)
+                        << ',' << static_cast<int>(element.dataType)
+                        << ',' << static_cast<int>(element.componentCount)
+                        << ',' << (element.normalized ? '1' : '0');
+            batchElements.push_back(elementHash.str());
+        }
+        std::sort(batchElements.begin(), batchElements.end());
+        std::string batchingString;
+        for (const auto& element : batchElements) {
+            batchingString += element;
+            batchingString += ';';
+        }
+        _batchingHash = static_cast<uint32_t>(std::hash<std::string>{}(batchingString));
     }
 
     std::vector<VertexElement> VertexFormat::standardElements()

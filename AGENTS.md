@@ -595,6 +595,23 @@ present, but the rule below never depends on reading it.
   unnoticed until the same generator was reused with a diffuse material in
   mesh-morph and came out black. `DEBUGPASS_WORLDNORMAL` says it in one frame: a
   correct sphere is blue in the middle, an inverted one is not.
+- **A batch is one vertex layout, one primitive type and ONE pair of shadow
+  flags.** `BatchManager` merges by reinterpreting a source vertex buffer as the
+  parsers' 56-byte packed vertex, so a mesh instance that is not exactly that
+  layout may never enter a batch: a skinned mesh (88 bytes) or a point cloud (28)
+  tagged into a batch group used to merge as garbage geometry, read past the end
+  of its own storage on the way, and say nothing.
+  `framework/batching/batchSplit.h` is where the rules live —
+  `splitBatchLists` divides a (group, material) bucket into one list per batch on
+  the format's `batchingHash`, the primitive type, castShadow/receiveShadow and
+  `BatchGroup::maxAabbSize`, and `formatIsPackedVertexLayout` is the predicate the
+  merge paths owe their cast. Note the two hashes are not interchangeable:
+  `batchingHash` ignores offsets and stride, which is what makes it the right key
+  for GROUPING and the wrong one for a `reinterpret_cast`; the rendering hash pins
+  the byte layout. A rejected list is not a failure — the originals stay visible
+  and unbatched, which costs draw calls and nothing else. The split happens once,
+  at `prepare()`, from the transforms in place THEN, so a dynamic batch whose
+  instances wander apart later keeps the grouping it was built with.
 - **Large ground planes must stay shadow CASTERS but not receivers-only.** The
   directional shadow camera fits its depth range to casters, so a receiver-only
   ground falls outside it and catches no shadow; a huge caster inflates the fitted

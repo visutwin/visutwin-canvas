@@ -85,6 +85,15 @@ namespace visutwin::canvas
         // Get the rendering hash for fast comparison
         uint32_t renderingHash() const { return _renderingHash; }
 
+        /**
+         * Hash of the ATTRIBUTE SET alone — semantic, data type, component count and
+         * normalization per element, order-independent — with offsets and stride left
+         * out (upstream's `batchingHash`). Two formats that hash the same describe the
+         * same attributes and can be merged into one batch; the rendering hash is the
+         * stricter test, since it also pins the byte layout.
+         */
+        uint32_t batchingHash() const { return _batchingHash; }
+
         const std::string& renderingHashString() const { return _renderingHashString; }
 
         bool isInterleaved() const { return _interleaved; }
@@ -125,6 +134,8 @@ namespace visutwin::canvas
         int _size;
 
         uint32_t _renderingHash;
+
+        uint32_t _batchingHash;
 
         std::string _renderingHashString;
 

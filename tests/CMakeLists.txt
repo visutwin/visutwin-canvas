@@ -115,3 +115,11 @@ add_executable(visutwin-component-registry-tests
 target_link_libraries(visutwin-component-registry-tests PRIVATE visutwin-canvas)
 
 add_test(NAME component-registry COMMAND visutwin-component-registry-tests)
+
+add_executable(visutwin-batch-split-tests
+    batchSplitTests.cpp
+)
+
+target_link_libraries(visutwin-batch-split-tests PRIVATE visutwin-canvas)
+
+add_test(NAME batch-split COMMAND visutwin-batch-split-tests)
