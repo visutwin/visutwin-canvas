@@ -17,6 +17,7 @@
 #include "../exampleApp.h"
 #include "platform/graphics/depthState.h"
 #include "scene/constants.h"
+#include "scene/graphics/renderPassConstants.h"
 #include "scene/materials/standardMaterial.h"
 
 using namespace visutwin::canvas;
@@ -151,6 +152,13 @@ protected:
         if (_cameraComp) {
             auto ssao = _cameraComp->ssao();
             ssao.enabled = true;
+            // Upstream's example opens on SSAOTYPE_LIGHTING: the occlusion is folded
+            // into the ambient term as the scene shades, rather than multiplied over
+            // the finished image by compose. The two look different — lighting mode
+            // cannot darken what was never lit by ambient light, so an emissive or
+            // fully lit surface keeps its brightness — and only lighting mode needs
+            // the depth prepass, which is why the type is worth switching at runtime.
+            ssao.type = SSAOTYPE_LIGHTING;
             ssao.blurEnabled = true;
             ssao.radius = 30.0f;
             ssao.samples = 12;
@@ -181,7 +189,7 @@ protected:
         _controls->storeResetState();
 
         spdlog::info("Orbit controls: LMB/RMB orbit, Shift/MMB pan, Wheel/Pinch zoom, F focus, R reset");
-        spdlog::info("SSAO controls: O toggle SSAO, B toggle blur, Z toggle randomize");
+        spdlog::info("SSAO controls: O toggle SSAO, T lighting/combine, B toggle blur, Z toggle randomize");
         spdlog::info("  +/- adjust intensity, [/] adjust radius, ,/. adjust samples, ;/' adjust power");
         logSsaoState("init");
 
@@ -210,6 +218,11 @@ protected:
             ssao.randomize = !ssao.randomize;
             _cameraComp->setSsao(ssao);
             logSsaoState("randomize");
+            return true;
+        case SDLK_T:
+            ssao.type = (ssao.type == SSAOTYPE_LIGHTING) ? SSAOTYPE_COMBINE : SSAOTYPE_LIGHTING;
+            _cameraComp->setSsao(ssao);
+            logSsaoState("type");
             return true;
         case SDLK_EQUALS:
             ssao.intensity = std::min(1.0f, ssao.intensity + 0.05f);
@@ -273,9 +286,10 @@ private:
             return;
         }
         const auto& ssao = _cameraComp->ssao();
-        spdlog::info("SSAO {}: enabled={}, blur={}, intensity={:.2f}, power={:.1f}, radius={:.1f}, samples={}, minAngle={:.1f}, scale={:.2f}, randomize={}",
+        spdlog::info("SSAO {}: enabled={}, type={}, blur={}, intensity={:.2f}, power={:.1f}, radius={:.1f}, samples={}, minAngle={:.1f}, scale={:.2f}, randomize={}",
             reason,
             ssao.enabled ? "ON" : "OFF",
+            std::string(ssao.type),
             ssao.blurEnabled ? "ON" : "OFF",
             ssao.intensity,
             ssao.power,

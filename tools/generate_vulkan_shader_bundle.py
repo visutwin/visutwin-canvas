@@ -272,6 +272,8 @@ def validate(module: str, reflection: dict) -> None:
         (3, 18, "SampledImage"),
         (3, 19, "SampledImage"),
         (3, 20, "SampledImage"),
+        # 21 = lighting-mode SSAO.
+        (3, 21, "SampledImage"),
         (5, 0, "StorageBuffer"),
         (5, 1, "StorageBuffer"),
     }

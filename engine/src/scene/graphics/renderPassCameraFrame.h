@@ -129,6 +129,7 @@ namespace visutwin::canvas
         void setupRenderPasses(const CameraFrameOptions& options);
         void createPasses(const CameraFrameOptions& options);
         void setupScenePrepass(const CameraFrameOptions& options);
+        void createPrepassRenderTarget() const;
         struct ScenePassesInfo
         {
             int lastAddedIndex = -1;
@@ -167,6 +168,13 @@ namespace visutwin::canvas
         bool _needsReset = false;
 
         std::shared_ptr<RenderTarget> _sceneRenderTarget;
+        // Depth-only view of the scene target's depth attachment, for the prepass.
+        // Its own target rather than the scene one, because the scene pass clears and
+        // re-renders the same depth straight afterwards, and because with MSAA the
+        // scene target's depth is a multisampled twin while THIS is the single-sampled
+        // texture every later pass samples. Mutable because a resize of the shared
+        // depth texture has to rebuild it from frameUpdate, which is const.
+        mutable std::shared_ptr<RenderTarget> _prepassRenderTarget;
         std::shared_ptr<Texture> _sceneTexture;
         std::shared_ptr<Texture> _sceneDepthTexture;
         std::shared_ptr<RenderTarget> _sceneHalfRenderTarget;

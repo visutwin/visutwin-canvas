@@ -180,6 +180,12 @@ layout(set = 3, binding = 17) uniform texture2D cookieImage2D0;
 layout(set = 3, binding = 18) uniform texture2D cookieImage2D1;
 layout(set = 3, binding = 19) uniform textureCube cookieImageCube0;
 layout(set = 3, binding = 20) uniform textureCube cookieImageCube1;
+// Screen-space ambient occlusion, in its LIGHTING mode: the AO factor the
+// forward pass folds into the ambient term as it shades, rather than the
+// compose pass multiplying it over the finished image. Separate image for the
+// same per-stage sampler-slot reason as the block above; the white fallback is
+// the identity, so a frame with no SSAO pass reads unoccluded.
+layout(set = 3, binding = 21) uniform texture2D ssaoImage;
 
 #define skyboxCube        samplerCube(skyboxCubeImage, linearClampSampler)
 #define reflectionProbeCube samplerCube(reflectionProbeCubeImage, linearClampSampler)
@@ -196,6 +202,7 @@ layout(set = 3, binding = 20) uniform textureCube cookieImageCube1;
 #define cookie2D1         sampler2D(cookieImage2D1, linearClampSampler)
 #define cookieCube0       samplerCube(cookieImageCube0, linearClampSampler)
 #define cookieCube1       samplerCube(cookieImageCube1, linearClampSampler)
+#define ssaoTexture       sampler2D(ssaoImage, linearClampSampler)
 // Linear-filtered: both are ordinary colour renders, and the Poisson taps below
 // want interpolation between texels.
 #define planarReflection      sampler2D(planarReflectionImage, linearClampSampler)

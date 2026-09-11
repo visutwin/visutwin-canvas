@@ -21,6 +21,7 @@
 #include "scene/morph.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "shadowRenderer.h"
+#include "depthOnlyDraw.h"
 #include "shadowCasterFiltering.h"
 #include "spdlog/spdlog.h"
 #include "scene/frustumUtils.h"
@@ -67,14 +68,11 @@ namespace visutwin::canvas
             }
             return;
         }
-        // Skinned/morphed shadow variants are fetched lazily on first use — most
-        // scenes have no skinned casters and shouldn't compile the variants.
-        std::shared_ptr<Shader> shadowShaderSkinned;
-        std::shared_ptr<Shader> shadowShaderSkinnedMorphed;
-        std::shared_ptr<Shader> shadowShaderMorphed;
-        // Same for hardware-instanced casters — one variant per instance stride.
-        std::shared_ptr<Shader> shadowShaderInstanced;
-        std::shared_ptr<Shader> shadowShaderInstancedColor;
+        // The remaining variants are fetched lazily on first use by drawDepthOnly —
+        // most scenes have no skinned or instanced casters and should not compile them.
+        DepthOnlyShaders shaders;
+        shaders.plain = shadowShader;
+        shaders.dynamicBatch = shadowShaderDynBatch;
 
         _graphicsDevice->setShader(shadowShader);
 
@@ -162,101 +160,8 @@ namespace visutwin::canvas
                         continue;
                     }
 
-                    auto vertexBuffer = meshInstance->mesh()->getVertexBuffer();
-                    meshInstance->setVisibleThisFrame(true);
-                    _graphicsDevice->setVertexBuffer(vertexBuffer, 0);
-
-                    // The shadow pass otherwise bypasses materials entirely and the device
-                    // supplies a default-constructed MaterialUniforms. A caster whose SHADOW
-                    // depends on its material — masked alpha, or shadow dithering — needs its
-                    // real uniforms at slot 3 and its base-colour texture bound, so the shadow
-                    // shader can run the opacity frontend before writing depth. Every other
-                    // caster binds nothing, exactly as this pass always did.
-                    const Material* frontendMaterial = shadowFrontendMaterial(meshInstance);
-                    _graphicsDevice->setMaterial(frontendMaterial);
-
-                    const auto& instancing = meshInstance->instancingData();
-                    const bool isInstanced = instancing.vertexBuffer && instancing.count > 0;
-
-                    if (isInstanced) {
-                        // Hardware instancing: the caster cloud transforms through the
-                        // per-instance matrices in the shadow vertex stage, so bind the
-                        // instance buffer at slot 5 and draw instanced — the same contract
-                        // the forward pass uses. Without this every instance would cast
-                        // from the mesh instance's own node transform.
-                        const bool instanceColor = instancing.vertexBuffer->format() &&
-                            instancing.vertexBuffer->format()->hasInstanceColor();
-                        auto& cachedVariant = instanceColor ? shadowShaderInstancedColor : shadowShaderInstanced;
-                        if (const auto variant = shadowCasterShader(programLibrary.get(),
-                                frontendMaterial, cachedVariant, false, false, false, true, instanceColor)) {
-                            _graphicsDevice->setShader(variant);
-                        }
-                        _graphicsDevice->setVertexBuffer(instancing.vertexBuffer, 5);
-                        _graphicsDevice->setTransformUniforms(viewProjection, Matrix4::identity());
-                        _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), instancing.count, -1, true, true);
-                        // Unbind the per-instance buffer — the backends pick the instancing
-                        // vertex layout by scanning the bound slots, so a leftover binding
-                        // would follow the next, non-instanced caster into its pipeline.
-                        _graphicsDevice->setVertexBuffer(nullptr, 5);
-                        _graphicsDevice->setShader(shadowShader);
-                    } else if (meshInstance->isDynamicBatch()) {
-                        // Dynamic batch: use dynamic batch shadow shader + palette.
-                        if (const auto variant = shadowCasterShader(programLibrary.get(),
-                                frontendMaterial, shadowShaderDynBatch, true)) {
-                            _graphicsDevice->setShader(variant);
-                        }
-                        auto* sbi = meshInstance->skinBatchInstance();
-                        if (sbi) {
-                            _graphicsDevice->setDynamicBatchPalette(sbi->paletteData(), sbi->paletteSizeBytes());
-                        }
-                        _graphicsDevice->setTransformUniforms(viewProjection, Matrix4::identity());
-                        _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), 1, -1, true, true);
-                        // Restore standard shadow shader for next non-dynamic-batch mesh.
-                        _graphicsDevice->setShader(shadowShader);
-                    } else if (meshInstance->skinInstance() || meshInstance->morphInstance()) {
-                        // Skinned/morphed caster: switch to the matching shadow variant,
-                        // bind the bone palette (slot 6) and/or morph buffers (slots 9/10).
-                        const bool skinned = meshInstance->skinInstance() != nullptr;
-                        const bool morphed = meshInstance->morphInstance() != nullptr;
-                        auto& cachedVariant = skinned
-                            ? (morphed ? shadowShaderSkinnedMorphed : shadowShaderSkinned)
-                            : shadowShaderMorphed;
-                        if (const auto variant = shadowCasterShader(programLibrary.get(),
-                                frontendMaterial, cachedVariant, false, skinned, morphed)) {
-                            _graphicsDevice->setShader(variant);
-                        }
-                        if (skinned) {
-                            auto* si = meshInstance->skinInstance();
-                            si->updateMatrixPalette(meshInstance->node());
-                            _graphicsDevice->setDynamicBatchPalette(si->paletteData(), si->paletteSizeBytes());
-                        }
-                        if (morphed) {
-                            auto* mi = meshInstance->morphInstance();
-                            if (mi->morph() && mi->morph()->deltaBuffer()) {
-                                const auto& params = mi->gpuParams();
-                                _graphicsDevice->setMorphState(mi->morph()->deltaBuffer(), &params, sizeof(params));
-                            }
-                        }
-                        const auto modelMatrix = (meshInstance->node() ? meshInstance->node()->worldTransform() : Matrix4::identity());
-                        _graphicsDevice->setTransformUniforms(viewProjection, modelMatrix);
-                        _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), 1, -1, true, true);
-                        _graphicsDevice->setShader(shadowShader);
-                    } else {
-                        // The pass-wide depth-only shader is already bound; a caster with
-                        // an opacity frontend swaps in its own variant and puts the plain
-                        // one back, the way every other branch here does.
-                        if (frontendMaterial) {
-                            if (const auto variant = programLibrary->getShadowShader(frontendMaterial)) {
-                                _graphicsDevice->setShader(variant);
-                            }
-                        }
-                        const auto modelMatrix = (meshInstance->node() ? meshInstance->node()->worldTransform() : Matrix4::identity());
-                        _graphicsDevice->setTransformUniforms(viewProjection, modelMatrix);
-                        _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), 1, -1, true, true);
-                        if (frontendMaterial) {
-                            _graphicsDevice->setShader(shadowShader);
-                        }
-                    }
+                    drawDepthOnly(_graphicsDevice.get(), programLibrary.get(), meshInstance,
+                        viewProjection, shaders);
                 }
             }
         }

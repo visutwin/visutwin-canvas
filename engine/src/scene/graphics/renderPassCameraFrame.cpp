@@ -84,6 +84,7 @@ namespace visutwin::canvas
         _sceneDepthTexture.reset();
         _sceneTextureHalf.reset();
         _sceneRenderTarget.reset();
+        _prepassRenderTarget.reset();
         _sceneHalfRenderTarget.reset();
 
         clearBeforePasses();
@@ -441,6 +442,8 @@ namespace visutwin::canvas
                 _sceneRenderTarget->samples(), options.samples, gd->maxSamples());
         }
 
+        createPrepassRenderTarget();
+
         if (_sceneHalfEnabled) {
             // Create half-resolution color texture explicitly (same lifetime fix as _sceneTexture).
             TextureOptions halfOpts;
@@ -486,14 +489,41 @@ namespace visutwin::canvas
         }
     }
 
+    // Depth-only target over the SAME depth texture the scene target uses, so the
+    // prepass fills the buffer SSAO reads and the scene pass then clears and
+    // re-renders it. Single-sampled on purpose: with MSAA the scene target owns a
+    // multisampled twin and resolves into this texture, which is the one every later
+    // pass samples — the prepass writes it directly and needs no resolve of its own.
+    void RenderPassCameraFrame::createPrepassRenderTarget() const
+    {
+        const auto gd = device();
+        if (!gd || !_sceneDepthTexture) {
+            _prepassRenderTarget.reset();
+            return;
+        }
+        RenderTargetOptions options;
+        options.graphicsDevice = gd.get();
+        options.depthBuffer = _sceneDepthTexture.get();
+        options.depth = true;
+        options.stencil = false;
+        options.samples = 1;
+        options.name = "CameraFramePrepassTarget";
+        _prepassRenderTarget = gd->createRenderTarget(options);
+    }
+
     std::vector<std::shared_ptr<RenderPass>> RenderPassCameraFrame::collectPasses() const
     {
-        // DEVIATION: upstream orders SSAO before the scene pass because the prepass
-        // writes valid depth data first. Our prepass execute() is a stub (full depth-only
-        // mesh submission not yet ported), so the depth texture is empty when SSAO runs.
-        // Moving SSAO after the scene passes ensures it reads valid depth from the
-        // opaque+transparent scene render. This produces correct AO from final scene depth.
-        return {_prePass, _scenePass, _colorGrabPass, _scenePassTransparent, _ssaoPass,
+        // SSAO applied during SHADING has to be generated before the scene pass, because
+        // the lit shaders sample its texture as they render; run after, it describes the
+        // previous frame. Applied by the COMPOSE pass instead, it is free to run after
+        // the scene, where the depth it needs is the finished scene depth — which
+        // includes what the prepass cannot draw. Upstream splits it the same way.
+        const bool ssaoBeforeScene = _options.ssaoType == SSAOTYPE_LIGHTING;
+
+        return {_prePass,
+            ssaoBeforeScene ? _ssaoPass : nullptr,
+            _scenePass, _colorGrabPass, _scenePassTransparent,
+            ssaoBeforeScene ? nullptr : _ssaoPass,
             _volumetricFogPass, _volumetricFogCombinePass, _taaPass, _scenePassHalf,
             _bloomPass, _dofPass, _composePass, _afterPass};
     }
@@ -514,9 +544,13 @@ namespace visutwin::canvas
 
     void RenderPassCameraFrame::setupScenePrepass(const CameraFrameOptions& options)
     {
-        if (options.prepassEnabled) {
+        if (options.prepassEnabled && _prepassRenderTarget) {
             _prePass = std::make_shared<RenderPassPrepass>(device(), _scene, _renderer, _cameraComponent,
                 _sceneDepthTexture.get(), _sceneOptions);
+            // Clears the depth it is about to write; the scene pass clears it again.
+            _prePass->init(_prepassRenderTarget, _sceneOptions);
+            constexpr float clearDepthValue = 1.0f;
+            _prePass->setClearDepth(&clearDepthValue);
         }
     }
 
@@ -838,6 +872,20 @@ namespace visutwin::canvas
             if (devW > 0 && devH > 0 &&
                 (_sceneRenderTarget->width() != scaledW || _sceneRenderTarget->height() != scaledH)) {
                 _sceneRenderTarget->resize(scaledW, scaledH);
+                // The prepass target wraps the depth texture that resize just replaced,
+                // so its attachments are stale — and it cannot resize itself out of it,
+                // because its own width() reads the NEW size off the shared texture and
+                // RenderTarget::resize does nothing when the size already matches. The
+                // prepass was built earlier this frame, so it is re-pointed here too
+                // rather than left rendering into the target that is gone.
+                if (_prepassRenderTarget) {
+                    createPrepassRenderTarget();
+                    if (_prePass) {
+                        _prePass->init(_prepassRenderTarget, _sceneOptions);
+                        constexpr float clearDepthValue = 1.0f;
+                        _prePass->setClearDepth(&clearDepthValue);
+                    }
+                }
             }
         }
 

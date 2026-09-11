@@ -857,7 +857,7 @@ namespace visutwin::canvas
                 return _whiteArrayImageView;
             };
 
-            std::array<VkDescriptorImageInfo, 21> sceneInfos{};
+            std::array<VkDescriptorImageInfo, 22> sceneInfos{};
             sceneInfos[0].sampler = _envSampler;
             sceneInfos[0].imageView = resolveView(_envAtlasTexture);
 
@@ -915,6 +915,11 @@ namespace visutwin::canvas
             sceneInfos[18].imageView = resolveView(_cookieTexture2D1);
             sceneInfos[19].imageView = resolveCubeView(_cookieTextureCube0);
             sceneInfos[20].imageView = resolveCubeView(_cookieTextureCube1);
+            // Binding 21: lighting-mode SSAO. White when no SSAO pass published
+            // one, which reads as fully unoccluded — the shader samples it only
+            // under VT_FEATURE_SSAO, which the renderer enables from this same
+            // texture being non-null.
+            sceneInfos[21].imageView = resolveView(ssaoForwardTexture());
             for (auto& sceneInfo : sceneInfos) {
                 sceneInfo.imageLayout =
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

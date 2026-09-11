@@ -229,6 +229,14 @@ void main() {
         float occ = texture(occlusionMap, uvOcclusion).r;
         ao = mix(1.0, occ, material.occlusionStrength);
     }
+    if (vtFeatureEnabled(VT_FEATURE_SSAO_BIT)) {
+        // Lighting-mode SSAO: the screen-space factor multiplies the baked map
+        // rather than replacing it, and is then occluded through exactly the same
+        // ambient/direct/specular split. gl_FragCoord and the sampler UV share the
+        // top-left origin (the pass renders through the same negative-height
+        // viewport), so this is the Metal expression texel for texel.
+        ao *= texture(ssaoTexture, gl_FragCoord.xy * lighting.screenInvResolution.xy).r;
+    }
 
     // Geometric normal, flipped for back faces on double-sided materials.
     vec3 N = normalize(fragWorldNormal);

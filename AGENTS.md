@@ -816,6 +816,34 @@ during unrelated work are repeated here.
   straight through inverts it, so a larger bias produces MORE shadow. Hardware
   bias is skipped for PCSS and for non-clustered omni. The directional PCF shader
   uses a fixed 0.0001 receiver bias, NOT the light's.
+- **Lighting-mode SSAO needs the DEPTH PREPASS, and the pass order says which
+  mode is running.** `SSAOTYPE_LIGHTING` folds the occlusion into the ambient term
+  as the forward shaders run, so its texture has to be finished BEFORE the scene
+  pass — which means something must have written scene depth before that, and the
+  only thing that can is `RenderPassPrepass`. `SSAOTYPE_COMBINE` multiplies over
+  the finished image in compose and is free to run after the scene, off the real
+  scene depth. `collectPasses` places the SSAO pass on that rule, as upstream
+  does; running it after the scene in lighting mode is not a small error, it makes
+  every lit surface sample the PREVIOUS frame's occlusion.
+- **The prepass renders with the SHADOW programs, not a shader pass of its own.**
+  This port has no `SHADER_PREPASS`; depth-only drawing is `drawDepthOnly`
+  (`scene/renderer/depthOnlyDraw.h`), shared by the two shadow passes and the
+  prepass, and it picks the variant for the caster's deformation path and binds
+  the material only when the caster's OPACITY decides the depth it writes. What
+  each caller still owns is the camera, the pass state and the FILTER: a shadow
+  pass draws `castShadow` casters, the prepass draws everything that writes depth
+  (not blended), and the two disagree in both directions — a mesh with shadows off
+  still occludes in screen space, and a dithered-shadow caster must not write
+  prepass depth.
+- **The prepass and the scene pass write the SAME depth texture through two render
+  targets.** The prepass target is depth-only and single-sampled on purpose: under
+  MSAA the scene target's depth is a multisampled twin, and the texture every
+  later pass samples is the resolve — which the prepass writes directly, needing
+  no resolve of its own. The cost is that a resize of the shared texture through
+  one target leaves the other's attachments stale, and `RenderTarget::resize`
+  cannot fix it (the second target's `width()` already reads the new size off the
+  shared texture and the resize early-outs), so `RenderPassCameraFrame::frameUpdate`
+  rebuilds the prepass target and re-points the pass by hand.
 - **PCSS `penumbraSize` has two scales.** Directional is world-space (0.02-0.05);
   local spot and omni is in shadow-map PIXELS (~10-40).
 - **A lightmap REPLACES indirect diffuse**, it is not added. Upstream gates

@@ -72,7 +72,7 @@ namespace visutwin::canvas
                     reflected.set == 1 && reflected.binding < 26 &&
                     (sampler || separateImage || separateSampler);
                 const bool validSceneTexture =
-                    reflected.set == 3 && reflected.binding < 21 &&
+                    reflected.set == 3 && reflected.binding < 22 &&
                     (sampler || separateImage || separateSampler);
                 const bool validGeometry =
                     reflected.set == 4 &&
@@ -381,7 +381,7 @@ namespace visutwin::canvas
         // so those keep their existing bindings. Bindings 17-20 are the light
         // cookies (two spot 2D, two omni cubemap), separate images for the same
         // reason.
-        std::array<VkDescriptorSetLayoutBinding, 21> sceneBindings{};
+        std::array<VkDescriptorSetLayoutBinding, 22> sceneBindings{};
         for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
             sceneBindings[i].binding = i;
             sceneBindings[i].descriptorType = vulkanSceneDescriptorType(i);
