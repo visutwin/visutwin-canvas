@@ -47,8 +47,6 @@ namespace visutwin::canvas
         {
             simd::float4x4 modelMatrix;
             simd::float4x4 normalMatrix;
-            float normalSign;
-            float _pad[3];
         };
 
         MTL::CompareFunction toMetalCompare(const CompareFunction function)
@@ -209,7 +207,7 @@ namespace visutwin::canvas
         _computePipeline = std::make_unique<MetalComputePipeline>(this);
 
         // Triple-buffered ring buffers for per-draw uniform data.
-        // Slot sizes derive from sizeof() below; for reference: ModelData is 136B
+        // Slot sizes derive from sizeof() below; for reference: ModelData is 128B
         // (aligns to 256B slots), LightingUniforms is the largest at 1440B
         // (aligns to 1536B slots), and MaterialUniforms (352B) shares the
         // uniform ring, fitting within the LightingUniforms-sized slot.

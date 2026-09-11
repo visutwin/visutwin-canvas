@@ -600,12 +600,12 @@ present, but the rule below never depends on reading it.
   transpose differ, and lighting reads the difference directly: a flattened sphere
   shades as if it were still round. Metal uploads the matrix per draw
   (`metalUniformBinder.cpp` builds it from 3x3 cofactors, cheaper than a 4x4
-  inverse) and multiplies the result by `normalSign`; Vulkan computes the cofactor
+  inverse, then divided by the SIGNED determinant); Vulkan computes the cofactor
   matrix per vertex in `shaders/vulkan/normal_matrix.glsl`, which every vertex
-  module includes. The two are equal by construction — a cofactor matrix is the
-  inverse transpose times the determinant, and the shader normalizes, so only the
-  determinant's SIGN survives, which is exactly what Metal's explicit
-  `normalSign` multiply produces. Do not "simplify" either side to `mat3(model)`:
+  module includes, and applies the determinant's sign explicitly. The two are
+  equal by construction — a cofactor matrix is the inverse transpose times the
+  determinant, and the shader normalizes, so the magnitude cancels and the sign is
+  all that has to be put back. Do not "simplify" either side to `mat3(model)`:
   that is the defect this replaced, and it is invisible in any scene whose scales
   are uniform or whose surfaces are axis-aligned (a scaled plane or box keeps its
   normals either way — only curved or rotated surfaces show it). The INSTANCED and
@@ -613,6 +613,18 @@ present, but the rule below never depends on reading it.
   does: their model matrix arrives per instance and upstream does not pay for an
   inverse there. A skinned draw composes the two — the node's inverse transpose
   applied after the skin matrix's bare 3x3.
+- **A mirrored mesh flips BOTH its winding and its normals, and the two halves
+  only make sense together.** `Renderer::applyNodeScaleFlip` swaps which face is
+  culled when `GraphNode::worldScaleSign()` is negative, and the normal matrix
+  carries the determinant's sign so the surviving faces get outward normals. That
+  is what the glTF specification asks of a renderer — reverse the winding when the
+  node's global transform has a negative determinant, and transform normals by the
+  inverse transpose — and it is upstream's behaviour. Flipping one half alone
+  lights a mirrored mesh INSIDE OUT, which is what both backends did until
+  2026-09-11: Metal cancelled the sign with a `normalSign` uniform (now deleted)
+  and Vulkan had no sign to cancel. Assets really do carry such nodes — one node
+  of `leonardo_da_vinci.glb` is mirrored, and it is the only place a shipped
+  example shows this at all.
 - **A batch is one vertex layout, one primitive type and ONE pair of shadow
   flags.** `BatchManager` merges by reinterpreting a source vertex buffer as the
   parsers' 56-byte packed vertex, so a mesh instance that is not exactly that
@@ -794,18 +806,6 @@ does nothing, which is a misleading symptom.
 
 ## Open items
 
-- **A mirrored mesh (negative scale determinant) is handled by neither backend
-  the way upstream handles it.** Upstream flips both halves of the mirror: the
-  normal, through a true inverse transpose that carries the negative determinant,
-  and the FRONT FACE, in `setupCullModeAndFrontFace` from `node.worldScaleSign`.
-  This engine flips neither — both backends pin counter-clockwise winding
-  unconditionally, and the normal-matrix convention (2026-09-11) deliberately
-  cancels the determinant's sign so the two backends agree. The result is
-  self-consistent, so a mirrored mesh lights plausibly, but its winding is
-  inverted relative to its geometry, so back-face culling keeps the wrong faces.
-  Closing this means doing BOTH halves at once: carry the sign in the normal
-  matrix on both backends AND flip the front face per draw. Doing only the first
-  makes mirrored meshes render worse, not better.
 - **Vulkan reflections are slightly SOFTER than Metal's.** Re-measured 2026-09-05
   with the scene frozen: `reflection-probe` matches to 0.3% in the mean, but the
   reflection carries 6.5% less horizontal gradient energy where a direct texture

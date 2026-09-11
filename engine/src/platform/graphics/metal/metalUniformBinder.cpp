@@ -35,8 +35,6 @@ namespace visutwin::canvas
         {
             simd::float4x4 modelMatrix;
             simd::float4x4 normalMatrix;
-            float normalSign;
-            float _pad[3];
         };
     }
 
@@ -89,8 +87,11 @@ namespace visutwin::canvas
         const float c21 = m02 * m10 - m00 * m12;
         const float c22 = m00 * m11 - m01 * m10;
 
+        // Dividing by the SIGNED determinant is what makes this the inverse
+        // transpose rather than a cofactor matrix, and a mirrored mesh depends on
+        // that sign: its normals flip with its surface, as upstream's matrix_normal
+        // does, and the renderer flips which of its faces is culled to match.
         const float det3 = m00 * c00 + m01 * c01 + m02 * c02;
-        const float normalSign = det3 < 0.0f ? -1.0f : 1.0f;
         const float invDet = (std::abs(det3) > 1e-8f) ? (1.0f / det3) : 0.0f;
 
         // Pack cofactor/det into simd::float4x4 directly (avoids Matrix4 intermediary).
@@ -103,9 +104,7 @@ namespace visutwin::canvas
 
         const ModelData modelData{
             toSimdMatrix(model),
-            normalMatrix,
-            normalSign,
-            {0.0f, 0.0f, 0.0f}
+            normalMatrix
         };
         // Allocate ModelData from ring buffer and update offset (slot 2).
         // The ring buffer itself was bound to slot 2 in startRenderPass().

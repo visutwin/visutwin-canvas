@@ -7,24 +7,22 @@
 // Vulkan vertex module passed mat3(model) until 2026-09-11, so that error was
 // this backend's alone: Metal has always uploaded the real thing per draw.
 //
-// What this returns is the COFACTOR matrix, which is the inverse transpose
-// multiplied by the determinant. The caller normalizes the result, so the
-// determinant's magnitude cancels and only its SIGN survives — which is exactly
-// what the Metal backend produces, since it divides the determinant out and then
-// multiplies the transformed normal by sign(det). Keeping the two backends equal
-// is the point; the cofactor form just gets there without a division, and
-// degrades to mat3(model) for the rotations and uniform scales that make up
-// almost every draw (a uniform scale s becomes s², which normalize removes).
-//
-// A mirrored mesh — negative determinant — therefore keeps the normals it would
-// have had unmirrored on BOTH backends. See the note in AGENTS.md: upstream
-// instead flips the normal and the front face together, and this engine flips
-// neither.
+// What this returns is the cofactor matrix times the sign of the determinant,
+// which is the inverse transpose scaled by |det| — and the caller normalizes, so
+// a positive factor cancels and this IS the inverse transpose. Getting there
+// through cofactors costs three cross products and no division; going through
+// det also keeps the sign, which a mirrored mesh needs: its normals must flip
+// with its surface, the same way upstream's matrix_normal flips them. The
+// renderer flips which face is culled for the same meshes (applyNodeScaleFlip),
+// and the two halves only make sense together.
 
 mat3 normalMatrixFrom(mat4 model) {
     vec3 c0 = model[0].xyz;
     vec3 c1 = model[1].xyz;
     vec3 c2 = model[2].xyz;
-    // The cofactor matrix's columns, built with three cross products.
-    return mat3(cross(c1, c2), cross(c2, c0), cross(c0, c1));
+    // The cofactor matrix's columns, built with three cross products. Its first
+    // column doubles as the term the determinant needs, so the sign is nearly free.
+    vec3 cof0 = cross(c1, c2);
+    float detSign = dot(c0, cof0) < 0.0 ? -1.0 : 1.0;
+    return detSign * mat3(cof0, cross(c2, c0), cross(c0, c1));
 }

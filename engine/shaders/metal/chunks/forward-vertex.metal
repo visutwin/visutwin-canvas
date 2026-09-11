@@ -133,9 +133,9 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
                                              skinMatrix[1].xyz,
                                              skinMatrix[2].xyz);
     const float3 skinnedNormal = skinNormalMat * localNormal;
-    rd.worldNormal = normalize((model.normalMatrix * float4(skinnedNormal, 0.0)).xyz) * model.normalSign;
+    rd.worldNormal = normalize((model.normalMatrix * float4(skinnedNormal, 0.0)).xyz);
     const float3 skinnedTangent = skinNormalMat * v.tangent.xyz;
-    const float3 tangentWorld = normalize((model.normalMatrix * float4(skinnedTangent, 0.0)).xyz) * model.normalSign;
+    const float3 tangentWorld = normalize((model.normalMatrix * float4(skinnedTangent, 0.0)).xyz);
     rd.worldTangent = float4(tangentWorld, v.tangent.w);
     rd.uv0 = v.uv0;
     rd.uv1 = v.uv1;
@@ -212,9 +212,9 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     // float32 cancellation. Using the raw vertex position avoids this.
     rd.worldNormal = v.position;
 #else
-    rd.worldNormal = normalize((model.normalMatrix * float4(localNormal, 0.0)).xyz) * model.normalSign;
+    rd.worldNormal = normalize((model.normalMatrix * float4(localNormal, 0.0)).xyz);
 #endif
-    const float3 tangentWorld = normalize((model.normalMatrix * float4(v.tangent.xyz, 0.0)).xyz) * model.normalSign;
+    const float3 tangentWorld = normalize((model.normalMatrix * float4(v.tangent.xyz, 0.0)).xyz);
     rd.worldTangent = float4(tangentWorld, v.tangent.w);
     rd.uv0 = v.uv0;
     rd.uv1 = v.uv1;

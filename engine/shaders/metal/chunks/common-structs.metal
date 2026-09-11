@@ -64,8 +64,6 @@ struct RasterizerData {
 struct ModelData {
     float4x4 modelMatrix;
     float4x4 normalMatrix;
-    float normalSign;
-    float3 _pad;
 };
 
 struct SceneData {
