@@ -1,31 +1,59 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
-                                  constant MaterialData &material [[buffer(3)]])
+                                  constant MaterialData &material [[buffer(3)]],
+                                  texture2d<float> baseColorTexture [[texture(0)]],
+                                  sampler defaultSampler [[sampler(0)]])
 {
+#if VT_FEATURE_ALPHA_TEST || VT_FEATURE_SHADOW_DITHER
+    // Opacity frontend, run before depth is written — upstream's litShadowMain
+    // evaluates the material the same way here as in the forward pass, and a
+    // shadow computed from anything less is the shadow of a different surface.
+    // The alpha has to be the SAME product the forward pass tests: base colour
+    // alpha times the base-colour texture's alpha. Testing the factor alone made
+    // every masked caster (foliage, fences, cut-out signs) throw the solid shadow
+    // of its quad.
+    float shadowAlpha = material.baseColor.a;
+#if VT_FEATURE_BASE_COLOR_MAP
+    // Gated on the feature AND on the runtime size: an unbound Metal texture
+    // reports a nonzero width and samples zero, which would discard the whole
+    // caster rather than none of it.
+    if (baseColorTexture.get_width() > 0 && baseColorTexture.get_height() > 0) {
+        float2 uvBase = ((material.flags & (1u << 4)) != 0u) ? rd.uv1 : rd.uv0;
+        uvBase = applyUvTransform(uvBase, material.baseColorTransform0, material.baseColorTransform1);
+        shadowAlpha *= baseColorTexture.sample(defaultSampler, uvBase).a;
+    }
+#endif
+#else
+    // Neither the alpha test nor the dither is in this variant, so the frontend
+    // is not compiled at all and the caster writes depth as fast as it can.
+    (void)baseColorTexture;
+    (void)defaultSampler;
+#endif
+
 #if VT_FEATURE_ALPHA_TEST
-    // Alpha test for masked materials (e.g. foliage).
-    // Sample diffuse texture if available, otherwise use base color alpha.
-    float alpha = material.baseColor.a;
-    if (alpha < material.alphaCutoff) {
+    if (shadowAlpha < material.alphaCutoff) {
         discard_fragment();
     }
 #endif
 
+#if VT_FEATURE_SHADOW_DITHER
     // Shadow-pass opacity dither (upstream opacityShadowDither, flags bits 29-31, kept
     // independent of the forward dither in bits 25-27). A partially-opaque caster discards
     // the same screen-space Bayer pattern here, so it throws a thinned shadow instead of a
-    // solid one. Runtime branch, no extra shader variant — mode 0 (DITHER_NONE) skips it.
+    // solid one. The mode is still read at runtime — the feature only says a caster in
+    // this pass asked for dithering, which is what gives Vulkan a fragment stage at all.
     {
         const uint shadowDitherMode = (material.flags >> 29) & 0x7u;
         if (shadowDitherMode != 0u) {
             const float ditherStrength = material.dispersionParams.y;
-            const float ditherAlpha = ditherStrength >= 0.0 ? ditherStrength : material.baseColor.a;
+            const float ditherAlpha = ditherStrength >= 0.0 ? ditherStrength : shadowAlpha;
             if (ditherDiscards(shadowDitherMode, rd.position.xy, ditherAlpha)) {
                 discard_fragment();
             }
         }
     }
+#endif
 
 #if VT_FEATURE_VSM_SHADOWS
     // EVSM_16F output: write (exp(c·z), exp(c·z)², 1, 1) into RGBA16F color RT.

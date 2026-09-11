@@ -56,6 +56,13 @@ namespace visutwin::canvas
             return _specializeFeatures;
         }
 
+        // True when the fragment module declares NO colour output and is therefore
+        // usable in a depth-only pass. Only the shadow opacity frontend is: every
+        // other fragment stage writes colour, and one bound with no colour
+        // attachment is a MoltenVK hazard that silently drops depth writes.
+        [[nodiscard]] bool depthOnlyFragment() const { return _depthOnlyFragment; }
+        void setDepthOnlyFragment(const bool value) { _depthOnlyFragment = value; }
+
     private:
         VkShaderModule createModule(const uint32_t* spirv, size_t wordCount);
 
@@ -76,6 +83,7 @@ namespace visutwin::canvas
         VkShaderModule _computeModule = VK_NULL_HANDLE;
         ShaderFeatureSet _features;
         bool _specializeFeatures = false;
+        bool _depthOnlyFragment = false;
     };
 }
 

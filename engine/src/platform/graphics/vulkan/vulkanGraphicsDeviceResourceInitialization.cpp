@@ -1034,12 +1034,33 @@ namespace visutwin::canvas
             }
         }
 
-        const uint32_t* fragment = isShadowName
-            ? vulkan_generated::kShadowVsmFrag
-            : vulkan_generated::kForwardFrag;
-        const size_t fragmentWords = isShadowName
-            ? vulkan_generated::kShadowVsmFragWordCount
-            : vulkan_generated::kForwardFragWordCount;
+        // A shadow program takes one of three fragment stages, decided by the
+        // features the variant was built with:
+        //   VSM        → the moments writer, the one shadow pass with a colour
+        //                attachment;
+        //   alpha test / shadow dither → the depth-only opacity frontend, whose
+        //                only job is to discard before depth is written;
+        //   neither    → NO fragment stage, which is what every ordinary caster
+        //                wants and what this backend gave all of them until
+        //                2026-09-10, alpha-tested casters included.
+        const bool shadowNeedsOpacity =
+            definition.features.test(ShaderFeature::AlphaTest) ||
+            definition.features.test(ShaderFeature::ShadowDither);
+        const bool shadowVsm = definition.features.test(ShaderFeature::VsmShadows);
+        const uint32_t* fragment = vulkan_generated::kForwardFrag;
+        size_t fragmentWords = vulkan_generated::kForwardFragWordCount;
+        if (isShadowName) {
+            if (shadowVsm) {
+                fragment = vulkan_generated::kShadowVsmFrag;
+                fragmentWords = vulkan_generated::kShadowVsmFragWordCount;
+            } else if (shadowNeedsOpacity) {
+                fragment = vulkan_generated::kShadowFrag;
+                fragmentWords = vulkan_generated::kShadowFragWordCount;
+            } else {
+                fragment = nullptr;
+                fragmentWords = 0;
+            }
+        }
         if (definition.name == "particles") {
             return std::make_shared<VulkanShader>(this, definition,
                 vulkan_generated::kParticleVert,
@@ -1054,7 +1075,7 @@ namespace visutwin::canvas
                 vulkan_generated::kGSplatFrag,
                 vulkan_generated::kGSplatFragWordCount);
         }
-        return std::make_shared<VulkanShader>(this, definition,
+        auto shader = std::make_shared<VulkanShader>(this, definition,
             vulkan_generated::kForwardVert,
             vulkan_generated::kForwardVertWordCount,
             fragment, fragmentWords,
@@ -1075,6 +1096,12 @@ namespace visutwin::canvas
             vulkan_generated::kForwardSkinnedMorphedVert,
             vulkan_generated::kForwardSkinnedMorphedVertWordCount,
             !isShadowName);
+        // The opacity frontend declares no colour output, so it is the one
+        // fragment stage a depth-only pass may run.
+        if (shader && isShadowName && !shadowVsm && shadowNeedsOpacity) {
+            shader->setDepthOnlyFragment(true);
+        }
+        return shader;
     }
 
     std::unique_ptr<gpu::HardwareTexture> VulkanGraphicsDevice::createGPUTexture(Texture* texture)

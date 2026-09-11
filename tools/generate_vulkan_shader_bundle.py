@@ -23,6 +23,7 @@ MODULES = (
     ("ForwardPointVert", "forward_point.vert", "vert"),
     ("ForwardFrag", "forward.frag", "frag"),
     ("ShadowVsmFrag", "shadow_vsm_moments.frag", "frag"),
+    ("ShadowFrag", "shadow.frag", "frag"),
     ("PostFullscreenVert", "post_fullscreen.vert", "vert"),
     ("EnvReprojectFrag", "env_reproject.frag", "frag"),
     ("InstanceCullComp", "instance_cull.comp", "comp"),
@@ -230,10 +231,19 @@ def validate(module: str, reflection: dict) -> None:
                 f"{module}: unexpected descriptors: {bindings}; expected={expected}"
             )
         return
-    if module == "ShadowVsmFrag":
-        if bindings or push_constant_size(reflection):
+    if module in ("ShadowVsmFrag", "ShadowFrag"):
+        # Both shadow fragment stages run the opacity frontend, so both read the
+        # material block and the base-colour texture — and NOTHING else. A shadow
+        # stage that reaches for a third resource is reaching for something the
+        # shadow passes do not bind.
+        expected = [
+            (0, 0, "UniformBuffer", MATERIAL_BLOCK_SIZE),
+            (1, 0, "CombinedImageSampler", 0),
+        ]
+        if bindings != expected or push_constant_size(reflection):
             raise RuntimeError(
-                f"{module}: shadow moments stage unexpectedly owns resources"
+                f"{module}: reflected layout mismatch: bindings={bindings}, "
+                f"expected={expected}"
             )
         return
 

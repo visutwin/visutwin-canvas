@@ -555,6 +555,7 @@ namespace visutwin::canvas
         set(ShaderFeature::Lightmap, options.lightmap);
         set(ShaderFeature::DynamicRefraction, options.dynamicRefraction);
         set(ShaderFeature::OpacityDither, options.opacityDither);
+        set(ShaderFeature::ShadowDither, options.shadowDither);
         set(ShaderFeature::PcssShadows, options.pcssShadows);
         set(ShaderFeature::ReflectionProbe, options.reflectionProbe);
         set(ShaderFeature::Ssr, options.ssr);
@@ -877,7 +878,20 @@ namespace visutwin::canvas
         return shader;
     }
 
-    std::shared_ptr<Shader> ProgramLibrary::getShadowShader(const bool dynamicBatch, const bool skinning,
+    bool ProgramLibrary::shadowNeedsMaterial(const Material* material)
+    {
+        if (!material) {
+            return false;
+        }
+        if (material->alphaMode() == AlphaMode::MASK) {
+            return true;
+        }
+        const auto* stdMat = dynamic_cast<const StandardMaterial*>(material);
+        return stdMat && stdMat->opacityShadowDitherMode() != DitherMode::DITHER_NONE;
+    }
+
+    std::shared_ptr<Shader> ProgramLibrary::getShadowShader(const Material* material,
+        const bool dynamicBatch, const bool skinning,
         const bool morphing, const bool instancing, const bool instancingColor)
     {
         if (!_device) {
@@ -895,10 +909,21 @@ namespace visutwin::canvas
             return nullptr;
         }
 
+        const auto* stdMat = dynamic_cast<const StandardMaterial*>(material);
+
         ShaderVariantOptions options{};
         options.skybox = false;
         options.transparentPass = false;
-        options.alphaTest = false;
+        // The shadow pass runs the material's opacity frontend before writing depth,
+        // as upstream's litShadowMain does. Without it a masked material — foliage,
+        // a chain-link fence, a cut-out sign — writes depth over its whole quad and
+        // throws a solid shadow, which is what both backends did until 2026-09-10.
+        options.alphaTest = material && material->alphaMode() == AlphaMode::MASK;
+        options.baseColorMap = options.alphaTest &&
+            (stdMat ? (stdMat->diffuseMap() != nullptr || stdMat->baseColorTexture() != nullptr)
+                    : (material && material->hasBaseColorTexture()));
+        options.shadowDither = stdMat &&
+            stdMat->opacityShadowDitherMode() != DitherMode::DITHER_NONE;
         options.doubleSided = false;
         options.shadowMapping = true;
         options.fog = false;
@@ -916,13 +941,13 @@ namespace visutwin::canvas
         // shader variants are cached separately by the variant key.
         options.vsmShadows = _vsmShadowsEnabled;
 
-        const VariantKey key = makeVariantKey("shadow", options, nullptr);
+        const VariantKey key = makeVariantKey("shadow", options, material);
         const auto cached = _forwardShaderCache.find(key);
         if (cached != _forwardShaderCache.end()) {
             return cached->second;
         }
 
-        auto shader = buildForwardShaderVariant("shadow", options, key.hash());
+        auto shader = buildForwardShaderVariant("shadow", options, key.hash(), material);
         _forwardShaderCache[key] = shader;
         return shader;
     }

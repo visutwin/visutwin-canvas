@@ -1,16 +1,22 @@
 #version 450
 
-// EVSM_16F moments writer — substituted as the fragment stage for shadow
-// programs (createShader detects "program-shadow"). PCF shadow passes are
-// depth-only and omit the fragment stage entirely; this shader only runs when
-// the shadow render target carries the RGBA16F moments color attachment.
+// EVSM_16F moments writer — the fragment stage for a VSM shadow program, which
+// is the one shadow pass that carries a colour attachment (the RGBA16F moments
+// target). A PCF shadow pass is depth-only: it runs shadow.frag when the caster
+// needs an opacity frontend and no fragment stage at all otherwise.
 // Mirrors shadow-fragment.metal: (exp(c·z'), exp(c·z')², 1, 1) with c = 5.54
 // and z' = 2·depth − 1. The .z = 1 marks "rendered"; cleared pixels stay
 // (0,0,0,0) and synthesize fully-lit moments at sample time.
 
+#include "shadow_opacity.glsl"
+
 layout(location = 0) out vec4 outMoments;
 
 void main() {
+    // Same frontend as the depth-only path: a masked caster must not write its
+    // moments where its texture says there is no surface.
+    applyShadowOpacity();
+
     // Rasterization of degenerate triangles, which animated (skinned/morphed) meshes can
     // generate, can supply depth outside of the [0, 1] range or even NaN. The exponential
     // warp below turns those into huge values, which the VSM blur then spreads over a large

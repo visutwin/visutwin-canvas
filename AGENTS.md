@@ -646,6 +646,25 @@ during unrelated work are repeated here.
   real depth texture. Verify a change here by edge statistics, not by eye: MSAA
   leaves whole-frame mean untouched and trades hard gradient steps for
   intermediate ones.
+- **The shadow pass runs the caster's OPACITY FRONTEND before writing depth**,
+  as upstream's `litShadowMain` does. Without it a masked material throws the
+  shadow of its quad: alpha was tested against `baseColor.a` alone, never against
+  the base-colour texture, on Metal, and Vulkan's depth-only PCF pass had no
+  fragment stage at all, so it had neither the alpha test nor the shadow dither.
+  The shadow's alpha must be the SAME product the forward pass tests, or its edge
+  does not follow the visible one. Three consequences for anything touching this:
+  `ProgramLibrary::getShadowShader` takes the CASTER'S MATERIAL and derives the
+  alpha-test, base-colour-map and shadow-dither features from it, so a shadow
+  variant is per material, not per pass; a shadow pass must BIND that material
+  (uniforms and textures) for exactly the casters `shadowNeedsMaterial` names, and
+  nothing for the rest, which is what keeps an ordinary caster's draw as cheap as
+  it was; and on Vulkan the fragment stage is attached only for those casters,
+  through `shadow.frag`, which declares NO colour output — that is the one
+  fragment stage a depth-only pass may run, since a stage declaring a colour
+  output with no colour attachment silently drops depth writes under MoltenVK.
+  The GLSL frontend gates on MATERIAL FLAGS, not on features: a shadow program is
+  built without specialization constants, so every `vtFeatureEnabled` in that
+  stage would read false.
 - **Shadow bias convention.** `LightComponent::setShadowBias` takes upstream's
   0..1 authoring value (default 0.05) and remaps it to `Light::shadowBias` as
   `-0.01 * clamp(v,0,1)` — negative on purpose, because the passes apply

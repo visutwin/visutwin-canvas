@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "core/math/primitives.h"
@@ -12,8 +13,11 @@
 namespace visutwin::canvas
 {
     class Camera;
+    class Material;
     class MeshInstance;
+    class ProgramLibrary;
     class RenderComponent;
+    class Shader;
 
     // Checks component/entity state and camera layer compatibility for shadow casting.
     bool shouldRenderShadowRenderComponent(const RenderComponent* renderComponent, const Camera* camera);
@@ -37,4 +41,20 @@ namespace visutwin::canvas
     // the shadow camera's frustum once (buildCameraFrustum) and pass it here.
     bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera,
         const Frustum& shadowFrustum);
+
+    // The material a shadow draw has to BIND for this caster, or null when the
+    // caster's shadow does not depend on its material. Only a masked (alpha-tested)
+    // or shadow-dithered caster needs one: the shadow shader then reads its opacity
+    // uniforms and samples its base-colour texture before writing depth. Every other
+    // caster draws with no material at all, exactly as the shadow passes always did.
+    const Material* shadowFrontendMaterial(MeshInstance* meshInstance);
+
+    // The shadow program for one caster. `frontendMaterial` is what
+    // shadowFrontendMaterial returned; `cached` is the pass's lazily built variant
+    // for this vertex stage and is used — and filled — only for a caster that needs
+    // no frontend, so the common caster still costs one library call per pass.
+    std::shared_ptr<Shader> shadowCasterShader(ProgramLibrary* programLibrary,
+        const Material* frontendMaterial, std::shared_ptr<Shader>& cached,
+        bool dynamicBatch = false, bool skinning = false, bool morphing = false,
+        bool instancing = false, bool instancingColor = false);
 }

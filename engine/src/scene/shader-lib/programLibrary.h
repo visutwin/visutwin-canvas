@@ -44,9 +44,22 @@ namespace visutwin::canvas
                                                     bool dynamicBatch = false, bool skinning = false,
                                                     bool morphing = false, bool instancing = false,
                                                     bool instancingColor = false);
-        std::shared_ptr<Shader> getShadowShader(bool dynamicBatch = false, bool skinning = false,
+        // The caster's material decides the shadow FRONTEND: an alpha-tested caster
+        // has to sample its base-colour texture before writing depth, or it throws
+        // the shadow of its bounding quad, and a caster with opacityShadowDither
+        // thins its shadow with the ordered pattern. Pass nullptr only for a draw
+        // that genuinely has no material (the shadow of a batch, say) — a null
+        // material gives the plain depth-only variant, which is what every caster
+        // used to get.
+        std::shared_ptr<Shader> getShadowShader(const Material* material = nullptr,
+                                                bool dynamicBatch = false, bool skinning = false,
                                                 bool morphing = false, bool instancing = false,
                                                 bool instancingColor = false);
+
+        // True when this caster's material needs that frontend, and therefore needs
+        // its uniforms and textures bound for the shadow draw. Shadow passes bind a
+        // material only for these, leaving every other caster's draw as it was.
+        static bool shadowNeedsMaterial(const Material* material);
 
         void bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material, bool transparentPass,
                           bool dynamicBatch = false, bool skinning = false, bool morphing = false,
@@ -159,6 +172,11 @@ namespace visutwin::canvas
             bool dynamicRefraction = false;  // grab-pass refraction (StandardMaterial::useDynamicRefraction)
             bool ssr = false;                // screen-space reflections (StandardMaterial::useScreenSpaceReflection)
             bool opacityDither = false;      // Bayer8 dithered transparency in the opaque pass
+            // Shadow-pass opacity dither. Separate from opacityDither: a caster
+            // dithers its SHADOW through opacityShadowDither while staying solid
+            // in the forward pass, and this decides whether the shadow shader
+            // carries a fragment stage at all on Vulkan.
+            bool shadowDither = false;
             bool lightClustering = false;
             bool ssao = false;
             bool lightProbes = false;

@@ -51,8 +51,8 @@ namespace visutwin::canvas
             return;
         }
 
-        auto shadowShader = programLibrary->getShadowShader(false);
-        auto shadowShaderDynBatch = programLibrary->getShadowShader(true);
+        auto shadowShader = programLibrary->getShadowShader(nullptr, false);
+        auto shadowShaderDynBatch = programLibrary->getShadowShader(nullptr, true);
         if (!shadowShader) {
             // Returning here draws NOTHING into the shadow map, which then reads as
             // its cleared 1.0 and lights every fragment: a total, silent loss of
@@ -167,14 +167,13 @@ namespace visutwin::canvas
                     _graphicsDevice->setVertexBuffer(vertexBuffer, 0);
 
                     // The shadow pass otherwise bypasses materials entirely and the device
-                    // supplies a default-constructed MaterialUniforms. A caster that opts into
-                    // shadow dithering needs its real uniforms at slot 3 so the shadow shader
-                    // can read the dither mode and strength — bind them for those casters only,
-                    // leaving every other scene's shadow pass exactly as it was.
-                    const auto* casterStd = dynamic_cast<const StandardMaterial*>(meshInstance->material());
-                    const bool ditheredCaster = casterStd &&
-                        casterStd->opacityShadowDitherMode() != DitherMode::DITHER_NONE;
-                    _graphicsDevice->setMaterial(ditheredCaster ? meshInstance->material() : nullptr);
+                    // supplies a default-constructed MaterialUniforms. A caster whose SHADOW
+                    // depends on its material — masked alpha, or shadow dithering — needs its
+                    // real uniforms at slot 3 and its base-colour texture bound, so the shadow
+                    // shader can run the opacity frontend before writing depth. Every other
+                    // caster binds nothing, exactly as this pass always did.
+                    const Material* frontendMaterial = shadowFrontendMaterial(meshInstance);
+                    _graphicsDevice->setMaterial(frontendMaterial);
 
                     const auto& instancing = meshInstance->instancingData();
                     const bool isInstanced = instancing.vertexBuffer && instancing.count > 0;
@@ -187,11 +186,9 @@ namespace visutwin::canvas
                         // from the mesh instance's own node transform.
                         const bool instanceColor = instancing.vertexBuffer->format() &&
                             instancing.vertexBuffer->format()->hasInstanceColor();
-                        auto& variant = instanceColor ? shadowShaderInstancedColor : shadowShaderInstanced;
-                        if (!variant) {
-                            variant = programLibrary->getShadowShader(false, false, false, true, instanceColor);
-                        }
-                        if (variant) {
+                        auto& cachedVariant = instanceColor ? shadowShaderInstancedColor : shadowShaderInstanced;
+                        if (const auto variant = shadowCasterShader(programLibrary.get(),
+                                frontendMaterial, cachedVariant, false, false, false, true, instanceColor)) {
                             _graphicsDevice->setShader(variant);
                         }
                         _graphicsDevice->setVertexBuffer(instancing.vertexBuffer, 5);
@@ -204,8 +201,9 @@ namespace visutwin::canvas
                         _graphicsDevice->setShader(shadowShader);
                     } else if (meshInstance->isDynamicBatch()) {
                         // Dynamic batch: use dynamic batch shadow shader + palette.
-                        if (shadowShaderDynBatch) {
-                            _graphicsDevice->setShader(shadowShaderDynBatch);
+                        if (const auto variant = shadowCasterShader(programLibrary.get(),
+                                frontendMaterial, shadowShaderDynBatch, true)) {
+                            _graphicsDevice->setShader(variant);
                         }
                         auto* sbi = meshInstance->skinBatchInstance();
                         if (sbi) {
@@ -220,13 +218,11 @@ namespace visutwin::canvas
                         // bind the bone palette (slot 6) and/or morph buffers (slots 9/10).
                         const bool skinned = meshInstance->skinInstance() != nullptr;
                         const bool morphed = meshInstance->morphInstance() != nullptr;
-                        auto& variant = skinned
+                        auto& cachedVariant = skinned
                             ? (morphed ? shadowShaderSkinnedMorphed : shadowShaderSkinned)
                             : shadowShaderMorphed;
-                        if (!variant) {
-                            variant = programLibrary->getShadowShader(false, skinned, morphed);
-                        }
-                        if (variant) {
+                        if (const auto variant = shadowCasterShader(programLibrary.get(),
+                                frontendMaterial, cachedVariant, false, skinned, morphed)) {
                             _graphicsDevice->setShader(variant);
                         }
                         if (skinned) {
@@ -246,9 +242,20 @@ namespace visutwin::canvas
                         _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), 1, -1, true, true);
                         _graphicsDevice->setShader(shadowShader);
                     } else {
+                        // The pass-wide depth-only shader is already bound; a caster with
+                        // an opacity frontend swaps in its own variant and puts the plain
+                        // one back, the way every other branch here does.
+                        if (frontendMaterial) {
+                            if (const auto variant = programLibrary->getShadowShader(frontendMaterial)) {
+                                _graphicsDevice->setShader(variant);
+                            }
+                        }
                         const auto modelMatrix = (meshInstance->node() ? meshInstance->node()->worldTransform() : Matrix4::identity());
                         _graphicsDevice->setTransformUniforms(viewProjection, modelMatrix);
                         _graphicsDevice->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(), 1, -1, true, true);
+                        if (frontendMaterial) {
+                            _graphicsDevice->setShader(shadowShader);
+                        }
                     }
                 }
             }

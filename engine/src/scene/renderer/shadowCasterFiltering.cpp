@@ -18,6 +18,7 @@
 #include "scene/meshInstance.h"
 #include "scene/mesh.h"
 #include "scene/materials/material.h"
+#include "scene/shader-lib/programLibrary.h"
 
 namespace visutwin::canvas
 {
@@ -139,5 +140,32 @@ namespace visutwin::canvas
         }
 
         return true;
+    }
+
+    const Material* shadowFrontendMaterial(MeshInstance* meshInstance)
+    {
+        Material* material = meshInstance ? meshInstance->material() : nullptr;
+        return ProgramLibrary::shadowNeedsMaterial(material) ? material : nullptr;
+    }
+
+    std::shared_ptr<Shader> shadowCasterShader(ProgramLibrary* programLibrary,
+        const Material* frontendMaterial, std::shared_ptr<Shader>& cached,
+        const bool dynamicBatch, const bool skinning, const bool morphing,
+        const bool instancing, const bool instancingColor)
+    {
+        if (!programLibrary) {
+            return nullptr;
+        }
+        if (frontendMaterial) {
+            // Per-material variant. ProgramLibrary caches these on the variant key,
+            // so two masked casters with the same feature set share one program.
+            return programLibrary->getShadowShader(frontendMaterial, dynamicBatch,
+                skinning, morphing, instancing, instancingColor);
+        }
+        if (!cached) {
+            cached = programLibrary->getShadowShader(nullptr, dynamicBatch, skinning,
+                morphing, instancing, instancingColor);
+        }
+        return cached;
     }
 }

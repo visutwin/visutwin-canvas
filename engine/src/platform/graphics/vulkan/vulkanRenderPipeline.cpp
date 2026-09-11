@@ -600,8 +600,12 @@ namespace visutwin::canvas
         // fragment stage entirely.  Depth is written from rasterization, and a
         // fragment shader that declares a colour output with no colour
         // attachment is a MoltenVK hazard that silently drops depth writes.
+        // The one exception is a stage that declares no colour output: the shadow
+        // opacity frontend, which an alpha-tested or shadow-dithered caster needs
+        // in order to discard before its depth is written.
         const bool depthOnly = colorFormats.empty();
-        if (!depthOnly && shader->fragmentModule() != VK_NULL_HANDLE) {
+        if ((!depthOnly || shader->depthOnlyFragment()) &&
+            shader->fragmentModule() != VK_NULL_HANDLE) {
             VkPipelineShaderStageCreateInfo frag{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
             frag.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
             frag.module = shader->fragmentModule();

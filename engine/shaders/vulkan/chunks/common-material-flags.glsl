@@ -1,5 +1,6 @@
 
 // Material flag bits (subset of the engine MaterialUniforms flags).
+const uint FLAG_HAS_BASECOLOR = 1u << 0;
 const uint FLAG_ALPHA_TEST   = 1u << 1;
 const uint FLAG_HAS_NORMAL   = 1u << 2;
 const uint FLAG_DOUBLE_SIDED = 1u << 3;
