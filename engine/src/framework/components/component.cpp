@@ -18,6 +18,13 @@ namespace visutwin::canvas
         return _entity;
     }
 
+    bool Component::active() const
+    {
+        // A component with no entity cannot be switched off by one; the engine's
+        // own internal components are built that way.
+        return enabled() && (_entity == nullptr || _entity->enabled());
+    }
+
     void Component::setEnabled(const bool value)
     {
         const bool oldValue = _enabled;

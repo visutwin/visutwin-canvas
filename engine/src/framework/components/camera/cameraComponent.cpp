@@ -42,6 +42,8 @@ namespace visutwin::canvas
             // Lights cache LightRenderData keyed on raw Camera* — purge before
             // the pointer dies (a future camera at the same address would
             // otherwise reuse the stale entry).
+            // Every instance, including inactive ones: a disabled light still holds
+            // render data keyed on this camera, and that is what is being purged.
             for (auto* lightComponent : LightComponent::instances()) {
                 if (lightComponent && lightComponent->light()) {
                     lightComponent->light()->invalidateRenderData(_camera);

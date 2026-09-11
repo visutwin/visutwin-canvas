@@ -38,7 +38,8 @@ namespace visutwin::canvas
             std::vector<Light*> localShadowLights;   // all shadow-casting locals (rendered)
             std::vector<Light*> atlasSpotLights;     // clustered spots → atlas slices
             for (auto* lightComponent : LightComponent::instances()) {
-                if (!lightComponent || !lightComponent->enabled()) {
+                // active(), not enabled(): a light on a disabled entity casts no shadow.
+                if (!lightComponent || !lightComponent->active()) {
                     continue;
                 }
                 if (lightComponent->type() == LightType::LIGHTTYPE_DIRECTIONAL) {

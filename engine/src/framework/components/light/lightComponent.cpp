@@ -37,13 +37,31 @@ namespace visutwin::canvas
         return _light.get();
     }
 
+    void LightComponent::onEnable()
+    {
+        // Upstream's LightComponent adds its light to the layers here and removes it
+        // in onDisable. This port has no per-layer light list — every consumer
+        // sweeps LightComponent::instances() and tests active() — so the hooks exist
+        // to keep the backing scene Light in step the moment the state changes,
+        // rather than at whatever later point something calls light().
+        syncToLight();
+    }
+
+    void LightComponent::onDisable()
+    {
+        syncToLight();
+    }
+
     void LightComponent::syncToLight() const
     {
         if (!_light) {
             return;
         }
         _light->setType(_type);
-        _light->setEnabled(enabled());
+        // active(), not enabled(): shadowRenderer, shadowRendererLocal and the
+        // cookie pass all gate on Light::enabled(), so the scene Light has to know
+        // about a disabled ENTITY too, not only a disabled component.
+        _light->setEnabled(active());
         _light->setVisibleThisFrame(true);
         _light->setCastShadows(_castShadows);
         _light->setMask(static_cast<MaskType>(_mask));

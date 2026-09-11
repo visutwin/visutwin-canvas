@@ -196,7 +196,8 @@ namespace visutwin::canvas
         std::vector<Light*> dirShadowLights;
 
         for (auto* lightComponent : LightComponent::instances()) {
-            if (!lightComponent || !lightComponent->enabled()) {
+            // active(), not enabled(): a light on a disabled entity must stop lighting.
+            if (!lightComponent || !lightComponent->active()) {
                 continue;
             }
             if (lightComponent->type() != LightType::LIGHTTYPE_DIRECTIONAL || !lightComponent->castShadows()) {
@@ -331,7 +332,7 @@ namespace visutwin::canvas
             bool hasLocalShadows = false;
             bool hasOmniShadows = false;
             for (const auto* lc : LightComponent::instances()) {
-                if (lc && lc->enabled() && lc->castShadows() &&
+                if (lc && lc->active() && lc->castShadows() &&
                     lc->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
                     Light* sceneLight = lc->light();
                     if (sceneLight && sceneLight->shadowMap()) {
@@ -353,7 +354,7 @@ namespace visutwin::canvas
             bool hasCookie2D = false;
             bool hasCookieCube = false;
             for (const auto* lc : LightComponent::instances()) {
-                if (!lc || !lc->enabled() || !lc->cookie()) {
+                if (!lc || !lc->active() || !lc->cookie()) {
                     continue;
                 }
                 // The cookie's shape has to match the light: a spot projects a 2D
@@ -376,7 +377,7 @@ namespace visutwin::canvas
             // need the matching VT_FEATURE_VSM_SHADOWS variant.
             bool hasVsmShadows = false;
             for (const auto* lc : LightComponent::instances()) {
-                if (lc && lc->enabled() && lc->castShadows() &&
+                if (lc && lc->active() && lc->castShadows() &&
                     lc->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
                     Light* sceneLight = lc->light();
                     if (sceneLight && sceneLight->shadowType() == SHADOW_VSM_16F) {
@@ -391,7 +392,7 @@ namespace visutwin::canvas
             // stays the standard depth texture (only the sampling differs).
             bool hasPcssShadows = false;
             for (const auto* lc : LightComponent::instances()) {
-                if (lc && lc->enabled() && lc->castShadows() &&
+                if (lc && lc->active() && lc->castShadows() &&
                     lc->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
                     Light* sceneLight = lc->light();
                     if (sceneLight && sceneLight->shadowType() == SHADOW_PCSS_32F) {
@@ -407,7 +408,7 @@ namespace visutwin::canvas
         {
             bool hasAreaLights = false;
             for (const auto* lc : LightComponent::instances()) {
-                if (lc && lc->enabled() && lc->type() == LightType::LIGHTTYPE_AREA_RECT) {
+                if (lc && lc->active() && lc->type() == LightType::LIGHTTYPE_AREA_RECT) {
                     hasAreaLights = true;
                     break;
                 }
@@ -630,14 +631,9 @@ namespace visutwin::canvas
         };
 
         for (auto* renderComponent : RenderComponent::instances()) {
-            if (!renderComponent || !renderComponent->enabled()) {
-                continue;
-            }
-
-            // Also check that the owning entity (and its entire hierarchy) is enabled.
-            // Component::enabled() only returns the component's own flag — it does not
-            // reflect the parent entity's setEnabled(false) state.
-            if (renderComponent->entity() && !renderComponent->entity()->enabled()) {
+            // active() covers both halves: the component's own flag and the owning
+            // entity's hierarchy state.
+            if (!renderComponent || !renderComponent->active()) {
                 continue;
             }
 
@@ -759,7 +755,7 @@ namespace visutwin::canvas
         };
 
         for (const auto* lightComponent : LightComponent::instances()) {
-            if (!lightComponent || !lightComponent->enabled()) {
+            if (!lightComponent || !lightComponent->active()) {
                 continue;
             }
             if (layer && !lightComponent->rendersLayer(layer->id())) {

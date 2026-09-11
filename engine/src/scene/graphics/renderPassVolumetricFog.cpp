@@ -112,7 +112,7 @@ namespace visutwin::canvas
         LightComponent* findDirectionalLight()
         {
             for (auto* component : LightComponent::instances()) {
-                if (!component || !component->enabled() || !component->entity()) {
+                if (!component || !component->active() || !component->entity()) {
                     continue;
                 }
                 if (component->type() == LightType::LIGHTTYPE_DIRECTIONAL) {

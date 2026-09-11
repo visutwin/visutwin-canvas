@@ -33,6 +33,10 @@ namespace visutwin::canvas
 
         static const std::vector<LightComponent*>& instances() { return _instances; }
 
+        // Keep the backing scene Light in step with the component's active state.
+        void onEnable() override;
+        void onDisable() override;
+
         // Scene-graph Light object owned by this component. Created lazily on first access.
         Light* light() const;
 

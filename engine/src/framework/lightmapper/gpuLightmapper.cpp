@@ -187,6 +187,9 @@ namespace visutwin::canvas
                 bakeLayerIds.push_back(layer->id());
             }
         }
+        // Every instance, including inactive ones: this only widens and then
+        // restores each light's layer list, and a light disabled during the bake
+        // still has to get its own list back.
         for (auto* lightComponent : LightComponent::instances()) {
             if (!lightComponent) {
                 continue;
@@ -214,7 +217,8 @@ namespace visutwin::canvas
         _dirSampleCount = 0;
         if (_options.directionalBakeNumSamples > 1 && _options.directionalBakeArea > 0.0f) {
             for (auto* lightComponent : LightComponent::instances()) {
-                if (!lightComponent || lightComponent->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
+                if (!lightComponent || !lightComponent->active() ||
+                    lightComponent->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
                     continue;
                 }
                 auto* node = lightComponent->entity();

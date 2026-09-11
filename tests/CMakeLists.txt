@@ -123,3 +123,11 @@ add_executable(visutwin-batch-split-tests
 target_link_libraries(visutwin-batch-split-tests PRIVATE visutwin-canvas)
 
 add_test(NAME batch-split COMMAND visutwin-batch-split-tests)
+
+add_executable(visutwin-component-active-tests
+    componentActiveTests.cpp
+)
+
+target_link_libraries(visutwin-component-active-tests PRIVATE visutwin-canvas)
+
+add_test(NAME component-active COMMAND visutwin-component-active-tests)

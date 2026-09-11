@@ -49,6 +49,19 @@ namespace visutwin::canvas
         virtual bool enabled() const { return _enabled; }
         virtual void setEnabled(bool value);
 
+        /**
+         * True when this component is enabled AND its entity is enabled in the
+         * hierarchy — upstream's notion of an ACTIVE component, and the exact
+         * condition onEnable / onDisable fire on.
+         *
+         * Any loop that gathers components for a frame must test THIS, not
+         * enabled(): enabled() is the component's own flag and says nothing about
+         * a parent that was switched off. Every light-gathering loop tested
+         * enabled() alone until 2026-09-11, so a light on a disabled entity went
+         * on lighting the scene.
+         */
+        [[nodiscard]] bool active() const;
+
         virtual void initializeComponentData() = 0;
 
         // Lifecycle methods matching upstream Component.

@@ -551,6 +551,20 @@ present, but the rule below never depends on reading it.
   Radial distance ranks an off-axis surface farther than a centred one at the
   same depth by up to 1/cos(fov/2), and cannot tell behind from in front.
   `MeshInstance::setCalculateSortDistance` overrides it per instance.
+- **A loop that gathers components for a frame must test `Component::active()`,
+  not `enabled()`.** `enabled()` is the component's OWN flag and says nothing
+  about an entity — or a parent entity — that was switched off; `active()` is both
+  halves, and it is the same condition `onEnable` / `onDisable` fire on. Every one
+  of the ten light-gathering loops tested `enabled()` alone until 2026-09-11, so a
+  light on a disabled entity went on lighting the scene and casting its shadow
+  while the mesh instances on that same entity correctly vanished (the render loop
+  had been patched for this hole by hand; lights had not). `LightComponent` also
+  syncs `active()` into its backing `Light`, because `shadowRenderer`,
+  `shadowRendererLocal` and the cookie pass gate on `Light::enabled()` rather than
+  on the component. Two sweeps deliberately take EVERY instance and say so in a
+  comment: the lightmapper's layer backup, which must restore a light it widened
+  even if that light is switched off mid-bake, and the camera's render-data purge,
+  where a disabled light is exactly the one holding a stale pointer.
 - **Component lifecycle runs in `Component::order()`, not container order.**
   Lowest first on enable, reverse on disable, creation order as the tiebreak;
   `RigidBodyComponent` returns -1 so its body exists before anything can move or
