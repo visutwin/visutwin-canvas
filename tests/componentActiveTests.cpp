@@ -13,6 +13,7 @@
 
 #include "framework/components/component.h"
 #include "framework/components/light/lightComponent.h"
+#include "framework/components/script/scriptComponent.h"
 #include "framework/entity.h"
 #include "scene/light.h"
 
@@ -113,6 +114,27 @@ int main()
         light->setEnabled(false);
         check(!light->active() && !light->light()->enabled(),
             "disabling the component alone also disables the scene Light");
+    }
+
+    std::cout << "\nscript component\n";
+
+    // Scripts run their update phases only while the component is active. They
+    // used to gate on the component's own flag, so a script on a disabled entity
+    // kept initializing and updating every frame; the phases test active() now.
+    {
+        auto root = makeRoot();
+        auto* scripts = static_cast<ScriptComponent*>(
+            root->addComponentInstance(
+                std::make_unique<ScriptComponent>(nullptr, root.get()), 9103));
+
+        check(scripts->active(), "a script component on an enabled entity is active");
+
+        root->setEnabled(false);
+        check(scripts->enabled(), "the component's own flag is untouched");
+        check(!scripts->active(), "a script component on a disabled entity is NOT active");
+
+        root->setEnabled(true);
+        check(scripts->active(), "re-enabling the entity makes it active again");
     }
 
     std::cout << (failures == 0 ? "\nAll component active tests passed\n"

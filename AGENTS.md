@@ -565,6 +565,15 @@ present, but the rule below never depends on reading it.
   comment: the lightmapper's layer backup, which must restore a light it widened
   even if that light is switched off mid-bake, and the camera's render-data purge,
   where a disabled light is exactly the one holding a stale pointer.
+
+  SCRIPTS had the same hole and the same fix: every phase — initialize,
+  postInitialize, fixedUpdate, update, postUpdate — gates on `active()`, and
+  `Script::enabled()` folds in its component's active state, so a script on a
+  disabled entity stops running rather than merely stopping being drawn.
+  `ScriptComponent::onEnable` is what initializes a script created while the
+  component was inactive; that logic used to live in its `setEnabled` override,
+  which saw only the component's own flag, so a script created on an entity that
+  was enabled LATER never initialized at all.
 - **Component lifecycle runs in `Component::order()`, not container order.**
   Lowest first on enable, reverse on disable, creation order as the tiebreak;
   `RigidBodyComponent` returns -1 so its body exists before anything can move or

@@ -41,7 +41,10 @@ namespace visutwin::canvas
 
         void initializeComponentData() override {};
 
-        void setEnabled(bool value) override;
+        /// Initializes any script created while this component was inactive.
+        /// Fires for both halves of "active": the component's own flag and the
+        /// entity's hierarchy state.
+        void onEnable() override;
         /// Run initialize() on every script that has not had it, and nothing else.
         /// Separate from postInitialize because the whole point of the second phase
         /// is that it runs after EVERY script in the application has initialized —

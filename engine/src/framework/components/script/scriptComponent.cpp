@@ -56,19 +56,18 @@ namespace visutwin::canvas
         return script;
     }
 
-    void ScriptComponent::setEnabled(const bool value)
+    void ScriptComponent::onEnable()
     {
-        const bool oldValue = _enabled;
-
-        // Call base to store value and fire onSetEnabled lifecycle.
-        Component::setEnabled(value);
-
-        // Mirror JS behavior: transitioning to enabled should initialize scripts
-        // that were created disabled/preloading and now became active.
-        if (!oldValue && value) {
-            for (auto& entry : _scripts) {
-                initializeScriptInstance(entry.instance.get());
-            }
+        // A script created while this component was inactive — disabled, or on a
+        // disabled entity — has not initialized yet. Becoming active is when it
+        // does, which is upstream's _checkState.
+        //
+        // This lives in the lifecycle hook rather than in setEnabled because the
+        // component becomes active two ways: its own flag, and its ENTITY's. The
+        // hook fires for both; setEnabled saw only the first, so a script on an
+        // entity that was enabled later never initialized at all.
+        for (auto& entry : _scripts) {
+            initializeScriptInstance(entry.instance.get());
         }
     }
 
@@ -78,7 +77,7 @@ namespace visutwin::canvas
             return;
         }
 
-        if (!_enabled || !script->enabled()) {
+        if (!active() || !script->enabled()) {
             return;
         }
 
@@ -95,7 +94,7 @@ namespace visutwin::canvas
 
     void ScriptComponent::initializeScripts()
     {
-        if (!_enabled) {
+        if (!active()) {
             return;
         }
         for (auto& entry : _scripts) {
@@ -110,7 +109,7 @@ namespace visutwin::canvas
 
     void ScriptComponent::postInitializeScripts()
     {
-        if (!_enabled) {
+        if (!active()) {
             return;
         }
         for (auto& entry : _scripts) {
@@ -126,7 +125,7 @@ namespace visutwin::canvas
 
     void ScriptComponent::fixedUpdateScripts(const float fixedDt)
     {
-        if (!_enabled) {
+        if (!active()) {
             return;
         }
 
@@ -141,7 +140,7 @@ namespace visutwin::canvas
 
     void ScriptComponent::updateScripts(const float dt)
     {
-        if (!_enabled) {
+        if (!active()) {
             return;
         }
 
@@ -156,7 +155,7 @@ namespace visutwin::canvas
 
     void ScriptComponent::postUpdateScripts(const float dt)
     {
-        if (!_enabled) {
+        if (!active()) {
             return;
         }
 

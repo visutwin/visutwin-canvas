@@ -57,7 +57,7 @@ namespace visutwin::canvas
                  _components.loopIndex < static_cast<int>(_components.length);
                  _components.loopIndex++) {
                 auto* component = _components.items[_components.loopIndex];
-                if (component && component->enabled()) {
+                if (component && component->active()) {
                     component->initializeScripts();
                 }
             }
@@ -69,7 +69,7 @@ namespace visutwin::canvas
                  _components.loopIndex < static_cast<int>(_components.length);
                  _components.loopIndex++) {
                 auto* component = _components.items[_components.loopIndex];
-                if (component && component->enabled()) {
+                if (component && component->active()) {
                     component->postInitializeScripts();
                 }
             }
