@@ -76,7 +76,35 @@ namespace visutwin::canvas
         _shadowCascadeDistances.fill(0.0f);
 
         // Destroy existing shadow map to force re-allocation with correct cascade count
-        _shadowMap = nullptr;
+        destroyShadowMap();
+    }
+
+    void Light::setShadowResolution(int value)
+    {
+        // DEVIATION: upstream also clamps to the device's maxTextureSize (or
+        // maxCubeMapSize for an omni). This port's GraphicsDevice publishes
+        // neither, and the Light a LightComponent owns is built with a null
+        // device anyway, so the allocation in ShadowMap::create is where an
+        // oversized request would have to be caught.
+        value = std::max(value, 1);
+        if (_shadowResolution == value) {
+            return;
+        }
+        _shadowResolution = value;
+
+        // Everything else about the shadow already follows the new value: the
+        // cascade viewport is recomputed from shadowResolution() during each
+        // cull, and the shader's PCF texel size is uploaded per frame. Only the
+        // texture is allocated once and only when null, so without this the map
+        // keeps its old size and the two silently disagree — the cascade renders
+        // into a fraction of the texture it is then sampled across.
+        //
+        // The render data is NOT cleared, unlike setShadowType: the shadow
+        // camera caches no size-dependent state (prepareFace re-points it at the
+        // new render target, and the viewport is refreshed by the cull), and an
+        // omni's per-face caster classification for this frame would be thrown
+        // away with it.
+        destroyShadowMap();
     }
 
     void Light::setShadowType(const ShadowType value)
@@ -90,7 +118,18 @@ namespace visutwin::canvas
         // clears to 1.0 depth, VSM to the (0,0,0,0) "unrendered" sentinel) and
         // the shadow map format differs (depth vs RGBA16F moments) — rebuild both.
         _renderData.clear();
+        destroyShadowMap();
+    }
+
+    void Light::destroyShadowMap()
+    {
         _shadowMap = nullptr;
+
+        // A light whose shadow was already rendered once would never render into
+        // the replacement, leaving it blank for as long as the light lives.
+        if (_shadowUpdateMode == ShadowUpdateType::SHADOWUPDATE_NONE) {
+            _shadowUpdateMode = ShadowUpdateType::SHADOWUPDATE_THISFRAME;
+        }
     }
 
     void Light::invalidateRenderData(const Camera* camera)

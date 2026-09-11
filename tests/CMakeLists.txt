@@ -131,3 +131,11 @@ add_executable(visutwin-component-active-tests
 target_link_libraries(visutwin-component-active-tests PRIVATE visutwin-canvas)
 
 add_test(NAME component-active COMMAND visutwin-component-active-tests)
+
+add_executable(visutwin-shadow-map-invalidation-tests
+    shadowMapInvalidationTests.cpp
+)
+
+target_link_libraries(visutwin-shadow-map-invalidation-tests PRIVATE visutwin-canvas)
+
+add_test(NAME shadow-map-invalidation COMMAND visutwin-shadow-map-invalidation-tests)

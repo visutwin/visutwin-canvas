@@ -762,6 +762,22 @@ during unrelated work are repeated here.
   The GLSL frontend gates on MATERIAL FLAGS, not on features: a shadow program is
   built without specialization constants, so every `vtFeatureEnabled` in that
   stage would read false.
+- **A light's shadow map is allocated ONCE, lazily, and only when null, so every
+  property that changes what the map must BE has to drop it** — today
+  `setNumCascades`, `setShadowType` and `setShadowResolution`, all three through
+  `Light::destroyShadowMap`. Nothing announces the mismatch: the renderer finds a
+  non-null map and renders into it, and the frame still comes out. A stale
+  resolution renders a cascade into a fraction of a texture the shader then samples
+  across, because the cascade viewport is recomputed per cull and the PCF texel size
+  is uploaded per frame while the texture is not. **Each such setter must also
+  early-out when the value is unchanged**: `LightComponent::syncToLight` replays
+  EVERY property onto the backing `Light` once per frame, so an unconditional drop
+  reallocates the map forever. Dropping the map also re-arms a light sitting at
+  `SHADOWUPDATE_NONE`, or nothing would ever render into the replacement.
+  `tests/shadowMapInvalidationTests.cpp` pins both halves for all three setters.
+  DEVIATION: upstream additionally clamps the resolution to the device's
+  `maxTextureSize` (`maxCubeMapSize` for an omni); this port's `GraphicsDevice`
+  publishes neither, and the `Light` a component owns carries a null device anyway.
 - **Shadow bias convention.** `LightComponent::setShadowBias` takes upstream's
   0..1 authoring value (default 0.05) and remaps it to `Light::shadowBias` as
   `-0.01 * clamp(v,0,1)` — negative on purpose, because the passes apply

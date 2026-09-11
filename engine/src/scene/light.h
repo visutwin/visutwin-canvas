@@ -137,8 +137,8 @@ namespace visutwin::canvas
         float* shadowCascadeDistancesData() { return _shadowCascadeDistances.data(); }
 
         // The light owns its shadow map: replacing it (setNumCascades,
-        // setShadowType) or destroying the light frees the old GPU textures
-        // instead of orphaning them in a renderer-side list.
+        // setShadowType, setShadowResolution) or destroying the light frees the
+        // old GPU textures instead of orphaning them in a renderer-side list.
         ShadowMap* shadowMap() const { return _shadowMap.get(); }
         void setShadowMap(std::shared_ptr<ShadowMap> value) { _shadowMap = std::move(value); }
 
@@ -159,7 +159,11 @@ namespace visutwin::canvas
         void setShadowDistance(const float value) { _shadowDistance = value; }
 
         int shadowResolution() const { return _shadowResolution; }
-        void setShadowResolution(const int value) { _shadowResolution = value; }
+
+        // Drops the shadow map on a change: it is allocated lazily and only when
+        // null, so an inline store left the texture at its old size while the
+        // viewport and the shader's texel size followed the new one.
+        void setShadowResolution(int value);
 
         // VSM-only: separable gaussian blur kernel size (total taps; must be odd).
         int vsmBlurSize() const { return _vsmBlurSize; }
@@ -205,6 +209,12 @@ namespace visutwin::canvas
         GraphicsDevice* device() const { return _device; }
 
     private:
+        // Drops the shadow map so the next frame reallocates it, and re-arms a
+        // light whose shadow was already considered rendered — a map nothing
+        // renders into is worse than the stale one it replaced. Upstream's
+        // `_destroyShadowMap`.
+        void destroyShadowMap();
+
         GraphicsDevice* _device;
 
         bool _clusteredLighting;
