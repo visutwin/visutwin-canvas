@@ -409,10 +409,11 @@ stay three named calls rather than one tagged call because they differ in arity 
 own different slots (particle and gsplat share 7/11, morph uses 9/10).
 
 A compute effect goes through `Compute` + `GraphicsDevice::computeDispatch`, not a
-new virtual. Parameters bind by NAME in sorted order (see `compute.h`); when the
-parameters are a struct rather than a few scalars, use `Compute::setUniformBlock`
-to supply the block verbatim instead of naming 44 floats whose order would then
-depend on their spelling.
+new virtual. Parameters bind by NAME in sorted order, at per-backend indices for
+which the table in `compute.h` is the contract; when the parameters are a struct
+rather than a few scalars, use `Compute::setUniformBlock` to supply the block
+verbatim instead of naming 44 floats whose order would then depend on their
+spelling.
 
 **Offline (out-of-frame) work** goes through `GraphicsDevice::beginOfflineWork` /
 `endOfflineWork`. Between them the ordinary render-pass and draw API is usable, so
@@ -555,10 +556,21 @@ present, but the rule below never depends on reading it.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.
-- **`Compute` parameter binding is by NAME in sorted order**, because this port has
-  no shader reflection: buffers 0..b-1, textures b..b+t-1, the uniform block at
-  b+t, and the block's members are the scalars again in name order. A shader that
-  declares them in a different order silently reads the wrong data.
+- **`Compute` parameter binding is by NAME in sorted order, and the INDICES DIFFER
+  PER BACKEND.** This port has no shader reflection, so the order is derived from
+  the names — buffers, then textures, then the single uniform block, each group
+  name-sorted, the block's members being the scalars again in name order. The
+  order is the same on both backends; the numbering is not, because Metal gives
+  each resource kind its own namespace and Vulkan has one flat descriptor set.
+  Metal: `buffer(0..b-1)`, the uniform block at `buffer(b)`, textures at
+  `texture(0..t-1)`. Vulkan set 0: bindings `0..b-1`, textures `b..b+t-1`, the
+  block at `b+t`. So a kernel with BOTH buffers and textures needs different
+  indices in its MSL and its GLSL; nothing in the tree has both yet, and the one
+  shipped kernel (the particle simulation) is the case where the two agree, so the
+  table in `compute.h` is the contract rather than any existing kernel. A shader
+  that declares them in a different order silently reads the wrong data. Metal also
+  binds NO sampler state to a compute kernel: an MSL kernel that filters declares
+  its own `constexpr sampler`.
 - **Only ONE SIMD backend compiles per target, so a defect in another one is
   invisible here.** Apple silicon selects the Apple backend; the SSE path is now
   gated on `__SSE4_1__` (it uses `_mm_dp_ps` / `_mm_insert_ps`, so `__SSE__`

@@ -721,8 +721,12 @@ namespace visutwin::canvas
             encoder->setComputePipelineState(pipelineState);
 
             // DEVIATION: C++ port does not yet have compute bind group
-            // declarations/reflection, so resources bind in deterministic name order:
-            // storage buffers first, then the loose-uniform block, then textures.
+            // declarations/reflection, so resources bind in deterministic name order.
+            // Metal gives each resource kind its own index namespace, so this is
+            // buffer(0..b-1) for the storage buffers, buffer(b) for the loose-uniform
+            // block, and texture(0..t-1) for the textures — NOT the single flat run
+            // Vulkan binds. The table in compute.h is the contract for both.
+            // No sampler state is bound: an MSL kernel that filters declares its own.
             uint32_t bufferSlot = 0u;
             for (const auto& buffer : compute->bufferParameters() | std::views::values) {
                 auto* hwBuffer = buffer ? static_cast<MTL::Buffer*>(buffer->nativeBuffer()) : nullptr;

@@ -27,17 +27,36 @@ namespace visutwin::canvas
      * storage buffers, textures, and loose scalar uniforms.
      *
      * DEVIATION: upstream reflects the resources out of the WGSL source and builds the bind group
-     * from the reflected names. This port has no shader reflection, so binding indices are derived
-     * from the parameter NAMES in sorted order, and the shader must declare them to match:
+     * from the reflected names. This port has no shader reflection, so indices are derived from
+     * the parameter NAMES in sorted order and the shader must declare them to match. Within each
+     * kind the order is the same on both backends — buffers name-sorted, then textures
+     * name-sorted, then the single uniform block — but the INDICES ARE NOT, because Metal has a
+     * separate index namespace per resource kind and Vulkan has one flat descriptor set:
      *
-     *   buffers  (name-sorted)  -> binding 0 .. b-1
-     *   textures (name-sorted)  -> binding b .. b+t-1
-     *   loose uniforms          -> binding b+t, as ONE block whose members are the scalar
-     *                              parameters packed 4 bytes each, again in name-sorted order
+     *   resource                MSL                        GLSL (descriptor set 0)
+     *   ----------------------  -------------------------  ------------------------
+     *   buffers (b of them)     buffer(0 .. b-1)           binding 0 .. b-1
+     *   uniform block           buffer(b), via setBytes    binding b+t
+     *   textures (t of them)    texture(0 .. t-1)          binding b .. b+t-1
      *
-     * On Metal those indices are buffer(n) / texture(n) slots (the uniform block arrives via
-     * setBytes); on Vulkan they are bindings in descriptor set 0. A texture-only compute keeps
-     * the indices it had before buffers and uniforms existed.
+     * So a kernel with BOTH buffers and textures cannot use the same indices in the two
+     * languages: on Metal its first texture is texture(0) and the uniform block sits directly
+     * after the buffers, while on Vulkan the textures follow the buffers and the uniform block
+     * comes last. Nothing in the tree exercises that combination yet — the one shipped kernel,
+     * the particle simulation, is one buffer plus one uniform block and no textures, which is
+     * exactly the case where the two layouts agree — so treat the table, not any existing
+     * kernel, as the contract.
+     *
+     * The uniform block is ONE block whose members are the scalar parameters packed 4 bytes
+     * each, again in name-sorted order, or the bytes handed to setUniformBlock verbatim. It is
+     * bound only when non-empty; because it is last in each namespace, leaving it out shifts
+     * nothing else. The same is true of a texture-only or buffer-only compute, which keeps the
+     * indices it had before the other kinds existed.
+     *
+     * Textures: Vulkan picks a storage image or a combined image sampler from Texture::storage(),
+     * and a combined image sampler carries the texture's own sampler. The Metal path binds
+     * textures alone and NO sampler state at all, so an MSL kernel that wants filtered sampling
+     * has to declare a constexpr sampler of its own.
      */
     class Compute
     {
@@ -66,9 +85,10 @@ namespace visutwin::canvas
         void setParameter(const std::string& name, uint32_t value);
 
         /// Supply the uniform block VERBATIM instead of building it from named
-        /// scalars. The block still lands where the class comment says (binding
-        /// b+t), so a kernel declares it the same way — this only changes how the
-        /// bytes are produced. Use it when the parameters are a struct rather than
+        /// scalars. The block still lands where the class comment's table says —
+        /// buffer(b) on Metal, binding b+t on Vulkan — so a kernel declares it the
+        /// same way; this only changes how the bytes are produced. Use it when the
+        /// parameters are a struct rather than
         /// a handful of scalars: expressing a mat4 plus seven vec4s as 44 separately
         /// named floats would be unreadable AND fragile, because the loose path
         /// orders members by NAME.

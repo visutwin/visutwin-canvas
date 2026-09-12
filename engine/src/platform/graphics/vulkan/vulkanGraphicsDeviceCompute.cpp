@@ -105,9 +105,13 @@ namespace visutwin::canvas
                 continue;
             }
 
-            // Binding order mirrors the Metal backend and Compute's documented contract:
-            // storage buffers (name-sorted) first, then textures (name-sorted), then the
-            // loose-uniform block. A texture-only compute keeps the bindings it always had.
+            // One flat descriptor set 0, filled in the order Compute's class comment
+            // tabulates: storage buffers (name-sorted) first, then textures
+            // (name-sorted), then the loose-uniform block. The KINDS are ordered the
+            // same way on Metal, but the INDICES are not — Metal has a namespace per
+            // kind, so its textures start at 0 and its uniform block sits right after
+            // the buffers. Read the table in compute.h before changing either side.
+            // A texture-only compute keeps the bindings it always had.
             std::vector<VkDescriptorType> types;
             std::vector<VkBuffer> storageBuffers;
             std::vector<std::shared_ptr<VulkanVertexBuffer>> storageKeepAlive;
