@@ -427,6 +427,16 @@ already rendered in front of it.
   the dimension limits, `ShadowMap::create` and `Light::setShadowResolution` clamp
   the shadow resolution against them, and `Light::setShadowType` keys the VSM
   fallback on the half-float answer.
+- **Readback.** `Texture::read(out, x, y, w, h, mip, face)` is the public seam —
+  upstream's `Texture#read`, blocking rather than promise-returning, since this
+  port has no frame-deferred variant. It validates the region, sizes `out` tightly
+  packed, and delegates to `gpu::HardwareTexture::read`: Metal blits into a
+  shared-storage staging texture (`readMetalTexture`, shared with the back-buffer
+  screenshot, which reads a drawable that has no `Texture` in front of it), Vulkan
+  copies into a host-visible buffer through `VulkanGraphicsDevice::runOneShotCommands`
+  and restores the subresource's layout. The backbuffer screenshot stays separate
+  on Vulkan: it must be recorded into the FRAME's command buffer before the present
+  transition, which a one-shot buffer cannot do.
 - `copyRenderTarget(source, colorDest, depthDest)` and `generateMipmaps(texture)`
   are the generic operations behind the scene grabs. A blit needs matching pixel
   formats; `PIXELFORMAT_BGRA8` exists for the drawable, and

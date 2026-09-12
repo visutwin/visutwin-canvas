@@ -13,6 +13,55 @@
 
 namespace visutwin::canvas::gpu
 {
+    bool readMetalTexture(MTL::Device* device, MTL::CommandQueue* queue,
+        MTL::Texture* source, const TextureReadRegion& region,
+        const uint32_t bytesPerPixel, uint8_t* out, const size_t outSize)
+    {
+        if (!device || !queue || !source || !out || bytesPerPixel == 0) {
+            return false;
+        }
+        const size_t rowPitch = static_cast<size_t>(region.width) * bytesPerPixel;
+        if (outSize < rowPitch * region.height) {
+            spdlog::error("readMetalTexture: destination holds {} bytes, the region needs {}",
+                outSize, rowPitch * region.height);
+            return false;
+        }
+
+        // Staging is a 2D texture the size of the REGION, not of the source, so a
+        // small crop of a large render target costs a small allocation. The blit
+        // carries the mip level and the cube face as the source slice.
+        auto* descriptor = MTL::TextureDescriptor::texture2DDescriptor(
+            source->pixelFormat(), region.width, region.height, false);
+        descriptor->setStorageMode(MTL::StorageModeShared);
+        descriptor->setUsage(MTL::TextureUsageShaderRead);
+        MTL::Texture* staging = device->newTexture(descriptor);
+        if (!staging) {
+            spdlog::error("readMetalTexture: failed to allocate a {}x{} staging texture",
+                region.width, region.height);
+            return false;
+        }
+
+        MTL::CommandBuffer* buffer = queue->commandBuffer();
+        MTL::BlitCommandEncoder* blit = buffer ? buffer->blitCommandEncoder() : nullptr;
+        if (!blit) {
+            staging->release();
+            spdlog::error("readMetalTexture: failed to open a blit encoder");
+            return false;
+        }
+        blit->copyFromTexture(source, region.face, region.mipLevel,
+            MTL::Origin(region.x, region.y, 0),
+            MTL::Size(region.width, region.height, 1),
+            staging, 0, 0, MTL::Origin(0, 0, 0));
+        blit->endEncoding();
+        buffer->commit();
+        buffer->waitUntilCompleted();
+
+        staging->getBytes(out, rowPitch,
+            MTL::Region::Make2D(0, 0, region.width, region.height), 0);
+        staging->release();
+        return true;
+    }
+
     namespace
     {
         MTL::PixelFormat pixelFormatToMetal(const PixelFormat format)
@@ -394,5 +443,17 @@ namespace visutwin::canvas::gpu
             sampler->release();
         }
         _samplers.clear();
+    }
+
+    bool MetalTexture::read(GraphicsDevice* device, const TextureReadRegion& region,
+        uint8_t* out, const size_t outSize)
+    {
+        auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(device);
+        if (!metalDevice || !_metalTexture) {
+            return false;
+        }
+        return readMetalTexture(metalDevice->raw(), metalDevice->commandQueue(),
+            _metalTexture, region, pixelFormatBytesPerPixel(_texture->format()),
+            out, outSize);
     }
 }

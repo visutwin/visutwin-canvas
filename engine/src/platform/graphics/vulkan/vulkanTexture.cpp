@@ -637,6 +637,98 @@ namespace visutwin::canvas::gpu
         return true;
     }
 
+    bool VulkanTexture::read(GraphicsDevice* device, const TextureReadRegion& region,
+        uint8_t* out, const size_t outSize)
+    {
+        auto* vulkanDevice = dynamic_cast<VulkanGraphicsDevice*>(device);
+        if (!vulkanDevice || _image == VK_NULL_HANDLE || !out) {
+            return false;
+        }
+        if (vulkanDevice->recording()) {
+            // The work that produced these pixels is in a command buffer that has
+            // not been submitted, so a one-shot read would run AHEAD of it and
+            // return the previous contents. Refuse rather than answer wrongly.
+            spdlog::error("VulkanTexture::read: cannot read back while a frame or an "
+                "offline scope is recording — close it first");
+            return false;
+        }
+        const uint32_t bytesPerPixel = pixelFormatBytesPerPixel(_owner->format());
+        const VkDeviceSize size =
+            static_cast<VkDeviceSize>(region.width) * region.height * bytesPerPixel;
+        if (bytesPerPixel == 0 || outSize < size) {
+            return false;
+        }
+
+        VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bufferInfo.size = size;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo allocationInfo{};
+        allocationInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        allocationInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation allocation = nullptr;
+        VmaAllocationInfo mapped{};
+        if (vmaCreateBuffer(vulkanDevice->vmaAllocator(), &bufferInfo, &allocationInfo,
+                &staging, &allocation, &mapped) != VK_SUCCESS) {
+            spdlog::error("VulkanTexture::read: failed to allocate a {}-byte staging buffer",
+                static_cast<size_t>(size));
+            return false;
+        }
+
+        // The subresource is left exactly as it was found. A texture read between
+        // frames is still bound by descriptors written for it, and handing it back
+        // in TRANSFER_SRC would make every later sample of it invalid.
+        const VkImageLayout previous = layout(region.mipLevel, region.face);
+        const bool submitted = vulkanDevice->runOneShotCommands(
+            [&](VkCommandBuffer cmd) {
+                transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    region.mipLevel, 1, region.face, 1);
+
+                VkBufferImageCopy copy{};
+                // Zero means tightly packed to imageExtent, which is how `out` is
+                // sized — Vulkan has no 256-byte row alignment to pad around.
+                copy.bufferRowLength = 0;
+                copy.bufferImageHeight = 0;
+                copy.imageSubresource.aspectMask = _aspect;
+                copy.imageSubresource.mipLevel = region.mipLevel;
+                copy.imageSubresource.baseArrayLayer = region.face;
+                copy.imageSubresource.layerCount = 1;
+                copy.imageOffset = {static_cast<int32_t>(region.x),
+                    static_cast<int32_t>(region.y), 0};
+                copy.imageExtent = {region.width, region.height, 1};
+                vkCmdCopyImageToBuffer(cmd, _image,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &copy);
+
+                VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+                barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                barrier.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+                barrier.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+                VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                dependency.memoryBarrierCount = 1;
+                dependency.pMemoryBarriers = &barrier;
+                vkCmdPipelineBarrier2(cmd, &dependency);
+
+                if (previous != VK_IMAGE_LAYOUT_UNDEFINED &&
+                    previous != VK_IMAGE_LAYOUT_PREINITIALIZED) {
+                    transitionLayout(cmd, previous, region.mipLevel, 1, region.face, 1);
+                }
+            });
+
+        bool ok = false;
+        if (submitted && mapped.pMappedData) {
+            vmaInvalidateAllocation(vulkanDevice->vmaAllocator(), allocation, 0,
+                VK_WHOLE_SIZE);
+            std::memcpy(out, mapped.pMappedData, static_cast<size_t>(size));
+            ok = true;
+        } else if (submitted) {
+            spdlog::error("VulkanTexture::read: staging buffer is not mapped");
+        }
+        vmaDestroyBuffer(vulkanDevice->vmaAllocator(), staging, allocation);
+        return ok;
+    }
+
     void VulkanTexture::destroySampler()
     {
         if (_sampler != VK_NULL_HANDLE && _vkDevice != VK_NULL_HANDLE) {

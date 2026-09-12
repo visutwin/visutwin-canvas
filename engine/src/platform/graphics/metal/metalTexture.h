@@ -12,6 +12,25 @@
 namespace visutwin::canvas::gpu
 {
     /**
+     * Copy a rectangle out of ANY Metal texture into `out`, tightly packed at
+     * `bytesPerPixel`, blocking until the GPU has finished with it.
+     *
+     * The copy goes through a shared-storage staging texture unconditionally. A
+     * render target is device-private on Apple Silicon, and `getBytes` on a
+     * private texture does not fail — it returns whatever is there, which is how
+     * `tools/generate-env-atlas` wrote a plausible-looking wrong image for as
+     * long as it existed. Paying one blit for a texture that happened to be
+     * shared is the cheaper mistake.
+     *
+     * The back-buffer screenshot reads the DRAWABLE, which is an `MTL::Texture`
+     * with no `Texture` in front of it, so this takes the native handle rather
+     * than a `MetalTexture` and both paths share one implementation.
+     */
+    bool readMetalTexture(MTL::Device* device, MTL::CommandQueue* queue,
+        MTL::Texture* source, const TextureReadRegion& region,
+        uint32_t bytesPerPixel, uint8_t* out, size_t outSize);
+
+    /**
       * Metal texture implementation.
       * Wraps MTL::Texture and provides texture management functionality.
       */
@@ -34,6 +53,9 @@ namespace visutwin::canvas::gpu
         void uploadImmediate(GraphicsDevice* device) override;
 
         void propertyChanged(uint32_t flag) override;
+
+        bool read(GraphicsDevice* device, const TextureReadRegion& region,
+            uint8_t* out, size_t outSize) override;
 
         // Upload texture data to GPU
         void uploadData(GraphicsDevice* device);

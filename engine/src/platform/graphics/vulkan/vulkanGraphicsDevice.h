@@ -181,6 +181,18 @@ namespace visutwin::canvas
 
         void beginOfflineWork() override;
         void endOfflineWork() override;
+
+        /**
+         * Record `record` into a fresh one-shot command buffer, submit it and WAIT
+         * for it. The building block behind endOfflineWork and behind texture
+         * readback, which has to block by its nature: a caller asking for pixels
+         * cannot be handed a fence.
+         *
+         * Do not call it while a frame or an offline scope is recording — that
+         * work is not submitted yet, so this would run ahead of the very commands
+         * whose output is being read. Returns false if it could not be submitted.
+         */
+        bool runOneShotCommands(const std::function<void(VkCommandBuffer)>& record);
         [[nodiscard]] VkFormat depthFormat() const { return _depthFormat; }
         [[nodiscard]] bool validationEnabled() const { return _validationEnabled; }
         [[nodiscard]] std::shared_ptr<const std::atomic_uint32_t> validationErrorCounter() const {
@@ -486,6 +498,10 @@ namespace visutwin::canvas
         VkImageLayout _swapchainImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
         // ── Upload resources (batched asynchronous staging transfers) ─────
+        // Ends, submits and waits on a one-shot buffer from _uploadCommandPool,
+        // then frees it. Shared by runOneShotCommands and endOfflineWork.
+        bool submitAndWait(VkCommandBuffer commandBuffer);
+
         VkCommandPool _uploadCommandPool = VK_NULL_HANDLE;
 
         struct PendingUpload

@@ -84,6 +84,26 @@ namespace visutwin::canvas
         size_t getLevelDataSize(uint32_t mipLevel, uint32_t face = 0) const;
         void setLevelData(uint32_t mipLevel, const uint8_t* data, size_t dataSize, uint32_t face = 0);
 
+        /**
+         * Read a rectangle of one mip level and face back from the GPU into `out`,
+         * tightly packed, BLOCKING until it arrives. Upstream's `Texture#read`,
+         * which returns a promise; this port has no frame-deferred variant, so a
+         * caller on the hot path pays a full pipeline drain and should not be there.
+         *
+         * A zero width or height means the whole level. `out` is resized to
+         * `width * height * bytesPerPixel`. Returns false and leaves `out` alone
+         * when the region is out of range, the format has no byte size, or the
+         * backend has no readback — see `gpu::HardwareTexture::read` for why this
+         * must go through the backend rather than reading the texture's memory.
+         *
+         * This is the seam. Reaching past it for the native handle is how the env
+         * atlas tool came to sample a device-private render target and write out
+         * garbage that looked almost right.
+         */
+        bool read(std::vector<uint8_t>& out, uint32_t x = 0, uint32_t y = 0,
+            uint32_t width = 0, uint32_t height = 0, uint32_t mipLevel = 0,
+            uint32_t face = 0);
+
         bool isCubemap() const { return _cubemap; }
 
         // How the texel grid maps onto directions — read by reprojectTexture to decide

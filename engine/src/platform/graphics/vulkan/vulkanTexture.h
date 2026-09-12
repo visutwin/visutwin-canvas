@@ -32,6 +32,8 @@ namespace visutwin::canvas::gpu
 
         void uploadImmediate(GraphicsDevice* device) override;
         void propertyChanged(uint32_t flag) override;
+        bool read(GraphicsDevice* device, const TextureReadRegion& region,
+            uint8_t* out, size_t outSize) override;
 
         [[nodiscard]] VkImage image() const { return _image; }
         [[nodiscard]] VkImageView imageView() const { return _imageView; }

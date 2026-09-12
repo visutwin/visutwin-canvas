@@ -405,32 +405,20 @@ namespace visutwin::canvas
         const NS::UInteger width = source->width();
         const NS::UInteger height = source->height();
 
-        // The drawable is private storage on Apple Silicon, so getBytes cannot
-        // read it directly -- blit into a shared staging texture first.
-        auto* descriptor = MTL::TextureDescriptor::texture2DDescriptor(
-            source->pixelFormat(), width, height, false);
-        descriptor->setStorageMode(MTL::StorageModeShared);
-        descriptor->setUsage(MTL::TextureUsageShaderRead);
-        MTL::Texture* staging = _device->newTexture(descriptor);
-        if (!staging) {
-            spdlog::error("Screenshot: failed to allocate staging texture");
+        // The same readback the public Texture::read seam uses — the drawable is
+        // device-private on Apple Silicon, so this has to go through a shared
+        // staging texture, and there is no reason for two spellings of that.
+        // The drawable is an MTL::Texture with no engine Texture wrapping it,
+        // which is why this calls the helper rather than the seam.
+        const NS::UInteger rowPitch = width * 4;
+        std::vector<uint8_t> pixels(static_cast<size_t>(rowPitch) * height);
+        const gpu::TextureReadRegion region{0, 0, static_cast<uint32_t>(width),
+            static_cast<uint32_t>(height), 0, 0};
+        if (!gpu::readMetalTexture(_device, _commandQueue, source, region, 4,
+                pixels.data(), pixels.size())) {
             _pendingScreenshotPath.clear();
             return;
         }
-
-        MTL::CommandBuffer* buffer = _commandQueue->commandBuffer();
-        MTL::BlitCommandEncoder* blit = buffer->blitCommandEncoder();
-        blit->copyFromTexture(source, 0, 0, MTL::Origin(0, 0, 0),
-            MTL::Size(width, height, 1), staging, 0, 0, MTL::Origin(0, 0, 0));
-        blit->endEncoding();
-        buffer->commit();
-        buffer->waitUntilCompleted();
-
-        const NS::UInteger rowPitch = width * 4;
-        std::vector<uint8_t> pixels(static_cast<size_t>(rowPitch) * height);
-        staging->getBytes(pixels.data(), rowPitch,
-            MTL::Region::Make2D(0, 0, width, height), 0);
-        staging->release();
 
         // The drawable is BGRA8; PNG wants RGBA.
         const bool swap = source->pixelFormat() == MTL::PixelFormatBGRA8Unorm

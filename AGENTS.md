@@ -454,6 +454,28 @@ present, but the rule below never depends on reading it.
   `RenderPassDofBlur` are never constructed. Depth of field runs entirely through
   `applyDofSinglePass` in the compose shader. Screenshot-verifying those passes
   proves NOTHING. Reviving the path means giving `RenderPassDof` a render target.
+- **Reading a texture back goes through `Texture::read`, and reading one the GPU
+  wrote means reading it through STAGING.** The seam is `Texture::read` →
+  `gpu::HardwareTexture::read`: Metal blits into a shared-storage texture, Vulkan
+  copies into a host-visible buffer on a one-shot command buffer, and both BLOCK.
+  Reaching past it for the native handle is the trap, because neither backend
+  reports the mistake — `MTL::Texture::getBytes` on a device-private render target
+  does not fail, it answers with whatever is mapped, and what comes back is
+  plausible rather than blank. `tools/generate-env-atlas` did exactly that and
+  wrote a wrong PNG for as long as it existed. Round-trip a known pattern to tell
+  a working readback from a convincing one; `tests/vulkanSmoke.cpp` does, under
+  validation, which also checks that the read hands the subresource back in the
+  layout it borrowed. The Vulkan path refuses outright while a frame or an offline
+  scope is recording: that work is not submitted, so a one-shot read would run
+  ahead of the very commands whose output is being asked for.
+- **An offline bake still has to run INSIDE a frame.** `beginOfflineWork` batches
+  the bake's own command buffer, but the per-draw uniform RINGS are frame-scoped —
+  `frameStart` is what hands out the region a quad draw writes its block into.
+  `tools/generate-env-atlas` ran the whole env bake with no frame open, so every
+  quad draw read the same unwritten block and the atlas came out ONE FLAT COLOUR
+  with its rect layout visibly correct, which is why it read for so long as a
+  readback problem. `reflection-probe-dynamic`, the only other caller, bakes
+  inside its frame and was never affected.
 - **A Metal quad draw must not key its uniform allocation on the material.**
   `submitPerDrawUniforms` reuses the previous ring offset when the material pointer
   is unchanged, and a quad pass has no material of its own — nothing clears the
@@ -1234,14 +1256,6 @@ does nothing, which is a misleading symptom.
   ratio. NOT normal mapping: aligning `normalScale` left this scene bit-identical.
   The bilateral blur multiplies whatever the SSAO pass disagrees about by roughly
   2.5, so an input difference worth 3% shows up as 8%.
-- **`tools/generate-env-atlas` still does not produce a usable image.** Its
-  readback calls `MTL::Texture::getBytes` on the baked atlas, which is a private-
-  storage render target, so the values come back wrong even though the layout is
-  now visibly correct. Fixing it means blitting to a shared staging texture first.
-  Until then, verify an atlas change with the `reflection-probe-dynamic` atlas
-  panel (NDC centre (0, -0.7), size (0.5, 0.4)) cropped and magnified — that panel
-  is at a fixed screen position, so it compares cleanly even though the scene
-  animates.
 - **Under a camera frame nothing publishes the sampleable depth COPY.** The frame
   publishes scene DEPTH from its own attachment, and it owns the colour grab, but
   `sceneDepthGrabMap` — the post-opaque depth copy that only SSR reads — is

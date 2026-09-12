@@ -394,6 +394,82 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             device->flushUploads();
         }
 
+        // Texture readback on the public seam. Round-tripping a known pattern is
+        // the only check that separates a working readback from one that returns
+        // plausible garbage — reading a device-private image does not fail, it
+        // answers with whatever is mapped, which is what the env-atlas tool wrote
+        // out for as long as it existed. Validation is on, so the layout
+        // transitions this performs are checked too, including that it hands the
+        // subresource back in the layout it borrowed.
+        {
+            TextureOptions readOptions{};
+            readOptions.name = "vulkan-smoke-readback";
+            readOptions.width = 4;
+            readOptions.height = 4;
+            readOptions.mipmaps = false;
+            Texture readable(device.get(), readOptions);
+            std::array<uint8_t, 64> pattern{};
+            for (size_t i = 0; i < pattern.size(); ++i) {
+                pattern[i] = static_cast<uint8_t>(i * 3 + 1);
+            }
+            readable.setLevelData(0, pattern.data(), pattern.size());
+            readable.upload();
+            device->flushUploads();
+
+            const VkImageLayout before =
+                dynamic_cast<gpu::VulkanTexture*>(readable.impl())->layout(0, 0);
+
+            std::vector<uint8_t> back;
+            if (!readable.read(back)) {
+                spdlog::error("Vulkan smoke: Texture::read failed");
+                result = 1;
+            } else if (back.size() != pattern.size() ||
+                    !std::equal(back.begin(), back.end(), pattern.begin())) {
+                spdlog::error("Vulkan smoke: readback returned {} bytes that do not "
+                    "match the {} uploaded", back.size(), pattern.size());
+                result = 1;
+            }
+
+            if (dynamic_cast<gpu::VulkanTexture*>(readable.impl())->layout(0, 0)
+                    != before) {
+                spdlog::error("Vulkan smoke: readback left the image in a different "
+                    "layout than it found, so every later sample of it is invalid");
+                result = 1;
+            }
+
+            // A sub-rectangle must come back tightly packed at its own width, not
+            // at the texture's — the row stride is the easy half to get wrong.
+            std::vector<uint8_t> corner;
+            if (!readable.read(corner, 1, 1, 2, 2)) {
+                spdlog::error("Vulkan smoke: sub-rectangle readback failed");
+                result = 1;
+            } else if (corner.size() != 2 * 2 * 4) {
+                spdlog::error("Vulkan smoke: sub-rectangle readback returned {} bytes, "
+                    "expected 16", corner.size());
+                result = 1;
+            } else {
+                for (uint32_t row = 0; row < 2; ++row) {
+                    const uint8_t* expected = pattern.data() + ((1 + row) * 4 + 1) * 4;
+                    if (!std::equal(corner.begin() + row * 8,
+                            corner.begin() + row * 8 + 8, expected)) {
+                        spdlog::error("Vulkan smoke: sub-rectangle row {} does not "
+                            "match the source rectangle", row);
+                        result = 1;
+                    }
+                }
+            }
+
+            // A region outside the level must be refused rather than read short.
+            std::vector<uint8_t> outside{1, 2, 3};
+            if (readable.read(outside, 0, 0, 8, 8)) {
+                spdlog::error("Vulkan smoke: an out-of-range region was read anyway");
+                result = 1;
+            } else if (outside.size() != 3) {
+                spdlog::error("Vulkan smoke: a refused read modified the destination");
+                result = 1;
+            }
+        }
+
         // A ring overflow must be observable by the caller and must not alias
         // the start of the current frame region.
         {

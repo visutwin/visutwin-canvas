@@ -28,7 +28,6 @@
 
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
-#include "platform/graphics/metal/metalTexture.h"
 #include "platform/graphics/texture.h"
 #include "scene/graphics/envLighting.h"
 
@@ -114,24 +113,30 @@ int main(int argc, char* argv[])
     sourceTex->upload();
 
     spdlog::info("Generating {}x{} RGBP atlas...", atlasSize, atlasSize);
+    // The bake must run INSIDE a frame even though it draws nothing to the
+    // screen. Its quad draws take their uniforms from the per-draw ring buffers,
+    // which are frame-scoped: frameStart is what hands out a region to write
+    // into. Without it every quad draw in the bake read the same unwritten block
+    // and the atlas came out one flat colour — with the rect layout visibly
+    // correct, which is what made it look like a readback problem for so long.
+    device->frameStart();
     auto* atlas = EnvLighting::generateAtlas(device.get(), sourceTex.get(), atlasSize);
+    device->frameEnd();
     if (!atlas) {
         spdlog::error("Atlas generation failed");
         return 1;
     }
 
-    // Readback atlas via MTL::Texture::getBytes (StorageModeShared).
-    auto* hw = dynamic_cast<gpu::MetalTexture*>(atlas->impl());
-    if (!hw || !hw->raw()) {
-        spdlog::error("Atlas has no Metal texture");
+    // Read the atlas back through the public seam. This used to call
+    // MTL::Texture::getBytes on the atlas directly, which is a device-private
+    // render target: getBytes does not fail on one, it returns whatever is
+    // mapped, so the tool wrote a plausible-looking wrong PNG rather than an
+    // obviously broken one. Texture::read blits through shared staging.
+    std::vector<uint8_t> atlasData;
+    if (!atlas->read(atlasData)) {
+        spdlog::error("Atlas readback failed");
         return 1;
     }
-    MTL::Texture* tex = hw->raw();
-    std::vector<uint8_t> atlasData(static_cast<size_t>(atlasSize) * atlasSize * 4);
-    MTL::Region region = MTL::Region::Make2D(0, 0,
-        static_cast<NS::UInteger>(atlasSize), static_cast<NS::UInteger>(atlasSize));
-    tex->getBytes(atlasData.data(),
-        static_cast<NS::UInteger>(atlasSize * 4), region, 0);
 
     spdlog::info("Writing atlas to: {}", outputPath);
     const int result = stbi_write_png(outputPath, atlasSize, atlasSize, 4,
