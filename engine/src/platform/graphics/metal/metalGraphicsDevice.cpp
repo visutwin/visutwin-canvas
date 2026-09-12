@@ -155,6 +155,31 @@ namespace visutwin::canvas
             }
         }
 
+        // Metal publishes no runtime texture-size limit: the ceiling is a property
+        // of the GPU family, and the feature-set tables give 16384 from Apple3 and
+        // Mac2 onwards, 8192 below that. Everything that sizes a texture from
+        // content — the lightmappers, the skybox cube bake, a shadow map — clamps
+        // to this instead of to a literal 4096.
+        const bool largeTextures = _device->supportsFamily(MTL::GPUFamilyApple3) ||
+            _device->supportsFamily(MTL::GPUFamilyMac2);
+        setMaxTextureSize(largeTextures ? 16384 : 8192);
+        setMaxCubeMapSize(largeTextures ? 16384 : 8192);
+
+        // Metal's sampler ratio is 1..16 on every family, so this is a constant
+        // here rather than a query — but it is published so the sampler below and
+        // Vulkan's per-texture samplers read ONE number. The two used to be a
+        // hard-coded 16 and a queried device limit, which agree on Apple hardware
+        // and would diverge in silence anywhere else.
+        setMaxAnisotropy(16.0f);
+
+        // Half- and full-float colour attachments are renderable on every Metal
+        // GPU this engine runs on; VSM shadows (RGBA16F moments) key on the first.
+        setTextureHalfFloatRenderable(true);
+        setTextureFloatRenderable(true);
+
+        spdlog::info("Metal limits: {} samples, texture {}, cube {}, anisotropy {}",
+            maxSamples(), maxTextureSize(), maxCubeMapSize(), maxAnisotropy());
+
         auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init();
         samplerDesc->setMinFilter(MTL::SamplerMinMagFilterLinear);
         samplerDesc->setMagFilter(MTL::SamplerMinMagFilterLinear);
@@ -162,11 +187,11 @@ namespace visutwin::canvas
         // minification; without it Metal only ever samples mip 0 → aliasing + radial streaks
         // at glancing view angles (e.g. ground planes viewed from low camera height).
         samplerDesc->setMipFilter(MTL::SamplerMipFilterLinear);
-        // 16x anisotropic filtering preserves detail on textures viewed at oblique angles —
+        // Anisotropic filtering preserves detail on textures viewed at oblique angles —
         // essential for ground/floor textures that otherwise smear into radial lines from the
-        // viewer's nadir point. Metal supports 1..16; higher costs more bandwidth but the
-        // quality improvement is large for ground/terrain scenes.
-        samplerDesc->setMaxAnisotropy(16);
+        // viewer's nadir point. The ratio comes from maxAnisotropy() so this sampler and the
+        // Vulkan backend's per-texture samplers filter identically.
+        samplerDesc->setMaxAnisotropy(static_cast<NS::UInteger>(maxAnisotropy()));
         samplerDesc->setSAddressMode(MTL::SamplerAddressModeRepeat);
         samplerDesc->setTAddressMode(MTL::SamplerAddressModeRepeat);
         _defaultSampler = _device->newSamplerState(samplerDesc);

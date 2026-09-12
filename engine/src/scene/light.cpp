@@ -10,7 +10,10 @@
 #include <cmath>
 #include <numbers>
 
+#include <spdlog/spdlog.h>
+
 #include "graphNode.h"
+#include "platform/graphics/graphicsDevice.h"
 #include "renderer/shadowRenderer.h"
 
 namespace visutwin::canvas
@@ -105,12 +108,16 @@ namespace visutwin::canvas
 
     void Light::setShadowResolution(int value)
     {
-        // DEVIATION: upstream also clamps to the device's maxTextureSize (or
-        // maxCubeMapSize for an omni). This port's GraphicsDevice publishes
-        // neither, and the Light a LightComponent owns is built with a null
-        // device anyway, so the allocation in ShadowMap::create is where an
-        // oversized request would have to be caught.
         value = std::max(value, 1);
+        // Upstream's clamp, now that the device publishes the limits. A Light
+        // built without a device (nothing does today, but the constructor still
+        // takes a null one) keeps the authored value and is caught by the same
+        // clamp in ShadowMap::create instead.
+        if (_device) {
+            const int limit = _type == LightType::LIGHTTYPE_OMNI
+                ? _device->maxCubeMapSize() : _device->maxTextureSize();
+            value = std::min(value, limit);
+        }
         if (_shadowResolution == value) {
             return;
         }
@@ -131,12 +138,36 @@ namespace visutwin::canvas
         destroyShadowMap();
     }
 
+    ShadowType Light::resolveShadowType(const ShadowType requested) const
+    {
+        // VSM renders its EVSM moments into an RGBA16F COLOUR attachment, which is
+        // an optional capability. Without it the type cannot be rendered at all, so
+        // fall back to PCF3 rather than hand the backend a target it will refuse —
+        // upstream's `light.js` fallback, which had nothing to key on until the
+        // device published textureHalfFloatRenderable().
+        if (requested == SHADOW_VSM_16F && _device && !_device->textureHalfFloatRenderable()) {
+            spdlog::warn("Light: VSM_16F needs half-float render targets, which this "
+                "device lacks — falling back to PCF3");
+            return SHADOW_PCF3_32F;
+        }
+        return requested;
+    }
+
     void Light::setShadowType(const ShadowType value)
     {
-        if (_shadowType == value) {
+        // Compare against the REQUEST, not the resolved type: LightComponent::syncToLight
+        // replays every property once a frame, so a request that resolves to something
+        // else would differ from _shadowType forever and drop the shadow map each frame.
+        if (_requestedShadowType == value) {
             return;
         }
-        _shadowType = value;
+        _requestedShadowType = value;
+
+        const ShadowType resolved = resolveShadowType(value);
+        if (_shadowType == resolved) {
+            return;
+        }
+        _shadowType = resolved;
 
         // Shadow cameras cache type-dependent state (e.g. clear color: PCF
         // clears to 1.0 depth, VSM to the (0,0,0,0) "unrendered" sentinel) and

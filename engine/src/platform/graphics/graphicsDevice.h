@@ -682,6 +682,56 @@ namespace visutwin::canvas
         int maxSamples() const { return _maxSamples; }
 
         /**
+         * Largest edge, in texels, of a 2D texture (`maxTextureSize`) and of one
+         * cube face (`maxCubeMapSize`) this device will allocate. Anything that
+         * derives a resolution from content rather than from a caller — a lightmap
+         * sized from world-space bounds, a skybox cube sized from its equirect
+         * source, a shadow map sized by an authoring value — must clamp to these
+         * rather than to a literal, which is what five call sites did.
+         *
+         * The default is the 4096 those literals assumed, so a backend that fills
+         * in neither behaves exactly as the literals did.
+         */
+        int maxTextureSize() const { return _maxTextureSize; }
+        int maxCubeMapSize() const { return _maxCubeMapSize; }
+
+        /**
+         * Highest anisotropic-filtering ratio the device's samplers accept; 1 means
+         * the device has no anisotropic filtering. Both backends filter at this
+         * ratio — Metal through the one default sampler it binds for every scene
+         * texture, Vulkan through each texture's own sampler — so a device that
+         * reports less than 16 no longer leaves one backend filtering harder than
+         * the other. A hard-coded 16 on one side and a queried limit on the other
+         * is a divergence nothing in a frame would announce.
+         */
+        float maxAnisotropy() const { return _maxAnisotropy; }
+
+        /**
+         * Whether a 16-bit / 32-bit float colour format can be a RENDER TARGET
+         * here, which is a separate capability from sampling one. VSM shadows
+         * render EVSM moments into an RGBA16F attachment, so a device without
+         * half-float render targets cannot run them at all and `Light` falls the
+         * type back to PCF3 — upstream's documented VSM_16F fallback, which until
+         * now had nothing to key on.
+         *
+         * Both default to FALSE, so a backend that never answers loses the feature
+         * rather than allocating a target the driver rejects. That is the same
+         * direction `supportsCompressedFormat` takes: ask, do not assume.
+         */
+        bool textureHalfFloatRenderable() const { return _textureHalfFloatRenderable; }
+        bool textureFloatRenderable() const { return _textureFloatRenderable; }
+
+        /**
+         * Whether the device can timestamp GPU work. Answered by the profiler
+         * itself rather than by a second flag: both backends construct their
+         * GpuProfiler only after finding timestamp support (a Metal counter set
+         * named "timestamp", a Vulkan queue family with non-zero timestampValidBits),
+         * so a separate capability bit could only ever disagree with the thing it
+         * describes.
+         */
+        bool supportsTimestampQuery() const { return _gpuProfiler != nullptr; }
+
+        /**
          * How many frames the CPU may be running ahead of the GPU, so how many
          * copies a CPU-written, GPU-read resource must cycle through before it is
          * safe to write one again.
@@ -885,6 +935,14 @@ namespace visutwin::canvas
         void setBackBuffer(const std::shared_ptr<RenderTarget>& target) { _backBuffer = target; }
         /** Highest MSAA sample count the backend supports; RenderTarget clamps to it. */
         void setMaxSamples(const int value) { _maxSamples = value > 1 ? value : 1; }
+        /** Texture dimension limits; see maxTextureSize(). */
+        void setMaxTextureSize(const int value) { _maxTextureSize = value > 1 ? value : 1; }
+        void setMaxCubeMapSize(const int value) { _maxCubeMapSize = value > 1 ? value : 1; }
+        /** Highest anisotropy ratio the device's samplers accept; see maxAnisotropy(). */
+        void setMaxAnisotropy(const float value) { _maxAnisotropy = value > 1.0f ? value : 1.0f; }
+        /** Float colour-attachment support; see textureHalfFloatRenderable(). */
+        void setTextureHalfFloatRenderable(const bool value) { _textureHalfFloatRenderable = value; }
+        void setTextureFloatRenderable(const bool value) { _textureFloatRenderable = value; }
         void recordDrawCall(int count = 1) { _drawCallsPerFrame += count; }
 
         void clearVertexBuffer();
@@ -977,6 +1035,15 @@ namespace visutwin::canvas
         std::vector<int> _primsPerFrame;
 
         int _maxSamples = 1;
+
+        // The dimension limits default to the 4096 that five call sites used to
+        // spell as a literal; the float-renderable flags default to false so an
+        // unanswered capability degrades rather than allocates.
+        int _maxTextureSize = 4096;
+        int _maxCubeMapSize = 4096;
+        float _maxAnisotropy = 1.0f;
+        bool _textureHalfFloatRenderable = false;
+        bool _textureFloatRenderable = false;
 
         std::unordered_set<RenderTarget*> _targets;
 

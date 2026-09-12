@@ -7,6 +7,7 @@
 
 #include <cmath>
 
+#include "framework/engine.h"
 #include "framework/entity.h"
 #include "scene/light.h"
 
@@ -28,10 +29,16 @@ namespace visutwin::canvas
     Light* LightComponent::light() const
     {
         if (!_light) {
-            // Lazy creation — the Light needs a GraphicsDevice pointer, but we can pass nullptr
-            // since the Light object here is used only for shadow camera/render-data management,
-            // not for device resource allocation (ShadowMap::create takes the device directly).
-            _light = std::make_unique<Light>(nullptr, false);
+            // Lazy creation. The Light allocates nothing itself — ShadowMap::create takes
+            // the device directly — but it does need the device to ANSWER for one: the
+            // shadow resolution is clamped to the device's texture limit and a VSM_16F
+            // request falls back to PCF3 where half-float render targets are missing.
+            // Built with a null device (no engine yet) it keeps whatever was authored,
+            // and ShadowMap::create applies the same clamp at allocation time.
+            const Entity* owner = entity();
+            const Engine* engine = owner ? owner->engine() : nullptr;
+            _light = std::make_unique<Light>(
+                engine ? engine->graphicsDevice().get() : nullptr, false);
         }
         syncToLight();
         return _light.get();

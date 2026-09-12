@@ -5,6 +5,10 @@
 //
 #include "shadowMap.h"
 
+#include <algorithm>
+
+#include <spdlog/spdlog.h>
+
 #include "scene/constants.h"
 #include "scene/light.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -28,13 +32,23 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        const int resolution = light->shadowResolution();
         const ShadowType shadowType = light->shadowType();
         const auto& info = shadowTypeInfo.at(shadowType);
 
         auto shadowMap = std::make_unique<ShadowMap>();
 
         const bool isOmni = (light->type() == LightType::LIGHTTYPE_OMNI);
+
+        // Upstream clamps the authored resolution to the device limit in the Light
+        // setter; the Light a LightComponent owns may still be built without a
+        // device, so the allocation clamps too — it is the last point where an
+        // oversized request can be caught before the driver refuses the texture.
+        const int limit = isOmni ? device->maxCubeMapSize() : device->maxTextureSize();
+        const int resolution = std::min(light->shadowResolution(), limit);
+        if (resolution != light->shadowResolution()) {
+            spdlog::warn("ShadowMap: requested {} exceeds this device's limit of {} — "
+                "allocating {}", light->shadowResolution(), limit, resolution);
+        }
 
         // Create the depth texture for the shadow map.
         // Omni lights use a cubemap depth texture (6 faces), others use 2D.

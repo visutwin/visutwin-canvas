@@ -387,8 +387,10 @@ namespace visutwin::canvas
         if (size <= 0) {
             size = srcW / 4;
         }
-        // Clamp to reasonable range
-        size = std::clamp(size, 4, 4096);
+        // Clamp to what this device will allocate as a cube face, not to a
+        // literal: the default size follows the source equirect's width, so a
+        // large HDR can ask for more than the hardware accepts.
+        size = std::clamp(size, 4, device->maxCubeMapSize());
 
         spdlog::info("EnvLighting: generating {}x{} skybox cubemap from {}x{} equirect source",
                      size, size, srcW, srcH);

@@ -179,3 +179,11 @@ add_executable(visutwin-light-bounds-tests
 target_link_libraries(visutwin-light-bounds-tests PRIVATE visutwin-canvas)
 
 add_test(NAME light-bounds COMMAND visutwin-light-bounds-tests)
+
+add_executable(visutwin-device-capability-tests
+    deviceCapabilityTests.cpp
+)
+
+target_link_libraries(visutwin-device-capability-tests PRIVATE visutwin-canvas)
+
+add_test(NAME device-capabilities COMMAND visutwin-device-capability-tests)

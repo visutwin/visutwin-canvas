@@ -207,9 +207,6 @@ namespace visutwin::canvas
         // an in-flight frame reading a freed image/buffer is a GPU UAF.
         void deferDestroy(std::function<void()> destroyFn);
 
-        // Anisotropic filtering: 1.0 when the device lacks samplerAnisotropy.
-        [[nodiscard]] float maxSamplerAnisotropy() const { return _maxSamplerAnisotropy; }
-
         // True when the optional dualSrcBlend device feature was available and
         // enabled at device creation, so VK_BLEND_FACTOR_SRC1_* may be used.
         /// The physical device's textureCompression{ASTC_LDR,BC} features AND the
@@ -607,9 +604,10 @@ namespace visutwin::canvas
         bool _descriptorAllocationErrorWarned = false;
         bool _uniformOverflowReportedThisFrame = false;
 
-        // Anisotropic-filtering support, resolved at device creation.
+        // Anisotropic filtering has to be enabled as a device FEATURE before any
+        // sampler may ask for it; the ratio itself is published by the base class
+        // as maxAnisotropy(), which both backends' samplers read.
         bool _samplerAnisotropyEnabled = false;
-        float _maxSamplerAnisotropy = 1.0f;
         bool _dualSrcBlendEnabled = false;
         bool _textureCompressionAstcLdr = false;
         bool _textureCompressionBc = false;

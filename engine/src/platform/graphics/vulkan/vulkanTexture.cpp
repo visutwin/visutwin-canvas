@@ -617,9 +617,11 @@ namespace visutwin::canvas::gpu
         samplerInfo.addressModeV = vulkanMapAddressMode(_owner->addressV());
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-        // 16x anisotropy (or the device max) — matches the Metal default
-        // sampler; without it oblique ground textures smear into radial lines.
-        const float anisotropy = device->maxSamplerAnisotropy();
+        // The device's anisotropy ratio, which is the same number the Metal
+        // default sampler uses; without it oblique ground textures smear into
+        // radial lines, and with a different number the two backends filter
+        // differently on every oblique surface.
+        const float anisotropy = device->maxAnisotropy();
         samplerInfo.anisotropyEnable = anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
         samplerInfo.maxAnisotropy = std::max(anisotropy, 1.0f);
 

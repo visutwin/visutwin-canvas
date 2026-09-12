@@ -303,8 +303,10 @@ namespace visutwin::canvas
         if (!_device) return nullptr;
 
         // Resolution: either fixed, or derived from the target's world-space bounds
-        // the way upstream's calculateLightmapSize does.
-        int size = std::clamp(options.lightmapSize, 8, 4096);
+        // the way upstream's calculateLightmapSize does. The ceiling is the device's
+        // own texture limit — a bounds-derived resolution has no other one.
+        const int maxSize = _device->maxTextureSize();
+        int size = std::clamp(options.lightmapSize, 8, maxSize);
         if (options.sizeMultiplier > 0.0f) {
             Vector3 bmin(1e30f, 1e30f, 1e30f);
             Vector3 bmax(-1e30f, -1e30f, -1e30f);
@@ -324,7 +326,7 @@ namespace visutwin::canvas
                 const float hz = (bmax.getZ() - bmin.getZ()) * 0.5f;
                 const float totalArea = std::sqrt(hy * hz + hx * hz + hx * hy);
                 size = std::clamp(nextPowerOfTwo(static_cast<int>(totalArea * options.sizeMultiplier)),
-                    8, std::clamp(options.maxResolution, 8, 4096));
+                    8, std::clamp(options.maxResolution, 8, maxSize));
             }
         }
 

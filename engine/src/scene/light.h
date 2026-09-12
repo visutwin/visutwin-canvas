@@ -170,7 +170,14 @@ namespace visutwin::canvas
         // camera allocated at the same address would silently reuse stale state.
         void invalidateRenderData(const Camera* camera);
 
+        /// The shadow type this light will actually render, which is not always
+        /// the one that was asked for: a VSM_16F request on a device without
+        /// half-float colour attachments has nowhere to write its moments and
+        /// falls back to PCF3, upstream's documented fallback. `requestedShadowType`
+        /// is what the caller set, kept so a per-frame replay of the same value
+        /// does not re-resolve and drop the shadow map every frame.
         ShadowType shadowType() const { return _shadowType; }
+        ShadowType requestedShadowType() const { return _requestedShadowType; }
         void setShadowType(ShadowType value);
 
         GraphNode* node() const { return _node; }
@@ -235,6 +242,9 @@ namespace visutwin::canvas
         // renders into is worse than the stale one it replaced. Upstream's
         // `_destroyShadowMap`.
         void destroyShadowMap();
+
+        // Maps a requested shadow type onto one this device can actually render.
+        ShadowType resolveShadowType(ShadowType requested) const;
 
         GraphicsDevice* _device;
 
@@ -301,6 +311,7 @@ namespace visutwin::canvas
         std::vector<std::unique_ptr<LightRenderData>> _renderData;
 
         ShadowType _shadowType = SHADOW_PCF3_32F;
+        ShadowType _requestedShadowType = SHADOW_PCF3_32F;
 
         GraphNode* _node = nullptr;
 

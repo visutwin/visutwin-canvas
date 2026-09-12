@@ -62,18 +62,21 @@ namespace visutwin::canvas
         }
 
         /// Upstream calculateLightmapSize: the resolution follows the mesh's world-space
-        /// bounds, so large surfaces get more texels than small ones.
-        int lightmapSizeFor(MeshInstance* meshInstance, const GpuLightmapper::Options& options)
+        /// bounds, so large surfaces get more texels than small ones. `maxSize` is the
+        /// device's own texture limit — a bounds-derived resolution has no other ceiling,
+        /// so a large enough mesh would otherwise ask for a texture the driver refuses.
+        int lightmapSizeFor(MeshInstance* meshInstance, const GpuLightmapper::Options& options,
+            const int maxSize)
         {
             if (options.sizeMultiplier <= 0.0f || !meshInstance) {
-                return std::clamp(options.lightmapSize, 8, 4096);
+                return std::clamp(options.lightmapSize, 8, maxSize);
             }
             const BoundingBox aabb = meshInstance->aabb();
             const Vector3 half = aabb.halfExtents();
             const float totalArea = std::sqrt(
                 half.getY() * half.getZ() + half.getX() * half.getZ() + half.getX() * half.getY());
             return std::clamp(nextPowerOfTwo(static_cast<int>(totalArea * options.sizeMultiplier)),
-                8, std::clamp(options.maxResolution, 8, 4096));
+                8, std::clamp(options.maxResolution, 8, maxSize));
         }
     }
 
@@ -110,7 +113,7 @@ namespace visutwin::canvas
                 continue;
             }
 
-            const int size = lightmapSizeFor(meshInstance, _options);
+            const int size = lightmapSizeFor(meshInstance, _options, device->maxTextureSize());
 
             TextureOptions texOptions;
             texOptions.width = static_cast<uint32_t>(size);

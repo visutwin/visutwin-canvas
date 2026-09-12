@@ -643,6 +643,21 @@ present, but the rule below never depends on reading it.
   implement it, or a file that needs it keeps warning; leave it out when you only
   half-implement one, or the warning that would have named the cause goes quiet.
   DEVIATION from upstream, which does not read the field at all.
+- **A device capability is ASKED FOR, and the answer has a home on
+  `GraphicsDevice`.** `maxTextureSize` / `maxCubeMapSize`, `maxAnisotropy`,
+  `textureHalfFloatRenderable` / `textureFloatRenderable`, `maxSamples`,
+  `maxFramesInFlight`, `supportsCompressedFormat`, `supportsDualSourceBlending`,
+  `supportsCompute`, `supportsGpuInstanceCulling` and `supportsTimestampQuery` are
+  the whole list; a new one goes there rather than into a backend header, or only
+  one backend can be asked. Two failure shapes this closes, both silent: a LITERAL
+  standing in for a limit — five call sites clamped to 4096, which is a quarter of
+  what either backend actually allows — and the SAME limit spelled differently per
+  backend, which is what a hard-coded 16x anisotropy on Metal and a queried one on
+  Vulkan were. The float-renderable pair defaults to FALSE and the dimensions to
+  the 4096 they replaced, so a backend that answers nothing degrades instead of
+  allocating a target the driver refuses. `supportsTimestampQuery` is derived from
+  `gpuProfiler()` rather than stored, since both backends build the profiler only
+  after finding timestamp support and a second flag could only disagree with it.
 - **A block-compressed format must be asked for, not assumed, and there are
   FOUR KTX2 call sites.** `GraphicsDevice::preferredCompressedRgbaFormat()`
   picks ASTC → BC7 → DXT5 → RGBA8 from `supportsCompressedFormat()`; ASTC is
@@ -1051,9 +1066,20 @@ during unrelated work are repeated here.
   changes `depth-of-field`, whose only light is the environment atlas, so something
   reads `castShadows()` before the first sync and keeps the answer. It belongs with
   the defaults alignment rather than with a shadow-map change.
-  DEVIATION: upstream additionally clamps the resolution to the device's
-  `maxTextureSize` (`maxCubeMapSize` for an omni); this port's `GraphicsDevice`
-  publishes neither, and the `Light` a component owns carries a null device anyway.
+  The resolution is clamped to the device's `maxTextureSize`, or `maxCubeMapSize`
+  for an omni — two limits that are NOT the same number on real hardware. It is
+  clamped twice on purpose: in `Light::setShadowResolution`, as upstream does, and
+  again in `ShadowMap::create`, because a `Light` may still be constructed with a
+  null device and the allocation is the last point that can catch it.
+  **`SHADOW_VSM_16F` falls back to `SHADOW_PCF3_32F` where the device cannot render
+  half-float colour** (`GraphicsDevice::textureHalfFloatRenderable`) — VSM writes its
+  EVSM moments into an RGBA16F ATTACHMENT, so without that capability the type
+  cannot be rendered at all. `Light` therefore keeps the REQUEST and the resolved
+  type apart: `syncToLight` replays the request every frame, and comparing it
+  against the resolved type would differ forever and drop the shadow map each time.
+  `tests/deviceCapabilityTests.cpp` pins the fallback and both clamps against a stub
+  device, which is the only way to reach them — every GPU here answers yes to
+  half-float and allocates far past any resolution an example asks for.
 - **Shadow bias convention.** `LightComponent::setShadowBias` takes upstream's
   0..1 authoring value (default 0.05) and remaps it to `Light::shadowBias` as
   `-0.01 * clamp(v,0,1)` — negative on purpose, because the passes apply

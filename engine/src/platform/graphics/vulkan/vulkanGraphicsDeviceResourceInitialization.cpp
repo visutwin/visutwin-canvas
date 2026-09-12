@@ -794,6 +794,25 @@ namespace visutwin::canvas
             VK_API_VERSION_MINOR(props.apiVersion),
             VK_API_VERSION_PATCH(props.apiVersion));
 
+        // Texture dimension limits, so anything sizing a texture from content —
+        // the lightmappers, the skybox cube bake, a shadow map — clamps to what
+        // this device actually accepts instead of to a literal 4096.
+        setMaxTextureSize(static_cast<int>(props.limits.maxImageDimension2D));
+        setMaxCubeMapSize(static_cast<int>(props.limits.maxImageDimensionCube));
+
+        // Half- and full-float colour attachments are optional in Vulkan, and a
+        // half-float attachment is what VSM shadows render their EVSM moments
+        // into: without it Light falls the shadow type back to PCF3 rather than
+        // asking for a render target the driver would refuse.
+        const auto colorRenderable = [this](const VkFormat format) {
+            VkFormatProperties formatProps{};
+            vkGetPhysicalDeviceFormatProperties(_physicalDevice, format, &formatProps);
+            return (formatProps.optimalTilingFeatures &
+                VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) != 0;
+        };
+        setTextureHalfFloatRenderable(colorRenderable(VK_FORMAT_R16G16B16A16_SFLOAT));
+        setTextureFloatRenderable(colorRenderable(VK_FORMAT_R32G32B32A32_SFLOAT));
+
         // Highest MSAA sample count a color+depth render target can use here.
         // Left at the base-class default of 1 the RenderTarget clamp silently
         // disabled every multisampled target on this backend, which is what
@@ -828,6 +847,9 @@ namespace visutwin::canvas
                 : VK_RESOLVE_MODE_NONE;
         spdlog::info("Vulkan MSAA: max {} samples, depth resolve {}", maxSamples(),
             _depthResolveMode == VK_RESOLVE_MODE_NONE ? "unsupported" : "sample-zero");
+        spdlog::info("Vulkan limits: texture {}, cube {}, float renderable 16F={} 32F={}",
+            maxTextureSize(), maxCubeMapSize(),
+            textureHalfFloatRenderable(), textureFloatRenderable());
 
         // Dynamic UBO offsets must be a multiple of this (256 on MoltenVK).
         _uboOffsetAlignment = std::max(
@@ -841,8 +863,11 @@ namespace visutwin::canvas
         VkPhysicalDeviceFeatures supported{};
         vkGetPhysicalDeviceFeatures(_physicalDevice, &supported);
         _samplerAnisotropyEnabled = supported.samplerAnisotropy == VK_TRUE;
-        _maxSamplerAnisotropy = _samplerAnisotropyEnabled
-            ? std::min(16.0f, props.limits.maxSamplerAnisotropy) : 1.0f;
+        // Capped at 16 because that is Metal's ceiling: the two backends must
+        // filter at the same ratio or they disagree on every oblique surface, and
+        // nothing in a frame would say which one was right.
+        setMaxAnisotropy(_samplerAnisotropyEnabled
+            ? std::min(16.0f, props.limits.maxSamplerAnisotropy) : 1.0f);
 
         // Dual-source blending (the BLENDMODE_SRC1_* factors) is an optional
         // Vulkan feature and must be enabled at device creation before

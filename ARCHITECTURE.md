@@ -407,6 +407,26 @@ already rendered in front of it.
 - Per-pass texture/uniform binding deduplication
 - Pipeline state caching via `MetalRenderPipeline` / `VulkanRenderPipeline`
   (+ `MetalComputePipeline`)
+- **Capability queries.** One list, on the base class, so both backends answer the
+  same questions and a caller never guesses. Dimensions: `maxTextureSize()` and
+  `maxCubeMapSize()` (Metal derives them from the GPU family — 16384 from Apple3 /
+  Mac2, 8192 below; Vulkan reads `maxImageDimension2D` / `maxImageDimensionCube`),
+  defaulting to 4096 so a backend that answers nothing behaves as the literals these
+  replaced. Filtering: `maxAnisotropy()`, 16 on Metal and `min(16, device limit)` on
+  Vulkan, read by Metal's one default sampler and by every Vulkan per-texture
+  sampler so the two backends filter oblique surfaces identically. Formats:
+  `textureHalfFloatRenderable()` / `textureFloatRenderable()` — whether a float
+  colour format can be an ATTACHMENT, which is what `SHADOW_VSM_16F` needs and falls
+  back to PCF3 without; both default to FALSE, so an unanswered capability loses a
+  feature rather than allocating a target the driver refuses. Plus `maxSamples()`,
+  `maxFramesInFlight()`, `supportsCompressedFormat()`,
+  `supportsDualSourceBlending()`, `supportsCompute()`,
+  `supportsGpuInstanceCulling()` and `supportsTimestampQuery()` (derived from
+  `gpuProfiler()`, which both backends construct only where timestamps exist).
+  Consumers: both lightmappers and the skybox cube bake size their textures against
+  the dimension limits, `ShadowMap::create` and `Light::setShadowResolution` clamp
+  the shadow resolution against them, and `Light::setShadowType` keys the VSM
+  fallback on the half-float answer.
 - `copyRenderTarget(source, colorDest, depthDest)` and `generateMipmaps(texture)`
   are the generic operations behind the scene grabs. A blit needs matching pixel
   formats; `PIXELFORMAT_BGRA8` exists for the drawable, and
