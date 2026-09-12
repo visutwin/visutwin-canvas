@@ -137,10 +137,15 @@ namespace visutwin::canvas
     void BatchManager::addGroup(const BatchGroup& group)
     {
         _groups[group.id] = group;
+        // Only meaningful once prepare() has run: markGroupDirty is picked up by
+        // updateAll, which needs a scene, and during setup the app has not tagged
+        // anything with this group yet.
+        markGroupDirty(group.id);
     }
 
     void BatchManager::removeGroup(int groupId)
     {
+        std::erase(_dirtyGroups, groupId);
         // Destroy any batches belonging to this group first.
         for (auto it = _batches.begin(); it != _batches.end(); ) {
             if ((*it)->batchGroupId == groupId) {
@@ -167,8 +172,43 @@ namespace visutwin::canvas
     // -------------------------------------------------------------------------
     void BatchManager::prepare(Scene* scene)
     {
-        // 1. Destroy existing batches.
-        destroy(scene);
+        std::vector<int> allGroups;
+        allGroups.reserve(_groups.size());
+        for (const auto& [groupId, group] : _groups) {
+            (void)group;
+            allGroups.push_back(groupId);
+        }
+        generate(scene, allGroups);
+    }
+
+    void BatchManager::markGroupDirty(const int groupId)
+    {
+        if (std::find(_dirtyGroups.begin(), _dirtyGroups.end(), groupId) == _dirtyGroups.end()) {
+            _dirtyGroups.push_back(groupId);
+        }
+    }
+
+    void BatchManager::generate(Scene* scene, const std::vector<int>& groupIds)
+    {
+        if (groupIds.empty()) {
+            return;
+        }
+        // Remembered so updateAll() can regenerate a dirty group on its own. Only a
+        // real prepare/generate sets it, which is what stops a group registered
+        // during setup from being built before the app has tagged anything.
+        if (scene) {
+            _scene = scene;
+        }
+        std::erase_if(_dirtyGroups, [&groupIds](const int id) {
+            return std::find(groupIds.begin(), groupIds.end(), id) != groupIds.end();
+        });
+
+        const auto inScope = [&groupIds](const int groupId) {
+            return std::find(groupIds.begin(), groupIds.end(), groupId) != groupIds.end();
+        };
+
+        // 1. Destroy only these groups' batches; every other group keeps its own.
+        destroyGroups(scene, groupIds);
 
         // 2. Collect mesh instances by (groupId, material pointer).
         //    Key: (batchGroupId << 32) | material pointer hash — but simpler to use a nested map.
@@ -193,6 +233,27 @@ namespace visutwin::canvas
             const int groupId = rc->batchGroupId();
             if (groupId < 0) continue;                     // Not tagged for batching.
             if (_groups.find(groupId) == _groups.end()) continue;  // Unknown group.
+            if (!inScope(groupId)) continue;               // Another group's turn.
+
+            // Upstream's whole-entity rule: an entity with any skinned or morphed
+            // mesh instance contributes none of them. Merging bakes each source's
+            // world transform into a shared buffer, so a deforming mesh loses the
+            // thing that makes it deform. A SKINNED one is rejected anyway further
+            // down by its 88-byte stride, but a MORPHED one carries the ordinary
+            // packed layout with its deltas in a separate buffer — it would merge
+            // cleanly and then simply stop moving, with nothing reporting why.
+            std::vector<bool> deforms;
+            deforms.reserve(rc->meshInstances().size());
+            for (auto* mi : rc->meshInstances()) {
+                deforms.push_back(mi && (mi->skinInstance() || mi->morphInstance()));
+            }
+            if (!entityIsBatchable(deforms)) {
+                spdlog::warn("[BatchManager] Skipping a render component in batch group {}: "
+                             "a skinned or morphed mesh instance cannot be merged, and "
+                             "upstream excludes the whole entity when any of its "
+                             "instances deforms", groupId);
+                continue;
+            }
 
             for (auto* mi : rc->meshInstances()) {
                 if (!mi || !mi->mesh() || !mi->mesh()->getVertexBuffer()) continue;
@@ -277,7 +338,21 @@ namespace visutwin::canvas
     // -------------------------------------------------------------------------
     void BatchManager::destroy(Scene* scene)
     {
+        destroyGroups(scene, {});
+    }
+
+    void BatchManager::destroyGroups(Scene* scene, const std::vector<int>& groupIds)
+    {
+        // An empty list means every group — that is what destroy() asks for.
+        const auto inScope = [&groupIds](const int groupId) {
+            return groupIds.empty() ||
+                std::find(groupIds.begin(), groupIds.end(), groupId) != groupIds.end();
+        };
+
         for (auto& batch : _batches) {
+            if (!inScope(batch->batchGroupId)) {
+                continue;
+            }
             // Remove batch MeshInstance from layers.
             if (scene && scene->layers() && batch->meshInstance) {
                 const auto* group = getGroupById(batch->batchGroupId);
@@ -308,7 +383,9 @@ namespace visutwin::canvas
                 mi->setVisible(true);
             }
         }
-        _batches.clear();
+        std::erase_if(_batches, [&inScope](const std::unique_ptr<Batch>& batch) {
+            return batch && inScope(batch->batchGroupId);
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -525,6 +602,15 @@ namespace visutwin::canvas
     // -------------------------------------------------------------------------
     void BatchManager::updateAll()
     {
+        // Rebuild anything marked dirty since the last frame, before the per-frame
+        // refresh below reads it. Nothing happens until the app has prepared once:
+        // _scene is null until then, and generate needs it to register the batch
+        // mesh instances with the group's layers.
+        if (!_dirtyGroups.empty() && _scene) {
+            const std::vector<int> dirty = _dirtyGroups;
+            generate(_scene, dirty);
+        }
+
         for (auto& batch : _batches) {
             if (!batch->dynamic) continue;
             if (batch->skinBatchInstance) {

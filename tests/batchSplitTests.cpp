@@ -49,8 +49,25 @@ namespace
     }
 }
 
+namespace
+{
+    bool checkEntityBatchable()
+    {
+        // Upstream excludes the WHOLE entity when any of its mesh instances deforms.
+        check(entityIsBatchable({}), "an entity with no mesh instances is batchable");
+        check(entityIsBatchable({false, false, false}),
+            "an entity whose instances all hold still is batchable");
+        check(!entityIsBatchable({false, true, false}),
+            "ONE deforming instance excludes the whole entity, not just itself");
+        check(!entityIsBatchable({true}), "a single deforming instance excludes it");
+        return true;
+    }
+}
+
 int main()
 {
+    checkEntityBatchable();
+
     std::cout << "Batch splitting\n";
 
     // Nothing to split on: one list, everything in it, input order preserved.

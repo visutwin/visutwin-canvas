@@ -61,11 +61,34 @@ namespace visutwin::canvas
          */
         void prepare(Scene* scene = nullptr);
 
+        /**
+         * Rebuild the batches of just these groups, leaving every other group's
+         * batches in place. prepare() is this over all registered groups.
+         *
+         * A scene with several batch groups had no way to change one without paying
+         * for all of them: prepare() destroys every batch, re-merges every group's
+         * geometry and re-uploads it. Upstream regenerates per group for the same
+         * reason.
+         */
+        void generate(Scene* scene, const std::vector<int>& groupIds);
+
+        /**
+         * Marks a group as needing its batches rebuilt. updateAll() picks it up on
+         * the next frame, but only once prepare() has run at least once — before
+         * that there is no scene to register batch mesh instances with, and the app
+         * is still setting the group up.
+         */
+        void markGroupDirty(int groupId);
+
+        /** Groups awaiting regeneration. Empty in the steady state. */
+        const std::vector<int>& dirtyGroups() const { return _dirtyGroups; }
+
         /** Destroy all batches, restoring original mesh instances to visible.
          *  If scene is provided, batched MeshInstances are removed from layers. */
         void destroy(Scene* scene = nullptr);
 
-        /** Per-frame update: refresh matrix palettes and AABBs for dynamic batches.
+        /** Per-frame update: refresh matrix palettes and AABBs for dynamic batches,
+         *  and regenerate any group marked dirty.
          *  Call from Engine::update() each frame.
          *  */
         void updateAll();
@@ -106,7 +129,15 @@ namespace visutwin::canvas
         std::unique_ptr<Batch> createDynamicBatch(const std::vector<MeshInstance*>& meshInstances,
                                                    int batchGroupId);
 
+        /// Destroys only the batches belonging to these groups; empty means all.
+        void destroyGroups(Scene* scene, const std::vector<int>& groupIds);
+
         GraphicsDevice* _device;
+        /// Remembered by prepare()/generate() so updateAll() can regenerate a dirty
+        /// group. Null until the app has prepared once, which is what keeps a group
+        /// added during setup from being built before the app asks.
+        Scene* _scene = nullptr;
+        std::vector<int> _dirtyGroups;
         std::unordered_map<int, BatchGroup> _groups;
         std::vector<std::unique_ptr<Batch>> _batches;
 

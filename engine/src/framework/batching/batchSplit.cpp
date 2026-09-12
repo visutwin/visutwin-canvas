@@ -3,6 +3,8 @@
 //
 #include "batchSplit.h"
 
+#include <algorithm>
+
 namespace visutwin::canvas
 {
     namespace
@@ -79,6 +81,11 @@ namespace visutwin::canvas
         }
 
         return lists;
+    }
+
+    bool entityIsBatchable(const std::vector<bool>& instanceDeforms)
+    {
+        return std::ranges::none_of(instanceDeforms, [](const bool deforms) { return deforms; });
     }
 
     bool formatIsPackedVertexLayout(const VertexFormat& format)

@@ -841,6 +841,12 @@ present, but the rule below never depends on reading it.
   layout may never enter a batch: a skinned mesh (88 bytes) or a point cloud (28)
   tagged into a batch group used to merge as garbage geometry, read past the end
   of its own storage on the way, and say nothing.
+  A component with ANY skinned or morphed mesh instance contributes NONE of them
+  (`entityIsBatchable`, upstream's whole-entity rule): merging bakes each source's
+  world transform into a shared buffer, so a deforming mesh loses the thing that
+  deforms it. A skinned mesh is caught by its 88-byte stride anyway; a MORPHED one
+  carries the ordinary packed layout with its deltas in a separate buffer, so nothing
+  about its format says no — it would batch cleanly and then sit still.
   `framework/batching/batchSplit.h` is where the rules live —
   `splitBatchLists` divides a (group, material) bucket into one list per batch on
   the format's `batchingHash`, the primitive type, castShadow/receiveShadow and
@@ -852,6 +858,15 @@ present, but the rule below never depends on reading it.
   and unbatched, which costs draw calls and nothing else. The split happens once,
   at `prepare()`, from the transforms in place THEN, so a dynamic batch whose
   instances wander apart later keeps the grouping it was built with.
+
+  `prepare()` is `generate()` over every registered group; `generate(scene, ids)`
+  rebuilds only those, and `markGroupDirty` queues one for `updateAll()` to pick up
+  next frame. Regeneration does nothing until `prepare()` has run once — it needs a
+  scene to register the batch mesh instances with the group's layers, and during
+  setup the app has not tagged anything yet — which is why `addGroup` can mark dirty
+  unconditionally without building a batch too early. NOTE a batch's layers come from
+  the GROUP, not from its sources; upstream marks its own per-instance layer split
+  "legacy" for that reason, so there is nothing to split on there.
 - **A camera frame OWNS the scene-colour grab, and three things have to line up
   for it.** `CameraComponent::requestSceneColorMap` is the request on both paths;
   `RenderPassCameraFrame::applyCameraSettings` copies it into

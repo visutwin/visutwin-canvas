@@ -71,6 +71,24 @@ namespace visutwin::canvas
         float maxAabbSize, bool dynamic);
 
     /**
+     * Whether a render component's mesh instances may be batched at all, given
+     * whether each is skinned or morphed. Upstream's `_filterBatchableInstances`:
+     * if ANY instance on the entity deforms, the WHOLE entity is excluded.
+     *
+     * Merging bakes each source's world transform into the shared vertex buffer, so
+     * a deforming mesh loses exactly the thing that makes it deform. A skinned one
+     * is caught anyway by the layout check below — its 88-byte stride is not the
+     * packed one — but a MORPHED mesh carries the ordinary 56-byte layout and its
+     * deltas in a separate buffer, so nothing about its format says it must not be
+     * merged. It would batch cleanly and then sit still.
+     *
+     * Whole-entity rather than per-instance because that is upstream's rule: an
+     * entity's instances are authored as one thing, and batching half of it leaves
+     * the deforming half drawn separately with no indication why.
+     */
+    bool entityIsBatchable(const std::vector<bool>& instanceDeforms);
+
+    /**
      * True when `format` is exactly the 56-byte packed layout the merge paths read —
      * stride, offsets, types and all. Merging reinterprets a source vertex buffer as
      * that struct, so anything else (a skinned mesh's 88 bytes, a point cloud's 28, a
