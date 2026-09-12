@@ -103,6 +103,33 @@ namespace visutwin::canvas
         bool visibleThisFrame() const { return _visibleThisFrame; }
         void setVisibleThisFrame(const bool value) { _visibleThisFrame = value; }
 
+        /**
+         * Application-authored order, used only by SORTMODE_MANUAL. Upstream's
+         * MeshInstance.drawOrder. Lower draws first.
+         */
+        int drawOrder() const { return _drawOrder; }
+        void setDrawOrder(const int value) { _drawOrder = value; }
+
+        /**
+         * Coarse priority, the HIGHEST-priority field of the material sort key, so a
+         * bucket is drawn entirely before the next whatever their materials are.
+         * Upstream's MeshInstance.drawBucket, 8 bits. Default 0.
+         *
+         * This is what a caller reaches for when something must precede everything
+         * else in its sublayer — a stencil mask, a depth primer — without splitting
+         * it into its own layer.
+         */
+        uint8_t drawBucket() const { return _drawBucket; }
+        void setDrawBucket(const uint8_t value) { _drawBucket = value; }
+
+        /**
+         * Signed view-axis depth from the last sort (see sortDistance.h). Written by
+         * the renderer before a distance-ordered or custom sort, so a custom
+         * comparator can read it; meaningless in the other modes.
+         */
+        float sortDistance() const { return _sortDistance; }
+        void setSortDistance(const float value) { _sortDistance = value; }
+
         uint32_t mask() const { return _mask; }
         void setMask(const uint32_t value) { _mask = value; }
 
@@ -317,6 +344,9 @@ namespace visutwin::canvas
         bool _receiveShadow = true;
         bool _cull = true;
         bool _visibleThisFrame = false;
+        int _drawOrder = 0;
+        uint8_t _drawBucket = 0;
+        float _sortDistance = 0.0f;
         uint32_t _mask = MASK_AFFECT_DYNAMIC;
 
         // Batching

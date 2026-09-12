@@ -23,6 +23,8 @@
 
 namespace visutwin::canvas
 {
+    uint32_t Material::_nextId = 0;
+
     DeviceCache defaultMaterialDeviceCache;
     std::unordered_map<GraphicsDevice*, std::shared_ptr<Material>> defaultMaterials;
 
@@ -437,22 +439,6 @@ namespace visutwin::canvas
         Texture* emissiveTex = _emissiveTexture;
         readTexture(getParam(this, {"texture_emissiveMap", "emissiveTexture"}), emissiveTex);
         if (emissiveTex) slots.push_back({5, emissiveTex});
-    }
-
-    uint64_t Material::sortKey() const
-    {
-        const auto blendKey = static_cast<uint64_t>(_blendState ? _blendState->key() : 0);
-        const auto depthKey = static_cast<uint64_t>(_depthState ? _depthState->key() : 0);
-        const auto alphaModeKey = static_cast<uint64_t>(_alphaMode);
-        const auto baseTextureBit = _hasBaseColorTexture ? 1ull : 0ull;
-        const auto normalTextureBit = _hasNormalTexture ? 1ull : 0ull;
-        const auto mrTextureBit = _hasMetallicRoughnessTexture ? 1ull : 0ull;
-        const auto occlusionTextureBit = _hasOcclusionTexture ? 1ull : 0ull;
-        const auto emissiveTextureBit = _hasEmissiveTexture ? 1ull : 0ull;
-        const auto skyboxBit = _isSkybox ? 1ull : 0ull;
-        return (_shaderVariantKey << 32) ^ (blendKey << 16) ^ (depthKey << 4) ^ (alphaModeKey << 3) ^
-            (skyboxBit << 5) ^ (emissiveTextureBit << 4) ^ (occlusionTextureBit << 3) ^
-            (mrTextureBit << 2) ^ (normalTextureBit << 1) ^ baseTextureBit;
     }
 
     void setDefaultMaterial(const std::shared_ptr<GraphicsDevice>& device, const std::shared_ptr<Material>& material) {

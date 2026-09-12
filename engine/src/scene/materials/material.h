@@ -258,7 +258,23 @@ namespace visutwin::canvas
          */
         virtual void getTextureSlots(std::vector<TextureSlot>& slots) const;
 
-        uint64_t sortKey() const;
+        /**
+         * Identity, not state — a per-process counter, as upstream's Material.id.
+         *
+         * The sort key used to be a HASH of the material's state, XORed together from
+         * overlapping bit ranges: the depth key and the emissive-texture bit both sat
+         * at bit 4, the alpha mode and the occlusion bit both at bit 3, so materials
+         * differing in one could produce the same key and interleave. Worse, the one
+         * caller shifted the whole 64-bit result left by 32 and discarded the top
+         * half, which is where the SHADER VARIANT lived — the most expensive state
+         * change of all was contributing nothing to the order.
+         *
+         * Identity is what upstream sorts on and what this renderer actually wants:
+         * consecutive draws of the SAME material skip binding entirely (see the
+         * lastShaderMaterial cache in renderForwardLayer), which state similarity
+         * cannot deliver.
+         */
+        uint32_t id() const { return _id; }
 
         /**
          * An independent copy of this material (upstream Material::clone).
@@ -283,6 +299,8 @@ namespace visutwin::canvas
         std::string _name;
 
         bool _transparent = false;
+        static uint32_t _nextId;
+        uint32_t _id = _nextId++;
         uint64_t _shaderVariantKey = 0;
         std::unordered_map<std::string, std::string> _shaderChunkOverrides;
         uint64_t _shaderChunksHash = 0;

@@ -25,6 +25,7 @@
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/instanceCuller.h"
 #include "scene/frustumUtils.h"
+#include "scene/renderer/sortKey.h"
 #include "scene/light.h"
 #include "scene/morph.h"
 #include "scene/morphInstance.h"
@@ -91,14 +92,16 @@ namespace visutwin::canvas
             float screenSize = 1.0f;
         };
 
+        /// Thin wrapper: the layout itself lives in sortKey.h so a test can hold it.
         uint64_t makeOpaqueSortKey(const MeshInstance* meshInstance)
         {
-            //uses material / shader variants in opaque sort keys.
-            const auto material = meshInstance ? meshInstance->material() : nullptr;
-            const auto materialKey = material ? material->sortKey()
-                : static_cast<uint64_t>(reinterpret_cast<uintptr_t>(material)) >> 4;
-            const auto meshKey = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(meshInstance ? meshInstance->mesh() : nullptr)) >> 4;
-            return (materialKey << 32) ^ (meshKey & 0xffffffffu);
+            const auto* material = meshInstance ? meshInstance->material() : nullptr;
+            return makeForwardSortKey(
+                meshInstance ? meshInstance->drawBucket() : 0u,
+                material && material->alphaMode() == AlphaMode::MASK,
+                // No material means the default one, and they all sort together.
+                material ? material->id() : 0x7FFFFFu,
+                reinterpret_cast<uintptr_t>(meshInstance ? meshInstance->mesh() : nullptr));
         }
 
         // Material's base cull mode — reads the parameter map (unordered_map lookup).
@@ -884,8 +887,40 @@ namespace visutwin::canvas
             appendMeshInstance(meshInstance);
         }
 
-        if (transparent) {
-            // transparent sublayer is sorted back-to-front.
+        // Upstream's Layer.sortVisible: the mode is a per-layer, per-sublayer
+        // property, because the two sublayers want opposite things — the opaque pass
+        // wants the fewest state changes, the transparent pass has to composite
+        // back-to-front whatever that costs. The defaults reproduce exactly what this
+        // renderer did before the modes existed.
+        const SortMode sortMode = transparent
+            ? layer->transparentSortMode() : layer->opaqueSortMode();
+
+        // A custom comparator may read MeshInstance::sortDistance, so publish what
+        // was computed per draw above before calling one.
+        if (sortMode == SortMode::SORTMODE_CUSTOM) {
+            for (auto* entry : drawEntries) {
+                if (entry->meshInstance) {
+                    entry->meshInstance->setSortDistance(entry->sortDistance);
+                }
+            }
+        }
+
+        switch (sortMode) {
+        case SortMode::SORTMODE_NONE:
+            // Collection order. Nothing to do, and deliberately not a fallthrough to
+            // a default: a pass that asked for no sorting must not get one.
+            break;
+
+        case SortMode::SORTMODE_MANUAL:
+            std::stable_sort(drawEntries.begin(), drawEntries.end(),
+                [](const ForwardDrawEntry* a, const ForwardDrawEntry* b) {
+                    const int orderA = a->meshInstance ? a->meshInstance->drawOrder() : 0;
+                    const int orderB = b->meshInstance ? b->meshInstance->drawOrder() : 0;
+                    return orderA < orderB;
+                });
+            break;
+
+        case SortMode::SORTMODE_BACK2FRONT:
             std::stable_sort(drawEntries.begin(), drawEntries.end(),
                 [](const ForwardDrawEntry* a, const ForwardDrawEntry* b) {
                     if (a->sortDistance == b->sortDistance) {
@@ -893,8 +928,31 @@ namespace visutwin::canvas
                     }
                     return a->sortDistance > b->sortDistance;
                 });
-        } else {
-            // opaque sublayer prioritizes material/mesh sort, then front-to-back.
+            break;
+
+        case SortMode::SORTMODE_FRONT2BACK:
+            std::stable_sort(drawEntries.begin(), drawEntries.end(),
+                [](const ForwardDrawEntry* a, const ForwardDrawEntry* b) {
+                    if (a->sortDistance == b->sortDistance) {
+                        return a->sortKey < b->sortKey;
+                    }
+                    return a->sortDistance < b->sortDistance;
+                });
+            break;
+
+        case SortMode::SORTMODE_CUSTOM:
+            // A null callback leaves the order alone rather than silently falling
+            // back to a mode the caller did not ask for.
+            if (const auto& callback = layer->customSortCallback()) {
+                std::stable_sort(drawEntries.begin(), drawEntries.end(),
+                    [&callback](const ForwardDrawEntry* a, const ForwardDrawEntry* b) {
+                        return callback(a->meshInstance, b->meshInstance);
+                    });
+            }
+            break;
+
+        case SortMode::SORTMODE_MATERIALMESH:
+        default:
             std::stable_sort(drawEntries.begin(), drawEntries.end(),
                 [](const ForwardDrawEntry* a, const ForwardDrawEntry* b) {
                     if (a->sortKey != b->sortKey) {
@@ -902,6 +960,7 @@ namespace visutwin::canvas
                     }
                     return a->sortDistance < b->sortDistance;
                 });
+            break;
         }
 
         const auto sortEnd = std::chrono::high_resolution_clock::now();

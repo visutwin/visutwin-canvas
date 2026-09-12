@@ -6,6 +6,7 @@
 #pragma once
 
 #include <algorithm>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -51,6 +52,31 @@ namespace visutwin::canvas
 
         const std::vector<MeshInstance*>& meshInstances() const { return _meshInstances; }
 
+        /**
+         * How this layer orders its opaque and its transparent draws. The defaults
+         * are upstream's and are what the renderer always did: group the opaque pass
+         * by material to keep state changes down, and draw the transparent pass
+         * farthest-first so it composites.
+         */
+        SortMode opaqueSortMode() const { return _opaqueSortMode; }
+        void setOpaqueSortMode(const SortMode value) { _opaqueSortMode = value; }
+
+        SortMode transparentSortMode() const { return _transparentSortMode; }
+        void setTransparentSortMode(const SortMode value) { _transparentSortMode = value; }
+
+        /**
+         * Comparator used when the mode is SORTMODE_CUSTOM — a strict weak ordering
+         * over mesh instances, as std::sort requires. Ignored in every other mode,
+         * and a null callback in SORTMODE_CUSTOM leaves the order alone rather than
+         * falling back to something the caller did not ask for.
+         *
+         * The sort distance is computed before it runs, so a callback may read
+         * MeshInstance::sortDistance.
+         */
+        using SortCallback = std::function<bool(const MeshInstance*, const MeshInstance*)>;
+        const SortCallback& customSortCallback() const { return _customSortCallback; }
+        void setCustomSortCallback(SortCallback callback) { _customSortCallback = std::move(callback); }
+
         bool enabled() const { return _enabled; }
         void setEnabled(const bool value) { _enabled = value; _dirtyComposition = true; }
 
@@ -71,6 +97,10 @@ namespace visutwin::canvas
 
         std::string _name;
         std::vector<MeshInstance*> _meshInstances;
+        SortMode _opaqueSortMode = SortMode::SORTMODE_MATERIALMESH;
+        SortMode _transparentSortMode = SortMode::SORTMODE_BACK2FRONT;
+        SortCallback _customSortCallback;
+
         bool _enabled = true;
         bool _clearColorBuffer = false;
         bool _clearDepthBuffer = false;

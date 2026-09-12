@@ -622,6 +622,29 @@ present, but the rule below never depends on reading it.
   the Vulkan upload path uses to size its staging copy.
   `tests/pixelFormatTests.cpp` lists every enumerator by hand — add a format
   there when you add one to the enum.
+- **The forward sort key packs its fields; it must never XOR them.** The layout is
+  in `scene/renderer/sortKey.h` — draw bucket, alpha test, material ID, mesh — each
+  owning its own bits, and `tests/sortKeyTests.cpp` holds it. The key it replaced
+  XORed overlapping ranges (the depth-state key and the emissive-texture bit both at
+  bit 4, the alpha mode and the occlusion bit both at bit 3), so two materials
+  differing in one of those hashed equal and interleaved; and its one caller shifted
+  the result left by 32 and discarded the half holding the shader variant key, so the
+  most expensive state change in a frame contributed nothing to the order. Material
+  IDENTITY is what is sorted on, as upstream, because consecutive draws of one
+  material skip binding entirely — state similarity cannot deliver that.
+- **A layer carries a sort mode per sublayer** (`Layer::opaqueSortMode` /
+  `transparentSortMode`, upstream's SORTMODE_*), defaulting to MATERIALMESH and
+  BACK2FRONT, which is what the renderer always did. The two pull in opposite
+  directions on purpose: opaque wants the fewest state changes, transparent has to
+  composite back to front. SORTMODE_CUSTOM with a null callback leaves the order
+  ALONE rather than falling back to a mode nobody asked for.
+- **Reordering opaque draws moves pixels, and that is the scene, not a bug.** Where
+  two surfaces are coplanar, `LESS_EQUAL` lets whichever draws last win, so any
+  change to the order flips those pixels. `depth-of-field` has about 0.5% of them:
+  reversing the opaque comparator on ONE build moves 8,863 pixels at a max of 64
+  counts, the same amplitude a sort-key change produces. Measure that reversal before
+  calling such a difference a regression — neither order is correct for depth-equal
+  geometry.
 - **Transparent draws sort on SIGNED view-axis depth, not radial distance**
   (`scene/renderer/sortDistance.h`, upstream's `_calculateSortDistances`).
   Radial distance ranks an off-axis surface farther than a centred one at the

@@ -27,6 +27,34 @@ namespace visutwin::canvas
     constexpr int LAYERID_IMMEDIATE = 5;
 
     // Light mask bits.
+    /**
+     * How a layer orders the draws of one sublayer (upstream SORTMODE_*).
+     *
+     * Sorting decides two different things and they pull against each other: how
+     * many GPU state changes the pass costs, and whether transparency composites
+     * correctly. MATERIALMESH minimises the first and BACK2FRONT is required for the
+     * second, which is why opaque and transparent sublayers carry separate modes.
+     */
+    enum class SortMode
+    {
+        /// Draw in whatever order the instances were collected. Cheapest, and the
+        /// right choice when a pass is one material anyway.
+        SORTMODE_NONE = 0,
+        /// By MeshInstance::drawOrder, which the application sets. The escape hatch
+        /// for content whose order is authored rather than derived.
+        SORTMODE_MANUAL = 1,
+        /// By material, then mesh: the fewest state changes. The opaque default.
+        SORTMODE_MATERIALMESH = 2,
+        /// Farthest first. Required for blended geometry to composite correctly, and
+        /// the transparent default.
+        SORTMODE_BACK2FRONT = 3,
+        /// Nearest first. More state changes than MATERIALMESH, but the early depth
+        /// test then rejects most of the overdraw behind what is already drawn.
+        SORTMODE_FRONT2BACK = 4,
+        /// The application supplies the comparator (Layer::setCustomSortCallback).
+        SORTMODE_CUSTOM = 5
+    };
+
     constexpr uint32_t MASK_NONE = 0u;
     constexpr uint32_t MASK_AFFECT_DYNAMIC = 1u;
     constexpr uint32_t MASK_AFFECT_LIGHTMAPPED = 2u;

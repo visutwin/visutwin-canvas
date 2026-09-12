@@ -163,3 +163,11 @@ add_executable(visutwin-light-culling-tests
 target_link_libraries(visutwin-light-culling-tests PRIVATE visutwin-canvas)
 
 add_test(NAME light-culling COMMAND visutwin-light-culling-tests)
+
+add_executable(visutwin-sort-key-tests
+    sortKeyTests.cpp
+)
+
+target_link_libraries(visutwin-sort-key-tests PRIVATE visutwin-canvas)
+
+add_test(NAME sort-key COMMAND visutwin-sort-key-tests)
