@@ -961,9 +961,9 @@ during unrelated work are repeated here.
   built without specialization constants, so every `vtFeatureEnabled` in that
   stage would read false.
 - **A light's shadow map is allocated ONCE, lazily, and only when null, so every
-  property that changes what the map must BE has to drop it** — today
-  `setNumCascades`, `setShadowType` and `setShadowResolution`, all three through
-  `Light::destroyShadowMap`. Nothing announces the mismatch: the renderer finds a
+  property that changes what the map must BE — or whether it is needed at all — has
+  to drop it** — today `setNumCascades`, `setShadowType`, `setShadowResolution` and
+  `setCastShadows`, all four through `Light::destroyShadowMap`. Nothing announces the mismatch: the renderer finds a
   non-null map and renders into it, and the frame still comes out. A stale
   resolution renders a cascade into a fraction of a texture the shader then samples
   across, because the cascade viewport is recomputed per cull and the PCF texel size
@@ -972,7 +972,14 @@ during unrelated work are repeated here.
   EVERY property onto the backing `Light` once per frame, so an unconditional drop
   reallocates the map forever. Dropping the map also re-arms a light sitting at
   `SHADOWUPDATE_NONE`, or nothing would ever render into the replacement.
-  `tests/shadowMapInvalidationTests.cpp` pins both halves for all three setters.
+  `tests/shadowMapInvalidationTests.cpp` pins both halves for all four setters.
+  Note that `castShadows()` folds the MASK in, so a bare `Light` — one not driven by
+  a `LightComponent`, which pushes its own mask every frame — reports false whatever
+  `setCastShadows` said, because this port defaults `Light::_mask` to `MASK_NONE`
+  where upstream uses `MASK_AFFECT_DYNAMIC`. Aligning that default is not free: it
+  changes `depth-of-field`, whose only light is the environment atlas, so something
+  reads `castShadows()` before the first sync and keeps the answer. It belongs with
+  the defaults alignment rather than with a shadow-map change.
   DEVIATION: upstream additionally clamps the resolution to the device's
   `maxTextureSize` (`maxCubeMapSize` for an omni); this port's `GraphicsDevice`
   publishes neither, and the `Light` a component owns carries a null device anyway.

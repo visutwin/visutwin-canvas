@@ -36,6 +36,27 @@ namespace visutwin::canvas
         return _castShadows && _mask != MaskType::MASK_BAKE && _mask != MaskType::MASK_NONE;
     }
 
+    void Light::setCastShadows(const bool value)
+    {
+        if (_castShadows == value) {
+            return;
+        }
+        _castShadows = value;
+
+        // Turning shadows off frees the map, and turning them back on gets a fresh
+        // one. Without this the texture outlived the only thing that read it, for as
+        // long as the light lived — a directional light's default 2048 map across
+        // four cascades is not a rounding error, and nothing in a frame would ever
+        // have pointed at it.
+        //
+        // The early-out above is not an optimisation. LightComponent::syncToLight
+        // replays every property onto this Light once per frame, so an unconditional
+        // drop reallocates the map forever AND re-arms SHADOWUPDATE_NONE to
+        // THISFRAME each time, which would make a static shadow re-render every
+        // frame. Every setter that drops the map owes the same guard.
+        destroyShadowMap();
+    }
+
     int Light::numShadowFaces() const
     {
         if (_type == LightType::LIGHTTYPE_DIRECTIONAL) {

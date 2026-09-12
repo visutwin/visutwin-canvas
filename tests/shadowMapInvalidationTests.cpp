@@ -2,8 +2,9 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // A Light's shadow map is allocated lazily by the renderer and only when null, so
-// every property that changes what the map must BE has to drop it. Three do:
-// setNumCascades, setShadowType and setShadowResolution. None of that is visible
+// every property that changes what the map must BE — or makes it needed at all —
+// has to drop it. Four do: setNumCascades, setShadowType, setShadowResolution and
+// setCastShadows. None of that is visible
 // where it matters — the renderer simply finds a non-null map and renders into it,
 // and the frame still comes out, just wrong: the resolution case renders a cascade
 // into a fraction of a texture it is then sampled across, because the viewport and
@@ -107,6 +108,58 @@ namespace
         return expectDropped("setNumCascades", light);
     }
 
+    bool checkCastShadows()
+    {
+        Light light(nullptr, false);
+        // castShadows() folds the mask in, and a bare Light defaults to MASK_NONE,
+        // which would make the getter false whatever setCastShadows said. A
+        // LightComponent pushes its own mask (MASK_AFFECT_DYNAMIC) every frame, so
+        // this stands in for that. NOTE: upstream's Light defaults the mask to
+        // MASK_AFFECT_DYNAMIC; this port does not, which is a defaults divergence
+        // separate from what this file is about.
+        light.setMask(MaskType::MASK_AFFECT_DYNAMIC);
+        light.setCastShadows(true);
+        giveShadowMap(light);
+
+        light.setCastShadows(true);
+        if (!expectKept("setCastShadows with an unchanged value", light)) {
+            return false;
+        }
+
+        // Switching shadows off leaves nothing that reads the map, so holding it is
+        // pure waste for the life of the light.
+        light.setCastShadows(false);
+        if (!expectDropped("setCastShadows(false)", light)) {
+            return false;
+        }
+
+        // And off-to-off must not keep re-dropping: syncToLight replays it every
+        // frame, and destroyShadowMap re-arms the update mode each time it runs.
+        light.setShadowUpdateMode(ShadowUpdateType::SHADOWUPDATE_NONE);
+        light.setCastShadows(false);
+        if (light.shadowUpdateMode() != ShadowUpdateType::SHADOWUPDATE_NONE) {
+            std::cerr << "setCastShadows(false) on a light that already had shadows off"
+                         " re-armed the update mode, so a static shadow would re-render"
+                         " every frame\n";
+            return false;
+        }
+
+        // Turning them back on has to get a fresh map rather than the null it was
+        // left with — the renderer allocates only when null, so this is the path
+        // that would otherwise leave the light shadowless after a toggle.
+        light.setCastShadows(true);
+        if (light.shadowMap() != nullptr) {
+            std::cerr << "setCastShadows(true) did not leave the map null for the"
+                         " renderer to allocate\n";
+            return false;
+        }
+        if (!light.castShadows()) {
+            std::cerr << "setCastShadows(true) did not store the new value\n";
+            return false;
+        }
+        return true;
+    }
+
     // A light whose shadow is already considered rendered would never render into
     // the replacement map, leaving it blank for as long as the light lives.
     bool checkUpdateModeRearmed()
@@ -137,7 +190,7 @@ namespace
 int main()
 {
     const bool ok = checkResolution() && checkShadowType() && checkNumCascades() &&
-        checkUpdateModeRearmed();
+        checkCastShadows() && checkUpdateModeRearmed();
     if (!ok) {
         std::cerr << "shadow map invalidation tests FAILED\n";
         return 1;

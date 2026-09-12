@@ -132,7 +132,7 @@ namespace visutwin::canvas
         void setType(const LightType value) { _type = value; }
 
         bool castShadows() const;
-        void setCastShadows(const bool value) { _castShadows = value; }
+        void setCastShadows(bool value);
 
         MaskType mask() const { return _mask; }
         void setMask(const MaskType value) { _mask = value; }
@@ -264,6 +264,14 @@ namespace visutwin::canvas
 
         bool _castShadows = false;
 
+        // DEVIATION: upstream's Light defaults this to MASK_AFFECT_DYNAMIC. Because
+        // castShadows() folds the mask in, MASK_NONE makes that getter false on any
+        // Light not driven by a LightComponent, whatever setCastShadows said. A
+        // component pushes its own mask every frame, so nothing in the examples shows
+        // it — but aligning the default is NOT free: it changes depth-of-field, whose
+        // only light is the environment atlas, so something reads castShadows() before
+        // the first sync and keeps the answer. Left alone deliberately; it belongs
+        // with the defaults alignment, not here.
         MaskType _mask = MaskType::MASK_NONE;
 
         ShadowUpdateType _shadowUpdateMode = ShadowUpdateType::SHADOWUPDATE_NONE;
