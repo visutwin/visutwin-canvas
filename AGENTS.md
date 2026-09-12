@@ -715,6 +715,20 @@ present, but the rule below never depends on reading it.
   several cameras in one frame would otherwise walk several slots and lap the
   frames still in flight. The symptom is torn splat ordering for one frame under
   continuous camera movement, which is exactly when nobody is looking closely.
+- **A splat cloud's bounds carry each splat's EXTENT, taken from the covariance
+  DIAGONAL.** A splat is an ellipsoid, so the cloud reaches past the hull of its
+  centres by the size of whatever sits on its rim; bounding the centres alone culls
+  the whole thing while part of it is still on screen, and a one-splat cloud gets a
+  zero-size box. `Sigma = R S^2 R^T` is what `GSplatData` stores (rotation and scale
+  are discarded at load), and `Sigma_dd` IS the variance along model axis d — so
+  `2 * sqrt(Sigma_dd)` is the exact 2-sigma bound per axis, upstream's convention by
+  a tighter route than either bound upstream computes. Use the diagonal, not the
+  scales, and never pad axis d by one scale component: a rotated splat's extent on x
+  comes from whichever scale the rotation points along x, which is the half that
+  looks right in every render and is wrong in the numbers.
+  `tests/gsplatAabbTests.cpp` pins it by writing PLYs whose answer is closed-form.
+  The default gsplat example pose cannot see a bounds change at all — the cloud is
+  wholly in view, so culling never fires and the frame must come back bit-identical.
 - **A splat's clip z is CLAMPED to the depth range, and that only works because
   its screen-space kernel is clamped too.** A gaussian splat is a quad built around
   ONE projected centre, so the whole quad carries that centre's depth: an unclamped

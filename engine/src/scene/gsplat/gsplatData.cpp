@@ -166,17 +166,54 @@ namespace visutwin::canvas
         auto data = std::make_unique<GSplatData>();
         Vector3 minPos(std::numeric_limits<float>::max());
         Vector3 maxPos(std::numeric_limits<float>::lowest());
+        bool boundsSet = false;
         const auto accumulate = [&](const GpuSplat& s) {
             data->_centers.push_back(s.center[0]);
             data->_centers.push_back(s.center[1]);
             data->_centers.push_back(s.center[2]);
             data->_splats.push_back(s);
-            minPos = Vector3(std::min(minPos.getX(), s.center[0]),
-                             std::min(minPos.getY(), s.center[1]),
-                             std::min(minPos.getZ(), s.center[2]));
-            maxPos = Vector3(std::max(maxPos.getX(), s.center[0]),
-                             std::max(maxPos.getY(), s.center[1]),
-                             std::max(maxPos.getZ(), s.center[2]));
+
+            // The bounds have to carry each splat's EXTENT, not just its centre. A
+            // splat is an ellipsoid, so the cloud reaches visibly past the hull of
+            // its centres — by the size of the largest splat on the rim, which in a
+            // capture is usually one of the big background ones. Bounding the centres
+            // alone culls the whole cloud a moment early as the camera turns away, and
+            // the entire thing blinks out while part of it is still on screen.
+            //
+            // DEVIATION from upstream in the tighter direction, because this port
+            // stores something upstream does not. `calcAabb` pads isotropically by
+            // twice the LARGEST of the three scales and `calcAabbExact` takes the box
+            // of the rotated 2-sigma box; both are bounds of the ellipsoid rather than
+            // the ellipsoid's own. This parser discards rotation and scale at load and
+            // keeps the composed covariance Sigma = R S^2 R^T, whose DIAGONAL is the
+            // variance along each model axis — so sqrt of it is exactly the standard
+            // deviation along that axis and 2 sigma is the tightest axis-aligned bound
+            // there is. Same 2-sigma convention as upstream, so the two agree on a
+            // sphere and this one is smaller on anything elongated or rotated.
+            //
+            // max(., 0) because a variance is non-negative by construction but a
+            // near-degenerate splat can land a tiny negative there through rounding,
+            // and sqrt of that is a NaN which would swallow the whole bound.
+            const float extentX = 2.0f * std::sqrt(std::max(s.covA[0], 0.0f));
+            const float extentY = 2.0f * std::sqrt(std::max(s.covB[0], 0.0f));
+            const float extentZ = 2.0f * std::sqrt(std::max(s.covB[2], 0.0f));
+
+            // Skip a non-finite splat rather than let it poison the bounds, as upstream
+            // does. The splat itself is kept — it is the renderer's business, and one
+            // bad record should not move the box every other splat is culled by.
+            if (!std::isfinite(s.center[0]) || !std::isfinite(s.center[1]) ||
+                !std::isfinite(s.center[2]) || !std::isfinite(extentX) ||
+                !std::isfinite(extentY) || !std::isfinite(extentZ)) {
+                return;
+            }
+
+            minPos = Vector3(std::min(minPos.getX(), s.center[0] - extentX),
+                             std::min(minPos.getY(), s.center[1] - extentY),
+                             std::min(minPos.getZ(), s.center[2] - extentZ));
+            maxPos = Vector3(std::max(maxPos.getX(), s.center[0] + extentX),
+                             std::max(maxPos.getY(), s.center[1] + extentY),
+                             std::max(maxPos.getZ(), s.center[2] + extentZ));
+            boundsSet = true;
         };
 
         // Read a whole element's binary block into a byte buffer.
@@ -393,8 +430,17 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        data->_aabb.setCenter((minPos + maxPos) * 0.5f);
-        data->_aabb.setHalfExtents((maxPos - minPos) * 0.5f);
+        if (boundsSet) {
+            data->_aabb.setCenter((minPos + maxPos) * 0.5f);
+            data->_aabb.setHalfExtents((maxPos - minPos) * 0.5f);
+        } else {
+            // Every splat was non-finite. The sentinels would make a box with a
+            // negative size that culls unpredictably, so say so and leave the
+            // degenerate box the default gives.
+            spdlog::warn("GSplatData: '{}' has no finite splat bounds", path);
+            data->_aabb.setCenter(Vector3(0.0f));
+            data->_aabb.setHalfExtents(Vector3(0.0f));
+        }
 
         spdlog::info("GSplatData: loaded '{}' — {} splats ({}, SH bands {})",
             path, data->_splats.size(), compressed ? "compressed" : "uncompressed", data->_shBands);

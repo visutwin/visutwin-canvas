@@ -147,3 +147,11 @@ add_executable(visutwin-input-device-tests
 target_link_libraries(visutwin-input-device-tests PRIVATE visutwin-canvas)
 
 add_test(NAME input-devices COMMAND visutwin-input-device-tests)
+
+add_executable(visutwin-gsplat-aabb-tests
+    gsplatAabbTests.cpp
+)
+
+target_link_libraries(visutwin-gsplat-aabb-tests PRIVATE visutwin-canvas)
+
+add_test(NAME gsplat-aabb COMMAND visutwin-gsplat-aabb-tests)
