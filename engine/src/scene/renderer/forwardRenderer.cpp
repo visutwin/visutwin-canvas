@@ -141,8 +141,9 @@ namespace visutwin::canvas
         // This positions shadow cameras and populates _cameraDirShadowLights.
         // Also dispatches per-camera GPU instance culling for any MeshInstances
         // that opted in via enableGpuInstanceCulling().
-        // Allow one cluster grid rebuild this frame (see renderForwardLayer).
-        _clustersUpdatedThisFrame = false;
+        // Drop the frame's grid assignments; the pooled grids themselves survive.
+        // A grid is built per DISTINCT light set now, not once for the whole frame.
+        resetClusters();
 
         {
             // Drop last frame's per-camera entries so destroyed cameras don't

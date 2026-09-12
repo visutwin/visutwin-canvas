@@ -508,6 +508,21 @@ present, but the rule below never depends on reading it.
   on render" — and biases these with hardware polygon offset, which the atlas pass
   already sets. What the shader applies is the receiver NORMAL offset, and
   `ClusterLightData::shadowNormalBias` carries it.
+- **One cluster grid per DISTINCT LIGHT SET, not one for the frame.** The local
+  light list is per (camera, layer) — the gather filters on
+  `LightComponent::rendersLayer` — so the grid has to be too.
+  `Renderer::clustersForLightSet` keys pooled grids on an order-independent hash of
+  the set, so two layers seeing the same lights still share one and it is still built
+  once; `resetClusters()` drops the assignments each frame while the pool survives,
+  because the cell buffers are too big to reallocate per frame. EVERY layer binds its
+  own grid and params.
+
+  What this replaced built ONE grid from whichever layer rendered first and skipped
+  the whole block, BINDING INCLUDED, for every layer after — so a layer with a
+  different light set was lit by another layer's cells, and a layer with NO clustered
+  lights never reached the branch that zeroes the params and stayed lit by the
+  previous layer's buffers. Both `clustered-lighting` and `clustered-spot-shadows`
+  have exactly that shape: two distinct sets per frame, one of them empty.
 - **The cluster grid is sized from the LIGHTS alone, and a spot is bounded by its
   CONE.** `WorldClusters::update` takes no camera: the bounds are the union of the
   light AABBs, as upstream's `evaluateBounds` does. They used to start from the camera
