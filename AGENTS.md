@@ -688,6 +688,21 @@ present, but the rule below never depends on reading it.
   because a skipped draw never asks for what it would have needed — which is why
   growth is `max(requested, current * 2)` and why a first overflow can take two
   frames to settle.
+- **A CPU-written, GPU-read buffer needs `GraphicsDevice::maxFramesInFlight()`
+  copies on Metal, and the write must happen at most once a frame.** A Metal
+  `setData` is a memcpy into shared storage the GPU reads directly, and the ring
+  semaphores let the CPU run three frames ahead, so a two-buffer ping-pong comes
+  back round onto a buffer the frame before last has not finished with. Vulkan
+  cannot tear the same way — `VulkanVertexBuffer::unlock` stages the bytes and
+  the queue orders the copy behind the reads already submitted — so this is a
+  Metal-only rule that a Vulkan run will never reproduce, and it costs one extra
+  copy of the buffer. The splat ORDER buffer is the one such buffer today
+  (`GSplatInstance`); upstream has no rule here because every upload it makes is
+  queue-ordered. The once-a-frame half is what makes the cycle long enough — it
+  is keyed on `GraphicsDevice::renderVersion()`, because the same splat drawn by
+  several cameras in one frame would otherwise walk several slots and lap the
+  frames still in flight. The symptom is torn splat ordering for one frame under
+  continuous camera movement, which is exactly when nobody is looking closely.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.

@@ -71,11 +71,22 @@ namespace visutwin::canvas
         std::shared_ptr<GSplatResource> _resource;
         std::unique_ptr<GSplatSorter> _sorter;
 
-        // Ping-pong order buffers: the sorter result uploads into the inactive one
-        // to avoid stomping data a queued frame may still read.
-        std::shared_ptr<VertexBuffer> _orderBuffers[2];
-        int _activeOrderBuffer = 0;
+        // One order buffer per frame the CPU may run ahead of the GPU
+        // (GraphicsDevice::maxFramesInFlight), cycled on each adopted sort.
+        //
+        // Two is NOT enough: Metal writes a shared-storage buffer in place while
+        // keeping three frames in flight, so a result landing on two consecutive
+        // frames comes back round to a buffer the frame before last may still be
+        // reading, and the splats tear mid-draw. Upstream has no such rule because
+        // its upload is queue-ordered, which is also why Vulkan cannot tear here.
+        std::vector<std::shared_ptr<VertexBuffer>> _orderBuffers;
+        size_t _activeOrderBuffer = 0;
         uint32_t _visibleCount = 0;
+
+        // Render version of the frame that last adopted a sort. One upload per
+        // frame is what makes the cycle above long enough: a splat drawn by
+        // several cameras in one frame must not walk the cycle several times.
+        int _lastUploadVersion = -1;
 
         std::vector<uint32_t> _fetchScratch;
         GpuGSplatParams _gpuParams{};

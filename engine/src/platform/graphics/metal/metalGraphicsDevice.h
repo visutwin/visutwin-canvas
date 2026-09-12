@@ -135,6 +135,11 @@ namespace visutwin::canvas
         bool supportsCompute() const override { return true; }
         void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") override;
 
+        /// A shared-storage MTLBuffer write lands directly in the memory the GPU
+        /// reads, and the ring semaphores let the CPU run this many frames ahead,
+        /// so a per-frame CPU-written buffer needs this many copies to cycle through.
+        int maxFramesInFlight() const override { return MetalUniformRingBuffer::kMaxInflightFrames; }
+
         std::pair<int, int> size() const override;
 
         void setDepthBias(float depthBias, float slopeScale, float clamp) override;

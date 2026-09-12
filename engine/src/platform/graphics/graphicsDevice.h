@@ -681,6 +681,20 @@ namespace visutwin::canvas
         // The maximum supported number of hardware antialiasing samples
         int maxSamples() const { return _maxSamples; }
 
+        /**
+         * How many frames the CPU may be running ahead of the GPU, so how many
+         * copies a CPU-written, GPU-read resource must cycle through before it is
+         * safe to write one again.
+         *
+         * A backend whose buffer writes land straight in memory the GPU reads —
+         * Metal's shared-storage MTLBuffer — needs the caller to respect this:
+         * rewriting a buffer a submitted frame has not finished with tears the
+         * data under the GPU. A backend that uploads through the queue (Vulkan
+         * stages the copy and brackets it with barriers) is safe whatever the
+         * caller does, and reports its count only so both paths size the same way.
+         */
+        virtual int maxFramesInFlight() const { return 1; }
+
         void removeTarget(RenderTarget* target);
 
         std::shared_ptr<RenderTarget> renderTarget() const { return _renderTarget; }
@@ -917,7 +931,10 @@ namespace visutwin::canvas
         int _renderPassIndex;
 
         // A version number that is incremented every frame. This is used to detect if some object were invalidated.
-        int _renderVersion;
+        // Initialised because frameStart INCREMENTS it, so it is read before it is
+        // ever assigned; callers also compare it against a sentinel of their own to
+        // do a thing once per frame.
+        int _renderVersion = 0;
 
         // The render target representing the main back-buffer
         std::shared_ptr<RenderTarget> _backBuffer;

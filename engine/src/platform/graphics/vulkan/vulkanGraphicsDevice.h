@@ -148,6 +148,11 @@ namespace visutwin::canvas
         // recording, so every pass this frame is a no-op.
         bool frameRenderable() const override { return _frameActive; }
 
+        // Buffer writes go through a staging copy the queue orders against prior
+        // reads, so this is what the frame loop runs ahead by, not a safety bound
+        // a caller has to respect.
+        int maxFramesInFlight() const override { return static_cast<int>(kMaxFramesInFlight); }
+
         // ── Vulkan accessors (for internal use by Vulkan subsystems) ─────
         [[nodiscard]] VkDevice device() const { return _device; }
         [[nodiscard]] VkPhysicalDevice physicalDevice() const { return _physicalDevice; }

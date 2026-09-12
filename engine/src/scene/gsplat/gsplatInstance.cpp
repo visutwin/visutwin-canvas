@@ -5,6 +5,7 @@
 //
 #include "gsplatInstance.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "gsplatResource.h"
@@ -30,10 +31,14 @@ namespace visutwin::canvas
         std::memcpy(orderBytes.data(), identity.data(), orderBytes.size());
 
         auto orderFormat = std::make_shared<VertexFormat>(static_cast<int>(sizeof(uint32_t)), true, false);
+        const auto& device = resource->device();
+        const size_t numOrderBuffers =
+            static_cast<size_t>(std::max(1, device->maxFramesInFlight()));
+        _orderBuffers.resize(numOrderBuffers);
         for (auto& buffer : _orderBuffers) {
             VertexBufferOptions options;
             options.data = orderBytes;
-            buffer = resource->device()->createVertexBuffer(orderFormat, numSplats, options);
+            buffer = device->createVertexBuffer(orderFormat, numSplats, options);
         }
         _visibleCount = static_cast<uint32_t>(numSplats);
     }
@@ -61,15 +66,24 @@ namespace visutwin::canvas
         const Vector3 localDirection = sortDirection(model, cameraForward);
         _sorter->setCamera(localPosition, localDirection);
 
-        // Adopt a finished sort: upload into the inactive buffer and swap.
+        // Adopt a finished sort: upload into the next buffer of the cycle and make
+        // it active. The buffer being written is the one furthest back in the
+        // cycle, so the frames still in flight — which can only be holding the one
+        // or two written before it — keep reading intact data.
+        //
+        // At most one upload per frame, or those frames' buffers are no longer the
+        // ones immediately before this write and the cycle stops being long enough.
+        const int renderVersion = _resource->device()->renderVersion();
         uint32_t visibleCount = 0;
-        if (_sorter->fetchResult(_fetchScratch, visibleCount)) {
-            const int inactive = 1 - _activeOrderBuffer;
+        if (renderVersion != _lastUploadVersion &&
+            _sorter->fetchResult(_fetchScratch, visibleCount)) {
+            const size_t next = (_activeOrderBuffer + 1) % _orderBuffers.size();
             std::vector<uint8_t> bytes(_fetchScratch.size() * sizeof(uint32_t));
             std::memcpy(bytes.data(), _fetchScratch.data(), bytes.size());
-            if (_orderBuffers[inactive]->setData(bytes)) {
-                _activeOrderBuffer = inactive;
+            if (_orderBuffers[next]->setData(bytes)) {
+                _activeOrderBuffer = next;
                 _visibleCount = visibleCount;
+                _lastUploadVersion = renderVersion;
             }
         }
 
