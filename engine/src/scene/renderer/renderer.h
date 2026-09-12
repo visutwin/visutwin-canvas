@@ -5,8 +5,12 @@
 //
 #pragma once
 
+#include <map>
 #include <memory>
+#include <utility>
+#include <vector>
 
+#include "core/math/primitives.h"
 #include "renderPassUpdateClustered.h"
 #include "shadowMap.h"
 #include "shadowRenderer.h"
@@ -20,6 +24,8 @@
 namespace visutwin::canvas
 {
     class Camera;
+    class GraphNode;
+    class MeshInstance;
     class RenderTarget;
     class Layer;
 
@@ -71,6 +77,53 @@ namespace visutwin::canvas
          * caller asked for.
          */
         void consumeOneShotShadows();
+
+        /**
+         * The mesh instances of one layer that survived one camera's frustum, split
+         * by transparency. Filled once per (camera, layer) per frame, then read by
+         * BOTH sublayer passes — which is the point: the opaque and transparent
+         * sublayers used to sweep every RenderComponent in the scene and cull it
+         * independently, each throwing away the half that belonged to the other.
+         */
+        struct CulledInstances
+        {
+            std::vector<MeshInstance*> opaque;
+            std::vector<MeshInstance*> transparent;
+            // The frustum this set was culled against. The batch runs while the frame
+            // graph is built and the sets are read while it renders, and on the FIRST
+            // frame a camera's aspect ratio can still change between the two — the
+            // render target is not sized yet — which makes the two frusta disagree.
+            // Re-culling on a mismatch keeps the cache a cache rather than a
+            // one-frame-stale answer nobody checked.
+            Frustum frustum{};
+            bool valid = false;
+        };
+
+        /**
+         * Registers a (camera, layer) pair to be culled this frame, de-duplicated,
+         * as upstream's Culler.requestMeshInstanceCull. The frame graph asks for the
+         * pairs it will actually render, rather than every combination the layer
+         * composition allows.
+         */
+        void requestMeshInstanceCull(Camera* camera, Layer* layer);
+
+        /**
+         * Culls everything requested this frame and clears the requests. Per camera:
+         * "precull", then each requested layer, then "postcull" — upstream's order,
+         * and precull comes before the frustum is built so a listener can still move
+         * the camera.
+         */
+        void executeMeshInstanceCull();
+
+        /// Drops last frame's culled sets. Call once at the top of a frame.
+        void resetCulledInstances();
+
+        /**
+         * The culled set for this pair, culling it now if the frame graph did not ask
+         * for it. The fallback is what keeps an unregistered camera — an app-appended
+         * pass, say — rendering its layer instead of silently rendering nothing.
+         */
+        const CulledInstances& culledInstances(Camera* camera, GraphNode* cameraNode, Layer* layer);
 
         // App-injected render passes appended to the END of every frame graph —
         // they run after all scene render actions but before frame end (while the
@@ -159,6 +212,18 @@ namespace visutwin::canvas
         int _shadowDrawCalls = 0;
         int _skinDrawCalls = 0;
         int _instancedDrawCalls = 0;
+        // Per-frame mesh-instance cull cache, keyed by (camera, layer). Cleared by
+        // resetCulledInstances at the top of each frame; a camera or layer destroyed
+        // mid-frame cannot outlive it, which is why raw pointers are safe as keys.
+        std::map<std::pair<Camera*, Layer*>, CulledInstances> _culledInstances;
+        // Cameras registered this frame, in registration order, each with the layers
+        // asked for. Consumed and cleared by executeMeshInstanceCull.
+        std::vector<Camera*> _cullCameras;
+        std::map<Camera*, std::vector<Layer*>> _cullRequests;
+
+        void cullMeshInstancesInto(Camera* camera, GraphNode* cameraNode, Layer* layer,
+            CulledInstances& out);
+
         int _numDrawCallsCulled = 0;
         int _camerasRendered = 0;
         int _lightClusters = 0;

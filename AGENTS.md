@@ -715,6 +715,30 @@ present, but the rule below never depends on reading it.
   several cameras in one frame would otherwise walk several slots and lap the
   frames still in flight. The symptom is torn splat ordering for one frame under
   continuous camera movement, which is exactly when nobody is looking closely.
+- **Mesh instances are culled ONCE per (camera, layer) per frame, into a cache both
+  sublayers read.** `ForwardRenderer::buildFrameGraph` registers the pairs it will
+  render (`Renderer::requestMeshInstanceCull`) and culls them in one batch
+  (`executeMeshInstanceCull`), which is where the `precull` and `postcull` events
+  fire — once per camera, upstream's contract, which a lazy per-layer cull could not
+  give. `renderForwardLayer` then reads its own bucket. It used to sweep every
+  `RenderComponent` in the scene and run the frustum test itself, for the OPAQUE
+  sublayer and then again for the TRANSPARENT one, each discarding the half that
+  belonged to the other.
+
+  **The cache is keyed on the FRUSTUM, not just the pair.** Culling happens while the
+  graph is built and the sets are read while it renders, and on the first frame a
+  camera's aspect ratio can still change between the two because its render target is
+  not sized yet — so the cached set answers for a differently shaped view. The entry
+  stores the frustum it used and re-culls when the camera's differs; a miss also
+  covers a camera the composition never registered, such as an app-appended pass,
+  which must render its layer rather than nothing. Do not "optimise" that comparison
+  away, and do not give it a tolerance: both frusta come from the same code, so they
+  are bit-identical unless the camera really changed.
+
+  `Camera::cullingMask` is ANDed with `MeshInstance::mask()` here. Verify a change to
+  any of this by running the OLD sweep inline alongside the new one and comparing the
+  two sets in one process — the animated examples cannot be screenshot-diffed, and
+  that comparison found the aspect-ratio hole above, which no screenshot did.
 - **Lights are CULLED per frame, and `Light::visibleThisFrame` answers a different
   question from the per-camera light list.** `visibleThisFrame` is a UNION over every
   camera — "does this light's shadow map and cookie need rendering at all" — cleared

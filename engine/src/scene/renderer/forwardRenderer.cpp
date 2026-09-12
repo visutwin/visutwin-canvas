@@ -25,6 +25,30 @@ namespace visutwin::canvas
         // (shadow or forward pass) and are shared for the rest of the frame.
         SkinInstance::beginFrame();
 
+        // ── Mesh-instance culling, once per (camera, layer) for the whole frame ──
+        // The frame graph asks for the pairs it will actually render, and the batch
+        // fills a cache both sublayer passes then read. Before this, each call of
+        // renderForwardLayer swept every RenderComponent in the scene and ran the
+        // frustum test itself — so a layer with an opaque and a transparent sublayer
+        // paid for the whole scene twice and threw half of each pass away.
+        //
+        // Culling at BUILD time is safe for the same reason the light and shadow
+        // culls above and below it are: camera transforms are final for the frame by
+        // the time the graph is assembled. It is also what gives the precull and
+        // postcull events upstream's contract, once per camera rather than once per
+        // layer.
+        {
+            resetCulledInstances();
+            for (const auto* action : layerComposition->renderActions()) {
+                if (action && action->camera && action->layer) {
+                    if (Camera* cam = action->camera->camera()) {
+                        requestMeshInstanceCull(cam, action->layer);
+                    }
+                }
+            }
+            executeMeshInstanceCull();
+        }
+
         // ── Light visibility, before anything is built from it ───────────────────
         // Every shadow and cookie pass below is created only for a light some camera
         // can reach, so this has to come first. It was tempting to fold it into the

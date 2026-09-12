@@ -240,6 +240,165 @@ namespace visutwin::canvas
         }
     }
 
+    namespace
+    {
+        // Exact comparison on purpose: the two frusta are built from the same matrices
+        // by the same code, so they are bit-identical unless the camera actually
+        // changed. A tolerance here would hide the case this guard exists for.
+        bool frustumsEqual(const Frustum& a, const Frustum& b)
+        {
+            for (int i = 0; i < 6; ++i) {
+                if (a.planes[i].getX() != b.planes[i].getX() ||
+                    a.planes[i].getY() != b.planes[i].getY() ||
+                    a.planes[i].getZ() != b.planes[i].getZ() ||
+                    a.planes[i].getW() != b.planes[i].getW()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    void Renderer::resetCulledInstances()
+    {
+        _culledInstances.clear();
+        _cullCameras.clear();
+        _cullRequests.clear();
+    }
+
+    void Renderer::requestMeshInstanceCull(Camera* camera, Layer* layer)
+    {
+        if (!camera || !layer) {
+            return;
+        }
+        auto& layers = _cullRequests[camera];
+        if (layers.empty()) {
+            _cullCameras.push_back(camera);
+        }
+        // De-duplicated, because a camera asks for the same layer twice — once for
+        // its opaque sublayer and once for its transparent one — and culling it
+        // twice is the waste this whole cache exists to remove.
+        if (std::find(layers.begin(), layers.end(), layer) == layers.end()) {
+            layers.push_back(layer);
+        }
+    }
+
+    void Renderer::executeMeshInstanceCull()
+    {
+        for (Camera* camera : _cullCameras) {
+            // Before the frustum is built, so a listener may still move the camera.
+            // Upstream passes the owning camera COMPONENT, or nothing for an internal
+            // camera (shadow, reflection, picker); this port has no back pointer from
+            // Camera to its component, so it passes the camera.
+            if (_scene) {
+                _scene->fire("precull", camera);
+            }
+            GraphNode* cameraNode = camera ? camera->node() : nullptr;
+            for (Layer* layer : _cullRequests[camera]) {
+                cullMeshInstancesInto(camera, cameraNode, layer,
+                    _culledInstances[{camera, layer}]);
+            }
+            if (_scene) {
+                _scene->fire("postcull", camera);
+            }
+        }
+        _cullCameras.clear();
+        _cullRequests.clear();
+    }
+
+    const Renderer::CulledInstances& Renderer::culledInstances(Camera* camera,
+        GraphNode* cameraNode, Layer* layer)
+    {
+        const auto key = std::make_pair(camera, layer);
+        CulledInstances& entry = _culledInstances[key];
+
+        // A hit only counts if it was culled against the frustum this camera has NOW.
+        // On the first frame the aspect ratio can change between the batch and the
+        // pass, so the cached set would be the answer for a differently shaped view.
+        const bool hasCameraFrustum = camera && cameraNode;
+        const Frustum current = hasCameraFrustum
+            ? buildCameraFrustum(camera, cameraNode) : Frustum{};
+        if (entry.valid && frustumsEqual(entry.frustum, current)) {
+            return entry;
+        }
+
+        // Either the frame graph never asked for this pair — an app-appended pass
+        // reaches here with a camera the composition never saw, and rendering nothing
+        // would be the wrong answer — or the camera has changed since it did.
+        cullMeshInstancesInto(camera, cameraNode, layer, entry);
+        return entry;
+    }
+
+    void Renderer::cullMeshInstancesInto(Camera* camera, GraphNode* cameraNode, Layer* layer,
+        CulledInstances& out)
+    {
+        out.opaque.clear();
+        out.transparent.clear();
+        if (!layer) {
+            return;
+        }
+
+        const bool hasCameraFrustum = camera && cameraNode;
+        const Frustum cameraFrustum = hasCameraFrustum
+            ? buildCameraFrustum(camera, cameraNode) : Frustum{};
+        out.frustum = cameraFrustum;
+        out.valid = true;
+        const uint32_t cullingMask = camera ? camera->cullingMask() : 0xFFFFFFFFu;
+
+        const auto consider = [&](MeshInstance* meshInstance) {
+            if (!meshInstance || !meshInstance->visible() || !meshInstance->mesh()) {
+                return;
+            }
+            if (!meshInstance->mesh()->getVertexBuffer()) {
+                return;
+            }
+            // Upstream's Camera.cullingMask against MeshInstance.mask: a camera that
+            // wants a subset of the scene says so here rather than by juggling layers.
+            if ((meshInstance->mask() & cullingMask) == 0u) {
+                return;
+            }
+
+            const auto fallbackMaterial = getDefaultMaterial(_device);
+            const Material* material = meshInstance->material()
+                ? meshInstance->material() : fallbackMaterial.get();
+            if (!material) {
+                return;
+            }
+
+            // A skybox is drawn around the camera and has no meaningful bounds, so it
+            // is never culled — the same exception the per-draw path used to make.
+            if (!material->isSkybox() && hasCameraFrustum && meshInstance->cull() &&
+                !isVisibleInFrustum(cameraFrustum, meshInstance->aabb())) {
+                _numDrawCallsCulled++;
+                return;
+            }
+
+            // Split here, ONCE, so each sublayer reads only its own bucket.
+            (material->transparent() ? out.transparent : out.opaque).push_back(meshInstance);
+        };
+
+        for (auto* renderComponent : RenderComponent::instances()) {
+            // active() covers both halves: the component's own flag and the owning
+            // entity's hierarchy state.
+            if (!renderComponent || !renderComponent->active()) {
+                continue;
+            }
+            const auto& componentLayers = renderComponent->layers();
+            if (std::find(componentLayers.begin(), componentLayers.end(), layer->id())
+                    == componentLayers.end()) {
+                continue;
+            }
+            for (auto* meshInstance : renderComponent->meshInstances()) {
+                consider(meshInstance);
+            }
+        }
+
+        // Instances added to the layer directly rather than through a component.
+        for (auto* meshInstance : layer->meshInstances()) {
+            consider(meshInstance);
+        }
+    }
+
     void Renderer::consumeOneShotShadows()
     {
         const bool clusteredEnabled = _scene && _scene->clusteredLightingEnabled();
@@ -664,18 +823,23 @@ namespace visutwin::canvas
         drawEntries.clear();
         drawEntries.reserve(256);
 
-        // Build the camera frustum ONCE for this layer — the per-instance test
-        // used to rebuild it (matrix inverse + plane extraction) on every call.
+        // Culling has already happened, once for this (camera, layer) pair — see
+        // Renderer::cullMeshInstancesInto. This used to sweep every RenderComponent
+        // in the scene and run the frustum test here, for the OPAQUE sublayer and
+        // then again for the TRANSPARENT one, each discarding the half that belonged
+        // to the other. Now each sublayer reads its own bucket.
+        const CulledInstances& visible = culledInstances(camera, cameraNode, layer);
+        const std::vector<MeshInstance*>& bucket =
+            transparent ? visible.transparent : visible.opaque;
+
+        // Still built here, but only for the LIGHT cull further down — mesh
+        // instances are culled in the batch above and never touch it.
         const bool hasCameraFrustum = camera && cameraNode;
         const Frustum cameraFrustum = hasCameraFrustum
             ? buildCameraFrustum(camera, cameraNode) : Frustum{};
 
         const auto appendMeshInstance = [&](MeshInstance* meshInstance) {
-            if (!meshInstance || !meshInstance->visible()) {
-                return;
-            }
-
-            auto* mesh = meshInstance->mesh();
+            auto* mesh = meshInstance ? meshInstance->mesh() : nullptr;
             if (!mesh) {
                 return;
             }
@@ -691,19 +855,9 @@ namespace visutwin::canvas
             if (!entry->material) {
                 return;
             }
-            if (entry->material->transparent() != transparent) {
-                return;
-            }
 
             const bool isSkyboxMaterial = entry->material->isSkybox();
             const auto worldBounds = meshInstance->aabb();
-            // Respect the per-instance cull flag: skinned instances disable frustum
-            // culling because the bind-pose AABB is invalid under animation.
-            if (!isSkyboxMaterial && hasCameraFrustum && meshInstance->cull() &&
-                !isVisibleInFrustum(cameraFrustum, worldBounds)) {
-                _numDrawCallsCulled++;
-                return;
-            }
 
             entry->vertexBuffer = vertexBuffer;
             entry->indexBuffer = mesh->getIndexBuffer();
@@ -726,24 +880,7 @@ namespace visutwin::canvas
             drawEntries.push_back(entry);
         };
 
-        for (auto* renderComponent : RenderComponent::instances()) {
-            // active() covers both halves: the component's own flag and the owning
-            // entity's hierarchy state.
-            if (!renderComponent || !renderComponent->active()) {
-                continue;
-            }
-
-            const auto& componentLayers = renderComponent->layers();
-            if (std::find(componentLayers.begin(), componentLayers.end(), layer->id()) == componentLayers.end()) {
-                continue;
-            }
-
-            for (auto* meshInstance : renderComponent->meshInstances()) {
-                appendMeshInstance(meshInstance);
-            }
-        }
-
-        for (auto* meshInstance : layer->meshInstances()) {
+        for (auto* meshInstance : bucket) {
             appendMeshInstance(meshInstance);
         }
 

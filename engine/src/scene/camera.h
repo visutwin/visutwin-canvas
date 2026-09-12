@@ -143,6 +143,15 @@ namespace visutwin::canvas
          */
         float screenSize(const BoundingSphere& sphere) const;
 
+        /**
+         * Bitmask ANDed with MeshInstance::mask() during culling — upstream's
+         * Camera.cullingMask. All bits by default, so every instance passes. A camera
+         * that wants a subset of the scene says so here instead of being given its
+         * own layer.
+         */
+        uint32_t cullingMask() const { return _cullingMask; }
+        void setCullingMask(const uint32_t value) { _cullingMask = value; }
+
         GraphNode* node() const { return _node; }
         // Non-owning: the node (typically an Entity) is owned elsewhere.
         void setNode(GraphNode* value);
@@ -223,6 +232,7 @@ namespace visutwin::canvas
         float _nearClip = 0.1f;
         float _farClip = 1000.0f;
 
+        uint32_t _cullingMask = 0xFFFFFFFFu;
         float _orthoHeight = 10.0f;
 
         ProjectionType _projection = ProjectionType::Perspective;
