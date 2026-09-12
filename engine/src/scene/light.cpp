@@ -7,7 +7,10 @@
 #include "light.h"
 
 #include <algorithm>
+#include <cmath>
+#include <numbers>
 
+#include "graphNode.h"
 #include "renderer/shadowRenderer.h"
 
 namespace visutwin::canvas
@@ -137,6 +140,52 @@ namespace visutwin::canvas
         std::erase_if(_renderData, [camera](const std::unique_ptr<LightRenderData>& rd) {
             return rd && rd->camera == camera;
         });
+    }
+
+    BoundingSphere Light::boundingSphere() const
+    {
+        if (!_node) {
+            return BoundingSphere(Vector3(0.0f), 0.0f);
+        }
+        // The world matrix's translation column, rather than GraphNode::position(),
+        // which is not const. Same value, and the cone branch below needs the matrix
+        // anyway for the light's axis.
+        const auto& world = _node->worldTransform();
+        const Vector3 position(world.getColumn(3));
+        if (_type != LightType::LIGHTTYPE_SPOT) {
+            return BoundingSphere(position, _range);
+        }
+
+        // Upstream's cone bound (light.js getBoundingSphere, after Bart Wronski's
+        // "cull that cone"). A spot's range SPHERE is a poor bound for anything but
+        // a very wide cone: at 20 degrees the cone occupies about 3% of it, so
+        // bounding by the sphere leaves a narrow spot lighting — and re-rendering
+        // its shadow map — from most of the places it cannot reach.
+        //
+        // Two regimes. Past 45 degrees the tight bound is the sphere through the
+        // cone's rim, centred on the axis at range*cos; at or under it, the sphere
+        // that passes through the apex and the rim, which has radius
+        // range / (2 cos) and is centred that far along the axis.
+        //
+        // The light shines along its node's NEGATIVE Y (LightComponent::direction),
+        // which is upstream's convention too — upstream spells the same arithmetic
+        // with the node's up vector and a negated scale.
+        Vector3 axis = Vector3(world.getColumn(1)) * -1.0f;
+        if (axis.lengthSquared() < 1e-8f) {
+            axis = Vector3(0.0f, -1.0f, 0.0f);
+        } else {
+            axis = axis.normalized();
+        }
+
+        const float outerRadians = _outerConeAngle * (std::numbers::pi_v<float> / 180.0f);
+        const float cosOuter = std::cos(outerRadians);
+        if (_outerConeAngle > 45.0f) {
+            const float radius = _range * std::sin(outerRadians);
+            return BoundingSphere(position + axis * (_range * cosOuter), radius);
+        }
+        // cosOuter >= cos(45 deg) here, so the division is safe.
+        const float radius = _range / (2.0f * cosOuter);
+        return BoundingSphere(position + axis * radius, radius);
     }
 
     LightRenderData* Light::getRenderData(Camera* camera, int face)

@@ -14,6 +14,7 @@
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "core/math/vector4.h"
+#include "core/shape/boundingSphere.h"
 #include "graphics/renderPassColorGrab.h"
 #include "graphics/renderPassDepthGrab.h"
 #include "platform/graphics/renderPass.h"
@@ -132,6 +133,15 @@ namespace visutwin::canvas
         // If not explicitly set in a scene, this matches rect usage in renderer path.
         const Vector4& scissorRect() const { return _scissorRect; }
         void setScissorRect(const Vector4& value) { _scissorRect = value; }
+
+        /**
+         * The fraction of the viewport's HEIGHT this world-space sphere covers, in
+         * [0,1] — upstream's Camera.getScreenSize. 1 when the camera is inside the
+         * sphere. Used to rank lights when more of them are visible than the shader
+         * has slots: apparent size is what decides how much of the picture a light
+         * is responsible for, where distance or authoring order decide nothing.
+         */
+        float screenSize(const BoundingSphere& sphere) const;
 
         GraphNode* node() const { return _node; }
         // Non-owning: the node (typically an Entity) is owned elsewhere.

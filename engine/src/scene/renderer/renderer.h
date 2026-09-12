@@ -38,6 +38,40 @@ namespace visutwin::canvas
         // Must be called once per frame before buildFrameGraph().
         void cullShadowmaps(Camera* camera);
 
+        /**
+         * Clears Light::visibleThisFrame on every light. Call ONCE at the top of a
+         * frame, before the per-camera cullLights calls that set it again — the flag
+         * is a union over cameras, so a reset inside that loop would leave only the
+         * last camera's answer.
+         */
+        void resetLightVisibility();
+
+        /**
+         * Marks the lights this camera's frustum reaches, as upstream's
+         * Culler.cullLights does. Must run for every camera before the frame graph
+         * is built, because the shadow and cookie passes are built from the result:
+         * culling after them would spend a frame's shadow maps on the PREVIOUS
+         * frame's answer, which is worse than not culling at all.
+         *
+         * Directional lights are always marked — their influence has no bounds.
+         * Local lights are tested as spheres. One exception, upstream's: outside
+         * clustered lighting a shadow caster with no map yet is marked anyway, so
+         * the map gets allocated rather than waiting for the light to be looked at.
+         */
+        void cullLights(Camera* camera);
+
+        /**
+         * Consumes SHADOWUPDATE_THISFRAME on the lights that actually received a
+         * shadow pass, and counts the frame's shadow-map updates. Call ONCE, after
+         * the frame graph is built.
+         *
+         * Separate from needsShadowRendering because that predicate is asked more
+         * than once per light per frame and, since culling became real, can answer
+         * "no" — consuming a one-shot request there threw away the very shadow the
+         * caller asked for.
+         */
+        void consumeOneShotShadows();
+
         // App-injected render passes appended to the END of every frame graph —
         // they run after all scene render actions but before frame end (while the
         // frame's drawable is still valid). Used by extras like OutlineRenderer;

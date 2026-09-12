@@ -14,6 +14,7 @@
 #include "camera.h"
 #include "constants.h"
 #include "core/math/vector4.h"
+#include "core/shape/boundingSphere.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "renderer/shadowMap.h"
 
@@ -104,8 +105,28 @@ namespace visutwin::canvas
         const Matrix4& cookieMatrix() const { return _cookieMatrix; }
         void setCookieMatrix(const Matrix4& value) { _cookieMatrix = value; }
 
+        /**
+         * True when some camera's frustum reached this light in the frame being
+         * built. A UNION over every camera, as upstream's is, so it answers "does
+         * anything need this light's per-frame work" — its shadow map and its
+         * cookie — rather than "does this camera see it". A per-camera decision
+         * has to be made per camera; see the local-light cull in
+         * Renderer::renderForwardLayer.
+         *
+         * Renderer::resetLightVisibility clears it once a frame and
+         * Renderer::cullLights sets it; a directional light is always visible
+         * because its influence has no bounds to test.
+         */
         bool visibleThisFrame() const { return _visibleThisFrame; }
         void setVisibleThisFrame(const bool value) { _visibleThisFrame = value; }
+
+        /**
+         * World-space sphere bounding this light's influence, for culling. Omni is
+         * the range sphere; a SPOT is upstream's bound of its cone, which is the
+         * range sphere only for a very wide cone and much smaller for a narrow one.
+         * Meaningless for a directional light, which is never culled.
+         */
+        BoundingSphere boundingSphere() const;
 
         LightType type() const { return _type; }
         void setType(const LightType value) { _type = value; }

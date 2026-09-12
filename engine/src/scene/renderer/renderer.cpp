@@ -85,6 +85,10 @@ namespace visutwin::canvas
             GpuLightData light;
             uint32_t mask = MASK_AFFECT_DYNAMIC;
             Light* sceneLight = nullptr;  // for clustered spot-shadow atlas lookup
+            // Fraction of the viewport height this light's bounds cover, for THIS
+            // camera. Ranks local lights when more are visible than the shader has
+            // slots. 1 for a directional light, which covers everything.
+            float screenSize = 1.0f;
         };
 
         uint64_t makeOpaqueSortKey(const MeshInstance* meshInstance)
@@ -179,6 +183,98 @@ namespace visutwin::canvas
             device, this, _shadowRenderer.get(), _shadowRendererLocal.get(), _lightTextureAtlas.get()
         );
 
+    }
+
+    void Renderer::resetLightVisibility()
+    {
+        for (auto* lightComponent : LightComponent::instances()) {
+            if (lightComponent) {
+                if (Light* sceneLight = lightComponent->light()) {
+                    sceneLight->setVisibleThisFrame(false);
+                }
+            }
+        }
+    }
+
+    void Renderer::cullLights(Camera* camera)
+    {
+        GraphNode* cameraNode = camera ? camera->node() : nullptr;
+        if (!camera || !cameraNode) {
+            return;
+        }
+        const Frustum frustum = buildCameraFrustum(camera, cameraNode);
+        const bool clusteredEnabled = _scene && _scene->clusteredLightingEnabled();
+
+        for (auto* lightComponent : LightComponent::instances()) {
+            // active(), not enabled(): a light on a disabled entity lights nothing,
+            // so it has no shadow map or cookie to render either.
+            if (!lightComponent || !lightComponent->active()) {
+                continue;
+            }
+            Light* sceneLight = lightComponent->light();
+            if (!sceneLight || sceneLight->visibleThisFrame()) {
+                continue;   // another camera already reached it
+            }
+
+            // A directional light has no position and no range, so there is nothing
+            // to test: it lights whatever the camera can see, by construction.
+            if (lightComponent->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
+                sceneLight->setVisibleThisFrame(true);
+                continue;
+            }
+
+            const BoundingSphere bounds = sceneLight->boundingSphere();
+            if (frustum.checkSphere(bounds.center(), bounds.radius())) {
+                sceneLight->setVisibleThisFrame(true);
+                continue;
+            }
+
+            // Upstream's one exception, and it is about allocation rather than
+            // visibility: outside clustered lighting the shadow passes still read a
+            // culled light's map, so a caster that has never had one allocated is
+            // marked visible to get one. A light that already has its map stays
+            // culled and simply does not re-render it.
+            if (!clusteredEnabled && sceneLight->castShadows() && !sceneLight->shadowMap()) {
+                sceneLight->setVisibleThisFrame(true);
+            }
+        }
+    }
+
+    void Renderer::consumeOneShotShadows()
+    {
+        const bool clusteredEnabled = _scene && _scene->clusteredLightingEnabled();
+        auto consume = [&](Light* light) {
+            if (!light || !_shadowRenderer || !_shadowRenderer->needsShadowRendering(light)) {
+                return;
+            }
+            _shadowMapUpdates += light->numShadowFaces();
+            if (light->shadowUpdateMode() == ShadowUpdateType::SHADOWUPDATE_THISFRAME) {
+                light->setShadowUpdateMode(ShadowUpdateType::SHADOWUPDATE_NONE);
+            }
+        };
+
+        // Local lights. Under clustered lighting a spot also needs an atlas slot to
+        // have been allocated, or no pass was built for it and its request stands.
+        for (auto* lightComponent : LightComponent::instances()) {
+            if (!lightComponent || !lightComponent->active() ||
+                lightComponent->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
+                continue;
+            }
+            Light* sceneLight = lightComponent->light();
+            if (clusteredEnabled && sceneLight && !sceneLight->atlasViewportAllocated()) {
+                continue;
+            }
+            consume(sceneLight);
+        }
+
+        // A directional light's shadow is fit and rendered per camera, so its lights
+        // are reached through the per-camera map rather than the component list.
+        for (const auto& [cullCamera, cameraLights] : _cameraDirShadowLights) {
+            (void)cullCamera;
+            for (Light* light : cameraLights) {
+                consume(light);
+            }
+        }
     }
 
     void Renderer::cullShadowmaps(Camera* camera)
@@ -950,9 +1046,35 @@ namespace visutwin::canvas
             if (dispatchEntry.light.type == GpuLightType::Directional) {
                 directionalLights.push_back(dispatchEntry);
             } else {
+                // Cull the light against THIS camera. Light::visibleThisFrame is a
+                // union over cameras and answers a different question — whether the
+                // light's shadow map and cookie are worth rendering at all — so it
+                // cannot stand in for this test: a light visible only to a reflection
+                // camera would otherwise light the main view from off screen.
+                //
+                // Both the main array and the cluster grid are fed from this list, so
+                // one test covers the two of them.
+                if (hasCameraFrustum && dispatchEntry.sceneLight) {
+                    const BoundingSphere bounds = dispatchEntry.sceneLight->boundingSphere();
+                    if (!cameraFrustum.checkSphere(bounds.center(), bounds.radius())) {
+                        continue;
+                    }
+                    dispatchEntry.screenSize = camera ? camera->screenSize(bounds) : 1.0f;
+                }
                 localLights.push_back(dispatchEntry);
             }
         }
+
+        // The main light array holds eight, and until now the eight were whichever
+        // components happened to come first. Rank by apparent size so that when a
+        // scene has more visible local lights than slots, the ones covering most of
+        // the picture get them — authoring order decides nothing about that.
+        // Stable, so an exact tie keeps authoring order and the choice stays
+        // reproducible frame to frame.
+        std::stable_sort(localLights.begin(), localLights.end(),
+            [](const LightDispatchEntry& a, const LightDispatchEntry& b) {
+                return a.screenSize > b.screenSize;
+            });
 
         // Environment uniforms are constant across the entire layer (depend only on
         // _scene, not on per-draw state). Hoisted out of the per-draw loop to avoid

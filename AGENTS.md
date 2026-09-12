@@ -715,6 +715,30 @@ present, but the rule below never depends on reading it.
   several cameras in one frame would otherwise walk several slots and lap the
   frames still in flight. The symptom is torn splat ordering for one frame under
   continuous camera movement, which is exactly when nobody is looking closely.
+- **Lights are CULLED per frame, and `Light::visibleThisFrame` answers a different
+  question from the per-camera light list.** `visibleThisFrame` is a UNION over every
+  camera — "does this light's shadow map and cookie need rendering at all" — cleared
+  once by `Renderer::resetLightVisibility` and set by `Renderer::cullLights` per
+  camera. The per-camera local-light list in `renderForwardLayer` does its OWN
+  frustum test, because a light only a reflection camera can see must not light the
+  main view. Do not substitute one for the other.
+
+  Three things have to stay true. The cull runs at the TOP of
+  `ForwardRenderer::buildFrameGraph`, before any shadow or cookie pass is built from
+  its result — the obvious home, the per-camera loop further down that already culls
+  shadow maps, is AFTER the local shadow passes are built, and a frame-late cull is
+  worse than none. A directional light is never culled, having no bounds to test.
+  And `ShadowRenderer::needsShadowRendering` is PURE: it used to consume a
+  `SHADOWUPDATE_THISFRAME` request, which was survivable only while every light was
+  visible, and with culling live it answered "no" and consumed the request in the
+  same breath, losing the shadow the caller asked for. `Renderer::consumeOneShotShadows`
+  does that after the frame graph is built.
+
+  The eight-slot main light array is ranked by `Camera::screenSize`, not by component
+  order, so the slots go to the lights covering most of the picture. `tests/lightCullingTests.cpp`
+  pins the bounds geometry and the cull decision, because NO example in the tree has a
+  light off screen — every one of them keeps its lights in view, so a culled light is
+  never exercised by a render at all.
 - **A splat cloud's bounds carry each splat's EXTENT, taken from the covariance
   DIAGONAL.** A splat is an ellipsoid, so the cloud reaches past the hull of its
   centres by the size of whatever sits on its rim; bounding the centres alone culls

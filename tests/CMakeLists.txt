@@ -155,3 +155,11 @@ add_executable(visutwin-gsplat-aabb-tests
 target_link_libraries(visutwin-gsplat-aabb-tests PRIVATE visutwin-canvas)
 
 add_test(NAME gsplat-aabb COMMAND visutwin-gsplat-aabb-tests)
+
+add_executable(visutwin-light-culling-tests
+    lightCullingTests.cpp
+)
+
+target_link_libraries(visutwin-light-culling-tests PRIVATE visutwin-canvas)
+
+add_test(NAME light-culling COMMAND visutwin-light-culling-tests)

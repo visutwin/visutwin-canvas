@@ -25,6 +25,29 @@ namespace visutwin::canvas
         // (shadow or forward pass) and are shared for the rest of the frame.
         SkinInstance::beginFrame();
 
+        // ── Light visibility, before anything is built from it ───────────────────
+        // Every shadow and cookie pass below is created only for a light some camera
+        // can reach, so this has to come first. It was tempting to fold it into the
+        // per-camera loop further down that already culls shadow maps and dispatches
+        // GPU instance culling — but that loop runs AFTER the local shadow passes are
+        // built, so the passes would have been built from the PREVIOUS frame's
+        // visibility. A frame-late cull is worse than none: it renders the shadow of
+        // a light that has just left the view and skips one that has just entered.
+        //
+        // The flag is a union over cameras, so the reset is outside the loop.
+        {
+            resetLightVisibility();
+            std::unordered_set<Camera*> lightCulledCameras;
+            for (const auto* action : layerComposition->renderActions()) {
+                if (action && action->camera) {
+                    if (Camera* cam = action->camera->camera();
+                        cam && lightCulledCameras.insert(cam).second) {
+                        cullLights(cam);
+                    }
+                }
+            }
+        }
+
         // Cull + render local-light shadow maps for shadow-casting spot/point lights.
         // Runs in BOTH clustered and non-clustered modes. Routing under clustering:
         //  - shadow-casting SPOTS render into the shared LightTextureAtlas (a depth
@@ -285,6 +308,11 @@ namespace visutwin::canvas
             }
         }
 
+        // Every shadow pass this frame will have has now been added, so a one-shot
+        // request can be retired — and only now. Retiring it while the passes were
+        // still being decided is what made the predicate impure, and a culled light
+        // would have lost the shadow it asked for.
+        consumeOneShotShadows();
     }
 
     void ForwardRenderer::addMainRenderPass(FrameGraph* frameGraph, LayerComposition* layerComposition,

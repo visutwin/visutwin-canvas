@@ -11,6 +11,40 @@ namespace visutwin::canvas
 {
     Camera::~Camera() = default;
 
+    float Camera::screenSize(const BoundingSphere& sphere) const
+    {
+        // Upstream Camera.getScreenSize. Orthographic has no foreshortening, so the
+        // sphere covers the same fraction wherever it sits.
+        if (_projection != ProjectionType::Perspective) {
+            if (_orthoHeight <= 0.0f) {
+                return 0.0f;
+            }
+            return std::clamp(sphere.radius() / _orthoHeight, 0.0f, 1.0f);
+        }
+        if (!_node) {
+            return 0.0f;
+        }
+        const Vector3 cameraPosition(_node->worldTransform().getColumn(3));
+        const float distance = (sphere.center() - cameraPosition).length();
+
+        // Inside the sphere it fills the view; the asin below would also be out of
+        // domain there.
+        if (distance <= sphere.radius()) {
+            return 1.0f;
+        }
+
+        // Both heights measured on a near plane one unit away, so the ratio is the
+        // fraction of screen height.
+        const float viewAngle = std::asin(sphere.radius() / distance);
+        const float sphereViewHeight = std::tan(viewAngle);
+        const float screenViewHeight =
+            std::tan(_fov * 0.5f * (std::numbers::pi_v<float> / 180.0f));
+        if (screenViewHeight <= 0.0f) {
+            return 0.0f;
+        }
+        return std::min(sphereViewHeight / screenViewHeight, 1.0f);
+    }
+
     void Camera::setNode(GraphNode* value)
     {
         _node = value;
