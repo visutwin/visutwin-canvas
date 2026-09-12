@@ -92,10 +92,13 @@ namespace visutwin::canvas
         /**
          * Called per frame: collect lights, build grid, pack GPU data arrays.
          * @param localLights  Local lights (point/spot) collected from LightComponent.
-         * @param cameraBounds  Camera frustum AABB for grid bounds computation.
+         *
+         * The grid is sized from the LIGHTS alone (upstream evaluateBounds). It used
+         * to take a camera AABB too, which padded the grid to a 100-unit cube around
+         * the viewer and coarsened every cell; the camera has nothing to say about
+         * where the lights are.
          */
-        void update(const std::vector<ClusterLightData>& localLights,
-                    const BoundingBox& cameraBounds);
+        void update(const std::vector<ClusterLightData>& localLights);
 
         // CPU data arrays for GPU upload by the renderer/device.
         const GpuClusteredLight* lightData() const { return _gpuLights.data(); }
@@ -114,7 +117,7 @@ namespace visutwin::canvas
 
     private:
         void collectLights(const std::vector<ClusterLightData>& localLights);
-        void computeGridBounds(const BoundingBox& cameraBounds);
+        void computeGridBounds();
         void assignLightsToCells();
         void packGpuLights();
 

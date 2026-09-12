@@ -5,6 +5,10 @@
 
 #include "worldClusters.h"
 
+#include <limits>
+
+#include "lightBounds.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -31,13 +35,12 @@ namespace visutwin::canvas
         return {rx, ry, rz};
     }
 
-    void WorldClusters::update(const std::vector<ClusterLightData>& localLights,
-                               const BoundingBox& cameraBounds)
+    void WorldClusters::update(const std::vector<ClusterLightData>& localLights)
     {
         _warnedOverflow = false;
 
         collectLights(localLights);
-        computeGridBounds(cameraBounds);
+        computeGridBounds();
         assignLightsToCells();
         packGpuLights();
     }
@@ -67,33 +70,38 @@ namespace visutwin::canvas
                 entry.innerConeCos = entry.outerConeCos;
             }
 
-            // Compute world-space AABB for grid assignment.
-            if (ld.isSpot) {
-                // Spot light: cone-shaped AABB.
-                // Approximate: the cone fits in a sphere of radius=range centered at
-                // a point offset from the light position along the light direction.
-                // For simplicity, use the full sphere AABB (slightly conservative).
-                const float r = ld.range;
-                entry.aabb = BoundingBox(ld.position, Vector3(r, r, r));
-            } else {
-                // Point/omni light: sphere AABB.
-                const float r = ld.range;
-                entry.aabb = BoundingBox(ld.position, Vector3(r, r, r));
-            }
+            // World-space bound of what the light can actually reach. A spot gets its
+            // CONE, not its range sphere: the sphere was about thirty times the
+            // volume at a 20-degree cone, and since the grid is sized from the union
+            // of these bounds, that slack coarsened every cell in the scene.
+            entry.aabb = ld.isSpot
+                ? spotConeAabb(ld.position, ld.direction, ld.range, ld.outerConeAngle)
+                : omniAabb(ld.position, ld.range);
 
             _lights.push_back(entry);
         }
     }
 
-    void WorldClusters::computeGridBounds(const BoundingBox& cameraBounds)
+    void WorldClusters::computeGridBounds()
     {
         if (_lights.empty()) {
-            _boundsMin = cameraBounds.center() - cameraBounds.halfExtents();
-            _boundsMax = cameraBounds.center() + cameraBounds.halfExtents();
+            // Any small volume. Nothing samples it — the renderer only binds the grid
+            // when it holds lights — and a degenerate one would divide by zero below.
+            _boundsMin = Vector3(0.0f);
+            _boundsMax = Vector3(1.0f);
         } else {
-            // Start with camera bounds, expand to include all light AABBs.
-            Vector3 bMin = cameraBounds.center() - cameraBounds.halfExtents();
-            Vector3 bMax = cameraBounds.center() + cameraBounds.halfExtents();
+            // The union of the LIGHT bounds and nothing else, as upstream's
+            // evaluateBounds does. This used to start from the camera's position
+            // padded by 50 units in every direction, so the grid was a 100-unit cube
+            // wherever the lights actually were: the cells came out coarse, most of
+            // them empty, and a scene whose lights sat in one corner spent its whole
+            // cell budget on space no light could reach.
+            //
+            // Shrinking the grid to the lights does not lose lighting. The shader
+            // skips any fragment outside the grid, and a fragment outside the union
+            // of every light's bound is outside every light's range by construction.
+            Vector3 bMin(std::numeric_limits<float>::max());
+            Vector3 bMax(std::numeric_limits<float>::lowest());
 
             for (const auto& light : _lights) {
                 const auto lightMin = light.aabb.center() - light.aabb.halfExtents();

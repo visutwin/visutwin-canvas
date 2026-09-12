@@ -171,3 +171,11 @@ add_executable(visutwin-sort-key-tests
 target_link_libraries(visutwin-sort-key-tests PRIVATE visutwin-canvas)
 
 add_test(NAME sort-key COMMAND visutwin-sort-key-tests)
+
+add_executable(visutwin-light-bounds-tests
+    lightBoundsTests.cpp
+)
+
+target_link_libraries(visutwin-light-bounds-tests PRIVATE visutwin-canvas)
+
+add_test(NAME light-bounds COMMAND visutwin-light-bounds-tests)

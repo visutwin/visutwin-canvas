@@ -7,6 +7,7 @@
 
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -118,6 +119,9 @@ namespace visutwin::canvas
         /// Drops last frame's culled sets. Call once at the top of a frame.
         void resetCulledInstances();
 
+        /// Drops the per-frame grid assignments. The pooled grids themselves survive.
+        void resetClusters();
+
         /**
          * The culled set for this pair, culling it now if the frame graph did not ask
          * for it. The fallback is what keeps an unregistered camera — an app-appended
@@ -190,9 +194,30 @@ namespace visutwin::canvas
         // LTC lookup textures for area lights — created lazily on first area light.
         AreaLightLuts::Textures _areaLightLuts;
 
-        // Clustered lighting: CPU-side 3D grid that indexes local lights.
-        // Created lazily when Scene::clusteredLightingEnabled() is true.
-        std::unique_ptr<WorldClusters> _worldClusters;
+        /**
+         * Clustered lighting grids, one per DISTINCT light set in the frame.
+         *
+         * There used to be exactly one, built by whichever layer rendered first and
+         * then bound for every other layer regardless of its own lights — and a light
+         * list IS per layer here, since the gather filters on
+         * LightComponent::rendersLayer. A layer whose lights differed got another
+         * layer's grid; one with no clustered lights at all inherited the previous
+         * layer's buffers and kept being lit by them.
+         *
+         * Upstream's WorldClustersAllocator keys grids on a hash of the layer's light
+         * ids and shares one between layers that agree, which is what this does. The
+         * pool owns them across frames, because a grid holds sizeable cell and light
+         * buffers and reallocating per frame would churn; the map is per frame.
+         */
+        std::vector<std::unique_ptr<WorldClusters>> _clusterPool;
+        std::unordered_map<uint64_t, WorldClusters*> _clustersByLightSet;
+        size_t _clustersUsedThisFrame = 0;
+        ClusterConfig _clusterConfig;
+        bool _clusterConfigResolved = false;
+
+        /// The grid for this light set, updated once per frame per distinct set.
+        WorldClusters* clustersForLightSet(uint64_t lightSetHash,
+            const std::vector<ClusterLightData>& lights);
 
         int _forwardDrawCalls = 0;
         int _materialSwitches = 0;

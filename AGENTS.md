@@ -508,6 +508,24 @@ present, but the rule below never depends on reading it.
   on render" — and biases these with hardware polygon offset, which the atlas pass
   already sets. What the shader applies is the receiver NORMAL offset, and
   `ClusterLightData::shadowNormalBias` carries it.
+- **The cluster grid is sized from the LIGHTS alone, and a spot is bounded by its
+  CONE.** `WorldClusters::update` takes no camera: the bounds are the union of the
+  light AABBs, as upstream's `evaluateBounds` does. They used to start from the camera
+  padded by 50 units on every axis, so the grid was a 100-unit cube around the viewer
+  wherever the lights actually were, and the cells came out coarse with most of them
+  empty. Shrinking it loses no lighting — the shader ignores any fragment outside the
+  grid, and a fragment outside the union of every light's bound is outside every
+  light's range by construction, which is exactly what `lightBounds.h`'s containment
+  property guarantees.
+
+  `spotConeAabb` is the exact bound of the spherical sector, from its support
+  function, and is a DEVIATION in the tighter direction from upstream's transformed
+  box. The old range-sphere approximation was about thirty times the volume at a
+  20-degree cone. Measured against sphere bounds in one process: the grid falls to
+  0.16 of its volume on `clustered-spot-shadows` and 0.40 on `clustered-lighting`.
+  `tests/lightBoundsTests.cpp` holds containment, tightness and monotonicity —
+  a bound that is too small drops lighting and reads as a falloff, one that is too
+  large reads as nothing at all, so neither is visible in a render.
 - **Spot cone falloff is a SMOOTHSTEP between the two cone cosines**, and local
   inverse-squared falloff is `16 / (d^2 + 1)`, not `1 / d^2`. Upstream's `spot.js`
   and `getFalloffInvSquared` define both and the Metal chunks follow them; Vulkan

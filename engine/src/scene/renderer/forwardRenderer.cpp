@@ -123,6 +123,15 @@ namespace visutwin::canvas
             // Clustered spot shadows render into the atlas above (via the standard local
             // shadow passes targeting atlas slices); disable RenderPassShadowLocalClustered's
             // own (viewport-atlas) shadow path here. Cookies still route through.
+            // NOTE both lists are EMPTY, and deliberately so for now. They feed the
+            // clustered cookie ATLAS pass, which renders each clustered spot's cookie
+            // into a slice of the light texture atlas — and nothing samples that
+            // atlas: `grep cookie` over forward-fragment-clustered.{metal,glsl}
+            // returns nothing on either backend. Filling the list would render
+            // cookies into a texture no shader reads, which is worse than leaving it
+            // visibly unwired. The pass itself is a faithful port and stays for when
+            // the clustered shader gains cookie sampling; the list is what to fill
+            // then, from the clustered spots that have an atlas slot.
             _renderPassUpdateClustered->update(frameGraph, false, lighting.cookiesEnabled,
                 _lights, _localLights);
             frameGraph->addRenderPass(_renderPassUpdateClustered);

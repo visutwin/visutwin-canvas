@@ -1494,9 +1494,9 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 light.atlasSlice = 1;
 
                 WorldClusters clusters;
-                clusters.update({light},
-                    BoundingBox(Vector3(0.0f, 0.0f, -50.0f),
-                        Vector3(60.0f, 60.0f, 60.0f)));
+                // The grid sizes itself from the lights; it no longer takes a camera
+                // bound, which used to pad it to a 100-unit cube around the viewer.
+                clusters.update({light});
 
                 TextureOptions colorOpts{};
                 colorOpts.name = "vulkan-smoke-cluster-shadow-color";

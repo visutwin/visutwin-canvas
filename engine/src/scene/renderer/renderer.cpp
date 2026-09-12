@@ -262,6 +262,34 @@ namespace visutwin::canvas
         }
     }
 
+    void Renderer::resetClusters()
+    {
+        _clustersByLightSet.clear();
+        _clustersUsedThisFrame = 0;
+    }
+
+    WorldClusters* Renderer::clustersForLightSet(const uint64_t lightSetHash,
+        const std::vector<ClusterLightData>& lights)
+    {
+        // Two layers that see the same lights share a grid — the content depends on
+        // the lights and nothing else, so building it twice would produce the same
+        // cells twice. That is upstream's rule and the reason for the hash.
+        if (const auto found = _clustersByLightSet.find(lightSetHash);
+            found != _clustersByLightSet.end()) {
+            return found->second;
+        }
+
+        // A grid the pool already owns, or a new one. Pooled because the cell and
+        // light buffers are large enough that per-frame allocation would churn.
+        if (_clustersUsedThisFrame >= _clusterPool.size()) {
+            _clusterPool.push_back(std::make_unique<WorldClusters>(_clusterConfig));
+        }
+        WorldClusters* clusters = _clusterPool[_clustersUsedThisFrame++].get();
+        clusters->update(lights);
+        _clustersByLightSet[lightSetHash] = clusters;
+        return clusters;
+    }
+
     void Renderer::resetCulledInstances()
     {
         _culledInstances.clear();
@@ -705,16 +733,16 @@ namespace visutwin::canvas
             _device->setAtmosphereUniforms(_scene->atmosphereUniformData(), _scene->atmosphereUniformSize());
         }
 
-        // Lazily create WorldClusters when clustering is first enabled, with the
-        // grid the scene asked for.
-        if (clusteredEnabled && !_worldClusters) {
+        // Resolve the grid shape the scene asked for, once. Every pooled grid is
+        // built with it; the grids themselves are created on demand, one per distinct
+        // light set (clustersForLightSet).
+        if (clusteredEnabled && !_clusterConfigResolved) {
+            _clusterConfigResolved = true;
             const auto& lightingParams = _scene->lighting();
-            ClusterConfig config;
-            config.cellsX = std::max(1, lightingParams.cellsX);
-            config.cellsY = std::max(1, lightingParams.cellsY);
-            config.cellsZ = std::max(1, lightingParams.cellsZ);
-            config.maxLightsPerCell = std::max(1, lightingParams.maxLightsPerCell);
-            _worldClusters = std::make_unique<WorldClusters>(config);
+            _clusterConfig.cellsX = std::max(1, lightingParams.cellsX);
+            _clusterConfig.cellsY = std::max(1, lightingParams.cellsY);
+            _clusterConfig.cellsZ = std::max(1, lightingParams.cellsZ);
+            _clusterConfig.maxLightsPerCell = std::max(1, lightingParams.maxLightsPerCell);
             if (_lightTextureAtlas) {
                 _lightTextureAtlas->configure(lightingParams.shadowAtlasResolution,
                     lightingParams.shadowAtlasCapacity);
@@ -1328,24 +1356,27 @@ namespace visutwin::canvas
             }
         }
 
-        // --- Clustered lighting: feed local lights into WorldClusters ---
-        // This runs once per frame per camera position, not per layer/sublayer:
-        // renderForwardLayer is called for every layer × sublayer × camera, but
-        // the cluster inputs (light set, camera-centered bounds) only change
-        // per frame/camera. The flag resets in buildFrameGraph.
-        const bool clusterCameraMoved =
-            cameraPosition.getX() != _lastClusterCameraPosition.getX() ||
-            cameraPosition.getY() != _lastClusterCameraPosition.getY() ||
-            cameraPosition.getZ() != _lastClusterCameraPosition.getZ();
-        if (clusteredEnabled && _worldClusters &&
-            (!_clustersUpdatedThisFrame || clusterCameraMoved)) {
-            _clustersUpdatedThisFrame = true;
-            _lastClusterCameraPosition = cameraPosition;
-
+        // --- Clustered lighting: feed THIS layer's local lights into a grid ---
+        // The light list is per (camera, layer) — the gather filters on
+        // LightComponent::rendersLayer — so the grid has to be too. This used to
+        // build ONE grid from whichever layer rendered first and bind it for every
+        // layer after: a layer whose lights differed was lit by another layer's
+        // cells, and a layer with no clustered lights at all kept the previous
+        // layer's buffers bound and stayed lit by them.
+        //
+        // Grids are keyed on the light set, so two layers that see the same lights
+        // still share one and it is still built once.
+        if (clusteredEnabled) {
             // Convert local light dispatch entries to WorldClusters input format.
             static thread_local std::vector<ClusterLightData> clusterLocalLights;
             clusterLocalLights.clear();
             clusterLocalLights.reserve(localLights.size());
+
+            // Identity of the set, order-independent: the dispatch list is sorted by
+            // apparent size, which differs per camera, and two layers seeing the same
+            // lights must still hash alike.
+            static thread_local std::vector<const void*> lightSetMembers;
+            lightSetMembers.clear();
 
             for (const auto& dispatchEntry : localLights) {
                 const auto& ld = dispatchEntry.light;
@@ -1387,32 +1418,45 @@ namespace visutwin::canvas
                     lcd.shadowIntensity = dispatchEntry.sceneLight->shadowIntensity();
                 }
                 clusterLocalLights.push_back(lcd);
+                lightSetMembers.push_back(dispatchEntry.sceneLight);
             }
 
-            // Compute camera frustum AABB for cluster grid bounds.
-            // Use camera position ± reasonable range as a simple approximation.
-            // A full frustum AABB would require unprojecting corners, but camera
-            // position ± max light range is sufficient for the grid to cover all lights.
-            BoundingBox cameraBounds(cameraPosition, Vector3(50.0f, 50.0f, 50.0f));
+            // Order-independent hash of the member set: sort, then fold. XOR alone
+            // would be order-independent too and would collide on any pair repeated.
+            std::sort(lightSetMembers.begin(), lightSetMembers.end());
+            uint64_t lightSetHash = 1469598103934665603ull;   // FNV-1a offset basis
+            for (const void* member : lightSetMembers) {
+                uint64_t value = reinterpret_cast<uintptr_t>(member);
+                for (int byte = 0; byte < 8; ++byte) {
+                    lightSetHash ^= (value & 0xFFull);
+                    lightSetHash *= 1099511628211ull;
+                    value >>= 8;
+                }
+            }
 
-            _worldClusters->update(clusterLocalLights, cameraBounds);
+            // The grid for this set: built once per frame per distinct set, and
+            // sized from the lights alone (it used to be unioned with the camera
+            // padded by 50 units, a 100-unit cube however small the lit region was).
+            WorldClusters* clusters = clustersForLightSet(lightSetHash, clusterLocalLights);
 
             // Bind the clustered spot-shadow atlas (depth array) for this frame.
             if (_lightTextureAtlas) {
                 _device->setClusterShadowAtlas(_lightTextureAtlas->shadowArrayTexture());
             }
 
-            // Bind cluster GPU buffers.
-            if (_worldClusters->lightCount() > 0) {
+            // Bind cluster GPU buffers. EVERY layer binds, because every layer may be
+            // on a different grid — the old code bound only on the frame's first
+            // layer and left the rest reading whatever was still bound.
+            if (clusters->lightCount() > 0) {
                 _device->setClusterBuffers(
-                    _worldClusters->lightData(), _worldClusters->lightDataSize(),
-                    _worldClusters->cellData(), _worldClusters->cellDataSize());
+                    clusters->lightData(), clusters->lightDataSize(),
+                    clusters->cellData(), clusters->cellDataSize());
 
                 // Pack cluster grid params into LightingUniforms.
-                const auto& bMin = _worldClusters->boundsMin();
-                const auto bRange = _worldClusters->boundsRange();
-                const auto cellsBySize = _worldClusters->cellsCountByBoundsSize();
-                const auto& cfg = _worldClusters->config();
+                const auto& bMin = clusters->boundsMin();
+                const auto bRange = clusters->boundsRange();
+                const auto cellsBySize = clusters->cellsCountByBoundsSize();
+                const auto& cfg = clusters->config();
 
                 const float boundsMinArr[3] = {bMin.getX(), bMin.getY(), bMin.getZ()};
                 const float boundsRangeArr[3] = {bRange.getX(), bRange.getY(), bRange.getZ()};
@@ -1420,9 +1464,9 @@ namespace visutwin::canvas
 
                 _device->setClusterGridParams(boundsMinArr, boundsRangeArr, cellsBySizeArr,
                     cfg.cellsX, cfg.cellsY, cfg.cellsZ, cfg.maxLightsPerCell,
-                    _worldClusters->lightCount());
+                    clusters->lightCount());
             } else {
-                // No clustered lights this frame: zero the grid params so the
+                // No clustered lights for THIS layer: zero the grid params so the
                 // shader's cell bounds check rejects every fragment. Otherwise
                 // the previously bound cluster buffers stay live and deleted
                 // lights keep illuminating the scene.
