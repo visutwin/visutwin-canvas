@@ -5,6 +5,8 @@
 //
 #include "shadowRendererDirectional.h"
 
+#include <array>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -94,7 +96,11 @@ namespace visutwin::canvas
         const float* distances = light->shadowCascadeDistances().data();
         const int resolution = light->shadowResolution();
 
-        for (int cascade = 0; cascade < numCascades; ++cascade) {
+        // Each cascade's caster box, kept for the second pass below.
+        std::array<BoundingBox, 4> cascadeAabb{};
+        std::array<bool, 4> cascadeAabbValid{};
+
+        for (int cascade = 0; cascade < numCascades && cascade < 4; ++cascade) {
             LightRenderData* lightRenderData = _shadowRenderer->getLightRenderData(light, camera, cascade);
             if (!lightRenderData || !lightRenderData->shadowCamera) {
                 continue;
@@ -227,31 +233,79 @@ namespace visutwin::canvas
 
                 // No visible casters: keep the wide camera as-is. The shadow
                 // pass will be a no-op anyway.
-                if (haveAabb) {
-                    const Vector3 c = visibleSceneAabb.center();
-                    const Vector3 h = visibleSceneAabb.halfExtents();
-                    const Vector3 corners[8] = {
-                        c + Vector3(-h.getX(), -h.getY(), -h.getZ()),
-                        c + Vector3(+h.getX(), -h.getY(), -h.getZ()),
-                        c + Vector3(-h.getX(), +h.getY(), -h.getZ()),
-                        c + Vector3(+h.getX(), +h.getY(), -h.getZ()),
-                        c + Vector3(-h.getX(), -h.getY(), +h.getZ()),
-                        c + Vector3(+h.getX(), -h.getY(), +h.getZ()),
-                        c + Vector3(-h.getX(), +h.getY(), +h.getZ()),
-                        c + Vector3(+h.getX(), +h.getY(), +h.getZ()),
-                    };
+                // The depth range is NOT applied here any more. PCSS needs every
+                // cascade tightened against the UNION of the cascades' caster boxes,
+                // which cannot be known until they have all been swept, so the fit is
+                // deferred to a second pass below.
+                cascadeAabb[cascade] = visibleSceneAabb;
+                cascadeAabbValid[cascade] = haveAabb;
+            }
+        }
 
-                    float depthMin = 1e30f;
-                    float depthMax = -1e30f;
-                    for (int i = 0; i < 8; ++i) {
-                        const float z = shadowCamView.transformPoint(corners[i]).getZ();
-                        if (z < depthMin) depthMin = z;
-                        if (z > depthMax) depthMax = z;
-                    }
-
-                    shadowCamNode->translateLocal(0.0f, 0.0f, depthMax + 0.1f);
-                    shadowCam->setFarClip(depthMax - depthMin + 0.2f);
+        // ── Pass 2: depth-range tightening, then the shadow matrix ───────────────
+        // Split from the sweep above because PCSS needs the UNION of the cascades'
+        // caster boxes, which is not known until all of them have been swept.
+        //
+        // PCSS scales its penumbra by the cascade's caster DEPTH RANGE, so a range
+        // that moves makes the softness move with it: a single mesh crossing a
+        // cascade's cull boundary changes that cascade's range and the shadows under
+        // it visibly change width. Tightening every cascade against the union instead
+        // makes the range depend on the whole visible caster set rather than on which
+        // cascade a caster happens to land in, so it stops jumping.
+        //
+        // Only PCSS. The other shadow types never read the range — it is a fit, not a
+        // shader input — and they are better off with per-cascade tightening, which
+        // buys them depth precision.
+        BoundingBox unionAabb;
+        bool haveUnion = false;
+        if (light->shadowType() == ShadowType::SHADOW_PCSS_32F) {
+            for (int cascade = 0; cascade < numCascades && cascade < 4; ++cascade) {
+                if (!cascadeAabbValid[cascade]) {
+                    continue;
                 }
+                if (!haveUnion) {
+                    unionAabb = cascadeAabb[cascade];
+                    haveUnion = true;
+                } else {
+                    unionAabb.add(cascadeAabb[cascade]);
+                }
+            }
+        }
+
+        for (int cascade = 0; cascade < numCascades && cascade < 4; ++cascade) {
+            LightRenderData* lightRenderData = _shadowRenderer->getLightRenderData(light, camera, cascade);
+            if (!lightRenderData || !lightRenderData->shadowCamera) {
+                continue;
+            }
+            Camera* shadowCam = lightRenderData->shadowCamera.get();
+            auto* shadowCamNode = shadowCam->node();
+            if (!shadowCamNode) {
+                continue;
+            }
+
+            // The union where PCSS asked for it — note it tightens even a cascade with
+            // no casters of its own, which is the point: its range must still be
+            // sensible. Otherwise this cascade's own box, and nothing at all when it
+            // has none, leaving the wide camera the sweep set up.
+            const BoundingBox* fitAabb = haveUnion ? &unionAabb
+                : (cascadeAabbValid[cascade] ? &cascadeAabb[cascade] : nullptr);
+            if (fitAabb) {
+                const Matrix4 shadowCamView = shadowCamNode->worldTransform().inverse();
+                const Vector3 c = fitAabb->center();
+                const Vector3 h = fitAabb->halfExtents();
+                float depthMin = 1e30f;
+                float depthMax = -1e30f;
+                for (int i = 0; i < 8; ++i) {
+                    const Vector3 corner = c + Vector3(
+                        (i & 1) ? h.getX() : -h.getX(),
+                        (i & 2) ? h.getY() : -h.getY(),
+                        (i & 4) ? h.getZ() : -h.getZ());
+                    const float z = shadowCamView.transformPoint(corner).getZ();
+                    if (z < depthMin) depthMin = z;
+                    if (z > depthMax) depthMax = z;
+                }
+                shadowCamNode->translateLocal(0.0f, 0.0f, depthMax + 0.1f);
+                shadowCam->setFarClip(depthMax - depthMin + 0.2f);
             }
 
             // Build the viewport-scaled shadow matrix for this cascade:

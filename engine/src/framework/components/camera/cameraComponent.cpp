@@ -235,4 +235,9 @@ namespace visutwin::canvas
         _taaPass->setHighQuality(_taa.highQuality);
         return _taaPass;
     }
+
+    void CameraComponent::setPriority(const int value)
+    {
+        _priority = value;
+    }
 }

@@ -133,6 +133,9 @@ namespace visutwin::canvas
                 const auto* camera = cameraComponent->camera();
                 mix(reinterpret_cast<size_t>(camera ? camera->renderTarget().get() : nullptr));
                 mix(cameraComponent->renderPasses().size());
+                // The render actions bake in the camera ORDER, so a priority change
+                // has to rebuild them like any other identity change.
+                mix(static_cast<size_t>(cameraComponent->priority()));
                 for (const int layerId : cameraComponent->layers()) {
                     mix(static_cast<size_t>(layerId));
                 }
@@ -246,7 +249,17 @@ namespace visutwin::canvas
             return;
         }
 
-        for (auto* cameraComponent : cameras) {
+        // Cameras render in PRIORITY order, smallest first (upstream). The sort is
+        // stable and everything defaults to 0, so a scene that sets no priority keeps
+        // the construction order it always had — which is what a dynamic reflection
+        // probe used to depend on, and now does not have to.
+        std::vector<CameraComponent*> ordered(cameras.begin(), cameras.end());
+        std::stable_sort(ordered.begin(), ordered.end(),
+            [](const CameraComponent* a, const CameraComponent* b) {
+                return (a ? a->priority() : 0) < (b ? b->priority() : 0);
+            });
+
+        for (auto* cameraComponent : ordered) {
             if (!cameraComponent || !cameraComponent->enabled() || !cameraComponent->camera()) {
                 continue;
             }

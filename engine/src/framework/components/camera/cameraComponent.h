@@ -263,6 +263,22 @@ namespace visutwin::canvas
         std::shared_ptr<RenderPassCameraFrame> cameraFrame() const { return _cameraFrame; }
         void setCameraFrame(const std::shared_ptr<RenderPassCameraFrame>& frame) { _cameraFrame = frame; }
 
+        /**
+         * Render order across cameras: a SMALLER value renders first, and the
+         * default is 0 (upstream CameraComponent.priority).
+         *
+         * The composition used to render cameras in the order their components were
+         * constructed, which made a correct scene depend on the order its setup code
+         * happened to run in — a dynamic reflection probe, whose six face cameras must
+         * render before the camera that samples the result, worked only if it was
+         * built first. Say it with a priority instead.
+         *
+         * The sort is STABLE and everything defaults to 0, so a scene that sets no
+         * priority keeps exactly the construction order it had.
+         */
+        int priority() const { return _priority; }
+        void setPriority(const int value);
+
         bool rendersLayer(const int layerId) const
         {
             if (_layers.empty()) {
@@ -296,6 +312,7 @@ namespace visutwin::canvas
         void updatePostprocessRenderTargetBinding() const;
 
         // default camera layers include world, depth, skybox, UI and immediate.
+        int _priority = 0;
         std::vector<int> _layers = {LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX, LAYERID_UI, LAYERID_IMMEDIATE};
     };
 }

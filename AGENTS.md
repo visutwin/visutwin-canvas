@@ -1090,6 +1090,24 @@ during unrelated work are repeated here.
   cannot fix it (the second target's `width()` already reads the new size off the
   shared texture and the resize early-outs), so `RenderPassCameraFrame::frameUpdate`
   rebuilds the prepass target and re-points the pass by hand.
+- **Cameras render in PRIORITY order, smallest first** (`CameraComponent::priority`,
+  default 0, stable sort). Construction order used to decide it, which is why a
+  dynamic reflection probe had to be built before the camera that samples it; say it
+  with a priority instead. The composition's camera fingerprint includes the priority,
+  so changing one rebuilds the render actions.
+- **PCSS tightens every cascade against the UNION of the cascades' caster boxes.**
+  PCSS scales its penumbra by the cascade's caster depth RANGE, so a range that moves
+  makes the softness move: a mesh crossing a cascade's cull boundary changes that
+  cascade's range and the shadows under it change width. The union makes the range
+  depend on the whole visible caster set instead. Only PCSS — the other shadow types
+  never read the range and are better off with per-cascade tightening for depth
+  precision. This is why `ShadowRendererDirectional::cull` fits in TWO passes: the
+  union is not known until every cascade has been swept.
+
+  No shipped example shows it. `procedural-sky` is the only PCSS directional scene and
+  its geometry fills every cascade, so the boxes coincide anyway; `shadow-cascades`
+  DOES show cascade 0's box differing from the rest, but it is not PCSS. Verify a
+  change here by logging the per-cascade box, not by looking.
 - **PCSS `penumbraSize` has two scales.** Directional is world-space (0.02-0.05);
   local spot and omni is in shadow-map PIXELS (~10-40).
 - **A lightmap REPLACES indirect diffuse**, it is not added. Upstream gates
