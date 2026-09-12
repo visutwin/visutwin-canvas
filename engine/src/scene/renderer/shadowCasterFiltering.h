@@ -25,7 +25,14 @@ namespace visutwin::canvas
     // Collects every shadow caster in the scene: each enabled RenderComponent's mesh
     // instances plus the batch mesh instances, which belong to no RenderComponent and
     // would otherwise cast nothing. Appends; does not clear.
-    void collectShadowCasters(std::vector<MeshInstance*>& casters);
+    //
+    // `camera` filters components by layer compatibility, and a caller that draws or
+    // fits for a particular camera must pass it. Every caller that collects casters
+    // goes through here rather than sweeping itself — the directional fit and the
+    // directional pass used to have one hand-written sweep each, they disagreed about
+    // whether batch meshes were casters, and the fit therefore sized the shadow map's
+    // depth range to the unbatched scene while the pass drew batches into it.
+    void collectShadowCasters(std::vector<MeshInstance*>& casters, const Camera* camera = nullptr);
 
     // The mesh-level caster rules that do NOT depend on a camera: castShadow, node
     // state, material transparency (with the alpha-test and dithered-shadow

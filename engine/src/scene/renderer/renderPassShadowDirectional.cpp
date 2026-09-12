@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "framework/components/render/renderComponent.h"
-#include "framework/batching/batchManager.h"
 #include "framework/batching/skinBatchInstance.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexBuffer.h"
@@ -135,21 +134,12 @@ namespace visutwin::canvas
             const Frustum shadowFrustum = (shadowCam && shadowCam->node())
                 ? buildCameraFrustum(shadowCam, shadowCam->node()) : Frustum{};
 
-            // Casters: every RenderComponent's mesh instances, PLUS the batch mesh
-            // instances, which belong to no RenderComponent (BatchManager registers
-            // them straight with the scene layers) and would otherwise cast no shadow.
+            // The same collector the FIT uses, so the two cannot disagree about what
+            // a caster is again. Batch mesh instances belong to no RenderComponent —
+            // BatchManager registers them straight with the scene layers — and each
+            // of these two sweeps used to decide separately whether to include them.
             std::vector<MeshInstance*> casters;
-            for (auto* renderComponent : RenderComponent::instances()) {
-                if (!shouldRenderShadowRenderComponent(renderComponent, _camera)) {
-                    continue;
-                }
-                for (auto* meshInstance : renderComponent->meshInstances()) {
-                    casters.push_back(meshInstance);
-                }
-            }
-            for (auto* meshInstance : BatchManager::batchMeshInstances()) {
-                casters.push_back(meshInstance);
-            }
+            collectShadowCasters(casters, _camera);
 
             {
                 for (auto* meshInstance : casters) {

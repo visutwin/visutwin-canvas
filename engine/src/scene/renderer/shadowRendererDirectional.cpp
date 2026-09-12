@@ -200,24 +200,28 @@ namespace visutwin::canvas
                 const Frustum casterFrustum = (shadowCam && shadowCam->node())
                     ? buildCameraFrustum(shadowCam, shadowCam->node()) : Frustum{};
 
-                for (auto* renderComponent : RenderComponent::instances()) {
-                    if (!shouldRenderShadowRenderComponent(renderComponent, camera)) {
+                // The SAME caster set the pass will draw. This used to sweep
+                // RenderComponent::instances() by hand and so missed the batch mesh
+                // instances, which belong to no component; the pass drew them anyway,
+                // into a depth range fitted without them. A batch outside that range
+                // was clipped out of the shadow map — its shadow simply absent, with
+                // nothing to say why, and only in a scene that batches at all.
+                std::vector<MeshInstance*> casters;
+                collectShadowCasters(casters, camera);
+
+                for (auto* meshInstance : casters) {
+                    if (!meshInstance || !meshInstance->visible()) {
                         continue;
                     }
-                    for (auto* meshInstance : renderComponent->meshInstances()) {
-                        if (!meshInstance || !meshInstance->visible()) {
-                            continue;
-                        }
-                        if (!shouldRenderShadowMeshInstance(meshInstance, shadowCam, casterFrustum)) {
-                            continue;
-                        }
-                        const auto worldAabb = meshInstance->aabb();
-                        if (!haveAabb) {
-                            visibleSceneAabb = worldAabb;
-                            haveAabb = true;
-                        } else {
-                            visibleSceneAabb.add(worldAabb);
-                        }
+                    if (!shouldRenderShadowMeshInstance(meshInstance, shadowCam, casterFrustum)) {
+                        continue;
+                    }
+                    const auto worldAabb = meshInstance->aabb();
+                    if (!haveAabb) {
+                        visibleSceneAabb = worldAabb;
+                        haveAabb = true;
+                    } else {
+                        visibleSceneAabb.add(worldAabb);
                     }
                 }
 

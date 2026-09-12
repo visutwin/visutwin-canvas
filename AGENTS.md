@@ -879,6 +879,17 @@ present, but the rule below never depends on reading it.
   destructor clears `setSceneColorMap` / `setSceneDepthGrabMap` when the device
   still points at it — `requestSceneColorMap(false)` and any camera-frame option
   change that rebuilds render targets both destroy one.
+- **Every caster sweep goes through `collectShadowCasters`, and it takes the
+  CAMERA.** Batch mesh instances belong to no `RenderComponent` — `BatchManager`
+  registers them straight with the scene layers — so a hand-written sweep of
+  `RenderComponent::instances()` misses them. The directional FIT and the directional
+  PASS each had their own sweep and disagreed about exactly that: the fit sized the
+  shadow map's depth range to the unbatched scene while the pass drew batches into
+  it, so a batch outside that range was clipped out of the map and its shadow was
+  simply absent. Measured on `dynamic-batching`: the fitted depth span was 54 where
+  it should have been 104, with the near plane 55 units past the batches. The camera
+  argument filters components by layer, and a caller that fits or draws for one camera
+  must pass it. Two sweeps of the same thing will drift again; use the collector.
 - **Large ground planes must stay shadow CASTERS but not receivers-only.** The
   directional shadow camera fits its depth range to casters, so a receiver-only
   ground falls outside it and catches no shadow; a huge caster inflates the fitted

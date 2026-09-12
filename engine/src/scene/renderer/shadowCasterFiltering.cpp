@@ -74,10 +74,10 @@ namespace visutwin::canvas
         return cameraRendersRenderComponent(cameraComponent, renderComponent);
     }
 
-    void collectShadowCasters(std::vector<MeshInstance*>& casters)
+    void collectShadowCasters(std::vector<MeshInstance*>& casters, const Camera* camera)
     {
         for (auto* renderComponent : RenderComponent::instances()) {
-            if (!shouldRenderShadowRenderComponent(renderComponent, nullptr)) {
+            if (!shouldRenderShadowRenderComponent(renderComponent, camera)) {
                 continue;
             }
             for (auto* meshInstance : renderComponent->meshInstances()) {
