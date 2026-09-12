@@ -49,13 +49,30 @@ void main() {
     mat3 cov=transpose(T)*covariance*T;
     float d1=cov[0][0]+0.3, od=cov[0][1], d2=cov[1][1]+0.3;
     float mid=0.5*(d1+d2), radius=length(vec2(0.5*(d1-d2),od));
-    float l1=2.0*sqrt(max(2.0*(mid+radius),0.1)), l2=2.0*sqrt(max(2.0*(mid-radius),0.1));
+    float lambda1=mid+radius, lambda2=max(mid-radius,0.1);
+    // Limit the kernel to the smaller viewport dimension (upstream gsplatCorner.js,
+    // and the twin of the vmin clamp in gsplat-render.metal). Without it the
+    // perspective Jacobian, which divides by view.z, blows the footprint up without
+    // bound as a splat centre approaches the camera. That used to be invisible here
+    // because such a splat's centre also left the depth range and the whole quad was
+    // clipped away; clamping clip.z below keeps it, so the size clamp is what stops
+    // it covering the screen. A camera inside a cloud went entirely flat without this.
+    float vmin=min(1024.0,min(params.viewport.x,params.viewport.y));
+    float l1=2.0*min(sqrt(2.0*lambda1),vmin), l2=2.0*min(sqrt(2.0*lambda2),vmin);
     if(max(l1,l2)<0.5)return;
-    vec2 axis=normalize(vec2(od,mid+radius-d1)+vec2(1e-8,0));
+    vec2 c=clip.ww*params.viewport.zw;
+    // Cull against the frustum x/y planes, as Metal and upstream do.
+    if(any(greaterThan(abs(clip.xy)-vec2(max(l1,l2))*c, clip.ww)))return;
+    vec2 axis=normalize(vec2(od,lambda1-d1)+vec2(1e-8,0));
     vec2 corners[4]=vec2[](vec2(-1,-1),vec2(1,-1),vec2(-1,1),vec2(1,1));
     vec2 uv=corners[gl_VertexIndex];
-    clip.xy+=(uv.x*l1*axis+uv.y*l2*vec2(axis.y,-axis.x))*clip.w*params.viewport.zw;
-    clip.z=0.5*(clip.z+clip.w); gl_Position=clip; outUv=uv;
+    clip.xy+=(uv.x*l1*axis+uv.y*l2*vec2(axis.y,-axis.x))*c;
+    // Remap GL's [-1,1] clip z onto the [0,1] convention, then keep the splat off the
+    // near and far planes — the twin of the clamp in gsplat-render.metal, and upstream's
+    // gsplatCenter.js. The whole quad shares its centre's depth, so an unclamped centre
+    // crossing the near plane clips the entire splat away while its footprint still
+    // covers visible pixels. clip.w > 0 here, the behind-camera case having returned.
+    clip.z=clamp(0.5*(clip.z+clip.w), 0.0, clip.w); gl_Position=clip; outUv=uv;
     vec4 color=unpackColor(splats.words[base+3u]); vec3 displayColor=color.rgb;
     if(params.shBands>0u) {
         vec3 direction=normalize(transpose(mat3(params.modelView))*view.xyz);

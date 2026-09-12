@@ -715,6 +715,21 @@ present, but the rule below never depends on reading it.
   several cameras in one frame would otherwise walk several slots and lap the
   frames still in flight. The symptom is torn splat ordering for one frame under
   continuous camera movement, which is exactly when nobody is looking closely.
+- **A splat's clip z is CLAMPED to the depth range, and that only works because
+  its screen-space kernel is clamped too.** A gaussian splat is a quad built around
+  ONE projected centre, so the whole quad carries that centre's depth: an unclamped
+  centre crossing the near plane clips the entire splat away while its footprint
+  still covers visible pixels, and the surface nearest the camera pops out whole as
+  you walk into a cloud. Upstream's `gsplatCenter.js` clamps, and both backends now
+  do (to `[0, clip.w]`, after the GL-to-[0,1] remap). The catch is that the same
+  near-plane splats are the ones whose perspective Jacobian — it divides by view.z —
+  blows their footprint up without bound, and the z clip was silently hiding that:
+  clamp z without `gsplatCorner.js`'s `vmin = min(1024, viewport)` kernel clamp and
+  the frustum x/y cull, and ONE splat covers the screen. Vulkan had neither and went
+  entirely flat; it has all three now. Do not port one of these without the others.
+  The default gsplat example pose cannot see any of it — nothing there straddles a
+  plane, and the frame must come back bit-identical, which is the control that says
+  a change here is confined to the splats that actually cross.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.

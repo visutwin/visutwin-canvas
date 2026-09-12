@@ -152,6 +152,24 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
     // DEVIATION: OpenGL NDC z range is [-1,1]; Metal requires [0,1].
     clip.z = 0.5 * (clip.z + clip.w);
 
+    // Keep the splat off the near and far planes (upstream gsplatCenter.js, which
+    // clamps to [0, |w|] on the [0,1] depth convention this remap produces).
+    //
+    // A splat is a screen-space footprint built around ONE projected centre, so the
+    // whole quad shares that centre's depth. Without this, a centre that crosses the
+    // near plane clips the entire splat away even while its footprint still covers
+    // visible pixels — the surface nearest the camera pops out whole as you walk into
+    // a cloud, which is exactly where it is largest and most missed. The far plane
+    // does the same on the way out.
+    //
+    // The cost is that a clamped splat depth-tests as though it sat ON the plane. That
+    // is upstream's trade and it is the cheaper error: splats blend back-to-front from
+    // the order buffer, so their mutual order comes from the sort rather than from
+    // depth, and only their occlusion against opaque geometry is affected.
+    //
+    // clip.w > 0 here — the behind-camera case returned above — so no abs() is needed.
+    clip.z = clamp(clip.z, 0.0, clip.w);
+
     const half4 color = unpack_unorm4x8_to_half(s.color);
     float3 displayColor = float3(color.rgb);
 
