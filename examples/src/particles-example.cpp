@@ -389,6 +389,7 @@ protected:
         _sphereMaterial = std::make_shared<StandardMaterial>();
         _sphereMaterial->setGloss(0.6f);
         _sphereMaterial->setMetalness(0.4f);
+        _sphereMaterial->setUseMetalness(true);  // upstream sets useMetalness = true here
 
         struct SphereDesc { float x, y, z, radius; };
         constexpr SphereDesc sphereDescs[NUM_SPHERES] = {

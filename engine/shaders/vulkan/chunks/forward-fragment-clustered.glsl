@@ -56,7 +56,7 @@
                     cl.colorIntensity.w * atten;
                 // Same convention as the punctual path: no 1/PI, no kD, and no
                 // explicit 1/(4 NdotL NdotV) because the visibility term carries it.
-                vec3 clusteredSpecular = D * Vis * F;
+                vec3 clusteredSpecular = D * Vis * F * specularOn;
                 color += (diffuseAlbedo + clusteredSpecular) * radiance * nl;
                 directSpecular += clusteredSpecular * radiance * nl;
                 directDiffuse += diffuseAlbedo * radiance * nl;

@@ -88,6 +88,8 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   texture2d<float> glossMap [[texture(31)]],
                                   texture2d<float> thicknessMap [[texture(32)]],
                                   texture2d<float> refractionMap [[texture(33)]],
+                                  // Opacity map (upstream opacityMap), flags bit 19. Metal only.
+                                  texture2d<float> opacityMap [[texture(34)]],
                                   sampler defaultSampler [[sampler(0)]],
                                   bool isFrontFace [[front_facing]])
 {

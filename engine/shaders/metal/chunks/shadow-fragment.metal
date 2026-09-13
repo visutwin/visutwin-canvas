@@ -3,6 +3,7 @@
 fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   constant MaterialData &material [[buffer(3)]],
                                   texture2d<float> baseColorTexture [[texture(0)]],
+                                  texture2d<float> opacityTexture [[texture(34)]],
                                   sampler defaultSampler [[sampler(0)]])
 {
 #if VT_FEATURE_ALPHA_TEST || VT_FEATURE_SHADOW_DITHER
@@ -24,10 +25,17 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
         shadowAlpha *= baseColorTexture.sample(defaultSampler, uvBase).a;
     }
 #endif
+    // Opacity map, the same product the forward pass tests (flags bit 19, slot 34).
+    if ((material.flags & (1u << 19)) != 0u && opacityTexture.get_width() > 0 && opacityTexture.get_height() > 0) {
+        float2 uvOpacity = ((material.flags & (1u << 4)) != 0u) ? rd.uv1 : rd.uv0;
+        uvOpacity = applyUvTransform(uvOpacity, material.baseColorTransform0, material.baseColorTransform1);
+        shadowAlpha *= opacityTexture.sample(defaultSampler, uvOpacity).a;
+    }
 #else
     // Neither the alpha test nor the dither is in this variant, so the frontend
     // is not compiled at all and the caster writes depth as fast as it can.
     (void)baseColorTexture;
+    (void)opacityTexture;
     (void)defaultSampler;
 #endif
 

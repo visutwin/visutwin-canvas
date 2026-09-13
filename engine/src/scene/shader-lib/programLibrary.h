@@ -185,6 +185,7 @@ namespace visutwin::canvas
             bool skinning = false;
             bool morphing = false;
             bool specGloss = false;
+            bool noSpecular = false;         // upstream useSpecular false: no direct, area, clustered or reflected specular
             bool orenNayar = false;
             bool detailNormals = false;
             bool displacement = false;

@@ -61,6 +61,13 @@
 #endif
 #endif
 
+#if VT_FEATURE_NO_SPECULAR
+    // Upstream's useSpecular false: no specular of any kind. Every specular term
+    // accumulates into these two, and both are combined only from here on.
+    directSpecular = float3(0.0);
+    indirectSpecular = float3(0.0);
+#endif
+
     float3 litLinear = diffuseColor * (directDiffuse + indirectDiffuse) + directSpecular + indirectSpecular + emissiveLinear;
 
 #if VT_FEATURE_TRANSMISSION

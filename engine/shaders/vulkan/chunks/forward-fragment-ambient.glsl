@@ -42,7 +42,10 @@
         indirectDiffuse = max(irradiance, vec3(0.0)) * diffuseAlbedo;
         bakeDiffuseLight += max(irradiance, vec3(0.0));
     } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
-        lighting.envParams.y > 0.5) {
+        lighting.envParams.y > 0.5 &&
+        // bit 18: useSkybox off — upstream's useSceneEnv, so this material falls
+        // through to the flat ambient instead of the scene environment.
+        (material.flags & (1u << 18)) == 0u) {
         float intensity = max(lighting.envParams.x, 0.0);
 
         // Diffuse irradiance (the negate-X matches the engine's atlas lookup
@@ -104,7 +107,7 @@
         // lightmap) already multiplies the irradiance by diffuseAlbedo alone, and
         // so does the Metal chunk.
         indirectDiffuse = irradiance * diffuseAlbedo;
-        indirectSpecular = prefiltered * Fr;
+        indirectSpecular = prefiltered * Fr * specularOn;
         bakeDiffuseLight += irradiance;
     } else {
         indirectDiffuse = lighting.ambient.rgb * diffuseAlbedo;
@@ -195,7 +198,7 @@
         // The probe REPLACES the environment specular. `color` already carries that
         // term from the block above, so add only the difference — adding the probe
         // outright counted both.
-        vec3 replaced = probeSpecular * probeFresnel;
+        vec3 replaced = probeSpecular * probeFresnel * specularOn;
         color += replaced - indirectSpecular;
         indirectSpecular = replaced;
     }
@@ -256,7 +259,7 @@
             float gloss = 1.0 - roughness;
             float roughFade = clamp(gloss * 1.2 - 0.2, 0.0, 1.0);
             vec3 ssrFres = ssrFresnel(NdotV, gloss, F0);
-            vec3 replaced = mix(indirectSpecular, ssrColor * ssrFres,
+            vec3 replaced = mix(indirectSpecular, ssrColor * ssrFres * specularOn,
                 edgeFade * roughFade);
             color += replaced - indirectSpecular;
             indirectSpecular = replaced;

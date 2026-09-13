@@ -361,25 +361,14 @@ namespace visutwin::canvas
         // Sheen: parameter overrides (KHR_materials_sheen).
         readColor4(getParam(this, {"material_sheenColor", "sheenColor"}), uniforms.sheenColor);
         readFloat(getParam(this, {"material_sheenRoughness", "sheenRoughness"}), uniforms.sheenColor[3]);
-        {
-            Texture* sheenTex = nullptr;
-            readTexture(getParam(this, {"texture_sheenMap"}), sheenTex);
-            if (sheenTex) uniforms.flags |= (1u << 18);
-        }
 
         // Iridescence: parameter overrides (KHR_materials_iridescence).
         readFloat(getParam(this, {"material_iridescenceIntensity", "iridescenceIntensity"}), uniforms.iridescenceParams[0]);
         readFloat(getParam(this, {"material_iridescenceIOR", "iridescenceIOR"}), uniforms.iridescenceParams[1]);
-        readFloat(getParam(this, {"material_iridescenceThicknessMin", "iridescenceThicknessMin"}), uniforms.iridescenceParams[2]);
         readFloat(getParam(this, {"material_iridescenceThicknessMax", "iridescenceThicknessMax"}), uniforms.iridescenceParams[3]);
-        {
-            Texture* iriTex = nullptr;
-            readTexture(getParam(this, {"texture_iridescenceMap"}), iriTex);
-            if (iriTex) uniforms.flags |= (1u << 19);
-            Texture* iriThickTex = nullptr;
-            readTexture(getParam(this, {"texture_iridescenceThicknessMap"}), iriThickTex);
-            if (iriThickTex) uniforms.flags |= (1u << 20);
-        }
+        // No sheen or iridescence map parameters: neither backend ever sampled them, and
+        // flag bits 18-20 now mean skybox-off and hasOpacityMap on a StandardMaterial,
+        // so a stray texture parameter must not be able to set them.
 
         // Spec-Gloss: parameter overrides (KHR_materials_pbrSpecularGlossiness).
         readColor4(getParam(this, {"material_specularColor", "specularColor"}), uniforms.specGlossParams);

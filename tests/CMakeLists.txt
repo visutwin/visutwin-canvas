@@ -203,3 +203,11 @@ add_executable(visutwin-lightmapper-bvh-tests
 target_link_libraries(visutwin-lightmapper-bvh-tests PRIVATE visutwin-canvas)
 
 add_test(NAME lightmapper-bvh COMMAND visutwin-lightmapper-bvh-tests)
+
+add_executable(visutwin-standard-material-workflow-tests
+    standardMaterialWorkflowTests.cpp
+)
+
+target_link_libraries(visutwin-standard-material-workflow-tests PRIVATE visutwin-canvas)
+
+add_test(NAME standard-material-workflow COMMAND visutwin-standard-material-workflow-tests)

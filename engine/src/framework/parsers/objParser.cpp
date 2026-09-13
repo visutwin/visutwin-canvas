@@ -447,9 +447,13 @@ namespace visutwin::canvas
                 material->setHasEmissiveTexture(true);
             }
 
-            // Opacity map
+            // Opacity map. The texture cache hands back the diffuse map itself when
+            // map_d names the same file as map_Kd; its alpha is already read through
+            // the base colour, and setting it again would square alpha on Metal.
             if (auto* tex = loadAndOwn(mtl.alpha_texname)) {
-                material->setOpacityMap(tex);
+                if (tex != material->diffuseMap()) {
+                    material->setOpacityMap(tex);
+                }
                 material->setAlphaMode(AlphaMode::MASK);
             }
 

@@ -1698,10 +1698,14 @@ namespace visutwin::canvas
             spdlog::info("    specGloss: no diffuseTexture field");
         }
 
-        // True spec-gloss shader path (VT_FEATURE_SPEC_GLOSS): the fragment shader
-        // consumes specularColor/glossiness directly (F0 = specular color) instead
-        // of the metal-rough approximation kept below as fallback state.
-        material->setUseSpecGloss(true);
+        // The specular workflow, as upstream's KHR_materials_pbrSpecularGlossiness
+        // extension sets it up: useMetalness off, `specular` stored in sRGB (the factor
+        // is linear, so it is gamma-encoded here and linearised again on upload), and
+        // the extension's defaults — white specular, glossiness 1 — when a factor is
+        // absent. Leaving the specular black would render no specular at all.
+        material->setUseMetalness(false);
+        material->setMetalness(0.0f);
+        material->setMetallicFactor(0.0f);
 
         // specularGlossinessTexture: rgb = specular color (sRGB), a = glossiness.
         // Bound at the metal-rough slot (3); the SPEC_GLOSS variant reinterprets it.
@@ -1715,37 +1719,28 @@ namespace visutwin::canvas
             }
         }
 
-        // specularFactor
+        Color specular(1.0f, 1.0f, 1.0f, 1.0f);
         if (sg.Has("specularFactor")) {
             auto sf = sg.Get("specularFactor");
             if (sf.IsArray() && sf.ArrayLen() >= 3) {
-                const Color specColor(
+                specular = Color(
                     static_cast<float>(sf.Get(0).GetNumberAsDouble()),
                     static_cast<float>(sf.Get(1).GetNumberAsDouble()),
                     static_cast<float>(sf.Get(2).GetNumberAsDouble()), 1.0f);
-                material->setSpecular(specColor);
-                material->setSpecularColor(specColor);
             }
         }
+        specular.gamma();
+        material->setSpecular(specular);
 
-        // glossinessFactor → spec-gloss glossiness (+ legacy roughness fallback)
-        float roughness = 0.5f;
+        float gloss = 1.0f;
         if (sg.Has("glossinessFactor")) {
             auto gf = sg.Get("glossinessFactor");
             if (gf.IsNumber()) {
-                float gloss = static_cast<float>(gf.GetNumberAsDouble());
-                material->setGloss(gloss);
-                material->setGlossiness(gloss);
-                roughness = 1.0f - gloss;
+                gloss = static_cast<float>(gf.GetNumberAsDouble());
             }
         }
-
-        // Specular-glossiness materials are non-metallic; PBR defaults (metallic=1.0)
-        // would kill all diffuse color and show only environment reflections (white).
-        material->setUseMetalness(false);
-        material->setMetalness(0.0f);
-        material->setMetallicFactor(0.0f);
-        material->setRoughnessFactor(roughness);
+        material->setGloss(gloss);
+        material->setRoughnessFactor(1.0f - gloss);
 
         // If material is BLEND but opacity is still 1.0, set a reasonable glass opacity.
         // This handles glass materials that rely on BLEND mode for transparency
@@ -1809,6 +1804,10 @@ namespace visutwin::canvas
             material->setAlphaMode(AlphaMode::OPAQUE);
             material->setMetallicFactor(0.0f);
             material->setRoughnessFactor(1.0f);
+            // StandardMaterial scalars always apply, so the default material states them too.
+            material->setUseMetalness(true);
+            material->setMetalness(0.0f);
+            material->setGloss(0.0f);
             material->setShaderVariantKey(1);
             return material;
         };
@@ -1951,6 +1950,8 @@ namespace visutwin::canvas
                 // StandardMaterial convention: gloss = 1 - roughness (glossInvert=false).
                 material->setMetalness(metallicFactor);
                 material->setGloss(1.0f - roughnessFactor);
+                // glTF metallic-roughness: upstream createMaterial sets useMetalness for every glTF material.
+                material->setUseMetalness(true);
 
                 if (!srcMaterial.alphaMode.empty()) {
                     if (srcMaterial.alphaMode == "BLEND") {
@@ -1989,6 +1990,7 @@ namespace visutwin::canvas
                         material->setNormalUvSet(srcMaterial.normalTexture.texCoord);
                     }
                     material->setNormalScale(static_cast<float>(srcMaterial.normalTexture.scale));
+                    material->setBumpiness(static_cast<float>(srcMaterial.normalTexture.scale));
                 }
                 if (pbr.metallicRoughnessTexture.index >= 0) {
                     if (auto mrTexture = getOrCreateTexture(pbr.metallicRoughnessTexture.index)) {
@@ -2823,6 +2825,10 @@ namespace visutwin::canvas
             material->setAlphaMode(AlphaMode::OPAQUE);
             material->setMetallicFactor(0.0f);
             material->setRoughnessFactor(1.0f);
+            // StandardMaterial scalars always apply, so the default material states them too.
+            material->setUseMetalness(true);
+            material->setMetalness(0.0f);
+            material->setGloss(0.0f);
             material->setShaderVariantKey(1);
             return material;
         };
@@ -2936,6 +2942,8 @@ namespace visutwin::canvas
                 material->setRoughnessFactor(static_cast<float>(pbr.roughnessFactor));
                 material->setMetalness(static_cast<float>(pbr.metallicFactor));
                 material->setGloss(1.0f - static_cast<float>(pbr.roughnessFactor));
+                // glTF metallic-roughness: upstream createMaterial sets useMetalness for every glTF material.
+                material->setUseMetalness(true);
 
                 if (!srcMaterial.alphaMode.empty()) {
                     if (srcMaterial.alphaMode == "BLEND") {
@@ -2971,6 +2979,7 @@ namespace visutwin::canvas
                         material->setNormalUvSet(srcMaterial.normalTexture.texCoord);
                     }
                     material->setNormalScale(static_cast<float>(srcMaterial.normalTexture.scale));
+                    material->setBumpiness(static_cast<float>(srcMaterial.normalTexture.scale));
                 }
                 if (pbr.metallicRoughnessTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.metallicRoughnessTexture.index)) {
@@ -3340,6 +3349,10 @@ namespace visutwin::canvas
             material->setAlphaMode(AlphaMode::OPAQUE);
             material->setMetallicFactor(0.0f);
             material->setRoughnessFactor(1.0f);
+            // StandardMaterial scalars always apply, so the default material states them too.
+            material->setUseMetalness(true);
+            material->setMetalness(0.0f);
+            material->setGloss(0.0f);
             material->setShaderVariantKey(1);
             return material;
         };
@@ -3482,6 +3495,8 @@ namespace visutwin::canvas
                 material->setRoughnessFactor(static_cast<float>(pbr.roughnessFactor));
                 material->setMetalness(static_cast<float>(pbr.metallicFactor));
                 material->setGloss(1.0f - static_cast<float>(pbr.roughnessFactor));
+                // glTF metallic-roughness: upstream createMaterial sets useMetalness for every glTF material.
+                material->setUseMetalness(true);
 
                 if (!srcMaterial.alphaMode.empty()) {
                     if (srcMaterial.alphaMode == "BLEND") {
@@ -3540,6 +3555,7 @@ namespace visutwin::canvas
                         spdlog::warn("    -> normal texture FAILED for texIdx={}", srcMaterial.normalTexture.index);
                     }
                     material->setNormalScale(static_cast<float>(srcMaterial.normalTexture.scale));
+                    material->setBumpiness(static_cast<float>(srcMaterial.normalTexture.scale));
                 }
                 if (pbr.metallicRoughnessTexture.index >= 0) {
                     if (auto tex = getOrCreateTexture(pbr.metallicRoughnessTexture.index)) {

@@ -80,6 +80,17 @@
     }
 #endif
 
+    // Opacity map (upstream opacityMap, alpha channel), slot 34, flagged by bit 19.
+    // Gated on the flag AND the runtime size: an unbound Metal texture reports a
+    // nonzero width and samples zero, which would make the whole surface vanish.
+    // Its UV is computed the way the shadow frontend computes it, so the forward
+    // alpha and the shadow alpha stay the same product.
+    if ((material.flags & (1u << 19)) != 0u && opacityMap.get_width() > 0 && opacityMap.get_height() > 0) {
+        float2 uvOpacity = ((material.flags & (1u << 4)) != 0u) ? rd.uv1 : rd.uv0;
+        uvOpacity = applyUvTransform(uvOpacity, material.baseColorTransform0, material.baseColorTransform1);
+        alpha *= opacityMap.sample(defaultSampler, uvOpacity).a;
+    }
+
 #if VT_FEATURE_VERTEX_COLORS
     // Modulate base color by interpolated vertex color (already linearized in VS).
     // upstream convention: RGB modulates diffuse, A modulates opacity.
@@ -236,9 +247,10 @@
     }
     const float metallic = 0.0;
     float roughness = clamp(1.0 - glossiness, 0.04, 1.0);  // non-const: a gloss map may replace it below
-    // Diffuse energy conservation per the extension: scale by 1 - max(specular).
-    const float3 diffuseColor = baseLinear *
-        (1.0 - max(specularColor.r, max(specularColor.g, specularColor.b)));
+    // No (1 - max(specular)) on the diffuse. The extension suggests one, but this is
+    // now upstream's specular workflow for every material that is not metalness, and
+    // upstream's combine adds albedo * diffuseLight unscaled; Vulkan never applied it.
+    const float3 diffuseColor = baseLinear;
     const float3 F0 = specularColor;
 #else
     float metallic = clamp(material.metallicFactor, 0.0, 1.0);

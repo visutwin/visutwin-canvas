@@ -111,8 +111,8 @@
             float ltcSpec = (areaShape != 0u)
                 ? ltcEvaluateDisk(N, V, fragWorldPos, ltcMInv, p0, p1, p2)
                 : ltcEvaluateRect(N, V, fragWorldPos, ltcMInv, p0, p1, p2, p3);
-            color += areaRadiance * ltcSpec * specFres;
-            directSpecular += areaRadiance * ltcSpec * specFres;
+            color += areaRadiance * ltcSpec * specFres * specularOn;
+            directSpecular += areaRadiance * ltcSpec * specFres * specularOn;
 
             if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
                 // Clearcoat LTC specular with a fixed F0 of 0.04.
@@ -233,11 +233,11 @@
         // it; this divided by PI and multiplied by kD = (1 - F)(1 - metallic),
         // which made every direct light here about a third of Metal's. kD also
         // applied (1 - metallic) a second time, since diffuseAlbedo carries it.
-        color += (diffuseAlbedo * diffuseTerm + specular) * radiance * NdotL;
+        color += (diffuseAlbedo * diffuseTerm + specular * specularOn) * radiance * NdotL;
         directDiffuse += diffuseAlbedo * diffuseTerm * radiance * NdotL;
         bakeDiffuseLight += diffuseTerm * radiance * NdotL;
         bakeDirectLight += diffuseTerm * radiance * NdotL;
-        directSpecular += specular * radiance * NdotL;
+        directSpecular += specular * specularOn * radiance * NdotL;
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
             // Twin of the clearcoat block in forward-fragment-lights.metal: GGX
             // distribution, Kelemen visibility (a coat is smooth enough that

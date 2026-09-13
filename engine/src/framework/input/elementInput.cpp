@@ -474,8 +474,13 @@ namespace visutwin::canvas
                 // transparent and must not punch holes in the depth buffer.
                 textDepth->setDepthTest(visual.worldSpace);
                 visual.material->setDepthState(textDepth);
+                // DEVIATION: upstream's text material takes colour from
+                // emissiveMap and alpha from opacityMap (channel 'a'). The opacity
+                // map is Metal-only here, so the glyph alpha comes from the diffuse
+                // map's alpha instead, which both backends read. Setting the same
+                // texture as the opacity map as well multiplies it in a second
+                // time on Metal (alpha squared) and thins every anti-aliased edge.
                 visual.material->setDiffuseMap(element->fontResource()->texture);
-                visual.material->setOpacityMap(element->fontResource()->texture);
                 if (visual.render) {
                     visual.render->setMaterial(visual.material.get());
                 }
@@ -506,7 +511,6 @@ namespace visutwin::canvas
                     visual.render->clearMeshInstances();
                     if (visual.mesh) {
                         visual.material->setDiffuseMap(element->fontResource()->texture);
-                        visual.material->setOpacityMap(element->fontResource()->texture);
                         auto meshInstance = std::make_unique<MeshInstance>(visual.mesh.get(), visual.material.get(), visual.entity);
                         visual.render->addMeshInstance(std::move(meshInstance));
                     }

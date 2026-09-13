@@ -52,6 +52,9 @@ int main()
     // Scalars go through the same path.
     {
         auto material = std::make_shared<StandardMaterial>();
+        // Metalness only packs in the metalness workflow; upstream's default is the
+        // specular workflow, which packs metallic 0 whatever `metalness` says.
+        material->setUseMetalness(true);
         material->setMetalness(0.0f);
         material->packedUniforms();
         material->setMetalness(1.0f);

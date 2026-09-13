@@ -167,6 +167,7 @@ protected:
         _material->setBumpiness(1.0f);
         _material->setGloss(0.5f);
         _material->setMetalness(0.3f);
+        _material->setUseMetalness(true);  // upstream sets useMetalness = true here
 
         // --- Ground plane ---
         auto* ground = createPrimitive("plane", _material.get(), Vector3(0.0f, 0.0f, 0.0f),

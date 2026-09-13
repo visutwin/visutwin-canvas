@@ -2362,6 +2362,9 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
 
             StandardMaterial debugMaterial;
             debugMaterial.setDiffuse(Color(kDiffuseR, kDiffuseG, kDiffuseB, 1.0f));
+            // The default is upstream's specular workflow with no specular, where
+            // metalness packs as 0 and specularity is compiled out.
+            debugMaterial.setUseMetalness(true);
             debugMaterial.setMetalness(kMetalness);
             debugMaterial.setGloss(kGloss);
             debugMaterial.setOpacity(kOpacity);

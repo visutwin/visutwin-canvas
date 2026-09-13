@@ -38,17 +38,38 @@ namespace visutwin::canvas
         const Color& diffuse() const { return _diffuse; }
         void setDiffuse(const Color& value) { _diffuse = value; markUniformsDirty(); }
         Texture* diffuseMap() const { return _diffuseMap; }
-        void setDiffuseMap(Texture* texture) { _diffuseMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setDiffuseMap(Texture* texture) { _diffuseMap = texture; markUniformsDirty(); }
         // --- Specular ---
+        /// Specular colour of the SPECULAR workflow (useMetalness false), authored in
+        /// sRGB like `diffuse` and uploaded linear. Black, the default, means no
+        /// specular at all — see rendersSpecular().
         const Color& specular() const { return _specular; }
         void setSpecular(const Color& value) { _specular = value; markUniformsDirty(); }
         // --- Metalness ---
         float metalness() const { return _metalness; }
         void setMetalness(const float value) { _metalness = value; markUniformsDirty(); }
+        /// Selects the workflow, upstream's default included: FALSE, so a material is
+        /// in the specular workflow (specular colour + gloss) until it asks for
+        /// metalness, and `metalness` (default 1) only applies once it does.
         bool useMetalness() const { return _useMetalness; }
-        void setUseMetalness(const bool value) { _useMetalness = value; _dirtyShader = true; markUniformsDirty(); }
+        void setUseMetalness(const bool value) { _useMetalness = value; markUniformsDirty(); }
+
+        /// The specular workflow is active: F0 comes from `specular`, metalness is 0.
+        bool usesSpecularWorkflow() const { return !_useMetalness; }
+
+        /// Whether this material renders ANY specular — direct, area, clustered or
+        /// reflected. Upstream's useSpecular (standard-material-options-builder.js):
+        /// a specular-workflow material with a black specular colour, no specular map
+        /// and no clearcoat gets none, not merely a dark one. A black F0 is not the
+        /// same thing: the Fresnel term still reflects at grazing angles, which is why
+        /// this is a shader variant (VT_FEATURE_NO_SPECULAR) rather than a colour.
+        bool rendersSpecular() const
+        {
+            return _useMetalness || _specGlossMap != nullptr || _clearCoat > 0.0f ||
+                _specular.r > 0.0f || _specular.g > 0.0f || _specular.b > 0.0f;
+        }
         Texture* metalnessMap() const { return _metalnessMap; }
-        void setMetalnessMap(Texture* texture) { _metalnessMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setMetalnessMap(Texture* texture) { _metalnessMap = texture; markUniformsDirty(); }
         // --- Gloss / Roughness ---
         float gloss() const { return _gloss; }
         void setGloss(const float value) { _gloss = value; markUniformsDirty(); }
@@ -58,14 +79,14 @@ namespace visutwin::canvas
         // color grab instead of the environment atlas. The camera must have
         // requestSceneColorMap(true) so the grab pass runs.
         bool useDynamicRefraction() const { return _useDynamicRefraction; }
-        void setUseDynamicRefraction(const bool value) { _useDynamicRefraction = value; _dirtyShader = true; markUniformsDirty(); }
+        void setUseDynamicRefraction(const bool value) { _useDynamicRefraction = value; markUniformsDirty(); }
         // Screen-space reflections: ray-march the reflection against the scene
         // depth grab and sample the scene color grab (needs the camera's
         // requestSceneColorMap + requestSceneDepthMap; the material should be
         // transparent so it draws after the mid-frame grab). Falls back to the
         // reflection probe / env atlas where the ray leaves the screen.
         bool useScreenSpaceReflection() const { return _useSSR; }
-        void setUseScreenSpaceReflection(const bool value) { _useSSR = value; _dirtyShader = true; markUniformsDirty(); }
+        void setUseScreenSpaceReflection(const bool value) { _useSSR = value; markUniformsDirty(); }
         // Opacity dithering (upstream opacityDither): render partial opacity in the OPAQUE pass
         // by discarding fragments against an ordered Bayer threshold — no sorting artifacts and
         // depth writes stay valid. Leave the material non-transparent when using this.
@@ -77,7 +98,6 @@ namespace visutwin::canvas
         {
             markUniformsDirty();
             _opacityDitherMode = value;
-            _dirtyShader = true;
         }
 
         bool opacityDither() const { return _opacityDitherMode != DitherMode::DITHER_NONE; }
@@ -106,11 +126,10 @@ namespace visutwin::canvas
         {
             markUniformsDirty();
             _opacityShadowDitherMode = value;
-            _dirtyShader = true;
         }
 
         Texture* glossMap() const { return _glossMap; }
-        void setGlossMap(Texture* texture) { _glossMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setGlossMap(Texture* texture) { _glossMap = texture; markUniformsDirty(); }
 
         /// Channel of the gloss map that supplies glossiness (upstream glossMapChannel, default "g").
         MapChannel glossMapChannel() const { return _glossMapChannel; }
@@ -118,13 +137,13 @@ namespace visutwin::canvas
 
         /// Per-pixel thickness, multiplying the thickness factor (upstream thicknessMap).
         Texture* thicknessMap() const { return _thicknessMap; }
-        void setThicknessMap(Texture* texture) { _thicknessMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setThicknessMap(Texture* texture) { _thicknessMap = texture; markUniformsDirty(); }
         MapChannel thicknessMapChannel() const { return _thicknessMapChannel; }
         void setThicknessMapChannel(const MapChannel value) { _thicknessMapChannel = value; markUniformsDirty(); }
 
         /// Per-pixel refraction visibility, multiplying the refraction factor (upstream refractionMap).
         Texture* refractionMap() const { return _refractionMap; }
-        void setRefractionMap(Texture* texture) { _refractionMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setRefractionMap(Texture* texture) { _refractionMap = texture; markUniformsDirty(); }
         MapChannel refractionMapChannel() const { return _refractionMapChannel; }
         void setRefractionMapChannel(const MapChannel value) { _refractionMapChannel = value; markUniformsDirty(); }
         // --- Emissive ---
@@ -139,7 +158,7 @@ namespace visutwin::canvas
         float emissiveIntensity() const { return _emissiveIntensity; }
         void setEmissiveIntensity(const float value) { _emissiveIntensity = value; markUniformsDirty(); }
         Texture* emissiveMap() const { return _emissiveMap; }
-        void setEmissiveMap(Texture* texture) { _emissiveMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setEmissiveMap(Texture* texture) { _emissiveMap = texture; markUniformsDirty(); }
         // --- Vertex color routing (upstream diffuseVertexColor / emissiveVertexColor) ---
         // A mesh's vertex colors modulate the diffuse lane by default, which is how
         // every vertex-colored material in this engine behaved before these existed.
@@ -151,20 +170,20 @@ namespace visutwin::canvas
         void setEmissiveVertexColor(const bool value) { _emissiveVertexColor = value; markUniformsDirty(); }
         // --- Normal ---
         Texture* normalMap() const { return _normalMap; }
-        void setNormalMap(Texture* texture) { _normalMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setNormalMap(Texture* texture) { _normalMap = texture; markUniformsDirty(); }
         float bumpiness() const { return _bumpiness; }
         void setBumpiness(const float value) { _bumpiness = value; markUniformsDirty(); }
         // --- Opacity ---
         float opacity() const { return _opacity; }
         void setOpacity(const float value) { _opacity = value; markUniformsDirty(); }
         Texture* opacityMap() const { return _opacityMap; }
-        void setOpacityMap(Texture* texture) { _opacityMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setOpacityMap(Texture* texture) { _opacityMap = texture; markUniformsDirty(); }
         // --- Height / Parallax ---
         Texture* heightMap() const { return _heightMap; }
-        void setHeightMap(Texture* texture) { _heightMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setHeightMap(Texture* texture) { _heightMap = texture; markUniformsDirty(); }
         /** Baked lightmap sampled at UV1 and added to indirect diffuse. */
         Texture* lightMap() const { return _lightMap; }
-        void setLightMap(Texture* texture) { _lightMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setLightMap(Texture* texture) { _lightMap = texture; markUniformsDirty(); }
         float heightMapFactor() const { return _heightMapFactor; }
         void setHeightMapFactor(const float value) { _heightMapFactor = value; markUniformsDirty(); }
         /**
@@ -184,10 +203,13 @@ namespace visutwin::canvas
         void setHeightMapShadow(const float value) { _heightMapShadow = value; markUniformsDirty(); }
         // --- Anisotropy ---
         float anisotropy() const { return _anisotropy; }
-        void setAnisotropy(const float value) { _anisotropy = value; _dirtyShader = true; markUniformsDirty(); }
+        void setAnisotropy(const float value) { _anisotropy = value; markUniformsDirty(); }
         // --- Transmission / Refraction ---
         float transmissionFactor() const { return _transmissionFactor; }
-        void setTransmissionFactor(const float value) { _transmissionFactor = value; _dirtyShader = true; markUniformsDirty(); }
+        void setTransmissionFactor(const float value) { _transmissionFactor = value; markUniformsDirty(); }
+        // DEVIATION: an index of refraction (default 1.5). Upstream stores the ratio
+        // eta = 1 / IOR (default 1 / 1.5) and hands it straight to refract(); this
+        // port converts in the shader, and KHR_materials_ior loads without inverting.
         float refractionIndex() const { return _refractionIndex; }
         void setRefractionIndex(const float value) { _refractionIndex = value; markUniformsDirty(); }
         float thickness() const { return _thickness; }
@@ -215,7 +237,6 @@ namespace visutwin::canvas
             _aoMap = texture;
             setOcclusionTexture(texture);
             setHasOcclusionTexture(texture != nullptr);
-            _dirtyShader = true;
             markUniformsDirty();
         }
         // --- Texture Transforms ---
@@ -251,23 +272,23 @@ namespace visutwin::canvas
         void setEmissiveMapRotation(float deg) { _emissiveMapRotation = deg; markUniformsDirty(); }
         // --- Rendering flags ---
         bool useFog() const { return _useFog; }
-        void setUseFog(const bool value) { _useFog = value; _dirtyShader = true; markUniformsDirty(); }
+        void setUseFog(const bool value) { _useFog = value; markUniformsDirty(); }
         bool useLighting() const { return _useLighting; }
-        void setUseLighting(const bool value) { _useLighting = value; _dirtyShader = true; markUniformsDirty(); }
+        void setUseLighting(const bool value) { _useLighting = value; markUniformsDirty(); }
         bool useSkybox() const { return _useSkybox; }
-        void setUseSkybox(const bool value) { _useSkybox = value; _dirtyShader = true; markUniformsDirty(); }
+        void setUseSkybox(const bool value) { _useSkybox = value; markUniformsDirty(); }
         bool twoSidedLighting() const { return _twoSidedLighting; }
-        void setTwoSidedLighting(const bool value) { _twoSidedLighting = value; _dirtyShader = true; markUniformsDirty(); }
+        void setTwoSidedLighting(const bool value) { _twoSidedLighting = value; markUniformsDirty(); }
         // --- Planar Reflection ---
         // DEVIATION: planar reflection is handled at the application level as a script.
         // We promote it to a material property for simpler integration with the shader variant system.
         Texture* reflectionMap() const { return _reflectionMap; }
-        void setReflectionMap(Texture* texture) { _reflectionMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setReflectionMap(Texture* texture) { _reflectionMap = texture; markUniformsDirty(); }
         // --- Clearcoat ---
         // dual-layer clearcoat material (KHR_materials_clearcoat).
         // A thin dielectric coat (IOR 1.5, F0=0.04) over the standard PBR base.
         float clearCoat() const { return _clearCoat; }
-        void setClearCoat(const float value) { _clearCoat = value; _dirtyShader = true; markUniformsDirty(); }
+        void setClearCoat(const float value) { _clearCoat = value; markUniformsDirty(); }
         float clearCoatGloss() const { return _clearCoatGloss; }
         void setClearCoatGloss(const float value) { _clearCoatGloss = value; markUniformsDirty(); }
         bool clearCoatGlossInvert() const { return _clearCoatGlossInvert; }
@@ -275,79 +296,69 @@ namespace visutwin::canvas
         float clearCoatBumpiness() const { return _clearCoatBumpiness; }
         void setClearCoatBumpiness(const float value) { _clearCoatBumpiness = value; markUniformsDirty(); }
         Texture* clearCoatMap() const { return _clearCoatMap; }
-        void setClearCoatMap(Texture* texture) { _clearCoatMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setClearCoatMap(Texture* texture) { _clearCoatMap = texture; markUniformsDirty(); }
         Texture* clearCoatGlossMap() const { return _clearCoatGlossMap; }
-        void setClearCoatGlossMap(Texture* texture) { _clearCoatGlossMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setClearCoatGlossMap(Texture* texture) { _clearCoatGlossMap = texture; markUniformsDirty(); }
         Texture* clearCoatNormalMap() const { return _clearCoatNormalMap; }
-        void setClearCoatNormalMap(Texture* texture) { _clearCoatNormalMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setClearCoatNormalMap(Texture* texture) { _clearCoatNormalMap = texture; markUniformsDirty(); }
         // --- Sheen (KHR_materials_sheen) ---
         // fabric/velvet sheen layer (Charlie sheen BRDF).
+        // DEVIATION: sheen is colour + ROUGHNESS and is off while the colour is black.
+        // Upstream stores colour + sheenGloss with a separate useSheen flag. Both are
+        // off by default, so the defaults agree; the parameterisation does not.
         const Color& sheenColor() const { return _sheenColor; }
-        void setSheenColor(const Color& value) { _sheenColor = value; _dirtyShader = true; markUniformsDirty(); }
+        void setSheenColor(const Color& value) { _sheenColor = value; markUniformsDirty(); }
         float sheenRoughness() const { return _sheenRoughness; }
         void setSheenRoughness(const float value) { _sheenRoughness = value; markUniformsDirty(); }
-        Texture* sheenMap() const { return _sheenMap; }
-        void setSheenMap(Texture* texture) { _sheenMap = texture; _dirtyShader = true; markUniformsDirty(); }
         // --- Iridescence (KHR_materials_iridescence) ---
         // thin-film interference layer.
         float iridescenceIntensity() const { return _iridescenceIntensity; }
-        void setIridescenceIntensity(const float value) { _iridescenceIntensity = value; _dirtyShader = true; markUniformsDirty(); }
+        void setIridescenceIntensity(const float value) { _iridescenceIntensity = value; markUniformsDirty(); }
+        // DEVIATION: an IOR with KHR_materials_iridescence's default of 1.3. Upstream
+        // stores iridescenceRefractionIndex as eta, defaulting to 1 / 1.5.
         float iridescenceIOR() const { return _iridescenceIOR; }
         void setIridescenceIOR(const float value) { _iridescenceIOR = value; markUniformsDirty(); }
-        float iridescenceThicknessMin() const { return _iridescenceThicknessMin; }
-        void setIridescenceThicknessMin(const float value) { _iridescenceThicknessMin = value; markUniformsDirty(); }
         float iridescenceThicknessMax() const { return _iridescenceThicknessMax; }
         void setIridescenceThicknessMax(const float value) { _iridescenceThicknessMax = value; markUniformsDirty(); }
-        Texture* iridescenceMap() const { return _iridescenceMap; }
-        void setIridescenceMap(Texture* texture) { _iridescenceMap = texture; _dirtyShader = true; markUniformsDirty(); }
-        Texture* iridescenceThicknessMap() const { return _iridescenceThicknessMap; }
-        void setIridescenceThicknessMap(Texture* texture) { _iridescenceThicknessMap = texture; _dirtyShader = true; markUniformsDirty(); }
-        // --- Spec-Gloss (KHR_materials_pbrSpecularGlossiness) ---
-        // alternative PBR parameterization (specular + glossiness).
-        // Enables the spec-gloss parameterization even without a specGlossMap
-        // (factor-only KHR_materials_pbrSpecularGlossiness materials).
-        bool useSpecGloss() const { return _useSpecGloss; }
-        void setUseSpecGloss(const bool value) { _useSpecGloss = value; _dirtyShader = true; markUniformsDirty(); }
-        const Color& specularColor() const { return _specularColor; }
-        void setSpecularColor(const Color& value) { _specularColor = value; markUniformsDirty(); }
-        float glossiness() const { return _glossiness; }
-        void setGlossiness(const float value) { _glossiness = value; markUniformsDirty(); }
+        // --- Spec-Gloss map (KHR_materials_pbrSpecularGlossiness) ---
+        // The specular workflow itself is specular() + gloss() with useMetalness
+        // false, as upstream; this map adds rgb = specular colour (sRGB), a = gloss.
+        // METAL ONLY: it rides the metal-rough binding (slot 3), and the Vulkan
+        // fragment stage has no reinterpretation of that sample.
         Texture* specGlossMap() const { return _specGlossMap; }
-        void setSpecGlossMap(Texture* texture) { _specGlossMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setSpecGlossMap(Texture* texture) { _specGlossMap = texture; markUniformsDirty(); }
         // --- Detail Normals ---
         // detail normal map overlay blended with primary normal.
         float detailNormalScale() const { return _detailNormalScale; }
         void setDetailNormalScale(const float value) { _detailNormalScale = value; markUniformsDirty(); }
         Texture* detailNormalMap() const { return _detailNormalMap; }
-        void setDetailNormalMap(Texture* texture) { _detailNormalMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setDetailNormalMap(Texture* texture) { _detailNormalMap = texture; markUniformsDirty(); }
         const TextureTransform& detailNormalTransform() const { return _detailNormalTransform; }
         void setDetailNormalTransform(const TextureTransform& t) { _detailNormalTransform = t; markUniformsDirty(); }
         // --- Displacement ---
         // vertex displacement along normals.
         float displacementScale() const { return _displacementScale; }
-        void setDisplacementScale(const float value) { _displacementScale = value; _dirtyShader = true; markUniformsDirty(); }
+        void setDisplacementScale(const float value) { _displacementScale = value; markUniformsDirty(); }
         float displacementBias() const { return _displacementBias; }
         void setDisplacementBias(const float value) { _displacementBias = value; markUniformsDirty(); }
         Texture* displacementMap() const { return _displacementMap; }
-        void setDisplacementMap(Texture* texture) { _displacementMap = texture; _dirtyShader = true; markUniformsDirty(); }
+        void setDisplacementMap(Texture* texture) { _displacementMap = texture; markUniformsDirty(); }
         // --- Oren-Nayar ---
         // roughness-dependent diffuse model (alternative to Lambertian).
         bool useOrenNayar() const { return _useOrenNayar; }
-        void setUseOrenNayar(const bool value) { _useOrenNayar = value; _dirtyShader = true; markUniformsDirty(); }
+        void setUseOrenNayar(const bool value) { _useOrenNayar = value; markUniformsDirty(); }
         // when true, the material accumulates shadow factors and outputs
         // them via multiplicative blending (LIT_SHADOW_CATCHER shader path).
         bool shadowCatcher() const { return _shadowCatcher; }
-        void setShadowCatcher(const bool value) { _shadowCatcher = value; _dirtyShader = true; markUniformsDirty(); }
-        bool dirtyShader() const { return _dirtyShader; }
-        void clearDirtyShader() { _dirtyShader = false; markUniformsDirty(); }
+        void setShadowCatcher(const bool value) { _shadowCatcher = value; markUniformsDirty(); }
     private:
         Color _diffuse = Color(1.0f, 1.0f, 1.0f, 1.0f);
         Texture* _diffuseMap = nullptr;
 
         Color _specular = Color(0.0f, 0.0f, 0.0f, 1.0f);
 
-        float _metalness = 0.0f;
-        bool _useMetalness = true;
+        float _metalness = 1.0f;
+        bool _useMetalness = false;
         Texture* _metalnessMap = nullptr;
 
         float _gloss = 0.25f;
@@ -378,7 +389,7 @@ namespace visutwin::canvas
 
         Texture* _heightMap = nullptr;
         Texture* _lightMap = nullptr;
-        float _heightMapFactor = 0.1f;
+        float _heightMapFactor = 1.0f;
         float _heightMapBase = 0.5f;
         float _heightMapShadow = 0.0f;
 
@@ -428,19 +439,13 @@ namespace visutwin::canvas
         // sheen properties (KHR_materials_sheen).
         Color _sheenColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
         float _sheenRoughness = 0.0f;
-        Texture* _sheenMap = nullptr;
 
         // iridescence properties (KHR_materials_iridescence).
         float _iridescenceIntensity = 0.0f;
         float _iridescenceIOR = 1.3f;
-        float _iridescenceThicknessMin = 100.0f;
-        float _iridescenceThicknessMax = 400.0f;
-        Texture* _iridescenceMap = nullptr;
-        Texture* _iridescenceThicknessMap = nullptr;
+        float _iridescenceThicknessMax = 0.0f;
 
         // spec-gloss properties (KHR_materials_pbrSpecularGlossiness).
-        Color _specularColor = Color(1.0f, 1.0f, 1.0f, 1.0f);
-        float _glossiness = 1.0f;
         Texture* _specGlossMap = nullptr;
 
         // detail normal map properties.
@@ -455,7 +460,6 @@ namespace visutwin::canvas
 
         // Oren-Nayar diffuse model toggle.
         bool _useOrenNayar = false;
-        bool _useSpecGloss = false;
 
         bool _useFog = true;
         bool _useLighting = true;
@@ -463,6 +467,5 @@ namespace visutwin::canvas
         bool _twoSidedLighting = false;
         bool _shadowCatcher = false;
 
-        mutable bool _dirtyShader = true;
     };
 }

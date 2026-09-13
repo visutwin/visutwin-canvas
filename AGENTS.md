@@ -219,7 +219,8 @@ than folded into one integer, so no two variants can alias.
 ### Adding a texture slot
 
 Bump `MetalTextureBinder::kMaxTextureSlots` AND add the slot to the
-`materialSlots` clear list in `bindMaterialTextures`. Slots 0-33 are taken today.
+`materialSlots` clear list in `bindMaterialTextures`. Slots 0-34 are taken today
+(34 is the opacity map, Metal only).
 On Vulkan, the fragment stage already declares 15 combined image samplers and
 MoltenVK inherits a 16-per-stage limit — a 16th needs the separate-image plus
 shared-sampler treatment the light cookies use.
@@ -643,10 +644,43 @@ present, but the rule below never depends on reading it.
   the receiver distance applied BEFORE the perspective projection. Cubemap shadow
   depth is crushed against 1.0, so a fixed post-projection offset erases omni
   shadows entirely at ordinary light ranges.
-- **`StandardMaterial` overwrites the base-Material factors.** Set surface
-  properties with `setDiffuse` / `setMetalness` / `setGloss` (+ `setGlossInvert`);
-  `setBaseColorFactor` / `setMetallicFactor` / `setRoughnessFactor` are overwritten
-  by `updateUniforms` when no base-color texture is present.
+- **`StandardMaterial` overwrites the base-Material factors, ALWAYS.** Set surface
+  properties with `setDiffuse` / `setOpacity` / `setMetalness` / `setGloss`
+  (+ `setGlossInvert`) / `setBumpiness`; `setBaseColorFactor` / `setMetallicFactor`
+  / `setRoughnessFactor` / `setNormalScale` on a StandardMaterial never reach the
+  GPU. This used to hold only when no base-colour texture was bound, so a GLB
+  material — the parser binds its texture on the base Material — ignored every later
+  scalar edit. The parsers write both sets, and `tests/standardMaterialWorkflowTests.cpp`
+  pins the scalars applying with a texture bound.
+- **A default `StandardMaterial` is in upstream's SPECULAR workflow and renders NO
+  specular.** `useMetalness` defaults to false, `metalness` to 1 (read only once
+  `useMetalness` is on), `specular` to black. `StandardMaterial::rendersSpecular()`
+  is upstream's `useSpecular` rule — metalness on, a non-black specular, a spec-gloss
+  map or clearcoat — and when it is false the material compiles
+  `VT_FEATURE_NO_SPECULAR`, which removes direct, area, clustered and reflected
+  specular on both backends. A black F0 is NOT the same thing: the gloss-aware
+  Fresnel still reflects at grazing angles. So a scene that wants reflections from a
+  code-created material has to say `setUseMetalness(true)`, as upstream's examples do;
+  the GLB parser does it for every metallic-roughness material, as upstream's
+  `createMaterial` does. The specular workflow runs through `VT_FEATURE_SPEC_GLOSS`
+  with `metallicFactor` packed 0 and F0 = the specular colour, authored sRGB and
+  uploaded linear. The old `setSpecularColor` / `setGlossiness` / `setUseSpecGloss`
+  duplicates are gone; a KHR spec-gloss asset uses `setSpecular` (gamma-encoded) and
+  `setGloss`. There is no `(1 - max(specular))` diffuse scale on either backend.
+- **Material flags bits 18 and 19 are `useSkybox` OFF and `hasOpacityMap`.** Both
+  came free when the sheen and iridescence map bits, which no shader ever read, were
+  removed with their setters; bit 20 is the only free bit. Bit 18 is stored inverted
+  so a zero flags word keeps the scene environment, and it drops only the env atlas
+  (SH probes and the flat ambient remain), as upstream's `useSceneEnv` does. The
+  opacity map is METAL ONLY (slot 34, multiplied into the forward and shadow alpha
+  with the base-colour UV); Vulkan logs one warning per process. It multiplies ON TOP
+  of the base-colour map's alpha, so a material that sets ONE texture as both — the
+  text element material did until the opacity map was wired — gets alpha squared on
+  Metal only, which thins every anti-aliased edge while Vulkan stays unchanged. Set
+  the opacity map only when it is a different texture. The spec-gloss map and
+  the clearcoat maps are Metal only too. DEVIATIONS kept on purpose, marked at the
+  code: `refractionIndex` and `iridescenceIOR` are IORs where upstream stores eta, and
+  sheen is colour + roughness where upstream has `sheenGloss` + `useSheen`.
 - **Ambient occlusion occludes the AMBIENT diffuse by default, the direct diffuse
   and a lightmap only under `occludeDirect`, and the specular through
   `occludeSpecular` mode and intensity.** That is upstream's split and both
@@ -1365,6 +1399,12 @@ does nothing, which is a misleading symptom.
   is UNMEASURED since 2026-09-06.** It predates the spot cone fix, the falloff fix
   and the shared BRDF, all of which touch what it measures. Re-measure before
   treating it as a finding.
+
+- **Upstream scales ambient diffuse light by `(1 - specularity)`; neither backend
+  does.** Its forward backend applies it after `addAmbient`, per channel, whenever
+  specular is on, in BOTH workflows. This port's shading has its own energy terms
+  and never had this one, on either backend, so it is a parity item rather than a
+  regression — found while aligning the default workflow, left for a shading pass.
 
 ## Reference kept elsewhere
 

@@ -398,9 +398,20 @@ namespace visutwin::canvas
         options.morphing = morphing || (variantBits & (1ull << 23)) != 0ull;
         // spec-gloss from StandardMaterial or shaderVariantKey.
         if (stdMat) {
-            options.specGloss = stdMat->useSpecGloss() || (stdMat->specGlossMap() != nullptr);
+            // The specular workflow (useMetalness false, upstream's default) runs through
+            // the spec-gloss variant: F0 from the specular colour, gloss from `gloss`.
+            options.specGloss = stdMat->usesSpecularWorkflow() || (stdMat->specGlossMap() != nullptr);
         } else {
             options.specGloss = (variantBits & (1ull << 24)) != 0ull;
+        }
+        // Upstream's useSpecular: a default StandardMaterial renders no specular at all.
+        options.noSpecular = stdMat && !stdMat->rendersSpecular();
+        // The opacity map has a Metal slot (34) and none on Vulkan, whose fragment stage
+        // is already at MoltenVK's 16-sampler limit.
+        if (stdMat && stdMat->opacityMap() && _chunks.language() == ShaderLanguage::Glsl &&
+            _warnedFeatureFlags.insert("opacityMap").second) {
+            spdlog::warn("StandardMaterial::opacityMap is not supported on the Vulkan backend "
+                "(material '{}'); opacity comes from the base colour alpha only", stdMat->name());
         }
         // Oren-Nayar from StandardMaterial or shaderVariantKey.
         if (stdMat) {
@@ -529,6 +540,7 @@ namespace visutwin::canvas
         set(ShaderFeature::Skinning, options.skinning);
         set(ShaderFeature::Morphing, options.morphing);
         set(ShaderFeature::SpecGloss, options.specGloss);
+        set(ShaderFeature::NoSpecular, options.noSpecular);
         set(ShaderFeature::OrenNayar, options.orenNayar);
         set(ShaderFeature::DetailNormals, options.detailNormals);
         set(ShaderFeature::Displacement, options.displacement);

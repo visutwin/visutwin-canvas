@@ -43,8 +43,8 @@ namespace visutwin::canvas
         _diffuse = Color(1.0f, 1.0f, 1.0f, 1.0f);
         _diffuseMap = nullptr;
         _specular = Color(0.0f, 0.0f, 0.0f, 1.0f);
-        _metalness = 0.0f;
-        _useMetalness = true;
+        _metalness = 1.0f;
+        _useMetalness = false;
         _metalnessMap = nullptr;
         _gloss = 0.25f;
         _glossInvert = false;
@@ -55,7 +55,7 @@ namespace visutwin::canvas
         _normalMap = nullptr;
         _bumpiness = 1.0f;
         _heightMap = nullptr;
-        _heightMapFactor = 0.1f;
+        _heightMapFactor = 1.0f;
         _heightMapBase = 0.5f;
         _heightMapShadow = 0.0f;
         _anisotropy = 0.0f;
@@ -93,15 +93,9 @@ namespace visutwin::canvas
 
         _sheenColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
         _sheenRoughness = 0.0f;
-        _sheenMap = nullptr;
         _iridescenceIntensity = 0.0f;
         _iridescenceIOR = 1.3f;
-        _iridescenceThicknessMin = 100.0f;
-        _iridescenceThicknessMax = 400.0f;
-        _iridescenceMap = nullptr;
-        _iridescenceThicknessMap = nullptr;
-        _specularColor = Color(1.0f, 1.0f, 1.0f, 1.0f);
-        _glossiness = 1.0f;
+        _iridescenceThicknessMax = 0.0f;
         _specGlossMap = nullptr;
         _detailNormalScale = 1.0f;
         _detailNormalMap = nullptr;
@@ -122,7 +116,6 @@ namespace visutwin::canvas
         setOccludeSpecular(SPECOCC_AO);
         setOccludeSpecularIntensity(1.0f);
 
-        _dirtyShader = true;
     }
 
     void StandardMaterial::updateUniforms(MaterialUniforms& uniforms) const
@@ -141,23 +134,27 @@ namespace visutwin::canvas
         // Material rather than on StandardMaterial-specific members.
         Material::updateUniforms(uniforms);
 
-        // Apply StandardMaterial-specific overrides on top when StandardMaterial properties
-        // have been explicitly set (i.e. when using the StandardMaterial API directly).
-        if (_diffuseMap || !baseColorTexture()) {
-            // StandardMaterial owns the diffuse color; override base color.
-            uniforms.baseColor[0] = _diffuse.r;
-            uniforms.baseColor[1] = _diffuse.g;
-            uniforms.baseColor[2] = _diffuse.b;
-            uniforms.baseColor[3] = _opacity;
+        // StandardMaterial's own scalars ALWAYS win. This used to apply only when a
+        // diffuse map was set or no base-colour texture was, so a GLB material — the
+        // parser binds its texture on the base Material — silently ignored every later
+        // setOpacity / setMetalness / setGloss / setBumpiness. The parsers write these
+        // scalars alongside the base-Material factors, so nothing loaded depends on
+        // the base factors surviving.
+        uniforms.baseColor[0] = _diffuse.r;
+        uniforms.baseColor[1] = _diffuse.g;
+        uniforms.baseColor[2] = _diffuse.b;
+        uniforms.baseColor[3] = _opacity;
 
-            uniforms.metallicFactor = _metalness;
+        // The specular workflow has no metalness: upstream only reads it when
+        // useMetalness is on, and a packed 0 gives both backends' metal-rough code
+        // metallic = 0 without a branch of their own.
+        uniforms.metallicFactor = _useMetalness ? _metalness : 0.0f;
 
-            // Gloss convention: gloss=1 is smooth, roughness=0 is smooth.
-            // If glossInvert, the value is already roughness.
-            uniforms.roughnessFactor = _glossInvert ? _gloss : (1.0f - _gloss);
+        // Gloss convention: gloss=1 is smooth, roughness=0 is smooth.
+        // If glossInvert, the value is already roughness.
+        uniforms.roughnessFactor = _glossInvert ? _gloss : (1.0f - _gloss);
 
-            uniforms.normalScale = _bumpiness;
-        }
+        uniforms.normalScale = _bumpiness;
 
         // StandardMaterial always owns the emissive contribution: write _emissive * _emissiveIntensity
         // (linearized) directly, overriding whatever base Material::updateUniforms wrote from
@@ -196,6 +193,14 @@ namespace visutwin::canvas
         if (_metalnessMap)  uniforms.flags |= (1u << 6);       // bit 6: hasMetallicRoughnessMap
         if (_aoMap)         uniforms.flags |= (1u << 9);       // bit 9: hasOcclusionMap
         if (_emissiveMap)   uniforms.flags |= (1u << 11);      // bit 11: hasEmissiveMap
+        // bit 18: useSkybox OFF. Stored inverted so a zero flags word keeps the scene
+        // environment, which is upstream's default. Upstream's useSceneEnv drops the
+        // environment atlas for this material; SH probes and the flat ambient remain.
+        if (!_useSkybox)    uniforms.flags |= (1u << 18);
+        // bit 19: hasOpacityMap (slot 34, METAL ONLY — see ProgramLibrary's warning).
+        // The flags word was full; bits 18-20 came free when the sheen and iridescence
+        // map bits, which neither backend ever read, were removed.
+        if (_opacityMap)    uniforms.flags |= (1u << 19);
 
         // anisotropic specular.
         uniforms.anisotropy = _anisotropy;
@@ -234,21 +239,23 @@ namespace visutwin::canvas
         uniforms.sheenColor[1] = _sheenColor.g;
         uniforms.sheenColor[2] = _sheenColor.b;
         uniforms.sheenColor[3] = _sheenRoughness;
-        if (_sheenMap) uniforms.flags |= (1u << 18);  // bit 18: hasSheenMap
 
         // iridescence uniform packing (KHR_materials_iridescence).
         uniforms.iridescenceParams[0] = _iridescenceIntensity;
         uniforms.iridescenceParams[1] = _iridescenceIOR;
-        uniforms.iridescenceParams[2] = _iridescenceThicknessMin;
+        // z was the minimum thickness, which only a thickness map interpolates towards;
+        // neither backend read it and the map no longer exists.
+        uniforms.iridescenceParams[2] = 0.0f;
         uniforms.iridescenceParams[3] = _iridescenceThicknessMax;
-        if (_iridescenceMap)          uniforms.flags |= (1u << 19);  // bit 19: hasIridescenceMap
-        if (_iridescenceThicknessMap) uniforms.flags |= (1u << 20);  // bit 20: hasIridescenceThicknessMap
 
         // spec-gloss uniform packing (KHR_materials_pbrSpecularGlossiness).
-        uniforms.specGlossParams[0] = _specularColor.r;
-        uniforms.specGlossParams[1] = _specularColor.g;
-        uniforms.specGlossParams[2] = _specularColor.b;
-        uniforms.specGlossParams[3] = _glossiness;
+        // The specular workflow's F0 and gloss. `specular` is authored in sRGB and
+        // uploaded linear, as upstream's _defineColor uniforms are; gloss is the same
+        // `gloss` the metalness workflow uses, with glossInvert applied.
+        uniforms.specGlossParams[0] = std::pow(std::max(_specular.r, 0.0f), 2.2f);
+        uniforms.specGlossParams[1] = std::pow(std::max(_specular.g, 0.0f), 2.2f);
+        uniforms.specGlossParams[2] = std::pow(std::max(_specular.b, 0.0f), 2.2f);
+        uniforms.specGlossParams[3] = _glossInvert ? (1.0f - _gloss) : _gloss;
         if (_specGlossMap) uniforms.flags |= (1u << 21);  // bit 21: hasSpecGlossMap
 
         // detail normals + displacement uniform packing.
@@ -326,6 +333,8 @@ namespace visutwin::canvas
         overrideSlot(31, _glossMap);
         overrideSlot(32, _thicknessMap);
         overrideSlot(33, _refractionMap);
+        // Opacity map, alpha channel (upstream's opacityMapChannel default). Metal only.
+        overrideSlot(34, _opacityMap);
         // Vertex displacement map: routed to VERTEX texture slot 0 via the
         // >= 100 sentinel (see MetalTextureBinder::bindMaterialTextures).
         overrideSlot(100, _displacementMap);

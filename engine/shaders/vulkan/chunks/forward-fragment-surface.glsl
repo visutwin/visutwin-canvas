@@ -317,6 +317,11 @@ void main() {
     vec3 dielectricF0 = vtFeatureEnabled(VT_FEATURE_SPEC_GLOSS_BIT)
         ? material.specGlossParams.rgb : vec3(0.04);
     vec3 F0 = mix(dielectricF0, albedo.rgb, metallic);
+    // Upstream's useSpecular false (VT_FEATURE_NO_SPECULAR): the material renders no
+    // specular at all. A black F0 is not enough — the gloss-aware Fresnel still
+    // reflects at grazing angles — so every specular term below is multiplied by
+    // this. It is a specialization constant, so the zero folds away.
+    float specularOn = vtFeatureEnabled(VT_FEATURE_NO_SPECULAR_BIT) ? 0.0 : 1.0;
 
     // Thin-film iridescence, computed once before the light loop and blended into
     // each Fresnel (direct, IBL, probe) by intensity — the shape

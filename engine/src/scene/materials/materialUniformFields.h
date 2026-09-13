@@ -94,8 +94,10 @@
     /* --- Scalar maps (upstream glossMap / thicknessMap / refractionMap) --- */ \
     /* x = the gloss factor that the gloss map modulates; y,z,w = which channel of */ \
     /* the gloss / thickness / refraction map to read (0=r,1=g,2=b,3=a). A NEGATIVE */ \
-    /* channel means "no map bound": the flags word has no spare bits left (25-27 */ \
-    /* and 29-31 carry the two dither modes), so presence rides in the sign here. */ \
+    /* channel means "no map bound": presence rides in the sign because the flags */ \
+    /* word was full when these were added (25-27 and 29-31 carry the two dither */ \
+    /* modes). Bits 18-19 now mean useSkybox-off and hasOpacityMap on a */ \
+    /* StandardMaterial; bit 20 is the only free bit. */ \
     X(vec4, mapChannelParams, {1.0f, -1.0f, -1.0f, -1.0f}) \
     /* --- Parallax occlusion mapping --- */ \
     /* x = height-map base: the map value that sits at the level of the geometry, so */ \

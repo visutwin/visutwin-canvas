@@ -21,7 +21,9 @@
 #endif
     float3 indirectSpecular = float3(0.0);
 #if VT_FEATURE_ENV_ATLAS
-    if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
+    // bit 18: useSkybox off (upstream's useSceneEnv) — the flat ambient above stays.
+    if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0 &&
+        (material.flags & (1u << 18)) == 0u) {
 #if !VT_FEATURE_LIGHT_PROBES
         // Diffuse IBL: sample from dedicated Lambert irradiance sub-region
         // through `envAtlasSampler` (non-anisotropic, see common.metal).
