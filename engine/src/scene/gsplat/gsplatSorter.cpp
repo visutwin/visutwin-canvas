@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers 11.07.2026.
 //
 #include "gsplatSorter.h"
+#include "gsplatSortKeys.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +14,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        constexpr int NUM_BINS = 32;
+        constexpr int NUM_BINS = GSPLAT_SORT_BINS;
         constexpr int CHUNK_SIZE = 256;
     }
 
@@ -191,17 +192,21 @@ namespace visutwin::canvas
                 binBase[i] = i == 0 ? 0u : binBase[i - 1] + binDivider[i - 1];
             }
 
-            const float binRange = range / NUM_BINS;
+            // The per-splat depth and key, in 4-lane SIMD where the target has it
+            // (gsplatSortKeys.h). The count is a separate pass: it scatters writes
+            // across the buckets, which is what kept the combined loop scalar.
+            GSplatSortKeyParams keyParams;
+            keyParams.dx = dx;
+            keyParams.dy = dy;
+            keyParams.dz = dz;
+            keyParams.minDist = minDist;
+            keyParams.invBinRange = static_cast<float>(NUM_BINS) / range;
+            keyParams.binBase = binBase;
+            keyParams.binDivider = binDivider;
+            keyParams.bucketCount = bucketCount;
+            computeGSplatSortKeys(_centers.data(), numVertices, keyParams, _distances.data());
             for (size_t i = 0; i < numVertices; ++i) {
-                const float x = _centers[i * 3 + 0];
-                const float y = _centers[i * 3 + 1];
-                const float z = _centers[i * 3 + 2];
-                const float d = (x * dx + y * dy + z * dz - minDist) / binRange;
-                const int bin = std::clamp(static_cast<int>(d), 0, NUM_BINS - 1);
-                const uint32_t sortKey = std::min(bucketCount - 1u,
-                    binBase[bin] + static_cast<uint32_t>(binDivider[bin] * (d - static_cast<float>(bin))));
-                _distances[i] = sortKey;
-                _countBuffer[sortKey]++;
+                _countBuffer[_distances[i]]++;
             }
         }
 

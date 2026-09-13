@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 13.10.2025.
 //
 #include "lightmapper.h"
+#include "lightmapperBvh.h"
 
 #include <algorithm>
 #include <cmath>
@@ -83,25 +84,6 @@ namespace visutwin::canvas
             }
         }
 
-        // Möller-Trumbore ray/triangle. Returns hit distance in `t` (> 0).
-        bool rayTri(const Vector3& o, const Vector3& d, const Vector3& a,
-            const Vector3& b, const Vector3& c, float& t)
-        {
-            const Vector3 e1 = b - a, e2 = c - a;
-            const Vector3 pv = d.cross(e2);
-            const float det = e1.dot(pv);
-            if (std::fabs(det) < 1e-8f) return false;
-            const float inv = 1.0f / det;
-            const Vector3 tv = o - a;
-            const float u = tv.dot(pv) * inv;
-            if (u < 0.0f || u > 1.0f) return false;
-            const Vector3 qv = tv.cross(e1);
-            const float v = d.dot(qv) * inv;
-            if (v < 0.0f || u + v > 1.0f) return false;
-            t = e2.dot(qv) * inv;
-            return t > 1e-4f;
-        }
-
         // van der Corput radical inverse (base 2) for low-discrepancy AO.
         float radicalInverse2(uint32_t bits)
         {
@@ -122,9 +104,6 @@ namespace visutwin::canvas
             return static_cast<uint8_t>(c * 255.0f + 0.5f);
         }
 
-        // Median-split BVH over world-space triangles for fast any-hit ray tests.
-        // Without it, brute-force ray casting against a tessellated occluder makes
-        // a per-texel AO bake O(texels · rays · triangles) — minutes, not seconds.
         constexpr float GOLDEN_ANGLE = 2.399963229728653f;  // upstream _goldenAngle
 
         /// Upstream random.circlePointDeterministic — evenly spread points in a unit disc.
@@ -158,126 +137,6 @@ namespace visutwin::canvas
             return result;
         }
 
-        struct TriData { Vector3 a, b, c; };
-        struct BvhNode { Vector3 bmin, bmax; int start, count, left; };
-
-        class Bvh
-        {
-        public:
-            void build(const std::vector<TriData>& tris)
-            {
-                _tris = &tris;
-                _order.resize(tris.size());
-                for (size_t i = 0; i < tris.size(); ++i) _order[i] = static_cast<int>(i);
-                _nodes.clear();
-                if (!tris.empty()) {
-                    _nodes.reserve(tris.size() * 2);
-                    buildNode(0, static_cast<int>(tris.size()));
-                }
-            }
-
-            // Returns true if any triangle is hit within [eps, maxDist).
-            bool anyHit(const Vector3& o, const Vector3& d, const float maxDist) const
-            {
-                if (_nodes.empty()) return false;
-                const Vector3 inv(1.0f / d.getX(), 1.0f / d.getY(), 1.0f / d.getZ());
-                int stack[64];
-                int sp = 0;
-                stack[sp++] = 0;
-                while (sp > 0) {
-                    const BvhNode& n = _nodes[static_cast<size_t>(stack[--sp])];
-                    if (!slab(o, inv, n.bmin, n.bmax, maxDist)) continue;
-                    if (n.count > 0) {
-                        for (int i = 0; i < n.count; ++i) {
-                            const TriData& t = (*_tris)[static_cast<size_t>(_order[static_cast<size_t>(n.start + i)])];
-                            float hit;
-                            if (rayTri(o, d, t.a, t.b, t.c, hit) && hit < maxDist) return true;
-                        }
-                    } else {
-                        stack[sp++] = n.left;
-                        stack[sp++] = n.left + 1;
-                    }
-                }
-                return false;
-            }
-
-        private:
-            static bool slab(const Vector3& o, const Vector3& inv, const Vector3& bmin,
-                const Vector3& bmax, const float maxDist)
-            {
-                float t0 = 0.0f, t1 = maxDist;
-                for (int a = 0; a < 3; ++a) {
-                    const float oi = a == 0 ? o.getX() : (a == 1 ? o.getY() : o.getZ());
-                    const float ii = a == 0 ? inv.getX() : (a == 1 ? inv.getY() : inv.getZ());
-                    const float lo = a == 0 ? bmin.getX() : (a == 1 ? bmin.getY() : bmin.getZ());
-                    const float hi = a == 0 ? bmax.getX() : (a == 1 ? bmax.getY() : bmax.getZ());
-                    float near = (lo - oi) * ii, far = (hi - oi) * ii;
-                    if (near > far) std::swap(near, far);
-                    t0 = std::max(t0, near);
-                    t1 = std::min(t1, far);
-                    if (t0 > t1) return false;
-                }
-                return true;
-            }
-
-            int buildNode(const int start, const int count)
-            {
-                const int nodeIdx = static_cast<int>(_nodes.size());
-                _nodes.push_back({});
-                Vector3 bmin(1e30f, 1e30f, 1e30f), bmax(-1e30f, -1e30f, -1e30f);
-                Vector3 cmin(1e30f, 1e30f, 1e30f), cmax(-1e30f, -1e30f, -1e30f);
-                for (int i = 0; i < count; ++i) {
-                    const TriData& t = (*_tris)[static_cast<size_t>(_order[static_cast<size_t>(start + i)])];
-                    const Vector3 lo(std::min({t.a.getX(), t.b.getX(), t.c.getX()}),
-                                     std::min({t.a.getY(), t.b.getY(), t.c.getY()}),
-                                     std::min({t.a.getZ(), t.b.getZ(), t.c.getZ()}));
-                    const Vector3 hi(std::max({t.a.getX(), t.b.getX(), t.c.getX()}),
-                                     std::max({t.a.getY(), t.b.getY(), t.c.getY()}),
-                                     std::max({t.a.getZ(), t.b.getZ(), t.c.getZ()}));
-                    bmin = vmin(bmin, lo); bmax = vmax(bmax, hi);
-                    const Vector3 ctr = (lo + hi) * 0.5f;
-                    cmin = vmin(cmin, ctr); cmax = vmax(cmax, ctr);
-                }
-
-                if (count <= 4) {
-                    _nodes[static_cast<size_t>(nodeIdx)] = {bmin, bmax, start, count, -1};
-                    return nodeIdx;
-                }
-
-                const Vector3 ext = cmax - cmin;
-                const int axis = ext.getX() > ext.getY() ? (ext.getX() > ext.getZ() ? 0 : 2)
-                                                         : (ext.getY() > ext.getZ() ? 1 : 2);
-                const float mid = 0.5f * (axisVal(cmin, axis) + axisVal(cmax, axis));
-                int* first = _order.data() + start;
-                int* last = first + count;
-                int* split = std::partition(first, last, [&](const int idx) {
-                    const TriData& t = (*_tris)[static_cast<size_t>(idx)];
-                    const Vector3 ctr = (t.a + t.b + t.c) * (1.0f / 3.0f);
-                    return axisVal(ctr, axis) < mid;
-                });
-                int leftCount = static_cast<int>(split - first);
-                if (leftCount == 0 || leftCount == count) leftCount = count / 2;   // degenerate guard
-
-                const int leftChild = buildNode(start, leftCount);
-                buildNode(start + leftCount, count - leftCount);
-                _nodes[static_cast<size_t>(nodeIdx)] = {bmin, bmax, 0, 0, leftChild};
-                return nodeIdx;
-            }
-
-            static float axisVal(const Vector3& v, const int a) {
-                return a == 0 ? v.getX() : (a == 1 ? v.getY() : v.getZ());
-            }
-            static Vector3 vmin(const Vector3& a, const Vector3& b) {
-                return Vector3(std::min(a.getX(), b.getX()), std::min(a.getY(), b.getY()), std::min(a.getZ(), b.getZ()));
-            }
-            static Vector3 vmax(const Vector3& a, const Vector3& b) {
-                return Vector3(std::max(a.getX(), b.getX()), std::max(a.getY(), b.getY()), std::max(a.getZ(), b.getZ()));
-            }
-
-            const std::vector<TriData>* _tris = nullptr;
-            std::vector<int> _order;
-            std::vector<BvhNode> _nodes;
-        };
     }
 
     Lightmapper::Lightmapper(GraphicsDevice* device) : _device(device) {}
@@ -330,12 +189,13 @@ namespace visutwin::canvas
             }
         }
 
-        // BVH over occluder triangles for fast shadow/AO any-hit queries.
-        std::vector<TriData> triData;
-        triData.reserve(_occluders.size());
-        for (const auto& t : _occluders) triData.push_back({t.a, t.b, t.c});
-        Bvh bvh;
-        bvh.build(triData);
+        // 4-wide SIMD BVH over the occluder triangles for shadow/AO any-hit queries
+        // (lightmapperBvh.h).
+        std::vector<BvhTriangle> triangles;
+        triangles.reserve(_occluders.size());
+        for (const auto& t : _occluders) triangles.push_back({t.a, t.b, t.c});
+        LightmapperBvh bvh;
+        bvh.build(triangles);
         const auto occluded = [&](const Vector3& origin, const Vector3& dir, const float maxDist) {
             return bvh.anyHit(origin, dir, maxDist);
         };

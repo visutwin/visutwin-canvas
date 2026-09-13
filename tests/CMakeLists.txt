@@ -187,3 +187,19 @@ add_executable(visutwin-device-capability-tests
 target_link_libraries(visutwin-device-capability-tests PRIVATE visutwin-canvas)
 
 add_test(NAME device-capabilities COMMAND visutwin-device-capability-tests)
+
+add_executable(visutwin-gsplat-sort-keys-tests
+    gsplatSortKeysTests.cpp
+)
+
+target_link_libraries(visutwin-gsplat-sort-keys-tests PRIVATE visutwin-canvas)
+
+add_test(NAME gsplat-sort-keys COMMAND visutwin-gsplat-sort-keys-tests)
+
+add_executable(visutwin-lightmapper-bvh-tests
+    lightmapperBvhTests.cpp
+)
+
+target_link_libraries(visutwin-lightmapper-bvh-tests PRIVATE visutwin-canvas)
+
+add_test(NAME lightmapper-bvh COMMAND visutwin-lightmapper-bvh-tests)

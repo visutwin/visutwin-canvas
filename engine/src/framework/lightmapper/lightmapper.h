@@ -30,8 +30,8 @@ namespace visutwin::canvas
      * texel interpolates the world-space surface point + normal, evaluates
      * direct lighting from the registered lights (Lambert × attenuation, with
      * hard shadow rays), adds ambient occlusion via cosine-weighted hemisphere
-     * rays, dilates seams, and sRGB-encodes into an RGBA8 texture. Ray tests use
-     * brute-force Möller-Trumbore against all registered occluder triangles.
+     * rays, dilates seams, and sRGB-encodes into an RGBA8 texture. Ray tests walk
+     * a 4-wide SIMD BVH over the registered occluder triangles (lightmapperBvh.h).
      * Single bounce only (no GI); intended for static scenes and small meshes.
      */
     class Lightmapper

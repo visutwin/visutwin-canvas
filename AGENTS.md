@@ -682,6 +682,38 @@ present, but the rule below never depends on reading it.
   backend, check the same function in the other three, and add the contract to
   `tests/simdMathTests.cpp` — which only covers the backend the build selected,
   so an x86 CI build is what would actually guard the SSE path.
+- **GCC and clang both fuse `a * b + c` into FMA by default**, and GCC does it even
+  in strict C++ mode once `-mfma` is on — which Jolt's exported flags turn on for
+  every x86 engine target. Verified with objdump on Apple clang (arm64) and GCC 14
+  (x86). A fused scalar expression rounds differently from the same arithmetic in
+  SIMD intrinsics, so a scalar path can silently stop matching its SIMD twin. The
+  engine's FMA-fused scalar code is not a bug; comparing it bit for bit against
+  anything is.
+- **A SIMD kernel ships with its scalar reference and a bit-exact test.** Today:
+  `scene/gsplat/gsplatSortKeys` (splat depth and sort key) and
+  `framework/lightmapper/lightmapperBvh` (4-box slab test). Each exposes the scalar
+  form publicly, its test compares the two exactly, the kernel file is built with
+  `-ffp-contract=off` where a multiply-add could fuse (`engine/CMakeLists.txt`), and
+  `VISUTWIN_KERNELS_FORCE_SCALAR` builds the scalar path for measurement. These
+  kernels gate on `__SSE2__` and `__ARM_NEON && __aarch64__` DIRECTLY, not on
+  `USE_SIMD_*`, so on Apple silicon the maths classes use the Apple backend while
+  the kernels use NEON; `VISUTWIN_EXPECT_KERNEL_BACKEND` makes their tests fail on a
+  silent fall-through, as `VISUTWIN_EXPECT_SIMD_BACKEND` does for the maths. Two
+  traps the slab test had to avoid: a zero direction component gives
+  `0 * inf = NaN`, which `std::min` / `std::max` IGNORE and NEON's `vminq` /
+  `vmaxq` PROPAGATE, so the SIMD form selects on comparisons instead; and splat
+  depths must be clamped to the bin range before any integer conversion, because
+  the unclamped negative-to-`uint32_t` cast is undefined — x86 wrapped a splat
+  nearer than the nearest bound corner to the FARTHEST key.
+- **The CPU lightmapper's BVH skipped most of every tree until 2026-09-13.** It
+  stored only a node's left child and walked `left` and `left + 1`, but children
+  are built depth-first, so `left + 1` is the right sibling only when the left child
+  is a leaf. On a 24,800-triangle scene it answered every ray that should have hit
+  as a miss: no shadows and no AO. `LightmapperBvh` stores both children, and
+  `tests/lightmapperBvhTests.cpp` checks any-hit against brute force over every
+  triangle — the only oracle that cannot share a tree bug. Nothing visual caught
+  it because `lightmap-bake` starts with the GPU bake; the CPU bake runs only when
+  C is pressed, so a default screenshot proves nothing about the CPU path.
 - **A glTF attribute is not always float, and refusing a quantised one drops the
   whole primitive in silence.** `TEXCOORD_n` and `COLOR_n` may be normalized
   byte/short in CORE glTF, and `KHR_mesh_quantization` extends that to `POSITION`,

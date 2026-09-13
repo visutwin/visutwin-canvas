@@ -203,6 +203,15 @@ if(NOT VISUTWIN_BACKEND_VULKAN)
     list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/platform/graphics/vulkan/.*")
 endif()
 
+# A file holding a SIMD kernel and the scalar reference it is tested against must
+# not let the compiler fuse multiply-add into FMA: GCC and clang both do by
+# default (GCC even in strict C++ mode once -mfma is on, which Jolt's exported
+# flags turn on), the fused scalar path rounds differently, and the two stop
+# agreeing bit for bit.
+set_source_files_properties(
+    "${VISUTWIN_ROOT_DIR}/engine/src/scene/gsplat/gsplatSortKeys.cpp"
+    PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+
 # ── Embedded Metal shaders ────────────────────────────────────────────
 # Self-contained MSL programs (particle sim/render, gsplat render) live as
 # editable .metal files but are embedded into the binary at build time as

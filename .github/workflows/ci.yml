@@ -98,6 +98,9 @@ jobs:
       - name: Unit tests
         env:
           VISUTWIN_EXPECT_SIMD_BACKEND: apple
+          # The splat sort-key and lightmapper BVH kernels pick raw NEON on Apple
+          # silicon, independently of the maths classes' Apple simd backend.
+          VISUTWIN_EXPECT_KERNEL_BACKEND: neon
         run: ctest --preset default
 
   linux-vulkan:
@@ -142,4 +145,6 @@ jobs:
       - name: Build
         run: cmake --build --preset vulkan
       - name: Unit tests
+        env:
+          VISUTWIN_EXPECT_KERNEL_BACKEND: sse2
         run: ctest --preset vulkan
