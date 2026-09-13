@@ -67,8 +67,55 @@ Sibling repositories (separate CMake projects, same parent dir):
 
 ```bash
 cmake --preset default
-cmake --build build
+cmake --build --preset default
+ctest --preset default
 ```
+
+- **Test presets exclude the `vulkan` label.** `vulkan-validation-smoke` needs a
+  GPU and a window, so `ctest --preset default` and `ctest --preset vulkan` run
+  the unit tests only, and `ctest --preset vulkan-smoke` runs the smoke test on
+  its own. Every preset errors when it matches no tests, so a broken filter fails
+  rather than passing on nothing.
+- **CI is `.github/workflows/ci.yml`**, three jobs: `simd-backends` compiles the
+  header-only SIMD contract test once per backend (SSE and scalar on Linux x86,
+  NEON and Apple on macOS arm64) with no vcpkg; `macos-metal` builds the `default`
+  preset and runs its tests; `linux-vulkan` builds the `vulkan` preset with GCC 14
+  and runs its unit tests. All three are gating; `linux-vulkan` was verified on
+  an Ubuntu 24.04-based machine with the same presets and packages before it was.
+- **`VISUTWIN_EXPECT_SIMD_BACKEND=sse|neon|apple|scalar` makes the SIMD test FAIL
+  unless that backend is the one `defines.h` selected.** Only one backend compiles
+  per build, and a missing flag falls through to another backend silently and
+  still passes — testing the wrong code. Two traps it has already caught: Apple's
+  x86-64 default baseline includes SSE4.1, so an x86 build meant to be scalar is
+  SSE on macOS; and any x86 build on macOS without SSE4.1 selects the APPLE
+  backend, so a scalar build cannot be produced on macOS at all.
+- **Linking Jolt makes the whole engine an AVX2 build on x86.** vcpkg's
+  `JoltConfig.cmake` exports `-mavx2 -mbmi -mpopcnt -mlzcnt -mf16c -mfma` as
+  INTERFACE compile options, so every target linking the engine — tests included —
+  compiles the SSE backend and needs an AVX2 CPU, whatever the compiler's default
+  baseline is. The `linux-vulkan` job therefore tests SSE, and only the
+  `simd-backends` matrix builds scalar. A pre-Haswell x86 machine would SIGILL.
+- **The `vulkan` preset needs a SYSTEM Vulkan loader.** vcpkg's `vulkan-headers`
+  port supplies headers only, and `find_package(Vulkan)` wants the unversioned
+  library: `libvulkan-dev` on Ubuntu (the runtime package ships only
+  `libvulkan.so.1`), the Vulkan SDK's `libvulkan.dylib` on macOS. `glslc` and
+  `spirv-cross` come from vcpkg's own `shaderc` and `spirv-cross` tools.
+- **tinygltf 2.9.7 builds from an OVERLAY port** in `vcpkg-overlays/ports/`,
+  registered in `vcpkg.json`. GitHub regenerated the tag's source archive, so the
+  baseline port's SHA512 fails on any machine without tinygltf cached — which is
+  every fresh CI runner. The overlay differs from the baseline port only in that
+  hash, and the regenerated archive was checked file for file against the tag.
+  vcpkg never re-hashed 2.9.7 (upstream moved to 3.0.0), so delete the overlay
+  when the baseline is bumped past it.
+- **Apple's libc++ hides missing standard includes; GCC's libstdc++ does not.**
+  libc++ pulls `<cmath>`, `<cstdint>` and `<array>` in transitively, so a header
+  that uses `std::sqrt`, `uint32_t` or `std::array` without including them builds
+  on macOS and fails on Linux. The first Linux build found eight such headers, and
+  one of them cascaded into fifty failed files. Include what you use; the Linux CI
+  job is what catches it now.
+- `vcpkg.json` qualifies ImGui's `metal-binding` feature to `osx`. The port
+  declares it macOS-only, and an unqualified feature makes the whole manifest
+  unresolvable on Linux.
 
 ## Dependencies (vcpkg)
 

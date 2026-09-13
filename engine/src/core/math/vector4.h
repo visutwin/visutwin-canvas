@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <cmath>
+
 #include "defines.h"
 
 namespace visutwin::canvas

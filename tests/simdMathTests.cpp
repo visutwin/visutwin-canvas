@@ -16,7 +16,9 @@
 // SSE4.1 — which is the argument for an x86 build in CI.
 
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
+#include <string>
 
 #include "core/math/matrix4.h"
 #include "core/math/quaternion.h"
@@ -56,9 +58,36 @@ namespace
     }
 }
 
+namespace
+{
+    // The backend defines.h actually selected. A build that asked for SSE but
+    // lacked -msse4.1, or asked for NEON without USE_SIMD_PREFER_NEON reaching
+    // the compiler, falls through to another backend silently and still passes —
+    // it just tests the wrong code. CI sets VISUTWIN_EXPECT_SIMD_BACKEND so that
+    // fall-through fails instead of reading as coverage.
+    const char* compiledBackend()
+    {
+#if defined(USE_SIMD_SSE)
+        return "sse";
+#elif defined(USE_SIMD_NEON)
+        return "neon";
+#elif defined(USE_SIMD_APPLE)
+        return "apple";
+#else
+        return "scalar";
+#endif
+    }
+}
+
 int main()
 {
-    std::cout << "simd math contracts\n";
+    std::cout << "simd math contracts (backend: " << compiledBackend() << ")\n";
+    if (const char* expected = std::getenv("VISUTWIN_EXPECT_SIMD_BACKEND");
+        expected && *expected && std::string(expected) != compiledBackend()) {
+        std::cout << "FAIL expected the " << expected << " backend but this build compiled "
+                  << compiledBackend() << "\n";
+        return 1;
+    }
 
     // ── Horizontal sums ──────────────────────────────────────────────────────
     // 3-4-5 triangle: the classic case, and the one the doubled SSE reduction got

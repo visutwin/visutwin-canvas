@@ -38,5 +38,62 @@
         "VCPKG_MANIFEST_FEATURES": "vulkan;jolt"
       }
     }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default"
+    },
+    {
+      "name": "vulkan",
+      "configurePreset": "vulkan"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      },
+      "filter": {
+        "exclude": {
+          "label": "vulkan"
+        }
+      }
+    },
+    {
+      "name": "vulkan",
+      "configurePreset": "vulkan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      },
+      "filter": {
+        "exclude": {
+          "label": "vulkan"
+        }
+      }
+    },
+    {
+      "name": "vulkan-smoke",
+      "configurePreset": "vulkan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      },
+      "filter": {
+        "include": {
+          "label": "vulkan"
+        }
+      }
+    }
   ]
 }

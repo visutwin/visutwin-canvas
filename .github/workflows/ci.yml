@@ -1,0 +1,145 @@
+# Continuous integration: the test floor.
+#
+# Three jobs, from cheapest to most expensive:
+#
+#   simd-backends  Compiles the SIMD contract test once per backend and asserts
+#                  the backend it actually selected. Only ONE backend compiles in
+#                  an ordinary build, so the SSE and NEON paths were never built
+#                  by anything; two wrong SSE sums lived there unnoticed. The test
+#                  and the maths it covers are header-only, so this needs no
+#                  vcpkg and runs in seconds.
+#   macos-metal    The default preset: Metal backend, every unit test. The SIMD
+#                  test runs here too with the Apple backend expected.
+#   linux-vulkan   The vulkan preset on Linux: engine build plus every unit test.
+#                  The Vulkan validation smoke test needs a GPU and a window, so
+#                  the test presets exclude its label everywhere in CI.
+#
+# linux-vulkan was verified before it was enabled as a gate: the same presets,
+# compiler and package list built clean and passed every unit test on an
+# Ubuntu 24.04-based machine. That run is also what found the missing standard
+# includes (<cstdint>, <cmath>, <array>) Apple's libc++ had been supplying
+# transitively, and the tinygltf archive whose hash GitHub changed.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Must match builtin-baseline in vcpkg.json; the cache key hashes both.
+  VCPKG_COMMIT: 1e199d32ad53aab1defda61ce41c380302e3f95c
+
+jobs:
+  simd-backends:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, backend: sse,    flags: "-msse4.1" }
+          - { runner: ubuntu-24.04, backend: scalar, flags: "-mno-sse4.1" }
+          - { runner: macos-15,     backend: neon,   flags: "-DUSE_SIMD_PREFER_NEON" }
+          - { runner: macos-15,     backend: apple,  flags: "" }
+    name: simd (${{ matrix.backend }})
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the contract test
+        run: >
+          clang++ -std=c++23 ${{ matrix.flags }} -I engine/src
+          tests/simdMathTests.cpp -o simd-math-tests
+      - name: Run it against the expected backend
+        env:
+          VISUTWIN_EXPECT_SIMD_BACKEND: ${{ matrix.backend }}
+        run: ./simd-math-tests
+
+  macos-metal:
+    name: macOS (Metal)
+    runs-on: macos-15
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: brew install ninja
+      # The engine's CMake enables the Metal language whenever the Metal backend
+      # is on, and that runs `xcrun --find metal`. Xcode 16 bundles the compiler;
+      # Xcode 26 moved it into a separate download. Fetch it only when missing so
+      # the job survives the runner image changing its default Xcode.
+      - name: Ensure the Metal shader compiler is present
+        run: |
+          if ! xcrun --find metal >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun metal --version
+      - name: Check out vcpkg at the manifest baseline
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+      - name: Configure
+        run: cmake --preset default
+      - name: Build
+        run: cmake --build --preset default
+      - name: Unit tests
+        env:
+          VISUTWIN_EXPECT_SIMD_BACKEND: apple
+        run: ctest --preset default
+
+  linux-vulkan:
+    name: Linux (Vulkan)
+    runs-on: ubuntu-24.04
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
+      # GCC 14, not the distro's default GCC 13: the unit tests use std::print,
+      # which libstdc++ only gained in 14. Staying on libstdc++ (rather than clang
+      # with libc++) also matches the ABI vcpkg builds every dependency against.
+      CC: gcc-14
+      CXX: g++-14
+    steps:
+      - uses: actions/checkout@v4
+      # libvulkan-dev supplies the loader (libvulkan.so) the engine links. vcpkg's
+      # vulkan-headers port has headers only, and the runtime package alone ships
+      # just the versioned libvulkan.so.1, which find_package(Vulkan) cannot use.
+      - name: Install build tools, SDL3's system dependencies and the Vulkan loader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc-14 g++-14 \
+            pkg-config autoconf autoconf-archive automake libtool bison python3-venv \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev \
+            libxtst-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev \
+            libdrm-dev libgbm-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
+            libvulkan-dev
+      - name: Check out vcpkg at the manifest baseline
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+      - name: Configure
+        run: cmake --preset vulkan
+      - name: Build
+        run: cmake --build --preset vulkan
+      - name: Unit tests
+        run: ctest --preset vulkan

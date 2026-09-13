@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <cstdint>
+
 #include <bitset>
 
 namespace visutwin::canvas

@@ -2,6 +2,8 @@
 // Copyright 2025-2026 Arnis Lektauers
 #pragma once
 
+#include <cstdint>
+
 #include <string>
 #include <vector>
 #include <array>

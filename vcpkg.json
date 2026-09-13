@@ -15,7 +15,7 @@
     { "name": "draco"                                 },
     { "name": "assimp"                                },
     { "name": "boost-core"                            },
-    { "name": "imgui",          "features": ["sdl3-binding", "metal-binding", "docking-experimental"] },
+    { "name": "imgui",          "features": ["sdl3-binding", { "name": "metal-binding", "platform": "osx" }, "docking-experimental"] },
     { "name": "implot"                               }
   ],
   "features": {
@@ -35,5 +35,8 @@
         { "name": "spirv-cross"              }
       ]
     }
+  },
+  "vcpkg-configuration": {
+    "overlay-ports": ["./vcpkg-overlays/ports"]
   }
 }

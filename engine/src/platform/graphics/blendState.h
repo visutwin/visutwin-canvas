@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <cstdint>
+
 #include "core/utils.h"
 
 namespace visutwin::canvas
