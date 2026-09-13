@@ -95,6 +95,14 @@ ctest --preset default
   compiles the SSE backend and needs an AVX2 CPU, whatever the compiler's default
   baseline is. The `linux-vulkan` job therefore tests SSE, and only the
   `simd-backends` matrix builds scalar. A pre-Haswell x86 machine would SIGILL.
+- **A system package a dependency only RECOMMENDS is not reliably there on CI.**
+  vcpkg's `libxcrypt` port (pulled in transitively on Linux) refuses to configure
+  without `libltdl-dev`. On a clean Ubuntu 24.04, `apt-get install libtool` brings
+  it in as a Recommends, so a container reproduction passes; GitHub's runner image
+  ships `libtool` preinstalled, the install is a no-op, and the job fails in
+  configure. Name every package a port asks for explicitly in `ci.yml`. The
+  failure log is only visible when signed in to GitHub (`gh run view <id>
+  --log-failed`); the public API gives step names and an exit code, nothing more.
 - **The `vulkan` preset needs a SYSTEM Vulkan loader.** vcpkg's `vulkan-headers`
   port supplies headers only, and `find_package(Vulkan)` wants the unversioned
   library: `libvulkan-dev` on Ubuntu (the runtime package ships only

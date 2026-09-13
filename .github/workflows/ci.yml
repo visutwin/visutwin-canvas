@@ -119,6 +119,11 @@ jobs:
       # libvulkan-dev supplies the loader (libvulkan.so) the engine links. vcpkg's
       # vulkan-headers port has headers only, and the runtime package alone ships
       # just the versioned libvulkan.so.1, which find_package(Vulkan) cannot use.
+      # libltdl-dev is named explicitly because vcpkg's libxcrypt port refuses to
+      # configure without it. On a clean Ubuntu, installing libtool brings it in as a
+      # Recommends; GitHub's image ships libtool PREINSTALLED, so that install is a
+      # no-op and the recommendation never arrives. A container built from
+      # ubuntu:24.04 therefore passes while the runner fails.
       - name: Install build tools, SDL3's system dependencies and the Vulkan loader
         run: |
           sudo apt-get update
@@ -127,7 +132,7 @@ jobs:
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev \
             libxtst-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev \
             libdrm-dev libgbm-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
-            libvulkan-dev
+            libvulkan-dev libltdl-dev
       - name: Check out vcpkg at the manifest baseline
         run: |
           git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
