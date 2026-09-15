@@ -51,6 +51,11 @@
                 // gloss-aware curve is the directional case only.
                 float D = distributionGGX(nh, roughness);
                 float Vis = getVisibilitySmithGGX(NdotV, nl, roughness);
+                if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
+                    // Anisotropic GGX (common-brdf): D carries the whole D * Vis product.
+                    D = getLightSpecularAnisoGGX(N, V, H, L, anisoT, anisoB, anisoAlpha);
+                    Vis = 1.0;
+                }
                 vec3 F = F0;
                 vec3 radiance = cl.colorIntensity.rgb *
                     cl.colorIntensity.w * atten;

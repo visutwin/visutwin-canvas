@@ -215,11 +215,35 @@ void main() {
         roughness = 1.0 - material.specGlossParams.w;
     }
     roughness = clamp(roughness, 0.04, 1.0);
+    // Anisotropic GGX frame (upstream anisotropy.js + lightSpecularAnisoGGX.js),
+    // mirrored from forward-fragment-surface.metal; the math is in common-brdf. The
+    // signed engine value is upstream's deprecated `anisotropy` setter: intensity is
+    // its magnitude, and a negative value is rotation 90, which puts the anisotropy
+    // tangent on the vertex BITANGENT. B is cross(geometric normal, T), as upstream
+    // builds it from the TBN's own normal rather than the normal-mapped one.
+    float anisoIntensity = 0.0;
+    vec2 anisoAlpha = vec2(1.0);
+    vec3 anisoT = vec3(1.0, 0.0, 0.0);
+    vec3 anisoB = vec3(0.0, 0.0, 1.0);
     if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
-        // Energy-preserving scalar approximation until the tangent-aligned
-        // GGX sampling path is shared with Metal.
-        roughness = clamp(roughness * (1.0 - 0.35 * abs(material.anisotropy)),
-            0.04, 1.0);
+        anisoIntensity = clamp(abs(material.anisotropy), 0.0, 1.0);
+        anisoAlpha = getAnisotropicAlpha(1.0 - roughness, anisoIntensity);
+        vec3 Ng = normalize(fragWorldNormal);
+        if (vtFeatureEnabled(VT_FEATURE_DOUBLE_SIDED_BIT) && !gl_FrontFacing) {
+            Ng = -Ng;
+        }
+        vec3 Tv = fragWorldTangent.xyz;
+        if (dot(Tv, Tv) >= 1e-6) {
+            Tv = normalize(Tv);
+            vec3 Bv = normalize(cross(Ng, Tv)) * fragWorldTangent.w;
+            anisoT = material.anisotropy >= 0.0 ? Tv : Bv;
+        } else {
+            // No tangent stream. Upstream derives one from screen-space
+            // derivatives; this port has no such fallback, so take any tangent.
+            vec3 up = abs(Ng.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+            anisoT = normalize(cross(up, Ng));
+        }
+        anisoB = normalize(cross(Ng, anisoT));
     }
     metallic = clamp(metallic, 0.0, 1.0);
 

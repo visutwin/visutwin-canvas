@@ -1,9 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// TAA reference scene: the PBR house under the table-mountain env atlas with a
-// shadow-casting directional light and an orbiting cube, plus keyboard controls
-// for the TAA and camera-frame rendering settings.
+// Port of upstream graphics/taa.
+//
+// The PBR house (scaled 100x) under the table-mountain env atlas (skybox mip 0,
+// exposure 2.5), a shadow-casting directional light, and a cube orbiting the
+// house at radius 130 while it spins. The camera frame runs TAA (jitter 1),
+// ACES tone mapping, bloom 0.02 and sharpness 0.5; an orbit camera frames the
+// house on start.
+//
+// Keys stand in for upstream's controls panel, over the same parameters:
+//   T      TAA enabled (like upstream, turning it on sets sharpness 1, off 0)
+//   [ / ]  TAA jitter -/+ 0.05, 0..1
+//   S      sharpness, cycled 0 / 0.25 / 0.5 / 0.75 / 1
+//   B      bloom on (0.02) / off
+//   - / =  render target scale -/+ 0.1, 0.5..1
+//
+// DEVIATIONS:
+// - upstream's orbitCamera script (inertia 0.2, distanceMax 400, frameOnStart)
+//   is replaced by the examples' CameraControls in orbit mode. The start pose is
+//   computed the way frameOnStart does it: pivot at the house's AABB centre, the
+//   viewing direction from the authored camera position (0, 40, -220), distance
+//   1.5 * max half-extent / sin(fov / 2), clamped to 400. There is no inertia.
 //
 #include <algorithm>
 #include <cmath>
@@ -24,28 +42,8 @@ public:
 protected:
     bool create() override
     {
-        spdlog::info("*** TAA Example Started ***");
-
-        // setup skydome
-        scene()->setSkyboxMip(0);
-        scene()->setExposure(2.5f);
-        scene()->setToneMapping(TONEMAP_ACES);
-        scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
-
-        // add shadow casting directional light
-        auto* light = createDirectionalLight(Vector3(40.0f, 10.0f, 0.0f),
-            Color(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, true);
-        if (auto* lightComp = light->findComponent<LightComponent>()) {
-            lightComp->setShadowResolution(4096);
-            lightComp->setShadowDistance(600.0f);
-            lightComp->setShadowBias(0.2f);
-            lightComp->setShadowNormalBias(0.05f);
-        }
-
-        // ── Load resources synchronously ──────────────────────────────────────
-        // Assets matching upstream TAA example
         _envAtlas = std::make_unique<Asset>(
-            "table-mountain-env-atlas",
+            "env-atlas",
             AssetType::TEXTURE,
             assetPath("cubemaps/table-mountain-env-atlas.png"),
             AssetData{
@@ -58,12 +56,16 @@ protected:
         _cube = std::make_unique<Asset>(
             "cube", AssetType::CONTAINER, assetPath("models/playcanvas-cube.glb"));
 
+        // Setup skydome with low intensity
         if (const auto envAtlasResource = _envAtlas->resource()) {
             scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
         } else {
             spdlog::warn("Failed to load environment atlas — continuing without IBL");
         }
+        scene()->setSkyboxMip(0);
+        scene()->setExposure(2.5f);
 
+        // Create an instance of the house and add it to the scene
         const auto houseResource = _house->resource();
         if (!houseResource) {
             spdlog::error("Failed to load house model");
@@ -73,33 +75,54 @@ protected:
         houseEntity->setLocalScale(100, 100, 100);
         root()->addChild(houseEntity);
 
+        // Frame the house the way upstream's orbitCamera frameOnStart does.
+        constexpr float fov = 80.0f;
+        const auto houseBbox = entityBounds(houseEntity);
+        const Vector3 pivot = houseBbox.center();
+        const Vector3 halfExtents = houseBbox.halfExtents();
+        const float radius = std::max({halfExtents.getX(), halfExtents.getY(), halfExtents.getZ()});
+        const float distance = std::min(radius * 1.5f / std::sin(0.5f * fov * DEG_TO_RAD), 400.0f);
+        const Vector3 authoredPosition(0.0f, 40.0f, -220.0f);
+        const Vector3 cameraPosition = pivot + (authoredPosition - pivot).normalized() * distance;
+
+        // Create an Entity with a camera component
+        auto* camera = createCamera(cameraPosition);
+        _cameraComp = camera->findComponent<CameraComponent>();
+        if (_cameraComp && _cameraComp->camera()) {
+            _cameraComp->camera()->setNearClip(10.0f);
+            _cameraComp->camera()->setFarClip(600.0f);
+            _cameraComp->camera()->setFov(fov);
+        }
+
+        auto* controls = addOrbitControls(camera, pivot);
+        if (controls) {
+            controls->setZoomRange(Vector2(0.0f, 400.0f));
+            controls->storeResetState();
+        }
+
+        // Add a shadow casting directional light
+        auto* light = createDirectionalLight(Vector3(40.0f, 10.0f, 0.0f),
+            Color(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, true);
+        if (auto* lightComp = light->findComponent<LightComponent>()) {
+            lightComp->setShadowResolution(4096);
+            lightComp->setShadowDistance(600.0f);
+            lightComp->setShadowBias(0.2f);
+            lightComp->setShadowNormalBias(0.05f);
+        }
+
         if (const auto cubeResource = _cube->resource()) {
             _cubeEntity = std::get<ContainerResource*>(*cubeResource)->instantiateRenderEntity();
             _cubeEntity->setLocalScale(30, 30, 30);
             root()->addChild(_cubeEntity);
         }
 
-        // Auto-frame the house model
-        const auto houseBbox = entityBounds(houseEntity);
-        _focusPoint = houseBbox.center();
-        const float sceneRadius = std::max(houseBbox.halfExtents().length(), 1.0f);
-        _orbitDistance = std::max(sceneRadius * 2.0f, 220.0f);
-
-        // create camera entity
-        auto* camera = createCamera(_focusPoint + Vector3(0.0f, sceneRadius * 0.3f, _orbitDistance));
-        _cameraComp = camera->findComponent<CameraComponent>();
-
-        if (_cameraComp && _cameraComp->camera()) {
-            _cameraComp->camera()->setNearClip(std::max(1.0f, sceneRadius * 0.01f));
-            _cameraComp->camera()->setFarClip(std::max(600.0f, sceneRadius * 6.0f));
-            _cameraComp->camera()->setFov(80.0f);
-        }
-
-        // TAA enabled by default, jitter=1.0
+        // Camera frame: ACES, bloom 0.02, then the initial control values
+        // (scale 1, bloom on, sharpness 0.5, TAA on with jitter 1).
         if (_cameraComp) {
+            _cameraComp->setToneMapping(TONEMAP_ACES);
+
             auto taa = _cameraComp->taa();
             taa.enabled = true;
-            taa.highQuality = true;
             taa.jitter = 1.0f;
             _cameraComp->setTaa(taa);
 
@@ -107,27 +130,11 @@ protected:
             rendering.bloomIntensity = 0.02f;
             rendering.sharpness = 0.5f;
             rendering.renderTargetScale = 1.0f;
-            rendering.toneMapping = TONEMAP_ACES;
             _cameraComp->setRendering(rendering);
         }
 
-        _controls = addOrbitControls(camera, _focusPoint);
-        _controls->setAutoFarClip(true);
-        _controls->setMoveSpeed(2 * sceneRadius);
-        _controls->setMoveFastSpeed(4 * sceneRadius);
-        _controls->setMoveSlowSpeed(sceneRadius);
-        _controls->setOrbitDistance(_orbitDistance);
-        _controls->storeResetState();
-
-        spdlog::info("House AABB center=({:.1f},{:.1f},{:.1f}), radius={:.1f}, orbit={:.1f}",
-            _focusPoint.getX(), _focusPoint.getY(), _focusPoint.getZ(),
-            sceneRadius, _orbitDistance);
-
-        spdlog::info("Orbit controls: LMB/RMB orbit, Shift/MMB pan, Wheel/Pinch zoom, F focus, R reset");
-        spdlog::info("TAA controls: T toggle TAA, Y toggle quality, [ ] adjust jitter");
-        spdlog::info("Render controls: B toggle bloom, S cycle sharpness, M cycle tonemap, -/= adjust scale, N normal debug");
-        logTaaState("init");
-        logRenderingState("init");
+        spdlog::info("Controls: T TAA, [ ] jitter, S sharpness, B bloom, -/= resolution scale");
+        logState("init");
 
         return true;
     }
@@ -138,151 +145,64 @@ protected:
             return false;
         }
 
-        switch (event.key.key) {
-        // TAA controls
-        case SDLK_T: {
-            auto taa = _cameraComp->taa();
-            taa.enabled = !taa.enabled;
-            _cameraComp->setTaa(taa);
-            logTaaState("toggle");
-            return true;
-        }
-        case SDLK_Y: {
-            auto taa = _cameraComp->taa();
-            taa.highQuality = !taa.highQuality;
-            _cameraComp->setTaa(taa);
-            logTaaState("quality");
-            return true;
-        }
-        case SDLK_LEFTBRACKET: {
-            auto taa = _cameraComp->taa();
-            taa.jitter = std::max(0.0f, taa.jitter - 0.05f);
-            _cameraComp->setTaa(taa);
-            logTaaState("jitter-");
-            return true;
-        }
-        case SDLK_RIGHTBRACKET: {
-            auto taa = _cameraComp->taa();
-            taa.jitter = std::min(1.0f, taa.jitter + 0.05f);
-            _cameraComp->setTaa(taa);
-            logTaaState("jitter+");
-            return true;
-        }
+        auto taa = _cameraComp->taa();
+        auto rendering = _cameraComp->rendering();
 
-        // Rendering controls
-        case SDLK_B: {
-            auto rendering = _cameraComp->rendering();
-            rendering.bloomIntensity = rendering.bloomIntensity > 0.0f ? 0.0f : 0.02f;
-            _cameraComp->setRendering(rendering);
-            logRenderingState("bloom");
-            return true;
-        }
-        case SDLK_S: {
-            // Cycle sharpness: 0.0 -> 0.25 -> 0.5 -> 0.75 -> 1.0 -> 0.0
-            auto rendering = _cameraComp->rendering();
+        switch (event.key.key) {
+        case SDLK_T:
+            taa.enabled = !taa.enabled;
+            // TAA has been flipped, setup sharpening appropriately (as upstream).
+            rendering.sharpness = taa.enabled ? 1.0f : 0.0f;
+            break;
+        case SDLK_LEFTBRACKET:
+            taa.jitter = std::max(0.0f, taa.jitter - 0.05f);
+            break;
+        case SDLK_RIGHTBRACKET:
+            taa.jitter = std::min(1.0f, taa.jitter + 0.05f);
+            break;
+        case SDLK_S:
             if (rendering.sharpness < 0.125f) rendering.sharpness = 0.25f;
             else if (rendering.sharpness < 0.375f) rendering.sharpness = 0.5f;
             else if (rendering.sharpness < 0.625f) rendering.sharpness = 0.75f;
             else if (rendering.sharpness < 0.875f) rendering.sharpness = 1.0f;
             else rendering.sharpness = 0.0f;
-            _cameraComp->setRendering(rendering);
-            logRenderingState("sharpness");
-            return true;
-        }
-        case SDLK_M: {
-            // Cycle tonemapping: LINEAR -> ACES -> NONE -> LINEAR
-            auto rendering = _cameraComp->rendering();
-            if (rendering.toneMapping == TONEMAP_LINEAR) rendering.toneMapping = TONEMAP_ACES;
-            else if (rendering.toneMapping == TONEMAP_ACES) rendering.toneMapping = TONEMAP_NONE;
-            else rendering.toneMapping = TONEMAP_LINEAR;
-            _cameraComp->setRendering(rendering);
-            // Also update scene tonemapping
-            scene()->setToneMapping(rendering.toneMapping);
-            logRenderingState("tonemap");
-            return true;
-        }
-        case SDLK_MINUS: {
-            auto rendering = _cameraComp->rendering();
+            break;
+        case SDLK_B:
+            rendering.bloomIntensity = rendering.bloomIntensity > 0.0f ? 0.0f : 0.02f;
+            break;
+        case SDLK_MINUS:
             rendering.renderTargetScale = std::max(0.5f, rendering.renderTargetScale - 0.1f);
-            _cameraComp->setRendering(rendering);
-            logRenderingState("scale-");
-            return true;
-        }
-        case SDLK_EQUALS: {
-            auto rendering = _cameraComp->rendering();
+            break;
+        case SDLK_EQUALS:
             rendering.renderTargetScale = std::min(1.0f, rendering.renderTargetScale + 0.1f);
-            _cameraComp->setRendering(rendering);
-            logRenderingState("scale+");
-            return true;
-        }
-
-        // Scene controls
-        case SDLK_N: {
-            const bool enabled = !scene()->debugNormalMapsEnabled();
-            scene()->setDebugNormalMapsEnabled(enabled);
-            spdlog::info("Normal map debug toggle: {}", enabled ? "ON" : "OFF");
-            return true;
-        }
-        case SDLK_F:
-            if (_controls) {
-                _controls->focus(_focusPoint, _orbitDistance);
-            }
-            return true;
-
+            break;
         default:
             return false;
         }
+
+        _cameraComp->setTaa(taa);
+        _cameraComp->setRendering(rendering);
+        logState("changed");
+        return true;
     }
 
     void update(const float dt) override
     {
-        // animate the cube — orbit + rotate
-        _totalTime += dt;
+        _time += dt;
         if (_cubeEntity) {
-            _cubeEntity->setLocalPosition(
-                130.0f * std::sin(_totalTime),
-                0.0f,
-                130.0f * std::cos(_totalTime)
-            );
-            _cubeRotX += 50.0f * dt;
-            _cubeRotY += 20.0f * dt;
-            _cubeRotZ += 30.0f * dt;
-            _cubeEntity->setLocalEulerAngles(_cubeRotX, _cubeRotY, _cubeRotZ);
+            _cubeEntity->setLocalPosition(130.0f * std::sin(_time), 0.0f, 130.0f * std::cos(_time));
+            _cubeEntity->rotate(50.0f * dt, 20.0f * dt, 30.0f * dt);
         }
-    }
-
-    void destroy() override
-    {
-        spdlog::info("*** TAA Example Finished ***");
     }
 
 private:
-    void logTaaState(const char* reason) const
+    void logState(const char* reason) const
     {
-        if (!_cameraComp) {
-            return;
-        }
         const auto& taa = _cameraComp->taa();
-        spdlog::info("TAA {}: enabled={}, highQuality={}, jitter={:.2f}",
-            reason,
-            taa.enabled ? "ON" : "OFF",
-            taa.highQuality ? "ON" : "OFF",
-            taa.jitter);
-    }
-
-    void logRenderingState(const char* reason) const
-    {
-        if (!_cameraComp) {
-            return;
-        }
         const auto& rendering = _cameraComp->rendering();
-        spdlog::info("Rendering {}: bloom={:.3f}, sharpness={:.2f}, scale={:.1f}, tonemap={}",
-            reason,
-            rendering.bloomIntensity,
-            rendering.sharpness,
-            rendering.renderTargetScale,
-            rendering.toneMapping == TONEMAP_ACES ? "ACES" :
-            rendering.toneMapping == TONEMAP_NONE ? "NONE" : "LINEAR");
+        spdlog::info("{}: taa={}, jitter={:.2f}, sharpness={:.2f}, bloom={:.2f}, scale={:.1f}",
+            reason, taa.enabled ? "ON" : "OFF", taa.jitter, rendering.sharpness,
+            rendering.bloomIntensity, rendering.renderTargetScale);
     }
 
     std::unique_ptr<Asset> _envAtlas;
@@ -290,15 +210,9 @@ private:
     std::unique_ptr<Asset> _cube;
 
     CameraComponent* _cameraComp = nullptr;
-    CameraControls* _controls = nullptr;
     Entity* _cubeEntity = nullptr;
 
-    Vector3 _focusPoint;
-    float _orbitDistance = 220.0f;
-    float _totalTime = 0.0f;
-    float _cubeRotX = 0.0f;
-    float _cubeRotY = 0.0f;
-    float _cubeRotZ = 0.0f;
+    float _time = 0.0f;
 };
 
 VISUTWIN_EXAMPLE_MAIN(TaaExample)

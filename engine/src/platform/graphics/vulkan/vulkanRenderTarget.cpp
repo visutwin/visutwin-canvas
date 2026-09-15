@@ -18,8 +18,15 @@ namespace visutwin::canvas
     namespace
     {
         // Build a VkImageView that targets a single (face, mipLevel) of the
-        // texture's VkImage.  For the trivial case (face 0, mip 0, non-cubemap)
-        // we return the texture's own primary view to avoid the extra alloc.
+        // texture's VkImage.  For the trivial case (face 0, mip 0, one layer, one
+        // level) we return the texture's own primary view to avoid the extra alloc.
+        //
+        // A MIPMAPPED texture needs a carved view even at mip 0: the primary view
+        // spans every level, and an attachment view puts every subresource it
+        // covers into the attachment layout. Only level 0 is barriered, so levels
+        // 1+ were left in COLOR_ATTACHMENT_OPTIMAL behind the layout tracker's back,
+        // and the mip generation that follows the pass barriered them from a layout
+        // they were not in.
         VkImageView resolveAttachmentView(VkDevice device,
             gpu::VulkanTexture* tex, int face, int mipLevel,
             bool& outOwn)
@@ -30,7 +37,8 @@ namespace visutwin::canvas
             }
 
             const bool needsCarvedView = (face != 0) || (mipLevel != 0) ||
-                                         (tex->arrayLayers() > 1);
+                                         (tex->arrayLayers() > 1) ||
+                                         (tex->mipLevels() > 1);
 
             if (!needsCarvedView) {
                 return tex->imageView();

@@ -364,25 +364,35 @@
 #endif
 
 #if VT_FEATURE_ANISOTROPY
-    // Anisotropic GGX setup: tangent/bitangent and directional roughness.
-    // Anisotropic specular GGX.
-    float3 anisoT = float3(1.0, 0.0, 0.0);
-    float3 anisoB = float3(0.0, 0.0, 1.0);
-    float anisoAt = roughnessSq;   // default = isotropic alpha
-    float anisoAb = roughnessSq;
+    // Anisotropic GGX frame (upstream anisotropy.js + lightSpecularAnisoGGX.js). The
+    // signed engine value is upstream's deprecated `anisotropy` setter: intensity is
+    // its magnitude, and a negative value is rotation 90, which puts the anisotropy
+    // tangent on the vertex BITANGENT. B is cross(geometric normal, T), as upstream
+    // builds it from the TBN's own normal rather than the normal-mapped one. The math
+    // is in common-brdf and is the twin of the GLSL; this frame is mirrored in
+    // forward-fragment-surface.glsl.
+    const float anisoIntensity = saturate(abs(material.anisotropy));
+    const float2 anisoAlpha = getAnisotropicAlpha(gloss, anisoIntensity);
+    float3 anisoT;
+    float3 anisoB;
     {
-        const float aniso = clamp(material.anisotropy, -1.0, 1.0);
-        float3 T = rd.worldTangent.xyz;
-        if (length_squared(T) >= 1e-6) {
-            T = normalize(T);
-            anisoT = T;
-            anisoB = normalize(cross(N, T)) * rd.worldTangent.w;
+        float3 Ng = normalize(rd.worldNormal);
+#if VT_FEATURE_DOUBLE_SIDED
+        if (!isFrontFace) {
+            Ng = -Ng;
         }
-        // αt, αb from Disney alpha (roughness²) scaled by anisotropy factor.
-        // Seamlessly reduces to isotropic when aniso=0 (αt=αb=roughnessSq).
-        anisoAt = max(roughnessSq * (1.0 + aniso), 0.001);
-        anisoAb = max(roughnessSq * (1.0 - aniso), 0.001);
+#endif
+        float3 Tv = rd.worldTangent.xyz;
+        if (length_squared(Tv) >= 1e-6) {
+            Tv = normalize(Tv);
+            const float3 Bv = normalize(cross(Ng, Tv)) * rd.worldTangent.w;
+            anisoT = material.anisotropy >= 0.0 ? Tv : Bv;
+        } else {
+            // No tangent stream. Upstream derives one from screen-space
+            // derivatives; this port has no such fallback, so take any tangent.
+            const float3 up = abs(Ng.y) < 0.999 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+            anisoT = normalize(cross(up, Ng));
+        }
+        anisoB = normalize(cross(Ng, anisoT));
     }
-    const float anisoAt2 = anisoAt * anisoAt;
-    const float anisoAb2 = anisoAb * anisoAb;
 #endif

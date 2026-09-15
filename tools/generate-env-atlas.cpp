@@ -7,6 +7,7 @@
 //
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#include "framework/assets/stbImageFlip.h"
 // Declarations only — STB_IMAGE_WRITE_IMPLEMENTATION lives in the engine's
 // platform/graphics/screenshot.cpp, which this tool links against.
 #include "stb_image_write.h"
@@ -50,8 +51,11 @@ int main(int argc, char* argv[])
     spdlog::info("Loading HDR: {}", inputPath);
 
     int width = 0, height = 0, channels = 0;
-    stbi_set_flip_vertically_on_load(false);
-    float* hdrPixels = stbi_loadf(inputPath, &width, &height, &channels, 0);
+    float* hdrPixels = nullptr;
+    {
+        const visutwin::canvas::StbVerticalFlipScope flipScope(false);
+        hdrPixels = stbi_loadf(inputPath, &width, &height, &channels, 0);
+    }
     if (!hdrPixels || width <= 0 || height <= 0) {
         spdlog::error("Failed to load HDR file: {}", inputPath);
         if (hdrPixels) stbi_image_free(hdrPixels);

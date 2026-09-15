@@ -1,8 +1,11 @@
 # VisuTwin Canvas Examples
 
-44 example applications, each a small self-contained program built on the
-engine. Most are ports of their [PlayCanvas](https://playcanvas.com/) engine
-counterparts, so they can be compared side by side with upstream.
+46 example applications, each a small self-contained program built on the
+engine. All but one are ports of [PlayCanvas](https://playcanvas.com/) engine
+examples, so they can be compared side by side with upstream: the file header names
+the upstream example and lists every place the port could not follow it. The
+exception, `ambient-occlusion-davinci`, is an original scene and says so in its
+header; a new scene belongs here only where upstream has no counterpart.
 
 ## Building
 
@@ -86,85 +89,96 @@ Recommended free asset sources:
 
 ## Catalog
 
+The second column is the upstream example each one ports, as
+`<category>/<name>` under upstream's `examples/src/examples/`.
+
 ### Materials & shading
 
-| Example | Description |
-|---------|-------------|
-| clearcoat | Clearcoat dual-specular layer showcase |
-| anisotropy | Anisotropic specular highlights |
-| area-light | LTC area lights (rect / disk / sphere) |
-| refraction | Dynamic grab-pass refraction + dispersion + volume |
-| custom-shader | ShaderMaterial toon shader (MSL + GLSL) over the statue model |
-| shader-chunks | ShaderChunks registry overrides (global + per-material) |
-| mesh-decals | Decal projection |
+| Example | Upstream | Description |
+|---------|----------|-------------|
+| clearcoat | materials/clear-coat | Clearcoat dual-specular layer on the Khronos test asset |
+| anisotropy | materials/material-anisotropic | Anisotropy × gloss grid of metallic spheres |
+| refraction | materials/material-refraction | Env-atlas and dynamic grab-pass refraction |
+| parallax-mapping | materials/parallax-mapping | Parallax occlusion mapping in a brick room |
+| custom-shader | shaders/shader-toon | ShaderMaterial toon shader (MSL + GLSL) over the statue |
+| mesh-decals | graphics/mesh-decals | Decals stamped by a bouncing ball |
 
 ### Lighting & shadows
 
-| Example | Description |
-|---------|-------------|
-| lights | Directional / omni / spot / area light types |
-| shadow-cascades | Cascaded shadow maps |
-| clustered-lighting | 46 local lights (30 omni + 16 spot) via the 3D cluster grid |
-| pcss-dither | Dithered transparency: blend and dither strengths decoupled, dithered shadows |
-| pcss-local | Spot/omni PCSS contact-hardening shadows |
-| lightmap-bake | CPU-baked lightmap (soft shadows + AO) applied at UV1 |
+| Example | Upstream | Description |
+|---------|----------|-------------|
+| lights | graphics/lights | Spot, omni and directional lights with cookies and shadows |
+| area-light | graphics/area-lights | LTC area lights (rect / sphere / disk) |
+| shadow-cascades | graphics/shadow-cascades | Cascaded shadow maps over a low-poly terrain |
+| clustered-lighting | graphics/clustered-lighting | 46 local lights via the 3D cluster grid |
+| clustered-spot-shadows | graphics/clustered-spot-shadows | Ten shadow-casting cookie spots through the shadow atlas |
+| pcss-dither | graphics/dithered-transparency | Blend and dither strengths decoupled, dithered shadows |
+| pcss-local | test/contact-hardening-shadows | PCSS contact-hardening shadows from local lights |
+| lightmap-bake | graphics/lights-baked-a-o | CPU-baked lightmaps with shadows and AO |
 
 ### Reflections & environment
 
-| Example | Description |
-|---------|-------------|
-| reflection-probe | Box-projected cubemap reflection probe |
-| reflection-probe-dynamic | Runtime scene-capture reflection probe (live cubemap) |
-| reflection-planar-blurred | Planar reflections with blur |
-| procedural-sky | Laboratory in dunes under a time-of-day sun (upstream procedural-sky scene) |
+| Example | Upstream | Description |
+|---------|----------|-------------|
+| reflection-probe-dynamic | graphics/reflection-cubemap | Live cubemap capture and its reprojections |
+| reflection-planar-blurred | graphics/reflection-planar-blurred | Planar reflections blurred with height |
+| procedural-sky | graphics/procedural-sky | Laboratory in dunes under a time-of-day sun |
 
 ### Post-processing
 
-| Example | Description |
-|---------|-------------|
-| post-processing | Compose chain: bloom, DOF, vignette, color grading, fringing |
-| taa | Temporal anti-aliasing with a PBR scene |
-| depth-of-field | Bokeh depth-of-field over an apartment interior, interactive focus |
-| ambient-occlusion | Screen-space ambient occlusion (PlayCanvas port, laboratory scene) |
-| ambient-occlusion-davinci | Screen-space ambient occlusion (da Vinci workshop + colour LUT) |
-| edge-detect | Post-processing edge detection |
+| Example | Upstream | Description |
+|---------|----------|-------------|
+| post-processing | graphics/post-processing | The camera frame's compose chain |
+| taa | graphics/taa | Temporal anti-aliasing over the PBR house |
+| depth-of-field | graphics/depth-of-field | Bokeh depth of field over an apartment interior |
+| ambient-occlusion | graphics/ambient-occlusion | Screen-space ambient occlusion in the laboratory |
+| ambient-occlusion-davinci | — (original scene) | SSAO over the da Vinci workshop with the colour finishing chain |
+| edge-detect | compute/edge-detect | Compute-shader Sobel filter over an offscreen render |
 
 ### Animation & geometry
 
-| Example | Description |
-|---------|-------------|
-| anim-stategraph | Animation state graph with blend trees |
-| blend-trees-2d | 2D-cartesian animation blend tree |
-| morph-anim | Morph-weight animation + skinned culling |
-| instancing-basic | GPU instancing |
-| dynamic-batching | Dynamic mesh batching of many shared-material objects |
+| Example | Upstream | Description |
+|---------|----------|-------------|
+| anim-stategraph | animation/locomotion | Anim state graph with a 1D locomotion blend tree |
+| blend-trees-2d | animation/blend-trees-2d-cartesian | 2D-cartesian animation blend tree |
+| mesh-morph | graphics/mesh-morph | Procedural morph targets driven by sine weights |
+| instancing-basic | graphics/instancing-basic | 1000 hardware-instanced cylinders |
+| dynamic-batching | graphics/batching-dynamic | 500 moving primitives in one dynamic batch group |
+| wide-line | graphics/wide-line | Instanced polyline with per-point width and colour |
 
 ### Gaussian splatting & particles
 
-| Example | Description |
-|---------|-------------|
-| gsplat | Gaussian splatting (classic path) |
-| gsplat-tier2 | Splatting with view-dependent SH + compressed PLY |
-| particles | 1M particles simulated by an app-authored compute shader, colliding with spheres |
+| Example | Upstream | Description |
+|---------|----------|-------------|
+| gsplat | gaussian-splatting/simple | Gaussian splat on a shadow-receiving ground |
+| particles | compute/particles | 1M compute-simulated particles colliding with spheres |
+| particles-anim-index | graphics/particles-anim-index | Sprite-sheet animation rows selected by animIndex |
 
 ### Scene, camera & loading
 
-| Example | Description |
-|---------|-------------|
-| orbit | Orbital camera with GLB model and environment lighting |
-| glb-loader | Loading and rendering GLB models |
-| layers | Render layer composition |
-| multi-view | Multiple camera viewports |
-| render-to-texture | Off-screen rendering |
+| Example | Upstream | Description |
+|---------|----------|-------------|
+| orbit | camera/orbit | Orbit camera controls around the statue |
+| glb-loader | loaders/glb | A GLB carrying meshes, lights and cameras |
+| layers | graphics/layers | X-ray, character and front layers |
+| multi-view | graphics/multi-view | One board through three cameras and viewports |
+| render-to-texture | graphics/render-to-texture | A camera rendering into a texture shown in the scene |
+
+### Physics
+
+| Example | Upstream | Description |
+|---------|----------|-------------|
+| falling-shapes | physics/falling-shapes | Shapes dropped onto a floor through the Jolt world |
+| physics-joints | physics/joints | Hinge, ball, slider, 6-DOF and breakable fixed joints |
+| raycast | physics/raycast | raycastFirst and raycastAll through two rows of shapes |
 
 ### Interaction & UI
 
-| Example | Description |
-|---------|-------------|
-| raycast | Mouse picking via ray casting |
-| area-picker | Area selection / picking |
-| gizmo-translate | Transform gizmo interaction |
-| transform-rotate | Rotate gizmo |
-| transform-scale | Scale gizmo |
-| ui-text | Screen-space UI text (Screen + Element components) |
-| world-to-screen | Screen-space UI with world anchors |
+| Example | Upstream | Description |
+|---------|----------|-------------|
+| area-picker | graphics/area-picker | Picker area queries highlighting primitives |
+| transform-translate | gizmos/transform-translate | Translate gizmo |
+| transform-rotate | gizmos/transform-rotate | Rotate gizmo |
+| transform-scale | gizmos/transform-scale | Scale gizmo |
+| ui-text | user-interface/text | Screen-space text elements |
+| world-to-screen | user-interface/world-to-screen | Screen-space UI anchored to world positions |

@@ -52,3 +52,34 @@ vec3 decodeEnv(vec4 raw) {
     return srgbToLinear(raw.rgb);
 }
 
+// Environment atlas lookup along a world direction at a roughness: upstream's
+// calcReflection (reflectionEnv.js) - the unconvolved shiny rect at a screen-space
+// mip for a mirror, the prefiltered chain otherwise, blended toward the next
+// roughness level. Decoded, NOT scaled by the environment intensity. Uses screen
+// derivatives, so call it from uniform control flow only. The env-atlas
+// refraction uses it; the specular block in forward-fragment-ambient spells the
+// same lookup inline.
+vec3 sampleEnvAtlas(vec3 dir, float roughness) {
+    vec2 envUv = dirToEquirect(vec3(-dir.x, dir.y, dir.z));
+    float level = clamp(roughness * 5.0, 0.0, 5.0);
+    float l0 = floor(level);
+
+    vec2 uvA = envUv * ATLAS_SIZE;
+    vec2 uvB = vec2(fract(envUv.x + 0.5), envUv.y) * ATLAS_SIZE;
+    float maxd = min(max(dot(dFdx(uvA), dFdx(uvA)), dot(dFdy(uvA), dFdy(uvA))),
+                     max(dot(dFdx(uvB), dFdx(uvB)), dot(dFdy(uvB), dFdy(uvB))));
+    float shinyLevel = clamp(0.5 * log2(max(maxd, 1e-12)) - 1.0, 0.0, 5.0);
+    float shinyL0 = floor(shinyLevel);
+
+    vec3 envA;
+    if (l0 == 0.0) {
+        envA = mix(decodeEnv(texture(envAtlas, mapShinyUv(envUv, shinyL0))),
+                   decodeEnv(texture(envAtlas, mapShinyUv(envUv, shinyL0 + 1.0))),
+                   shinyLevel - shinyL0);
+    } else {
+        envA = decodeEnv(texture(envAtlas, mapRoughnessUv(envUv, l0)));
+    }
+    vec3 envB = decodeEnv(texture(envAtlas, mapRoughnessUv(envUv, l0 + 1.0)));
+    return mix(envA, envB, level - l0);
+}
+

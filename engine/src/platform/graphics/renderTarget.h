@@ -35,7 +35,10 @@ namespace visutwin::canvas
 
         int mipLevel = 0;
 
-        bool flipY;
+        // DEVIATION: no `origin` / `flipY`. Upstream needs them because WebGL stores
+        // a render target bottom-up; here row 0 is the TOP row on both backends (Metal
+        // natively, Vulkan through its negated-height viewport), the same as a loaded
+        // image, which is upstream's RENDERTARGET_ORIGIN_TOP and the only origin.
     };
 
     /*
@@ -124,7 +127,5 @@ namespace visutwin::canvas
         int _face;
 
         bool _autoResolve;
-
-        bool _flipY;
     };
 }

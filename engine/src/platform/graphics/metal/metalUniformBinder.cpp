@@ -137,10 +137,13 @@ namespace visutwin::canvas
 
         // Camera view-projection for fragment-stage screen projection
         // (dynamic grab-pass refraction). Identity when not provided.
+        // Column-major, and getElement takes (col, row): this used to pass (row, col),
+        // uploading the TRANSPOSE, which gives every refracting fragment a negative w and
+        // clamps its grab UV into a corner - a flat, dark, opaque-looking surface.
         if (viewProjection) {
             for (int col = 0; col < 4; ++col) {
                 for (int row = 0; row < 4; ++row) {
-                    _lightingUniforms.viewProjection[col * 4 + row] = viewProjection->getElement(row, col);
+                    _lightingUniforms.viewProjection[col * 4 + row] = viewProjection->getElement(col, row);
                 }
             }
         } else {

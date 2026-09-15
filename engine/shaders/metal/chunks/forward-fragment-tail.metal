@@ -141,15 +141,18 @@
         }
 
         // Volume transmittance (KHR_materials_volume Beer's law, upstream
-        // material_attenuation/material_invAttenuationDistance). Distance 0
-        // keeps the legacy baseColor^thickness tint.
+        // material_attenuation/material_invAttenuationDistance); distance 0 transmits
+        // everything. Then the diffuse ALBEDO, once: upstream mixes the refraction into
+        // dDiffuseLight and combineColor multiplies that by the albedo. This used to
+        // tint by baseColor^(thickness + 1) instead, which for an orange base texture
+        // (linear ~[0.35, 0.14, 0.05]) and thickness 0.9 darkened the refraction by a
+        // further albedo^0.9 - several times over in green and blue.
         const float attDistance = material.attenuationParams.w;
         if (attDistance > 0.0) {
             const float3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
             refrColor *= exp(-(-log(attColor) / attDistance) * thickness);
-        } else {
-            refrColor *= pow(baseLinear, float3(thickness + 1.0));
         }
+        refrColor *= diffuseColor;
 
         // Fresnel: grazing angles reflect more, normal incidence transmits more.
         const float NdotV = max(dot(N, V), 0.0);
@@ -162,54 +165,65 @@
         litLinear = mix(litLinear, refrColor + specPart, transmission);
     }
 #else
-    // Cubemap-based refraction.
-    // Samples the environment atlas in the refracted direction with roughness blur.
-    if (refractionFactor > 0.0 && envAtlasTexture.get_width() > 0) {
+    // Cubemap-based refraction (upstream refractionCube.js): the reflection lookup
+    // along the REFRACTED direction, mixed into the diffuse light.
+    if (envAtlasTexture.get_width() > 0) {
         const float ior = max(material.refractionIndex, 1.001);
         const float3 refrDir = refract(-V, N, 1.0 / ior);
+        const bool refracts = length_squared(refrDir) > 0.0;
+        const float2 refrUv = toSphericalUv(
+            refracts ? normalize(float3(-refrDir.x, refrDir.y, refrDir.z)) : float3(0.0, 0.0, 1.0));
 
-        if (length_squared(refrDir) > 0.0) {
-            // Sample environment atlas at refracted direction with roughness-dependent MIP.
-            // Same dual-path sampling as IBL reflection (shiny + rough).
-            const float2 refrUv = toSphericalUv(normalize(float3(-refrDir.x, refrDir.y, refrDir.z)));
+        // Screen-space mip for the shiny rect (upstream shinyMipLevel), taken HERE in
+        // uniform control flow: refractionFactor below carries the refraction map, so
+        // derivatives inside that branch would be undefined.
+        const float2 refrUvFull = refrUv * ATLAS_SIZE;
+        const float2 refrUvWrap = float2(fract(refrUv.x + 0.5), refrUv.y) * ATLAS_SIZE;
+        const float refrMaxd = min(
+            max(dot(dfdx(refrUvFull), dfdx(refrUvFull)), dot(dfdy(refrUvFull), dfdy(refrUvFull))),
+            max(dot(dfdx(refrUvWrap), dfdx(refrUvWrap)), dot(dfdy(refrUvWrap), dfdy(refrUvWrap))));
+        const float refrLevel2 = clamp(0.5 * log2(refrMaxd) - 1.0, 0.0, 5.0);
+        const float refrILevel2 = floor(refrLevel2);
+
+        if (refractionFactor > 0.0 && refracts) {
+            // Same lookup as the specular IBL in forward-fragment-ambient (upstream
+            // calcReflection). This used to blend shiny mips 0 and 1 by the ROUGHNESS
+            // level, so a surface at gloss 0.9 read the half-resolution shiny rect
+            // instead of blending toward the first prefiltered level.
             const float refrLevel = saturate(1.0 - gloss) * 5.0;
             const float refrILevel = floor(refrLevel);
-
-            float3 refrSample;
+            float3 linear0;
             if (refrILevel == 0.0) {
-                const float3 a = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(refrUv, 0.0)), lighting);
-                const float3 b = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(refrUv, 1.0)), lighting);
-                refrSample = mix(a, b, refrLevel);
+                const float3 a = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(refrUv, refrILevel2)), lighting);
+                const float3 b = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapShinyUv(refrUv, refrILevel2 + 1.0)), lighting);
+                linear0 = mix(a, b, refrLevel2 - refrILevel2);
             } else {
-                const float3 a = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(refrUv, refrILevel)), lighting);
-                const float3 b = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(refrUv, refrILevel + 1.0)), lighting);
-                refrSample = mix(a, b, refrLevel - refrILevel);
+                linear0 = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(refrUv, refrILevel)), lighting);
             }
+            const float3 linear1 = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(refrUv, refrILevel + 1.0)), lighting);
 
             float3 refrColor = processEnvironment(
-                refrSample, max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
+                mix(linear0, linear1, refrLevel - refrILevel),
+                max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
 
-            // Volume transmittance: KHR_materials_volume Beer's law when
-            // attenuationDistance > 0, else the legacy baseColor^thickness tint.
+            // Volume transmittance: KHR_materials_volume Beer's law; distance 0
+            // transmits everything.
             const float attDistance = material.attenuationParams.w;
             if (attDistance > 0.0) {
                 const float3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
                 refrColor *= exp(-(-log(attColor) / attDistance) * max(refractionThickness, 0.0));
-            } else {
-                const float absorb = max(refractionThickness, 0.0) + 1.0;
-                refrColor *= pow(baseLinear, float3(absorb));
             }
 
-            // Fresnel: grazing angles reflect more, normal incidence transmits more.
-            // Uses IOR-derived F0 for physically correct Fresnel.
-            const float NdotV = max(dot(N, V), 0.0);
-            const float F0_ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
-            const float fresnel = F0_ior + (1.0 - F0_ior) * pow(1.0 - NdotV, 5.0);
-            const float transmission = refractionFactor * (1.0 - fresnel);
+            // The diffuse albedo TWICE, as upstream: refractionCube mixes
+            // refraction * albedo into dDiffuseLight and combineColor multiplies that
+            // by the albedo again (the dynamic path, upstream's and ours, applies it
+            // once). This used to be baseColor^(thickness + 1), which is neither, and
+            // ignored metalness. No Fresnel weight: upstream's cube path has none.
+            refrColor *= diffuseColor * diffuseColor;
 
             // Blend: replace surface diffuse with refracted view, keep specular.
             const float3 specPart = directSpecular + indirectSpecular + emissiveLinear;
-            litLinear = mix(litLinear, refrColor + specPart, transmission);
+            litLinear = mix(litLinear, refrColor + specPart, saturate(refractionFactor));
         }
     }
 #endif

@@ -1,16 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// TransformGizmo demo: an orange box on a dark ground slab, manipulated by the
-// translate/rotate/scale gizmo. Right-drag orbits the camera, the wheel zooms,
-// and 1/2/3 switch gizmo mode. This example opens in scale mode.
+// Port of upstream gizmos/transform-scale.
 //
-#include <algorithm>
-#include <cmath>
+// A default white box at the origin, lit by a default directional light at euler
+// (0, 0, -60) with ambient 0.2, over a 4x4 grid. A scale gizmo is attached to the
+// box; the orbit camera (focused on the origin, zoom 2..10, pitch +/-89.999) stops
+// responding while the gizmo holds the pointer.
+//
+// DEVIATIONS:
+// - The engine's TransformGizmo is a simplified gizmo (box ends on axis lines and a centre
+//   box, no plane handles, fixed world size of 1.8). Upstream's gizmo size of
+//   1024 / viewport dimension, its theme, snap, coordinate-space, drag-mode,
+//   uniform and per-shape render settings have no counterpart, so the controls
+//   panel is absent
+//   and upstream's initial values (snap off, world space) apply.
+// - Upstream's Grid script is a pristine-grid shader on a blended plane. It is drawn
+//   here with a WideLineRenderer: opaque 1-pixel lines every unit over the scaled
+//   (4, 1, 4) extent in upstream's 0.7 grey, with the axis lines in its colorX and
+//   colorZ. The anti-aliased coverage alpha and the 0.1-unit HIGH resolution level
+//   are not reproduced, so the lines read brighter than upstream's.
+// - CameraControls has no sceneSize or damping settings (upstream: 5 and 0.95);
+//   the camera moves undamped.
+// - No camera projection / FOV panel; upstream's initial perspective, 45 degrees.
+//
 #include <memory>
+#include <vector>
 
+#include "../cameraControls.h"
 #include "../exampleApp.h"
 #include "framework/gizmo/transformGizmo.h"
+#include "scene/graphics/wideLine.h"
+#include "scene/graphics/wideLineRenderer.h"
 #include "scene/materials/standardMaterial.h"
 
 using namespace visutwin::canvas;
@@ -18,161 +39,131 @@ using namespace visutwin::canvas;
 class TransformScaleExample final: public ExampleApp
 {
 public:
-    TransformScaleExample(): ExampleApp({.title = "Transform Scale", .width = 1200, .height = 760}) {}
+    TransformScaleExample(): ExampleApp({.title = "Transform Scale"}) {}
 
 protected:
     bool create() override
     {
-        scene()->setAmbientLight(0.25f, 0.25f, 0.25f);
+        scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 
-        _gridMaterial = std::make_shared<StandardMaterial>();
-        _gridMaterial->setDiffuse(Color(0.2f, 0.22f, 0.25f, 1.0f));
-
+        // A box with the default material: upstream's is a default StandardMaterial.
         _boxMaterial = std::make_shared<StandardMaterial>();
-        _boxMaterial->setDiffuse(Color(0.82f, 0.48f, 0.16f, 1.0f));
+        auto* box = createPrimitive("box", _boxMaterial.get());
 
-        createPrimitive("box", _gridMaterial.get(), Vector3(0.0f, -0.05f, 0.0f),
-            Vector3(8.0f, 0.1f, 8.0f));
-        auto* box = createPrimitive("box", _boxMaterial.get(), Vector3(0.0f, 0.5f, 0.0f),
-            Vector3(1.0f, 1.0f, 1.0f));
-
-        auto* lightEntity = new Entity();
-        lightEntity->setEngine(engine());
-        if (auto* light = static_cast<LightComponent*>(lightEntity->addComponent<LightComponent>())) {
-            light->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-            light->setIntensity(2.4f);
-        }
-        lightEntity->setLocalEulerAngles(45.0f, 35.0f, 0.0f);
-        root()->addChild(lightEntity);
-
-        _cameraEntity = createCamera(Vector3(4.2f, 4.2f, 4.2f));
+        // Camera
+        _cameraEntity = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         auto* camera = _cameraEntity->findComponent<CameraComponent>();
         if (!camera || !camera->camera()) {
             spdlog::error("Failed to create camera");
             return false;
         }
         camera->camera()->setClearColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
-        _cameraEntity->lookAt(_focusPoint);
+        camera->camera()->setFarClip(1000.0f);
+        const float cameraOffset = 4.0f * camera->camera()->aspectRatio();
+        _cameraEntity->setPosition(Vector3(cameraOffset, cameraOffset, cameraOffset));
 
+        // Camera controls
+        _controls = addOrbitControls(_cameraEntity, Vector3(0.0f, 0.0f, 0.0f));
+        if (_controls) {
+            _controls->setPitchRange(Vector2(-89.999f, 89.999f));
+            _controls->setZoomRange(Vector2(2.0f, 10.0f));
+            _controls->setEnableFly(false);
+            _controls->storeResetState();
+        }
+
+        // Light: a default light component is directional, white, intensity 1.
+        auto* light = new Entity();
+        light->setEngine(engine());
+        light->addComponent<LightComponent>();
+        root()->addChild(light);
+        light->setLocalEulerAngles(0.0f, 0.0f, -60.0f);
+
+        // Gizmo
         _gizmo = std::make_unique<TransformGizmo>(engine(), camera);
-        _gizmo->attach(box);
         _gizmo->setMode(TransformGizmo::Mode::Scale);
-        _gizmo->setSnap(false);
+        _gizmo->attach(box);
 
-        spdlog::info("Controls: 1=Translate, 2=Rotate, 3=Scale, S=Toggle Snap, [ / ] adjust snap increment");
+        createGrid(4.0f, 4.0f);
         return true;
     }
 
     bool onEvent(const SDL_Event& event) override
     {
-        if (event.type == SDL_EVENT_KEY_DOWN) {
-            switch (event.key.key) {
-            case SDLK_1:
-                _gizmo->setMode(TransformGizmo::Mode::Translate);
-                spdlog::info("Gizmo mode: Translate");
-                break;
-            case SDLK_2:
-                _gizmo->setMode(TransformGizmo::Mode::Rotate);
-                spdlog::info("Gizmo mode: Rotate");
-                break;
-            case SDLK_3:
-                _gizmo->setMode(TransformGizmo::Mode::Scale);
-                spdlog::info("Gizmo mode: Scale");
-                break;
-            case SDLK_S:
-                _gizmo->setSnap(!_gizmo->snap());
-                spdlog::info("Snap: {}", _gizmo->snap() ? "ON" : "OFF");
-                break;
-            case SDLK_LEFTBRACKET:
-                setSnapIncrement(std::max(0.05f, _snapIncrement - 0.05f));
-                break;
-            case SDLK_RIGHTBRACKET:
-                setSnapIncrement(std::min(5.0f, _snapIncrement + 0.05f));
-                break;
-            default:
-                break;
-            }
+        if (!_gizmo) {
+            return false;
         }
 
-        // The gizmo needs the drawable size to unproject pointer positions.
-        int windowWidth = 0;
-        int windowHeight = 0;
-        SDL_GetWindowSize(window(), &windowWidth, &windowHeight);
-        if (_gizmo->handleEvent(event, windowWidth, windowHeight)) {
-            return true;
-        }
+        int width = 0;
+        int height = 0;
+        SDL_GetWindowSize(window(), &width, &height);
+        const bool consumed = _gizmo->handleEvent(event, width, height);
 
-        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_RIGHT) {
-            _orbiting = true;
-            _prevMouseX = event.button.x;
-            _prevMouseY = event.button.y;
-            return true;
+        // Upstream: gizmo 'pointer:down' on a handle disables the camera controls,
+        // 'pointer:up' re-enables them.
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && consumed) {
+            _gizmoHasPointer = true;
+        } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            _gizmoHasPointer = false;
         }
-        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == SDL_BUTTON_RIGHT) {
-            _orbiting = false;
-            return true;
+        if (_controls) {
+            _controls->setInputBlocked(_gizmoHasPointer);
         }
-        if (event.type == SDL_EVENT_MOUSE_MOTION && _orbiting) {
-            const float dx = event.motion.x - _prevMouseX;
-            const float dy = event.motion.y - _prevMouseY;
-            _prevMouseX = event.motion.x;
-            _prevMouseY = event.motion.y;
-
-            _orbitYaw -= dx * 0.25f;
-            _orbitPitch = std::clamp(_orbitPitch - dy * 0.25f, -85.0f, 85.0f);
-            return true;
-        }
-        if (event.type == SDL_EVENT_MOUSE_WHEEL) {
-            _orbitDist = std::clamp(_orbitDist - event.wheel.y * 0.35f, 2.0f, 20.0f);
-            return true;
-        }
-        return false;
+        return consumed;
     }
 
     void update(float) override
     {
-        const float pitchRad = _orbitPitch * DEG_TO_RAD;
-        const float yawRad = _orbitYaw * DEG_TO_RAD;
-        const Vector3 camPos(
-            _focusPoint.getX() - std::sin(yawRad) * std::cos(pitchRad) * _orbitDist,
-            _focusPoint.getY() + std::sin(pitchRad) * _orbitDist,
-            _focusPoint.getZ() - std::cos(yawRad) * std::cos(pitchRad) * _orbitDist
-        );
-        _cameraEntity->setPosition(camPos);
-        _cameraEntity->lookAt(_focusPoint);
-
-        _gizmo->update();
+        if (_gizmo) {
+            _gizmo->update();
+        }
+        if (_gridRenderer) {
+            _gridRenderer->update();
+        }
     }
 
     void destroy() override
     {
-        // The gizmo owns entities in the engine's hierarchy.
+        // Both own entities in the engine's hierarchy.
         _gizmo.reset();
+        _gridRenderer.reset();
     }
 
 private:
-    void setSnapIncrement(const float increment)
+    // Upstream Grid script on an entity scaled (sx, 1, sz): half extents sx/2, sz/2,
+    // unit lines in 0.7 grey, the x = 0 line in colorZ and the z = 0 line in colorX.
+    void createGrid(const float scaleX, const float scaleZ)
     {
-        _snapIncrement = increment;
-        _gizmo->setTranslateSnapIncrement(_snapIncrement);
-        _gizmo->setScaleSnapIncrement(std::max(0.01f, _snapIncrement * 0.2f));
-        _gizmo->setRotateSnapIncrement(std::max(1.0f, _snapIncrement * 20.0f));
-        spdlog::info("Snap increment: {:.2f}", _snapIncrement);
+        _gridRenderer = std::make_unique<WideLineRenderer>(engine(), device());
+        _gridRenderer->setScreenSize(static_cast<float>(windowWidth()), static_cast<float>(windowHeight()));
+
+        const Color lineColor(0.7f, 0.7f, 0.7f, 1.0f);
+        const Color colorX(1.0f, 0.3f, 0.3f, 1.0f);
+        const Color colorZ(0.3f, 0.3f, 1.0f, 1.0f);
+        const float hx = scaleX * 0.5f;
+        const float hz = scaleZ * 0.5f;
+
+        for (int i = static_cast<int>(-hx); i <= static_cast<int>(hx); ++i) {
+            auto& line = _gridLines.emplace_back(std::make_unique<WideLine>());
+            const auto x = static_cast<float>(i);
+            line->setPoints({Vector3(x, 0.0f, -hz), Vector3(x, 0.0f, hz)}, i == 0 ? colorZ : lineColor, 1.0f);
+        }
+        for (int i = static_cast<int>(-hz); i <= static_cast<int>(hz); ++i) {
+            auto& line = _gridLines.emplace_back(std::make_unique<WideLine>());
+            const auto z = static_cast<float>(i);
+            line->setPoints({Vector3(-hx, 0.0f, z), Vector3(hx, 0.0f, z)}, i == 0 ? colorX : lineColor, 1.0f);
+        }
+        for (auto& line : _gridLines) {
+            _gridRenderer->add(line.get());
+        }
     }
 
-    std::shared_ptr<StandardMaterial> _gridMaterial;
     std::shared_ptr<StandardMaterial> _boxMaterial;
     std::unique_ptr<TransformGizmo> _gizmo;
+    std::unique_ptr<WideLineRenderer> _gridRenderer;
+    std::vector<std::unique_ptr<WideLine>> _gridLines;
     Entity* _cameraEntity = nullptr;
-
-    const Vector3 _focusPoint{0.0f, 0.5f, 0.0f};
-    float _orbitYaw = 45.0f;
-    float _orbitPitch = 25.0f;
-    float _orbitDist = 6.0f;
-    bool _orbiting = false;
-    float _prevMouseX = 0.0f;
-    float _prevMouseY = 0.0f;
-    float _snapIncrement = 0.5f;
+    CameraControls* _controls = nullptr;
+    bool _gizmoHasPointer = false;
 };
 
 VISUTWIN_EXAMPLE_MAIN(TransformScaleExample)

@@ -43,7 +43,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
-  examples/        # 52 example applications, all derived from ExampleApp
+  examples/        # 46 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -290,8 +290,9 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
 
 - **With no world supplied nothing simulates and nothing breaks.** The rigid-body
   component holds its settings, and `raycastFirst`/`raycastAll` fall back to the
-  CPU sweep over collision bounds that predates the seam. That is what the
-  `raycast` example still uses.
+  CPU sweep over collision bounds that predates the seam. Every physics example
+  (`falling-shapes`, `physics-joints`, `raycast`) supplies the Jolt world, as
+  upstream's use a real physics engine, so only a test reaches the fallback.
 - `RigidBodyComponentSystem` resolves the world on its first update, not in its
   constructor. Component systems are built from `AppOptions` before the engine has
   finished storing everything else that came with it, and a world read once at
@@ -547,6 +548,19 @@ present, but the rule below never depends on reading it.
   and the 3D LUT — for as long as the file has existed. Before blaming a backend's
   lighting for a brightness gap, read the two bodies of the shader that produced
   the pixel side by side.
+- **stb_image's vertical-flip flag is set ONLY through `StbVerticalFlipScope`**
+  (`framework/assets/stbImageFlip.h`). stb keeps a global flag and a thread-local
+  one, and once the thread-local flag is set on a thread it overrides the global
+  one there for good — stb cannot unset it. The GLB parser decodes flipped through
+  the thread-local flag, so any loader that cleared only the GLOBAL flag was
+  ignored after a GLB on the same thread: first the environment atlas came out
+  upside down, later every glyph of a bitmap font loaded after a GLB, and the OBJ
+  parser's global "flip" was silently a no-op. The scope sets the thread-local flag
+  and restores the enclosing value on exit, so a flip cannot leak into the next
+  decode. Never call `stbi_set_flip_vertically_on_load*` directly, and never
+  include `stb_image.h` from a header: stb guards its declarations but not its
+  implementation, which `asset.cpp` compiles. `tests/stbImageFlipTests.cpp` loads
+  an asymmetric atlas through the font path after a leaked flip.
 - **`atan2(0, 0)` is undefined, and a normal of exactly +/-Y hits it** — which is
   every fragment of an unrotated ground plane, the most common surface there is.
   Metal returned an out-of-range azimuth, so `mapAmbientUv` mapped outside its
@@ -697,6 +711,16 @@ present, but the rule below never depends on reading it.
   invisible until a scene leans on it: a missing emissive-map decode left the
   `depth-of-field` room 1.6x too bright on Vulkan while every other scene looked
   fine, because only that scene has large emissive surfaces.
+- **An example asset standing in for upstream's must match its PIXELS, not just
+  its subject.** `textures/checkboard.png` was a generated 16px checker of
+  200/255 while upstream's is a 1024px 4x4 checker of 45/51 grey — thirty times
+  the linear albedo. `render-to-texture` multiplies it by diffuse (3,4,2), so its
+  ground rendered WHITE instead of green on both backends and read as a lighting
+  bug; `world-to-screen`'s checker was light where upstream's is dark. Before
+  chasing a brightness gap that is identical on Metal and Vulkan, compare the
+  example's textures against upstream's (`md5`, then mean pixel value) — an
+  engine bug is rarely backend-identical. The asset is regenerated to upstream's
+  exact pixels.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.
@@ -775,6 +799,34 @@ present, but the rule below never depends on reading it.
   black fabric where it cannot be seen either. Test it by rendering a transform
   against the same transform baked into the mesh UVs, with a rotation AND an
   offset, not just a scale.
+- **A texture's row 0 is the TOP of the image, and v = 0 samples it — for loaded
+  images AND render targets, on both backends.** That is upstream's
+  RENDERTARGET_ORIGIN_TOP, and it is the only origin here, so there is no `flipY`
+  on `RenderTargetOptions` (it was stored and never read). Every built-in primitive
+  writes upstream's `(u, 1 - v)`, putting v = 0 at the TOP: +Y on the box sides,
+  sphere and cone bodies, -Z on the plane. The plane wrote plain `v` until
+  2026-09-15, so every image on a plane was upside down against upstream — seen
+  only as render-to-texture's tv showing its sky at the bottom, because a lying
+  plane with a checkerboard or a rock texture does not look wrong either way.
+  `tests/primitiveGeometryTests.cpp` pins the orientation; test anything new here
+  with an ASYMMETRIC image, never a checker.
+- **Primitive tangents are DERIVED from the UVs, never written by hand, and the
+  bitangent `cross(n, t) * w` points toward DECREASING v** — the image's top row,
+  where a normal map's green channel points. `calculateTangents`
+  (`scene/geometry/geometryUtils.h`) is upstream's Lengyel accumulation with that
+  handedness, which is a DEVIATION from upstream's own `calculateTangents` (it
+  points toward +v) but matches what upstream actually shades primitives with: its
+  primitive cache builds them WITHOUT tangents, and its derivative TBN negates the
+  dP/dv axis. Until 2026-09-15 the box wrote (1, 0, 0) on every face (parallel to
+  the normal on +/-X, which rendered those faces black), and the sphere and capsule
+  had tangent AND bitangent reversed — a 180-degree turn of the normal map that
+  reads as light from the wrong side, not as an error. Change a primitive's UVs and
+  the frame follows; the test checks every corner against its triangle's UV
+  gradient. `DEBUGPASS_WORLDNORMAL` on a normal-mapped box beside a plane wall shows
+  a wrong frame in one frame: matching faces must match in colour. The frame is not
+  only a normal-map concern: Metal's anisotropic IBL bends the reflection toward the
+  bitangent, so its SIGN picks sky or ground, and the `anisotropy` spheres changed
+  on Metal while Vulkan (a roughness-only approximation) stayed bit-identical.
 - **A glTF material property must be written to the STANDARDMATERIAL slot, not the
   base Material one.** `StandardMaterial::updateUniforms` pushes its own per-map
   tiling/offset/rotation into `Material`'s `TextureTransform` fields on every pack,
@@ -1015,7 +1067,7 @@ present, but the rule below never depends on reading it.
 - **`Matrix4::getElement` takes (col, row)**, not (row, col).
 - **A hand-built sphere's triangle winding has to be counter-clockwise seen from
   OUTSIDE**, or its normals face inward. A mirror ball HIDES this — it still
-  reflects something — so the inverted winding in the reflection-probe example went
+  reflects something — so the inverted winding in a reflection-probe example went
   unnoticed until the same generator was reused with a diffuse material in
   mesh-morph and came out black. `DEBUGPASS_WORLDNORMAL` says it in one frame: a
   correct sphere is blue in the middle, an inverted one is not.
@@ -1096,6 +1148,28 @@ present, but the rule below never depends on reading it.
   `LightingData::flagsAndPad[0]`, the same bit the sky and the tail check. There are
   four such consumers — refraction and SSR, in each language — and a decode applied
   unconditionally darkens whatever samples it by roughly a stop.
+- **Dynamic refraction was dark and opaque on BOTH backends for three stacked
+  reasons, found 2026-09-15 on `post-processing`'s amber (measured amber region
+  [47,53,41] -> [139,105,48], upstream's thumbnail ~[193,178,70]).** (1) The
+  fragment-stage `lighting.viewProjection` was uploaded TRANSPOSED — both binders
+  passed `getElement(row, col)` — so every refracting fragment projected to a
+  negative w and its grab UV clamped into a corner: one flat colour over the whole
+  surface, which reads as "opaque", not as "wrong offset". SSR reads the same matrix.
+  (2) The camera frame's scene pass stops at `lastGrabLayerId` (the skybox), and
+  `findActionIndex` searched only render actions, which exist for ENABLED layers;
+  a disabled Skybox layer (usual for an env-atlas-only scene) matched nothing, the
+  pass took every action, and the grab ran AFTER the transparent layers, so the
+  surface refracted itself from last frame. It now places the stop by composition
+  position, as upstream's `addCameraLayers` does. (3) The refraction was tinted by
+  `baseColor^(thickness + 1)`; upstream applies the diffuse albedo ONCE (the
+  refraction mixes into `dDiffuseLight`, which `combineColor` multiplies by albedo).
+  Bug (1) hid bug (2) completely: fixing the order alone moved nothing. Probe it
+  the way that found it — output the grab at a FIXED uv (valid texture?), the
+  flags `uv in range` / `w > 0` (valid projection?), and the raw sample + 0.05 (a
+  feedback loop runs away to white within 120 frames). Still open: upstream scales
+  the refraction offset by the model's world scale (x60 here); the fragment stage
+  has no model matrix, and a hard-coded x60 made this scene DARKER, so it is not
+  adopted blindly.
 - **Vulkan's clip space is NOT Y-down for this engine.** The backend rasterises
   through a negated-height viewport so Metal projection matrices work unchanged,
   which puts NDC +Y at the TOP row of every target, back buffer and offscreen
@@ -1299,7 +1373,12 @@ during unrelated work are repeated here.
   instance draws the same vertex count and a piece the current style does not want
   collapses to zero size instead of being skipped. Widths are screen pixels by
   default, which is why the expansion happens after the projection rather than in
-  world space.
+  world space. The segment buffer never shrinks: a smaller set is written into its
+  FRONT with a full-size payload and the draw's instance count says how much is
+  live, because `VertexBuffer::setData` refuses any payload that is not the
+  buffer's exact size — the renderer used to upload only the live records, so the
+  first frame with fewer segments froze every line. `wideLineSegmentBuffer.h` owns
+  this and `tests/wideLineSegmentBufferTests.cpp` holds it.
 - **GPU instance culling requires the 80-byte stride.** Its kernel compacts fixed
   80-byte records. The instanced shader variant follows THE DRAW, not the
   material: the renderer derives it from the mesh instance's buffer format.
@@ -1364,7 +1443,8 @@ does nothing, which is a misleading symptom.
 ## Open items
 
 - **Vulkan reflections are slightly SOFTER than Metal's.** Re-measured 2026-09-05
-  with the scene frozen: `reflection-probe` matches to 0.3% in the mean, but the
+  with the scene frozen, on the since-removed `reflection-probe` scene (re-measure
+  on `reflection-probe-dynamic` before chasing): it matched to 0.3% in the mean, but the
   reflection carries 6.5% less horizontal gradient energy where a direct texture
   on the same frame carries 0.4% less. Hardware trilinear mips approximate the GGX
   prefilter upstream bakes per level, and the two backends round it differently.

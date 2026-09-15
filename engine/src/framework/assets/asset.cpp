@@ -16,6 +16,7 @@
 #include "framework/parsers/texture/ktx2Transcoder.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
+#include "framework/assets/stbImageFlip.h"
 
 #define TINYGLTF_NO_STB_IMAGE
 #define TINYGLTF_NO_STB_IMAGE_WRITE
@@ -119,11 +120,10 @@ namespace visutwin::canvas
                 int height = 0;
                 int channels = 0;
                 // upstream texture loading keeps source orientation; env-atlas UV layout depends on this.
-                // MUST be the _thread variant: glbParser calls stbi_set_flip_vertically_on_load_thread(true),
-                // and once stb's thread-local flag has been set it permanently overrides the global one on
-                // that thread. Clearing only the global here left every texture loaded after a GLB on the
-                // same thread flipped — which silently turned the environment atlas upside down.
-                stbi_set_flip_vertically_on_load_thread(false);
+                // Through StbVerticalFlipScope (see its header): stb's thread-local flag overrides the
+                // global one once set, and clearing only the global here once left every texture loaded
+                // after a GLB on the same thread flipped — the environment atlas upside down.
+                const StbVerticalFlipScope flipScope(false);
 
                 const bool isHdr = _file.size() >= 4 &&
                     _file.compare(_file.size() - 4, 4, ".hdr") == 0;

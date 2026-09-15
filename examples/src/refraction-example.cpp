@@ -18,6 +18,9 @@
 //    here, so they are keys plus an auto-cycle that walks all four combinations.
 //  - Upstream's `refraction` property is `transmissionFactor` here, and
 //    `BLEND_NORMAL` is `setTransparent(true)`.
+//  - Upstream's `refractionIndex = 1 / 1.33` is an eta; this port's
+//    `setRefractionIndex` takes the IOR itself, so water is 1.33. Passing the eta
+//    gets clamped to 1.001 in the shader and the capsules barely bend light.
 //
 #include <cmath>
 #include <memory>
@@ -111,7 +114,7 @@ protected:
         _material->setGlossMapChannel(MapChannel::MAP_CHANNEL_G);
         _material->setUseMetalness(true);
         _material->setTransmissionFactor(0.8f);           // upstream: refraction
-        _material->setRefractionIndex(1.0f / 1.33f);      // water
+        _material->setRefractionIndex(1.33f);             // water (an IOR here; upstream: eta 1 / 1.33)
         _material->setTransparent(true);                  // upstream: BLEND_NORMAL
         _material->setThickness(0.4f);
         _material->setThicknessMap(otherTex);

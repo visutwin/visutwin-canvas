@@ -17,6 +17,7 @@
 #include "framework/parsers/texture/ktx2Transcoder.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
+#include "framework/assets/stbImageFlip.h"
 
 namespace visutwin::canvas
 {
@@ -179,8 +180,8 @@ namespace visutwin::canvas
 
     std::unique_ptr<LoadedData> TextureResourceHandler::load(const std::string& url)
     {
-        // Use per-thread flip state for thread safety.
-        stbi_set_flip_vertically_on_load_thread(false);
+        // Per-thread flip state, restored on return (see stbImageFlip.h).
+        const StbVerticalFlipScope flipScope(false);
 
         const bool isHdr = url.size() >= 4 &&
             url.compare(url.size() - 4, 4, ".hdr") == 0;

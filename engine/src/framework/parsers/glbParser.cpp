@@ -36,6 +36,7 @@
 #include "scene/materials/standardMaterial.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
+#include "framework/assets/stbImageFlip.h"
 
 namespace visutwin::canvas
 {
@@ -175,9 +176,13 @@ namespace visutwin::canvas
         int width = 0;
         int height = 0;
         int components = 0;
-        // Per-thread flip state — safe to call from both main and bg threads.
-        stbi_set_flip_vertically_on_load_thread(true);
-        stbi_uc* decoded = stbi_load_from_memory(bytes, size, &width, &height, &components, 0);
+        // Per-thread flip state, restored after the decode so it cannot leak into the
+        // next image loaded on this thread (see stbImageFlip.h).
+        stbi_uc* decoded = nullptr;
+        {
+            const StbVerticalFlipScope flipScope(true);
+            decoded = stbi_load_from_memory(bytes, size, &width, &height, &components, 0);
+        }
         if (!decoded) {
             // Unsupported image format (e.g. Basis .basis payloads).
             // Generate a 1x1 magenta placeholder so the model geometry still loads.
@@ -1355,8 +1360,21 @@ namespace visutwin::canvas
      * Apply KHR_materials_transmission / _ior / _volume / _dispersion to a
      * StandardMaterial. Volume attenuation feeds the Beer-law transmittance;
      * dispersion feeds the per-channel refraction in the dynamic grab path.
+     *
+     * As upstream's extension handlers do, a material carrying transmission OR volume
+     * is made blended and switched to dynamic (grab-pass) refraction: without both it
+     * renders in the opaque pass and refracts only the environment. Upstream's
+     * BLEND_NORMAL is setTransparent(true), NOT setAlphaMode(BLEND), which would also
+     * turn depth writes off where upstream keeps them.
+     *
+     * DEVIATIONS: `ior` is stored as an IOR where upstream stores 1 / ior (see
+     * StandardMaterial::refractionIndex). The attenuation colour is stored LINEAR, as
+     * glTF authors it; upstream gamma-encodes it and decodes it again on upload, so
+     * the shader sees the same value. KHR_texture_transform on the transmission and
+     * thickness textures is not applied: those maps have no transform of their own.
      */
-    static void applyVolumeExtensions(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    static void applyVolumeExtensions(const tinygltf::Material& srcMaterial, StandardMaterial* material,
+        const std::function<std::shared_ptr<Texture>(int)>& getOrCreateTexture)
     {
         const auto readNumber = [](const tinygltf::Value& v, const char* key, float fallback) {
             if (v.Has(key)) {
@@ -1365,10 +1383,28 @@ namespace visutwin::canvas
             }
             return fallback;
         };
+        const auto textureIndex = [](const tinygltf::Value& v, const char* key) {
+            if (v.Has(key)) {
+                const auto t = v.Get(key);
+                if (t.IsObject() && t.Has("index")) return t.Get("index").GetNumberAsInt();
+            }
+            return -1;
+        };
+        const auto makeRefractive = [material]() {
+            material->setTransparent(true);
+            material->setUseDynamicRefraction(true);
+        };
 
         if (const auto it = srcMaterial.extensions.find("KHR_materials_transmission");
             it != srcMaterial.extensions.end() && it->second.IsObject()) {
+            makeRefractive();
             material->setTransmissionFactor(readNumber(it->second, "transmissionFactor", 0.0f));
+            if (const int idx = textureIndex(it->second, "transmissionTexture"); idx >= 0) {
+                if (const auto tex = getOrCreateTexture(idx)) {
+                    material->setRefractionMap(tex.get());
+                    material->setRefractionMapChannel(MapChannel::MAP_CHANNEL_R);
+                }
+            }
         }
 
         if (const auto it = srcMaterial.extensions.find("KHR_materials_ior");
@@ -1378,7 +1414,14 @@ namespace visutwin::canvas
 
         if (const auto it = srcMaterial.extensions.find("KHR_materials_volume");
             it != srcMaterial.extensions.end() && it->second.IsObject()) {
+            makeRefractive();
             material->setThickness(readNumber(it->second, "thicknessFactor", 0.0f));
+            if (const int idx = textureIndex(it->second, "thicknessTexture"); idx >= 0) {
+                if (const auto tex = getOrCreateTexture(idx)) {
+                    material->setThicknessMap(tex.get());
+                    material->setThicknessMapChannel(MapChannel::MAP_CHANNEL_G);
+                }
+            }
             material->setAttenuationDistance(readNumber(it->second, "attenuationDistance", 0.0f));
             if (it->second.Has("attenuationColor")) {
                 const auto ac = it->second.Get("attenuationColor");
@@ -1970,7 +2013,7 @@ namespace visutwin::canvas
 
                 // Handle KHR_materials_pbrSpecularGlossiness extension
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
-                applyVolumeExtensions(srcMaterial, material.get());
+                applyVolumeExtensions(srcMaterial, material.get(), getOrCreateTexture);
                 applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
                 applyEmissiveStrength(srcMaterial, material.get());
                 applyTextureTransforms(srcMaterial, material.get());
@@ -2960,7 +3003,7 @@ namespace visutwin::canvas
 
                 // Handle KHR_materials_pbrSpecularGlossiness extension
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
-                applyVolumeExtensions(srcMaterial, material.get());
+                applyVolumeExtensions(srcMaterial, material.get(), getOrCreateTexture);
                 applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
                 applyEmissiveStrength(srcMaterial, material.get());
                 applyTextureTransforms(srcMaterial, material.get());
@@ -3529,7 +3572,7 @@ namespace visutwin::canvas
 
                 // Handle KHR_materials_pbrSpecularGlossiness extension
                 applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
-                applyVolumeExtensions(srcMaterial, material.get());
+                applyVolumeExtensions(srcMaterial, material.get(), getOrCreateTexture);
                 applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
                 applyEmissiveStrength(srcMaterial, material.get());
                 applyTextureTransforms(srcMaterial, material.get());

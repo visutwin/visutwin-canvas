@@ -1,10 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Compute-shader edge detection: a chess board renders into an offscreen target
-// through its own camera, an app-authored compute kernel runs a Sobel filter over
-// that image, and two full-screen quad passes display the original above the
-// edge-detected result.
+// Port of upstream compute/edge-detect.
+//
+// A chess board on its own layer renders through an orbiting camera into a 4x
+// MSAA render target (window width, half its height, white clear). A compute
+// shader runs a Sobel filter over that image and blends the edges toward red
+// into a storage texture. The original is shown in the top half of the window
+// and the edge-detected result in the bottom half, over the helipad skybox
+// (mip 1) seen by the main camera.
+//
+// DEVIATIONS:
+// - there is no TextureRenderer; each half is drawn by a RenderPassDownsample
+//   appended to the frame graph, with the viewport upstream's draw() rectangles
+//   describe.
+// - upstream's one WGSL kernel is written twice, MSL and GLSL, picked from the
+//   live device.
 //
 #include <algorithm>
 #include <cmath>
@@ -56,23 +67,23 @@ kernel void edgeDetectKernel(
     const float2 uv = (float2(gid) + 0.5) / texSize;
     const float2 texel = 1.0 / texSize;
 
-    const float tl = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2(-1.0, -1.0)).rgb);
-    const float tc = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 0.0, -1.0)).rgb);
-    const float tr = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 1.0, -1.0)).rgb);
-    const float ml = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2(-1.0,  0.0)).rgb);
-    const float mr = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 1.0,  0.0)).rgb);
-    const float bl = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2(-1.0,  1.0)).rgb);
-    const float bc = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 0.0,  1.0)).rgb);
-    const float br = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 1.0,  1.0)).rgb);
+    const float tl = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2(-1.0, -1.0), level(0.0)).rgb);
+    const float tc = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 0.0, -1.0), level(0.0)).rgb);
+    const float tr = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 1.0, -1.0), level(0.0)).rgb);
+    const float ml = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2(-1.0,  0.0), level(0.0)).rgb);
+    const float mr = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 1.0,  0.0), level(0.0)).rgb);
+    const float bl = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2(-1.0,  1.0), level(0.0)).rgb);
+    const float bc = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 0.0,  1.0), level(0.0)).rgb);
+    const float br = luminance(inputTexture.sample(linearClampSampler, uv + texel * float2( 1.0,  1.0), level(0.0)).rgb);
 
     const float gx = -tl - 2.0 * ml - bl + tr + 2.0 * mr + br;
     const float gy = -tl - 2.0 * tc - tr + bl + 2.0 * bc + br;
     const float edge = sqrt(gx * gx + gy * gy);
 
-    const float4 src = inputTexture.sample(linearClampSampler, uv);
+    const float4 src = inputTexture.sample(linearClampSampler, uv, level(0.0));
     const float edgeAmount = clamp(edge * 3.0, 0.0, 1.0);
     const float3 outColor = mix(src.rgb, float3(1.0, 0.0, 0.0), edgeAmount);
-    outputTexture.write(float4(outColor, 1.0), gid);
+    outputTexture.write(float4(outColor, src.a), gid);
 }
 )";
 
@@ -89,20 +100,20 @@ void main()
     vec2 uv = (vec2(gid) + 0.5) / vec2(size);
     vec2 texel = 1.0 / vec2(size);
     const vec3 weights = vec3(0.299, 0.587, 0.114);
-    float tl = dot(texture(inputTexture, uv + texel * vec2(-1, -1)).rgb, weights);
-    float tc = dot(texture(inputTexture, uv + texel * vec2( 0, -1)).rgb, weights);
-    float tr = dot(texture(inputTexture, uv + texel * vec2( 1, -1)).rgb, weights);
-    float ml = dot(texture(inputTexture, uv + texel * vec2(-1,  0)).rgb, weights);
-    float mr = dot(texture(inputTexture, uv + texel * vec2( 1,  0)).rgb, weights);
-    float bl = dot(texture(inputTexture, uv + texel * vec2(-1,  1)).rgb, weights);
-    float bc = dot(texture(inputTexture, uv + texel * vec2( 0,  1)).rgb, weights);
-    float br = dot(texture(inputTexture, uv + texel * vec2( 1,  1)).rgb, weights);
+    float tl = dot(textureLod(inputTexture, uv + texel * vec2(-1, -1), 0.0).rgb, weights);
+    float tc = dot(textureLod(inputTexture, uv + texel * vec2( 0, -1), 0.0).rgb, weights);
+    float tr = dot(textureLod(inputTexture, uv + texel * vec2( 1, -1), 0.0).rgb, weights);
+    float ml = dot(textureLod(inputTexture, uv + texel * vec2(-1,  0), 0.0).rgb, weights);
+    float mr = dot(textureLod(inputTexture, uv + texel * vec2( 1,  0), 0.0).rgb, weights);
+    float bl = dot(textureLod(inputTexture, uv + texel * vec2(-1,  1), 0.0).rgb, weights);
+    float bc = dot(textureLod(inputTexture, uv + texel * vec2( 0,  1), 0.0).rgb, weights);
+    float br = dot(textureLod(inputTexture, uv + texel * vec2( 1,  1), 0.0).rgb, weights);
     float gx = -tl - 2.0 * ml - bl + tr + 2.0 * mr + br;
     float gy = -tl - 2.0 * tc - tr + bl + 2.0 * bc + br;
     float edge = length(vec2(gx, gy));
-    vec4 src = texture(inputTexture, uv);
+    vec4 src = textureLod(inputTexture, uv, 0.0);
     imageStore(outputTexture, gid,
-        vec4(mix(src.rgb, vec3(1, 0, 0), clamp(edge * 3.0, 0.0, 1.0)), 1));
+        vec4(mix(src.rgb, vec3(1, 0, 0), clamp(edge * 3.0, 0.0, 1.0)), src.a));
 }
 )";
 
@@ -126,30 +137,6 @@ void main()
         }
     }
 
-    struct RenderableStats
-    {
-        int renderComponents = 0;
-        int meshInstances = 0;
-    };
-
-    void gatherRenderableStats(GraphNode* node, RenderableStats& stats)
-    {
-        if (!node) {
-            return;
-        }
-
-        if (auto* entity = dynamic_cast<Entity*>(node)) {
-            if (auto* render = entity->findComponent<RenderComponent>()) {
-                stats.renderComponents++;
-                stats.meshInstances += static_cast<int>(render->meshInstances().size());
-            }
-        }
-
-        for (const auto& child : node->children()) {
-            gatherRenderableStats(child.get(), stats);
-        }
-    }
-
 }
 
 class EdgeDetectExample final: public ExampleApp
@@ -161,30 +148,11 @@ public:
 protected:
     bool create() override
     {
-        auto composition = std::make_shared<LayerComposition>("edge-detect");
-        auto defaultLayers = scene()->layers();
-        auto rtLayer = std::make_shared<Layer>("RTLayer", LAYERID_RT);
-        composition->pushOpaque(rtLayer);
-        if (defaultLayers) {
-            if (auto layer = defaultLayers->getLayerById(LAYERID_WORLD)) {
-                composition->pushOpaque(layer);
-                composition->pushTransparent(layer);
-            }
-            if (auto layer = defaultLayers->getLayerById(LAYERID_DEPTH)) {
-                composition->pushOpaque(layer);
-            }
-            if (auto layer = defaultLayers->getLayerById(LAYERID_SKYBOX)) {
-                composition->pushOpaque(layer);
-            }
-            if (auto layer = defaultLayers->getLayerById(LAYERID_IMMEDIATE)) {
-                composition->pushOpaque(layer);
-                composition->pushTransparent(layer);
-            }
-            if (auto layer = defaultLayers->getLayerById(LAYERID_UI)) {
-                composition->pushTransparent(layer);
-            }
-        }
-        scene()->setLayers(composition);
+        // Create a layer for the render target, appended to the default composition
+        // as upstream's layers.push() does.
+        _rtLayer = std::make_shared<Layer>("RTLayer", LAYERID_RT);
+        scene()->layers()->pushOpaque(_rtLayer);
+        scene()->layers()->pushTransparent(_rtLayer);
 
         _boardAsset = std::make_unique<Asset>(
             "board", AssetType::CONTAINER, assetPath("models/chess-board.glb"));
@@ -203,10 +171,7 @@ protected:
         }
 
         scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
-        scene()->setSkyboxMip(1.0f);
-        scene()->setSkyboxIntensity(1.0f);
-        scene()->setExposure(1.0f);
-        scene()->setToneMapping(TONEMAP_LINEAR);
+        scene()->setSkyboxMip(1);
 
         auto* container = std::get<ContainerResource*>(*boardResource);
         auto* boardEntity = container ? container->instantiateRenderEntity() : nullptr;
@@ -221,17 +186,6 @@ protected:
         // The board keeps its authored transform, exactly like upstream. The model is
         // ~340 units across, so the orbiting render-target camera at radius 100 sits
         // among the pieces — that close-up is the shot the example is built around.
-        // Re-scaling it to fit the frame turns it into a distant speck on white.
-
-        RenderableStats boardStats;
-        gatherRenderableStats(boardEntity, boardStats);
-        if (boardStats.meshInstances == 0) {
-            spdlog::error("chess-board.glb instantiated with zero mesh instances (renderComponents={}).",
-                boardStats.renderComponents);
-            spdlog::error("Draco is enabled in this build, so GLB decode likely failed for a different reason.");
-            spdlog::error("Check parser warnings above for malformed Draco extension or decode errors.");
-            return false;
-        }
 
         // Directional light on the default WORLD layer, as upstream declares it. Note it
         // therefore does NOT reach the board, which lives on the RT layer only — the board
@@ -335,7 +289,7 @@ protected:
 
     void update(const float dt) override
     {
-        _time += std::clamp(dt, 0.0f, 0.1f);
+        _time += dt;
 
         const auto [w, h] = device()->size();
         const int desiredW = std::max(1, w);
@@ -360,16 +314,18 @@ protected:
             device()->computeDispatch({_compute.get()}, "EdgeDetectDispatch");
         }
 
-        // Two screen-space views with a small vertical gap — viewports set before
-        // render(); the append passes draw them at the end of the frame graph.
+        // Upstream's two draw() rectangles, as fractions of the window with a top-left
+        // origin: (gap/2, 3gap/4) and (gap/2, 1/2 + gap/4), each (1 - gap) x (1/2 - gap).
+        // The viewports are set before render(); the append passes draw at the end of
+        // the frame graph.
         const float gap = 0.02f;
         const int screenW = std::max(1, w);
         const int screenH = std::max(1, h);
         const int vx = static_cast<int>(std::round(0.5f * gap * static_cast<float>(screenW)));
         const int vw = std::max(1, static_cast<int>(std::round((1.0f - gap) * static_cast<float>(screenW))));
         const int vh = std::max(1, static_cast<int>(std::round((0.5f - gap) * static_cast<float>(screenH))));
-        const int topY = static_cast<int>(std::round(0.5f * gap * static_cast<float>(screenH)));
-        const int bottomY = static_cast<int>(std::round((0.5f + 0.5f * gap) * static_cast<float>(screenH)));
+        const int topY = static_cast<int>(std::round(0.75f * gap * static_cast<float>(screenH)));
+        const int bottomY = static_cast<int>(std::round((0.5f + 0.25f * gap) * static_cast<float>(screenH)));
 
         _displayOriginalPass->setViewport(Vector4(static_cast<float>(vx), static_cast<float>(topY),
             static_cast<float>(vw), static_cast<float>(vh)));
@@ -395,6 +351,7 @@ protected:
 private:
     std::unique_ptr<Asset> _boardAsset;
     std::unique_ptr<Asset> _helipadAsset;
+    std::shared_ptr<Layer> _rtLayer;
 
     std::shared_ptr<Texture> _sourceTexture;
     std::shared_ptr<Texture> _outputTexture;

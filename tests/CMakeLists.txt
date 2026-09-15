@@ -211,3 +211,27 @@ add_executable(visutwin-standard-material-workflow-tests
 target_link_libraries(visutwin-standard-material-workflow-tests PRIVATE visutwin-canvas)
 
 add_test(NAME standard-material-workflow COMMAND visutwin-standard-material-workflow-tests)
+
+add_executable(visutwin-wide-line-segment-buffer-tests
+    wideLineSegmentBufferTests.cpp
+)
+
+target_link_libraries(visutwin-wide-line-segment-buffer-tests PRIVATE visutwin-canvas)
+
+add_test(NAME wide-line-segment-buffer COMMAND visutwin-wide-line-segment-buffer-tests)
+
+add_executable(visutwin-primitive-geometry-tests
+    primitiveGeometryTests.cpp
+)
+
+target_link_libraries(visutwin-primitive-geometry-tests PRIVATE visutwin-canvas)
+
+add_test(NAME primitive-geometry COMMAND visutwin-primitive-geometry-tests)
+
+add_executable(visutwin-stb-image-flip-tests
+    stbImageFlipTests.cpp
+)
+
+target_link_libraries(visutwin-stb-image-flip-tests PRIVATE visutwin-canvas)
+
+add_test(NAME stb-image-flip COMMAND visutwin-stb-image-flip-tests)

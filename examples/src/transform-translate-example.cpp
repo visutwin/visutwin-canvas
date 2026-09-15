@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Port of upstream gizmos/transform-rotate.
+// Port of upstream gizmos/transform-translate.
 //
 // A default white box at the origin, lit by a default directional light at euler
-// (0, 0, -60) with ambient 0.2, over a 4x4 grid. A rotate gizmo is attached to the
+// (0, 0, -60) with ambient 0.2, over a 4x4 grid. A translate gizmo is attached to the
 // box; the orbit camera (focused on the origin, zoom 2..10, pitch +/-89.999) stops
 // responding while the gizmo holds the pointer.
 //
 // DEVIATIONS:
-// - The engine's TransformGizmo is a simplified gizmo (axis cylinders and a centre
-//   sphere, no rings, fixed world size of 1.8). Upstream's gizmo size of
-//   1024 / viewport dimension, its theme, snap, coordinate-space, drag-mode,
-//   rotation-mode and per-shape render settings have no counterpart, so the controls
-//   panel is absent
+// - The engine's TransformGizmo is a simplified gizmo (cone arrows and a centre
+//   sphere, no plane handles, fixed world size of 1.8). Upstream's gizmo size of
+//   1024 / viewport dimension, its theme, snap, coordinate-space, drag-mode and
+//   per-shape render settings have no counterpart, so the controls panel is absent
 //   and upstream's initial values (snap off, world space) apply.
 // - Upstream's Grid script is a pristine-grid shader on a blended plane. It is drawn
 //   here with a WideLineRenderer: opaque 1-pixel lines every unit over the scaled
@@ -36,10 +35,10 @@
 
 using namespace visutwin::canvas;
 
-class TransformRotateExample final: public ExampleApp
+class TransformTranslateExample final: public ExampleApp
 {
 public:
-    TransformRotateExample(): ExampleApp({.title = "Transform Rotate"}) {}
+    TransformTranslateExample(): ExampleApp({.title = "Transform Translate"}) {}
 
 protected:
     bool create() override
@@ -80,7 +79,7 @@ protected:
 
         // Gizmo
         _gizmo = std::make_unique<TransformGizmo>(engine(), camera);
-        _gizmo->setMode(TransformGizmo::Mode::Rotate);
+        _gizmo->setMode(TransformGizmo::Mode::Translate);
         _gizmo->attach(box);
 
         createGrid(4.0f, 4.0f);
@@ -166,4 +165,4 @@ private:
     bool _gizmoHasPointer = false;
 };
 
-VISUTWIN_EXAMPLE_MAIN(TransformRotateExample)
+VISUTWIN_EXAMPLE_MAIN(TransformTranslateExample)

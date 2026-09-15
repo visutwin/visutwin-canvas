@@ -1,24 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Screen-space UI text example.
+// Port of upstream user-interface/text.
 //
-// Mirrors the upstream `user-interface/text` example: a screen-space
-// Screen root hosts several Text ElementComponents at different positions,
-// font sizes and colors. One line updates every frame (frame counter + FPS)
-// via ElementComponent::setText to demonstrate live text.
+// A screen-space Screen (reference resolution 1280x720) over a dark grey clear
+// holds four Text elements in the courier bitmap font, centred horizontally
+// and placed relative to the screen centre: "Basic Text" (42 px, 200 up), a
+// wrapped rainbow sentence in a 500x100 box (32 px, 50 up), "Outline" (62 px,
+// 100 down) and "Drop Shadow" (62 px, 200 down).
 //
-// The on-screen text render path is the same one proven by
-// world-to-screen-example.cpp:
-//   * A ScreenComponent (screen-space) root entity.
-//   * Text ElementComponents parented under the screen, positioned in UI
-//     pixels, each pointed at a loaded bitmap font (FontResource).
-//   * ElementInput::syncTextElements() turns each Text element into a glyph
-//     mesh on LAYERID_UI, which an orthographic UI camera composites over the
-//     3D backdrop.
+// DEVIATIONS:
+// - the element system has no anchors, so each element's entity position is
+//   set in UI pixels (top-left origin) every frame, from the screen's size.
+// - UI text is drawn by a separate orthographic camera on LAYERID_UI; the main
+//   camera renders only the world layers, which are empty here.
+// - ScreenComponent has no scaleMode / scaleBlend: it always scales by the
+//   smaller of the two axis ratios. At the reference resolution both agree.
+// - no text markup: the rainbow sentence is the same text with its [color] tags
+//   removed, so every word is white.
+// - no outline: "Outline" is black with a white 0.75 outline upstream, which
+//   without the outline is invisible on the dark clear, so it is drawn in the
+//   outline colour (white) instead.
+// - no drop shadow: "Drop Shadow" is drawn without its red (0.25, -0.25) shadow.
 //
 #include <algorithm>
-#include <cstdio>
 #include <memory>
 #include <string>
 
@@ -31,7 +36,6 @@
 #include "framework/components/screen/screenComponent.h"
 #include "framework/components/screen/screenComponentSystem.h"
 #include "framework/input/elementInput.h"
-#include "scene/materials/standardMaterial.h"
 
 using namespace visutwin::canvas;
 
@@ -42,8 +46,7 @@ class UiTextExample final: public ExampleApp
 {
 public:
     UiTextExample()
-        : ExampleApp({.title = "UI Text (Screen + Element)",
-                      .width = WINDOW_WIDTH, .height = WINDOW_HEIGHT}) {}
+        : ExampleApp({.title = "UI Text", .width = WINDOW_WIDTH, .height = WINDOW_HEIGHT}) {}
 
 protected:
     void configure(AppOptions& options) override
@@ -56,26 +59,25 @@ protected:
 
     bool create() override
     {
-        scene()->setAmbientLight(0.35f, 0.35f, 0.4f);
-
-        // --- Simple 3D backdrop: a single rotating box. ---
-        _boxMaterial = std::make_shared<StandardMaterial>();
-        _boxMaterial->setDiffuse(Color(0.35f, 0.55f, 0.85f, 1.0f));
-        _boxEntity = createPrimitive("box", _boxMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
-            Vector3(1.4f, 1.4f, 1.4f), {LAYERID_WORLD});
-
-        createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f));
-
-        // --- Main perspective camera renders the 3D world (not the UI layer). ---
-        auto* cameraEntity = createCamera(Vector3(0.0f, 0.0f, 5.0f));
-        auto* cameraComponent = cameraEntity->findComponent<CameraComponent>();
-        if (cameraComponent && cameraComponent->camera()) {
-            cameraComponent->camera()->setClearColor(
-                Color(18.0f / 255.0f, 20.0f / 255.0f, 28.0f / 255.0f, 1.0f));
+        _font = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/courier.json"));
+        FontResource* font = nullptr;
+        if (const auto fontRes = _font->resource();
+            fontRes.has_value() && std::holds_alternative<FontResource*>(*fontRes)) {
+            font = std::get<FontResource*>(*fontRes);
         }
-        cameraComponent->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX});
+        if (!font) {
+            spdlog::error("Failed to load fonts/courier.json");
+            return false;
+        }
 
-        // --- Orthographic UI camera renders only the UI layer, over the world. ---
+        // Create a camera
+        auto* cameraEntity = createCamera(Vector3(0.0f, 0.0f, 0.0f));
+        if (auto* camera = cameraEntity->findComponent<CameraComponent>()) {
+            camera->camera()->setClearColor(Color(30.0f / 255.0f, 30.0f / 255.0f, 30.0f / 255.0f, 1.0f));
+            camera->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX});
+        }
+
+        // Orthographic camera for the UI layer, drawn over the main camera.
         auto* uiCameraEntity = createCamera(Vector3(0.0f, 0.0f, 10.0f));
         _uiCamera = uiCameraEntity->findComponent<CameraComponent>();
         if (_uiCamera && _uiCamera->camera()) {
@@ -87,189 +89,93 @@ protected:
             _uiCamera->setLayers({LAYERID_UI});
         }
 
-        // --- Screen-space Screen (UI root). ---
+        // Create a 2D screen
         auto* screenEntity = new Entity();
         screenEntity->setEngine(engine());
-        _screenComponent = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        if (_screenComponent) {
-            _screenComponent->setReferenceResolution(Vector2(1280.0f, 720.0f));
-            _screenComponent->setScreenSpace(true);
-        }
+        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
+        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
+        _screen->setScreenSpace(true);
         root()->addChild(screenEntity);
 
-        // --- Load the bitmap font used by every text element. ---
-        // Bitmap/MSDF font; the FONT handler also loads the sibling courier.png atlas.
-        _courierFont = std::make_unique<Asset>(
-            "courier-font", AssetType::FONT, assetPath("fonts/courier.json"));
+        // Basic Text
+        _texts.push_back({createText(screenEntity, font, "Basic Text", 42, 400.0f, 42.0f, false,
+            Color(1.0f, 1.0f, 1.0f, 1.0f)), 200.0f});
 
-        FontResource* fontResource = nullptr;
-        if (const auto fontRes = _courierFont->resource();
-            fontRes.has_value() && std::holds_alternative<FontResource*>(*fontRes)) {
-            fontResource = std::get<FontResource*>(*fontRes);
-        }
-        if (!fontResource) {
-            spdlog::warn("Courier bitmap font was not loaded; text elements will render nothing.");
-        }
+        // Markup Text with wrap
+        _texts.push_back({createText(screenEntity, font,
+            "There are seven colors in the rainbow: red, orange, yellow, green, blue, indigo and violet.",
+            32, 500.0f, 100.0f, true, Color(1.0f, 1.0f, 1.0f, 1.0f)), 50.0f});
 
-        // Large title (top-center), a subtitle, two colored size samples and a
-        // live-updating line. All are Text ElementComponents; the placement is done
-        // in UI pixels each frame so they track window resizes.
-        _titleElement = createTextElement(
-            screenEntity, "Canvas", 48,
-            Color(1.0f, 1.0f, 1.0f, 1.0f), Vector2(0.5f, 0.5f),
-            Vector4(0.5f, 1.0f, 0.5f, 1.0f), 600.0f, fontResource);
+        // Text with outline
+        _texts.push_back({createText(screenEntity, font, "Outline", 62, 400.0f, 62.0f, false,
+            Color(1.0f, 1.0f, 1.0f, 1.0f)), -100.0f});
 
-        _subtitleElement = createTextElement(
-            screenEntity, "Screen-space UI text via Screen + Element", 22,
-            Color(0.7f, 0.8f, 1.0f, 1.0f), Vector2(0.5f, 0.5f),
-            Vector4(0.5f, 1.0f, 0.5f, 1.0f), 600.0f, fontResource);
-
-        _warmElement = createTextElement(
-            screenEntity, "Warm 28px", 28,
-            Color(1.0f, 0.65f, 0.2f, 1.0f), Vector2(0.5f, 0.5f),
-            Vector4(0.5f, 0.5f, 0.5f, 0.5f), 400.0f, fontResource);
-
-        _coolElement = createTextElement(
-            screenEntity, "Cool 18px", 18,
-            Color(0.4f, 1.0f, 0.7f, 1.0f), Vector2(0.5f, 0.5f),
-            Vector4(0.5f, 0.5f, 0.5f, 0.5f), 400.0f, fontResource);
-
-        _liveElement = createTextElement(
-            screenEntity, "frame 0", 20,
-            Color(1.0f, 1.0f, 0.4f, 1.0f), Vector2(0.5f, 0.5f),
-            Vector4(0.5f, 0.0f, 0.5f, 0.0f), 500.0f, fontResource);
-
-        spdlog::info("UI Text example: a screen-space Screen with 5 Text ElementComponents "
-                     "(48px title, 22px subtitle, warm 28px, cool 18px, and a live frame/FPS counter) "
-                     "over a rotating 3D box. ESC to quit.");
+        // Text with drop shadow
+        _texts.push_back({createText(screenEntity, font, "Drop Shadow", 62, 600.0f, 62.0f, false,
+            Color(1.0f, 1.0f, 1.0f, 1.0f)), -200.0f});
 
         return true;
     }
 
-    void update(const float dt) override
+    void update(float) override
     {
-        const float instFps = dt > 1e-6f ? 1.0f / dt : 0.0f;
-        _fpsSmoothed = _fpsSmoothed <= 0.0f ? instFps : (_fpsSmoothed * 0.92f + instFps * 0.08f);
-
-        // Compute the UI-space extent the same way the text render path does.
         int windowW = 1;
         int windowH = 1;
         SDL_GetWindowSize(window(), &windowW, &windowH);
-        float uiWidth = static_cast<float>(windowW);
-        float uiHeight = static_cast<float>(windowH);
-        if (_screenComponent) {
-            _screenComponent->updateScaleFromWindow(windowW, windowH);
-            const float scale = std::max(_screenComponent->scale(), 1e-6f);
-            uiWidth = _screenComponent->resolution().x / scale;
-            uiHeight = _screenComponent->resolution().y / scale;
-        }
+        _screen->updateScaleFromWindow(windowW, windowH);
+        const float scale = std::max(_screen->scale(), 1e-6f);
+        const float uiWidth = _screen->resolution().x / scale;
+        const float uiHeight = _screen->resolution().y / scale;
         if (_uiCamera && _uiCamera->camera()) {
             _uiCamera->camera()->setOrthoHeight(uiHeight * 0.5f);
         }
 
-        // Position each element (UI pixels, origin top-left) so it stays anchored.
-        const float cx = uiWidth * 0.5f;
-        if (_titleElement && _titleElement->entity()) {
-            _titleElement->entity()->setLocalPosition(cx, 70.0f, 0.0f);
-        }
-        if (_subtitleElement && _subtitleElement->entity()) {
-            _subtitleElement->entity()->setLocalPosition(cx, 118.0f, 0.0f);
-        }
-        if (_warmElement && _warmElement->entity()) {
-            _warmElement->entity()->setLocalPosition(cx, uiHeight * 0.5f - 20.0f, 0.0f);
-        }
-        if (_coolElement && _coolElement->entity()) {
-            _coolElement->entity()->setLocalPosition(cx, uiHeight * 0.5f + 20.0f, 0.0f);
-        }
-        if (_liveElement && _liveElement->entity()) {
-            _liveElement->entity()->setLocalPosition(cx, uiHeight - 60.0f, 0.0f);
-        }
-
-        // Live-updating text: rewrite the counter line every frame.
-        if (_liveElement) {
-            char buffer[96];
-            std::snprintf(buffer, sizeof(buffer), "frame %llu   |   %.0f FPS",
-                static_cast<unsigned long long>(_frame), _fpsSmoothed);
-            _liveElement->setText(buffer);
-        }
-
-        // Spin the backdrop box.
-        _boxAngle += dt * 40.0f;
-        if (_boxAngle > 360.0f) {
-            _boxAngle -= 360.0f;
-        }
-        if (_boxEntity) {
-            _boxEntity->setLocalEulerAngles(_boxAngle * 0.6f, _boxAngle, 0.0f);
+        // Upstream anchors every element at the screen centre and offsets it with a
+        // y-up local position; this places the same point in y-down UI pixels.
+        for (const auto& [element, offsetY] : _texts) {
+            element->entity()->setLocalPosition(uiWidth * 0.5f, uiHeight * 0.5f - offsetY, 0.0f);
         }
     }
 
     void preRender() override
     {
-        // Rebuild/refresh the glyph meshes for all text elements, then present.
         _elementInput->syncTextElements();
     }
 
-    void postRender() override
-    {
-        ++_frame;
-    }
-
 private:
-    // Creates a Text ElementComponent parented under the screen entity.
-    // Positioning is in UI pixels via the entity's local position (the text
-    // render path reads element->entity()->position()); anchor/pivot describe
-    // the element's own alignment.
-    ElementComponent* createTextElement(
-        Entity* screenEntity,
-        const std::string& text,
-        int fontSize,
-        const Color& color,
-        const Vector2& pivot,
-        const Vector4& anchor,
-        float width,
-        FontResource* font) const
+    struct PlacedText
+    {
+        ElementComponent* element = nullptr;
+        float offsetY = 0.0f;
+    };
+
+    ElementComponent* createText(Entity* screenEntity, FontResource* font, const std::string& text,
+        int fontSize, float width, float height, bool wrapLines, const Color& color) const
     {
         auto* entity = new Entity();
         entity->setEngine(engine());
-
         auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        if (element) {
-            element->setType(ElementType::Text);
-            element->setPivot(pivot);
-            element->setAnchor(anchor);
-            element->setWidth(width);
-            element->setHeight(static_cast<float>(fontSize) + 6.0f);
-            element->setFontSize(fontSize);
-            element->setColor(color);
-            element->setText(text);
-            element->setHorizontalAlign(ElementHorizontalAlign::Center);
-            element->setWrapLines(false);
-            if (font) {
-                element->setFontResource(font);
-            }
-        }
-
+        element->setType(ElementType::Text);
+        element->setPivot(Vector2(0.5f, 0.5f));
+        element->setAnchor(Vector4(0.5f, 0.5f, 0.5f, 0.5f));
+        element->setFontResource(font);
+        element->setFontSize(fontSize);
+        element->setText(text);
+        element->setWidth(width);
+        element->setHeight(height);
+        element->setWrapLines(wrapLines);
+        element->setHorizontalAlign(ElementHorizontalAlign::Center);
+        element->setColor(color);
         screenEntity->addChild(entity);
         return element;
     }
 
     std::shared_ptr<ElementInput> _elementInput;
-    std::unique_ptr<Asset> _courierFont;
-    std::shared_ptr<StandardMaterial> _boxMaterial;
+    std::unique_ptr<Asset> _font;
 
-    Entity* _boxEntity = nullptr;
     CameraComponent* _uiCamera = nullptr;
-    ScreenComponent* _screenComponent = nullptr;
-
-    ElementComponent* _titleElement = nullptr;
-    ElementComponent* _subtitleElement = nullptr;
-    ElementComponent* _warmElement = nullptr;
-    ElementComponent* _coolElement = nullptr;
-    ElementComponent* _liveElement = nullptr;
-
-    uint64_t _frame = 0;
-    float _fpsSmoothed = 0.0f;
-    float _boxAngle = 0.0f;
+    ScreenComponent* _screen = nullptr;
+    std::vector<PlacedText> _texts;
 };
 
 VISUTWIN_EXAMPLE_MAIN(UiTextExample)

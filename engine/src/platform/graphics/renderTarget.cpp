@@ -89,9 +89,6 @@ namespace visutwin::canvas
             _name = "Untitled";
         }
 
-        // Render image flipped in Y
-        _flipY = options.flipY;
-
         _mipLevel = options.mipLevel;
         if (_mipLevel > 0 && _depth) {
             spdlog::error("Rendering to a mipLevel is not supported when render target uses a depth buffer. Ignoring mipLevel " +
@@ -99,8 +96,12 @@ namespace visutwin::canvas
             _mipLevel = 0;
         }
 
-        // If we render to a specific mipmap (even 0), do not generate mipmaps
-        _mipmaps = (options.mipLevel == 0 && !options.colorBuffer);
+        // Mipmaps are generated when the target does not render into a specific level.
+        // DEVIATION: upstream tests `options.mipLevel === undefined`; the option is a
+        // plain int here, so level 0 stands for "not a specific level". This used to
+        // also require no colour buffer, which made every render texture report no
+        // mipmaps, so no pass ever generated them.
+        _mipmaps = (options.mipLevel == 0);
 
         validateMrt();
 

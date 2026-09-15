@@ -84,22 +84,9 @@
                 const float clNdotV = max(dot(N, V), 0.0);
                 const float clNoH = max(dot(N, clH), 0.0);
 #if VT_FEATURE_ANISOTROPY
-                // Anisotropic GGX for clustered lights.
-                const float clTdotH = dot(anisoT, clH);
-                const float clBdotH = dot(anisoB, clH);
-                const float clTdotL = dot(anisoT, clL);
-                const float clBdotL = dot(anisoB, clL);
-                const float clTdotV = dot(anisoT, V);
-                const float clBdotV = dot(anisoB, V);
-                const float clAnisoF = clTdotH * clTdotH / anisoAt2
-                                      + clBdotH * clBdotH / anisoAb2 + clNoH * clNoH;
-                const float clD = 1.0 / (PI * anisoAt * anisoAb
-                                          * max(clAnisoF * clAnisoF, 1e-8));
-                const float clLambdaV = clNdotL * sqrt(anisoAt2 * clTdotV * clTdotV
-                                        + anisoAb2 * clBdotV * clBdotV + clNdotV * clNdotV);
-                const float clLambdaL = clNdotV * sqrt(anisoAt2 * clTdotL * clTdotL
-                                        + anisoAb2 * clBdotL * clBdotL + clNdotL * clNdotL);
-                const float clG = 0.5 / max(clLambdaV + clLambdaL, 1e-5);
+                // Anisotropic GGX (common-brdf): clD carries the whole D * Vis product.
+                const float clD = getLightSpecularAnisoGGX(N, V, clH, clL, anisoT, anisoB, anisoAlpha);
+                const float clG = 1.0;
 #else
                 const float clDenom = clNoH * clNoH * (alpha2 - 1.0) + 1.0;
                 const float clD = alpha2 / (PI * clDenom * clDenom);

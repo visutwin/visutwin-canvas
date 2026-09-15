@@ -148,6 +148,9 @@ namespace visutwin::canvas
         std::vector<std::shared_ptr<RenderPass>> collectPasses() const;
         int appendActionsToPass(const std::shared_ptr<RenderPassForward>& pass, int fromIndex, int toIndex,
             const std::shared_ptr<RenderTarget>& target, bool firstLayerClears = true);
+        // Index of the last source action a pass stopping at (layer, transparent) renders,
+        // fromIndex - 1 when it renders none, or kStopLayerNotInComposition.
+        static constexpr int kStopLayerNotInComposition = -1000000;
         int findActionIndex(int targetLayerId, bool targetTransparent, int fromIndex) const;
         static std::shared_ptr<RenderAction> cloneActionWithTarget(const RenderAction* source,
             const std::shared_ptr<RenderTarget>& renderTarget);

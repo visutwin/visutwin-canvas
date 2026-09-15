@@ -158,7 +158,7 @@ namespace visutwin::canvas
                 colorOps->resolve = false;
             }
 
-            // if the render target needs mipmaps
+            // if the render target needs mipmaps (see RenderTarget's constructor for the rule)
             if (_renderTarget && _renderTarget->hasMipmaps() && i < _renderTarget->colorBufferCount()) {
                 auto colorBuffer = _renderTarget->getColorBuffer(i);
                 if (colorBuffer && colorBuffer->mipmaps()) {

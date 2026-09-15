@@ -13,6 +13,7 @@
 #include <stb_image.h>
 #include <spdlog/spdlog.h>
 
+#include "framework/assets/stbImageFlip.h"
 #include "platform/graphics/graphicsDevice.h"
 
 namespace visutwin::canvas
@@ -286,8 +287,14 @@ namespace visutwin::canvas
         int w = 0;
         int h = 0;
         int channels = 0;
-        stbi_set_flip_vertically_on_load(false);
-        stbi_uc* pixels = stbi_load(atlasPath.c_str(), &w, &h, &channels, STBI_rgb_alpha);
+        // Glyph rects are top-left origin, so the atlas must NOT be flipped. Clearing
+        // only stb's global flag here was overridden by the GLB parser's thread-local
+        // one, and a font loaded after any GLB drew every glyph upside down.
+        stbi_uc* pixels = nullptr;
+        {
+            const StbVerticalFlipScope flipScope(false);
+            pixels = stbi_load(atlasPath.c_str(), &w, &h, &channels, STBI_rgb_alpha);
+        }
         if (!pixels || w <= 0 || h <= 0) {
             delete font;
             if (pixels) {

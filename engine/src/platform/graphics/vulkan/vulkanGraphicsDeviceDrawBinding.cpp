@@ -1337,11 +1337,12 @@ namespace visutwin::canvas
         }
         // SSR projects each marched world position to screen UV with this.
         // Packed column-major for the GLSL mat4, mirroring MetalUniformBinder.
+        // getElement takes (col, row); passing (row, col) uploaded the transpose.
         if (viewProjection) {
             for (int col = 0; col < 4; ++col) {
                 for (int row = 0; row < 4; ++row) {
                     _lightingUbo.viewProjection[col * 4 + row] =
-                        viewProjection->getElement(row, col);
+                        viewProjection->getElement(col, row);
                 }
             }
         } else {

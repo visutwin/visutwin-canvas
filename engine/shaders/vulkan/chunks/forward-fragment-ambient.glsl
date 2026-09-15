@@ -55,7 +55,11 @@
 
         // Specular: reflect, pick a mip, trilinear between levels. Twin of the
         // block in forward-fragment-ambient.metal, including its shiny path.
-        vec3 R = reflect(-V, N);
+        // Anisotropic materials bend the normal first (upstream reflDirAniso,
+        // common-brdf), as the Metal chunk does.
+        vec3 R = vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)
+            ? getReflDirAniso(N, V, anisoB, 1.0 - roughness, anisoIntensity)
+            : reflect(-V, N);
         vec3 specDir = vec3(-R.x, R.y, R.z);
         vec2 envUv = dirToEquirect(specDir);
         float level = clamp(roughness * 5.0, 0.0, 5.0);
@@ -157,7 +161,10 @@
     }
     color += indirectDiffuse + indirectSpecular;
     if (vtFeatureEnabled(VT_FEATURE_REFLECTION_PROBE_BIT)) {
-        vec3 reflectDir = reflect(-V, N);
+        // Upstream samples every reflection source along the one (bent) dReflDirW.
+        vec3 reflectDir = vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)
+            ? getReflDirAniso(N, V, anisoB, 1.0 - roughness, anisoIntensity)
+            : reflect(-V, N);
         vec3 sampleDir = reflectDir;
 
         // Box projection (upstream cubeMapProject BOX): intersect the reflection
@@ -361,15 +368,17 @@
                 }
             }
 
-            // Volume transmittance (KHR_materials_volume Beer's law). Distance 0
-            // keeps the legacy baseColor^thickness tint.
+            // Volume transmittance (KHR_materials_volume Beer's law); distance 0
+            // transmits everything. Then the diffuse albedo, ONCE, as upstream's
+            // combineColor applies it to the refraction mixed into dDiffuseLight - not
+            // baseColor^(thickness + 1), which darkened a tinted volume several times
+            // over (see the Metal tail).
             if (material.attenuationParams.w > 0.0) {
                 vec3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
                 refrColor *= exp(-(-log(attColor) / material.attenuationParams.w) *
                     thickness);
-            } else {
-                refrColor *= pow(max(albedo.rgb, vec3(0.0)), vec3(thickness + 1.0));
             }
+            refrColor *= diffuseAlbedo;
 
             // Fresnel: grazing angles reflect more, normal incidence transmits.
             float F0ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
@@ -380,15 +389,31 @@
             // Emissive is added after this block, so it survives on its own.
             vec3 specPart = directSpecular + indirectSpecular;
             color = mix(color, refrColor + specPart, clamp(transmission, 0.0, 1.0));
-        } else {
-            float transmission = clamp(material.transmissionFactor, 0.0, 1.0);
-            vec3 transmitted = indirectDiffuse + indirectSpecular;
+        } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
+            lighting.envParams.y > 0.5 && (material.flags & (1u << 18)) == 0u &&
+            material.transmissionFactor > 0.0) {
+            // Env-atlas refraction (upstream refractionCube.js): the reflection lookup
+            // along the REFRACTED direction. What stood here mixed toward this
+            // fragment's own ambient (indirectDiffuse + indirectSpecular), which is
+            // not a refraction at all: the surface came out opaque at any
+            // transmission. Twin of the Metal tail's cube path.
+            vec3 refrDir = refract(-V, N, 1.0 / max(material.refractionIndex, 1.001));
+            vec3 refrColor = (dot(refrDir, refrDir) > 0.0)
+                ? sampleEnvAtlas(normalize(refrDir), roughness) * max(lighting.envParams.x, 0.0)
+                : vec3(0.0);
             if (material.attenuationParams.w > 0.0) {
                 // Same Beer's law as the dynamic path: a^(t/d) == exp(-(-ln a/d)*t).
-                transmitted *= pow(max(material.attenuationParams.rgb, vec3(1e-4)),
-                    vec3(material.thickness / material.attenuationParams.w));
+                refrColor *= pow(max(material.attenuationParams.rgb, vec3(1e-4)),
+                    vec3(max(material.thickness, 0.0) / material.attenuationParams.w));
             }
-            color = mix(color, transmitted, transmission);
+            // The albedo TWICE, as upstream: refractionCube mixes refraction * albedo
+            // into dDiffuseLight and combineColor multiplies that by the albedo again.
+            // (The dynamic path applies it once, and so does upstream's.) No Fresnel
+            // weight either - upstream's cube path has none.
+            refrColor *= diffuseAlbedo * diffuseAlbedo;
+            vec3 specPart = directSpecular + indirectSpecular;
+            color = mix(color, refrColor + specPart,
+                clamp(material.transmissionFactor, 0.0, 1.0));
         }
     }
 

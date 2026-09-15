@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// ORIGINAL SCENE — not a port: upstream has no counterpart. It is a companion to the
+// ambient-occlusion port (upstream graphics/ambient-occlusion), which is the one to
+// compare against upstream.
+//
 // SSAO showcase, da Vinci workshop variant: the workshop model and a Leonardo bust
 // under a museum spotlight, both auto-scaled to a common size, with the full colour
 // finishing chain (fringing, grading, colour enhance, 3D LUT) on top of the SSAO.

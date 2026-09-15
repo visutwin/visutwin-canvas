@@ -451,23 +451,9 @@
         const float nDotV = max(dot(N, V), 0.0);
         const float NoH = max(dot(N, H), 0.0);
 #if VT_FEATURE_ANISOTROPY
-        // Anisotropic GGX NDF (Burley 2012) + Smith-GGX visibility.
-        // Anisotropic specular GGX.
-        const float TdotH = dot(anisoT, H);
-        const float BdotH = dot(anisoB, H);
-        const float TdotL = dot(anisoT, L);
-        const float BdotL = dot(anisoB, L);
-        const float TdotV = dot(anisoT, V);
-        const float BdotV = dot(anisoB, V);
-        const float anisoF = TdotH * TdotH / anisoAt2
-                            + BdotH * BdotH / anisoAb2 + NoH * NoH;
-        const float D = 1.0 / (PI * anisoAt * anisoAb
-                                * max(anisoF * anisoF, 1e-8));
-        const float lambdaV = nDotL * sqrt(anisoAt2 * TdotV * TdotV
-                              + anisoAb2 * BdotV * BdotV + nDotV * nDotV);
-        const float lambdaL = nDotV * sqrt(anisoAt2 * TdotL * TdotL
-                              + anisoAb2 * BdotL * BdotL + nDotL * nDotL);
-        const float G = 0.5 / max(lambdaV + lambdaL, 1e-5);
+        // Anisotropic GGX (common-brdf): D carries the whole D * Vis product.
+        const float D = getLightSpecularAnisoGGX(N, V, H, L, anisoT, anisoB, anisoAlpha);
+        const float G = 1.0;
 #else
         const float denom = NoH * NoH * (alpha2 - 1.0) + 1.0;
         const float D = alpha2 / (PI * denom * denom);

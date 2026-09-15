@@ -40,9 +40,10 @@
         // Glossy (level==0): sample from shiny atlas sub-region with screen-space MIP.
         // Rough (level>0): trilinearly interpolate between adjacent roughness MIP levels.
 #if VT_FEATURE_ANISOTROPY
-        // Bend reflection toward bitangent
-        // for anisotropic IBL. Elongates reflections along the anisotropy direction.
-        const float3 R = reflect(-V, normalize(mix(N, anisoB, material.anisotropy)));
+        // Upstream reflDirAniso (common-brdf). What stood here bent the normal
+        // straight onto the bitangent by the raw signed value, which at full
+        // anisotropy reflected along B whatever the surface normal was.
+        const float3 R = getReflDirAniso(N, V, anisoB, gloss, anisoIntensity);
 #else
         const float3 R = reflect(-V, N);
 #endif
@@ -151,7 +152,12 @@
     // direction, optionally box-projected (parallax-corrected) so reflections
     // align to the probe's volume. Overrides the global env-atlas specular.
     if (reflectionProbeCube.get_width() > 0) {
+#if VT_FEATURE_ANISOTROPY
+        // Upstream samples every reflection source along the one (bent) dReflDirW.
+        const float3 Rp = getReflDirAniso(N, V, anisoB, gloss, anisoIntensity);
+#else
         const float3 Rp = reflect(-V, N);
+#endif
         float3 sampleDir = Rp;
 
         // Box projection (upstream cubeMapProject BOX): intersect the reflection

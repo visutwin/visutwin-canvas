@@ -998,6 +998,88 @@ void main() { fragColor = texture(src, vUv) * u.a.x + u.b; }
             device->endRenderPass(&cubePass);
             device->frameEnd();
 
+            // A render target over a mipmapped texture must regenerate the chain
+            // when its pass ends, and hand every level back SHADER_READ_ONLY. Two
+            // defects hid this: RenderTarget::hasMipmaps() was false for every
+            // target built from a colour buffer, so no pass generated mips and
+            // levels 1+ sampled uninitialised memory (solid magenta on MoltenVK);
+            // and the mip-0 attachment reused the texture's all-level view, which
+            // put levels 1+ in COLOR_ATTACHMENT behind the layout tracker. A clear
+            // alone is enough: every generated level must read back the clear
+            // colour. Placed after the descriptor-pool recycling check, which
+            // counts frames from the stress frame.
+            {
+                TextureOptions mipTargetOptions{};
+                mipTargetOptions.name = "vulkan-smoke-mip-target";
+                mipTargetOptions.width = 8;
+                mipTargetOptions.height = 8;
+                mipTargetOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+                mipTargetOptions.mipmaps = true;
+                auto mipTexture = std::make_unique<Texture>(device.get(), mipTargetOptions);
+
+                RenderTargetOptions mipRtOptions{};
+                mipRtOptions.graphicsDevice = device.get();
+                mipRtOptions.colorBuffer = mipTexture.get();
+                mipRtOptions.depth = false;
+                mipRtOptions.name = "vulkan-smoke-mip-target";
+                auto mipTarget = device->createRenderTarget(mipRtOptions);
+
+                RenderPass mipPass(sharedDevice);
+                mipPass.init(mipTarget);
+                const Color mipClear(0.25f, 0.5f, 0.75f, 1.0f);
+                mipPass.setClearColor(&mipClear);
+                if (mipPass.colorArrayOps().empty() ||
+                    !mipPass.colorArrayOps()[0]->genMipmaps) {
+                    spdlog::error("Vulkan smoke: a mipmapped render target's pass "
+                        "does not generate mipmaps");
+                    result = 1;
+                }
+
+                device->frameStart();
+                device->startRenderPass(&mipPass);
+                device->endRenderPass(&mipPass);
+                device->frameEnd();
+
+                auto* vkMip = dynamic_cast<gpu::VulkanTexture*>(mipTexture->impl());
+                if (!vkMip || vkMip->mipLevels() != 4) {
+                    spdlog::error("Vulkan smoke: mipmapped render target has {} levels, "
+                        "expected 4", vkMip ? vkMip->mipLevels() : 0u);
+                    result = 1;
+                } else {
+                    for (uint32_t level = 0; level < vkMip->mipLevels(); ++level) {
+                        if (vkMip->layout(level, 0) != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+                            spdlog::error("Vulkan smoke: render target mip {} left in layout {}",
+                                level, static_cast<int>(vkMip->layout(level, 0)));
+                            result = 1;
+                        }
+                    }
+                    constexpr std::array<int, 4> expected = {64, 128, 191, 255};
+                    for (uint32_t level = 2; level < 4; ++level) {
+                        const uint32_t dimension = 8u >> level;
+                        std::vector<uint8_t> texels;
+                        if (!mipTexture->read(texels, 0, 0, dimension, dimension, level)) {
+                            spdlog::error("Vulkan smoke: render target mip {} readback failed",
+                                level);
+                            result = 1;
+                            continue;
+                        }
+                        bool mismatch = false;
+                        for (size_t i = 0; i + 3 < texels.size() && !mismatch; i += 4) {
+                            for (size_t c = 0; c < 4; ++c) {
+                                if (std::abs(static_cast<int>(texels[i + c]) - expected[c]) > 2) {
+                                    spdlog::error("Vulkan smoke: render target mip {} texel reads "
+                                        "({}, {}, {}, {}), expected the clear colour", level,
+                                        texels[i], texels[i + 1], texels[i + 2], texels[i + 3]);
+                                    result = 1;
+                                    mismatch = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Exercise dynamic rendering with two ordered color attachments of
             // different formats using a fragment shader that writes both output
             // locations. Both formats must be declared by the compatible

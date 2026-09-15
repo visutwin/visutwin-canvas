@@ -335,7 +335,42 @@ namespace visutwin::canvas
                 return i;
             }
         }
-        return -1;
+
+        // Upstream's addCameraLayers walks the composition's SUBLAYER list and stops at
+        // the requested slot whether or not that layer is enabled. Render actions exist
+        // only for enabled layers, so a DISABLED stop layer matched nothing here, and the
+        // callers fell back to every action. That is the ordinary case for the grab: the
+        // stop layer is the skybox, and a scene lit only by its env atlas disables the
+        // Skybox layer. The scene pass then drew the transparent layers BEFORE the colour
+        // grab, so a refractive surface sampled itself from the previous frame and the
+        // feedback converged to a dark, nearly opaque silhouette. So place the stop by
+        // its position in the composition instead: the last action at or before it.
+        if (!_layerComposition) {
+            return kStopLayerNotInComposition;
+        }
+        const auto targetLayer = _layerComposition->getLayerById(targetLayerId);
+        const int targetSlot = !targetLayer ? -1
+            : (targetTransparent ? _layerComposition->getTransparentIndex(targetLayer)
+                                 : _layerComposition->getOpaqueIndex(targetLayer));
+        if (targetSlot < 0) {
+            return kStopLayerNotInComposition;
+        }
+        int lastBeforeStop = std::max(fromIndex, 0) - 1;
+        for (int i = std::max(fromIndex, 0); i < static_cast<int>(_sourceActions.size()); ++i) {
+            const auto* action = _sourceActions[i];
+            if (!action || !action->layer) {
+                continue;
+            }
+            const auto layer = _layerComposition->getLayerById(action->layer->id());
+            const int slot = !layer ? -1
+                : (action->transparent ? _layerComposition->getTransparentIndex(layer)
+                                       : _layerComposition->getOpaqueIndex(layer));
+            if (slot > targetSlot) {
+                break;
+            }
+            lastBeforeStop = i;
+        }
+        return lastBeforeStop;
     }
 
     int RenderPassCameraFrame::appendActionsToPass(const std::shared_ptr<RenderPassForward>& pass, const int fromIndex,
@@ -576,7 +611,7 @@ namespace visutwin::canvas
         // had an immediate layer to stop at, but the grab path stops at the SKYBOX instead,
         // which a camera with a custom layer set need not render.
         int sceneEndIndex = findActionIndex(lastLayerId, lastLayerTransparent, 0);
-        if (sceneEndIndex < 0) {
+        if (sceneEndIndex == kStopLayerNotInComposition) {
             sceneEndIndex = lastActionIndex;
         }
 
@@ -600,7 +635,7 @@ namespace visutwin::canvas
             const int transparentFromIndex = info.lastAddedIndex + 1;
             int transparentEndIndex = findActionIndex(options.lastSceneLayerId, options.lastSceneLayerIsTransparent,
                 std::max(transparentFromIndex, 0));
-            if (transparentEndIndex < 0) {
+            if (transparentEndIndex == kStopLayerNotInComposition) {
                 transparentEndIndex = lastActionIndex;
             }
 

@@ -39,6 +39,7 @@
 #include "scene/materials/standardMaterial.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
+#include "framework/assets/stbImageFlip.h"
 
 namespace visutwin::canvas
 {
@@ -296,9 +297,12 @@ namespace visutwin::canvas
             }
 
             // OBJ textures typically use bottom-left origin (OpenGL convention)
-            stbi_set_flip_vertically_on_load(true);
             int w, h, comp;
-            stbi_uc* pixels = stbi_load(texPath.string().c_str(), &w, &h, &comp, 4);
+            stbi_uc* pixels = nullptr;
+            {
+                const StbVerticalFlipScope flipScope(true);
+                pixels = stbi_load(texPath.string().c_str(), &w, &h, &comp, 4);
+            }
             if (!pixels) {
                 spdlog::warn("OBJ texture decode failed: {}", texPath.string());
                 cache[texname] = nullptr;

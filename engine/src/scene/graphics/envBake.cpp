@@ -240,9 +240,7 @@ namespace visutwin::canvas
             targetOptions.colorBuffer = target;
             targetOptions.face = static_cast<int>(face);
             targetOptions.depth = false;
-            targetOptions.samples = 1;
-            targetOptions.flipY = false;
-            targetOptions.name = "equirectToCubeFace";
+            targetOptions.samples = 1;            targetOptions.name = "equirectToCubeFace";
             auto renderTarget = device->createRenderTarget(targetOptions);
             if (!renderTarget) {
                 continue;
@@ -296,9 +294,7 @@ namespace visutwin::canvas
         targetOptions.graphicsDevice = device;
         targetOptions.colorBuffer = request.target;
         targetOptions.depth = false;
-        targetOptions.samples = 1;
-        targetOptions.flipY = false;
-        targetOptions.name = "envReprojectTarget";
+        targetOptions.samples = 1;        targetOptions.name = "envReprojectTarget";
         auto renderTarget = device->createRenderTarget(targetOptions);
         if (!renderTarget) {
             return false;
@@ -357,9 +353,7 @@ namespace visutwin::canvas
         targetOptions.graphicsDevice = device;
         targetOptions.colorBuffer = request.target;
         targetOptions.depth = false;
-        targetOptions.samples = 1;
-        targetOptions.flipY = false;
-        targetOptions.name = "envConvolveTarget";
+        targetOptions.samples = 1;        targetOptions.name = "envConvolveTarget";
         auto renderTarget = device->createRenderTarget(targetOptions);
         if (!renderTarget) {
             return false;
@@ -421,9 +415,7 @@ namespace visutwin::canvas
         targetOptions.graphicsDevice = device;
         targetOptions.colorBuffer = request.target;
         targetOptions.depth = false;
-        targetOptions.samples = 1;
-        targetOptions.flipY = false;
-        targetOptions.name = "envAtlasTarget";
+        targetOptions.samples = 1;        targetOptions.name = "envAtlasTarget";
         auto renderTarget = device->createRenderTarget(targetOptions);
         if (!renderTarget) {
             return false;

@@ -17,7 +17,7 @@ visutwin-canvas/
 │   │   └── util/                  # General utilities
 │   ├── lib/                       # Vendored: metal-cpp, stb
 │   └── shaders/                   # Metal chunks + embedded programs, Vulkan GLSL
-├── examples/                      # 44 example applications
+├── examples/                      # 46 example applications (upstream ports + one original scene)
 ├── tests/                         # Unit tests + Vulkan validation smoke test
 ├── tools/                         # Build and utility tools
 └── assets/                        # Example assets (some procedural, some user-provided)

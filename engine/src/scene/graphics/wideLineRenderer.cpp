@@ -14,6 +14,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
+#include "scene/graphics/wideLineSegmentBuffer.h"
 #include "scene/graphics/wideLineShaders.h"
 #include "scene/materials/shaderMaterial.h"
 #include "scene/mesh.h"
@@ -247,21 +248,18 @@ namespace visutwin::canvas
         }
 
         // The storage buffer is recreated only when it has to grow, so a line whose
-        // points move every frame does not reallocate.
+        // points move every frame does not reallocate. A smaller set is written into
+        // the front of the existing buffer and the draw count below says how much of
+        // it is live; see wideLineSegmentBuffer.h for why the payload is full-size.
         const int count = static_cast<int>(records.size());
-        if (_segmentBuffer == nullptr || count > _segmentCapacity) {
-            auto format = std::make_shared<VertexFormat>(
-                static_cast<int>(sizeof(SegmentRecord)), true, false);
-            VertexBufferOptions options;
-            options.usage = BUFFER_DYNAMIC;
-            options.data.resize(records.size() * sizeof(SegmentRecord));
-            std::memcpy(options.data.data(), records.data(), options.data.size());
-            _segmentBuffer = _device->createVertexBuffer(format, count, options);
-            _segmentCapacity = count;
-        } else {
-            std::vector<uint8_t> bytes(records.size() * sizeof(SegmentRecord));
-            std::memcpy(bytes.data(), records.data(), bytes.size());
-            _segmentBuffer->setData(bytes);
+        if (!wideline::uploadSegmentRecords(*_device, _segmentBuffer, _segmentCapacity,
+                reinterpret_cast<const uint8_t*>(records.data()), count,
+                static_cast<int>(sizeof(SegmentRecord)))) {
+            spdlog::error("WideLineRenderer: failed to upload {} segments", count);
+            if (render != nullptr) {
+                render->clearMeshInstances();
+            }
+            return;
         }
 
         if (render == nullptr) {

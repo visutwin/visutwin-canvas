@@ -1,143 +1,116 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Physics raycast probe: two horizontal rays sweep up and down through a row of
-// static collision shapes. raycastFirst() paints only the nearest hit red;
-// raycastAll() paints every shape it passes through. Blue markers show the
-// surface normal at each hit.
+// Port of upstream physics/raycast.
 //
-#include <algorithm>
+// Two rows of static physics shapes (box, capsule, cone, cylinder, sphere) at
+// x = 1, 3, 5, 7, 9 and y = +2 / -2, green on a lavender clear colour, lit by one
+// directional light at euler (45, 30, 0) and ambient 0.2. Every frame all shapes
+// reset to green, then two horizontal rays from x = 0 to x = 10 bob with
+// 1.2 * sin(t) around each row: the top one uses raycastFirst and paints only the
+// nearest hit red, the bottom one uses raycastAll and paints every shape it passes
+// through. White lines draw the rays and a blue line 0.3 long shows the surface
+// normal at each hit. World-space labels "raycastFirst" and "raycastAll" sit above
+// the rows.
+//
+// The raycasts go through a real PhysicsWorld (Jolt), supplied in configure(), as
+// upstream's go through Ammo — not the CPU fallback over collision bounds.
+//
+// DEVIATIONS:
+// - The physics seam has no cone shape, so the cone's collision volume is a
+//   cylinder of the same radius (0.5) and height (1). The ray therefore hits the
+//   cone slightly wider near its tip than upstream's btConeShape would.
+// - Upstream draws the rays and normals with app.drawLine (1-pixel hardware lines).
+//   This port has no immediate line drawing, so they are WideLines one pixel wide
+//   in a WideLineRenderer. To match drawLine's one-frame lifetime, the normal lines
+//   are removed from the renderer at the start of every frame and one is added per
+//   hit, so the segment count changes from frame to frame.
+// - ElementComponent::setFontSize takes an int, so upstream's 0.5 font size is
+//   expressed as fontSize 64 on an entity scaled by 0.5 / 64 — the same size in
+//   world units (see anisotropy-example.cpp).
+//
 #include <cmath>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
 #include "../exampleApp.h"
-#include "core/math/quaternion.h"
+#include "framework/assets/asset.h"
 #include "framework/components/collision/collisionComponent.h"
 #include "framework/components/collision/collisionComponentSystem.h"
+#include "framework/components/element/elementComponent.h"
+#include "framework/components/element/elementComponentSystem.h"
 #include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/components/rigidbody/rigidBodyComponentSystem.h"
+#include "framework/input/elementInput.h"
+#include "framework/physics/jolt/joltPhysicsWorld.h"
+#include "scene/graphics/wideLine.h"
+#include "scene/graphics/wideLineRenderer.h"
 #include "scene/materials/standardMaterial.h"
 
 using namespace visutwin::canvas;
 
-void orientYAxisToDirection(Entity* entity, const Vector3& direction)
+namespace
 {
-    if (!entity || direction.lengthSquared() < 1e-8f) {
-        return;
-    }
-
-    const Vector3 from = Vector3(0.0f, 1.0f, 0.0f);
-    const Vector3 to = direction.normalized();
-    const float dot = std::clamp(from.dot(to), -1.0f, 1.0f);
-
-    Quaternion rotation;
-    if (dot > 0.9999f) {
-        rotation = Quaternion::fromAxisAngle(Vector3(1.0f, 0.0f, 0.0f), 0.0f);
-    } else if (dot < -0.9999f) {
-        rotation = Quaternion::fromAxisAngle(Vector3(1.0f, 0.0f, 0.0f), 180.0f);
-    } else {
-        const Vector3 axis = from.cross(to).normalized();
-        const float angleDeg = std::acos(dot) * RAD_TO_DEG;
-        rotation = Quaternion::fromAxisAngle(axis, angleDeg);
-    }
-
-    entity->setLocalRotation(rotation);
-}
-
-void setSegmentMarker(Entity* marker, const Vector3& start, const Vector3& end, const float thickness)
-{
-    if (!marker) {
-        return;
-    }
-
-    const Vector3 delta = end - start;
-    const float length = delta.length();
-    if (length <= 1e-5f) {
-        marker->setLocalScale(Vector3(0.0f, 0.0f, 0.0f));
-        return;
-    }
-
-    marker->setLocalPosition((start + end) * 0.5f);
-    orientYAxisToDirection(marker, delta);
-    marker->setLocalScale(Vector3(thickness, length, thickness));
+    constexpr float kNormalLength = 0.3f;
+    constexpr float kLineWidthPixels = 1.0f;
 }
 
 class RaycastExample final: public ExampleApp
 {
 public:
-    RaycastExample()
-        : ExampleApp({.title = "Physics Raycast Probe", .width = 1200, .height = 760}) {}
+    RaycastExample(): ExampleApp({.title = "Raycast"}) {}
 
 protected:
     void configure(AppOptions& options) override
     {
         options.registerComponentSystem<CollisionComponentSystem>();
         options.registerComponentSystem<RigidBodyComponentSystem>();
+        options.registerComponentSystem<ElementComponentSystem>();
+        options.physicsWorld = createJoltPhysicsWorld();
+
+        _elementInput = std::make_shared<ElementInput>();
+        options.elementInput = _elementInput;
     }
 
     bool create() override
     {
         scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 
-        _green = std::make_shared<StandardMaterial>();
-        _green->setDiffuse(Color(0.0f, 1.0f, 0.0f, 1.0f));
+        _red = createMaterial(Color(1.0f, 0.0f, 0.0f, 1.0f));
+        _green = createMaterial(Color(0.0f, 1.0f, 0.0f, 1.0f));
 
-        _red = std::make_shared<StandardMaterial>();
-        _red->setDiffuse(Color(1.0f, 0.0f, 0.0f, 1.0f));
+        createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f));
 
-        _white = std::make_shared<StandardMaterial>();
-        _white->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
-        _white->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
-        _white->setEmissiveIntensity(8.0f);
-
-        _blue = std::make_shared<StandardMaterial>();
-        _blue->setDiffuse(Color(0.0f, 0.2f, 1.0f, 1.0f));
-        _blue->setEmissive(Color(0.0f, 0.2f, 1.0f, 1.0f));
-        _blue->setEmissiveIntensity(8.0f);
-
-        createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f), Color(1.0f, 1.0f, 1.0f, 1.0f), 2.0f);
-
-        auto* cameraEntity = createCamera(Vector3(5.0f, 0.0f, 15.0f));
-        if (auto* camera = cameraEntity->findComponent<CameraComponent>();
-            camera && camera->camera()) {
-            camera->camera()->setClearColor(Color(0.5f, 0.5f, 0.8f, 1.0f));
+        auto* camera = createCamera(Vector3(5.0f, 0.0f, 15.0f));
+        if (auto* comp = camera->findComponent<CameraComponent>();
+            comp != nullptr && comp->camera() != nullptr) {
+            comp->camera()->setClearColor(Color(0.5f, 0.5f, 0.8f, 1.0f));
         }
-        cameraEntity->lookAt(Vector3(5.0f, 0.0f, 0.0f));
 
         const std::vector<std::string> types = {"box", "capsule", "cone", "cylinder", "sphere"};
-        _physicalRenders.reserve(types.size() * 2u);
-
-        for (const float y : {2.0f, -2.0f}) {
-            for (size_t i = 0; i < types.size(); ++i) {
-                auto* entity = createPhysicalShape(
-                    types[i], _green.get(), Vector3(static_cast<float>(i) * 2.0f + 1.0f, y, 0.0f));
-                if (auto* render = entity->findComponent<RenderComponent>()) {
-                    _physicalRenders.push_back(render);
-                }
-            }
+        for (size_t idx = 0; idx < types.size(); ++idx) {
+            createPhysicalShape(types[idx], static_cast<float>(idx) * 2.0f + 1.0f, 2.0f, 0.0f);
+        }
+        for (size_t idx = 0; idx < types.size(); ++idx) {
+            createPhysicalShape(types[idx], static_cast<float>(idx) * 2.0f + 1.0f, -2.0f, 0.0f);
         }
 
-        _rayFirstMarker = createPrimitive("cylinder", _white.get(),
-            Vector3(0.0f, 2.0f, 0.0f), Vector3(0.03f, 1.0f, 0.03f));
-        _rayAllMarker = createPrimitive("cylinder", _white.get(),
-            Vector3(0.0f, -2.0f, 0.0f), Vector3(0.03f, 1.0f, 0.03f));
-
-        // DEVIATION: upstream uses app.drawLine for debug rays/normals; this native sample visualizes
-        // them with thin cylinder render primitives until immediate line rendering is ported.
-        _normalMarkers.reserve(16);
-        for (int i = 0; i < 16; ++i) {
-            _normalMarkers.push_back(createPrimitive("cylinder", _blue.get(),
-                Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f)));
-        }
-
-        _rigidbodySystem = dynamic_cast<RigidBodyComponentSystem*>(engine()->systems()->getById("rigidbody"));
+        _rigidbodySystem = dynamic_cast<RigidBodyComponentSystem*>(
+            engine()->systems()->getById("rigidbody"));
         if (!_rigidbodySystem) {
             spdlog::error("RigidBodyComponentSystem not available");
             return false;
         }
+
+        _lines = std::make_unique<WideLineRenderer>(engine(), device());
+        _lines->setScreenSize(static_cast<float>(windowWidth()), static_cast<float>(windowHeight()));
+        _lines->add(&_rayFirst);
+        _lines->add(&_rayAll);
+
+        _font = std::make_unique<Asset>("arial-font", AssetType::FONT, assetPath("fonts/arial.json"));
+        createText("raycastFirst", 0.5f, 3.75f, 0.0f, 0.0f);
+        createText("raycastAll", 0.5f, -0.25f, 0.0f, 0.0f);
 
         return true;
     }
@@ -145,85 +118,151 @@ protected:
     void update(const float dt) override
     {
         _time += dt;
-        const float time = _time;
 
-        for (auto* render : _physicalRenders) {
-            if (!render) {
-                continue;
-            }
+        // Reset all shapes to green.
+        for (auto* render : _renders) {
             render->setMaterial(_green.get());
         }
 
-        for (auto* marker : _normalMarkers) {
-            marker->setLocalScale(Vector3(0.0f, 0.0f, 0.0f));
+        // Last frame's normals go, as drawLine's would; onHit adds this frame's.
+        for (size_t i = 0; i < _normalLinesInUse; ++i) {
+            _lines->remove(_normalLines[i].get());
+        }
+        _normalLinesInUse = 0;
+
+        const Color white(1.0f, 1.0f, 1.0f, 1.0f);
+
+        float y = 2.0f + 1.2f * std::sin(_time);
+        Vector3 start(0.0f, y, 0.0f);
+        Vector3 end(10.0f, y, 0.0f);
+
+        // Render the ray used in the raycast.
+        _rayFirst.setPoints({start, end}, white, kLineWidthPixels);
+
+        if (const auto result = _rigidbodySystem->raycastFirst(start, end); result.has_value()) {
+            onHit(*result);
         }
 
-        const float yFirst = 2.0f + 1.2f * std::sin(time);
-        const Vector3 startFirst(0.0f, yFirst, 0.0f);
-        const Vector3 endFirst(10.0f, yFirst, 0.0f);
-        setSegmentMarker(_rayFirstMarker, startFirst, endFirst, 0.03f);
+        y = -2.0f + 1.2f * std::sin(_time);
+        start = Vector3(0.0f, y, 0.0f);
+        end = Vector3(10.0f, y, 0.0f);
 
-        int normalMarkerCursor = 0;
-        if (const auto hit = _rigidbodySystem->raycastFirst(startFirst, endFirst); hit.has_value()) {
-            if (auto* render = hit->entity ? hit->entity->findComponent<RenderComponent>() : nullptr) {
-                render->setMaterial(_red.get());
-            }
+        _rayAll.setPoints({start, end}, white, kLineWidthPixels);
 
-            if (normalMarkerCursor < static_cast<int>(_normalMarkers.size())) {
-                const Vector3 normalEnd = hit->point + hit->normal * 0.8f;
-                setSegmentMarker(_normalMarkers[normalMarkerCursor], hit->point, normalEnd, 0.04f);
-                normalMarkerCursor++;
-            }
+        for (const auto& result : _rigidbodySystem->raycastAll(start, end)) {
+            onHit(result);
         }
 
-        const float yAll = -2.0f + 1.2f * std::sin(time);
-        const Vector3 startAll(0.0f, yAll, 0.0f);
-        const Vector3 endAll(10.0f, yAll, 0.0f);
-        setSegmentMarker(_rayAllMarker, startAll, endAll, 0.03f);
+        _lines->update();
+    }
 
-        const auto allHits = _rigidbodySystem->raycastAll(startAll, endAll);
-        for (const auto& hit : allHits) {
-            if (auto* render = hit.entity ? hit.entity->findComponent<RenderComponent>() : nullptr) {
-                render->setMaterial(_red.get());
-            }
+    void preRender() override
+    {
+        _elementInput->syncTextElements();
+    }
 
-            if (normalMarkerCursor < static_cast<int>(_normalMarkers.size())) {
-                const Vector3 normalEnd = hit.point + hit.normal * 0.8f;
-                setSegmentMarker(_normalMarkers[normalMarkerCursor], hit.point, normalEnd, 0.04f);
-                normalMarkerCursor++;
-            }
-        }
+    void destroy() override
+    {
+        _lines.reset();
     }
 
 private:
-    Entity* createPhysicalShape(const std::string& type, StandardMaterial* material,
-        const Vector3& position)
+    static std::shared_ptr<StandardMaterial> createMaterial(const Color& color)
     {
-        auto* entity = createPrimitive(type.c_str(), material, position, Vector3(1.0f, 1.0f, 1.0f));
+        auto material = std::make_shared<StandardMaterial>();
+        material->setDiffuse(color);
+        return material;
+    }
 
-        if (auto* rigidbody = static_cast<RigidBodyComponent*>(entity->addComponent<RigidBodyComponent>())) {
-            rigidbody->setType("static");
+    void createPhysicalShape(const std::string& type, const float x, const float y, const float z)
+    {
+        // As upstream: the position is set before the static rigid body exists,
+        // because static bodies are never moved after creation.
+        auto* entity = createPrimitive(type.c_str(), _green.get(), Vector3(x, y, z));
+        if (auto* render = entity->findComponent<RenderComponent>()) {
+            _renders.push_back(render);
+        }
+
+        if (auto* body = static_cast<RigidBodyComponent*>(entity->addComponent<RigidBodyComponent>())) {
+            body->setType(RigidBodyType::Static);
         }
 
         if (auto* collision = static_cast<CollisionComponent*>(entity->addComponent<CollisionComponent>())) {
-            collision->setType(type);
-            if (type == "capsule") {
-                collision->setHeight(2.0f);
-            }
+            // DEVIATION: no cone collision shape; a cylinder stands in (see header).
+            collision->setType(type == "cone" ? "cylinder" : type);
+            collision->setHeight(type == "capsule" ? 2.0f : 1.0f);
         }
-
-        return entity;
     }
 
-    std::shared_ptr<StandardMaterial> _green;
-    std::shared_ptr<StandardMaterial> _red;
-    std::shared_ptr<StandardMaterial> _white;
-    std::shared_ptr<StandardMaterial> _blue;
+    void onHit(const RaycastResult& result)
+    {
+        if (auto* render = result.entity ? result.entity->findComponent<RenderComponent>() : nullptr) {
+            render->setMaterial(_red.get());
+        }
 
-    std::vector<RenderComponent*> _physicalRenders;
-    std::vector<Entity*> _normalMarkers;
-    Entity* _rayFirstMarker = nullptr;
-    Entity* _rayAllMarker = nullptr;
+        // Render the normal on the surface from the hit point.
+        // The lines are pooled only so the renderer's raw pointers stay valid; the
+        // pool grows to the most hits seen in one frame.
+        if (_normalLinesInUse == _normalLines.size()) {
+            _normalLines.push_back(std::make_unique<WideLine>());
+        }
+        WideLine* line = _normalLines[_normalLinesInUse++].get();
+        line->setPoints({result.point, result.point + result.normal * kNormalLength},
+            Color(0.0f, 0.0f, 1.0f, 1.0f), kLineWidthPixels);
+        _lines->add(line);
+    }
+
+    void createText(const std::string& message, const float x, const float y, const float z, const float rot)
+    {
+        constexpr int kFontSize = 64;
+        constexpr float kFontSizeWorld = 0.5f;
+        const float scale = kFontSizeWorld / static_cast<float>(kFontSize);
+
+        FontResource* fontResource = nullptr;
+        if (const auto res = _font->resource();
+            res.has_value() && std::holds_alternative<FontResource*>(*res)) {
+            fontResource = std::get<FontResource*>(*res);
+        }
+        if (!fontResource) {
+            spdlog::warn("arial.json failed to load; the labels will be missing");
+            return;
+        }
+
+        auto* text = new Entity();
+        text->setEngine(engine());
+        if (auto* element = static_cast<ElementComponent*>(text->addComponent<ElementComponent>())) {
+            element->setType(ElementType::Text);
+            element->setAnchor(Vector4(0.5f, 0.5f, 0.5f, 0.5f));
+            element->setFontResource(fontResource);
+            element->setFontSize(kFontSize);
+            // A single line is centred on the pivot's y only when height == fontSize.
+            element->setHeight(static_cast<float>(kFontSize));
+            element->setWidth(static_cast<float>(kFontSize) * 16.0f);
+            element->setPivot(Vector2(0.0f, 0.5f));
+            // Upstream's element sizes itself to the text (autoWidth), so pivot x 0
+            // starts the text at the entity. This box is wider than the line, and
+            // left alignment is what puts the text at the same place.
+            element->setHorizontalAlign(ElementHorizontalAlign::Left);
+            element->setText(message);
+        }
+        text->setLocalPosition(x, y, z);
+        text->setLocalEulerAngles(0.0f, 0.0f, rot);
+        text->setLocalScale(scale, scale, scale);
+        root()->addChild(text);
+    }
+
+    std::shared_ptr<ElementInput> _elementInput;
+    std::unique_ptr<Asset> _font;
+
+    std::shared_ptr<StandardMaterial> _red;
+    std::shared_ptr<StandardMaterial> _green;
+    std::vector<RenderComponent*> _renders;
+
+    std::unique_ptr<WideLineRenderer> _lines;
+    WideLine _rayFirst;
+    WideLine _rayAll;
+    std::vector<std::unique_ptr<WideLine>> _normalLines;
+    size_t _normalLinesInUse = 0;
 
     RigidBodyComponentSystem* _rigidbodySystem = nullptr;
     float _time = 0.0f;

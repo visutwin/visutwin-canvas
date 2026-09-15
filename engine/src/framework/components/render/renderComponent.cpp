@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 10.02.2026.
 //
 #include "renderComponent.h"
+#include "primitiveGeometry.h"
 
 #include <algorithm>
 #include <array>
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
@@ -18,6 +20,7 @@
 #include "framework/entity.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexFormat.h"
+#include "scene/geometry/geometryUtils.h"
 
 namespace visutwin::canvas
 {
@@ -25,25 +28,23 @@ namespace visutwin::canvas
     {
         constexpr float PI_F = 3.14159265358979323846f;
 
-        struct PrimitiveGeometry
-        {
-            std::vector<float> positions;
-            std::vector<float> normals;
-            std::vector<float> uvs;
-            std::vector<float> tangents;
-            std::vector<uint32_t> indices;
-        };
-
         void pushVertex(PrimitiveGeometry& geometry,
             const float px, const float py, const float pz,
             const float nx, const float ny, const float nz,
-            const float tx, const float ty, const float tz, const float tw,
             const float u, const float v)
         {
             geometry.positions.insert(geometry.positions.end(), {px, py, pz});
             geometry.normals.insert(geometry.normals.end(), {nx, ny, nz});
-            geometry.tangents.insert(geometry.tangents.end(), {tx, ty, tz, tw});
             geometry.uvs.insert(geometry.uvs.end(), {u, v});
+        }
+
+        // Every primitive's tangent frame is derived from its UVs rather than written
+        // by hand: hand-written frames gave the box (1, 0, 0) on every face — parallel
+        // to the normal on +/-X — and the sphere and capsule caps a reversed tangent.
+        PrimitiveGeometry withTangents(PrimitiveGeometry geometry)
+        {
+            geometry.tangents = calculateTangents(geometry.positions, geometry.normals, geometry.uvs, geometry.indices);
+            return geometry;
         }
 
         std::shared_ptr<Mesh> createMesh(const std::shared_ptr<GraphicsDevice>& device, const PrimitiveGeometry& geometry)
@@ -140,6 +141,10 @@ namespace visutwin::canvas
 
             return mesh;
         }
+    }
+
+    // Declared in primitiveGeometry.h. See there for the texture-origin convention
+    // every primitive follows.
 
         PrimitiveGeometry createBoxGeometry()
         {
@@ -218,7 +223,6 @@ namespace visutwin::canvas
                             temp1.y + (temp2.y - c0.y),
                             temp1.z + (temp2.z - c0.z),
                             faceNormals[side][0], faceNormals[side][1], faceNormals[side][2],
-                            1.0f, 0.0f, 0.0f, 1.0f,
                             u, 1.0f - v);
 
                         if (i < uSegments && j < vSegments) {
@@ -234,7 +238,7 @@ namespace visutwin::canvas
                 }
             }
 
-            return geometry;
+            return withTangents(std::move(geometry));
         }
 
         PrimitiveGeometry createSphereGeometry()
@@ -261,10 +265,7 @@ namespace visutwin::canvas
                     const float u = 1.0f - static_cast<float>(lon) / static_cast<float>(longitudeBands);
                     const float v = static_cast<float>(lat) / static_cast<float>(latitudeBands);
 
-                    const float tx = -sinPhi;
-                    const float ty = 0.0f;
-                    const float tz = cosPhi;
-                    pushVertex(geometry, x * radius, y * radius, z * radius, x, y, z, tx, ty, tz, 1.0f, u, v);
+                    pushVertex(geometry, x * radius, y * radius, z * radius, x, y, z, u, v);
                 }
             }
 
@@ -281,7 +282,7 @@ namespace visutwin::canvas
                 }
             }
 
-            return geometry;
+            return withTangents(std::move(geometry));
         }
 
         PrimitiveGeometry createConeBaseGeometry(const float baseRadius, const float peakRadius, const float height,
@@ -309,7 +310,6 @@ namespace visutwin::canvas
                         pushVertex(geometry,
                             pos.getX(), pos.getY(), pos.getZ(),
                             norm.getX(), norm.getY(), norm.getZ(),
-                            tangent.getX(), tangent.getY(), tangent.getZ(), 1.0f,
                             u, v);
 
                         if (i < heightSegments && j < capSegments) {
@@ -345,7 +345,6 @@ namespace visutwin::canvas
                         pushVertex(geometry,
                             x * peakRadius, y * peakRadius + capOffset, z * peakRadius,
                             x, y, z,
-                            -sinPhi, 0.0f, cosPhi, 1.0f,
                             u, v);
                     }
                 }
@@ -378,7 +377,6 @@ namespace visutwin::canvas
                         pushVertex(geometry,
                             x * peakRadius, y * peakRadius - capOffset, z * peakRadius,
                             x, y, z,
-                            -sinPhi, 0.0f, cosPhi, 1.0f,
                             u, v);
                     }
                 }
@@ -408,7 +406,6 @@ namespace visutwin::canvas
                         pushVertex(geometry,
                             x * baseRadius, -height * 0.5f, z * baseRadius,
                             0.0f, -1.0f, 0.0f,
-                            1.0f, 0.0f, 0.0f, 1.0f,
                             u, v);
                         if (i > 1) {
                             geometry.indices.insert(geometry.indices.end(), {offset, offset + static_cast<uint32_t>(i), offset + static_cast<uint32_t>(i - 1)});
@@ -427,7 +424,6 @@ namespace visutwin::canvas
                         pushVertex(geometry,
                             x * peakRadius, height * 0.5f, z * peakRadius,
                             0.0f, 1.0f, 0.0f,
-                            1.0f, 0.0f, 0.0f, 1.0f,
                             u, v);
                         if (i > 1) {
                             geometry.indices.insert(geometry.indices.end(), {offset, offset + static_cast<uint32_t>(i - 1), offset + static_cast<uint32_t>(i)});
@@ -436,7 +432,7 @@ namespace visutwin::canvas
                 }
             }
 
-            return geometry;
+            return withTangents(std::move(geometry));
         }
 
         PrimitiveGeometry createCylinderGeometry()
@@ -461,18 +457,21 @@ namespace visutwin::canvas
             PrimitiveGeometry geometry;
 
             // 4 vertices: (-0.5, 0, -0.5) to (0.5, 0, 0.5)
-            // Normal pointing up (+Y), tangent along +X
-            pushVertex(geometry, -0.5f, 0.0f,  0.5f,  0.0f, 1.0f, 0.0f,  1.0f, 0.0f, 0.0f, 1.0f,  0.0f, 0.0f);
-            pushVertex(geometry,  0.5f, 0.0f,  0.5f,  0.0f, 1.0f, 0.0f,  1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 0.0f);
-            pushVertex(geometry,  0.5f, 0.0f, -0.5f,  0.0f, 1.0f, 0.0f,  1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 1.0f);
-            pushVertex(geometry, -0.5f, 0.0f, -0.5f,  0.0f, 1.0f, 0.0f,  1.0f, 0.0f, 0.0f, 1.0f,  0.0f, 1.0f);
+            // Normal pointing up (+Y). UVs are upstream's: u = 0..1 along +X, v = 0 at
+            // z = -0.5 and 1 at z = +0.5 (upstream writes `1 - v` with its v running from
+            // +Z to -Z). The far edge samples the image's top row, which stands the
+            // picture upright once the plane is rotated +90 degrees about X. The derived
+            // tangent is +X (+u) and cross(n, t) * w is -Z, toward the image's top.
+            pushVertex(geometry, -0.5f, 0.0f,  0.5f,  0.0f, 1.0f, 0.0f,  0.0f, 1.0f);
+            pushVertex(geometry,  0.5f, 0.0f,  0.5f,  0.0f, 1.0f, 0.0f,  1.0f, 1.0f);
+            pushVertex(geometry,  0.5f, 0.0f, -0.5f,  0.0f, 1.0f, 0.0f,  1.0f, 0.0f);
+            pushVertex(geometry, -0.5f, 0.0f, -0.5f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f);
 
             // Two triangles
             geometry.indices = {0, 1, 2, 0, 2, 3};
 
-            return geometry;
+            return withTangents(std::move(geometry));
         }
-    }
 
     RenderComponent::RenderComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity), _type("asset")

@@ -204,6 +204,11 @@
         // Height-correlated visibility folds in 1/(4 NdotL NdotV), so there is no
         // explicit division here — see common-brdf.glsl.
         float Vis = getVisibilitySmithGGX(NdotV, NdotL, roughness);
+        if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
+            // Anisotropic GGX (common-brdf): D carries the whole D * Vis product.
+            D = getLightSpecularAnisoGGX(N, V, H, L, anisoT, anisoB, anisoAlpha);
+            Vis = 1.0;
+        }
         // Directional lights take the gloss-aware Fresnel; punctual lights take bare
         // specularity, as upstream's lightFunctionLight.js gates it and the Metal
         // chunk does. Applying the Fresnel to every light type over-brightened the

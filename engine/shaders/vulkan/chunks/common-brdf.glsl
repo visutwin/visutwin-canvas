@@ -60,3 +60,56 @@ float getFresnelCC(float cosTheta) {
 float getVisibilityKelemen(float LdotH) {
     return 0.25 / max(LdotH * LdotH, 1e-5);
 }
+
+// ── Anisotropic GGX (upstream lightSpecularAnisoGGX + reflDirAniso) ──
+//
+// `anisotropy` is the INTENSITY in [0, 1]; the engine's signed value only picks the
+// direction (tangent or bitangent), which the surface chunk resolves into T and B.
+//
+// (at, ab) exactly as upstream: alpha = ((1 - gloss)^2)^2, stretched toward 1 along
+// the tangent by intensity SQUARED. Note that this alpha is one squaring beyond the
+// isotropic distribution's (whose GGX alpha is (1 - gloss)^2), so the highlight
+// narrows as soon as a material turns anisotropy on. That is upstream's own
+// formulation, kept so both backends and upstream agree; the lambda terms line up
+// with the isotropic visibility's extra squaring.
+vec2 getAnisotropicAlpha(float gloss, float anisotropy) {
+    float r = max((1.0 - gloss) * (1.0 - gloss), 0.001);
+    float a = r * r;
+    return vec2(mix(a, 1.0, anisotropy * anisotropy), clamp(a, 0.001, 1.0));
+}
+
+// D * Vis for one light (Burley 2012 anisotropic GGX + height-correlated Smith),
+// with the 1/(4 NdotL NdotV) folded in like getVisibilitySmithGGX. The caller
+// writes `DVis * F`. DEVIATION: NdotV and NdotL are clamped at zero as the
+// isotropic path does; upstream leaves them signed and can go negative at a
+// normal-mapped silhouette.
+float getLightSpecularAnisoGGX(vec3 N, vec3 V, vec3 H, vec3 L, vec3 T, vec3 B,
+                               vec2 alpha) {
+    float at = alpha.x;
+    float ab = alpha.y;
+    float a2 = at * ab;
+    vec3 v = vec3(ab * dot(T, H), at * dot(B, H), a2 * dot(N, H));
+    float w2 = a2 / dot(v, v);
+    float D = a2 * w2 * w2 / PI;
+
+    float NoV = max(dot(N, V), 0.0);
+    float NoL = max(dot(N, L), 0.0);
+    float lambdaV = NoL * length(vec3(at * dot(T, V), ab * dot(B, V), NoV));
+    float lambdaL = NoV * length(vec3(at * dot(T, L), ab * dot(B, L), NoL));
+    return D * 0.5 / max(lambdaV + lambdaL, 1e-5);
+}
+
+// Reflection direction for the image-based terms: the normal is bent toward the
+// plane spanned by the anisotropy direction B and the view, by an amount that
+// grows with intensity and roughness. DEVIATION: falls back to the unbent normal
+// when B is parallel to V, where upstream normalizes a zero vector.
+vec3 getReflDirAniso(vec3 N, vec3 V, vec3 B, float gloss, float anisotropy) {
+    float roughness = sqrt(1.0 - min(gloss, 1.0));
+    vec3 anisoNormal = cross(cross(B, V), B);
+    float bend = 1.0 - anisotropy * (1.0 - roughness);
+    float bend4 = bend * bend * bend * bend;
+    vec3 bentNormal = dot(anisoNormal, anisoNormal) > 1e-12
+        ? normalize(mix(normalize(anisoNormal), normalize(N), bend4))
+        : N;
+    return reflect(-V, bentNormal);
+}

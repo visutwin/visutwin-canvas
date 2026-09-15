@@ -45,6 +45,7 @@
 #include "scene/materials/standardMaterial.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"  // declarations only -- STB_IMAGE_IMPLEMENTATION is in asset.cpp
+#include "framework/assets/stbImageFlip.h"
 
 namespace visutwin::canvas
 {
@@ -177,7 +178,7 @@ namespace visutwin::canvas
                 const aiTexture* aiTex = scene->mTextures[texIndex];
                 if (aiTex->mHeight == 0) {
                     // Compressed format (PNG/JPEG) -- mWidth is byte length
-                    stbi_set_flip_vertically_on_load(false);
+                    const StbVerticalFlipScope flipScope(false);
                     pixels = stbi_load_from_memory(
                         reinterpret_cast<const unsigned char*>(aiTex->pcData),
                         static_cast<int>(aiTex->mWidth),
@@ -212,7 +213,7 @@ namespace visutwin::canvas
                     return nullptr;
                 }
                 // UVs already flipped by aiProcess_FlipUVs -- do NOT flip texture data
-                stbi_set_flip_vertically_on_load(false);
+                const StbVerticalFlipScope flipScope(false);
                 pixels = stbi_load(fullPath.string().c_str(), &w, &h, &channels, 4);
             }
 

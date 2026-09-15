@@ -18,7 +18,11 @@ their original `<name>.txt` license sibling next to the file.
 ## Asset Inventory
 
 ### textures/ — complete
-- `checkboard.png` — procedural 256x256 checker (Apache-2.0, generated)
+- `checkboard.png` — procedural 1024x1024 checker, 4x4 cells of dark grey
+  (45,45,47)/(51,51,53) (Apache-2.0, generated). Its pixels match upstream's
+  example checkboard exactly, and must: examples multiply it by diffuse colours
+  far above 1 (render-to-texture uses (3,4,2)), so a lighter stand-in renders
+  their ground white. `checkboard.ktx2` is an older, unused encoding.
 - `colors.png` — procedural 256x256 gradient (Apache-2.0, generated)
 - `hatch-0.jpg` — procedural 256x256 diagonal hatch (Apache-2.0, generated)
 - `seaside-rocks01-color.jpg` — Rock026 from ambientCG (CC-0)
