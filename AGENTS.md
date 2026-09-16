@@ -720,7 +720,15 @@ present, but the rule below never depends on reading it.
   chasing a brightness gap that is identical on Metal and Vulkan, compare the
   example's textures against upstream's (`md5`, then mean pixel value) — an
   engine bug is rarely backend-identical. The asset is regenerated to upstream's
-  exact pixels.
+  exact pixels. It happened AGAIN on 2026-09-16, and not through brightness:
+  `seaside-rocks01-gloss.jpg` was a 2048px ambientCG encode averaging 130/255
+  (0.51, max 0.73) where upstream's is 1024px averaging 191/255 (0.75, max 1.0).
+  Gloss picks the environment-atlas MIP — `level = (1 - gloss) * 5` — so 0.51 read
+  a heavily prefiltered level and `refraction`'s capsules came out a flat opaque
+  wash, while upstream's 0.75 keeps them glassy. Proved by setting a CONSTANT gloss
+  on both sides: at 0.51 upstream goes flat too, at 0.9 ours turns to glass. A
+  substituted texture therefore breaks parity through any channel the shader
+  READS, not just albedo; the whole seaside-rocks01 set is now upstream's bytes.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.

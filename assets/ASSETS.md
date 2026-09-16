@@ -25,10 +25,15 @@ their original `<name>.txt` license sibling next to the file.
   their ground white. `checkboard.ktx2` is an older, unused encoding.
 - `colors.png` — procedural 256x256 gradient (Apache-2.0, generated)
 - `hatch-0.jpg` — procedural 256x256 diagonal hatch (Apache-2.0, generated)
-- `seaside-rocks01-color.jpg` — Rock026 from ambientCG (CC-0)
-- `seaside-rocks01-normal.jpg` — Rock026 from ambientCG (CC-0)
-- `seaside-rocks01-gloss.jpg` — Rock026 from ambientCG (CC-0)
-- `seaside-rocks01-height.jpg` — Rock026 from ambientCG (CC-0)
+- `seaside-rocks01-color.jpg`, `-normal.jpg`, `-gloss.jpg`, `-height.jpg` — the
+  seaside-rocks01 set from the upstream examples, byte-identical to theirs (1024x1024).
+  LICENCE TO CONFIRM: these were previously a higher-resolution ambientCG Rock026
+  encode (2048x2048, CC-0) and were replaced 2026-09-16 to match upstream's pixels.
+  The substitute's GLOSS differed materially — mean 130/255 (0.51, max 0.73) against
+  upstream's 191/255 (0.75, max 1.0) — and gloss drives the environment-atlas
+  refraction lookup's mip: at 0.51 the `refraction` example's capsules read as a flat
+  opaque wash, at upstream's 0.75 they read as glass. Used by `refraction` and
+  `area-light`.
 - `playcanvas.png` / `playcanvas-grey.png` — PlayCanvas logo textures (CC-0)
 - `snowflake.png`, `spark.png`, `particles-numbers.png` — particle sprites from PlayCanvas (CC-0)
 - `normal-map.png` — tiling normal map from PlayCanvas examples (CC-0)
