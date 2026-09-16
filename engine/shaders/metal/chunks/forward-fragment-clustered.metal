@@ -48,26 +48,35 @@
 
                 if (attenuation < 0.00001) continue;
 
-                // Clustered spot shadow: sample this light's slice of the shadow atlas.
-                // shadowData: x=castShadows, y=normalOffsetBias, z=intensity, w=atlasSlice.
-                // The compare depth carries NO bias of its own: the atlas pass already
-                // applied hardware polygon offset, and a shader bias on this projection
-                // is hopeless — a spot with near 0.01 and range 150 crushes the whole
-                // scene into ~0.001 of depth, which any bias worth the name swamps.
-                // Only the receiver's normal offset is applied, as upstream does.
+                // Clustered shadow: sample this light's rect of the shadow atlas.
+                // shadowData: x=castShadows, y=normalOffsetBias, z=intensity,
+                // w=1 spot / 2 omni. A spot projects through its viewport-aware VP;
+                // an omni picks a cube face from the direction (shadowMatrix then
+                // carries its rect and depth range instead of a matrix).
+                // A spot's compare depth carries NO bias of its own: the atlas pass
+                // already applied hardware polygon offset, and a shader bias on this
+                // projection is hopeless — a spot with near 0.01 and range 150 crushes
+                // the whole scene into ~0.001 of depth, which any bias worth the name
+                // swamps. Only the receiver's normal offset is applied, as upstream does.
                 if (cl.shadowData.x > 0.5) {
                     const float3 shadowPosW = rd.worldPos + N * cl.shadowData.y;
-                    const float4 sc = cl.shadowMatrix * float4(shadowPosW, 1.0);
-                    const float sw = max(sc.w, 1e-6);
-                    const float3 scoord = sc.xyz / sw;
-                    if (scoord.x >= 0.0 && scoord.x <= 1.0 &&
-                        scoord.y >= 0.0 && scoord.y <= 1.0 &&
-                        scoord.z >= 0.0 && scoord.z <= 1.0) {
-                        const uint slice = uint(cl.shadowData.w + 0.5);
-                        const float res = float(clusterShadowAtlas.get_width());
+                    const float res = float(clusterShadowAtlas.get_width());
+                    if (cl.shadowData.w > 1.5) {
                         if (res > 0.0) {
-                            const float vis = getShadowPCF3x3Array(clusterShadowAtlas, scoord.xy,
-                                scoord.z, res, slice);
+                            const float vis = getShadowOmniClusteredPCF3(clusterShadowAtlas,
+                                cl.shadowMatrix[0], cl.shadowMatrix[1],
+                                shadowPosW - cl.positionRange.xyz);
+                            attenuation *= mix(1.0, vis, cl.shadowData.z);
+                        }
+                    } else {
+                        const float4 sc = cl.shadowMatrix * float4(shadowPosW, 1.0);
+                        const float sw = max(sc.w, 1e-6);
+                        const float3 scoord = sc.xyz / sw;
+                        if (scoord.x >= 0.0 && scoord.x <= 1.0 &&
+                            scoord.y >= 0.0 && scoord.y <= 1.0 &&
+                            scoord.z >= 0.0 && scoord.z <= 1.0 && res > 0.0) {
+                            const float vis = getShadowPCF3x3(clusterShadowAtlas, scoord.xy,
+                                scoord.z, res);
                             attenuation *= mix(1.0, vis, cl.shadowData.z);
                         }
                     }

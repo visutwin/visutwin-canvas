@@ -10,11 +10,10 @@
 // the slice the light says it owns. This is the only example that exercises that
 // atlas.
 //
-// DEVIATIONS from upstream: this port's atlas is a texture ARRAY of full-resolution
-// slices rather than one packed 2D atlas, so upstream's atlas split options have no
-// equivalent and the setting is a per-slice resolution plus a capacity; the cookie
-// channel is not varied per light; and upstream's controls panel, static-light mode
-// and atlas debug overlay are left out.
+// DEVIATIONS from upstream: the cookie channel is not varied per light, and
+// upstream's controls panel, static-light mode and atlas debug overlay are left
+// out. The atlas itself is upstream's: one packed 2D texture split into a slot
+// per light, at the 1024 resolution its panel opens on.
 //
 #include <cmath>
 #include <memory>
@@ -73,8 +72,7 @@ protected:
         lighting.maxLightsPerCell = 24;
         lighting.shadowsEnabled = true;
         lighting.cookiesEnabled = true;
-        lighting.shadowAtlasResolution = 512;
-        lighting.shadowAtlasCapacity = kLightCount;
+        lighting.shadowAtlasResolution = 1024;
 
         auto groundMaterial = std::make_shared<StandardMaterial>();
         groundMaterial->setGloss(0.55f);

@@ -74,16 +74,16 @@ namespace visutwin::canvas
 
         // Cull + render local-light shadow maps for shadow-casting spot/point lights.
         // Runs in BOTH clustered and non-clustered modes. Routing under clustering:
-        //  - shadow-casting SPOTS render into the shared LightTextureAtlas (a depth
-        //    texture2d_array, one slice per spot) and are sampled directly by the
-        //    clustered fragment shader — arbitrarily many, not bounded by the main array;
-        //  - shadow-casting OMNI/POINT lights use their own cubemap shadow map and are
-        //    evaluated through the bounded main light array (LightingData.lights[]).
-        // Non-clustered mode: all shadow-casting locals use their own per-light maps.
+        // every shadow-casting spot AND omni light renders into the shared
+        // LightTextureAtlas — one packed 2D depth texture, a slot per light — and is
+        // sampled by the clustered fragment shader, arbitrarily many and none of them
+        // through the bounded main light array. A light the atlas has no slot left
+        // for casts no shadow this frame, as upstream. Non-clustered mode: every
+        // shadow-casting local owns its own map (a cubemap for an omni light).
         const bool clusteredMode = _scene->clusteredLightingEnabled();
+        std::vector<Light*> atlasLights;             // clustered: shadow-casting spots and omnis
         {
-            std::vector<Light*> localShadowLights;   // all shadow-casting locals (rendered)
-            std::vector<Light*> atlasSpotLights;     // clustered spots → atlas slices
+            std::vector<Light*> localShadowLights;   // non-clustered: own maps, per-face passes
             for (auto* lightComponent : LightComponent::instances()) {
                 // active(), not enabled(): a light on a disabled entity casts no shadow.
                 if (!lightComponent || !lightComponent->active()) {
@@ -99,41 +99,48 @@ namespace visutwin::canvas
                 if (!sceneLight) {
                     continue;
                 }
-                localShadowLights.push_back(sceneLight);
-                if (clusteredMode && lightComponent->type() == LightType::LIGHTTYPE_SPOT) {
-                    atlasSpotLights.push_back(sceneLight);
+                if (clusteredMode) {
+                    atlasLights.push_back(sceneLight);
+                } else {
+                    // A light that was atlased while clustering was on must not keep
+                    // its slot: the cull would widen an omni's faces for a tile it no
+                    // longer renders into, and the pass would skip it.
+                    sceneLight->setAtlasViewportAllocated(false);
+                    localShadowLights.push_back(sceneLight);
                 }
             }
-            // Wrap clustered spot ShadowMaps around atlas slices BEFORE culling, so
-            // cullLocalLights positions the cameras onto the atlas render targets.
-            if (clusteredMode && !atlasSpotLights.empty() && _lightTextureAtlas) {
-                _lightTextureAtlas->allocate(atlasSpotLights);
+            // Assign atlas slots BEFORE culling: cullLocalLights reads each light's
+            // slot to widen an omni face and to fold a spot's rect into its VP, and
+            // it targets the shadow cameras at the atlas through the ShadowMap
+            // wrapper the atlas installs.
+            if (clusteredMode && _lightTextureAtlas) {
+                _lightTextureAtlas->update(atlasLights);
             }
-            if (!localShadowLights.empty()) {
-                _shadowRendererLocal->cullLocalLights(localShadowLights, _device);
+            const auto& cullList = clusteredMode ? atlasLights : localShadowLights;
+            if (!cullList.empty()) {
+                _shadowRendererLocal->cullLocalLights(cullList, _device);
             }
-            // Build shadow render passes using the actual shadow-casting lights
-            // (not _localLights which is only populated in the clustered path).
+            // Per-face passes for the lights that own their maps (non-clustered mode
+            // only; the list is empty under clustering).
             _shadowRendererLocal->buildNonClusteredRenderPasses(frameGraph, localShadowLights);
         }
 
         if (clusteredMode)
         {
             const auto lighting = _scene->lighting();
-            // Clustered spot shadows render into the atlas above (via the standard local
-            // shadow passes targeting atlas slices); disable RenderPassShadowLocalClustered's
-            // own (viewport-atlas) shadow path here. Cookies still route through.
-            // NOTE both lists are EMPTY, and deliberately so for now. They feed the
+            // The clustered atlas pass renders every atlased light's faces into the
+            // atlas in ONE pass (RenderPassShadowLocalClustered), fed the atlas
+            // lights; it takes only those with a slot and a pending render.
+            // NOTE the cookie list is EMPTY, and deliberately so for now. It feeds the
             // clustered cookie ATLAS pass, which renders each clustered spot's cookie
-            // into a slice of the light texture atlas — and nothing samples that
-            // atlas: `grep cookie` over forward-fragment-clustered.{metal,glsl}
-            // returns nothing on either backend. Filling the list would render
-            // cookies into a texture no shader reads, which is worse than leaving it
-            // visibly unwired. The pass itself is a faithful port and stays for when
-            // the clustered shader gains cookie sampling; the list is what to fill
-            // then, from the clustered spots that have an atlas slot.
-            _renderPassUpdateClustered->update(frameGraph, false, lighting.cookiesEnabled,
-                _lights, _localLights);
+            // into the light texture atlas — and nothing samples that atlas: `grep
+            // cookie` over forward-fragment-clustered.{metal,glsl} returns nothing on
+            // either backend. Filling the list would render cookies into a texture no
+            // shader reads, which is worse than leaving it visibly unwired. The pass
+            // itself is a faithful port and stays for when the clustered shader gains
+            // cookie sampling; the list is what to fill then.
+            _renderPassUpdateClustered->update(frameGraph, lighting.shadowsEnabled, lighting.cookiesEnabled,
+                _lights, atlasLights);
             frameGraph->addRenderPass(_renderPassUpdateClustered);
         }
 

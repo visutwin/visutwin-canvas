@@ -772,10 +772,7 @@ namespace visutwin::canvas
         // fallback) read through the dedicated clamp-to-edge env sampler.
         {
             // These set-3 slots are declared sampler2D, so their view must be a plain
-            // 2D view. Under clustered lighting a shadow-casting spot's "shadow map" is
-            // a slice of the ClusterShadowAtlas, whose view is VIEW_TYPE_2D_ARRAY and
-            // cannot legally bind here — those lights are sampled from binding 14
-            // instead, indexed by slice. Falling back to white keeps this slot valid.
+            // 2D view; anything else falls back to white, which keeps the slot valid.
             auto resolveView = [this](Texture* tex) -> VkImageView {
                 if (tex) {
                     auto* vkTex =
@@ -842,20 +839,6 @@ namespace visutwin::canvas
                 return false;
             };
 
-            // Resolve an array view, falling back to the single-layer white array
-            // so an unbound clustered atlas reads unshadowed (and never mixes a
-            // 2D view into a texture2DArray descriptor, which is invalid).
-            auto resolveArrayView = [this](Texture* tex) -> VkImageView {
-                if (tex) {
-                    auto* vkTex =
-                        static_cast<gpu::VulkanTexture*>(tex->impl());
-                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE &&
-                        vkTex->arrayLayers() > 1) {
-                        return vkTex->imageView();
-                    }
-                }
-                return _whiteArrayImageView;
-            };
 
             std::array<VkDescriptorImageInfo, 22> sceneInfos{};
             sceneInfos[0].sampler = _envSampler;
@@ -893,11 +876,12 @@ namespace visutwin::canvas
             sceneInfos[9].imageView = resolveView(_areaLightLut2);
             sceneInfos[10].imageView = resolveView(sceneColorMap());
             sceneInfos[11].imageView = resolveView(sceneDepthGrabMap());
-            // Binding 14: clustered spot-shadow atlas. Hidden during a depth-only
-            // pass because that is exactly when a slice of this atlas is the
-            // attachment being written — sampling it there would be feedback.
+            // Binding 14: clustered shadow atlas, one packed 2D depth texture.
+            // Hidden during a depth-only pass because that is exactly when this
+            // atlas is the attachment being written — sampling it there would be
+            // feedback.
             sceneInfos[14].imageView = _depthOnlyPass
-                ? _whiteArrayImageView : resolveArrayView(_clusterShadowAtlas);
+                ? _whiteImageView : resolveView(_clusterShadowAtlas);
             // Bindings 15/16: planar reflection colour + distance-from-plane.
             // Both are ordinary offscreen colour targets rendered by the
             // reflection cameras earlier in the frame graph. Metal gates on

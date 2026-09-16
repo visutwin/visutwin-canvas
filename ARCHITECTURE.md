@@ -53,7 +53,7 @@ never consumed a per-instance color, so 80-byte buffers render with the material
 color there.
 
 ### Directional shadows
-- **Shadow bias convention** (fixed 2026-08-14): `LightComponent::setShadowBias` takes upstream's **0..1 authoring value** (default 0.05) and remaps it to the internal `Light::shadowBias` as `-0.01 * clamp(v,0,1)` — negative on purpose, because the shadow passes apply `shadowBias * -1000` as the hardware polygon offset and that product must be POSITIVE to push casters AWAY from the light. Passing the raw component value straight through inverted it, so a larger bias produced MORE shadow (a self-casting ground went fully black at 0.05). Hardware bias is skipped for PCSS (biases in-shader) and non-clustered omni (stores distance, not depth), as upstream does. The directional PCF shader uses a fixed 0.0001 receiver bias, NOT the light's; only local/clustered lights consume the light bias in-shader (negated + upstream's ×20 spot scale, since our shader subtracts it from the receiver depth). Ground planes must stay shadow CASTERS — the directional shadow camera fits its depth range to casters only, so a receiver-only ground falls outside it and catches no shadow.
+- **Shadow bias convention** (fixed 2026-08-14): `LightComponent::setShadowBias` takes upstream's **0..1 authoring value** (default 0.05) and remaps it to the internal `Light::shadowBias` as `-0.01 * clamp(v,0,1)` — negative on purpose, because the shadow passes apply `shadowBias * -1000` as the hardware polygon offset and that product must be POSITIVE to push casters AWAY from the light. Passing the raw component value straight through inverted it, so a larger bias produced MORE shadow (a self-casting ground went fully black at 0.05). Hardware bias is skipped for PCSS (biases in-shader) and for omni lights on both paths (their faces store perspective depth and take a relative bias in-shader), as upstream skips it for its distance-storing omni maps. The directional PCF shader uses a fixed 0.0001 receiver bias, NOT the light's; only local/clustered lights consume the light bias in-shader (negated + upstream's ×20 spot scale, since our shader subtracts it from the receiver depth). Ground planes must stay shadow CASTERS — the directional shadow camera fits its depth range to casters only, so a receiver-only ground falls outside it and catches no shadow.
 - **PCF3_32F** (default): hardware-compared depth2d, 4-tap bilinear PCF reconstructing a 3×3 kernel.
 - **PCSS_32F** (`SHADOW_PCSS_32F`): contact-hardening soft shadows (upstream `shadowSoft.js` PCSSDirectional). Also supported on **spot/omni local lights** (upstream `shadowPCSS.js`, 2026-07-13): a runtime uniform branch (no extra variant) driven by `LightingData::localShadowPcss0/1` = {searchArea UV (0=off), near, far}; spot = Vogel-disk blocker+filter with per-tap depth linearization, omni = Vogel-sphere direction perturbation on the depth cube; `searchArea = penumbraSize/shadowResolution (*fovRatio for spot)` — local-light `penumbraSize` is in shadow-map PIXELS (~10-40), NOT the directional world-space scale. Example: `pcss-local-example.cpp`. FIXED two pre-existing spot local shadow bugs found here: the spot shadow camera was missing upstream's `rotateLocal(-90,0,0)` (camera looks -Z, light emits -Y) and `MetalUniformBinder` uploaded `localShadowMatrix` transposed (`Matrix4::getElement` takes **(col,row)** — was called (row,col)); spot 2D shadow maps never worked before. Vogel-disk blocker search + filter (in-shader sample generation, `fractSinRand` seed), world-space penumbra: `penumbra = shape * penumbraSize * depthRange` with `shape = 1-(1-t)^penumbraFalloff`. Per-cascade ortho radii + caster depth ranges flow via `LightingUniforms::pcssCascadeRadii/pcssCascadeDepthRanges`; `pcssParams` = {filterSamples 16, blockerSamples 16, penumbraSize, penumbraFalloff}. DEVIATION: reuses the standard PCF hardware depth map sampled RAW (non-comparison `shadowRawSampler`) instead of upstream's dedicated R32F color map — the `pcf=true` flag in its `shadowTypeInfo` entry selects the depth attachment. Configure: `setShadowType(SHADOW_PCSS_32F)` + `setPenumbraSize(0.02-0.05 — upstream example scale; ~tan of light angular size)` + `setPenumbraFalloff(>=1)`. `VT_FEATURE_PCSS_SHADOWS` set per frame like VSM. GOTCHA: a huge ground plane left as shadow CASTER inflates the fitted caster depth range → whole-plane acne (PCF) and blown-up penumbras (PCSS) — set `render->setCastShadows(false)` on large receiver-only ground.
 - **VSM_16F**: Exponential VSM with `c = 5.54`, RGBA16F moments storage. Render path writes `(exp(c·z), exp(c·z)², 1, 1)`; sample path uses Chebyshev's inequality with `reduceLightBleeding(0.1)`. Separable Gaussian blur (default 11-tap, configurable via `LightComponent::setVsmBlurSize`) runs after shadow render. Depth tightening uses **caster-AABB projected onto shadow-cam Z** (rotation-invariant for static scenes — eliminates per-frame depth jitter that would otherwise show as variance flicker on thin geometry). Configurable per-light via `LightComponent::setShadowType(SHADOW_VSM_16F)` + `setVsmBias(0.0025f)` + `setVsmBlurSize(11)`. Mirrors upstream `SHADOW_VSM_16F` (`shadowEVSM.js` + `blurVSM.js`).
@@ -88,6 +88,50 @@ normal-mapped Metal scene, so it wants its own commit and its own verification.
 **Shadow dither — `opacityShadowDither`** (flags bits 29-31, independent of the forward mode in bits 25-27): a partially-opaque caster discards the same Bayer pattern in the shadow pass and so throws a THINNED shadow. Two things had to change for it to fire, and both are easy to miss: the shadow pass otherwise **bypasses materials entirely** (the device hands the shader a default-constructed `MaterialUniforms`), so `renderPassShadowDirectional` now binds the caster's real material — but ONLY for casters that opted in, leaving every other scene's shadow pass untouched; and `shadowCasterFiltering` excluded transparent materials from casting at all, so the very casters this feature targets never reached the pass. DEVIATION: implemented in the Metal shadow fragment chunk, which serves both PCF and VSM. On Vulkan the PCF shadow pass is depth-only with no fragment stage, so only the VSM path can dither.
 
 Example: `pcss-dither-example.cpp` (port of upstream `graphics/dithered-transparency`).
+
+### Clustered lighting and the shadow atlas
+Clustered lighting is ON by default, as upstream (`Scene::setClusteredLightingEnabled`):
+local lights are bucketed into a world-space cell grid (`WorldClusters`, one grid per
+distinct light set) and the forward shader walks the cell's list instead of a bounded
+main array. Every shadow-casting spot AND omni light then renders into ONE packed
+2D depth texture, the `LightTextureAtlas` (`LightingParams::shadowAtlasResolution`,
+upstream's 2048 = 16 MB whatever the light count), and none of them enters the
+main array — which is why the two `kMaxLocalShadows` slots no longer cap anything
+here. Off, every caster owns its own map (a cubemap for an omni light) and at most
+two of them shadow; that path remains for PCSS local shadows and cookies, which the
+clustered shader does not sample yet (`pcss-local` and `lights` opt out).
+
+- **Slots** (`LightTextureAtlas::update`, upstream `light-texture-atlas.js`): the
+  atlas is split into as many equal squares as there are shadow-casting lights
+  (`ceil(sqrt(n))` on a side, or `LightingParams::atlasSplit`), sorted largest
+  first; lights are ranked by `Light::maxScreenSize` and take slots in that order.
+  A light keeps its slot while the size still matches, so a one-shot shadow
+  survives; a light handed a different slot is flagged `atlasSlotUpdated` and its
+  `SHADOWUPDATE_NONE` re-armed to `THISFRAME`. Lights beyond the slot count cast
+  no shadow that frame. A spot renders into its slot inset by 4 px; an omni's six
+  faces render into a 3x2 grid of tiles a third of the slot wide, each face 3 px
+  WIDER than 90 degrees so a filter kernel at the tile edge stays inside it, and
+  the shader insets its UV by the same 3 px (`kShadowEdgePixels`).
+- **Rects are top-left origin**, the texture origin this engine has everywhere, on
+  both backends: a face renders through a viewport in that space and the shader
+  samples in it, so no flip sits between them. The spot's shadow VP folds its
+  viewport in (`LightCamera::viewportProjectionBias`, the cascade viewport matrix);
+  an omni carries only its rect and depth range in the same 64 bytes, and the
+  shader picks the face and UV from the light-to-fragment direction exactly as a
+  hardware cubemap lookup would (`getCubemapFaceCoordinates` in
+  `common-shadow-pcf.metal` / `common-parallax.glsl`, mirrored in
+  `LightTextureAtlas::cubemapFaceCoordinates` and held against the six face
+  cameras' real projection by `tests/lightTextureAtlasTests.cpp`). Omni faces
+  store perspective depth over the light's range and take the cubemap path's
+  RELATIVE bias, so the two paths agree pixel for pixel.
+- **One pass, rect-wise clears** (`RenderPassShadowLocalClustered`): every face
+  of every atlased light draws in one render pass that LOADS the atlas, because
+  one-shot shadows in other slots must survive; each face clears only its own
+  rect first, by drawing a fullscreen triangle at depth 1 under its viewport and
+  scissor with the depth test at ALWAYS (`clearDepthRect`) — a load action can
+  only clear a whole attachment, and this is how upstream's WebGPU backend clears
+  a viewport too. The face draw itself is shared with the per-face non-clustered
+  pass (`drawLocalShadowFace`), so the two cannot drift.
 
 ### Ambient SH Light Probes
 `VT_FEATURE_LIGHT_PROBES`: 9-coefficient spherical-harmonics ambient replacing the flat ambient (upstream AMBIENTSH basis: `sh[0] + sh[1]x + sh[2]y + sh[3]z + sh[4]xz + sh[5]zy + sh[6]yx + sh[7](3z²-1) + sh[8](x²-y²)`). Enable via `Scene::setAmbientSH(std::array<Vector3,9>)` / `clearAmbientSH()`; the renderer sets `ProgramLibrary::setLightProbesEnabled` per frame and uploads the coefficients in `LightingUniforms::ambientSH[9]`. Coefficients are premultiplied (Ramamoorthi irradiance convolution + 1/π baked in, so a uniform environment of radiance A gives flat ambient A); `sh::projectEquirect` (`scene/graphics/sphericalHarmonics.h`) projects float or 8-bit-sRGB equirect radiance maps, `sh::evaluate` is the CPU mirror. When probes are active they replace both the flat ambient AND the env-atlas Lambert diffuse (specular IBL stays). NOTE: `ProgramLibrary::setEnvAtlasEnabled` (set per frame from `scene->envAtlas()`) gates VT_FEATURE_ENV_ATLAS — without it, unbound-atlas sampling returned nonzero `get_width()` on Apple GPUs and silently overwrote flat ambient with black. Example: `light-probes-example.cpp` (gradient sky projected to SH9, auto-cycles flat vs SH).

@@ -168,7 +168,7 @@ layout(set = 3, binding = 13) uniform sampler nearestClampSampler;
 // spot, indexed by ClusterLight.shadowData.w. Declared after the samplers so
 // the two sampler descriptors keep their existing bindings; a separate image
 // again costs no per-stage sampler slot.
-layout(set = 3, binding = 14) uniform texture2DArray clusterShadowAtlasImage;
+layout(set = 3, binding = 14) uniform texture2D clusterShadowAtlasImage;   // clustered shadow atlas: one packed depth texture
 // Blurred planar reflection: the mirrored scene colour rendered by the
 // reflection camera, and the distance-from-plane map from the depth camera.
 layout(set = 3, binding = 15) uniform texture2D planarReflectionImage;
@@ -197,7 +197,7 @@ layout(set = 3, binding = 21) uniform texture2D ssaoImage;
 #define ssrSceneDepth     sampler2D(ssrSceneDepthImage, nearestClampSampler)
 // Point-sampled for the same reason as every other shadow map here: manual
 // depth comparison per tap, so filtering must not blend across occluders.
-#define clusterShadowAtlas sampler2DArray(clusterShadowAtlasImage, nearestClampSampler)
+#define clusterShadowAtlas sampler2D(clusterShadowAtlasImage, nearestClampSampler)
 #define cookie2D0         sampler2D(cookieImage2D0, linearClampSampler)
 #define cookie2D1         sampler2D(cookieImage2D1, linearClampSampler)
 #define cookieCube0       samplerCube(cookieImageCube0, linearClampSampler)

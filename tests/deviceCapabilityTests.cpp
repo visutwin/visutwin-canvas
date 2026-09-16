@@ -67,7 +67,7 @@ namespace
 
     void giveShadowMap(Light& light)
     {
-        light.setShadowMap(ShadowMap::createAtlasSlice(nullptr, nullptr));
+        light.setShadowMap(ShadowMap::createAtlas(nullptr, nullptr));
     }
 
     bool checkDefaults()

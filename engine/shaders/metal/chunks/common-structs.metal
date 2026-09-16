@@ -139,8 +139,8 @@ struct ClusteredLight {
     float4 directionSpot;     // xyz=direction, w=outerConeCos
     float4 colorIntensity;    // xyz=color (linear), w=intensity
     float4 params;            // x=innerConeCos, y=isSpot, z=falloffLinear, w=unused
-    float4x4 shadowMatrix;    // world→atlas-slice shadow VP (clustered spot shadows)
-    float4 shadowData;        // x=castShadows, y=bias, z=intensity, w=atlasSlice
+    float4x4 shadowMatrix;    // spot: world→atlas-rect shadow VP; omni: [0]=rect(x,y,size,edge), [1]=(near,far,bias,-)
+    float4 shadowData;        // x=castShadows, y=normal bias, z=intensity, w=1 spot / 2 omni
 };
 
 // Opacity dither matrices. Must match scene/constants.h :: DitherMode. The active mode arrives

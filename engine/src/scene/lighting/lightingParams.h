@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <vector>
+
 namespace visutwin::canvas
 {
     /// Scene-level clustered lighting settings (upstream `scene.lighting`).
@@ -24,12 +26,15 @@ namespace visutwin::canvas
         int cellsZ = 12;
         int maxLightsPerCell = 48;
 
-        /// Per-slice resolution of the local shadow atlas, and how many
-        /// shadow-casting spot lights it holds. DEVIATION from upstream: this port's
-        /// atlas is a texture ARRAY of full-resolution slices rather than one packed
-        /// 2D atlas, so there is a capacity rather than a subdivision scheme, and
-        /// upstream's atlas split options have no equivalent.
-        int shadowAtlasResolution = 1024;
-        int shadowAtlasCapacity = 16;
+        /// Resolution of the packed local shadow atlas every clustered spot and omni
+        /// shadow renders into (upstream default 2048: 16 MB of 32-bit depth, whatever
+        /// the light count). Applied when the atlas is first created.
+        int shadowAtlasResolution = 2048;
+        /// How the atlas is split into slots. Empty (the default) splits it into as
+        /// many equal squares as there are shadow-casting lights; otherwise
+        /// `atlasSplit[0]` squares on a side, and `atlasSplit[1 + i * n + j]` may
+        /// split cell (i, j) again — upstream's scheme, for scenes that want a few
+        /// large slots and many small ones.
+        std::vector<int> atlasSplit;
     };
 }

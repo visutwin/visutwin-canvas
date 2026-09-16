@@ -21,6 +21,7 @@
 #include "scene/morph.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "depthOnlyDraw.h"
+#include "localShadowFace.h"
 #include "shadowCasterFiltering.h"
 #include "scene/frustumUtils.h"
 
@@ -54,104 +55,19 @@ namespace visutwin::canvas
         if (!_graphicsDevice || !_shadowCamera || !_shadowCamera->node()) {
             return;
         }
-
         auto programLibrary = getProgramLibrary(_graphicsDevice);
         if (!programLibrary) {
             return;
         }
-
-        auto shadowShader = programLibrary->getShadowShader(nullptr, false);
-        auto shadowShaderDynBatch = programLibrary->getShadowShader(nullptr, true);
-        if (!shadowShader) {
-            // Returning here draws NOTHING into the shadow map, which then reads as
-            // its cleared 1.0 and lights every fragment: a total, silent loss of
-            // shadows that looks like a shading bug rather than a missing shader.
-            // A program-registration mismatch did exactly this on Vulkan, so say it
-            // out loud once instead of failing quietly.
-            static bool warned = false;
-            if (!warned) {
-                warned = true;
-                spdlog::warn("No shadow shader for this device — local-light "
-                    "shadows are disabled");
-            }
+        // This target is the light's own map, cleared by the pass's load action;
+        // the face draws into all of it.
+        DepthOnlyShaders shaders;
+        if (!bindLocalShadowState(_graphicsDevice.get(), programLibrary.get(), _light, shaders)) {
             return;
         }
-        // The remaining variants are fetched lazily on first use by drawDepthOnly.
-        DepthOnlyShaders shaders;
-        shaders.plain = shadowShader;
-        shaders.dynamicBatch = shadowShaderDynBatch;
-
-        // This pass bypasses materials. Clear any binding left by the previous
-        // forward pass (commonly the skybox at the end of the preceding frame)
-        // before the backend resolves its vertex-stage and pipeline state.
-        _graphicsDevice->setMaterial(nullptr);
-        _graphicsDevice->setShader(shadowShader);
-
-        // Shadow pass needs blend/depth state set on the device — the forward pass
-        // sets these per-material, but the shadow pass bypasses materials entirely.
-        // Matches renderPassShadowDirectional.cpp execute().
-        static auto shadowBlendState = std::make_shared<BlendState>();   // default: no blend, color writes on
-        static auto shadowDepthState = std::make_shared<DepthState>();   // default: depth test+write enabled
-        _graphicsDevice->setBlendState(shadowBlendState);
-        _graphicsDevice->setDepthState(shadowDepthState);
-
-        // hardware polygon-offset depth bias during shadow rendering.
-        // Applied via setDepthState().
-        {
-            // See renderPassShadowDirectional: the internal bias is negative, so this is a
-            // positive (acne-removing) polygon offset. Upstream skips the hardware offset for
-            // non-clustered omni lights (they store distance, not depth) and for PCSS, which
-            // biases in the shader.
-            const bool skipHardwareBias = _light->shadowType() == SHADOW_PCSS_32F ||
-                _light->type() == LightType::LIGHTTYPE_OMNI;
-            const float bias = skipHardwareBias ? 0.0f : _light->shadowBias() * -1000.0f;
-            _graphicsDevice->setDepthBias(bias, bias, 0.0f);
-        }
-
-        const Matrix4 viewProjection = _shadowCamera->projectionMatrix() * _shadowCamera->node()->worldTransform().inverse();
-
-        // Build the shadow frustum once for the whole caster sweep.
-        const Frustum shadowFrustum = (_shadowCamera && _shadowCamera->node())
-            ? buildCameraFrustum(_shadowCamera, _shadowCamera->node()) : Frustum{};
-
-        // Casters. An OMNI light had all six faces classified in one sweep before the
-        // frame graph ran (cullShadowCastersOmni), so this face just draws its share:
-        // the list is already filtered and needs no frustum test. Every other light
-        // collects and culls here — every RenderComponent's mesh instances, plus the
-        // batch mesh instances, which belong to no RenderComponent (BatchManager
-        // registers them straight with the scene layers) and would otherwise cast
-        // no shadow.
-        const bool preClassified = _light->type() == LightType::LIGHTTYPE_OMNI;
-        std::vector<MeshInstance*> casters;
-        const std::vector<MeshInstance*>* casterList = &casters;
-        if (preClassified) {
-            LightRenderData* renderData = _light->getRenderData(nullptr, _face);
-            if (!renderData) {
-                return;
-            }
-            casterList = &renderData->visibleCasters;
-        } else {
-            collectShadowCasters(casters);
-        }
-
-        {
-            for (auto* meshInstance : *casterList) {
-                if (!meshInstance || !meshInstance->visible()) {
-                    continue;
-                }
-                if (!preClassified &&
-                    !shouldRenderShadowMeshInstance(meshInstance, _shadowCamera, shadowFrustum)) {
-                    continue;
-                }
-
-                drawDepthOnly(_graphicsDevice.get(), programLibrary.get(), meshInstance,
-                    viewProjection, shaders);
-            }
-        }
-
+        drawLocalShadowFace(_graphicsDevice.get(), programLibrary.get(), shaders,
+            _light, _face, _shadowCamera);
         (void)_shadowRenderer;
-        (void)_light;
-        (void)_face;
         (void)_applyVsm;
     }
 }

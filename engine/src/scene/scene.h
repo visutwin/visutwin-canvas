@@ -146,10 +146,12 @@ namespace visutwin::canvas
 
         std::shared_ptr<GraphicsDevice> _device;
 
-        // DEVIATION: disabled until clustered lighting (WorldClusters, LightTextureAtlas)
-        // is fully ported. With true, the non-clustered local shadow path in
-        // ForwardRenderer::buildFrameGraph is skipped and cullLocalLights is never called.
-        bool _clusteredLightingEnabled = false;
+        // ON by default, as upstream: local lights are bucketed into the cluster
+        // grid and their shadows packed into one LightTextureAtlas. Off, every
+        // shadow-casting local owns its own map (a cubemap for an omni light) and
+        // at most two of them light through the main array — the path PCSS local
+        // shadows and cookies still need (see pcss-local and lights).
+        bool _clusteredLightingEnabled = true;
 
         LightingParams _lighting;
 

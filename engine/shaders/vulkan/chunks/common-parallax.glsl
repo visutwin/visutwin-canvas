@@ -103,27 +103,83 @@ float pcf3x3(sampler2D tex, vec2 uv, float receiver) {
     return sum / 9.0;
 }
 
-// Array-slice variant of pcf3x3, for the clustered spot-shadow atlas.
+// Clustered shadow atlas variants of pcf3x3.
 //
-// Takes no sampler argument: clusterShadowAtlas is a sampler-constructor macro
-// over a separate image, and GLSL only allows such a constructor at its point of
-// use, not as a call argument. There is exactly one array shadow map, so naming
-// it directly costs nothing.
+// They take no sampler argument: clusterShadowAtlas is a sampler-constructor
+// macro over a separate image, and GLSL only allows such a constructor at its
+// point of use, not as a call argument. There is exactly one atlas, so naming it
+// directly costs nothing.
 //
-// DEVIATION: Metal's getShadowPCF3x3Array reconstructs a 3×3 kernel from four
+// DEVIATION: Metal's getShadowPCF3x3 reconstructs a 3x3 kernel from four
 // hardware `sample_compare` taps; this backend has no comparison samplers bound
 // anywhere, so it does the nine comparisons directly — same kernel, uniform
 // weights instead of the bilinear ones.
-float pcf3x3Array(vec2 uv, float slice, float receiver) {
+float pcf3x3Atlas(vec2 uv, float receiver) {
     vec2 texel = 1.0 / vec2(textureSize(clusterShadowAtlas, 0).xy);
     float sum = 0.0;
     for (int y = -1; y <= 1; ++y) {
         for (int x = -1; x <= 1; ++x) {
-            float occluder =
-                texture(clusterShadowAtlas, vec3(uv + vec2(x, y) * texel, slice)).r;
+            float occluder = texture(clusterShadowAtlas, uv + vec2(x, y) * texel).r;
             sum += (receiver <= occluder) ? 1.0 : 0.0;
         }
     }
     return sum / 9.0;
+}
+
+// Upstream's getCubemapFaceCoordinates with its V term NEGATED: the dominant axis
+// of the unnormalized light-to-fragment direction picks the face (+X, -X, +Y, -Y,
+// +Z, -Z — the order LightCamera::pointLightRotations renders them), the other two
+// axes map to a UV within it, and `tileOffset` is the face's column and row in the
+// slot's 3x3 tile grid. The faces are rendered by upstream's own camera rotations,
+// but into top-down storage where upstream's is bottom-up, so v runs the other way.
+// Twin of common-shadow-pcf.metal; mirrored in LightTextureAtlas::cubemapFaceCoordinates,
+// which a test holds against the face cameras' real projection.
+vec2 getCubemapFaceCoordinates(vec3 dir, out vec2 tileOffset) {
+    vec3 vAbs = abs(dir);
+    float ma;
+    vec2 uv;
+    if (vAbs.z >= vAbs.x && vAbs.z >= vAbs.y) {          // +Z / -Z
+        ma = 0.5 / vAbs.z;
+        uv = vec2(dir.z < 0.0 ? -dir.x : dir.x, dir.y);
+        tileOffset = vec2(2.0, dir.z < 0.0 ? 1.0 : 0.0);
+    } else if (vAbs.y >= vAbs.x) {                        // +Y / -Y
+        ma = 0.5 / vAbs.y;
+        uv = vec2(dir.x, dir.y < 0.0 ? dir.z : -dir.z);
+        tileOffset = vec2(1.0, dir.y < 0.0 ? 1.0 : 0.0);
+    } else {                                              // +X / -X
+        ma = 0.5 / vAbs.x;
+        uv = vec2(dir.x < 0.0 ? dir.z : -dir.z, dir.y);
+        tileOffset = vec2(0.0, dir.x < 0.0 ? 1.0 : 0.0);
+    }
+    return uv * ma + 0.5;
+}
+
+// Atlas UV of `dir` for an omni light whose slot is `rect` = (x, y, size, edge
+// pixels). The face was rendered a few pixels wider than 90 degrees (the edge), so
+// its 90-degree content sits inset by the same amount and the UV is inset to meet
+// it — a filter kernel at the tile edge then stays inside the tile.
+vec2 getCubemapAtlasCoordinates(vec4 rect, vec3 dir) {
+    vec2 tileOffset;
+    vec2 uv = getCubemapFaceCoordinates(dir, tileOffset);
+    float resolution = float(textureSize(clusterShadowAtlas, 0).x);
+    float faceSize = rect.z / 3.0;
+    float tileSize = resolution * faceSize;
+    float offset = rect.w / max(tileSize, 1.0);
+    uv = uv * (1.0 - 2.0 * offset) + offset;
+    return uv * faceSize + tileOffset * faceSize + rect.xy;
+}
+
+// Visibility of a fragment at `lightToFrag` from a clustered omni light: the face
+// stores perspective depth over [near, far], compared against the fragment's own
+// dominant-axis distance with the same RELATIVE bias the cubemap path applies
+// before the projection. `depthParams` = (near, far, relative bias, unused).
+float getShadowOmniClusteredPCF3(vec4 rect, vec4 depthParams, vec3 lightToFrag) {
+    vec2 uv = getCubemapAtlasCoordinates(rect, lightToFrag);
+    vec3 absDir = abs(lightToFrag);
+    float d = max(absDir.x, max(absDir.y, absDir.z));
+    float dBiased = d * (1.0 - depthParams.z);
+    float denom = (depthParams.y - depthParams.x) * dBiased;
+    float compareValue = depthParams.y * (dBiased - depthParams.x) / max(denom, 1e-6);
+    return pcf3x3Atlas(uv, compareValue);
 }
 

@@ -4,6 +4,7 @@
 //
 
 #include "worldClusters.h"
+#include "lightTextureAtlas.h"
 
 #include <limits>
 
@@ -235,14 +236,29 @@ namespace visutwin::canvas
             gpu.params[2] = ld.falloffModeLinear ? 1.0f : 0.0f;
             gpu.params[3] = 0.0f;
 
-            // Clustered spot shadow data (via LightTextureAtlas). Only spot lights
-            // with an allocated atlas slice cast a clustered shadow.
-            const bool hasShadow = ld.castShadows && ld.isSpot && ld.atlasSlice >= 0;
+            // Clustered shadow data (via LightTextureAtlas). The renderer sets
+            // castShadows only for a light the atlas gave a slot this frame.
+            const bool hasShadow = ld.castShadows;
             gpu.shadowData[0] = hasShadow ? 1.0f : 0.0f;
             gpu.shadowData[1] = ld.shadowNormalBias;
             gpu.shadowData[2] = ld.shadowIntensity;
-            gpu.shadowData[3] = static_cast<float>(ld.atlasSlice);
-            if (hasShadow) {
+            gpu.shadowData[3] = ld.isSpot ? 1.0f : 2.0f;
+            if (hasShadow && !ld.isSpot) {
+                // Omni: no matrix — the rect and the depth range, in the same 64
+                // bytes (see GpuClusteredLight). The shader derives the face and its
+                // UV from the direction, as a cubemap lookup would.
+                for (float& value : gpu.shadowMatrix) {
+                    value = 0.0f;
+                }
+                gpu.shadowMatrix[0] = ld.atlasViewport.getX();
+                gpu.shadowMatrix[1] = ld.atlasViewport.getY();
+                gpu.shadowMatrix[2] = ld.atlasViewport.getZ();
+                gpu.shadowMatrix[3] = static_cast<float>(LightTextureAtlas::kShadowEdgePixels);
+                gpu.shadowMatrix[4] = ld.shadowNear;
+                gpu.shadowMatrix[5] = ld.shadowFar;
+                gpu.shadowMatrix[6] = ld.shadowRelativeBias;
+                gpu.shadowMatrix[7] = 0.0f;
+            } else if (hasShadow) {
                 // Column-major float4x4 for the GPU (dest[col*4+row] = M(row,col)).
                 // Matrix4::getElement takes (col, row), so M(row,col) is
                 // getElement(col, row) — the arguments are NOT in source order.

@@ -51,14 +51,20 @@ namespace visutwin::canvas
 
     Matrix4 LightCamera::spotProjectionBias()
     {
-        // NDC → texture UV: x,y [-1,1] → [0,1] with Y flipped (texture origin is
-        // top-left in both backends), z [-1,1] → [0,1] to match the shadow vertex
-        // shader's clip.z = 0.5 * (clip.z + clip.w) remap.
+        return viewportProjectionBias(Vector4(0.0f, 0.0f, 1.0f, 1.0f));
+    }
+
+    Matrix4 LightCamera::viewportProjectionBias(const Vector4& viewport)
+    {
+        // NDC → texture UV: x,y [-1,1] → the viewport rect, with Y flipped (texture
+        // origin is top-left in both backends, and the negative scale is the same
+        // one the directional cascades use); z [-1,1] → [0,1] to match the shadow
+        // vertex shader's clip.z = 0.5 * (clip.z + clip.w) remap.
         Matrix4 bias = Matrix4::identity();
-        bias.setElement(0, 0, 0.5f);
-        bias.setElement(3, 0, 0.5f);
-        bias.setElement(1, 1, -0.5f);
-        bias.setElement(3, 1, 0.5f);
+        bias.setElement(0, 0, viewport.getZ() * 0.5f);
+        bias.setElement(3, 0, viewport.getX() + viewport.getZ() * 0.5f);
+        bias.setElement(1, 1, -viewport.getW() * 0.5f);
+        bias.setElement(3, 1, viewport.getY() + viewport.getW() * 0.5f);
         bias.setElement(2, 2, 0.5f);
         bias.setElement(3, 2, 0.5f);
         return bias;

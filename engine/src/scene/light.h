@@ -70,12 +70,26 @@ namespace visutwin::canvas
         bool atlasViewportAllocated() const { return _atlasViewportAllocated; }
         void setAtlasViewportAllocated(bool value) { _atlasViewportAllocated = value; }
 
+        // True on the frame the atlas hands this light a DIFFERENT slot, so its
+        // shadow (and cookie) content has to be rendered again.
         bool atlasSlotUpdated() const { return _atlasSlotUpdated; }
+        void setAtlasSlotUpdated(const bool value) { _atlasSlotUpdated = value; }
 
-        // Clustered local-shadow atlas: index of this light's slice in the shared
-        // depth texture2d_array (LightTextureAtlas). -1 = not allocated.
-        int atlasSlice() const { return _atlasSlice; }
-        void setAtlasSlice(int value) { _atlasSlice = value; }
+        // Clustered local-shadow atlas (LightTextureAtlas): the slot this light
+        // renders into, normalized (x, y, width, height) with a top-left origin, and
+        // the bookkeeping that lets a light keep its slot across frames.
+        const Vector4& atlasViewport() const { return _atlasViewport; }
+        void setAtlasViewport(const Vector4& value) { _atlasViewport = value; }
+        int atlasSlotIndex() const { return _atlasSlotIndex; }
+        void setAtlasSlotIndex(const int value) { _atlasSlotIndex = value; }
+        int atlasVersion() const { return _atlasVersion; }
+        void setAtlasVersion(const int value) { _atlasVersion = value; }
+
+        // The largest fraction of any camera's viewport this light's bounds cover
+        // this frame (upstream `maxScreenSize`); reset with visibility, raised by
+        // Renderer::cullLights. Ranks lights for atlas slots and main-array slots.
+        float maxScreenSize() const { return _maxScreenSize; }
+        void setMaxScreenSize(const float value) { _maxScreenSize = value; }
 
         bool enabled() const { return _enabled; }
         void setEnabled(const bool value) { _enabled = value; }
@@ -254,7 +268,10 @@ namespace visutwin::canvas
 
         bool _atlasSlotUpdated = false;
 
-        int _atlasSlice = -1;
+        Vector4 _atlasViewport = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
+        int _atlasSlotIndex = -1;
+        int _atlasVersion = -1;
+        float _maxScreenSize = 0.0f;
 
         bool _enabled = false;
 

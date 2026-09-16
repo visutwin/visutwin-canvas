@@ -25,12 +25,12 @@ using namespace visutwin::canvas;
 
 namespace
 {
-    // A stand-in for an allocated map. createAtlasSlice does no device work — it
+    // A stand-in for an allocated map. createAtlas does no device work — it
     // wraps whatever it is given — so the test needs no GraphicsDevice, which is
     // also how LightComponent builds its Light.
     void giveShadowMap(Light& light)
     {
-        light.setShadowMap(ShadowMap::createAtlasSlice(nullptr, nullptr));
+        light.setShadowMap(ShadowMap::createAtlas(nullptr, nullptr));
     }
 
     bool expectDropped(const char* what, Light& light)

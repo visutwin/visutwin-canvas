@@ -23,21 +23,29 @@
                 }
                 if (atten < 1e-5) continue;
 
-                // Clustered spot shadow: each shadow-casting light owns one
-                // slice of the atlas. shadowData = {castShadows, normalOffsetBias,
-                // intensity, slice}. Mirrors forward-fragment-clustered.metal:
-                // a receiver normal offset and an intensity blend, and NO depth
-                // bias — the atlas pass biases on render, and this projection's
-                // depth is far too crushed for a shader bias to be harmless.
+                // Clustered shadow: each shadow-casting light owns a rect of the
+                // atlas. shadowData = {castShadows, normalOffsetBias, intensity,
+                // 1 spot / 2 omni}. Mirrors forward-fragment-clustered.metal: a
+                // receiver normal offset and an intensity blend; a spot projects
+                // through its viewport-aware VP with NO depth bias (the atlas pass
+                // biases on render, and this projection's depth is far too crushed
+                // for a shader bias to be harmless), an omni picks a cube face from
+                // the direction and takes the cubemap path's relative bias.
                 if (cl.shadowData.x > 0.5) {
                     vec3 shadowPosW = fragWorldPos + N * cl.shadowData.y;
-                    vec4 sc = cl.shadowMatrix * vec4(shadowPosW, 1.0);
-                    if (sc.w > 0.0) {
-                        vec3 scoord = sc.xyz / sc.w;
-                        if (all(greaterThanEqual(scoord, vec3(0.0))) &&
-                            all(lessThanEqual(scoord, vec3(1.0)))) {
-                            float vis = pcf3x3Array(scoord.xy, cl.shadowData.w, scoord.z);
-                            atten *= mix(1.0, vis, clamp(cl.shadowData.z, 0.0, 1.0));
+                    if (cl.shadowData.w > 1.5) {
+                        float vis = getShadowOmniClusteredPCF3(cl.shadowMatrix[0], cl.shadowMatrix[1],
+                            shadowPosW - cl.positionRange.xyz);
+                        atten *= mix(1.0, vis, clamp(cl.shadowData.z, 0.0, 1.0));
+                    } else {
+                        vec4 sc = cl.shadowMatrix * vec4(shadowPosW, 1.0);
+                        if (sc.w > 0.0) {
+                            vec3 scoord = sc.xyz / sc.w;
+                            if (all(greaterThanEqual(scoord, vec3(0.0))) &&
+                                all(lessThanEqual(scoord, vec3(1.0)))) {
+                                float vis = pcf3x3Atlas(scoord.xy, scoord.z);
+                                atten *= mix(1.0, vis, clamp(cl.shadowData.z, 0.0, 1.0));
+                            }
                         }
                     }
                 }

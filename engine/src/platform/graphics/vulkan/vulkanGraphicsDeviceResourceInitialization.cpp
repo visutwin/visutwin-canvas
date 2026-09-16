@@ -391,86 +391,6 @@ namespace visutwin::canvas
             });
         }
 
-        // 1×1 white single-layer 2D array (fallback for the clustered spot-shadow
-        // atlas slot).  White reads as "no occluder", so a clustered light whose
-        // atlas is unbound lights unshadowed — matching the pre-atlas behaviour.
-        {
-            VkImageCreateInfo imgInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-            imgInfo.imageType = VK_IMAGE_TYPE_2D;
-            imgInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-            imgInfo.extent = {1, 1, 1};
-            imgInfo.mipLevels = 1;
-            imgInfo.arrayLayers = 1;
-            imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-            imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-            imgInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-
-            VmaAllocationCreateInfo aInfo{};
-            aInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-            if (vmaCreateImage(
-                    _vmaAllocator, &imgInfo, &aInfo, &_whiteArrayImage,
-                    &_whiteArrayAllocation, nullptr) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback array image creation failed");
-            }
-
-            // VIEW_TYPE_2D_ARRAY even with one layer: the descriptor's declared
-            // type, not the layer count, is what has to match the shader.
-            VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-            viewInfo.image = _whiteArrayImage;
-            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-            viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-            viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-            if (vkCreateImageView(
-                    _device, &viewInfo, nullptr,
-                    &_whiteArrayImageView) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback array image view creation failed");
-            }
-
-            uint32_t whitePixel = 0xFFFFFFFF;
-            VkBuffer stagingBuf = VK_NULL_HANDLE;
-            VmaAllocation stagingAlloc = VK_NULL_HANDLE;
-            VkBufferCreateInfo sInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-            sInfo.size = 4;
-            sInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            VmaAllocationCreateInfo saInfo{};
-            saInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-            if (vmaCreateBuffer(
-                    _vmaAllocator, &sInfo, &saInfo, &stagingBuf,
-                    &stagingAlloc, nullptr) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback array staging buffer "
-                    "creation failed");
-            }
-            void* mapped = nullptr;
-            if (vmaMapMemory(
-                    _vmaAllocator, stagingAlloc, &mapped) != VK_SUCCESS) {
-                vmaDestroyBuffer(
-                    _vmaAllocator, stagingBuf, stagingAlloc);
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback array staging buffer "
-                    "mapping failed");
-            }
-            memcpy(mapped, &whitePixel, 4);
-            vmaUnmapMemory(_vmaAllocator, stagingAlloc);
-
-            const VkImage whiteArrayImage = _whiteArrayImage;
-            enqueueUpload([whiteArrayImage, stagingBuf](VkCommandBuffer cmd) {
-                vulkanTransitionImageLayout(cmd, whiteArrayImage,
-                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-                VkBufferImageCopy region{};
-                region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                region.imageExtent = {1, 1, 1};
-                vkCmdCopyBufferToImage(cmd, stagingBuf, whiteArrayImage,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-                vulkanTransitionImageLayout(cmd, whiteArrayImage,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            }, [allocator = _vmaAllocator, stagingBuf, stagingAlloc] {
-                vmaDestroyBuffer(allocator, stagingBuf, stagingAlloc);
-            });
-        }
 
         // Per-draw / per-pass uniform ring buffer.  Sized for a generous draw
         // count per frame: each region holds material + lighting slots for the
@@ -556,9 +476,7 @@ namespace visutwin::canvas
         // _materialExtraSampler leak got in.
         for (auto& [view, image, allocation] :
                 {std::tie(_whiteImageView, _whiteImage, _whiteAllocation),
-                 std::tie(_whiteCubeImageView, _whiteCubeImage, _whiteCubeAllocation),
-                 std::tie(_whiteArrayImageView, _whiteArrayImage,
-                     _whiteArrayAllocation)}) {
+                 std::tie(_whiteCubeImageView, _whiteCubeImage, _whiteCubeAllocation)}) {
             if (_device != VK_NULL_HANDLE && view != VK_NULL_HANDLE) {
                 vkDestroyImageView(_device, view, nullptr);
                 view = VK_NULL_HANDLE;

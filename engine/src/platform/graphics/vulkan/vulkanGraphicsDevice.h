@@ -72,7 +72,7 @@ namespace visutwin::canvas
             _areaLightLut2 = lut2;
         }
 
-        // Clustered spot-shadow atlas (Depth texture2d_array), bound at set 3
+        // Clustered shadow atlas (one packed 2D depth texture), bound at set 3
         // binding 14. Non-owning — LightTextureAtlas keeps it alive.
         void setClusterShadowAtlas(Texture* atlas) override
         {
@@ -711,9 +711,6 @@ namespace visutwin::canvas
         // 1×1 single-layer white 2D array: fallback for the clustered shadow
         // atlas slot, for the same reason as the cube above — a VIEW_TYPE_2D
         // view cannot back a texture2DArray descriptor.
-        VkImage _whiteArrayImage = VK_NULL_HANDLE;
-        VmaAllocation _whiteArrayAllocation = VK_NULL_HANDLE;
-        VkImageView _whiteArrayImageView = VK_NULL_HANDLE;
 
         int _width = 0;
         int _height = 0;

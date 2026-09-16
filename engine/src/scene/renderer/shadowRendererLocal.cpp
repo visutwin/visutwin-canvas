@@ -12,6 +12,9 @@
 
 #include "lightCamera.h"
 #include "renderPassShadowLocalNonClustered.h"
+#include "scene/lighting/lightTextureAtlas.h"
+#include "platform/graphics/texture.h"
+#include "shadowMap.h"
 #include "scene/graphNode.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "spdlog/spdlog.h"
@@ -110,9 +113,30 @@ namespace visutwin::canvas
                     shadowCam->setNearClip(0.01f);
                     shadowCam->setFarClip(std::max(light->range(), 0.1f));
                 } else {
-                    // Point (omni): LightCamera::create already sets per-face rotation and 90° FOV.
+                    // Point (omni): LightCamera::create already sets the per-face
+                    // rotation. 90 degrees for a cubemap face; a face rendered into an
+                    // atlas tile is widened by kShadowEdgePixels so a filter kernel at
+                    // the tile edge still lands inside it (upstream
+                    // shadow-renderer-local.js), and the shader insets its UV to match.
+                    float fov = 90.0f;
+                    if (light->atlasViewportAllocated() && light->shadowMap() &&
+                        light->shadowMap()->shadowTexture()) {
+                        const float atlasSize = static_cast<float>(light->shadowMap()->shadowTexture()->width());
+                        const float tileSize = std::max(atlasSize * light->atlasViewport().getZ() / 3.0f, 1.0f);
+                        const float filterSize = (2.0f / tileSize) * static_cast<float>(LightTextureAtlas::kShadowEdgePixels);
+                        fov = std::atan(1.0f + filterSize) * (180.0f / std::numbers::pi_v<float>) * 2.0f;
+                    }
+                    shadowCam->setFov(fov);
                     shadowCam->setNearClip(0.01f);
                     shadowCam->setFarClip(std::max(light->range(), 0.1f));
+                }
+
+                // A light outside the atlas renders into the whole of its own map.
+                // (The atlas writes these itself for the lights it holds; a light that
+                // has just LEFT it would otherwise keep rendering into a stale rect.)
+                if (!light->atlasViewportAllocated()) {
+                    rd->shadowViewport = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
+                    rd->shadowScissor = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
                 }
 
                 // Assign the render target for this face.
@@ -141,10 +165,13 @@ namespace visutwin::canvas
                     const Matrix4 shadowVP = rd->shadowCamera->projectionMatrix()
                         * rd->shadowCamera->node()->worldTransform().inverse();
 
-                    // Apply NDC-to-UV viewport bias matrix, matching directional shadow
-                    // construction (shadowRendererDirectional.cpp). Shared with the
-                    // spot cookie projection, which needs the identical mapping.
-                    light->setShadowViewProjection(LightCamera::spotProjectionBias() * shadowVP);
+                    // Apply the NDC-to-UV bias, into the face's viewport: the whole map
+                    // for a light with its own, the light's rect of the clustered atlas
+                    // otherwise — the same mapping the directional cascades use. Shared
+                    // with the spot cookie projection, which needs the identical mapping
+                    // (and the whole-texture bias, since cookies are not atlased).
+                    light->setShadowViewProjection(
+                        LightCamera::viewportProjectionBias(rd->shadowViewport) * shadowVP);
                 }
             }
         }

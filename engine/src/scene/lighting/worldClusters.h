@@ -11,6 +11,7 @@
 #include "core/math/color.h"
 #include "core/math/matrix4.h"
 #include "core/math/vector3.h"
+#include "core/math/vector4.h"
 #include "core/shape/boundingBox.h"
 
 namespace visutwin::canvas
@@ -41,10 +42,14 @@ namespace visutwin::canvas
         float directionSpot[4] = {};     // xyz=direction, w=outerConeCos
         float colorIntensity[4] = {};    // xyz=color(linear), w=intensity
         float params[4] = {};            // x=innerConeCos, y=isSpot(0/1), z=falloffLinear(0/1), w=reserved
-        // Clustered spot shadows (LightTextureAtlas): world→atlas-slice shadow VP.
-        float shadowMatrix[16] = {};     // column-major float4x4 (GPU convention)
+        // Clustered shadows (LightTextureAtlas). A SPOT: world→atlas-rect shadow VP,
+        // column-major float4x4. An OMNI light has no single matrix: the same 64
+        // bytes carry its atlas rect (x, y, size, edge pixels) in the first column
+        // and (near, far, relative bias, unused) in the second; the shader picks
+        // the cube face from the light-to-fragment direction.
+        float shadowMatrix[16] = {};
         float shadowData[4] = {};        // x=castShadows(0/1), y=normalOffsetBias,
-                                         // z=intensity, w=atlasSlice(float)
+                                         // z=intensity, w=1 spot / 2 omni
     };
 
     /**
@@ -63,15 +68,20 @@ namespace visutwin::canvas
         bool isSpot = false;
         bool falloffModeLinear = true;
 
-        // Clustered spot shadow (via LightTextureAtlas). castShadows=false → no shadow.
+        // Clustered shadow (via LightTextureAtlas). castShadows=false → no shadow.
         bool castShadows = false;
-        Matrix4 shadowMatrix = Matrix4::identity();  // world→atlas-slice shadow VP
+        Matrix4 shadowMatrix = Matrix4::identity();  // spot: world→atlas-rect shadow VP
+        Vector4 atlasViewport = Vector4(0.0f, 0.0f, 1.0f, 1.0f);  // the light's slot
+        // Omni faces store perspective depth over [shadowNear, shadowFar] and take
+        // a RELATIVE bias on the distance, as the cubemap path does.
+        float shadowNear = 0.01f;
+        float shadowFar = 10.0f;
+        float shadowRelativeBias = 0.0f;
         // Upstream's clustered spot shadow applies NO depth bias in the shader
         // ("depth bias is already applied on render" — the pass sets hardware
         // polygon offset). What it DOES apply is a normal offset on the receiver.
         float shadowNormalBias = 0.0f;
         float shadowIntensity = 1.0f;
-        int atlasSlice = -1;                         // depth-array slice index
     };
 
     /**

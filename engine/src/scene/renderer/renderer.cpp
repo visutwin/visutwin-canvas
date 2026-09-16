@@ -194,6 +194,7 @@ namespace visutwin::canvas
             if (lightComponent) {
                 if (Light* sceneLight = lightComponent->light()) {
                     sceneLight->setVisibleThisFrame(false);
+                    sceneLight->setMaxScreenSize(0.0f);
                 }
             }
         }
@@ -229,6 +230,9 @@ namespace visutwin::canvas
             const BoundingSphere bounds = sceneLight->boundingSphere();
             if (frustum.checkSphere(bounds.center(), bounds.radius())) {
                 sceneLight->setVisibleThisFrame(true);
+                // The union over cameras of the viewport fraction the light covers,
+                // which ranks it for an atlas slot (upstream maxScreenSize).
+                sceneLight->setMaxScreenSize(std::max(sceneLight->maxScreenSize(), camera->screenSize(bounds)));
                 continue;
             }
 
@@ -759,7 +763,7 @@ namespace visutwin::canvas
             _clusterConfig.maxLightsPerCell = std::max(1, lightingParams.maxLightsPerCell);
             if (_lightTextureAtlas) {
                 _lightTextureAtlas->configure(lightingParams.shadowAtlasResolution,
-                    lightingParams.shadowAtlasCapacity);
+                    lightingParams.atlasSplit);
             }
         }
 
@@ -1177,21 +1181,15 @@ namespace visutwin::canvas
                 }
             }
 
-            // Wire local light shadow data (spot/point).
-            // Assign shadow map index and populate ShadowParams.localShadows.
+            // Wire local light shadow data (spot/point) for the NON-clustered path.
             // Omni lights use cubemap depth textures; spot lights use 2D textures.
-            // A clustered SPOT takes its shadow from the LightTextureAtlas, not from
-            // the bounded main array, so it must neither consume one of those two
-            // slots nor be stripped of castShadows when they run out. Leaving it in
-            // this branch capped the whole feature at kMaxLocalShadows: the third
-            // and later spots silently lost their shadows, which is what the
-            // clustered-spot-shadows example rendered.
-            const bool atlasedSpot = clusteredEnabled &&
-                lightData.type == GpuLightType::Spot && lightData.castShadows &&
-                lightComponent->light() != nullptr &&
-                lightComponent->light()->atlasSlice() >= 0;
-
-            if (lightData.castShadows && !atlasedSpot &&
+            // Under clustered lighting every local light takes its shadow from the
+            // LightTextureAtlas through the cluster grid, so none may consume one of
+            // the two main-array slots nor be stripped of castShadows when they run
+            // out — leaving spots in this branch once capped the whole feature at
+            // kMaxLocalShadows, and leaving omnis in it capped them at two while
+            // the clustered-lighting default put every scene on this path.
+            if (lightData.castShadows && !clusteredEnabled &&
                 lightData.type != GpuLightType::Directional) {
                 Light* sceneLight = lightComponent->light();
                 if (sceneLight && sceneLight->shadowMap() &&
@@ -1395,11 +1393,9 @@ namespace visutwin::canvas
             for (const auto& dispatchEntry : localLights) {
                 const auto& ld = dispatchEntry.light;
                 // Area rect lights are not clustered — they go through the main 8-light array.
+                // Every spot and omni light is in the grid, shadowed from the atlas
+                // when it holds a slot for it and unshadowed otherwise, as upstream.
                 if (ld.type == GpuLightType::AreaRect) continue;
-                // Shadow-casting OMNI/POINT lights are evaluated via the main light array
-                // (bounded). Shadow-casting SPOTS stay in the grid and get a real shadow
-                // from the LightTextureAtlas (below). Unshadowed lights: grid, no shadow.
-                if (ld.castShadows && ld.type != GpuLightType::Spot) continue;
                 ClusterLightData lcd;
                 lcd.position = ld.position;
                 lcd.direction = ld.direction;
@@ -1414,13 +1410,20 @@ namespace visutwin::canvas
                 lcd.isSpot = (ld.type == GpuLightType::Spot);
                 lcd.falloffModeLinear = ld.falloffModeLinear;
 
-                // Clustered spot shadow: pull the atlas slice + VP matrix computed by
-                // cullLocalLights + LightTextureAtlas::allocate this frame.
-                if (ld.castShadows && ld.type == GpuLightType::Spot && dispatchEntry.sceneLight &&
-                    dispatchEntry.sceneLight->atlasSlice() >= 0) {
+                // Clustered shadow: the atlas rect assigned by LightTextureAtlas::update
+                // this frame, and for a spot the VP into it computed by cullLocalLights.
+                if (ld.castShadows && dispatchEntry.sceneLight &&
+                    dispatchEntry.sceneLight->atlasViewportAllocated()) {
+                    Light* atlasLight = dispatchEntry.sceneLight;
                     lcd.castShadows = true;
-                    lcd.shadowMatrix = dispatchEntry.sceneLight->shadowViewProjection();
-                    lcd.atlasSlice = dispatchEntry.sceneLight->atlasSlice();
+                    lcd.atlasViewport = atlasLight->atlasViewport();
+                    lcd.shadowMatrix = atlasLight->shadowViewProjection();
+                    // An omni face stores perspective depth over the light's range,
+                    // with the same relative bias the cubemap path applies before the
+                    // projection (see the omni block of forward-fragment-lights).
+                    lcd.shadowNear = 0.01f;
+                    lcd.shadowFar = std::max(atlasLight->range(), 0.1f);
+                    lcd.shadowRelativeBias = -atlasLight->shadowBias();
                     // NOT the non-clustered path's depth bias. A clustered spot's
                     // depth is crushed against 1.0 by a near clip of 0.01 against a
                     // range of 150, so the whole scene spans ~0.001 of depth while
@@ -1453,9 +1456,9 @@ namespace visutwin::canvas
             // padded by 50 units, a 100-unit cube however small the lit region was).
             WorldClusters* clusters = clustersForLightSet(lightSetHash, clusterLocalLights);
 
-            // Bind the clustered spot-shadow atlas (depth array) for this frame.
+            // Bind the clustered shadow atlas for this frame.
             if (_lightTextureAtlas) {
-                _device->setClusterShadowAtlas(_lightTextureAtlas->shadowArrayTexture());
+                _device->setClusterShadowAtlas(_lightTextureAtlas->shadowAtlasTexture());
             }
 
             // Bind cluster GPU buffers. EVERY layer binds, because every layer may be
@@ -1517,20 +1520,14 @@ namespace visutwin::canvas
             // Non-area local lights. In non-clustered mode all of them go into the
             // main array. When clustering is enabled, the many *unshadowed* local
             // lights are handled by the cluster grid (fragment shader samples buffer
-            // slots 7/8) — but *shadow-casting* local lights still go into the main
-            // array so they sample their shadow maps (clustered atlas shadows are
-            // not yet ported). They are correspondingly excluded from the grid feed.
+            // slots 7/8). Under clustered lighting every spot and omni light is in the
+            // cluster grid, shadowed from the atlas, so none of them enters the main
+            // array; it holds only the directional and area lights then.
             for (const auto& dispatchEntry : localLights) {
                 if (out.size() >= 8) break;
                 if ((dispatchEntry.mask & mask) == 0u) continue;
                 if (dispatchEntry.light.type == GpuLightType::AreaRect) continue;  // already added above
-                // Clustered mode: only shadow-casting OMNI/POINT lights use the main array
-                // (bounded). Unshadowed lights and shadow-casting SPOTS go to the cluster
-                // grid (spots get a real shadow from the LightTextureAtlas).
-                if (clusteredEnabled &&
-                    !(dispatchEntry.light.castShadows && dispatchEntry.light.type != GpuLightType::Spot)) {
-                    continue;
-                }
+                if (clusteredEnabled) continue;
                 out.push_back(dispatchEntry.light);
             }
         };

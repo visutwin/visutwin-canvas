@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include "core/math/vector4.h"
+
 #include "scene/camera.h"
 #include "scene/constants.h"
 #include "scene/light.h"
@@ -29,5 +31,11 @@ namespace visutwin::canvas
 
         /** NDC → texture-UV bias matrix shared by spot shadow and cookie projections. */
         static Matrix4 spotProjectionBias();
+
+        /// NDC -> texture UV within `viewport` (normalized x, y, width, height, origin
+        /// top-left), z [-1,1] -> [0,1]: the bias a spot's shadow or cookie projection
+        /// needs when its map is a rect of the clustered atlas rather than a whole
+        /// texture. `spotProjectionBias()` is this for the full texture.
+        static Matrix4 viewportProjectionBias(const Vector4& viewport);
     };
 }

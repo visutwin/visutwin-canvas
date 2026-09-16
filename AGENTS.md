@@ -587,11 +587,20 @@ present, but the rule below never depends on reading it.
   behind fragment-varying `continue`s. An undefined mip LOD reads a fully averaged
   mip — a heart-shaped cookie became a flat wash of its own average. Sample with
   an explicit LOD 0 (`level(0)` / `textureLod`).
-- **A clustered SPOT must not consume one of the two main local shadow slots.**
-  Its shadow comes from the LightTextureAtlas, and the main-array allocation clears
-  `castShadows` when it runs out — which silently capped clustered spot shadows at
-  `ShadowParams::kMaxLocalShadows` (two), whatever the atlas capacity said. Ten
-  lights, two of them with any chance of a shadow, and nothing anywhere said so.
+- **Under clustered lighting NO local light enters the main light array.** Every
+  spot and omni is in the cluster grid and its shadow comes from the
+  LightTextureAtlas; the main-array allocation clears `castShadows` when its two
+  slots run out, which is how clustered spot shadows were once capped at
+  `ShadowParams::kMaxLocalShadows` and clustered omni shadows at two for as long as
+  omnis went through the array. Clustered lighting is ON by default, as upstream,
+  so a scene that needs the non-clustered path (PCSS local shadows, cookies) has to
+  say `setClusteredLightingEnabled(false)`.
+- **The shadow atlas is cleared per RECT, never by the pass.** It holds one-shot
+  shadows of static lights beside realtime ones, so a load-action clear would erase
+  the former every frame; each face clears its own viewport with a depth-1 triangle
+  under the depth test at ALWAYS (`clearDepthRect`). Its rects are top-left origin
+  like every texture here, and an omni face is rendered 3 px wider than 90 degrees
+  with the shader UV inset to match — port both halves or the tile edges bleed.
 - **A clustered spot shadow takes NO depth bias in the shader.** Its projection has
   near 0.01 against a range of 150, which crushes the whole scene into about 0.001
   of depth; the non-clustered path's spot bias (upstream's `shadowBias * 20`, so

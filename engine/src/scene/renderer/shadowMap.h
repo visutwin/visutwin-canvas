@@ -35,13 +35,14 @@ namespace visutwin::canvas
         // Creates a shadow map for the given light, allocating depth texture and render target.
         static std::unique_ptr<ShadowMap> create(GraphicsDevice* device, Light* light);
 
-        // Wraps a single slice of a shared depth texture2d_array (the clustered
-        // LightTextureAtlas) as a ShadowMap, so the standard local-shadow cull/render
-        // path renders this light into its atlas slice. The array texture is shared;
-        // the render target already targets the correct slice via its face index.
-        static std::unique_ptr<ShadowMap> createAtlasSlice(
-            const std::shared_ptr<Texture>& atlasArray,
-            const std::shared_ptr<RenderTarget>& sliceTarget);
+        // Wraps the clustered LightTextureAtlas as a ShadowMap every atlased light
+        // shares: one depth texture, one render target, listed once per cube face so
+        // the local-shadow path's `renderTargets()[face]` resolves for an omni light
+        // too. Which part of the atlas a face draws into is its render data's
+        // viewport, not a target of its own.
+        static std::shared_ptr<ShadowMap> createAtlas(
+            const std::shared_ptr<Texture>& atlas,
+            const std::shared_ptr<RenderTarget>& atlasTarget);
 
     private:
         // An array of render targets:

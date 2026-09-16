@@ -67,8 +67,9 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   depth2d<float> ssrSceneDepthTexture [[texture(25)]],
 #endif
 #if VT_FEATURE_LIGHT_CLUSTERING
-                                  // Clustered spot-shadow atlas (LightTextureAtlas): one slice per light.
-                                  depth2d_array<float> clusterShadowAtlas [[texture(26)]],
+                                  // Clustered shadow atlas (LightTextureAtlas): one packed depth
+                                  // texture, a rect per shadow-casting spot or omni light.
+                                  depth2d<float> clusterShadowAtlas [[texture(26)]],
 #endif
 #if VT_FEATURE_COOKIE_2D
                                   // Spot light cookies: two slots, matching the local shadow pool.

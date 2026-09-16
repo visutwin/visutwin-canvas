@@ -1544,7 +1544,6 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             atlasOptions.width = kAtlasSize;
             atlasOptions.height = kAtlasSize;
             atlasOptions.format = PixelFormat::PIXELFORMAT_DEPTH;
-            atlasOptions.arrayLength = 2;
             atlasOptions.mipmaps = false;
             atlasOptions.minFilter = FilterMode::FILTER_NEAREST;
             atlasOptions.magFilter = FilterMode::FILTER_NEAREST;
@@ -1573,14 +1572,13 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 lightShadowMatrix = remap * lightOrtho;
             }
 
-            // Depth-only pass into array layer 1 (RenderTargetOptions::face
-            // selects the slice, exactly as LightTextureAtlas does).
+            // Depth-only pass into the atlas (one packed 2D texture, exactly as
+            // LightTextureAtlas holds it; this light's rect is the whole of it).
             {
                 RenderTargetOptions sliceOptions{};
                 sliceOptions.graphicsDevice = device.get();
                 sliceOptions.depthBuffer = &atlas;
-                sliceOptions.face = 1;
-                sliceOptions.name = "vulkan-smoke-cluster-atlas-slice1";
+                sliceOptions.name = "vulkan-smoke-cluster-atlas-target";
                 auto sliceTarget = device->createRenderTarget(sliceOptions);
 
                 RenderPass slicePass(sharedDevice);
@@ -1649,7 +1647,6 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 light.shadowMatrix = lightShadowMatrix;
                 light.shadowNormalBias = 0.0f;
                 light.shadowIntensity = 1.0f;
-                light.atlasSlice = 1;
 
                 WorldClusters clusters;
                 // The grid sizes itself from the lights; it no longer takes a camera

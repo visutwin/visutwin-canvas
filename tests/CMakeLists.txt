@@ -180,6 +180,14 @@ target_link_libraries(visutwin-light-bounds-tests PRIVATE visutwin-canvas)
 
 add_test(NAME light-bounds COMMAND visutwin-light-bounds-tests)
 
+add_executable(visutwin-light-texture-atlas-tests
+    lightTextureAtlasTests.cpp
+)
+
+target_link_libraries(visutwin-light-texture-atlas-tests PRIVATE visutwin-canvas)
+
+add_test(NAME light-texture-atlas COMMAND visutwin-light-texture-atlas-tests)
+
 add_executable(visutwin-device-capability-tests
     deviceCapabilityTests.cpp
 )
