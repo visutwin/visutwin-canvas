@@ -480,3 +480,208 @@ Passing the table as an input TEXTURE would fit the existing 8-slot seam.
 Verification exists: `tools/generate-env-atlas` produces deterministic PNGs.
 
 ## Live gotchas
+
+Moved here from `AGENTS.md` — these bite while working ON the subsystem, so they
+belong beside its reference rather than in the file every session loads in full.
+The cross-cutting traps stay in `AGENTS.md`.
+
+- **MSAA is a property of the RENDER TARGET on both backends, and the sample
+  count reaches the pipeline through it.** `RenderTargetOptions::samples` is
+  clamped to `GraphicsDevice::maxSamples()`, which each backend fills in from the
+  hardware; a backend that never sets it silently renders every target
+  single-sampled, which is what Vulkan did until 2026-09-10. A multisampled
+  target owns a multisampled twin of each attachment, renders into that, and
+  resolves into the plain texture the later passes sample — so `autoResolve` plus
+  `ColorAttachmentOps::resolve` is what makes MSAA visible at all, and a target
+  with neither antialiases into a surface nobody reads. Vulkan additionally keys
+  its pipeline cache on the sample count (a raster count that disagrees with the
+  attachments is invalid), resolves depth with SAMPLE_ZERO rather than an average
+  (an averaged depth belongs to no surface), and skips the depth resolve for a
+  pass that samples that same depth. An internally-owned depth buffer — the
+  `RenderTargetOptions::depth` case with no depth texture — is created
+  multisampled and never resolved, since nothing can sample it; that also costs
+  it `TRANSFER_SRC`, so a multisampled target whose depth must be GRABBED needs a
+  real depth texture. Verify a change here by edge statistics, not by eye: MSAA
+  leaves whole-frame mean untouched and trades hard gradient steps for
+  intermediate ones.
+- **The shadow pass runs the caster's OPACITY FRONTEND before writing depth**,
+  as upstream's `litShadowMain` does. Without it a masked material throws the
+  shadow of its quad: alpha was tested against `baseColor.a` alone, never against
+  the base-colour texture, on Metal, and Vulkan's depth-only PCF pass had no
+  fragment stage at all, so it had neither the alpha test nor the shadow dither.
+  The shadow's alpha must be the SAME product the forward pass tests, or its edge
+  does not follow the visible one. Three consequences for anything touching this:
+  `ProgramLibrary::getShadowShader` takes the CASTER'S MATERIAL and derives the
+  alpha-test, base-colour-map and shadow-dither features from it, so a shadow
+  variant is per material, not per pass; a shadow pass must BIND that material
+  (uniforms and textures) for exactly the casters `shadowNeedsMaterial` names, and
+  nothing for the rest, which is what keeps an ordinary caster's draw as cheap as
+  it was; and on Vulkan the fragment stage is attached only for those casters,
+  through `shadow.frag`, which declares NO colour output — that is the one
+  fragment stage a depth-only pass may run, since a stage declaring a colour
+  output with no colour attachment silently drops depth writes under MoltenVK.
+  The GLSL frontend gates on MATERIAL FLAGS, not on features: a shadow program is
+  built without specialization constants, so every `vtFeatureEnabled` in that
+  stage would read false.
+- **A light's shadow map is allocated ONCE, lazily, and only when null, so every
+  property that changes what the map must BE — or whether it is needed at all — has
+  to drop it** — today `setNumCascades`, `setShadowType`, `setShadowResolution` and
+  `setCastShadows`, all four through `Light::destroyShadowMap`. Nothing announces the mismatch: the renderer finds a
+  non-null map and renders into it, and the frame still comes out. A stale
+  resolution renders a cascade into a fraction of a texture the shader then samples
+  across, because the cascade viewport is recomputed per cull and the PCF texel size
+  is uploaded per frame while the texture is not. **Each such setter must also
+  early-out when the value is unchanged**: `LightComponent::syncToLight` replays
+  EVERY property onto the backing `Light` once per frame, so an unconditional drop
+  reallocates the map forever. Dropping the map also re-arms a light sitting at
+  `SHADOWUPDATE_NONE`, or nothing would ever render into the replacement.
+  `tests/shadowMapInvalidationTests.cpp` pins both halves for all four setters.
+  Note that `castShadows()` folds the MASK in, so a bare `Light` — one not driven by
+  a `LightComponent`, which pushes its own mask every frame — reports false whatever
+  `setCastShadows` said, because this port defaults `Light::_mask` to `MASK_NONE`
+  where upstream uses `MASK_AFFECT_DYNAMIC`. Aligning that default is not free: it
+  changes `depth-of-field`, whose only light is the environment atlas, so something
+  reads `castShadows()` before the first sync and keeps the answer. It belongs with
+  the defaults alignment rather than with a shadow-map change.
+  The resolution is clamped to the device's `maxTextureSize`, or `maxCubeMapSize`
+  for an omni — two limits that are NOT the same number on real hardware. It is
+  clamped twice on purpose: in `Light::setShadowResolution`, as upstream does, and
+  again in `ShadowMap::create`, because a `Light` may still be constructed with a
+  null device and the allocation is the last point that can catch it.
+  **`SHADOW_VSM_16F` falls back to `SHADOW_PCF3_32F` where the device cannot render
+  half-float colour** (`GraphicsDevice::textureHalfFloatRenderable`) — VSM writes its
+  EVSM moments into an RGBA16F ATTACHMENT, so without that capability the type
+  cannot be rendered at all. `Light` therefore keeps the REQUEST and the resolved
+  type apart: `syncToLight` replays the request every frame, and comparing it
+  against the resolved type would differ forever and drop the shadow map each time.
+  `tests/deviceCapabilityTests.cpp` pins the fallback and both clamps against a stub
+  device, which is the only way to reach them — every GPU here answers yes to
+  half-float and allocates far past any resolution an example asks for.
+- **Lighting-mode SSAO needs the DEPTH PREPASS, and the pass order says which
+  mode is running.** `SSAOTYPE_LIGHTING` folds the occlusion into the ambient term
+  as the forward shaders run, so its texture has to be finished BEFORE the scene
+  pass — which means something must have written scene depth before that, and the
+  only thing that can is `RenderPassPrepass`. `SSAOTYPE_COMBINE` multiplies over
+  the finished image in compose and is free to run after the scene, off the real
+  scene depth. `collectPasses` places the SSAO pass on that rule, as upstream
+  does; running it after the scene in lighting mode is not a small error, it makes
+  every lit surface sample the PREVIOUS frame's occlusion.
+- **The prepass renders with the SHADOW programs, not a shader pass of its own.**
+  This port has no `SHADER_PREPASS`; depth-only drawing is `drawDepthOnly`
+  (`scene/renderer/depthOnlyDraw.h`), shared by the two shadow passes and the
+  prepass, and it picks the variant for the caster's deformation path and binds
+  the material only when the caster's OPACITY decides the depth it writes. What
+  each caller still owns is the camera, the pass state and the FILTER: a shadow
+  pass draws `castShadow` casters, the prepass draws everything that writes depth
+  (not blended), and the two disagree in both directions — a mesh with shadows off
+  still occludes in screen space, and a dithered-shadow caster must not write
+  prepass depth.
+- **The prepass and the scene pass write the SAME depth texture through two render
+  targets.** The prepass target is depth-only and single-sampled on purpose: under
+  MSAA the scene target's depth is a multisampled twin, and the texture every
+  later pass samples is the resolve — which the prepass writes directly, needing
+  no resolve of its own. The cost is that a resize of the shared texture through
+  one target leaves the other's attachments stale, and `RenderTarget::resize`
+  cannot fix it (the second target's `width()` already reads the new size off the
+  shared texture and the resize early-outs), so `RenderPassCameraFrame::frameUpdate`
+  rebuilds the prepass target and re-points the pass by hand.
+- **Cameras render in PRIORITY order, smallest first** (`CameraComponent::priority`,
+  default 0, stable sort). Construction order used to decide it, which is why a
+  dynamic reflection probe had to be built before the camera that samples it; say it
+  with a priority instead. The composition's camera fingerprint includes the priority,
+  so changing one rebuilds the render actions.
+- **PCSS tightens every cascade against the UNION of the cascades' caster boxes.**
+  PCSS scales its penumbra by the cascade's caster depth RANGE, so a range that moves
+  makes the softness move: a mesh crossing a cascade's cull boundary changes that
+  cascade's range and the shadows under it change width. The union makes the range
+  depend on the whole visible caster set instead. Only PCSS — the other shadow types
+  never read the range and are better off with per-cascade tightening for depth
+  precision. This is why `ShadowRendererDirectional::cull` fits in TWO passes: the
+  union is not known until every cascade has been swept.
+
+  No shipped example shows it. `procedural-sky` is the only PCSS directional scene and
+  its geometry fills every cascade, so the boxes coincide anyway; `shadow-cascades`
+  DOES show cascade 0's box differing from the rest, but it is not PCSS. Verify a
+  change here by logging the per-cascade box, not by looking.
+- **A lightmap REPLACES indirect diffuse**, it is not added. Upstream gates
+  ambient behind `addAmbient = !lightMapEnabled`, and adding both double-counts
+  what the bake already contains.
+- **A captured probe cube is GAMMA-encoded and owes a decode**, like every other
+  texture the shader reads. It also needs the engine's cube-convention X flip, a
+  gloss-aware Fresnel rather than a raw F0 multiply, and box projection re-aimed
+  from the BOX CENTRE (normalised), not the probe's position. Missing the decode
+  alone washes every metallic surface out to pale pastel. And because the probe
+  REPLACES the environment specular, add only `probe - indirectSpecular` to the
+  accumulated colour; adding the probe outright counts both.
+- **Construct a dynamic `ReflectionProbe` BEFORE the main camera.** Layer
+  composition renders cameras in construction order, so the six face cameras must
+  come first. The reflective object also has to sit on a layer excluded from the
+  probe's capture layers, or it self-captures.
+- **A wide line is one instance per SEGMENT, expanded in the vertex shader.** The
+  template geometry (quad body, two discs for round caps and joins, two bevel
+  triangles) comes from the VERTEX ID rather than a vertex buffer, so every
+  instance draws the same vertex count and a piece the current style does not want
+  collapses to zero size instead of being skipped. Widths are screen pixels by
+  default, which is why the expansion happens after the projection rather than in
+  world space. The segment buffer never shrinks: a smaller set is written into its
+  FRONT with a full-size payload and the draw's instance count says how much is
+  live, because `VertexBuffer::setData` refuses any payload that is not the
+  buffer's exact size — the renderer used to upload only the live records, so the
+  first frame with fewer segments froze every line. `wideLineSegmentBuffer.h` owns
+  this and `tests/wideLineSegmentBufferTests.cpp` holds it.
+- **GPU instance culling requires the 80-byte stride.** Its kernel compacts fixed
+  80-byte records. The instanced shader variant follows THE DRAW, not the
+  material: the renderer derives it from the mesh instance's buffer format.
+- **Parallax `heightMapBase` shifts the ray's ENTRY UV, not just the depths.**
+  The base is the height-map value that sits at the level of the geometry, so
+  anything above it lifts off the polygon and the view ray has to enter higher up.
+  Offsetting only the depths moves the ray and the field by the same amount and
+  changes nothing at all — the images come back bit-identical, which is how the
+  first attempt at this looked like it worked. The entry UV must move by the
+  lateral distance the ray covers over that height. Base 1 is pure depth below the
+  surface; the default 0.5 pivots around mid-grey, as upstream.
+- **`heightMapFactor` is in TENTHS of a uv tile**, upstream's unit: a factor of 1
+  asks for a relief 0.1 uv deep. Used raw, upstream's own tuned value of 0.4 smears
+  brickwork into spikes, which is what the parallax-mapping port showed.
+- **Parallax self-shadowing costs a second march and only the DIRECTIONAL light
+  pays it.** It runs inside the light loop, which is behind fragment-varying
+  control flow, so its height taps use an explicit LOD; the view march sits in
+  uniform flow at the top of the shader and keeps implicit LOD so the height map
+  keeps its mips. `setHeightMapShadow` defaults to 0, so nothing pays unless asked.
+- **Opacity dither is an opaque-pass technique.** Keep the material
+  non-transparent; alpha comes from `setOpacity` or texture alpha. `setAlphaDither`
+  decouples dither density from opacity and rides in `dispersionParams.y`, where
+  NEGATIVE means unset.
+- **`detailNormalScale` blends the DETAIL map toward flat too, and the two normals
+  combine with a REORIENTED blend, not by adding xy.** Adding xy treats the detail
+  slope as if the base were flat, so the combined slope is wrong wherever the base
+  is not. Upstream's `blendNormals` rotates the detail into the base normal's frame:
+  `n1 = base + (0,0,1)`, `n2 = detail * (-1,-1,1)`, `n1 * dot(n1,n2) / n1.z - n2`,
+  left unnormalized because the TBN product is normalized after. Ported to both
+  backends 2026-09-05; it was the same defect on both, so this is a correctness fix
+  and not an alignment one.
+- **`normalScale` blends the sampled normal TOWARD FLAT.** It does not scale xy.
+  Upstream's `material_bumpiness` is a `mix(vec3(0,0,1), normalMap, s)` and both
+  backends now do that. Scaling xy leaves z alone, so it steepens the normal's
+  slope exactly where the mix flattens it; the two agree only at 0 and 1, which is
+  why the default of 1 hid this. Aligned 2026-09-05 — the earlier note here, that
+  Vulkan held upstream's form and aligning would move every Metal scene, was wrong
+  on both counts. There is also no Gram-Schmidt re-orthonormalization of the
+  interpolated tangent any more: upstream normalizes the tangent and binormal and
+  does nothing else. It measured as a no-op, so if a mesh ever shows tangent skew,
+  add it back to BOTH backends rather than one.
+- **The GPU lightmapper has no cast shadows yet.** It captures direct light and
+  ambient only. The CPU `Lightmapper` is the quality reference.
+
+### Atmosphere (Nishita)
+Two traps, both of which silently produce no sky at all:
+- **`Scene::setAtmosphereEnabled` must rebuild the sky mesh.** The atmosphere
+  branch of `Sky::updateSkyMesh` requires the flag to be set ALREADY, and every
+  caller writes `setSkyType` then `setAtmosphereEnabled`. The setter now calls
+  `resetSkyMesh()`.
+- **`planetCenterAndRadius.xyz` is CAMERA-LOCAL.** A viewer on the surface needs
+  the centre one radius BELOW: `{0, -6371000, 0}`. At the origin the viewer sits at
+  the planet's core and every ray starts underground.
+
+With the ray stuck underground, changing sun direction or intensity looks like it
+does nothing, which is a misleading symptom.
