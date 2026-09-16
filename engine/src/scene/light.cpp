@@ -48,7 +48,7 @@ namespace visutwin::canvas
 
         // Turning shadows off frees the map, and turning them back on gets a fresh
         // one. Without this the texture outlived the only thing that read it, for as
-        // long as the light lived — a directional light's default 2048 map across
+        // long as the light lived — a directional light's default 1024 map across
         // four cascades is not a rounding error, and nothing in a frame would ever
         // have pointed at it.
         //

@@ -96,8 +96,11 @@ namespace visutwin::canvas
         _light->setCookieFalloff(_cookieFalloff);
         _light->setNode(_entity);
 
-        if (_castShadows) {
-            _light->setShadowUpdateMode(ShadowUpdateType::SHADOWUPDATE_REALTIME);
+        // Once, not every sync: the renderer consumes a THISFRAME request by writing
+        // NONE back, and a replay would undo that every frame. See the header.
+        if (_shadowUpdateModePending) {
+            _light->setShadowUpdateMode(_shadowUpdateMode);
+            _shadowUpdateModePending = false;
         }
     }
 
@@ -130,6 +133,8 @@ namespace visutwin::canvas
         _shadowStrength = src->_shadowStrength;
         _shadowDistance = src->_shadowDistance;
         _shadowResolution = src->_shadowResolution;
+        _shadowUpdateMode = src->_shadowUpdateMode;
+        _shadowUpdateModePending = true;
         _shadowType = src->_shadowType;
         _vsmBlurSize = src->_vsmBlurSize;
         _vsmBias = src->_vsmBias;

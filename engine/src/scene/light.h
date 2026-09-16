@@ -317,7 +317,7 @@ namespace visutwin::canvas
 
         float _shadowDistance = 40.0f;
 
-        int _shadowResolution = 2048;
+        int _shadowResolution = 1024; // upstream's default
         int _vsmBlurSize = 11;
         float _vsmBias = 0.0025f;
         float _penumbraSize = 1.0f;

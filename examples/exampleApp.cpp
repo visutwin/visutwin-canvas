@@ -23,6 +23,7 @@
 #include <utility>
 
 #include <cstdlib>
+#include <string_view>
 
 #include "cameraControls.h"
 #include "framework/constants.h"
@@ -210,7 +211,8 @@ namespace visutwin::canvas
         // — exactly the region the upstream comparisons sample.
         // VISUTWIN_MINISTATS=0/1 overrides that either way — which is also the only
         // way to capture a screenshot WITH the HUD in it, since the capture and the
-        // suppression key off the same variable.
+        // suppression key off the same variable. VISUTWIN_MINISTATS=detailed opens
+        // it in the detailed view, the one a screenshot cannot click its way to.
         const char* screenshotPath = std::getenv("VISUTWIN_SCREENSHOT");
         const bool screenshotArmed = screenshotPath && *screenshotPath;
         const char* hudOverride = std::getenv("VISUTWIN_MINISTATS");
@@ -222,6 +224,9 @@ namespace visutwin::canvas
             _overlay->init(_device.get(), _window);
             if (_overlay->isInitialized()) {
                 _miniStats = std::make_unique<MiniStats>(_engine, _overlay.get());
+                if (hudOverride && std::string_view(hudOverride) == "detailed") {
+                    _miniStats->setDetailed(true);
+                }
             } else {
                 // init() has already logged the reason. Drop the overlay rather
                 // than keep a dead one that every frame would have to test.

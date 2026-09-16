@@ -377,7 +377,8 @@ already some example's binding.
   parity screenshot would carry a translucent window over the corner of the frame.
   `VISUTWIN_MINISTATS=0/1` overrides the decision either way, and `1` is the only
   way to capture a screenshot WITH the HUD, since capture and suppression key off
-  the same variable.
+  the same variable; `VISUTWIN_MINISTATS=detailed` opens the detailed view, which a
+  screenshot cannot click its way to.
 - The HUD is torn down BEFORE the engine and the device: MiniStats unhooks itself
   from `postrender`, and the overlay's shutdown still needs the device, because the
   Vulkan path waits the device idle before freeing ImGui's font texture and pipeline.
@@ -590,6 +591,14 @@ The cross-cutting traps stay in `AGENTS.md`.
   reallocates the map forever. Dropping the map also re-arms a light sitting at
   `SHADOWUPDATE_NONE`, or nothing would ever render into the replacement.
   `tests/shadowMapInvalidationTests.cpp` pins both halves for all four setters.
+  The update mode is the one property the sync does NOT replay:
+  `LightComponent::setShadowUpdateMode` pushes it once, because the renderer
+  consumes `SHADOWUPDATE_THISFRAME` by writing `NONE` back and a per-frame replay
+  would re-arm it into a realtime light. The sync used to force `REALTIME` on
+  every shadow caster, so no example could ask for one-shot shadows at all; the
+  `ambient-occlusion` port paid ~730 shadow draws a frame for its five static
+  torches and its sun where upstream renders them once. Default shadow
+  resolution is upstream's 1024 (it was 2048, four times the memory per map).
   Note that `castShadows()` folds the MASK in, so a bare `Light` — one not driven by
   a `LightComponent`, which pushes its own mask every frame — reports false whatever
   `setCastShadows` said, because this port defaults `Light::_mask` to `MASK_NONE`

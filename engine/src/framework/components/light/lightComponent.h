@@ -68,6 +68,28 @@ namespace visutwin::canvas
         void setCastShadows(const bool castShadows) { _castShadows = castShadows; }
 
         /**
+         * When the shadow map is rendered (upstream LightComponent.shadowUpdateMode):
+         * SHADOWUPDATE_REALTIME every frame (the default), SHADOWUPDATE_THISFRAME once
+         * and then not again, SHADOWUPDATE_NONE never. A static scene lit by static
+         * lights wants THISFRAME on every one of them: it is what turns the shadow cost
+         * of a frame into zero draws, and upstream's ambient-occlusion example is
+         * about 730 draw calls a frame cheaper for it.
+         *
+         * Unlike every other property this is NOT replayed onto the backing Light each
+         * frame. The renderer CONSUMES a THISFRAME request by setting the light to NONE
+         * once the map is rendered, and a per-frame replay would re-arm it into a
+         * realtime light that merely spells its mode differently. It is pushed once, at
+         * creation and after each set; the Light's own re-arm (NONE back to THISFRAME
+         * when its map is dropped) then works as upstream's does.
+         */
+        ShadowUpdateType shadowUpdateMode() const { return _shadowUpdateMode; }
+        void setShadowUpdateMode(const ShadowUpdateType mode)
+        {
+            _shadowUpdateMode = mode;
+            _shadowUpdateModePending = true;
+        }
+
+        /**
          * Shadow depth bias as a 0..1 authoring value (upstream LightComponent scale;
          * its default is 0.05). It is remapped to the internal light bias as
          * `-0.01 * clamp(value, 0, 1)` — the negative internal convention is what makes
@@ -199,11 +221,14 @@ namespace visutwin::canvas
         LightFalloff _falloffMode = LightFalloff::LIGHTFALLOFF_LINEAR;
         uint32_t _mask = MASK_AFFECT_DYNAMIC;
         bool _castShadows = false;
+        ShadowUpdateType _shadowUpdateMode = ShadowUpdateType::SHADOWUPDATE_REALTIME;
+        // True until syncToLight has handed the mode to the Light; see shadowUpdateMode().
+        mutable bool _shadowUpdateModePending = true;
         float _shadowBias = 0.05f;   // upstream LightComponent default
         float _shadowNormalBias = 0.0f;
         float _shadowStrength = 1.0f;
         float _shadowDistance = 40.0f;
-        int _shadowResolution = 2048;
+        int _shadowResolution = 1024; // upstream's default; 2048 quadrupled every map
         ShadowType _shadowType = SHADOW_PCF3_32F;
         int _vsmBlurSize = 11;
         float _penumbraSize = 1.0f;
