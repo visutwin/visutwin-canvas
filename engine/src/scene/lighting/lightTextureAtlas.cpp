@@ -29,6 +29,7 @@ namespace visutwin::canvas
         // shadow-casting spot light. Nearest filtering (hardware PCF compares per tap).
         TextureOptions options;
         options.name = "ClusterShadowAtlas";
+        options.profilerHint = TexHint::TEXHINT_SHADOWMAP;
         options.width = static_cast<uint32_t>(_resolution);
         options.height = static_cast<uint32_t>(_resolution);
         options.format = PixelFormat::PIXELFORMAT_DEPTH;

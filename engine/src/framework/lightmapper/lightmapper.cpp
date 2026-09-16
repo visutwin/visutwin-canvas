@@ -493,6 +493,7 @@ namespace visutwin::canvas
 
         TextureOptions texOptions;
         texOptions.name = "lightmap";
+        texOptions.profilerHint = TexHint::TEXHINT_LIGHTMAP;
         texOptions.width = static_cast<uint32_t>(size);
         texOptions.height = static_cast<uint32_t>(size);
         texOptions.format = PixelFormat::PIXELFORMAT_RGBA8;

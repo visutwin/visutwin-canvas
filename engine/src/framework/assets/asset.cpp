@@ -14,6 +14,9 @@
 #include "framework/parsers/objParser.h"
 #include "framework/parsers/stlParser.h"
 #include "framework/parsers/texture/ktx2Transcoder.h"
+// TexHint, for tagging loaded textures into the asset VRAM bucket. Reachable
+// transitively through the parser headers, but named directly here.
+#include "platform/graphics/constants.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
 #include "framework/assets/stbImageFlip.h"
@@ -154,6 +157,7 @@ namespace visutwin::canvas
                     }
 
                     TextureOptions options;
+                    options.profilerHint = TexHint::TEXHINT_ASSET;
                     options.width = transcoded.width;
                     options.height = transcoded.height;
                     options.format = transcoded.format;
@@ -195,6 +199,7 @@ namespace visutwin::canvas
                     stbi_image_free(hdrPixels);
 
                     TextureOptions options;
+                    options.profilerHint = TexHint::TEXHINT_ASSET;
                     options.width = static_cast<uint32_t>(width);
                     options.height = static_cast<uint32_t>(height);
                     options.format = PixelFormat::PIXELFORMAT_RGBA32F;
@@ -222,6 +227,7 @@ namespace visutwin::canvas
                     }
 
                     TextureOptions options;
+                    options.profilerHint = TexHint::TEXHINT_ASSET;
                     options.width = static_cast<uint32_t>(width);
                     options.height = static_cast<uint32_t>(height);
                     options.format = PixelFormat::PIXELFORMAT_RGBA8;
@@ -337,6 +343,7 @@ namespace visutwin::canvas
                     auto& pd = *loaded->pixelData;
 
                     TextureOptions options;
+                    options.profilerHint = TexHint::TEXHINT_ASSET;
                     options.width    = static_cast<uint32_t>(pd.width);
                     options.height   = static_cast<uint32_t>(pd.height);
                     if (pd.isCompressed) {

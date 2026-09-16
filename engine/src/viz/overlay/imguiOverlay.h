@@ -7,11 +7,18 @@
 // - Digital twin dark glassmorphism theme
 //
 // Integration point: hook into Engine's "postrender" event so the overlay
-// renders after all 3D passes but before the frame is presented.
+// renders after all 3D passes but before the frame is presented. That hook is
+// the only correct place on either backend — it fires while the frame is still
+// recording, and frameEnd() presents immediately after it.
 //
+// Both backends are supported. init() picks the ImGui renderer backend from the
+// device it is handed, and a device whose backend was not compiled into this
+// build leaves the overlay uninitialized rather than failing — every other entry
+// point tolerates that and does nothing.
 //
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -25,7 +32,7 @@ struct SDL_Window;
 
 namespace visutwin::canvas
 {
-    class MetalGraphicsDevice;
+    class GraphicsDevice;
 
     // ── 3D-anchored label descriptor ─────────────────────────────────────
 
@@ -51,9 +58,11 @@ namespace visutwin::canvas
         ImGuiOverlay(ImGuiOverlay&&) noexcept;
         ImGuiOverlay& operator=(ImGuiOverlay&&) noexcept;
 
-        /// Initialize ImGui context, Metal backend, SDL3 backend, and theme.
-        /// Call once after creating the graphics device and SDL window.
-        void init(MetalGraphicsDevice* device, SDL_Window* window);
+        /// Initialize the ImGui context, the SDL3 platform backend, the renderer
+        /// backend matching `device`, and the theme. Call once after creating the
+        /// graphics device and SDL window. Leaves the overlay uninitialized (and
+        /// logs) when the device's backend was not compiled in.
+        void init(GraphicsDevice* device, SDL_Window* window);
 
         /// Forward an SDL event to ImGui for input handling.
         /// Call this inside the SDL_PollEvent loop, BEFORE your own event handlers.
@@ -73,8 +82,13 @@ namespace visutwin::canvas
         /// Call after all ImGui::Begin/End calls are done.
         void endFrame();
 
-        /// Encode ImGui draw data into a Metal command buffer targeting the
-        /// frame's drawable. Call between endFrame() and the present.
+        /// Draw the frame's ImGui data over the rendered scene. Call between
+        /// endFrame() and the present — in practice from the "postrender" hook.
+        ///
+        /// The two backends reach the back buffer differently and deliberately:
+        /// Metal makes and commits a command buffer of its own against the frame's
+        /// drawable, while Vulkan records into the frame's command buffer, which is
+        /// still open, through VulkanGraphicsDevice::beginOverlayRendering().
         void renderToGPU();
 
         /// Shut down ImGui and release all resources.
@@ -111,9 +125,29 @@ namespace visutwin::canvas
         /// Returns false if the point is behind the camera.
         bool worldToScreen(const Vector3& worldPos, float& screenX, float& screenY) const;
 
-        MetalGraphicsDevice* _device = nullptr;
+        /// Which ImGui renderer backend init() bound. Every stage — new frame,
+        /// draw submission, shutdown — is a different call per backend, and this
+        /// is what selects it. None means init() found no backend it could use,
+        /// in which case _initialized stays false.
+        enum class Renderer
+        {
+            None,
+            Metal,
+            Vulkan
+        };
+
+        Renderer _renderer = Renderer::None;
+
+        GraphicsDevice* _device = nullptr;
         SDL_Window* _window = nullptr;
         bool _initialized = false;
+
+        /// Vulkan only: the descriptor pool ImGui allocates its font texture and
+        /// per-frame descriptors from, destroyed at shutdown. Held as the raw
+        /// handle value rather than VkDescriptorPool so this header pulls in no
+        /// Vulkan types — it is compiled into Metal-only builds too. Every Vulkan
+        /// non-dispatchable handle is a uint64_t, so nothing is lost in the cast.
+        uint64_t _vulkanDescriptorPool = 0;
 
         // View-projection for 3D label projection
         Matrix4 _viewProjection;

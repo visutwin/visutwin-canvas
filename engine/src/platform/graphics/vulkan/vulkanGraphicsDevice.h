@@ -162,6 +162,27 @@ namespace visutwin::canvas
         [[nodiscard]] uint32_t presentQueueFamily() const { return _presentQueueFamily; }
         [[nodiscard]] VmaAllocator vmaAllocator() const { return _vmaAllocator; }
         [[nodiscard]] VkFormat swapchainFormat() const { return _swapchainFormat; }
+        [[nodiscard]] VkInstance instance() const { return _instance; }
+        [[nodiscard]] uint32_t swapchainImageCount() const
+        {
+            return static_cast<uint32_t>(_swapchainImages.size());
+        }
+
+        /**
+         * Open a dynamic-rendering pass on this frame's swapchain image for an
+         * overlay drawn after the frame graph — the ImGui HUD is the one caller.
+         * The image is transitioned to COLOR_ATTACHMENT_OPTIMAL and LOADED, so the
+         * scene underneath survives, and `_swapchainImageLayout` is updated: frameEnd
+         * transitions to PRESENT_SRC from whatever that says, so an overlay that
+         * changed the layout behind its back would transition from the wrong one.
+         *
+         * Only valid while a frame is recording, BETWEEN the frame graph and
+         * frameEnd — which is what the engine's "postrender" event is. Returns false
+         * when no frame is recording or no swapchain image is acquired, and in that
+         * case endOverlayRendering must not be called.
+         */
+        bool beginOverlayRendering();
+        void endOverlayRendering();
 
         // Commands go to the frame's buffer normally, and to a one-shot buffer
         // while offline work is open (asset-time environment bakes, which run

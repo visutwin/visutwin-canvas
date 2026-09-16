@@ -14,6 +14,9 @@
 #include <spdlog/spdlog.h>
 
 #include "framework/assets/stbImageFlip.h"
+// TexHint, for tagging the font atlas into the asset VRAM bucket. Reachable
+// transitively through graphicsDevice.h -> texture.h, but named directly here.
+#include "platform/graphics/constants.h"
 #include "platform/graphics/graphicsDevice.h"
 
 namespace visutwin::canvas
@@ -387,6 +390,7 @@ namespace visutwin::canvas
         options.magFilter = FilterMode::FILTER_NEAREST;
         options.numLevels = 1;
         options.name = "font-atlas";
+        options.profilerHint = TexHint::TEXHINT_ASSET;
 
         auto* texture = new Texture(graphicsDevice.get(), options);
         texture->setEncoding(TextureEncoding::Default);

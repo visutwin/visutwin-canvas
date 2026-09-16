@@ -22,9 +22,13 @@
 
 #include <utility>
 
+#include <cstdlib>
+
 #include "cameraControls.h"
 #include "framework/constants.h"
+#include "framework/extras/miniStats.h"
 #include "log.h"
+#include "viz/overlay/imguiOverlay.h"
 
 namespace visutwin::canvas
 {
@@ -184,6 +188,36 @@ namespace visutwin::canvas
         _engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
         _engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
 
+        // The performance HUD. Upstream's example harness puts ministats on every
+        // example, so it belongs to the host here rather than to any one scene —
+        // and MiniStats hooks "postrender", which is the only place either backend
+        // can still reach the back buffer.
+        //
+        // Suppressed while VISUTWIN_SCREENSHOT is armed. The capture happens inside
+        // frameEnd, AFTER the hook the HUD draws on, so every parity screenshot
+        // would otherwise carry a translucent window over the top-left of the frame
+        // — exactly the region the upstream comparisons sample.
+        // VISUTWIN_MINISTATS=0/1 overrides that either way — which is also the only
+        // way to capture a screenshot WITH the HUD in it, since the capture and the
+        // suppression key off the same variable.
+        const char* screenshotPath = std::getenv("VISUTWIN_SCREENSHOT");
+        const bool screenshotArmed = screenshotPath && *screenshotPath;
+        const char* hudOverride = std::getenv("VISUTWIN_MINISTATS");
+        const bool wantHud = (hudOverride && *hudOverride)
+            ? (*hudOverride != '0')
+            : !screenshotArmed;
+        if (wantHud) {
+            _overlay = std::make_unique<ImGuiOverlay>();
+            _overlay->init(_device.get(), _window);
+            if (_overlay->isInitialized()) {
+                _miniStats = std::make_unique<MiniStats>(_engine, _overlay.get());
+            } else {
+                // init() has already logged the reason. Drop the overlay rather
+                // than keep a dead one that every frame would have to test.
+                _overlay.reset();
+            }
+        }
+
         // NOT start() here: the engine's initialize phase runs from start(), and
         // create() has not built the scene yet, so anything it registers would be
         // initialized before it exists — and the first tick would render an empty
@@ -199,6 +233,13 @@ namespace visutwin::canvas
         // state and fire their own events; they do not consume anything.
         if (_engine) {
             _engine->handleInputEvent(event);
+        }
+
+        // The HUD sees every event too, and CONSUMES none: the camera controls and
+        // each example's own bindings have to keep working while it is on screen,
+        // and upstream's ministats is not an input sink either.
+        if (_overlay) {
+            _overlay->processEvent(event);
         }
 
         // The example sees every event next, so it can override a default
@@ -217,6 +258,10 @@ namespace visutwin::canvas
                 _running = false;
             } else if (event.key.key == SDLK_R && _cameraControls) {
                 _cameraControls->reset();
+            } else if (event.key.key == SDLK_F1 && _miniStats) {
+                // F1 rather than a letter: every letter worth having is already an
+                // example's own binding somewhere in the set.
+                _miniStats->setEnabled(!_miniStats->enabled());
             }
             break;
 
@@ -242,6 +287,14 @@ namespace visutwin::canvas
         // Ordered teardown: the engine owns entities that borrow the device, so
         // it goes first and SDL last.
         _cameraControls = nullptr;
+
+        // The HUD goes first and in this order: MiniStats unhooks itself from the
+        // engine's "postrender" event, and the overlay's shutdown still needs the
+        // device — the Vulkan path waits the device idle before freeing ImGui's
+        // font texture and pipeline, which it cannot do once _device is gone.
+        _miniStats.reset();
+        _overlay.reset();
+
         _engine.reset();
         _device.reset();
 

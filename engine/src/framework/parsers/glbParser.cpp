@@ -1297,6 +1297,7 @@ namespace visutwin::canvas
             }
 
             TextureOptions options;
+            options.profilerHint = TexHint::TEXHINT_ASSET;
             options.width = transcoded.width;
             options.height = transcoded.height;
             options.format = transcoded.format;
@@ -1916,6 +1917,7 @@ namespace visutwin::canvas
                 }
 
                 TextureOptions options;
+                options.profilerHint = TexHint::TEXHINT_ASSET;
                 options.width = static_cast<uint32_t>(srcImage.width);
                 options.height = static_cast<uint32_t>(srcImage.height);
                 options.format = PixelFormat::PIXELFORMAT_RGBA8;
@@ -2920,6 +2922,7 @@ namespace visutwin::canvas
                 if (!buildRgba8Image(srcImage, rgbaPixels)) return nullptr;
 
                 TextureOptions options;
+                options.profilerHint = TexHint::TEXHINT_ASSET;
                 options.width = static_cast<uint32_t>(srcImage.width);
                 options.height = static_cast<uint32_t>(srcImage.height);
                 options.format = PixelFormat::PIXELFORMAT_RGBA8;
@@ -3455,6 +3458,7 @@ namespace visutwin::canvas
             const auto& srcImage = model.images[static_cast<size_t>(imageSource)];
 
             TextureOptions options;
+            options.profilerHint = TexHint::TEXHINT_ASSET;
             options.width  = static_cast<uint32_t>(prepImg.width);
             options.height = static_cast<uint32_t>(prepImg.height);
             if (prepImg.isCompressed) {

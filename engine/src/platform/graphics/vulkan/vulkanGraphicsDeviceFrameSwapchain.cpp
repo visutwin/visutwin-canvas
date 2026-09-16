@@ -610,6 +610,82 @@ namespace visutwin::canvas
         _frameIndex = (_frameIndex + 1) % kMaxFramesInFlight;
     }
 
+    bool VulkanGraphicsDevice::beginOverlayRendering()
+    {
+        // Only inside a live frame. The overlay records into the frame's command
+        // buffer, which frameEnd submits; with no frame there is nothing to record
+        // into, and an OFFLINE scope is not a frame — its buffer never reaches the
+        // swapchain image at all.
+        if (!_frameActive || _renderingDisabled ||
+            _offlineCommandBuffer != VK_NULL_HANDLE) {
+            return false;
+        }
+        if (_swapchainImageIndex >= static_cast<uint32_t>(_swapchainImages.size()) ||
+            _swapchainImageViews.empty()) {
+            return false;
+        }
+
+        // Dynamic rendering scopes cannot nest. The frame graph has closed its
+        // passes by the time "postrender" fires — Engine asserts exactly that just
+        // before frameEnd — so this guards a future caller rather than a case seen
+        // today, and refuses instead of producing an invalid command stream.
+        if (_insideRenderPass) {
+            spdlog::warn("VulkanGraphicsDevice: overlay rendering requested while a render "
+                         "pass is still open; skipping the overlay this frame");
+            return false;
+        }
+
+        VkCommandBuffer cmd = currentCommandBuffer();
+
+        // Transition from the TRACKED layout, not a blanket UNDEFINED: the scene
+        // just rendered into this image and LOAD_OP_LOAD is about to read it back,
+        // so discarding here would clear the frame the overlay draws on top of.
+        if (_swapchainImageLayout != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+            vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
+                _swapchainImageLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            _swapchainImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        }
+
+        VkRenderingAttachmentInfo colorInfo{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        colorInfo.imageView = _swapchainImageViews[_swapchainImageIndex];
+        colorInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colorInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        colorInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        // No depth attachment on purpose: the overlay is 2D and draws over
+        // everything, so it needs no depth test, and leaving depth out keeps
+        // _depthImageLayout untouched for whatever reads it next.
+        VkRenderingInfo renderingInfo{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        renderingInfo.renderArea = {{0, 0}, _swapchainExtent};
+        renderingInfo.layerCount = 1;
+        renderingInfo.colorAttachmentCount = 1;
+        renderingInfo.pColorAttachments = &colorInfo;
+
+        vkCmdBeginRendering(cmd, &renderingInfo);
+
+        _dynamicRenderingActive = true;
+        _insideRenderPass = true;
+        return true;
+    }
+
+    void VulkanGraphicsDevice::endOverlayRendering()
+    {
+        if (!_insideRenderPass) {
+            return;
+        }
+
+        vkCmdEndRendering(currentCommandBuffer());
+
+        _dynamicRenderingActive = false;
+        _insideRenderPass = false;
+
+        // The overlay bound a pipeline of its own, so what this device believes is
+        // bound is no longer true. Clear it, or the next pass's first draw skips
+        // its bind as redundant and renders with ImGui's pipeline.
+        _currentPipeline = VK_NULL_HANDLE;
+        _pushConstantsDirty = true;
+    }
+
     void VulkanGraphicsDevice::collectRetiredSwapchains(const bool force)
     {
         if (_retiredSwapchains.empty()) {

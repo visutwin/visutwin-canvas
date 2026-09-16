@@ -235,3 +235,11 @@ add_executable(visutwin-stb-image-flip-tests
 target_link_libraries(visutwin-stb-image-flip-tests PRIVATE visutwin-canvas)
 
 add_test(NAME stb-image-flip COMMAND visutwin-stb-image-flip-tests)
+
+add_executable(visutwin-texture-gpu-size-tests
+    textureGpuSizeTests.cpp
+)
+
+target_link_libraries(visutwin-texture-gpu-size-tests PRIVATE visutwin-canvas)
+
+add_test(NAME texture-gpu-size COMMAND visutwin-texture-gpu-size-tests)

@@ -318,6 +318,7 @@ namespace visutwin::canvas
             opts.minFilter = FilterMode::FILTER_LINEAR;
             opts.magFilter = FilterMode::FILTER_LINEAR;
             opts.name = texname;
+            opts.profilerHint = TexHint::TEXHINT_ASSET;
 
             auto texture = std::make_shared<Texture>(device, opts);
             const size_t dataSize = static_cast<size_t>(w) * h * 4;

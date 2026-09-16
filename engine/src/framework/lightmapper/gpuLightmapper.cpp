@@ -124,6 +124,7 @@ namespace visutwin::canvas
             texOptions.format = PixelFormat::PIXELFORMAT_RGBA16F;
             texOptions.mipmaps = false;
             texOptions.name = "gpuLightmap";
+            texOptions.profilerHint = TexHint::TEXHINT_LIGHTMAP;
             auto texture = std::make_shared<Texture>(device.get(), texOptions);
 
             RenderTargetOptions rtOptions;

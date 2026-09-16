@@ -364,6 +364,36 @@ backend `#ifdef`:
   executable must define those macros (`tools/generate-env-atlas.cpp` and
   `tests/vulkanSmoke.cpp` carry their own).
 
+The harness also owns the **performance HUD**, for the same reason: upstream's
+example harness puts ministats on every example, so it belongs to the host and no
+example carries a line for it. `ExampleApp` holds the `ImGuiOverlay` and the
+`MiniStats` that draws through it, forwards every SDL event to the overlay (which
+consumes none — the camera controls and each example's own bindings must keep
+working), and toggles it with F1, which is free where every useful letter is
+already some example's binding.
+
+- It is SUPPRESSED while `VISUTWIN_SCREENSHOT` is armed. The capture happens inside
+  `frameEnd`, AFTER the `postrender` hook the HUD draws on, so otherwise every
+  parity screenshot would carry a translucent window over the corner of the frame.
+  `VISUTWIN_MINISTATS=0/1` overrides the decision either way, and `1` is the only
+  way to capture a screenshot WITH the HUD, since capture and suppression key off
+  the same variable.
+- The HUD is torn down BEFORE the engine and the device: MiniStats unhooks itself
+  from `postrender`, and the overlay's shutdown still needs the device, because the
+  Vulkan path waits the device idle before freeing ImGui's font texture and pipeline.
+- The two backends reach the back buffer differently, and only the overlay knows it.
+  Metal makes and commits a command buffer of its own against the frame drawable.
+  Vulkan records into the frame's command buffer, which is still OPEN at
+  `postrender`, through `VulkanGraphicsDevice::beginOverlayRendering()` — a command
+  buffer of its own could not work, since `frameEnd` transitions the swapchain image
+  to PRESENT_SRC on that same buffer and a separately submitted overlay would race
+  the present it belongs to. That pass loads rather than clears, leaves depth
+  unattached, and clears the device's cached pipeline afterwards, because ImGui
+  bound one of its own.
+
+DEVIATION: upstream draws its graphs through a word atlas on the UI layer and
+cycles sizes on click; this is an ImGui window with a compact/expanded toggle.
+
 `visutwin_add_example(<name>)` builds `src/<name>-example.cpp`. Adding an example
 is one source file and one line.
 

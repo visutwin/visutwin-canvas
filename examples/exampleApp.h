@@ -65,6 +65,8 @@
 namespace visutwin::canvas
 {
     class CameraControls;
+    class ImGuiOverlay;
+    class MiniStats;
 
     /// Window and host configuration, passed up from the derived example's
     /// constructor. Designated initialisers keep the call site readable:
@@ -222,6 +224,12 @@ namespace visutwin::canvas
         std::shared_ptr<Engine> _engine;
 
         CameraControls* _cameraControls = nullptr;
+
+        // The performance HUD every example shows, as upstream's example harness
+        // adds its own to all of them. Owned by the host rather than by each
+        // example, so all 46 get it without carrying a line for it.
+        std::unique_ptr<ImGuiOverlay> _overlay;
+        std::unique_ptr<MiniStats> _miniStats;
 
         bool _running = true;
         float _elapsed = 0.0f;

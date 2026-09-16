@@ -54,6 +54,7 @@ namespace visutwin::canvas
         // Omni lights use a cubemap depth texture (6 faces), others use 2D.
         TextureOptions depthOptions;
         depthOptions.name = isOmni ? "OmniShadowCube" : "ShadowMap";
+        depthOptions.profilerHint = TexHint::TEXHINT_SHADOWMAP;
         depthOptions.width = static_cast<uint32_t>(resolution);
         depthOptions.height = static_cast<uint32_t>(resolution);
         depthOptions.format = info.format;
@@ -97,6 +98,7 @@ namespace visutwin::canvas
         if (info.vsm) {
             TextureOptions tempOptions;
             tempOptions.name = "ShadowMapVsmBlurTemp";
+            tempOptions.profilerHint = TexHint::TEXHINT_SHADOWMAP;
             tempOptions.width = static_cast<uint32_t>(resolution);
             tempOptions.height = static_cast<uint32_t>(resolution);
             tempOptions.format = info.format;

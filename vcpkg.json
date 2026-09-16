@@ -28,6 +28,7 @@
     "vulkan": {
       "description": "Vulkan rendering backend",
       "dependencies": [
+        { "name": "imgui", "features": ["vulkan-binding"] },
         { "name": "vulkan-headers"           },
         { "name": "vulkan-memory-allocator"  },
         { "name": "vk-bootstrap"             },

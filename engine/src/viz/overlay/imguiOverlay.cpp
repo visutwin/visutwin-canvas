@@ -1,35 +1,64 @@
 //
 // ImGui overlay for VisuTwin Canvas — implementation.
 //
-// Uses ImGui's Metal C++ API (IMGUI_IMPL_METAL_CPP) which provides
-// type-safe MTL::Device*, MTL::CommandBuffer* etc. signatures that
-// work directly with metal-cpp, no Objective-C++ needed.
+// One overlay, two renderer backends. init() picks the ImGui backend from the
+// device it is handed; every stage after that dispatches on _renderer, because
+// new-frame, draw submission and shutdown are different calls in each.
 //
+// The two reach the back buffer deliberately differently:
+//   Metal  — makes and commits its own command buffer against the frame drawable.
+//            Its startRenderPass already makes a command buffer per pass, so one
+//            more costs nothing and needs no cooperation from the device.
+//   Vulkan — records into the frame's command buffer, which is STILL OPEN at the
+//            "postrender" hook, through VulkanGraphicsDevice::beginOverlayRendering().
+//            A command buffer of its own could not work: the swapchain image is
+//            transitioned to PRESENT_SRC by frameEnd on that same buffer, so a
+//            separately submitted overlay would race the present it belongs to.
 //
-
 #include "imguiOverlay.h"
 
 #include <cmath>
 
+#if defined(VISUTWIN_HAS_METAL)
 // metal-cpp headers must come BEFORE imgui_impl_metal.h so that
 // IMGUI_IMPL_METAL_CPP picks up the MTL:: types.
 #include <Metal/Metal.hpp>
 #include <QuartzCore/CAMetalDrawable.hpp>
-
 #define IMGUI_IMPL_METAL_CPP
+#endif
+
 #include <imgui.h>
 #include <implot.h>
 #include <imgui_impl_sdl3.h>
+
+#if defined(VISUTWIN_HAS_METAL)
 #include <imgui_impl_metal.h>
+#include "platform/graphics/metal/metalGraphicsDevice.h"
+#endif
+
+#if defined(VISUTWIN_HAS_VULKAN)
+#include <imgui_impl_vulkan.h>
+#include "platform/graphics/vulkan/vulkanGraphicsDevice.h"
+#endif
 
 #include <SDL3/SDL.h>
 
 #include "spdlog/spdlog.h"
 
-#include "platform/graphics/metal/metalGraphicsDevice.h"
+#include "platform/graphics/graphicsDevice.h"
 
 namespace visutwin::canvas
 {
+#if defined(VISUTWIN_HAS_VULKAN)
+    namespace
+    {
+        // ImGui keeps the InitInfo's pColorAttachmentFormats POINTER and reads it
+        // when it builds its pipeline, so the format cannot be a local in init().
+        // There is one overlay per process, so one slot is enough.
+        VkFormat gOverlayColorFormat = VK_FORMAT_UNDEFINED;
+    }
+#endif
+
     // ── Lifecycle ────────────────────────────────────────────────────────
 
     ImGuiOverlay::~ImGuiOverlay()
@@ -40,44 +69,78 @@ namespace visutwin::canvas
     }
 
     ImGuiOverlay::ImGuiOverlay(ImGuiOverlay&& other) noexcept
-        : _device(other._device)
+        : _renderer(other._renderer)
+        , _device(other._device)
         , _window(other._window)
         , _initialized(other._initialized)
+        , _vulkanDescriptorPool(other._vulkanDescriptorPool)
         , _viewProjection(other._viewProjection)
         , _windowW(other._windowW)
         , _windowH(other._windowH)
     {
         other._initialized = false;
+        other._renderer = Renderer::None;
         other._device = nullptr;
         other._window = nullptr;
+        other._vulkanDescriptorPool = 0;
     }
 
     ImGuiOverlay& ImGuiOverlay::operator=(ImGuiOverlay&& other) noexcept
     {
         if (this != &other) {
             if (_initialized) shutdown();
+            _renderer = other._renderer;
             _device = other._device;
             _window = other._window;
             _initialized = other._initialized;
+            _vulkanDescriptorPool = other._vulkanDescriptorPool;
             _viewProjection = other._viewProjection;
             _windowW = other._windowW;
             _windowH = other._windowH;
             other._initialized = false;
+            other._renderer = Renderer::None;
             other._device = nullptr;
             other._window = nullptr;
+            other._vulkanDescriptorPool = 0;
         }
         return *this;
     }
 
-    void ImGuiOverlay::init(MetalGraphicsDevice* device, SDL_Window* window)
+    void ImGuiOverlay::init(GraphicsDevice* device, SDL_Window* window)
     {
         if (_initialized) {
             spdlog::warn("ImGuiOverlay::init called on already-initialized overlay");
             return;
         }
+        if (!device || !window) {
+            spdlog::warn("ImGuiOverlay::init needs both a device and a window");
+            return;
+        }
+
+        // Decide the backend BEFORE creating any ImGui state, so a device this
+        // build cannot draw with leaves nothing behind to tear down.
+        Renderer renderer = Renderer::None;
+#if defined(VISUTWIN_HAS_METAL)
+        auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(device);
+        if (metalDevice) {
+            renderer = Renderer::Metal;
+        }
+#endif
+#if defined(VISUTWIN_HAS_VULKAN)
+        auto* vulkanDevice = dynamic_cast<VulkanGraphicsDevice*>(device);
+        if (vulkanDevice) {
+            renderer = Renderer::Vulkan;
+        }
+#endif
+        if (renderer == Renderer::None) {
+            spdlog::warn("ImGuiOverlay: no ImGui renderer backend for this graphics device; "
+                         "the overlay stays disabled");
+            return;
+        }
 
         _device = device;
         _window = window;
+        _renderer = renderer;
 
         // Create ImGui context
         IMGUI_CHECKVERSION();
@@ -88,15 +151,84 @@ namespace visutwin::canvas
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-        // Initialize backends — void* API (C++ mode, no __OBJC__)
-        ImGui_ImplSDL3_InitForMetal(_window);
-        ImGui_ImplMetal_Init(_device->raw());  // MTL::Device* → void*
+        switch (_renderer) {
+        case Renderer::Metal: {
+#if defined(VISUTWIN_HAS_METAL)
+            // Initialize backends — void* API (C++ mode, no __OBJC__)
+            ImGui_ImplSDL3_InitForMetal(_window);
+            ImGui_ImplMetal_Init(metalDevice->raw());  // MTL::Device* → void*
+#endif
+            break;
+        }
+        case Renderer::Vulkan: {
+#if defined(VISUTWIN_HAS_VULKAN)
+            // ImGui allocates its font texture and per-frame image descriptors from
+            // its own pool. A pool of our own rather than the device's: ImGui frees
+            // individual sets, which needs FREE_DESCRIPTOR_SET, and the engine's
+            // frame pools are reset wholesale every frame.
+            VkDescriptorPoolSize poolSize{};
+            poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            poolSize.descriptorCount = 16;
+
+            VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+            poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+            poolInfo.maxSets = 16;
+            poolInfo.poolSizeCount = 1;
+            poolInfo.pPoolSizes = &poolSize;
+
+            VkDescriptorPool pool = VK_NULL_HANDLE;
+            if (vkCreateDescriptorPool(vulkanDevice->device(), &poolInfo, nullptr, &pool)
+                != VK_SUCCESS) {
+                spdlog::error("ImGuiOverlay: could not create the Vulkan descriptor pool; "
+                              "the overlay stays disabled");
+                ImPlot::DestroyContext();
+                ImGui::DestroyContext();
+                _device = nullptr;
+                _window = nullptr;
+                _renderer = Renderer::None;
+                return;
+            }
+            _vulkanDescriptorPool = reinterpret_cast<uint64_t>(pool);
+
+            gOverlayColorFormat = vulkanDevice->swapchainFormat();
+
+            ImGui_ImplSDL3_InitForVulkan(_window);
+
+            ImGui_ImplVulkan_InitInfo initInfo{};
+            initInfo.Instance = vulkanDevice->instance();
+            initInfo.PhysicalDevice = vulkanDevice->physicalDevice();
+            initInfo.Device = vulkanDevice->device();
+            initInfo.QueueFamily = vulkanDevice->graphicsQueueFamily();
+            initInfo.Queue = vulkanDevice->graphicsQueue();
+            initInfo.DescriptorPool = pool;
+            initInfo.MinImageCount = 2;
+            initInfo.ImageCount = vulkanDevice->swapchainImageCount();
+            initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+            // This backend renders with dynamic rendering, as the rest of the engine
+            // does, so ImGui gets no VkRenderPass and builds its pipeline against the
+            // swapchain's colour format alone. That is also why a swapchain resize
+            // needs nothing here: ImGui owns no framebuffers or image views.
+            initInfo.UseDynamicRendering = true;
+            initInfo.PipelineRenderingCreateInfo = {
+                VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+            initInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+            initInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &gOverlayColorFormat;
+
+            ImGui_ImplVulkan_Init(&initInfo);
+#endif
+            break;
+        }
+        case Renderer::None:
+            break;
+        }
 
         // Apply digital twin theme
         applyDigitalTwinTheme();
 
         _initialized = true;
-        spdlog::info("ImGuiOverlay initialized (ImGui {}, ImPlot)", IMGUI_VERSION);
+        spdlog::info("ImGuiOverlay initialized (ImGui {}, ImPlot, {} backend)", IMGUI_VERSION,
+            _renderer == Renderer::Vulkan ? "Vulkan" : "Metal");
     }
 
     bool ImGuiOverlay::processEvent(const SDL_Event& event)
@@ -121,22 +253,40 @@ namespace visutwin::canvas
     {
         if (!_initialized || !_device) return;
 
-        auto* drawable = _device->frameDrawable();
-        if (!drawable) return;
+        switch (_renderer) {
+        case Renderer::Metal: {
+#if defined(VISUTWIN_HAS_METAL)
+            auto* metalDevice = static_cast<MetalGraphicsDevice*>(_device);
+            auto* drawable = metalDevice->frameDrawable();
+            if (!drawable) return;
 
-        // Create a render pass descriptor targeting the drawable's texture.
-        // LoadAction::Load preserves the 3D scene rendered underneath.
-        auto* desc = MTL::RenderPassDescriptor::alloc()->init();
-        auto* ca = desc->colorAttachments()->object(0);
-        ca->setTexture(drawable->texture());
-        ca->setLoadAction(MTL::LoadActionLoad);
-        ca->setStoreAction(MTL::StoreActionStore);
+            // Create a render pass descriptor targeting the drawable's texture.
+            // LoadAction::Load preserves the 3D scene rendered underneath.
+            auto* desc = MTL::RenderPassDescriptor::alloc()->init();
+            auto* ca = desc->colorAttachments()->object(0);
+            ca->setTexture(drawable->texture());
+            ca->setLoadAction(MTL::LoadActionLoad);
+            ca->setStoreAction(MTL::StoreActionStore);
 
-        ImGui_ImplMetal_NewFrame(desc);     // void*
+            ImGui_ImplMetal_NewFrame(desc);     // void*
+            desc->release();
+#endif
+            break;
+        }
+        case Renderer::Vulkan: {
+#if defined(VISUTWIN_HAS_VULKAN)
+            // Nothing to hand it: the pipeline is already built against the
+            // swapchain format, and the target is supplied at draw time.
+            ImGui_ImplVulkan_NewFrame();
+#endif
+            break;
+        }
+        case Renderer::None:
+            return;
+        }
+
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-
-        desc->release();
     }
 
     void ImGuiOverlay::endFrame()
@@ -152,47 +302,98 @@ namespace visutwin::canvas
         auto* drawData = ImGui::GetDrawData();
         if (!drawData) return;
 
-        auto* drawable = _device->frameDrawable();
-        if (!drawable) return;
+        switch (_renderer) {
+        case Renderer::Metal: {
+#if defined(VISUTWIN_HAS_METAL)
+            auto* metalDevice = static_cast<MetalGraphicsDevice*>(_device);
+            auto* drawable = metalDevice->frameDrawable();
+            if (!drawable) return;
 
-        // Create a fresh render pass descriptor for encoding.
-        auto* desc = MTL::RenderPassDescriptor::alloc()->init();
-        auto* ca = desc->colorAttachments()->object(0);
-        ca->setTexture(drawable->texture());
-        ca->setLoadAction(MTL::LoadActionLoad);
-        ca->setStoreAction(MTL::StoreActionStore);
+            // Create a fresh render pass descriptor for encoding.
+            auto* desc = MTL::RenderPassDescriptor::alloc()->init();
+            auto* ca = desc->colorAttachments()->object(0);
+            ca->setTexture(drawable->texture());
+            ca->setLoadAction(MTL::LoadActionLoad);
+            ca->setStoreAction(MTL::StoreActionStore);
 
-        auto* cmdBuf = _device->commandQueue()->commandBuffer();
-        if (!cmdBuf) {
+            auto* cmdBuf = metalDevice->commandQueue()->commandBuffer();
+            if (!cmdBuf) {
+                desc->release();
+                return;
+            }
+
+            auto* encoder = cmdBuf->renderCommandEncoder(desc);
+            if (!encoder) {
+                desc->release();
+                return;
+            }
+
+            // Encode ImGui draw data — void* API bridges metal-cpp ↔ Obj-C
+            ImGui_ImplMetal_RenderDrawData(drawData, cmdBuf, encoder);
+
+            encoder->endEncoding();
+            cmdBuf->commit();
+
             desc->release();
-            return;
+#endif
+            break;
         }
-
-        auto* encoder = cmdBuf->renderCommandEncoder(desc);
-        if (!encoder) {
-            desc->release();
-            return;
+        case Renderer::Vulkan: {
+#if defined(VISUTWIN_HAS_VULKAN)
+            auto* vulkanDevice = static_cast<VulkanGraphicsDevice*>(_device);
+            // The device owns the swapchain image's layout, so it opens and closes
+            // the pass; a false here means there is no frame to draw into, and
+            // endOverlayRendering must not follow it.
+            if (!vulkanDevice->beginOverlayRendering()) return;
+            ImGui_ImplVulkan_RenderDrawData(drawData, vulkanDevice->currentCommandBuffer());
+            vulkanDevice->endOverlayRendering();
+#endif
+            break;
         }
-
-        // Encode ImGui draw data — void* API bridges metal-cpp ↔ Obj-C
-        ImGui_ImplMetal_RenderDrawData(drawData, cmdBuf, encoder);
-
-        encoder->endEncoding();
-        cmdBuf->commit();
-
-        desc->release();
+        case Renderer::None:
+            break;
+        }
     }
 
     void ImGuiOverlay::shutdown()
     {
         if (!_initialized) return;
 
-        ImGui_ImplMetal_Shutdown();
+        switch (_renderer) {
+        case Renderer::Metal:
+#if defined(VISUTWIN_HAS_METAL)
+            ImGui_ImplMetal_Shutdown();
+#endif
+            break;
+        case Renderer::Vulkan: {
+#if defined(VISUTWIN_HAS_VULKAN)
+            auto* vulkanDevice = static_cast<VulkanGraphicsDevice*>(_device);
+            // ImGui's font texture and pipeline are still in flight if a frame is
+            // outstanding, and its shutdown does not wait. The device is about to be
+            // destroyed anyway, so idle first rather than free from under the GPU.
+            if (vulkanDevice && vulkanDevice->device() != VK_NULL_HANDLE) {
+                vkDeviceWaitIdle(vulkanDevice->device());
+            }
+            ImGui_ImplVulkan_Shutdown();
+            if (_vulkanDescriptorPool != 0 && vulkanDevice) {
+                vkDestroyDescriptorPool(vulkanDevice->device(),
+                    reinterpret_cast<VkDescriptorPool>(_vulkanDescriptorPool), nullptr);
+            }
+            _vulkanDescriptorPool = 0;
+            gOverlayColorFormat = VK_FORMAT_UNDEFINED;
+#endif
+            break;
+        }
+        case Renderer::None:
+            break;
+        }
+
         ImGui_ImplSDL3_Shutdown();
         ImPlot::DestroyContext();
         ImGui::DestroyContext();
 
         _initialized = false;
+        _renderer = Renderer::None;
         _device = nullptr;
         _window = nullptr;
 

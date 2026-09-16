@@ -672,6 +672,32 @@ namespace visutwin::canvas
         int drawCallsPerFrame() const { return _drawCallsPerFrame; }
         void resetDrawCallsPerFrame() { _drawCallsPerFrame = 0; }
 
+        /// Tracked GPU memory in bytes. `tex` (with its `texShadow` / `texAsset` /
+        /// `texLightmap` split), `vb` and `ib` are LIVE: textures, vertex buffers and
+        /// index buffers each account themselves as they are created and released.
+        /// `ub` and `sb` are always zero — the backends' uniform and storage pools
+        /// were never wired to this at all.
+        ///
+        /// The three texture sub-buckets DO NOT SUM to `tex`, by design. A texture
+        /// lands in one only if its creation site set `TextureOptions::profilerHint`,
+        /// and only loaded content (the parsers, the texture asset paths, the font
+        /// atlas), shadow maps (`ShadowMap::create` and the clustered shadow atlas)
+        /// and the two lightmap bakes do. Render targets, the post-processing chain,
+        /// env atlases, area-light LUTs and reflection probes stay `TEXHINT_NONE`
+        /// deliberately: they are none of those things, and widening a bucket to
+        /// swallow them would make the split describe nothing. Present the remainder
+        /// as its own figure rather than letting it read as a missing bucket.
+        ///
+        /// The texture figure is CONTENT size, from `TextureUtils::calcGpuSize`: every
+        /// mip level times faces and array slices, with block-compressed formats sized
+        /// as whole blocks. It is a lower bound on what the driver reserved, since it
+        /// counts no padding or alignment, and it is fixed at construction — a texture
+        /// whose mips are generated on the GPU afterwards keeps the level count it was
+        /// built with, so it is under-counted rather than drifting (the same figure is
+        /// added and subtracted). So a caller must not present this as an unqualified
+        /// "VRAM" total.
+        [[nodiscard]] const DeviceVRAM& vram() const { return _vram; }
+
         bool contextLost() const { return _contextLost; }
 
         virtual void update();
@@ -983,6 +1009,9 @@ namespace visutwin::canvas
         friend class Engine;
         friend class RenderPass;
         friend class VertexBuffer;
+        // Same grant, same reason: IndexBuffer adjusts _vram as it is created and
+        // released. Index memory went uncounted entirely until 2026-09-16.
+        friend class IndexBuffer;
         friend class Texture;
 
         // Index of the currently active render pass

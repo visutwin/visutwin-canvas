@@ -57,6 +57,23 @@ namespace visutwin::canvas
         // Create implementation
         recreateImpl(options.levels != nullptr);
 
+        // Track VRAM usage, as VertexBuffer and IndexBuffer do. This is the only
+        // place GPU storage is established — recreateImpl() has exactly one caller,
+        // this constructor — so a single add here cannot double-count.
+        //
+        // AFTER recreateImpl on purpose: the Vulkan resource path throws on failure,
+        // and a constructor that throws never runs its destructor, so an add placed
+        // before it would leak the count with no texture left to unwind it.
+        //
+        // _numLevels is final by now (updateNumLevels() above clamped it), and the
+        // figure is computed from the members rather than from `options`, so the
+        // destructor and resize() unwind exactly what was added.
+        _gpuSize = TextureUtils::calcGpuSize(_width, _height, _depth, _numLevels,
+            _cubemap, _arrayLength, _format);
+        if (_gpuSize > 0) {
+            adjustVramSizeTracking(_device->_vram, static_cast<int64_t>(_gpuSize));
+        }
+
         spdlog::trace("Alloc: Id %u %s: %ux%u [Format:%u]%s%s%s[MipLevels:%u]",
                     _id, _name, _width, _height, static_cast<uint32_t>(_format),
                     _cubemap ? "[Cubemap]" : "",
@@ -67,7 +84,13 @@ namespace visutwin::canvas
 
     Texture::~Texture()
     {
-
+        // Release this texture's share of the tracked VRAM. Empty until 2026-09-16,
+        // which — together with _gpuSize never being assigned — is why the whole
+        // texture side of DeviceVRAM read zero for as long as it existed.
+        if (_gpuSize > 0) {
+            adjustVramSizeTracking(_device->_vram, -static_cast<int64_t>(_gpuSize));
+            _gpuSize = 0;
+        }
     }
 
     void Texture::updateNumLevels() {
@@ -268,6 +291,16 @@ namespace visutwin::canvas
         _height = height;
         _depth = depth;
         updateNumLevels();
+
+        // Re-add at the new size, pairing the subtract above. updateNumLevels() has
+        // to run first: a resize changes the mip count, and sizing against the old
+        // count would leave the running total drifting by the difference every time
+        // a render target is resized.
+        _gpuSize = TextureUtils::calcGpuSize(_width, _height, _depth, _numLevels,
+            _cubemap, _arrayLength, _format);
+        if (_gpuSize > 0) {
+            adjustVramSizeTracking(_device->_vram, static_cast<int64_t>(_gpuSize));
+        }
 
         dirtyAll();
     }

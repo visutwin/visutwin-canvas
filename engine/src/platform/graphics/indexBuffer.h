@@ -17,6 +17,19 @@ namespace visutwin::canvas
     };
 
     class GraphicsDevice;
+    struct DeviceVRAM;
+
+    /// Bytes one index occupies in the given format. The device's VRAM tracking
+    /// and every backend upload size derive from this, so it has exactly one home.
+    constexpr int indexFormatBytes(const IndexFormat format)
+    {
+        switch (format) {
+        case INDEXFORMAT_UINT8:  return 1;
+        case INDEXFORMAT_UINT16: return 2;
+        case INDEXFORMAT_UINT32: return 4;
+        }
+        return 0;
+    }
 
     /**
      * An index buffer stores index values into a VertexBuffer. Indexed graphical primitives
@@ -28,11 +41,17 @@ namespace visutwin::canvas
     {
     public:
         IndexBuffer(GraphicsDevice* graphicsDevice, IndexFormat format, int numIndices);
-        virtual ~IndexBuffer() = default;
+
+        // Defined rather than defaulted: the destructor releases this buffer's
+        // share of the device's tracked VRAM, as VertexBuffer's does.
+        virtual ~IndexBuffer();
 
         IndexFormat format() const { return _format; }
 
         int numIndices() const { return _numIndices; }
+
+        /// Size of the index data in bytes — what the device's VRAM tracking counts.
+        int numBytes() const { return _numBytes; }
 
         virtual void* nativeBuffer() const { return nullptr; }
 
@@ -44,6 +63,8 @@ namespace visutwin::canvas
     private:
         static int _nextId;
 
+        static void adjustVramSizeTracking(DeviceVRAM& vram, int size);
+
     protected:
         GraphicsDevice* _device = nullptr;
         std::vector<uint8_t> _storage;
@@ -52,5 +73,7 @@ namespace visutwin::canvas
         IndexFormat _format;
 
         int _numIndices;
+
+        int _numBytes = 0;
     };
 }

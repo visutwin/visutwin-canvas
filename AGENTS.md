@@ -1246,6 +1246,46 @@ What stays HERE is only what bites during UNRELATED work.
 
 ## Open items
 
+- **A DEBUG Vulkan build crashes before its first frame, inside the validation
+  layer.** Found 2026-09-16. An example built from the `vulkan` preset defines
+  `VISUTWIN_DEBUG_GPU_VALIDATION` (Debug config), which makes
+  `GraphicsDeviceOptions::enableValidation` default true, and the process dies with
+  SIGSEGV — EXC_BAD_ACCESS at 0x200 — in `libVkLayer_khronos_validation` during
+  `SDL_Vulkan_CreateSurface`: `vvl::GetDispatchInstance` ->
+  `vulkan_layer_chassis::CreateMetalSurfaceEXT` -> `vkCreateMetalSurfaceEXT` ->
+  `Cocoa_Vulkan_CreateSurfaceViaMetalView` -> `VulkanGraphicsDevice::initInstance`.
+  The last line logged is "Vulkan validation enabled", so it READS like a hang or a
+  silent startup failure and is neither — check the exit code (139) and
+  `~/Library/Logs/DiagnosticReports`, not the log. A RELEASE Vulkan build never
+  loads the layer and runs normally, which is both the workaround and the proof.
+  It is NOT engine code: it reproduces with the examples' HUD disabled entirely,
+  and `vulkan-validation-smoke` passes only because it creates its window
+  `SDL_WINDOW_HIDDEN`. Suspect the loader/layer pairing — this machine has four
+  `libvulkan` dylibs in `/usr/local/lib` (system 1.4.357) while the vcpkg build
+  resolves its own 1.4.341.
+- **`DeviceVRAM::ub` and `sb` are still zero, and the texture figure is a LOWER
+  BOUND.** `tex`, `vb` and `ib` are live as of 2026-09-16 — before that the whole
+  texture side was dead code (`Texture::_gpuSize` was declared and never assigned,
+  so `adjustVramSizeTracking` was never reached and the HUD deliberately printed no
+  texture figure at all). What is still missing: the backends' uniform and storage
+  pools are not wired to it, so `ub` and `sb` cannot be shown; and the texture
+  figure is CONTENT size from `TextureUtils::calcGpuSize`, fixed at construction, so
+  it counts no driver padding and under-counts any texture whose mips are generated
+  on the GPU afterwards (`setMipmaps` does not move `_numLevels`). That is a stable
+  under-count, not a drift — the same figure is added and subtracted — but nothing
+  may present this as an exact allocation total.
+
+  The `texShadow` / `texAsset` / `texLightmap` SPLIT is live as of 2026-09-16 too,
+  and the three sub-buckets DELIBERATELY DO NOT SUM to `tex`. A texture joins one
+  only where its creation site sets `TextureOptions::profilerHint`: the parsers
+  (glb/obj/assimp), the four texture-asset paths in `asset.cpp` and the font atlas
+  are ASSET; `ShadowMap::create` (depth map and VSM blur temp) and the clustered
+  shadow atlas are SHADOWMAP; both lightmap bakes are LIGHTMAP. Everything else —
+  render targets, the post-processing chain, env atlases, area-light LUTs,
+  reflection probes, scene grab — stays `TEXHINT_NONE` on purpose, because it is
+  none of those things. So the HUD shows the remainder as "other" rather than
+  letting a subtraction that does not balance read as a bug. **Add the hint when you
+  add a texture creation site**, or its bytes land only in the undifferentiated total.
 - **Vulkan reflections are slightly SOFTER than Metal's.** Re-measured 2026-09-05
   with the scene frozen, on the since-removed `reflection-probe` scene (re-measure
   on `reflection-probe-dynamic` before chasing): it matched to 0.3% in the mean, but the

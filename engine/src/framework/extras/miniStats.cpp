@@ -150,6 +150,35 @@ namespace visutwin::canvas
                     ImGui::Text("gsplats     %d", frame.gsplats);
                 }
 
+                // Textures and geometry, all live counters since 2026-09-16 — the
+                // texture side was dead before that and printed nothing rather than a
+                // confident zero. Still NOT called a VRAM total: the backends' uniform
+                // and storage pools are not tracked at all, and the texture figure is
+                // content size, so it excludes driver padding and any mip generated on
+                // the GPU after creation.
+                const auto& vram = device->vram();
+                constexpr double toMb = 1.0 / (1024.0 * 1024.0);
+                ImGui::Text("tex+geom    %.1f MB  (tex %.1f, vb %.1f, ib %.1f)",
+                    static_cast<double>(vram.tex + vram.vb + vram.ib) * toMb,
+                    static_cast<double>(vram.tex) * toMb,
+                    static_cast<double>(vram.vb) * toMb,
+                    static_cast<double>(vram.ib) * toMb);
+                // The shadow/asset/lightmap split, live since the creation sites were
+                // tagged with a TexHint. What is left untagged is deliberate — render
+                // targets, the post chain, env atlases and probes are neither loaded
+                // content nor shadow maps — so the three named buckets do not sum to
+                // `tex`, and the remainder is shown rather than left to be inferred
+                // from a subtraction that would look like an error.
+                const int64_t texOther = static_cast<int64_t>(vram.tex)
+                    - static_cast<int64_t>(vram.texAsset)
+                    - static_cast<int64_t>(vram.texShadow)
+                    - static_cast<int64_t>(vram.texLightmap);
+                ImGui::Text("  of which   asset %.1f, shadow %.1f, lightmap %.1f, other %.1f",
+                    static_cast<double>(vram.texAsset) * toMb,
+                    static_cast<double>(vram.texShadow) * toMb,
+                    static_cast<double>(vram.texLightmap) * toMb,
+                    static_cast<double>(texOther) * toMb);
+
                 // Deliberately no triangle / material-switch / shader-switch / CPU-breakdown rows:
                 // those ApplicationStats fields exist (inherited from upstream's struct shape) but
                 // nothing in this engine writes them, so displaying them would print a confident
