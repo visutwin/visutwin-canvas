@@ -265,7 +265,7 @@ namespace visutwin::canvas
         // stage-boundary sampling).
         if (_vulkanGpuProfiler) {
             _vulkanGpuProfiler->beginPass(cmd,
-                renderPass ? renderPass->name() : std::string("backbuffer"));
+                renderPass ? renderPass->name() : std::string("backbuffer"), offscreen == nullptr);
         }
 
         vkCmdBeginRendering(cmd, &renderingInfo);

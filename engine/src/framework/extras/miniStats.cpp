@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <cfloat>
 #include <cstdio>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include <SDL3/SDL.h>
 
@@ -71,19 +74,39 @@ namespace visutwin::canvas
             return;
         }
 
+        ++_passFrame;
+        // Passes sharing a name are ONE row holding their sum, as upstream's
+        // gpu-profiler accumulates them: the forward pass draws the scene and then
+        // the UI layer, and a separable blur runs twice. Keyed on the last of them
+        // the row showed the 0.1 ms UI pass and hid the 3 ms scene pass behind it.
+        std::vector<std::pair<std::string, float>> frameTotals;
         for (const auto& timing : profiler->passTimings()) {
+            const auto same = std::ranges::find_if(frameTotals,
+                [&timing](const auto& entry) { return entry.first == timing.name; });
+            if (same != frameTotals.end()) {
+                same->second += static_cast<float>(timing.milliseconds);
+            } else {
+                frameTotals.emplace_back(timing.name, static_cast<float>(timing.milliseconds));
+            }
+        }
+        for (const auto& [name, milliseconds] : frameTotals) {
             const auto existing = std::ranges::find_if(_passHistories,
-                [&timing](const PassHistory& entry) { return entry.name == timing.name; });
+                [&name](const PassHistory& entry) { return entry.name == name; });
 
             if (existing != _passHistories.end()) {
-                existing->history.push(static_cast<float>(timing.milliseconds));
+                existing->history.push(milliseconds);
+                existing->lastSeenFrame = _passFrame;
             } else {
                 PassHistory entry;
-                entry.name = timing.name;
-                entry.history.push(static_cast<float>(timing.milliseconds));
+                entry.name = name;
+                entry.history.push(milliseconds);
+                entry.lastSeenFrame = _passFrame;
                 _passHistories.push_back(std::move(entry));
             }
         }
+        std::erase_if(_passHistories, [this](const PassHistory& entry) {
+            return _passFrame - entry.lastSeenFrame > kPassRowLifetime;
+        });
     }
 
     void MiniStats::compactRow(const char* label, const float value, const int decimals,

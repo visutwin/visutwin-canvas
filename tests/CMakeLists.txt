@@ -188,6 +188,14 @@ target_link_libraries(visutwin-light-texture-atlas-tests PRIVATE visutwin-canvas
 
 add_test(NAME light-texture-atlas COMMAND visutwin-light-texture-atlas-tests)
 
+add_executable(visutwin-gpu-profiler-timing-tests
+    gpuProfilerTimingTests.cpp
+)
+
+target_link_libraries(visutwin-gpu-profiler-timing-tests PRIVATE visutwin-canvas)
+
+add_test(NAME gpu-profiler-timing COMMAND visutwin-gpu-profiler-timing-tests)
+
 add_executable(visutwin-device-capability-tests
     deviceCapabilityTests.cpp
 )

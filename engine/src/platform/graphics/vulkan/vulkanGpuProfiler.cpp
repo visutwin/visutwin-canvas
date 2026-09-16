@@ -103,12 +103,13 @@ namespace visutwin::canvas::gpu
         vkCmdResetQueryPool(cmd, slot.queryPool, 0, MAX_PASSES * SAMPLES_PER_PASS);
         slot.passCount = 0;
         slot.passNames.clear();
+        slot.passBackBuffer.clear();
         slot.submitted = true;
         _openPass = -1;
     }
 
     void VulkanGpuProfiler::beginPass(const VkCommandBuffer cmd,
-        const std::string& name)
+        const std::string& name, const bool backBuffer)
     {
         if (!_enabled || cmd == VK_NULL_HANDLE) {
             return;
@@ -127,6 +128,7 @@ namespace visutwin::canvas::gpu
         vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
             slot.queryPool, static_cast<uint32_t>(passIndex * SAMPLES_PER_PASS));
         slot.passNames.push_back(name);
+        slot.passBackBuffer.push_back(backBuffer);
         slot.passCount = passIndex + 1;
         _openPass = passIndex;
     }
@@ -165,25 +167,20 @@ namespace visutwin::canvas::gpu
             return;
         }
 
-        _passTimings.clear();
-        _frameMilliseconds = 0.0;
+        std::vector<RawPass> passes;
+        passes.reserve(static_cast<size_t>(slot.passCount));
         for (int i = 0; i < slot.passCount; ++i) {
             const size_t startIndex = static_cast<size_t>(i) * SAMPLES_PER_PASS * 2;
             const size_t endIndex = startIndex + 2;
-            const uint64_t start = results[startIndex];
-            const bool startAvailable = results[startIndex + 1] != 0;
-            const uint64_t end = results[endIndex];
-            const bool endAvailable = results[endIndex + 1] != 0;
-
-            if (!startAvailable || !endAvailable || end < start) {
-                _passTimings.push_back({slot.passNames[static_cast<size_t>(i)], 0.0});
-                continue;
-            }
-            const double ms = static_cast<double>(end - start) *
-                static_cast<double>(_timestampPeriod) / 1.0e6;
-            _passTimings.push_back({slot.passNames[static_cast<size_t>(i)], ms});
-            _frameMilliseconds += ms;
+            RawPass pass;
+            pass.name = slot.passNames[static_cast<size_t>(i)];
+            pass.backBuffer = slot.passBackBuffer[static_cast<size_t>(i)];
+            pass.start = results[startIndex];
+            pass.end = results[endIndex];
+            pass.valid = results[startIndex + 1] != 0 && results[endIndex + 1] != 0;
+            passes.push_back(std::move(pass));
         }
+        publishTimings(passes, static_cast<double>(_timestampPeriod) / 1.0e6);
 
         slot.passCount = 0;
     }

@@ -4,6 +4,11 @@
 // Created by Arnis Lektauers on 12.09.2025.
 //
 #include <cmath>
+#include <cstdlib>
+#include <memory>
+#include <typeinfo>
+
+#include <cxxabi.h>
 
 #include "graphicsDevice.h"
 #include "renderPass.h"
@@ -288,5 +293,23 @@ namespace visutwin::canvas
     void RenderPass::clearAfterPasses()
     {
         _afterPasses.clear();
+    }
+
+    const std::string& RenderPass::name() const
+    {
+        if (!_name.empty()) {
+            return _name;
+        }
+        if (_resolvedName.empty()) {
+            int status = 0;
+            std::unique_ptr<char, void (*)(void*)> demangled(
+                abi::__cxa_demangle(typeid(*this).name(), nullptr, nullptr, &status), std::free);
+            std::string resolved = (status == 0 && demangled) ? demangled.get() : typeid(*this).name();
+            if (const auto scope = resolved.rfind("::"); scope != std::string::npos) {
+                resolved.erase(0, scope + 2);
+            }
+            _resolvedName = resolved.empty() ? "pass" : resolved;
+        }
+        return _resolvedName;
     }
 }

@@ -54,7 +54,7 @@ namespace visutwin::canvas::gpu
         void beginFrame(VkCommandBuffer cmd);
 
         /** Record the opening timestamp for one pass. Call before vkCmdBeginRendering. */
-        void beginPass(VkCommandBuffer cmd, const std::string& name);
+        void beginPass(VkCommandBuffer cmd, const std::string& name, bool backBuffer);
 
         /** Record the closing timestamp. Call after vkCmdEndRendering. */
         void endPass(VkCommandBuffer cmd);
@@ -72,6 +72,7 @@ namespace visutwin::canvas::gpu
         {
             VkQueryPool queryPool = VK_NULL_HANDLE;
             std::vector<std::string> passNames;
+            std::vector<bool> passBackBuffer;
             int passCount = 0;
             bool submitted = false;
         };

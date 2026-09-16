@@ -114,11 +114,12 @@ namespace visutwin::canvas::gpu
 
         auto& slot = _slots[_currentSlot];
         slot.passNames.clear();
+        slot.passBackBuffer.clear();
         slot.passCount = 0;
     }
 
     void MetalGpuProfiler::attachToRenderPass(MTL::RenderPassDescriptor* passDescriptor,
-        const std::string& name)
+        const std::string& name, const bool backBuffer)
     {
         if (!_enabled || !passDescriptor) {
             return;
@@ -138,6 +139,7 @@ namespace visutwin::canvas::gpu
             static_cast<NS::UInteger>(slot.passCount * SAMPLES_PER_PASS + 1));
 
         slot.passNames.push_back(name.empty() ? "pass" : name);
+        slot.passBackBuffer.push_back(backBuffer);
         slot.passCount++;
     }
 
@@ -163,21 +165,20 @@ namespace visutwin::canvas::gpu
         }
 
         const auto* samples = static_cast<const CounterResultTimestamp*>(data->bytes());
-        _passTimings.clear();
-        _frameMilliseconds = 0.0;
+        std::vector<RawPass> passes;
+        passes.reserve(static_cast<size_t>(slot.passCount));
         for (int i = 0; i < slot.passCount; ++i) {
-            const uint64_t start = samples[i * SAMPLES_PER_PASS + 0].timestamp;
-            const uint64_t end = samples[i * SAMPLES_PER_PASS + 1].timestamp;
+            RawPass pass;
+            pass.name = slot.passNames[static_cast<size_t>(i)];
+            pass.backBuffer = slot.passBackBuffer[static_cast<size_t>(i)];
+            pass.start = samples[i * SAMPLES_PER_PASS + 0].timestamp;
+            pass.end = samples[i * SAMPLES_PER_PASS + 1].timestamp;
             // MTLCounterErrorValue marks samples the GPU could not take.
-            if (start == static_cast<uint64_t>(MTL::CounterErrorValue) ||
-                end == static_cast<uint64_t>(MTL::CounterErrorValue) || end < start) {
-                _passTimings.push_back({slot.passNames[static_cast<size_t>(i)], 0.0});
-                continue;
-            }
-            const double ms = static_cast<double>(end - start) * nsPerTick / 1.0e6;
-            _passTimings.push_back({slot.passNames[static_cast<size_t>(i)], ms});
-            _frameMilliseconds += ms;
+            pass.valid = pass.start != static_cast<uint64_t>(MTL::CounterErrorValue) &&
+                pass.end != static_cast<uint64_t>(MTL::CounterErrorValue);
+            passes.push_back(std::move(pass));
         }
+        publishTimings(passes, nsPerTick / 1.0e6);
 
         slot.passCount = 0;
     }

@@ -77,7 +77,10 @@ namespace visutwin::canvas
         void render();
 
         /** Debug name (set by subclasses) — used by the GPU profiler. */
-        const std::string& name() const { return _name; }
+        /// The pass's name for the profiler and the HUD: what the pass set, or its
+        /// class name when it set nothing — so the quad passes stop collapsing into
+        /// one anonymous "pass" row wherever timings are keyed by name.
+        const std::string& name() const;
 
         float scaleX() const { return _options ? _options->scaleX : 1.0f; }
 
@@ -141,6 +144,7 @@ namespace visutwin::canvas
         bool _depthReadOnly = false;
 
         std::string _name;
+        mutable std::string _resolvedName;   // name() cache when _name is empty
 
         /**
          * True when render() deliberately skipped execute() for the current

@@ -151,8 +151,14 @@ namespace visutwin::canvas
         {
             std::string name;
             History history;
+            int lastSeenFrame = 0;
         };
         std::vector<PassHistory> _passHistories;
+        int _passFrame = 0;
+        // A pass absent this many resolved frames is dropped: a one-shot shadow
+        // pass, or a pass a setting turned off, otherwise keeps showing its last
+        // figure indefinitely, and that reads as work still being done.
+        static constexpr int kPassRowLifetime = 60;
 
         void recordPassTimings();
 

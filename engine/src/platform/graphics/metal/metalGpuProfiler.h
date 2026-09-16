@@ -36,7 +36,8 @@ namespace visutwin::canvas::gpu
         void beginFrame();
 
         /** Attach timestamp sampling for one render pass to its descriptor. */
-        void attachToRenderPass(MTL::RenderPassDescriptor* passDescriptor, const std::string& name);
+        void attachToRenderPass(MTL::RenderPassDescriptor* passDescriptor, const std::string& name,
+            bool backBuffer);
 
     private:
         explicit MetalGpuProfiler(MTL::Device* device);
@@ -51,6 +52,7 @@ namespace visutwin::canvas::gpu
         {
             MTL::CounterSampleBuffer* sampleBuffer = nullptr;
             std::vector<std::string> passNames;
+            std::vector<bool> passBackBuffer;
             int passCount = 0;
         };
 
