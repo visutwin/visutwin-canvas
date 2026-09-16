@@ -599,6 +599,16 @@ The cross-cutting traps stay in `AGENTS.md`.
   `ambient-occlusion` port paid ~730 shadow draws a frame for its five static
   torches and its sun where upstream renders them once. Default shadow
   resolution is upstream's 1024 (it was 2048, four times the memory per map).
+  **A directional light at `SHADOWUPDATE_NONE` is NOT re-fitted.** Its cascades
+  are sliced from the camera frustum, and this port writes the sampling matrices
+  (the palette and per-cascade fit) in `ShadowRendererDirectional::cull`, reading
+  them at bind time — so re-fitting a light whose map will not re-render moves
+  every sampling matrix with the view while the texture stays put, which is what
+  the first one-shot port did: shadows correct until the camera moved. Upstream
+  re-fits every frame and gets away with it because it writes `shadowMatrix`
+  INSIDE the shadow pass; `Renderer::cullShadowmaps` skips the fit instead, which
+  holds the same invariant. The light still joins the per-camera list, because the
+  forward pass reads its matrices through it.
   Note that `castShadows()` folds the MASK in, so a bare `Light` — one not driven by
   a `LightComponent`, which pushes its own mask every frame — reports false whatever
   `setCastShadows` said, because this port defaults `Light::_mask` to `MASK_NONE`

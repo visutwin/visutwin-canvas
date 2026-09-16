@@ -504,8 +504,22 @@ namespace visutwin::canvas
                 continue;
             }
 
-            // Set up the shadow camera (position, projection, snap).
-            _shadowRendererDirectional->cull(sceneLight, camera);
+            // Set up the shadow camera (position, projection, snap) — unless the light
+            // is at SHADOWUPDATE_NONE, whose map was rendered once and will not be
+            // again. The fit follows the CAMERA (the cascades are sliced from its
+            // frustum), and this port writes the sampling matrices — the palette and
+            // the per-cascade fit — during the cull, then reads them at bind time. So a
+            // re-fit here would move every sampling matrix with the view while the
+            // texture stayed put, and a one-shot shadow came out wrong the moment the
+            // camera moved. Upstream can afford to re-fit every frame because it writes
+            // its shadowMatrix inside the shadow pass, so under NONE the matrix keeps
+            // the fit the texture was rendered with; skipping the fit is the same
+            // invariant reached from the other side. The light still joins the list:
+            // the forward pass reads its matrices from it, and the pass builder and the
+            // one-shot consume both gate on needsShadowRendering themselves.
+            if (sceneLight->shadowUpdateMode() != ShadowUpdateType::SHADOWUPDATE_NONE) {
+                _shadowRendererDirectional->cull(sceneLight, camera);
+            }
 
             dirShadowLights.push_back(sceneLight);
         }
