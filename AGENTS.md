@@ -1158,7 +1158,7 @@ present, but the rule below never depends on reading it.
   unconditionally darkens whatever samples it by roughly a stop.
 - **Dynamic refraction was dark and opaque on BOTH backends for three stacked
   reasons, found 2026-09-15 on `post-processing`'s amber (measured amber region
-  [47,53,41] -> [139,105,48], upstream's thumbnail ~[193,178,70]).** (1) The
+  [47,53,41] -> [139,105,48]).** (1) The
   fragment-stage `lighting.viewProjection` was uploaded TRANSPOSED — both binders
   passed `getElement(row, col)` — so every refracting fragment projected to a
   negative w and its grab UV clamped into a corner: one flat colour over the whole
@@ -1174,10 +1174,26 @@ present, but the rule below never depends on reading it.
   Bug (1) hid bug (2) completely: fixing the order alone moved nothing. Probe it
   the way that found it — output the grab at a FIXED uv (valid texture?), the
   flags `uv in range` / `w > 0` (valid projection?), and the raw sample + 0.05 (a
-  feedback loop runs away to white within 120 frames). Still open: upstream scales
-  the refraction offset by the model's world scale (x60 here); the fragment stage
-  has no model matrix, and a hard-coded x60 made this scene DARKER, so it is not
-  adopted blindly.
+  feedback loop runs away to white within 120 frames).
+
+  The three fixes CLOSED it. Re-measured 2026-09-16 against upstream running
+  locally, both pinned to camera (0,40,-220) looking at (0,20,0) with the mosquito
+  at euler zero, matched 16:9, and the same rect (40-60% x 38-62%) and colour mask
+  on both sides: amber [189,137,49] here against [188,129,40] upstream — ours a
+  touch BRIGHTER, not dimmer — with every camera and material value agreeing
+  (fov 80, exposure 0.3, transmission 0.75, thickness 0.9, ior 1.55 stored as an
+  IOR here and as its reciprocal upstream, gloss 0.5 + gloss map, metalness 0).
+  The "still dimmer than upstream" note this entry used to carry came from an
+  UNPINNED capture compared against upstream's thumbnail, which was shot from
+  another angle — the error in "Measuring a backend divergence", made twice on
+  this very scene. Do not reopen it from a thumbnail.
+
+  Two things genuinely remain. Upstream scales the refraction offset by the model's
+  world scale (x60 here); the fragment stage has no model matrix, and a hard-coded
+  x60 made this scene DARKER, so it is not adopted blindly. And at that pinned pose
+  the amber covers 20.4% of the sampled rect here against 13.7% upstream, so the
+  model projects LARGER despite identical camera parameters — framing or model
+  scale, not shading, and unexplained.
 - **Vulkan's clip space is NOT Y-down for this engine.** The backend rasterises
   through a negated-height viewport so Metal projection matrices work unchanged,
   which puts NDC +Y at the TOP row of every target, back buffer and offscreen
