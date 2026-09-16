@@ -391,8 +391,32 @@ already some example's binding.
   unattached, and clears the device's cached pipeline afterwards, because ImGui
   bound one of its own.
 
-DEVIATION: upstream draws its graphs through a word atlas on the UI layer and
-cycles sizes on click; this is an ImGui window with a compact/expanded toggle.
+- **The default view is upstream's first size, row for row**: draw calls, frame,
+  CPU, GPU and VRAM, no graphs, anchored 8 px in from the bottom-left corner, each
+  figure the mean over the last half second (upstream's `textRefreshRate`; a figure
+  rewritten at 60 Hz is a blur). A CLICK on the panel switches to the detailed view
+  — the frame-rate line, the rolling graphs, the draw-call and texture breakdowns
+  and the per-pass GPU timings — and back; that is what a click does upstream, where
+  it cycles the sizes. While the pointer is on the panel `ExampleApp` blocks the
+  camera controls for the frame, so the click does not also orbit the camera:
+  upstream's panel is a DOM element over the canvas and a pointer on it never
+  reaches the canvas at all.
+- **The CPU row is upstream's CpuTimer**: the update phase plus the render phase on
+  the CPU. The render half is `FrameStats::renderTime`, which `Engine::render`
+  writes as its own wall time LESS `GraphicsDevice::displayWaitMilliseconds()` —
+  the time the backend spent blocked on the display (Metal's `nextDrawable`;
+  Vulkan's frame fence, acquire, submit and present). Under vsync that wait is the
+  frame pacing and it happens INSIDE `render()`: Metal acquires its drawable lazily
+  in the first back-buffer pass, and MoltenVK takes it at the queue SUBMIT that
+  renders into it — measured at ~16 ms in the submit against under 0.1 ms in the
+  acquire and present together, which is why timing only the acquire left the
+  Vulkan CPU row echoing the frame time. The uniform-ring semaphores are not counted: the display
+  wait throttles the CPU before they ever block.
+
+DEVIATION: upstream draws its rows through a word atlas on the UI layer and cycles
+THREE sizes on click (compact counters, grouped averages, grouped averages with
+peaks and graph history); this is an ImGui window with two views, compact matching
+upstream's first size and detailed folding the other two into one.
 
 `visutwin_add_example(<name>)` builds `src/<name>-example.cpp`. Adding an example
 is one source file and one line.

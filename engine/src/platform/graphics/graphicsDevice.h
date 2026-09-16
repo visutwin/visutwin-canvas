@@ -672,6 +672,20 @@ namespace visutwin::canvas
         int drawCallsPerFrame() const { return _drawCallsPerFrame; }
         void resetDrawCallsPerFrame() { _drawCallsPerFrame = 0; }
 
+        /// CPU milliseconds spent since the last reset blocked on the DISPLAY rather than
+        /// working: Metal's nextDrawable(); Vulkan's in-flight fence wait, swapchain
+        /// acquire, queue submit and present. Under vsync that wait IS the frame pacing,
+        /// and it happens inside Engine::render() — Metal acquires its drawable lazily in
+        /// the first back-buffer pass, and MoltenVK takes it at the SUBMIT that renders
+        /// into it (measured: ~16 ms there, under 0.1 ms in acquire and present together)
+        /// — so a CPU render time measured around render() would read as the whole
+        /// frame. Engine::render subtracts it from the wall time it writes to
+        /// FrameStats::renderTime, and resets it. The uniform-ring semaphores are not
+        /// counted: they block only when the CPU runs the whole in-flight count ahead,
+        /// which the display wait prevents first.
+        double displayWaitMilliseconds() const { return _displayWaitMs; }
+        void resetDisplayWaitMilliseconds() { _displayWaitMs = 0.0; }
+
         /// Tracked GPU memory in bytes. `tex` (with its `texShadow` / `texAsset` /
         /// `texLightmap` split), `vb` and `ib` are LIVE: textures, vertex buffers and
         /// index buffers each account themselves as they are created and released.
@@ -970,6 +984,7 @@ namespace visutwin::canvas
         void setTextureHalfFloatRenderable(const bool value) { _textureHalfFloatRenderable = value; }
         void setTextureFloatRenderable(const bool value) { _textureFloatRenderable = value; }
         void recordDrawCall(int count = 1) { _drawCallsPerFrame += count; }
+        void recordDisplayWait(const double milliseconds) { _displayWaitMs += milliseconds; }
 
         void clearVertexBuffer();
         // Backends that destroy their native device in the derived destructor
@@ -1050,6 +1065,7 @@ namespace visutwin::canvas
 
         int _shaderSwitchesPerFrame = 0;
         int _drawCallsPerFrame = 0;
+        double _displayWaitMs = 0.0;
 
         int _renderTargetCreationTime = 0;
 

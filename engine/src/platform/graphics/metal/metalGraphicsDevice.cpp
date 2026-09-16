@@ -6,6 +6,7 @@
 #include "metalGraphicsDevice.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <ranges>
 #include "metalComposePass.h"
@@ -1400,7 +1401,12 @@ namespace visutwin::canvas
                 _currentDrawable = _frameDrawable;
                 spdlog::trace("Reusing cached CAMetalDrawable for back-buffer pass");
             } else {
+                // Under display sync this is where the frame waits for the display, and
+                // it is inside Engine::render(); see displayWaitMilliseconds().
+                const auto waitStart = std::chrono::steady_clock::now();
                 _currentDrawable = _metalLayer->nextDrawable();
+                recordDisplayWait(std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - waitStart).count());
                 if (!_currentDrawable) {
                     spdlog::warn("Failed to acquire CAMetalDrawable");
                     return;

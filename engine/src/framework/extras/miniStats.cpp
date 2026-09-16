@@ -4,6 +4,8 @@
 #include "miniStats.h"
 
 #include <algorithm>
+#include <cfloat>
+#include <cstdio>
 
 #include <SDL3/SDL.h>
 
@@ -16,6 +18,14 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // Upstream's panel geometry: 8 px in from the left and bottom edges, and 128 px wide in
+        // its compact size. The detailed view sizes itself to its content.
+        constexpr float kInset = 8.0f;
+        constexpr float kCompactWidth = 128.0f;
+    }
+
     MiniStats::MiniStats(const std::shared_ptr<Engine>& engine, ImGuiOverlay* overlay)
         : _engine(engine), _overlay(overlay)
     {
@@ -76,6 +86,31 @@ namespace visutwin::canvas
         }
     }
 
+    void MiniStats::compactRow(const char* label, const float value, const int decimals,
+        const char* units) const
+    {
+        char text[32];
+        std::snprintf(text, sizeof(text), "%.*f", decimals, value);
+
+        // Upstream's compact row: the label muted at the left, the value right-aligned, and the
+        // units muted after it. SameLine() takes an offset from the window's left edge, which is
+        // the frame GetCursorPosX() reports in, so the two agree without a padding term.
+        const float left = ImGui::GetCursorPosX();
+        const float right = left + ImGui::GetContentRegionAvail().x;
+        const float unitsWidth = *units ? ImGui::CalcTextSize(units).x : 0.0f;
+        const float valueRight = *units
+            ? right - unitsWidth - ImGui::GetStyle().ItemInnerSpacing.x
+            : right;
+
+        ImGui::TextDisabled("%s", label);
+        ImGui::SameLine(valueRight - ImGui::CalcTextSize(text).x);
+        ImGui::TextUnformatted(text);
+        if (*units) {
+            ImGui::SameLine(right - unitsWidth);
+            ImGui::TextDisabled("%s", units);
+        }
+    }
+
     void MiniStats::plot(const char* label, const History& history, const char* unit) const
     {
         // Scale to the window's own peak rather than a fixed range, so both a 1 ms and a 30 ms
@@ -102,62 +137,94 @@ namespace visutwin::canvas
             return;
         }
 
-        // CPU frame time is measured here rather than read from ApplicationStats: this hook runs
-        // exactly once per rendered frame, and it keeps the HUD working whichever loop drives the
-        // engine (upstream's CpuTimer measures it the same way).
+        // Frame time is measured here rather than read from ApplicationStats: this hook runs
+        // exactly once per rendered frame, it keeps the HUD working whichever loop drives the
+        // engine, and the counter is high-resolution where the stats path's SDL_GetTicks is
+        // whole milliseconds (a 16/17 flicker at 60 Hz).
         const uint64_t counter = SDL_GetPerformanceCounter();
         const uint64_t frequency = SDL_GetPerformanceFrequency();
+        float frameMs = 0.0f;
         if (_lastCounter != 0 && frequency != 0) {
-            const double elapsedMs =
-                static_cast<double>(counter - _lastCounter) * 1000.0 / static_cast<double>(frequency);
-            _cpuFrame.push(static_cast<float>(elapsedMs));
-
-            // Smoothed frame rate over the sample window.
-            const float averageMs = _cpuFrame.average();
-            _fps = averageMs > 0.0001f ? 1000.0f / averageMs : 0.0f;
+            frameMs = static_cast<float>(
+                static_cast<double>(counter - _lastCounter) * 1000.0 / static_cast<double>(frequency));
         }
         _lastCounter = counter;
 
         const auto& frame = stats->frame();
         const auto& drawCalls = stats->drawCalls();
         const auto& profiler = device->gpuProfiler();
+        const auto& vram = device->vram();
+        constexpr double toMb = 1.0 / (1024.0 * 1024.0);
 
-        _gpuFrame.push(profiler ? static_cast<float>(profiler->frameMilliseconds()) : 0.0f);
-        _drawCalls.push(static_cast<float>(drawCalls.total));
+        // CPU is upstream's CpuTimer: the update phase plus the render phase, on the CPU. The
+        // render figure is the previous frame's (Engine::render writes it after frameEnd, this
+        // hook runs before), which is one frame of lag upstream carries too.
+        _frame.push(frameMs, frameMs);
+        _cpu.push(static_cast<float>(frame.updateTime + frame.renderTime), frameMs);
+        _gpu.push(profiler ? static_cast<float>(profiler->frameMilliseconds()) : 0.0f, frameMs);
+        _drawCalls.push(static_cast<float>(drawCalls.total), frameMs);
+        // Textures and geometry, all live counters since 2026-09-16. Labelled VRAM as upstream
+        // labels its `vram.totalUsed`, but a LOWER BOUND: the backends' uniform and storage
+        // pools are not tracked, and the texture figure is content size (no driver padding,
+        // no GPU-generated mips). The detailed view spells the parts out.
+        _vram.push(static_cast<float>(static_cast<double>(vram.tex + vram.vb + vram.ib) * toMb), frameMs);
         recordPassTimings();
+
+        // Smoothed frame rate over the sample window, paired with the same window's mean so the
+        // two figures cannot contradict each other.
+        const float averageMs = _frame.history.average();
+        _fps = averageMs > 0.0001f ? 1000.0f / averageMs : 0.0f;
 
         _overlay->beginFrame();
 
-        ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_FirstUseEver);
+        // Bottom-left, inset by upstream's 8 px, following the window through resizes. The panel
+        // is not draggable, and it has no title bar: upstream's is a bare rectangle too.
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(
+            ImVec2(viewport->WorkPos.x + kInset, viewport->WorkPos.y + viewport->WorkSize.y - kInset),
+            ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(_detailed ? 0.0f : kCompactWidth, 0.0f), ImVec2(FLT_MAX, FLT_MAX));
         ImGui::SetNextWindowBgAlpha(0.75f);
-        if (ImGui::Begin("MiniStats", nullptr,
-                ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_AlwaysAutoResize)) {
 
-            // Both figures come from the same sample window, so they stay consistent with each
-            // other (pairing fps with the latest frame's ms reads as a contradiction).
-            ImGui::Text("%.0f fps   %.2f ms avg", _fps, _cpuFrame.average());
-            ImGui::Checkbox("details", &_expanded);
+        constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
+            | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+            | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing
+            | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoSavedSettings;
 
-            plot("CPU", _cpuFrame, "ms");
-            plot("GPU", _gpuFrame, "ms");
+        if (ImGui::Begin("MiniStats", nullptr, flags)) {
+            // A click anywhere on the panel switches views, as a click cycles upstream's sizes.
+            if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                _detailed = !_detailed;
+            }
 
-            if (_expanded) {
+            if (!_detailed) {
+                // Upstream's compact size, in its order: the Engine counters (draw calls, then
+                // frame), then CPU, GPU and VRAM. Decimal places are upstream's per stat.
+                compactRow("Draw calls", _drawCalls.displayed, 0, "");
+                compactRow("Frame", _frame.displayed, 1, "ms");
+                compactRow("CPU", _cpu.displayed, 1, "ms");
+                compactRow("GPU", _gpu.displayed, 1, "ms");
+                compactRow("VRAM", _vram.displayed, 1, "MB");
+            } else {
+                ImGui::Text("%.0f fps   %.2f ms avg", _fps, averageMs);
+
+                plot("Frame", _frame.history, "ms");
+                plot("CPU", _cpu.history, "ms");
+                plot("GPU", _gpu.history, "ms");
+
                 ImGui::Separator();
-                plot("draws", _drawCalls, "");
+                plot("draws", _drawCalls.history, "");
                 ImGui::Text("draw calls  %d  (forward %d, skinned %d)",
                     drawCalls.total, drawCalls.forward, drawCalls.skinned);
                 if (frame.gsplats > 0) {
                     ImGui::Text("gsplats     %d", frame.gsplats);
                 }
 
-                // Textures and geometry, all live counters since 2026-09-16 — the
-                // texture side was dead before that and printed nothing rather than a
-                // confident zero. Still NOT called a VRAM total: the backends' uniform
-                // and storage pools are not tracked at all, and the texture figure is
-                // content size, so it excludes driver padding and any mip generated on
-                // the GPU after creation.
-                const auto& vram = device->vram();
-                constexpr double toMb = 1.0 / (1024.0 * 1024.0);
+                // Still NOT called a VRAM total here, where there is room to say why: the
+                // backends' uniform and storage pools are not tracked at all, and the texture
+                // figure is content size, so it excludes driver padding and any mip generated
+                // on the GPU after creation.
                 ImGui::Text("tex+geom    %.1f MB  (tex %.1f, vb %.1f, ib %.1f)",
                     static_cast<double>(vram.tex + vram.vb + vram.ib) * toMb,
                     static_cast<double>(vram.tex) * toMb,

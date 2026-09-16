@@ -6,6 +6,7 @@
 #include "vulkanGraphicsDevice.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <VkBootstrap.h>
 #include <SDL3/SDL_vulkan.h>
@@ -285,9 +286,14 @@ namespace visutwin::canvas
         }
         auto& frame = _frames[_frameIndex];
 
+        // The fence wait and the acquire below are where a vsync'd frame waits for the
+        // display, inside Engine::render(); see displayWaitMilliseconds().
+        auto waitStart = std::chrono::steady_clock::now();
         const VkResult waitResult =
             vkWaitForFences(
                 _device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+        recordDisplayWait(std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - waitStart).count());
         if (waitResult != VK_SUCCESS) {
             _renderingDisabled = true;
             spdlog::error(
@@ -307,8 +313,11 @@ namespace visutwin::canvas
             return;
         }
 
+        waitStart = std::chrono::steady_clock::now();
         VkResult result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
             frame.imageAvailable, VK_NULL_HANDLE, &_swapchainImageIndex);
+        recordDisplayWait(std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - waitStart).count());
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
             // Recreate directly — setResolution(_width, _height) would
             // early-return on the unchanged size and never rebuild the
@@ -572,8 +581,15 @@ namespace visutwin::canvas
             submitResult = *_submitResultOverride;
             _submitResultOverride.reset();
         } else {
+            // MoltenVK takes the CAMetalDrawable when the command buffer that renders
+            // into it is submitted, not in the acquire, so under display sync THIS is
+            // where a Vulkan frame waits for the display (measured: ~16 ms here, under
+            // 0.1 ms in the acquire and the present together).
+            const auto submitStart = std::chrono::steady_clock::now();
             submitResult = vkQueueSubmit2(
                 _graphicsQueue, 1, &submitInfo, frame.inFlightFence);
+            recordDisplayWait(std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - submitStart).count());
         }
         if (submitResult != VK_SUCCESS) {
             recoverFailedFrameSubmission(submitResult);
@@ -587,8 +603,13 @@ namespace visutwin::canvas
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = &_swapchain;
         presentInfo.pImageIndices = &_swapchainImageIndex;
+        // Present itself is nearly free on MoltenVK (the drawable was taken at submit),
+        // but it is still a display-side wait wherever it does block.
+        const auto presentStart = std::chrono::steady_clock::now();
         const VkResult presentResult =
             vkQueuePresentKHR(_presentQueue, &presentInfo);
+        recordDisplayWait(std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - presentStart).count());
         if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
             // Present is the usual place a resize surfaces — rebuild now so the
             // next acquire starts from a valid swapchain.

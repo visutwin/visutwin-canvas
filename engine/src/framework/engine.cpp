@@ -369,6 +369,8 @@ namespace visutwin::canvas
     void Engine::render()
     {
         assert(_graphicsDevice && "Engine::render requires a valid graphics device");
+        const auto renderStart = std::chrono::high_resolution_clock::now();
+        _graphicsDevice->resetDisplayWaitMilliseconds();
         _frameStartCalled = false;
         _renderCompositionCalled = false;
         _frameEndCalled = false;
@@ -401,6 +403,17 @@ namespace visutwin::canvas
 
         _graphicsDevice->frameEnd();
         _frameEndCalled = true;
+
+        // CPU time spent rendering: the wall time of this call less what the device spent
+        // blocked on the display (see GraphicsDevice::displayWaitMilliseconds), which under
+        // vsync is the pacing wait and not work. Written AFTER "postrender", so the HUD reads
+        // the previous frame's figure — one frame of lag, as upstream's CpuTimer has.
+        if (_stats) {
+            const double wallMs = std::chrono::duration<double, std::milli>(
+                std::chrono::high_resolution_clock::now() - renderStart).count();
+            _stats->frame().renderTime =
+                std::max(0.0, wallMs - _graphicsDevice->displayWaitMilliseconds());
+        }
 
         // Next frame fills its own stats, whichever path drives it.
         _statsFilledThisFrame = false;

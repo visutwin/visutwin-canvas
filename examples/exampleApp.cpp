@@ -84,6 +84,17 @@ namespace visutwin::canvas
             previousCounter = nowCounter;
             _elapsed += dt;
 
+            // A click on the HUD is the HUD's (it switches its view) and must not also
+            // orbit the camera. Upstream's panel is a DOM element over the canvas, so a
+            // pointer on it never reaches the canvas at all; this is that rule scoped to
+            // the camera controls, the one consumer of a bare click. Consulted only while
+            // the HUD draws: ImGui refreshes its answer in NewFrame, and a hidden HUD would
+            // leave the last answer standing.
+            if (_cameraControls) {
+                _cameraControls->setInputBlocked(
+                    _overlay && _miniStats && _miniStats->enabled() && _overlay->wantCaptureMouse());
+            }
+
             update(dt);
             _engine->update(dt);
             preRender();
@@ -236,8 +247,9 @@ namespace visutwin::canvas
         }
 
         // The HUD sees every event too, and CONSUMES none: the camera controls and
-        // each example's own bindings have to keep working while it is on screen,
-        // and upstream's ministats is not an input sink either.
+        // each example's own bindings have to keep working while it is on screen.
+        // The one exception, a click landing ON the panel, is handled in run() by
+        // blocking the camera controls for that frame rather than by eating events.
         if (_overlay) {
             _overlay->processEvent(event);
         }

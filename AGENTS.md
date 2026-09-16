@@ -1273,7 +1273,9 @@ What stays HERE is only what bites during UNRELATED work.
   it counts no driver padding and under-counts any texture whose mips are generated
   on the GPU afterwards (`setMipmaps` does not move `_numLevels`). That is a stable
   under-count, not a drift — the same figure is added and subtracted — but nothing
-  may present this as an exact allocation total.
+  may present this as an exact allocation total. The HUD's compact view labels
+  the sum `VRAM`, as upstream labels its `vram.totalUsed`, and it is that same
+  lower bound; the detailed view spells the parts out.
 
   The `texShadow` / `texAsset` / `texLightmap` SPLIT is live as of 2026-09-16 too,
   and the three sub-buckets DELIBERATELY DO NOT SUM to `tex`. A texture joins one
