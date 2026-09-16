@@ -158,7 +158,9 @@ protected:
             "statue", AssetType::CONTAINER, assetPath("models/scifi-platform.glb"));
         _mosquito = std::make_unique<Asset>(
             "mosquito", AssetType::CONTAINER, assetPath("models/MosquitoInAmber.glb"));
-        _font = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/arial.json"));
+        // DEVIATION: upstream loads its arial atlas; this is Liberation Sans, which is
+        // metric-compatible with Arial (identical advances) and OFL-licensed.
+        _font = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/liberation-sans.json"));
 
         const auto helipadResource = _helipad->resource();
         const auto platformResource = _platform->resource();
@@ -341,7 +343,7 @@ private:
     {
         FontResource* font = _fontResource;
         if (!font) {
-            spdlog::warn("arial font failed to load — labels will be missing");
+            spdlog::warn("label font failed to load — labels will be missing");
         }
 
         // Orthographic overlay camera for the UI layer, after the main camera.

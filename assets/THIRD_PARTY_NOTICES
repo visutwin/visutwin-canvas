@@ -9,23 +9,28 @@ Full license text: https://creativecommons.org/licenses/by/4.0/
 
 ------------------------------------------------------------------------
 
-models/antique_camera.glb
-  Original: AntiqueCamera
-  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
-  Author:   UX3D
-  License:  CC-BY 4.0
-
 models/box_textured.glb
   Original: BoxTextured
   Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
   Author:   Cesium
   License:  CC-BY 4.0
 
-models/fox.glb
-  Original: Fox (mesh CC-0, rigging/animation CC-BY 4.0)
+models/a_beautiful_game.glb
+  Original: ABeautifulGame (chess set)
   Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
-  Author:   PixelMannen (mesh, CC-0), tomkranis (rigging/animation, CC-BY 4.0)
+  Author:   Academy Software Foundation (model), Ed Mackey (glTF conversion)
   License:  CC-BY 4.0
+  Credit:   (c) 2020, Academy Software Foundation; (c) 2022, Ed Mackey
+
+models/fox.glb
+  Original: Fox
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   PixelMannen (mesh, CC-0), tomkranis (rigging/animation),
+            @AsoboStudio and @scurest (conversion to glTF)
+  License:  CC-BY 4.0 for the rigging/animation and for the glTF conversion;
+            the mesh alone is CC-0
+  Credit:   tomkranis for rigging and animation; @AsoboStudio and @scurest for
+            the conversion to glTF
 
 models/chess-board.glb
   Original: Chess Board
@@ -66,10 +71,13 @@ models/house.glb
                  converted to glb format
 
 models/SunglassesKhronos.glb
-  Original: Sunglasses (Khronos)
-  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
-  Author:   Khronos Group
-  License:  CC-BY 4.0
+  PROVENANCE UNCONFIRMED — do not rely on the filename. The Khronos
+  glTF-Sample-Assets collection contains NO model called "Sunglasses", so the
+  source and author implied by the name are wrong and the real licence is
+  unknown. Mirrored
+  byte-for-byte from the upstream example set, which documents none either.
+  Establish its licence or replace the model before a public release.
+  Used by examples/src/reflection-planar-blurred-example.cpp.
 
 models/ClearCoatTest.glb
   Original: ClearCoatTest (Khronos glTF sample asset)
@@ -83,8 +91,13 @@ models/apartment.glb
   Author:   Aurelien Martel
   License:  CC-BY-NC 4.0 (ATTRIBUTION - NONCOMMERCIAL)
             https://creativecommons.org/licenses/by-nc/4.0/
-            NOTE: this is the only NON-COMMERCIAL asset in the repository.
-            Used by examples/src/depth-of-field-example.cpp.
+            NOTE: this is the only NON-COMMERCIAL asset in the repository. It is
+            kept deliberately, as example material: assets in this directory carry
+            their own licences and are not covered by the Apache-2.0 grant on the
+            engine, and the engine library itself embeds none of them. Anyone
+            redistributing this assets directory commercially must remove it.
+            Used by examples/src/depth-of-field-example.cpp and
+            examples/src/layers-example.cpp.
 
 models/love.glb
   Original: Love neon sign 02
@@ -100,11 +113,65 @@ models/cat.glb
   Modifications: EXT_texture_webp images re-encoded as png (the loader has no
                  webp decoder)
 
+models/laboratory.glb
+  Original: Laboratory
+  Source:   Sketchfab — see models/laboratory.txt
+  License:  CC-BY 4.0
+
+models/dry-sand-terrain.glb
+  Original: FREE Dry Sand Terrain
+  Source:   Sketchfab — see models/dry-sand-terrain.txt
+  Author:   josevega
+  License:  CC-BY 4.0
+  Modifications: webp texture re-encoded as jpeg (the loader has no webp decoder)
+
+models/scifi-platform.glb
+  Original: Scifi platform stage scene (baked)
+  Source:   Sketchfab — see models/scifi-platform.txt
+  License:  CC-BY 4.0
+
+models/MosquitoInAmber.glb
+  Original: Real-time Refraction Demo: Mosquito in Amber
+  Source:   Sketchfab — see models/MosquitoInAmber.txt
+  Author:   Sketchfab
+  License:  CC-BY 4.0
+
+models/tamiya-dt03.compressed.ply
+  Original: Tamiya DT-03 (3D Gaussian splat capture)
+  Source:   SuperSplat — see models/tamiya-dt03.txt
+  Author:   Simon Bethke
+  License:  CC-BY 4.0
+  Modifications: thinned to 500k splats and SH dropped by
+                 tools/ply_to_compressed_ply.py
+
 ------------------------------------------------------------------------
 
-All other assets in this directory are CC-0 (public domain) and require
-no attribution. This includes the PlayCanvas-provided example assets
-statue.glb, geometry-camera-light.glb, playcanvas-cube.glb, bitmoji.glb
-and the animations/bitmoji/*.glb clips, the biker/skull .compressed.ply
-splats, morning-env-atlas.png, the playcanvas*/particle/spark/snowflake
-textures, and the courier/arial font atlases.
+Most other assets in this directory are CC-0 (public domain), including
+models/antique_camera.glb (UX3D, created by Maximillan Kamps), models/toy_car.glb,
+the Poly Haven HDRIs and textures/bricks076a (ambientCG).
+
+PROVENANCE UNCONFIRMED, however, for the assets mirrored byte-for-byte from the
+upstream example set: that project's licence covers its own code, and it
+documents no per-asset licence for these, so their authorship is unverified.
+Resolve before a public release:
+
+  cubemaps/*-env-atlas.png       CC-0 replacements: tools/generate-env-atlas
+  cubemaps/xmas_faces/*.png
+  textures/heart.png
+  textures/seaside-rocks01-*.jpg
+  models/SunglassesKhronos.glb   (see its entry above)
+  models/statue.glb, geometry-camera-light.glb, playcanvas-cube.glb, bitmoji.glb
+  textures/playcanvas*.png, snowflake.png, spark.png, particles-numbers.png,
+  textures/normal-map.png, fonts/courier.*, animations/bitmoji/*.glb
+
+fonts/liberation-sans.json + liberation-sans.png are a signed-distance-field atlas
+generated from Liberation Sans 2.1.5, licensed under the SIL Open Font License 1.1.
+The OFL requires the copyright notice and licence to accompany the font and any
+derivative, which a rasterised atlas is: both are in fonts/liberation-sans.txt.
+
+  Digitized data copyright (c) 2010 Google Corporation, with Reserved Font Arimo,
+  Tinos and Cousine. Copyright (c) 2012 Red Hat, Inc., with Reserved Font Name
+  Liberation.  http://scripts.sil.org/OFL
+
+textures/lightmap-pools.tga, lut-teal-orange.tga and checkboard.ktx2 have no
+recorded origin and no generating tool in this repository.

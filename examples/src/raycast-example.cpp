@@ -108,7 +108,9 @@ protected:
         _lines->add(&_rayFirst);
         _lines->add(&_rayAll);
 
-        _font = std::make_unique<Asset>("arial-font", AssetType::FONT, assetPath("fonts/arial.json"));
+        // DEVIATION: upstream loads its arial atlas; this is Liberation Sans, which is
+        // metric-compatible with Arial (identical advances) and OFL-licensed.
+        _font = std::make_unique<Asset>("label-font", AssetType::FONT, assetPath("fonts/liberation-sans.json"));
         createText("raycastFirst", 0.5f, 3.75f, 0.0f, 0.0f);
         createText("raycastAll", 0.5f, -0.25f, 0.0f, 0.0f);
 
@@ -224,7 +226,7 @@ private:
             fontResource = std::get<FontResource*>(*res);
         }
         if (!fontResource) {
-            spdlog::warn("arial.json failed to load; the labels will be missing");
+            spdlog::warn("liberation-sans.json failed to load; the labels will be missing");
             return;
         }
 

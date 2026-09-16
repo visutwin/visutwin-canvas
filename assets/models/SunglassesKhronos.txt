@@ -1,0 +1,10 @@
+PROVENANCE UNCONFIRMED — do not rely on the filename.
+
+This file is mirrored byte-for-byte from the upstream example set, which ships no
+per-asset licence document for it. The name implies a Khronos glTF sample asset,
+but the Khronos glTF-Sample-Assets collection contains no model called
+"Sunglasses", so the implied source is wrong and the real author and licence are
+unknown.
+
+Used by the `reflection-planar-blurred` example. Establish its licence, or replace
+it with a known-licensed model, before a public release.

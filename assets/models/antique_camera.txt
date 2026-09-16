@@ -1,0 +1,8 @@
+Model Information:
+* title:	AntiqueCamera
+* source:	https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/AntiqueCamera
+* author:	Maximillan Kamps, for UX3D
+
+Model License:
+* license type:	CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/)
+* requirements:	None — public domain. The credit above is kept as a courtesy.

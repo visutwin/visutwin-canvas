@@ -183,11 +183,13 @@ private:
         constexpr float LABEL_EM_WORLD = 0.5f;
         constexpr float LABEL_SCALE = LABEL_EM_WORLD / static_cast<float>(LABEL_FONT_SIZE);
 
-        // Bitmap font for the two world-space axis labels (upstream uses arial.json too).
+        // Bitmap font for the two world-space axis labels. DEVIATION: upstream uses its
+        // arial atlas; this is Liberation Sans, which is metric-compatible with Arial
+        // (identical advances) and OFL-licensed.
         _labelFont = std::make_unique<Asset>(
-            "arial-font",
+            "label-font",
             AssetType::FONT,
-            assetPath("fonts/arial.json")
+            assetPath("fonts/liberation-sans.json")
         );
 
         FontResource* labelFontResource = nullptr;

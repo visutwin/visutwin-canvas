@@ -1,0 +1,10 @@
+Model Information:
+* title:	BoxTextured
+* source:	https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/BoxTextured
+* author:	Cesium
+
+Model License:
+* license type:	CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+* attribution:	© 2017, Cesium. The Cesium logo on the texture is © 2015, Cesium
+  and is a non-copyrightable logo mark.

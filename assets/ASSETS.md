@@ -1,19 +1,10 @@
 # Public Example Assets
 
 Most assets in this directory are CC-0 (public domain). Several models are
-CC-BY 4.0 and require attribution — see THIRD_PARTY_NOTICES for details.
-
-One exception to be aware of before a public release: the three
-`cubemaps/*-env-atlas.png` files are mirrored byte-for-byte from the PlayCanvas
-example set, which documents no license for them individually. Their original
-HDR provenance is therefore unconfirmed. They are kept because exact visual
-parity with the upstream examples depends on them; substitute CC-0 atlases
-(see `tools/generate-env-atlas`) if that provenance matters for a given release.
-
-Many assets are mirrored from the PlayCanvas engine example set so the
-VisuTwin examples can visually match their PlayCanvas counterparts. Assets
-copied from PlayCanvas that carry a Sketchfab/Khronos CC-BY license keep
-their original `<name>.txt` license sibling next to the file.
+CC-BY 4.0 and require attribution, and one (`models/apartment.glb`) is CC-BY-NC
+4.0, which permits non-commercial use only. These assets carry their own licences
+and are not covered by the project's Apache-2.0 grant — see THIRD_PARTY_NOTICES
+for details.
 
 ## Asset Inventory
 
@@ -24,37 +15,57 @@ their original `<name>.txt` license sibling next to the file.
   far above 1 (render-to-texture uses (3,4,2)), so a lighter stand-in renders
   their ground white. `checkboard.ktx2` is an older, unused encoding.
 - `colors.png` — procedural 256x256 gradient (Apache-2.0, generated)
-- `hatch-0.jpg` — procedural 256x256 diagonal hatch (Apache-2.0, generated)
-- `seaside-rocks01-color.jpg`, `-normal.jpg`, `-gloss.jpg`, `-height.jpg` — the
-  seaside-rocks01 set from the upstream examples, byte-identical to theirs (1024x1024).
-  LICENCE TO CONFIRM: these were previously a higher-resolution ambientCG Rock026
-  encode (2048x2048, CC-0) and were replaced 2026-09-16 to match upstream's pixels.
-  The substitute's GLOSS differed materially — mean 130/255 (0.51, max 0.73) against
-  upstream's 191/255 (0.75, max 1.0) — and gloss drives the environment-atlas
-  refraction lookup's mip: at 0.51 the `refraction` example's capsules read as a flat
-  opaque wash, at upstream's 0.75 they read as glass. Used by `refraction` and
-  `area-light`.
-- `playcanvas.png` / `playcanvas-grey.png` — PlayCanvas logo textures (CC-0)
-- `snowflake.png`, `spark.png`, `particles-numbers.png` — particle sprites from PlayCanvas (CC-0)
-- `normal-map.png` — tiling normal map from PlayCanvas examples (CC-0)
+- `hatch-0.jpg` — procedural 256x256 diagonal hatch (Apache-2.0, generated). UNUSED
+  today, and it does NOT match upstream's hatch texture (mean 189/255 against 225).
+  Replace it with upstream's before porting `shaders/shader-hatch`, or that port will
+  be measured against the wrong art.
+- `seaside-rocks01-color.jpg`, `-normal.jpg`, `-gloss.jpg`, `-height.jpg` — 1024x1024,
+  byte-identical to the upstream set.
+  LICENCE TO CONFIRM. The pixels must stay as they are: gloss drives the
+  environment-atlas refraction lookup's mip (`level = (1 - gloss) * 5`), and a
+  substitute averaging 0.51 instead of this set's 0.75 sampled a prefiltered level,
+  rendering `refraction`'s capsules a flat opaque wash instead of glass. Used by
+  `refraction` and `area-light`.
+- `playcanvas.png` / `playcanvas-grey.png` — logo textures (CC-0 assets, but the
+  depicted logo is a third-party mark: branding, not reusable art)
+- `snowflake.png`, `spark.png`, `particles-numbers.png` — particle sprites (CC-0)
+- `normal-map.png` — tiling normal map (CC-0)
+- `heart.png` — light-cookie / decal texture; provenance unconfirmed, see
+  THIRD_PARTY_NOTICES. Used by `lights`, `clustered-spot-shadows`, `mesh-decals`.
+- `bricks076a/` — ambientCG "Bricks 076 A" (CC-0), converted to webp; carries its
+  own `Bricks076A-textures.txt`. Used by `parallax-mapping`.
+- `lightmap-pools.tga`, `lut-teal-orange.tga` — no recorded origin and no
+  generating tool in this repository. `lut-teal-orange.tga` is the 3D-LUT test
+  strip used by `ambient-occlusion-davinci`; `lightmap-pools.tga` is unused.
 
 ### fonts/ — complete
-- `courier.json` + `courier.png` — Courier MSDF bitmap-font atlas from PlayCanvas (CC-0)
-- `arial.json` + `arial.png` — Arial MSDF bitmap-font atlas from PlayCanvas (CC-0 atlas; Arial typeface is Monotype-proprietary)
+- `courier.json` + `courier.png` — Courier MSDF bitmap-font atlas (CC-0)
+- `liberation-sans.json` + `liberation-sans.png` + `.txt` — SDF atlas of the 95
+  printable ASCII glyphs, generated from Liberation Sans 2.1.5 (**SIL OFL 1.1**, so
+  the copyright notice and licence must accompany it — they are in the `.txt`).
+  Liberation Sans is metric-compatible with Arial, so every advance matches the
+  Arial atlas this replaced. Used by `raycast`, `post-processing` and `anisotropy`.
 
 ### animations/bitmoji/ — complete
-- `idle.glb`, `walk.glb`, `run.glb`, `jump-flip.glb`, `win-dance.glb` — Bitmoji locomotion clips from PlayCanvas (CC-0)
+- `idle.glb`, `walk.glb`, `run.glb`, `jump-flip.glb`, `win-dance.glb` — Bitmoji locomotion clips (CC-0)
 
 ### hdri/ — complete
 - `cannon-2k.hdr` — Cannon outdoor HDRI from Poly Haven (CC-0)
 - `kloofendal-2k.hdr` — Kloofendal partly cloudy HDRI from Poly Haven (CC-0)
 
 ### models/ — complete
-- `a_beautiful_game.glb` — ABeautifulGame chess set from Khronos glTF-Sample-Assets (CC-0, ASWF)
-- `antique_camera.glb` — AntiqueCamera from Khronos glTF-Sample-Assets (CC-BY 4.0, UX3D)
-- `ClearCoatTest.glb` — ClearCoatTest from Khronos glTF-Sample-Assets (CC-BY 4.0, Analytical Graphics/Ed Mackey)
-- `box_textured.glb` — BoxTextured from Khronos glTF-Sample-Assets (CC-BY 4.0, Cesium)
-- `fox.glb` — Fox animated model from Khronos glTF-Sample-Assets (mesh CC-0, animation CC-BY 4.0)
+- `a_beautiful_game.glb` — ABeautifulGame chess set from Khronos glTF-Sample-Assets
+  (**CC-BY 4.0** — © 2020 Academy Software Foundation for the model, © 2022 Ed Mackey
+  for the glTF conversion)
+- `antique_camera.glb` — AntiqueCamera from Khronos glTF-Sample-Assets (CC-0, UX3D,
+  created by Maximillan Kamps, see .txt)
+- `ClearCoatTest.glb` — ClearCoatTest from Khronos glTF-Sample-Assets (**CC-BY 4.0**,
+  © 2020 Analytical Graphics, Inc., created by Ed Mackey, see .txt)
+- `box_textured.glb` — BoxTextured from Khronos glTF-Sample-Assets (**CC-BY 4.0**,
+  © 2017 Cesium, see .txt)
+- `fox.glb` — Fox animated model from Khronos glTF-Sample-Assets (mesh CC-0 PixelMannen;
+  rig + animation **CC-BY 4.0** tomkranis; glTF conversion **CC-BY 4.0** @AsoboStudio
+  and @scurest, see .txt)
 - `toy_car.glb` — ToyCar from Khronos glTF-Sample-Assets (CC-0)
 - `da_vinci_workshop.glb` — Da Vinci Workshop from Sketchfab (CC-0)
 - `leonardo_da_vinci.glb` — Leonardo da Vinci from Sketchfab (CC-0)
@@ -62,10 +73,10 @@ their original `<name>.txt` license sibling next to the file.
 - `metric_tensor_riemann.glb` — Metric Tensor from Sketchfab (CC-0)
 - `miller_indices_problem_2.glb` — Miller Indices from Sketchfab (CC-0)
 
-Mirrored from PlayCanvas examples (for visual parity):
-- `statue.glb` — PlayCanvas statue (CC-0)
+Mirrored from the upstream examples (for visual parity):
+- `statue.glb` — statue (CC-0)
 - `geometry-camera-light.glb` — GLB with embedded camera + lights (CC-0)
-- `playcanvas-cube.glb` — PlayCanvas logo cube (CC-0)
+- `playcanvas-cube.glb` — logo cube (CC-0; the logo is a third-party mark)
 - `bitmoji.glb` — Bitmoji character for anim state graph (CC-0)
 - `chess-board.glb` — Chess Board by Idmental, Sketchfab (**CC-BY 4.0**, see .txt)
 - `terrain.glb` — Low-poly terrain, Sketchfab (**CC-BY 4.0**, see .txt)
@@ -73,11 +84,16 @@ Mirrored from PlayCanvas examples (for visual parity):
 - `glass-table.glb` — Low-poly glass table, Sketchfab (**CC-BY 4.0**, see .txt)
 - `pbr-house.glb` — House 03 PBR, Sketchfab (**CC-BY 4.0**, see .txt)
 - `house.glb` — House scene w/ generated UV1 for lightmapping, Sketchfab (**CC-BY 4.0**, see .txt)
-- `SunglassesKhronos.glb` — Sunglasses from Khronos glTF-Sample-Assets (**CC-BY 4.0**)
+- `SunglassesKhronos.glb` — **PROVENANCE UNCONFIRMED** (see .txt). The Khronos
+  glTF-Sample-Assets collection has no "Sunglasses" model, so the filename's implied
+  source is wrong, and no licence is documented anywhere for it.
 - `apartment.glb` — Mirror's Edge Apartment by Aurélien Martel, Sketchfab (**CC-BY-NC 4.0 — NON-COMMERCIAL ONLY**, see .txt)
 - `love.glb` — Love neon sign 02 by daysena, Sketchfab (**CC-BY 4.0**, see .txt)
 - `laboratory.glb` — Laboratory by Sketchfab (**CC-BY 4.0**, see .txt)
-- `dry-sand-terrain.glb` — FREE Dry Sand Terrain by josevega, Sketchfab (**CC-BY 4.0**, see .txt)
+- `dry-sand-terrain.glb` — FREE Dry Sand Terrain by josevega, Sketchfab (**CC-BY 4.0**,
+  webp texture re-encoded to jpeg, see .txt) — this engine has no webp decoder
+  (`tools/glb_reencode_webp.py`). Same mesh and exporter otherwise, so that re-encode
+  is the only difference from the upstream copy.
 - `cat.glb` — Egyptian Cat Statue by Ankledot, Sketchfab (**CC-BY 4.0**, webp textures re-encoded to png, see .txt)
 - `tamiya-dt03.compressed.ply` — Tamiya DT-03 by Simon Bethke, SuperSplat
   (**CC-BY 4.0**, see .txt). Used by `gsplat-example`. Downloaded as a 154 MB
@@ -86,31 +102,16 @@ Mirrored from PlayCanvas examples (for visual parity):
 - `sh_sphere.ply`, `compressed_rings.ply`, `torus_splats.ply` — procedurally
   generated splat test assets (Apache-2.0, generated). Used by `gsplat-tier2`.
 
-Removed 2026-08-15: `biker.compressed.ply` and `skull.compressed.ply`, both
-mirrored from the PlayCanvas example set. PlayCanvas ships a `.txt` attribution
-sibling only for the splats whose licence it knows (`apartment`,
-`knock-community-hall` — both CC-BY-4.0 with named authors) and has none for
-those two, so their provenance was unconfirmed; `biker` was additionally a
-capture of a person. `gsplat-example` now uses the CC-BY-4.0 `tamiya-dt03`
-capture instead. Recoverable from git history if their licence is ever
-established.
-
 ### cubemaps/ — complete
-- `helipad-env-atlas.png` — 512x512 RGBP atlas mirrored from the PlayCanvas example set
-- `table-mountain-env-atlas.png` — 512x512 RGBP atlas mirrored from the PlayCanvas example set
-- `morning-env-atlas.png` — 512x512 RGBP atlas mirrored from the PlayCanvas example set
+- `helipad-env-atlas.png`, `table-mountain-env-atlas.png`, `morning-env-atlas.png` —
+  512x512 RGBP atlases, byte-identical to the upstream set so the examples light
+  exactly as theirs do
+- `xmas_faces/*.png` — six light-cookie cubemap faces. Used by `lights`.
 
-All three are byte-identical to the PlayCanvas example assets, so the examples
-light identically to their upstream counterparts. The PlayCanvas repository is
-MIT-licensed and ships no separate attribution file for these atlases, so the
-original HDR sources are not documented upstream — see THIRD_PARTY_NOTICES.
-
-Previously `helipad-env-atlas.png` and `table-mountain-env-atlas.png` were
-locally generated with `tools/generate-env-atlas` (from Poly Haven `cannon-2k.hdr`
-and `kloofendal-2k.hdr`, CC-0) and only borrowed the upstream filenames — they
-were entirely different environments, which made every example that used them
-light differently from upstream. That tool still works if CC-0-only atlases are
-ever needed again.
+**Provenance unconfirmed** for all of the above. They are mirrored byte-for-byte from
+the upstream example set, whose repository is MIT-licensed but carries no per-asset
+attribution for them, so the original HDR sources are undocumented. `tools/generate-env-atlas`
+produces CC-0 replacements where that matters for a release — see THIRD_PARTY_NOTICES.
 
 ## Sources
 
