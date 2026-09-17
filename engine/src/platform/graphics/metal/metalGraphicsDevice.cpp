@@ -133,14 +133,22 @@ namespace visutwin::canvas
         //  - displaySync must be forced ON: SDL's renderer (whose layer we
         //    borrow) may have disabled it, letting presents outrun the
         //    refresh rate entirely (measured 140+ fps on a 120 Hz panel).
-        //  - Two drawables (not the default three) stop the CPU from
-        //    bursting several frames ahead and then stalling a whole vsync
-        //    (measured dt alternating ~2 ms / ~33 ms).
+        //    That is also what stops the CPU bursting frames ahead and then
+        //    stalling a whole vsync (dt alternating ~2 ms / ~33 ms): with sync
+        //    on, three drawables pace exactly like two (measured 2026-09-17 on
+        //    ambient-occlusion and area-picker: median 16.7 ms, p5 16.0, p95
+        //    17.3, no frame under 10 ms or over 25 ms with either count).
+        //  - Three drawables, the layer's default, NOT two. In a fullscreen
+        //    space the display holds one drawable through the next flip, so
+        //    with only two the loop waits two intervals per frame: 2560x1440
+        //    ran at 33 ms per frame with 5 ms of GPU work, and every click
+        //    arrived a third of a second late. Windowed mode, composited by
+        //    the WindowServer, never showed it.
         // vsync=false leaves sync off and keeps three drawables for
         // maximum CPU/GPU overlap (uncapped-fps benchmarking).
         _metalLayer->setDisplaySyncEnabled(options.vsync);
         if (options.vsync) {
-            _metalLayer->setMaximumDrawableCount(2);
+            _metalLayer->setMaximumDrawableCount(3);
         }
 
         _commandQueue = _device->newCommandQueue();

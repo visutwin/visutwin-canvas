@@ -789,6 +789,15 @@ present, but the rule below never depends on reading it.
   on both sides: at 0.51 upstream goes flat too, at 0.9 ours turns to glass. A
   substituted texture therefore breaks parity through any channel the shader
   READS, not just albedo; the whole seaside-rocks01 set is now upstream's bytes.
+- **Metal frame pacing is display sync ON with THREE drawables.** Display sync
+  is what gives an even dt (SDL's renderer, whose layer the device borrows, may
+  have switched it off); the drawable count does not affect pacing once sync is
+  on. Two drawables — the setting from 2026-08 — halve the frame rate in a
+  fullscreen space, where the display holds a drawable through the next flip:
+  2560x1440 ran at 33 ms a frame with 5 ms of GPU work and clicks landed a third
+  of a second late, while windowed mode never showed it. Measure pacing as the
+  frame-dt distribution (median, p5, p95, counts under 10 and over 25 ms), and
+  measure it in fullscreen as well as windowed before touching either setting.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.
