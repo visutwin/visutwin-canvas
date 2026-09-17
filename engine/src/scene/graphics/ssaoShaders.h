@@ -117,11 +117,25 @@ static inline float3 faceNormal(float3 dpdx, float3 dpdy)
 }
 
 // Compute normals directly from the depth texture (full resolution normals)
+// Snap a UV to the centre of the depth texel it falls in, so the position
+// reconstructed from that texel's depth is the surface point the depth was
+// rendered at (upstream's snapToDepthTexelCenter). The depth is point-sampled,
+// so an unsnapped UV pairs a texel's depth with a position up to half a texel
+// away from it — a flat surface then reconstructs as a staircase and occludes
+// ITSELF: measured on ambient-occlusion's outer wall, the raw factor was 0.54
+// on a plane that should read 1.0, and the depth-aware blur turned the
+// staircase into faint stripes across every flat wall and the floor.
+static inline float2 snapToDepthTexelCenter(float2 uv, depth2d<float> depthTexture)
+{
+    const float2 size = float2(depthTexture.get_width(), depthTexture.get_height());
+    return (floor(uv * size) + 0.5) / size;
+}
+
 static inline float3 computeViewSpaceNormal(float3 position, float2 uv, float2 invResolution,
     float aspect, depth2d<float> depthTexture, sampler linearSampler, float cameraNear, float cameraFar)
 {
-    float2 uvdx = uv + float2(invResolution.x, 0.0);
-    float2 uvdy = uv + float2(0.0, invResolution.y);
+    float2 uvdx = snapToDepthTexelCenter(uv + float2(invResolution.x, 0.0), depthTexture);
+    float2 uvdy = snapToDepthTexelCenter(uv + float2(0.0, invResolution.y), depthTexture);
     float depthDx = depthTexture.sample(ssaoDepthSampler, uvdx);
     float depthDy = depthTexture.sample(ssaoDepthSampler, uvdy);
     float3 px = computeViewSpacePositionFromDepth(uvdx, getLinearDepth(depthDx, cameraNear, cameraFar), aspect);
@@ -161,7 +175,7 @@ static inline void computeAmbientOcclusionSAO(
 
     float ssRadius = max(1.0, tap.z * ssDiskRadius); // at least 1 pixel screen-space radius
 
-    float2 uvSamplePos = uv + float2(ssRadius * tap.xy) * invResolution;
+    float2 uvSamplePos = snapToDepthTexelCenter(uv + float2(ssRadius * tap.xy) * invResolution, depthTexture);
 
     float occlusionDepth = getLinearDepth(depthTexture.sample(ssaoDepthSampler, uvSamplePos), cameraNear, cameraFar);
     float3 p = computeViewSpacePositionFromDepth(uvSamplePos, occlusionDepth, aspect);
@@ -213,7 +227,7 @@ fragment float4 ssaoFragment(
     sampler linearSampler [[sampler(0)]],
     constant SsaoUniforms& uniforms [[buffer(3)]])
 {
-    const float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
+    const float2 uv = snapToDepthTexelCenter(clamp(in.uv, float2(0.0), float2(1.0)), depthTexture);
 
     float rawDepth = depthTexture.sample(ssaoDepthSampler, uv);
     float depth = getLinearDepth(rawDepth, uniforms.cameraNear, uniforms.cameraFar);
@@ -301,9 +315,17 @@ vec3 viewPosFromDepth(vec2 uv, float linearDepth, float aspect) {
     return vec3((0.5 - uv) * vec2(aspect, 1.0) * linearDepth, linearDepth);
 }
 
+// Snap to the centre of the depth texel read, so the reconstructed position is
+// the point the depth was rendered at (upstream's snapToDepthTexelCenter; see
+// the MSL twin above for what it fixes).
+vec2 snapToDepthTexelCenter(vec2 uv) {
+    vec2 size = vec2(textureSize(depthTex, 0));
+    return (floor(uv * size) + 0.5) / size;
+}
+
 vec3 viewNormal(vec3 position, vec2 uv, vec2 invRes, float aspect) {
-    vec2 uvdx = uv + vec2(invRes.x, 0.0);
-    vec2 uvdy = uv + vec2(0.0, invRes.y);
+    vec2 uvdx = snapToDepthTexelCenter(uv + vec2(invRes.x, 0.0));
+    vec2 uvdy = snapToDepthTexelCenter(uv + vec2(0.0, invRes.y));
     vec3 px = viewPosFromDepth(uvdx, getLinearDepth(texture(depthTex, uvdx).r), aspect);
     vec3 py = viewPosFromDepth(uvdy, getLinearDepth(texture(depthTex, uvdy).r), aspect);
     return normalize(cross(px - position, py - position));
@@ -312,7 +334,7 @@ vec3 viewNormal(vec3 position, vec2 uv, vec2 invRes, float aspect) {
 void main() {
     float aspect = pc.aspect;
     vec2 invRes = pc.invResolution;
-    vec2 uv = clamp(vUv, vec2(0.0), vec2(1.0));
+    vec2 uv = snapToDepthTexelCenter(clamp(vUv, vec2(0.0), vec2(1.0)));
 
     float depth = getLinearDepth(texture(depthTex, uv).r);
     vec3 origin = viewPosFromDepth(uv, depth, aspect);
@@ -335,7 +357,7 @@ void main() {
         for (float i = 0.0; i < sampleCount; i += 1.0) {
             float radius = (i + noise + 0.5) * invSampleCount;
             float ssRadius = max(1.0, radius * radius * ssDiskRadius);
-            vec2 uvSamplePos = uv + ssRadius * tapPos * invRes;
+            vec2 uvSamplePos = snapToDepthTexelCenter(uv + ssRadius * tapPos * invRes);
 
             float occlusionDepth = getLinearDepth(texture(depthTex, uvSamplePos).r);
             vec3 p = viewPosFromDepth(uvSamplePos, occlusionDepth, aspect);

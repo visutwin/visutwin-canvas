@@ -602,6 +602,20 @@ present, but the rule below never depends on reading it.
   sampler. Establish this kind of thing by making the shader REPORT it: sample at
   a texel centre, one texel across, and exactly halfway, then check whether the
   halfway tap is the average. Reading the sampler-creation code is not enough.
+- **A pass that reconstructs a position from a depth tap must SNAP the tap's UV to
+  the centre of the texel it reads** (`snapToDepthTexelCenter` in both SSAO
+  bodies). Point sampling returns the texel's depth, but an unsnapped UV places
+  the reconstructed point up to half a texel away from where that depth was
+  rendered — a plane comes back as a staircase and the SSAO kernel occludes a flat
+  surface with ITSELF. Upstream added the snap on 2026-07-24 (#9112), after this
+  port's SSAO was written. Measured on `ambient-occlusion`: the raw SSAO factor
+  was 0.54 on the outer wall and 0.88 on the floor, where a plane must read 1.0,
+  carrying a dither that the depth-aware blur turned into 3-4 px stripes across
+  every flat wall and the floor; snapped, the floor reads exactly 1.000. Read the
+  RAW factor, not the frame: divide a combine-mode capture with blur off by one
+  with SSAO off over a flat region — a plane must return 1.0 with zero variance,
+  while the stripes in the finished image are under one count and read as shadow
+  acne. Neither shadow light was involved: switching each off left the pattern.
 - **Screen-space derivatives are undefined inside the per-light loop**, which sits
   behind fragment-varying `continue`s. An undefined mip LOD reads a fully averaged
   mip — a heart-shaped cookie became a flat wash of its own average. Sample with
