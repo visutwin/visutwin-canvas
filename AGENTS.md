@@ -568,6 +568,25 @@ present, but the rule below never depends on reading it.
   ground plane lit by a blue sky came back dark navy. Both `toSphericalUv` and
   `dirToEquirect` now pick azimuth 0 at the pole. Any new direction-to-equirect
   code owes the same guard.
+- **A Metal texture is SHARED unless it is a render target created without host
+  data, which is PRIVATE.** Shared storage is what `replaceRegion` uploads need,
+  and what every texture got until 2026-09-17 — render targets included, which on
+  Apple GPUs forgoes lossless framebuffer compression. `RenderTarget`'s
+  constructor marks its attachments (`Texture::renderTargetUse`); the GPU object
+  already exists by then (the texture constructor creates it), so the mark
+  RECREATES one that holds no host data, and a later CPU write into a private
+  texture stages through a blit (`MetalTexture::writeRegion`). Two traps met on
+  the way: `Texture::hasLevels()` is true for EVERY texture (the constructor sizes
+  the level table) — `hasHostData()` is the "created empty" test; and
+  `replaceRegion` on a private texture is a Metal assertion, not an error, which
+  is how the first attempt died on the env atlas upload.
+- **A GPU-time claim needs both builds in ONE session, run interleaved.** This
+  machine's GPU clock state moves ambient-occlusion's frame by a millisecond
+  between days and by half of one between consecutive runs, which is the whole
+  size of most effects worth chasing. Single-run ablations on 2026-09-16 "found"
+  1 ms in the depth resolve and 0.7 in texture storage; the same changes measured
+  0.0 the next day with the previous commit copied out as a second binary and the
+  two alternated three times each. Keep the old binary, alternate, take medians.
 - **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
   Apple GPUs. Every optional texture sample must be gated on its flags bit or its
   runtime enable (`setEnvAtlasEnabled`, `hasSpecGlossMap` bit 21). This has bitten

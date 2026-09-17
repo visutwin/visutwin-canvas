@@ -77,6 +77,10 @@ namespace visutwin::canvas
         void setNeedsMipmapsUpload(const bool needsMipmapsUpload) { _needsMipmapsUpload = needsMipmapsUpload; }
 
         bool hasLevels() const { return !_levels.empty(); }
+        /// Whether any mip of any face carries host data. hasLevels() is true for
+        /// every texture — the constructor sizes the level table — so this is the
+        /// test for "was created empty, as a render target is".
+        bool hasHostData() const;
         uint32_t getNumLevels() const { return _numLevels; }
         void* getLevel(uint32_t mipLevel) const;
         // Face-aware variant for cubemaps (levels are stored per face).
@@ -123,6 +127,18 @@ namespace visutwin::canvas
 
         PixelFormat format() const { return _format; }
         bool storage() const { return _storage; }
+
+        /// Set by RenderTarget when this texture becomes an attachment. A backend
+        /// that has not created its GPU object yet may choose render-target
+        /// storage for it (Metal: private rather than shared, which is what lets
+        /// the GPU compress it and resolve into it in-tile). Purely a hint.
+        bool renderTargetUse() const { return _renderTargetUse; }
+        /// The GPU object is created eagerly by the constructor, before any
+        /// RenderTarget can say what the texture is for, so marking a texture that
+        /// has no host data and no storage use recreates that object with the
+        /// backend's render-target storage. Nothing has rendered into it yet: a
+        /// target's attachment is created right before the target.
+        void setRenderTargetUse(bool value);
 
         GraphicsDevice* device() const { return _device; }
         gpu::HardwareTexture* impl() const { return _impl.get(); }
@@ -189,6 +205,7 @@ namespace visutwin::canvas
         bool _volume;
         bool _mipmaps;
         bool _storage = false;
+        bool _renderTargetUse = false;
 
         TextureProjection _projection;
 

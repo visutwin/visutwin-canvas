@@ -611,6 +611,32 @@ The cross-cutting traps stay in `AGENTS.md`.
   real depth texture. Verify a change here by edge statistics, not by eye: MSAA
   leaves whole-frame mean untouched and trades hard gradient steps for
   intermediate ones.
+- **The camera frame's multisampled scene target has INTERNAL depth, and the
+  prepass is the only sampleable depth under MSAA** (as upstream, which refuses
+  in-scene depth with MSAA). `sanitizeOptions` forces the prepass on for every
+  depth consumer — TAA, SSAO in either mode, DOF, volumetric fog — and the scene
+  pass's multisampled depth is discarded, never stored or resolved. Before
+  2026-09-17 the scene target was built over the shared depth texture, which made
+  `allocateAttachments` store AND resolve the 4x depth every frame for a texture
+  the prepass had already written. Two companions landed with it: a render target
+  created without host data is PRIVATE on Metal (`Texture::renderTargetUse`, set
+  by `RenderTarget`'s constructor; the GPU object is created eagerly, so marking
+  RECREATES an untouched one) with a staging blit for any later CPU write
+  (`MetalTexture::writeRegion`); and the scene target's twins are
+  `transientMultisample` — `StorageModeMemoryless`, tile memory only — except when
+  a later pass reloads the target (the transparent pass after a colour grab, the
+  fog combine), a store on a memoryless twin being downgraded to a resolve with
+  one warning. All three match upstream's structure and cut memory; NONE of them
+  moved the frame time. Measured 2026-09-17 with the previous commit and the new
+  build kept as two binaries and run interleaved three times each:
+  ambient-occlusion 4.36 vs 4.51 ms, forward 3.32 vs 3.41, pixel-identical. What
+  DOES hold, interleaved: MSAA adds ~1.3 ms to the forward pass here, the same at
+  2x and 4x, with minimal shading (1.25 -> 2.53 ms), with an RGBA8 target
+  (-0.24), and without the colour resolve — a fixed cost this profiler cannot
+  attribute inside the pass. A GPU capture is the next tool for it. Single-run
+  ablations the day before had "found" 1.0 ms in the depth resolve and 0.7 in
+  storage; day-to-day GPU clock state moves this scene's frame by that much, so a
+  timing claim needs both builds in one session, interleaved.
 - **The shadow pass runs the caster's OPACITY FRONTEND before writing depth**,
   as upstream's `litShadowMain` does. Without it a masked material throws the
   shadow of its quad: alpha was tested against `baseColor.a` alone, never against
@@ -702,10 +728,10 @@ The cross-cutting traps stay in `AGENTS.md`.
   still occludes in screen space, and a dithered-shadow caster must not write
   prepass depth.
 - **The prepass and the scene pass write the SAME depth texture through two render
-  targets.** The prepass target is depth-only and single-sampled on purpose: under
-  MSAA the scene target's depth is a multisampled twin, and the texture every
-  later pass samples is the resolve — which the prepass writes directly, needing
-  no resolve of its own. The cost is that a resize of the shared texture through
+  targets — single-sampled.** The prepass target is depth-only and single-sampled
+  on purpose: under MSAA the scene target's depth is internal and discarded, and
+  the texture every later pass samples is the prepass's own output, needing no
+  resolve. The cost is that a resize of the shared texture through
   one target leaves the other's attachments stale, and `RenderTarget::resize`
   cannot fix it (the second target's `width()` already reads the new size off the
   shared texture and the resize early-outs), so `RenderPassCameraFrame::frameUpdate`

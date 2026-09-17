@@ -1526,7 +1526,21 @@ namespace visutwin::canvas
                         colorAttachment->setResolveSlice(static_cast<NS::UInteger>(activeTarget->face()));
                     }
                 }
-                colorAttachment->setStoreAction(resolveColorStoreAction(ops ? ops->store : true, resolve));
+                bool storeColor = ops ? ops->store : true;
+                if (multisampled && storeColor && attachment->multisampledMemoryless) {
+                    // A memoryless twin has nowhere to be stored to. The pass that
+                    // asked was built to load this target later; that load will read
+                    // nothing, which is a scene bug rather than a crash — say so.
+                    static bool warned = false;
+                    if (!warned) {
+                        warned = true;
+                        spdlog::warn("Render target '{}' asks to STORE a transient multisampled colour "
+                            "attachment; storing is dropped. Create it without transientMultisample "
+                            "if a later pass loads it.", activeTarget->name());
+                    }
+                    storeColor = false;
+                }
+                colorAttachment->setStoreAction(resolveColorStoreAction(storeColor, resolve));
             }
 
             const auto& depthAttachmentData = offscreenTarget->depthAttachment();
@@ -1560,7 +1574,18 @@ namespace visutwin::canvas
                     // MTLDevice::supportsDepthResolveFilter and buy nothing here.
                     depthAttachment->setDepthResolveFilter(MTL::MultisampleDepthResolveFilterSample0);
                 }
-                depthAttachment->setStoreAction(resolveColorStoreAction(depthOps ? depthOps->storeDepth : true, resolveDepth));
+                bool storeDepth = depthOps ? depthOps->storeDepth : true;
+                if (depthMsaa && storeDepth && depthAttachmentData->multisampledMemoryless) {
+                    static bool warnedDepth = false;
+                    if (!warnedDepth) {
+                        warnedDepth = true;
+                        spdlog::warn("Render target '{}' asks to STORE a transient multisampled depth "
+                            "attachment; storing is dropped. Create it without transientMultisample "
+                            "if a later pass loads it.", activeTarget->name());
+                    }
+                    storeDepth = false;
+                }
+                depthAttachment->setStoreAction(resolveColorStoreAction(storeDepth, resolveDepth));
 
                 if (depthAttachmentData->hasStencil) {
                     auto* stencilAttachment = passDesc->stencilAttachment();
@@ -1571,7 +1596,8 @@ namespace visutwin::canvas
                     } else {
                         stencilAttachment->setLoadAction(MTL::LoadActionLoad);
                     }
-                    stencilAttachment->setStoreAction(depthOps && depthOps->storeStencil ? MTL::StoreActionStore : MTL::StoreActionDontCare);
+                    stencilAttachment->setStoreAction(depthOps && depthOps->storeStencil &&
+                        !(depthMsaa && depthAttachmentData->multisampledMemoryless) ? MTL::StoreActionStore : MTL::StoreActionDontCare);
                 }
             }
         }

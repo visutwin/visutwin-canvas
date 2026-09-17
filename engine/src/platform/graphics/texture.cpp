@@ -128,6 +128,27 @@ namespace visutwin::canvas
         //propertyChanged(TEXPROPERTY_ALL);
     }
 
+    bool Texture::hasHostData() const
+    {
+        for (const auto& face : _levels) {
+            for (const void* level : face) {
+                if (level) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    void Texture::setRenderTargetUse(const bool value)
+    {
+        const bool becameRenderTarget = value && !_renderTargetUse;
+        _renderTargetUse = value;
+        if (becameRenderTarget && _impl && _device && !hasHostData() && !_storage) {
+            recreateImpl(false);
+        }
+    }
+
     void Texture::recreateImpl(bool enableUpload)
     {
         // destroy existing

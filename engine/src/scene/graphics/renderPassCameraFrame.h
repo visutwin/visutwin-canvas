@@ -57,6 +57,10 @@ namespace visutwin::canvas
         bool dofEnabled = false;
         bool dofNearBlur = false;
         bool dofHighQuality = true;
+        // Volumetric fog samples scene depth after the scene pass, so it is a
+        // depth consumer for the prepass rule, and its combine pass reloads the
+        // scene target, so that target cannot be transient.
+        bool fogEnabled = false;
 
         // Vignette
         bool vignetteEnabled = false;

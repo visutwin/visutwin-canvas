@@ -23,6 +23,8 @@ namespace visutwin::canvas
 
         // Multi-sampled buffer
         MTL::Texture* multisampledBuffer = nullptr;
+        // Memoryless twin: lives in tile memory, can be resolved but never stored.
+        bool multisampledMemoryless = false;
 
         ColorAttachment() = default;
         ~ColorAttachment() = default;
@@ -48,6 +50,7 @@ namespace visutwin::canvas
 
         // Multi-sampled depth buffer allocated over the user-provided depth buffer
         MTL::Texture* multisampledDepthBuffer = nullptr;
+        bool multisampledMemoryless = false;
 
         explicit DepthAttachment(MTL::PixelFormat format, bool hasStencil);
 

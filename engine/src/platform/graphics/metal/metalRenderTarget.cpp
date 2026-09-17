@@ -16,7 +16,7 @@ namespace visutwin::canvas
     namespace
     {
         MTL::Texture* createMultisampledTexture(MetalGraphicsDevice* device, const MTL::PixelFormat format,
-            const int width, const int height, const int samples)
+            const int width, const int height, const int samples, const bool memoryless)
         {
             auto* descriptor = MTL::TextureDescriptor::alloc()->init();
             descriptor->setTextureType(MTL::TextureType2DMultisample);
@@ -24,7 +24,9 @@ namespace visutwin::canvas
             descriptor->setHeight(height);
             descriptor->setPixelFormat(format);
             descriptor->setSampleCount(samples);
-            descriptor->setStorageMode(MTL::StorageModePrivate);
+            // A transient twin never leaves tile memory: it is rendered and resolved
+            // within one pass, so it needs no backing allocation at all.
+            descriptor->setStorageMode(memoryless ? MTL::StorageModeMemoryless : MTL::StorageModePrivate);
             descriptor->setUsage(MTL::TextureUsageRenderTarget);
             auto* texture = device->raw()->newTexture(descriptor);
             descriptor->release();
@@ -183,8 +185,9 @@ namespace visutwin::canvas
 
             if (samples() > 1) {
                 colorAttachment->multisampledBuffer = createMultisampledTexture(
-                    metalDevice, colorAttachment->pixelFormat, width(), height(), samples()
-                );
+                    metalDevice, colorAttachment->pixelFormat, width(), height(), samples(),
+                    transientMultisample());
+                colorAttachment->multisampledMemoryless = transientMultisample();
             }
 
             _colorAttachments[i] = colorAttachment;
@@ -201,8 +204,8 @@ namespace visutwin::canvas
 
                 if (samples() > 1) {
                     _depthAttachment->multisampledDepthBuffer = createMultisampledTexture(
-                        metalDevice, depthFormat, width(), height(), samples()
-                    );
+                        metalDevice, depthFormat, width(), height(), samples(), transientMultisample());
+                    _depthAttachment->multisampledMemoryless = transientMultisample();
                 }
             } else {
                 spdlog::warn("MetalRenderTarget depth buffer has no Metal texture");
@@ -215,8 +218,8 @@ namespace visutwin::canvas
 
             if (samples() > 1) {
                 _depthAttachment->multisampledDepthBuffer = createMultisampledTexture(
-                    metalDevice, depthFormat, width(), height(), samples()
-                );
+                    metalDevice, depthFormat, width(), height(), samples(), transientMultisample());
+                _depthAttachment->multisampledMemoryless = transientMultisample();
             }
         }
     }

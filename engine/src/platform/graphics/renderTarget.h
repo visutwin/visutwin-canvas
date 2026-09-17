@@ -30,6 +30,12 @@ namespace visutwin::canvas
         bool stencil = false;
 
         bool autoResolve = false;
+        /// The multisampled twins are TRANSIENT: rendered and resolved within one
+        /// pass, never stored for a later pass to load. Metal then keeps them in
+        /// tile memory (StorageModeMemoryless); a pass that nevertheless asks to
+        /// store one is downgraded to a resolve with a warning. Leave false for a
+        /// target a later pass renders into without clearing.
+        bool transientMultisample = false;
 
         std::string name;
 
@@ -79,6 +85,7 @@ namespace visutwin::canvas
 
         Texture* depthBuffer() const { return _depthBuffer; }
         bool autoResolve() const { return _autoResolve; }
+        bool transientMultisample() const { return _transientMultisample; }
 
         // Cubemap face index (0-5). Used when rendering to a specific face of a cubemap texture.
         int face() const { return _face; }
@@ -127,5 +134,6 @@ namespace visutwin::canvas
         int _face;
 
         bool _autoResolve;
+        bool _transientMultisample = false;
     };
 }

@@ -192,7 +192,16 @@ namespace visutwin::canvas::gpu
             }
         }
         _descriptor->setUsage(usage);
-        _descriptor->setStorageMode(MTL::StorageModeShared);
+        // Shared storage is what a CPU upload (replaceRegion) needs and what a
+        // sampled texture with host data gets. A render target created without
+        // host data goes PRIVATE: on Apple GPUs a shared texture forgoes lossless
+        // framebuffer compression, and resolving a multisampled pass into one
+        // measured 1.7 ms on a 900x700 scene where the resolve should be free. A
+        // later CPU write into a private texture goes through a staging blit
+        // (writeRegion), so the choice costs nothing but the blit.
+        const bool privateStorage = (usage & MTL::TextureUsageRenderTarget) &&
+            _texture->renderTargetUse() && !_texture->hasHostData() && !_texture->storage();
+        _descriptor->setStorageMode(privateStorage ? MTL::StorageModePrivate : MTL::StorageModeShared);
 
         if (_texture->isCubemap()) {
             _descriptor->setTextureType(MTL::TextureTypeCube);
@@ -336,6 +345,38 @@ namespace visutwin::canvas::gpu
         }
     }
 
+    void MetalTexture::writeRegion(const MTL::Region& region, const uint32_t mipLevel, const NS::UInteger slice,
+        const void* data, const NS::UInteger bytesPerRow) const
+    {
+        if (_metalTexture->storageMode() != MTL::StorageModePrivate) {
+            _metalTexture->replaceRegion(region, mipLevel, slice, data, bytesPerRow, 0);
+            return;
+        }
+        // A private texture cannot take replaceRegion: stage the bytes in a shared
+        // buffer and blit them in, waiting for the copy as the readback path does.
+        auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(_texture->device());
+        MTL::Device* device = metalDevice ? metalDevice->raw() : nullptr;
+        MTL::CommandQueue* queue = metalDevice ? metalDevice->commandQueue() : nullptr;
+        if (!device || !queue) {
+            spdlog::warn("Texture upload skipped: private texture with no device to stage through");
+            return;
+        }
+        const size_t size = static_cast<size_t>(bytesPerRow) * region.size.height;
+        MTL::Buffer* staging = device->newBuffer(data, size, MTL::ResourceStorageModeShared);
+        MTL::CommandBuffer* buffer = staging ? queue->commandBuffer() : nullptr;
+        MTL::BlitCommandEncoder* blit = buffer ? buffer->blitCommandEncoder() : nullptr;
+        if (!blit) {
+            spdlog::warn("Texture upload skipped: could not stage a private texture write");
+            if (staging) staging->release();
+            return;
+        }
+        blit->copyFromBuffer(staging, 0, bytesPerRow, size, region.size, _metalTexture, slice, mipLevel, region.origin);
+        blit->endEncoding();
+        buffer->commit();
+        buffer->waitUntilCompleted();
+        staging->release();
+    }
+
     void MetalTexture::uploadRawImage(void* imageData, size_t imageDataSize, uint32_t mipLevel, uint32_t index) const
     {
         if (!imageData) {
@@ -372,7 +413,7 @@ namespace visutwin::canvas::gpu
                 return;
             }
             const NS::UInteger bytesPerRow = static_cast<NS::UInteger>(blocksWide) * blockSize;
-            _metalTexture->replaceRegion(region, mipLevel, slice, imageData, bytesPerRow, 0);
+            writeRegion(region, mipLevel, slice, imageData, bytesPerRow);
             return;
         }
 
@@ -399,12 +440,12 @@ namespace visutwin::canvas::gpu
             }
 
             const NS::UInteger bytesPerRow = 4u * mipWidth;
-            _metalTexture->replaceRegion(region, mipLevel, slice, expanded.data(), bytesPerRow, 0);
+            writeRegion(region, mipLevel, slice, expanded.data(), bytesPerRow);
             return;
         }
 
         const NS::UInteger bytesPerRow = bpp * mipWidth;
-        _metalTexture->replaceRegion(region, mipLevel, slice, imageData, bytesPerRow, 0);
+        writeRegion(region, mipLevel, slice, imageData, bytesPerRow);
     }
 
     void MetalTexture::uploadVolumeData(void* imageData, size_t imageDataSize, uint32_t mipLevel) const

@@ -38,6 +38,16 @@ namespace visutwin::canvas
 
         // Process optional arguments
         _depthBuffer = options.depthBuffer;
+        _transientMultisample = options.transientMultisample;
+        // Tell the attachments what they are before a backend creates them.
+        for (auto* colorBuffer : _colorBuffers) {
+            if (colorBuffer) {
+                colorBuffer->setRenderTargetUse(true);
+            }
+        }
+        if (_depthBuffer) {
+            _depthBuffer->setRenderTargetUse(true);
+        }
         _face = options.face;
 
         if (_depthBuffer) {

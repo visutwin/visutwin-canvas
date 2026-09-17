@@ -8,6 +8,8 @@
 // isolated at runtime.
 //
 #include <algorithm>
+#include <cmath>
+#include <numbers>
 #include <memory>
 
 #include <core/shape/boundingBox.h>
@@ -187,7 +189,14 @@ protected:
         const auto labBbox = entityBounds(labEntity);
         _focusPoint = labBbox.center();
         const float sceneRadius = std::max(labBbox.halfExtents().length(), 1.0f);
-        _orbitDistance = std::max(sceneRadius * 2.0f, 200.0f);
+        // Upstream's orbit script frames the focus entity at
+        // 1.5 * (largest half extent) / sin(fov / 2), clamped to its distanceMax of 350,
+        // which is where the clamp lands for this model.
+        const auto& he = labBbox.halfExtents();
+        const float frameRadius = std::max({he.getX(), he.getY(), he.getZ()});
+        const float fovDeg = (_cameraComp && _cameraComp->camera()) ? _cameraComp->camera()->fov() : 45.0f;
+        const float fovRad = fovDeg * (std::numbers::pi_v<float> / 180.0f);
+        _orbitDistance = std::min(frameRadius * 1.5f / std::sin(0.5f * fovRad), 350.0f);
 
         _controls = addOrbitControls(camera, _focusPoint);
         _controls->setMoveSpeed(2 * sceneRadius);

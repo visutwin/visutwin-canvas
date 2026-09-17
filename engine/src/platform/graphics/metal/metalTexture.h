@@ -62,6 +62,9 @@ namespace visutwin::canvas::gpu
 
     private:
         void uploadRawImage(void* imageData, size_t imageDataSize, uint32_t mipLevel, uint32_t index) const;
+        /// replaceRegion for a shared texture, a staged blit for a private one.
+        void writeRegion(const MTL::Region& region, uint32_t mipLevel, NS::UInteger slice,
+            const void* data, NS::UInteger bytesPerRow) const;
         void uploadVolumeData(void* imageData, size_t imageDataSize, uint32_t mipLevel) const;
 
         Texture* _texture = nullptr;

@@ -108,7 +108,14 @@ namespace visutwin::canvas
     CameraFrameOptions RenderPassCameraFrame::sanitizeOptions(const CameraFrameOptions& options) const
     {
         CameraFrameOptions sanitized = options;
-        if (sanitized.taaEnabled || sanitized.ssaoType != SSAOTYPE_NONE || sanitized.dofEnabled) {
+        // Every effect that samples scene depth gets it from the PREPASS, which is
+        // the only depth producer under MSAA: the scene target's multisampled depth
+        // is internal, discarded at the end of the pass and never resolved
+        // (upstream refuses in-scene depth with MSAA for the same reason). Resolving
+        // it used to cost 1 ms a frame on ambient-occlusion for a texture the
+        // prepass had already written.
+        if (sanitized.taaEnabled || sanitized.ssaoType != SSAOTYPE_NONE || sanitized.dofEnabled ||
+            sanitized.fogEnabled) {
             sanitized.prepassEnabled = true;
         }
         return sanitized;
@@ -129,6 +136,7 @@ namespace visutwin::canvas
         options.dofEnabled = dof.enabled;
         options.dofNearBlur = dof.nearBlur;
         options.dofHighQuality = dof.highQuality;
+        options.fogEnabled = _cameraComponent->volumetricFog().enabled;
         if (ssao.enabled) {
             options.ssaoType = (ssao.type == SSAOTYPE_LIGHTING) ? SSAOTYPE_LIGHTING : SSAOTYPE_COMBINE;
         } else {
@@ -464,12 +472,25 @@ namespace visutwin::canvas
         RenderTargetOptions sceneTargetOptions;
         sceneTargetOptions.graphicsDevice = gd.get();
         sceneTargetOptions.colorBuffer = _sceneTexture.get();
-        sceneTargetOptions.depthBuffer = _sceneDepthTexture.get();
+        // Single-sampled, the scene pass writes the shared depth texture directly
+        // and every later pass samples it. Multisampled, the depth is INTERNAL:
+        // rendered into a multisampled buffer that is discarded at the end of the
+        // pass, never stored, never resolved — the prepass (forced on for every
+        // depth consumer in sanitizeOptions) has already written the sampleable
+        // depth, as upstream does. A user-supplied depth texture here would make
+        // the pass store and resolve the multisampled depth every frame, which
+        // measured 1 ms on ambient-occlusion for a texture nobody needed.
+        sceneTargetOptions.depth = true;
+        sceneTargetOptions.depthBuffer = options.samples > 1 ? nullptr : _sceneDepthTexture.get();
         sceneTargetOptions.stencil = options.stencil;
         sceneTargetOptions.samples = options.samples;
-        // MSAA is only useful if the multisampled buffers are resolved into the
-        // single-sample colour/depth textures every later pass samples.
+        // MSAA is only useful if the multisampled colour is resolved into the
+        // single-sample texture every later pass samples.
         sceneTargetOptions.autoResolve = options.samples > 1;
+        // The multisampled twins stay in tile memory unless a later pass reloads
+        // the target: the transparent pass after a colour grab, or the volumetric
+        // fog combine. Both load the scene colour, so the twins must be stored.
+        sceneTargetOptions.transientMultisample = !options.sceneColorMap && !options.fogEnabled;
         sceneTargetOptions.name = "CameraFrameSceneTarget";
         _sceneRenderTarget = gd->createRenderTarget(sceneTargetOptions);
         if (_sceneRenderTarget && _sceneRenderTarget->samples() > 1) {
@@ -524,11 +545,11 @@ namespace visutwin::canvas
         }
     }
 
-    // Depth-only target over the SAME depth texture the scene target uses, so the
-    // prepass fills the buffer SSAO reads and the scene pass then clears and
-    // re-renders it. Single-sampled on purpose: with MSAA the scene target owns a
-    // multisampled twin and resolves into this texture, which is the one every later
-    // pass samples — the prepass writes it directly and needs no resolve of its own.
+    // Depth-only target over the depth texture every later pass samples. Single-
+    // sampled, the scene target shares the texture and re-renders it after the
+    // prepass; under MSAA the scene target's depth is internal and THIS is the only
+    // pass that writes the sampleable depth — the reason sanitizeOptions forces the
+    // prepass on for every depth consumer.
     void RenderPassCameraFrame::createPrepassRenderTarget() const
     {
         const auto gd = device();
@@ -653,8 +674,10 @@ namespace visutwin::canvas
                 info.lastAddedIndex = appended;
                 // A prepass discards depth by default; the grab split means this pass,
                 // not the scene pass, is the last writer, so it has to keep it for the
-                // effects that sample scene depth.
-                if (options.prepassEnabled && _scenePassTransparent->depthStencilOps()) {
+                // effects that sample scene depth. Single-sampled only: under MSAA the
+                // pass's depth is the internal multisampled buffer nothing samples.
+                if (options.prepassEnabled && options.samples == 1 &&
+                    _scenePassTransparent->depthStencilOps()) {
                     _scenePassTransparent->depthStencilOps()->storeDepth = true;
                 }
             }
@@ -924,7 +947,10 @@ namespace visutwin::canvas
             }
         }
 
-        if (gd && _sceneDepthTexture) {
+        // The sampleable scene depth: written by the scene pass single-sampled, and
+        // by the prepass alone under MSAA. With neither it holds nothing and must
+        // not be published.
+        if (gd && _sceneDepthTexture && (_options.samples == 1 || _options.prepassEnabled)) {
             gd->setSceneDepthMap(_sceneDepthTexture.get());
         }
 
