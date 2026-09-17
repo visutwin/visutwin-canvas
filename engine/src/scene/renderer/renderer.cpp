@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 11.09.2025.
 //
 #include "renderer.h"
+#include "cullModeResolve.h"
 #include "scene/renderer/sortDistance.h"
 
 #include <algorithm>
@@ -104,9 +105,13 @@ namespace visutwin::canvas
                 reinterpret_cast<uintptr_t>(meshInstance ? meshInstance->mesh() : nullptr));
         }
 
-        // Material's base cull mode — reads the parameter map (unordered_map lookup).
-        // This is the expensive part that should be cached per material.
-        CullMode resolveMaterialCullMode(const Material* material)
+    }
+
+    // Material's base cull mode — reads the parameter map (unordered_map lookup).
+    // This is the expensive part that should be cached per material. Declared in
+    // cullModeResolve.h: the depth-only draw (shadows, prepass) needs the same
+    // answer as the forward pass.
+    CullMode resolveMaterialCullMode(const Material* material)
         {
             auto readIntParameter = [](const Material::ParameterValue* value, int& out) -> bool {
                 if (!value) {
@@ -148,8 +153,8 @@ namespace visutwin::canvas
             return mode;
         }
 
-        // Node-scale flip — trivial per-draw float check, not worth caching.
-        CullMode applyNodeScaleFlip(const CullMode mode, GraphNode* node)
+    // Node-scale flip — trivial per-draw float check, not worth caching.
+    CullMode applyNodeScaleFlip(const CullMode mode, GraphNode* node)
         {
             if ((mode == CullMode::CULLFACE_BACK || mode == CullMode::CULLFACE_FRONT) && node) {
                 if (node->worldScaleSign() < 0.0f) {
@@ -159,11 +164,10 @@ namespace visutwin::canvas
             return mode;
         }
 
-        // Combined convenience wrapper (used where caching is not needed).
-        CullMode resolveCullMode(const Material* material, GraphNode* node)
-        {
-            return applyNodeScaleFlip(resolveMaterialCullMode(material), node);
-        }
+    // Combined convenience wrapper (used where caching is not needed).
+    CullMode resolveCullMode(const Material* material, GraphNode* node)
+    {
+        return applyNodeScaleFlip(resolveMaterialCullMode(material), node);
     }
 
     Renderer::Renderer(const std::shared_ptr<GraphicsDevice>& device, const std::shared_ptr<Scene>& scene) : _device(device), _scene(scene)

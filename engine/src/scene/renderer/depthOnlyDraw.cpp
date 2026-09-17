@@ -14,6 +14,7 @@
 #include "scene/skinInstance.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "shadowCasterFiltering.h"
+#include "cullModeResolve.h"
 
 namespace visutwin::canvas
 {
@@ -25,6 +26,14 @@ namespace visutwin::canvas
         }
 
         meshInstance->setVisibleThisFrame(true);
+        // The caster's own cull mode, as upstream's shadow pass (`setCullMode(true,
+        // false, meshInstance)`) and this port's forward pass apply it. Left unset,
+        // the depth passes drew with whatever the previous draw had chosen: the
+        // device default on the first frame and the last full-screen quad's
+        // CULLFACE_NONE on every frame after — so a torch light sitting inside its
+        // handle escaped the cylinder once (back faces culled) and was sealed in by
+        // it forever after, on ambient-occlusion's one-shot omni shadows.
+        device->setCullMode(resolveCullMode(meshInstance->material(), meshInstance->node()));
         device->setVertexBuffer(meshInstance->mesh()->getVertexBuffer(), 0);
 
         // A caster whose depth depends on its material — masked alpha, or shadow

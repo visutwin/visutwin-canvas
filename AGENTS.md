@@ -1266,6 +1266,26 @@ present, but the rule below never depends on reading it.
   it should have been 104, with the near plane 55 units past the batches. The camera
   argument filters components by layer, and a caller that fits or draws for one camera
   must pass it. Two sweeps of the same thing will drift again; use the collector.
+- **A depth-only draw sets the caster's cull mode itself** (`drawDepthOnly` →
+  `resolveCullMode`, the material's cull with the node's scale flip, upstream's
+  `setupCullModeAndFrontFace` in `submitCasters`). Until 2026-09-17 the shadow and
+  prepass draws inherited whatever the previous draw had left on the device: the
+  default on the very first frame, the last full-screen quad's CULLFACE_NONE on every
+  frame after. Invisible with realtime shadows (every frame is the "after" case),
+  it froze the odd frame into every one-shot shadow: `ambient-occlusion`'s torch
+  maps rendered once with back faces culled and never again, so the frame-0 look
+  differed from a re-render or a realtime run by 16k pixels. The tell for this class
+  of bug is "the first frame differs from every later one" — re-arm the one-shot at
+  frame 2 (`setShadowUpdateMode(THISFRAME)`) and compare; and read the shadow map
+  back (`Texture::read` on the atlas) rather than the lit frame, converting the
+  crushed perspective depth to distance before looking at it.
+- **The default is ONE shadow cascade, as upstream.** It was 4, and a one-shot
+  directional shadow is unusable with more than one: the receiver picks its cascade
+  by VIEW depth, so moving the camera carries the scene into cascades whose maps were
+  fitted once to the near slices of the original view — zooming into
+  `ambient-occlusion` lost every directional shadow and zooming out brought them
+  back. A scene that wants cascades sets them, and then must not use one-shot
+  directional shadows with a moving camera (upstream has the same limit).
 - **Large ground planes must stay shadow CASTERS but not receivers-only.** The
   directional shadow camera fits its depth range to casters, so a receiver-only
   ground falls outside it and catches no shadow; a huge caster inflates the fitted

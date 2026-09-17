@@ -303,8 +303,12 @@ namespace visutwin::canvas
 
         ShadowUpdateType _shadowUpdateMode = ShadowUpdateType::SHADOWUPDATE_NONE;
 
-        //numCascades, cascadeDistribution, _cascadeBlend.
-        int _numCascades = 4;
+        // ONE cascade by default, as upstream (light.js `numCascades = 1`). It used to
+        // be 4, and a one-shot directional shadow then broke the moment the camera
+        // moved: the cascade a fragment samples is picked by its VIEW depth, so
+        // zooming in carried the whole scene into cascades 0-1, whose maps had been
+        // fitted once to the empty near slices of the original view.
+        int _numCascades = 1;
         float _cascadeDistribution = 0.5f;   // 0=linear splits, 1=logarithmic, 0.5=practical blend
         float _cascadeBlend = 0.0f;          // 0=no blend, >0=dither transition width at cascade edges
 

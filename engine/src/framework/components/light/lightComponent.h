@@ -234,7 +234,7 @@ namespace visutwin::canvas
         float _penumbraSize = 1.0f;
         float _penumbraFalloff = 1.0f;
         float _vsmBias = 0.0025f;
-        int _numCascades = 4;
+        int _numCascades = 1;                // upstream's default; see Light::_numCascades
         float _cascadeDistribution = 0.5f;
         float _cascadeBlend = 0.0f;
         Texture* _cookie = nullptr;
