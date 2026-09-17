@@ -1383,6 +1383,18 @@ What stays HERE is only what bites during UNRELATED work.
   ratio. NOT normal mapping: aligning `normalScale` left this scene bit-identical.
   The bilateral blur multiplies whatever the SSAO pass disagrees about by roughly
   2.5, so an input difference worth 3% shows up as 8%.
+- **Under MSAA the sampleable scene depth is the PREPASS's texture, not an
+  attachment of the scene target, so a resize has to resize it by hand.**
+  `RenderPassCameraFrame::frameUpdate` resizes the scene target from the device
+  size; until 2026-09-17 that left `_sceneDepthTexture` at the original window
+  size while the prepass target was rebuilt around it, so SSAO sampled a 900x700
+  depth at full-window coordinates — the whole frame turned dark and streaked as
+  soon as the window grew wide enough (fine at 1600 wide, broken from ~1900).
+  A window STARTED at the large size was always right; that difference is the
+  test for any resize bug: resize at frame 30 and diff against a run started at
+  that size, expecting zero differing pixels. Log the sizes every pass sees
+  (target, source texture, device) rather than reasoning about which object a
+  resize reaches.
 - **Under a camera frame nothing publishes the sampleable depth COPY.** The frame
   publishes scene DEPTH from its own attachment, and it owns the colour grab, but
   `sceneDepthGrabMap` — the post-opaque depth copy that only SSR reads — is

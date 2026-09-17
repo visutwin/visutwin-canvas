@@ -930,6 +930,18 @@ namespace visutwin::canvas
             if (devW > 0 && devH > 0 &&
                 (_sceneRenderTarget->width() != scaledW || _sceneRenderTarget->height() != scaledH)) {
                 _sceneRenderTarget->resize(scaledW, scaledH);
+                // Under MSAA the sampleable depth is NOT an attachment of the scene
+                // target (that one carries its own internal multisampled depth), so the
+                // resize above never reached it: the prepass kept rendering into a
+                // depth texture of the ORIGINAL window size while SSAO sampled it at
+                // the new one. Resizing a window from 900 to 1900 wide turned every
+                // ambient-occlusion frame into dark, streaked noise; a window started
+                // at that size was fine, which is what said the resize was at fault.
+                if (_sceneDepthTexture &&
+                    (static_cast<int>(_sceneDepthTexture->width()) != scaledW ||
+                     static_cast<int>(_sceneDepthTexture->height()) != scaledH)) {
+                    _sceneDepthTexture->resize(scaledW, scaledH);
+                }
                 // The prepass target wraps the depth texture that resize just replaced,
                 // so its attachments are stale — and it cannot resize itself out of it,
                 // because its own width() reads the NEW size off the shared texture and
