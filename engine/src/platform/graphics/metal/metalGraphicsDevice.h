@@ -320,6 +320,7 @@ namespace visutwin::canvas
         // Replaces setVertexBytes()/setFragmentBytes() with pre-allocated MTLBuffer
         // + setVertexBufferOffset() for significantly reduced CPU overhead at scale.
         std::unique_ptr<MetalUniformRingBuffer> _transformRing;  // ModelData (slot 2)
+        bool _encoderDebugGroupOpen = false;   // pass-name debug group on the render encoder
         std::unique_ptr<MetalUniformRingBuffer> _uniformRing;    // MaterialUniforms (slot 3) + LightingUniforms (slot 4)
         std::unique_ptr<MetalPaletteRingBuffer> _paletteRing;   // Dynamic batch palette (slot 6)
 

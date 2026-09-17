@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 13.09.2025.
 //
 #include "metalGraphicsDevice.h"
+#include <typeinfo>
 
 #include <algorithm>
 #include <chrono>
@@ -274,6 +275,7 @@ namespace visutwin::canvas
     MetalGraphicsDevice::~MetalGraphicsDevice()
     {
         if (_renderPassEncoder) {
+            if (_encoderDebugGroupOpen) { _renderPassEncoder->popDebugGroup(); _encoderDebugGroupOpen = false; }
             _renderPassEncoder->endEncoding();
             _renderPassEncoder = nullptr;
         }
@@ -1611,6 +1613,19 @@ namespace visutwin::canvas
         }
 
         _renderPassEncoder = _commandBuffer->renderCommandEncoder(passDesc);
+        if (_renderPassEncoder && renderPass) {
+            // The pass name on the encoder is what Xcode's frame capture and
+            // Instruments' Metal System Trace show per encoder; without it every
+            // pass reads as "Render Command N" and a trace cannot be attributed.
+            // A pass that never set its name gets its type name. The debug group
+            // is what Instruments' GPU timeline actually displays.
+            const std::string label = !renderPass->name().empty()
+                ? renderPass->name() : std::string(typeid(*renderPass).name());
+            NS::String* nsLabel = NS::String::string(label.c_str(), NS::UTF8StringEncoding);
+            _renderPassEncoder->setLabel(nsLabel);
+            _renderPassEncoder->pushDebugGroup(nsLabel);
+            _encoderDebugGroupOpen = true;
+        }
         if (!_renderPassEncoder) {
             spdlog::error("Failed to create Metal render command encoder");
             _commandBuffer = nullptr;

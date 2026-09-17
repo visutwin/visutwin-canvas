@@ -587,6 +587,27 @@ present, but the rule below never depends on reading it.
   1 ms in the depth resolve and 0.7 in texture storage; the same changes measured
   0.0 the next day with the previous commit copied out as a second binary and the
   two alternated three times each. Keep the old binary, alternate, take medians.
+  Better still, alternate INSIDE ONE PROCESS: a setting that can change at runtime
+  (MSAA sample count through `setRendering`, a shader option) toggled every 120
+  frames shares one clock state by construction, and the passes the setting
+  cannot touch are the control that says the windows are aligned. That is how the
+  "1.3 ms fixed MSAA cost" recorded on 2026-09-17 was retracted the same day: in
+  one process 4x MSAA costs the forward pass 0.04 ms (0.958 vs 0.921 ms, 4%) at
+  900x700, and the hardware counters show the same limiter mix at both counts.
+  Separate 4x and 1x recordings had put the SSAO pass 1.5x slower under MSAA too,
+  a pass MSAA cannot touch — the signature of a clock-state difference.
+- **`xctrace` gives a GPU capture without the Xcode GUI.** `xcrun xctrace record
+  --template 'Metal System Trace' --time-limit 8s --env VISUTWIN_BACKEND=metal
+  --launch -- <binary>`, then `xctrace export --xpath '/trace-toc/run[@number="1"]/
+  data/table[@schema="metal-gpu-intervals"]'` for per-encoder vertex and fragment
+  intervals (values are id/ref compressed; resolve refs), and
+  `--instrument 'Metal GPU Counters'` adds `gpu-counter-value` (ALU, texture,
+  imageblock, interpolation limiters, occupancy, partial renders, sampled every 10
+  us — join to the intervals by time). The trace holds every process's GPU work:
+  keep only command buffers that contain this engine's six frame encoders
+  (prepass, SSAO, blur H, blur V, forward, compose, in that order). Encoder labels
+  and debug groups set on the encoder do NOT reach the export's labels, only Xcode's
+  own capture shows them; identify passes by their index in the command buffer.
 - **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
   Apple GPUs. Every optional texture sample must be gated on its flags bit or its
   runtime enable (`setEnvAtlasEnabled`, `hasSpecGlossMap` bit 21). This has bitten
