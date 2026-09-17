@@ -59,9 +59,21 @@
                 // the whole scene into ~0.001 of depth, which any bias worth the name
                 // swamps. Only the receiver's normal offset is applied, as upstream does.
                 if (cl.shadowData.x > 0.5) {
-                    const float3 shadowPosW = rd.worldPos + N * cl.shadowData.y;
                     const float res = float(clusterShadowAtlas.get_width());
                     if (cl.shadowData.w > 1.5) {
+                        // Omni receiver offset is upstream's normalOffsetPointShadow:
+                        // the GEOMETRIC normal, scaled by normalBias, by how grazing
+                        // the light is (1 - NdotL) and by the DISTANCE to the light.
+                        // A torch mounted on its own wall lights that wall at ~90
+                        // degrees from tens of units away; the flat `N * normalBias`
+                        // the spot below uses (0.2 units here) is then ~30x too small
+                        // and every face texel self-shadows in radial streaks.
+                        float3 Ng = normalize(rd.worldNormal);
+                        if (dot(Ng, N) < 0.0) Ng = -Ng;
+                        const float3 toLight = normalize(lightDirW);
+                        const float grazing = clamp(1.0 - dot(Ng, toLight), 0.0, 1.0);
+                        const float3 shadowPosW = rd.worldPos
+                            + Ng * (cl.shadowData.y * grazing * length(lightDirW));
                         if (res > 0.0) {
                             const float vis = getShadowOmniClusteredPCF3(clusterShadowAtlas,
                                 cl.shadowMatrix[0], cl.shadowMatrix[1],
@@ -69,6 +81,9 @@
                             attenuation *= mix(1.0, vis, cl.shadowData.z);
                         }
                     } else {
+                        // A spot's offset is the flat normalBias, as upstream's
+                        // getShadowCoordPerspZbufferNormalOffset.
+                        const float3 shadowPosW = rd.worldPos + N * cl.shadowData.y;
                         const float4 sc = cl.shadowMatrix * float4(shadowPosW, 1.0);
                         const float sw = max(sc.w, 1e-6);
                         const float3 scoord = sc.xyz / sw;

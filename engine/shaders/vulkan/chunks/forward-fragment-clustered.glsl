@@ -32,12 +32,20 @@
                 // for a shader bias to be harmless), an omni picks a cube face from
                 // the direction and takes the cubemap path's relative bias.
                 if (cl.shadowData.x > 0.5) {
-                    vec3 shadowPosW = fragWorldPos + N * cl.shadowData.y;
                     if (cl.shadowData.w > 1.5) {
+                        // Omni receiver offset is upstream's normalOffsetPointShadow
+                        // (see the Metal twin): geometric normal * normalBias *
+                        // (1 - NdotL) * distance to the light.
+                        vec3 Ng = normalize(fragWorldNormal);
+                        if (dot(Ng, N) < 0.0) Ng = -Ng;
+                        float grazing = clamp(1.0 - dot(Ng, L), 0.0, 1.0);
+                        vec3 shadowPosW = fragWorldPos + Ng * (cl.shadowData.y * grazing * distance);
                         float vis = getShadowOmniClusteredPCF3(cl.shadowMatrix[0], cl.shadowMatrix[1],
                             shadowPosW - cl.positionRange.xyz);
                         atten *= mix(1.0, vis, clamp(cl.shadowData.z, 0.0, 1.0));
                     } else {
+                        // A spot keeps the flat normalBias, as upstream.
+                        vec3 shadowPosW = fragWorldPos + N * cl.shadowData.y;
                         vec4 sc = cl.shadowMatrix * vec4(shadowPosW, 1.0);
                         if (sc.w > 0.0) {
                             vec3 scoord = sc.xyz / sc.w;

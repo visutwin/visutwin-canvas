@@ -642,6 +642,24 @@ present, but the rule below never depends on reading it.
   on render" — and biases these with hardware polygon offset, which the atlas pass
   already sets. What the shader applies is the receiver NORMAL offset, and
   `ClusterLightData::shadowNormalBias` carries it.
+- **A clustered OMNI receiver's normal offset is scaled by (1 - NdotL) and by the
+  DISTANCE to the light** — upstream's `normalOffsetPointShadow`, on the GEOMETRIC
+  normal; a clustered spot keeps the flat `N * normalBias`
+  (`getShadowCoordPerspZbufferNormalOffset`). Both clustered chunks used the flat
+  form for omnis until 2026-09-17. A torch mounted on its own wall lights that wall
+  at ~90 degrees from tens of units away, where the flat 0.2 units is ~30x short of
+  upstream's; the non-clustered omni path still applies NO receiver offset.
+- **The X of dark wedges around each `ambient-occlusion` torch is the torch mesh's
+  OWN shadow, not an atlas seam.** The light sits at the mesh's aabb centre, as
+  upstream places it, and a live upstream frame shows the same four sectors
+  (2026-09-17). They appeared "with the atlas" only because the cubemap path
+  shadowed two omnis at most, so three torches had no shadow at all. Diagnose a
+  suspected seam by making the shader REPORT it — force the visibility to 1, then
+  to 0, within a fraction of the face edge and see whether the artefact follows the
+  zone (it did not: the sectors extend to ~20% of the face) — and a suspected
+  caster by turning off `castShadows` on that mesh alone (the X vanished). The
+  omni shadow term of a frame is the ratio of a capture with omni shadows on to one
+  with them off, the same trick that recovers the raw SSAO texture.
 - **One cluster grid per DISTINCT LIGHT SET, not one for the frame.** The local
   light list is per (camera, layer) — the gather filters on
   `LightComponent::rendersLayer` — so the grid has to be too.
