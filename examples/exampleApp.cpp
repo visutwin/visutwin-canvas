@@ -161,6 +161,7 @@ namespace visutwin::canvas
             // SDL hands back the layer as void*, which is what the device takes —
             // no metal-cpp type is needed at the call site.
             deviceOptions.swapChain = SDL_GetRenderMetalLayer(_renderer);
+            if (std::getenv("VT_NOVSYNC")) deviceOptions.vsync = false;   // PROBE temporary
             if (!deviceOptions.swapChain) {
                 spdlog::error("SDL_GetRenderMetalLayer returned no layer — is the SDL metal renderer active?");
                 return false;

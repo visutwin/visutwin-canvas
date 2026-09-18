@@ -11,6 +11,11 @@
 #include <cmath>
 #include <numbers>
 #include <memory>
+#include <cstdlib>
+#include <map>
+#include <vector>
+#include <algorithm>
+#include "platform/graphics/gpuProfiler.h"
 
 #include <core/shape/boundingBox.h>
 #include <framework/assets/asset.h>
@@ -212,6 +217,23 @@ protected:
 
         return true;
     }
+
+    void update(float) override
+    {
+        ++_probeFrame;
+        if (_probeFrame == 20) if (const auto& gd = engine()->graphicsDevice()) if (const auto& prof = gd->gpuProfiler()) prof->setEnabled(true);
+        if (_probeFrame < 60 || _probeFrame > 360) return;
+        const auto& gd = engine()->graphicsDevice(); const auto& prof = gd ? gd->gpuProfiler() : nullptr; if (!prof) return;
+        size_t i = 0; for (const auto& pt : prof->passTimings()) { const std::string key = std::to_string(i++) + " " + pt.name; if (!_t.count(key)) _order.push_back(key); _t[key].push_back(pt.milliseconds); }
+        _frameMs.push_back(prof->frameMilliseconds());
+        if (_probeFrame == 360) {
+            auto med = [](std::vector<double> v) { std::sort(v.begin(), v.end()); return v.empty() ? 0.0 : v[v.size() / 2]; };
+            std::string line = "PROBE ours frame " + std::to_string(med(_frameMs)).substr(0, 5);
+            for (const auto& k : _order) line += " | " + k + " " + std::to_string(med(_t[k])).substr(0, 5);
+            spdlog::info("{}", line);
+        }
+    }
+    int _probeFrame = 0; std::map<std::string, std::vector<double>> _t; std::vector<std::string> _order; std::vector<double> _frameMs;
 
     bool onEvent(const SDL_Event& event) override
     {

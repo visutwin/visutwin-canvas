@@ -592,8 +592,9 @@ present, but the rule below never depends on reading it.
   frames shares one clock state by construction, and the passes the setting
   cannot touch are the control that says the windows are aligned. That is how the
   "1.3 ms fixed MSAA cost" recorded on 2026-09-17 was retracted the same day: in
-  one process 4x MSAA costs the forward pass 0.04 ms (0.958 vs 0.921 ms, 4%) at
-  900x700, and the hardware counters show the same limiter mix at both counts.
+  one process 4x MSAA costs the forward pass about 0.05 ms (1.46 vs 1.41 ms,
+  within that run's noise) at 900x700, and the hardware counters show the same
+  limiter mix at both counts.
   Separate 4x and 1x recordings had put the SSAO pass 1.5x slower under MSAA too,
   a pass MSAA cannot touch — the signature of a clock-state difference.
 - **`xctrace` gives a GPU capture without the Xcode GUI.** `xcrun xctrace record
@@ -603,11 +604,19 @@ present, but the rule below never depends on reading it.
   intervals (values are id/ref compressed; resolve refs), and
   `--instrument 'Metal GPU Counters'` adds `gpu-counter-value` (ALU, texture,
   imageblock, interpolation limiters, occupancy, partial renders, sampled every 10
-  us — join to the intervals by time). The trace holds every process's GPU work:
-  keep only command buffers that contain this engine's six frame encoders
-  (prepass, SSAO, blur H, blur V, forward, compose, in that order). Encoder labels
-  and debug groups set on the encoder do NOT reach the export's labels, only Xcode's
-  own capture shows them; identify passes by their index in the command buffer.
+  us — join to the intervals by time). The trace holds EVERY process's GPU work,
+  and the process name sits at the end of each interval's label, "(name (pid))" —
+  filter on it FIRST. This engine submits ONE command buffer per pass, so its frame
+  is a run of one-encoder buffers, "Command Buffer N:Render Command 0" with N =
+  0 prepass, 1 SSAO, 2 blur H, 3 blur V, 4 forward, 5 compose, 6 overlay; an
+  encoder's fragment work is split into several rows (depth 1, 2) when another
+  process's work preempts it, so SUM the rows per command buffer. A browser
+  running upstream's example shows one seven-encoder buffer per frame, and on
+  2026-09-17 that buffer was mistaken for ours for a whole analysis. Encoder labels
+  and debug groups set on the encoder do NOT reach the export's labels; only
+  Xcode's own capture shows them. Before recording, `pgrep -fl visutwin` — two
+  extra instances of the example were rendering that day and every duration in the
+  trace was inflated by their overlapping passes.
 - **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
   Apple GPUs. Every optional texture sample must be gated on its flags bit or its
   runtime enable (`setEnvAtlasEnabled`, `hasSpecGlossMap` bit 21). This has bitten
