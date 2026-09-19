@@ -1625,11 +1625,13 @@ What stays HERE is only what bites during UNRELATED work.
   and the shared BRDF, all of which touch what it measures. Re-measure before
   treating it as a finding.
 
-- **Upstream scales ambient diffuse light by `(1 - specularity)`; neither backend
-  does.** Its forward backend applies it after `addAmbient`, per channel, whenever
-  specular is on, in BOTH workflows. This port's shading has its own energy terms
-  and never had this one, on either backend, so it is a parity item rather than a
-  regression — found while aligning the default workflow, left for a shading pass.
+- **The ambient diffuse is scaled by `(1 - specularity)` on both backends**, right
+  where upstream's `litForwardBackend` does it after `addAmbient`: per channel, F0 in
+  either workflow, only when the material renders specular, and only on the ambient
+  irradiance (a lightmap that replaces it is not scaled, nor is direct light). Added
+  2026-09-19 after living here as an open item: on `clearcoat` it moves the lit
+  objects by 1-2% (max 3 counts), identically on Metal and Vulkan
+  (after/before 0.988 / 0.993 / 0.982 vs 0.988 / 0.992 / 0.981).
 
 ## Reference kept elsewhere
 

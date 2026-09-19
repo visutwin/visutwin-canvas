@@ -118,6 +118,10 @@
     // source here nor the Metal chunk does that. No specular floor without an
     // atlas either: `ambient * F0` is not a term Metal or upstream has, and it lit
     // metals from nothing in scenes with no environment.
+    // upstream litForwardBackend.js, right after addAmbient: the ambient diffuse is
+    // scaled by (1 - specularity) per channel when the material renders specular
+    // (twin of the block in forward-fragment-ambient.metal, which explains it).
+    ambientIrradiance *= mix(vec3(1.0), vec3(1.0) - F0, specularOn);
     vec3 indirectDiffuse = ambientIrradiance * diffuseAlbedo;
     bakeDiffuseLight += ambientIrradiance;
     // Sheen image-based lighting: sample the atlas along the reflection at the

@@ -321,6 +321,19 @@
     }
 #endif
 
+#if !VT_FEATURE_NO_SPECULAR
+    // upstream litForwardBackend.js, right after addAmbient: the ambient DIFFUSE is
+    // scaled by (1 - specularity), per channel, whenever the material renders
+    // specular — energy the surface reflects specularly is not also scattered
+    // diffusely. `specularity` is F0 in both workflows (the metalness workflow's
+    // mix(0.04, albedo, metalness), the specular workflow's specular colour). Only
+    // the ambient irradiance: the lightmap that may replace it in the tail is added
+    // unscaled upstream too, and the direct light has its own energy terms. A
+    // dielectric floor lit by its environment reads 4% darker for this; until
+    // 2026-09-19 neither backend applied it (AGENTS.md carried it as an open item).
+    indirectDiffuse *= float3(1.0) - F0;
+#endif
+
     // Diffuse occlusion. Upstream (litForwardBackend.js) runs occludeDiffuse on the
     // AMBIENT term unconditionally — before addLightMap and before the light loop —
     // and only under occludeDirect (flag bit 13) runs it again after the loop, over
