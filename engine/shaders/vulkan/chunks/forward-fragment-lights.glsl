@@ -128,7 +128,8 @@
                 float ccLtc = (areaShape != 0u)
                     ? ltcEvaluateDisk(N, V, fragWorldPos, ccMInv, p0, p1, p2)
                     : ltcEvaluateRect(N, V, fragWorldPos, ccMInv, p0, p1, p2, p3);
-                color += material.clearCoatFactor * areaRadiance * ccLtc * ccFres;
+                // Accumulated; the tail applies ccSpecularity and dims the base (as Metal).
+                ccSpecularLight += areaRadiance * ccLtc * ccFres;
             }
 
             // Fully accumulated — skip the shared punctual path.
@@ -258,7 +259,8 @@
             float ccD = ccA2 / max(PI * ccDenom * ccDenom, 1e-7);
             float ccVis = getVisibilityKelemen(ccLdotH);
             float ccF = getFresnelCC(ccLdotH);
-            color += material.clearCoatFactor * radiance * NdotL * ccD * ccVis * ccF;
+            // Accumulated; the tail applies ccSpecularity and dims the base (as Metal).
+            ccSpecularLight += radiance * NdotL * ccD * ccVis * ccF;
         }
         if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
             // Charlie distribution + Ashikhmin visibility (common-sheen.glsl),

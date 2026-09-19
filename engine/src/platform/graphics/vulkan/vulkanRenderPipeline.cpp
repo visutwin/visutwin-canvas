@@ -326,19 +326,19 @@ namespace visutwin::canvas
         // Set 1: only statically-used material slots. Binding numbers remain
         // the engine texture-slot numbers, but unused gaps consume no sampler
         // descriptors (important on MoltenVK's 16-sampler stage limit).
-        // 17 (height/parallax), 23 (detail normal) and 25 (displacement) are
-        // separate images sharing the sampler at 24, so they cost no additional
-        // per-stage sampler slots. 25 is sampled in the vertex stage.
+        // The separate images (vulkanMaterialBindingIsSeparateImage) share the
+        // sampler at 24, so they cost no additional per-stage sampler slots.
+        // 25 is sampled in the vertex stage.
         constexpr auto& textureSlots = kMaterialTextureBindings;
         std::array<VkDescriptorSetLayoutBinding, textureSlots.size()> texBindings{};
         for (uint32_t i = 0; i < texBindings.size(); i++) {
             const uint32_t binding = textureSlots[i];
             texBindings[i].binding = binding;
             texBindings[i].descriptorType =
-                binding == 24 ? VK_DESCRIPTOR_TYPE_SAMPLER
-                              : (binding == 17 || binding == 23 || binding == 25
-                                     ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
-                                     : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                binding == kMaterialExtraSamplerBinding ? VK_DESCRIPTOR_TYPE_SAMPLER
+                    : (vulkanMaterialBindingIsSeparateImage(binding)
+                           ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                           : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
             texBindings[i].descriptorCount = 1;
             texBindings[i].stageFlags = binding == 25
                 ? VK_SHADER_STAGE_VERTEX_BIT

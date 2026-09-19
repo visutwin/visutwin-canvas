@@ -192,7 +192,15 @@ namespace visutwin::canvas
         }
 
         // Shared sampler for the separate material images (height, detail
-        // normal, displacement). Linear + repeat like the Metal equivalents.
+        // normal, displacement and the three clearcoat maps). Linear + repeat
+        // AND the device's anisotropy ratio, exactly like the per-texture
+        // samplers in vulkanTexture.cpp and Metal's default sampler: on Metal
+        // these maps are read through that default sampler, so a separate image
+        // filtered without anisotropy is a backend divergence on every oblique
+        // surface. Invisible on the smooth parallax height map; on the
+        // clearcoat example's ribbed coat normal map it moved ~1,900 pixels by
+        // up to 180 counts (2026-09-19). maxAnisotropy() is published by
+        // initDevice(), which has run by now.
         VkSamplerCreateInfo extraSamplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         extraSamplerInfo.magFilter = VK_FILTER_LINEAR;
         extraSamplerInfo.minFilter = VK_FILTER_LINEAR;
@@ -201,6 +209,8 @@ namespace visutwin::canvas
         extraSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         extraSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         extraSamplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+        extraSamplerInfo.anisotropyEnable = maxAnisotropy() > 1.0f ? VK_TRUE : VK_FALSE;
+        extraSamplerInfo.maxAnisotropy = std::max(maxAnisotropy(), 1.0f);
         if (vkCreateSampler(
                 _device, &extraSamplerInfo, nullptr,
                 &_materialExtraSampler) != VK_SUCCESS) {

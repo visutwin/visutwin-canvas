@@ -347,6 +347,45 @@ void main() {
     // this. It is a specialization constant, so the zero folds away.
     float specularOn = vtFeatureEnabled(VT_FEATURE_NO_SPECULAR_BIT) ? 0.0 : 1.0;
 
+    // Clearcoat (VT_FEATURE_CLEARCOAT): a thin dielectric coat (F0 = 0.04) over the
+    // base, twin of the block in forward-fragment-surface.metal minus the clearcoat
+    // intensity/gloss/normal MAPS, which are Metal-only (AGENTS.md). The coat's direct
+    // and indirect specular accumulate here and are composed energy-conservingly in
+    // the tail. Until 2026-09-19 this backend added the coat's direct specular
+    // straight into the colour, had no coat reflection from the environment at all
+    // and never dimmed the base by what the coat reflects — the coated column of
+    // `clearcoat` read 0.6-0.75 of Metal's while every uncoated column matched.
+    float ccSpecularity = material.clearCoatFactor;
+    float ccGlossiness = 1.0 - clamp(material.clearCoatRoughness, 0.0, 1.0);
+    // Clearcoat intensity and gloss maps read their GREEN channel, upstream's
+    // convention, at the base-colour UV. Both are gated on their flag bit, never
+    // on the binding: an unbound slot holds the white fallback here, but the same
+    // gate is what keeps the two backends on one rule.
+    if ((material.flags & (1u << 14)) != 0u) {
+        ccSpecularity *= texture(clearCoatMap, uvBase).g;
+    }
+    if ((material.flags & (1u << 15)) != 0u) {
+        ccGlossiness *= texture(clearCoatGloss, uvBase).g;
+    }
+    ccGlossiness += 0.0000001; // prevent divide-by-zero
+    // Clearcoat normal: the shading normal unless a coat normal map overrides it,
+    // blended toward flat by clearCoatBumpiness exactly as the base normal map is
+    // by normalScale, and rotated into the world through the same TBN the base
+    // map used (no map without a tangent stream, for the same reason as above).
+    vec3 ccNormalW = N;
+    if ((material.flags & (1u << 16)) != 0u) {
+        vec3 ccSample = texture(clearCoatNormal, uvNormal).xyz * 2.0 - 1.0;
+        ccSample = normalize(mix(vec3(0.0, 0.0, 1.0), ccSample, material.clearCoatBumpiness));
+        vec3 ccT = fragWorldTangent.xyz;
+        if (dot(ccT, ccT) >= 1e-6) {
+            ccT = normalize(ccT);
+            vec3 ccB = normalize(cross(N, ccT)) * fragWorldTangent.w;
+            ccNormalW = normalize(mat3(ccT, ccB, N) * ccSample);
+        }
+    }
+    vec3 ccSpecularLight = vec3(0.0);
+    vec3 ccReflection = vec3(0.0);
+
     // Thin-film iridescence, computed once before the light loop and blended into
     // each Fresnel (direct, IBL, probe) by intensity — the shape
     // forward-fragment-surface.metal uses. iridescenceParams: x=intensity, y=IOR,

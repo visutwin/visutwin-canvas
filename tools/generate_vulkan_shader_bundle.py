@@ -256,6 +256,11 @@ def validate(module: str, reflection: dict) -> None:
         (1, 4, "CombinedImageSampler"),
         (1, 5, "CombinedImageSampler"),
         (1, 19, "CombinedImageSampler"),
+        # Separate images through the shared material sampler at 24: 17 parallax
+        # height, 23 detail normal, 7/13/14 clearcoat intensity/gloss/normal.
+        (1, 7, "SampledImage"),
+        (1, 13, "SampledImage"),
+        (1, 14, "SampledImage"),
         (1, 17, "SampledImage"),
         (1, 23, "SampledImage"),
         (1, 24, "Sampler"),

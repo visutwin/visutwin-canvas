@@ -131,6 +131,17 @@
         }
     }
 
+    if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+        // Energy-conserving clearcoat composition, twin of forward-fragment-tail.metal:
+        //   f = base * (1 - Fc * ccSpecularity) + (ccSpecularLight + ccReflection) * ccSpecularity
+        // Light the coat reflects cannot also reach the base, so the base is dimmed
+        // by the coat's Fresnel; the coat's own direct and environment specular are
+        // added scaled by the coat factor.
+        float ccNdotV = max(dot(ccNormalW, V), 0.0);
+        float ccScaling = 1.0 - getFresnelCC(ccNdotV) * ccSpecularity;
+        color = color * ccScaling + (ccSpecularLight + ccReflection) * ccSpecularity;
+    }
+
     // Sheen energy conservation: the sheen layer takes energy from the base layer
     // rather than adding on top of it. 0.157 is the average directional albedo of
     // the Charlie BRDF, from fitting its DFG integral. Twin of the block in

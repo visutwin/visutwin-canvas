@@ -111,6 +111,30 @@
             Fr = mix(Fr, iridFresnel, iridIntensity);
         }
         indirectSpecular = prefiltered * Fr * specularOn;
+
+        if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+            // Clearcoat reflection of the environment (twin of the block in
+            // forward-fragment-ambient.metal): the atlas along the coat's reflection
+            // at the coat's roughness — the shiny rect's first two levels when the
+            // coat is a mirror, the prefiltered chain otherwise — with the coat's
+            // fixed-F0 Fresnel. Composed in the tail, not here: the base's specular
+            // stays in indirectSpecular so occlusion and SSR see the same term Metal's do.
+            vec3 ccR = reflect(-V, ccNormalW);
+            vec2 ccEnvUv = dirToEquirect(normalize(vec3(-ccR.x, ccR.y, ccR.z)));
+            float ccLevel = clamp(1.0 - ccGlossiness, 0.0, 1.0) * 5.0;
+            float ccL0 = floor(ccLevel);
+            vec3 ccEnv;
+            if (ccL0 == 0.0) {
+                vec3 a = decodeEnv(texture(envAtlas, mapShinyUv(ccEnvUv, 0.0)));
+                vec3 b = decodeEnv(texture(envAtlas, mapShinyUv(ccEnvUv, 1.0)));
+                ccEnv = mix(a, b, ccLevel);
+            } else {
+                vec3 a = decodeEnv(texture(envAtlas, mapRoughnessUv(ccEnvUv, ccL0)));
+                vec3 b = decodeEnv(texture(envAtlas, mapRoughnessUv(ccEnvUv, ccL0 + 1.0)));
+                ccEnv = mix(a, b, ccLevel - ccL0);
+            }
+            ccReflection = ccEnv * intensity * getFresnelCC(max(dot(ccNormalW, V), 0.0));
+        }
     }
     // No kD on the irradiance: it used to be scaled by (1 - Fr) * (1 - metallic),
     // which applied (1 - metallic) a SECOND time because diffuseAlbedo already

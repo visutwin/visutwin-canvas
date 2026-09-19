@@ -181,10 +181,10 @@ namespace visutwin::canvas
             } else if (materialSet) {
                 const uint32_t binding = materialBindings[i];
                 writes[i].descriptorType =
-                    binding == 24 ? VK_DESCRIPTOR_TYPE_SAMPLER
-                                  : (binding == 17 || binding == 23 || binding == 25
-                                         ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
-                                         : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                    binding == kMaterialExtraSamplerBinding ? VK_DESCRIPTOR_TYPE_SAMPLER
+                        : (vulkanMaterialBindingIsSeparateImage(binding)
+                               ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                               : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
             } else {
                 writes[i].descriptorType =
                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

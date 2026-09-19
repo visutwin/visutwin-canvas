@@ -221,12 +221,20 @@ than folded into one integer, so no two variants can alias.
 Bump `MetalTextureBinder::kMaxTextureSlots` AND add the slot to the
 `materialSlots` clear list in `bindMaterialTextures`. Slots 0-34 are taken today
 (34 is the opacity map, Metal only).
-On Vulkan, the fragment stage already declares 15 combined image samplers and
-MoltenVK inherits a 16-per-stage limit — a 16th needs the separate-image plus
-shared-sampler treatment the light cookies use.
+On Vulkan, MoltenVK inherits a 16-SAMPLER-per-stage limit across all sets and the
+fragment stage is at it, so a new material texture is a SEPARATE image
+(`texture2D`) read through the shared sampler at set-1 binding 24, the treatment
+the parallax height map, the detail normal, the displacement map and the three
+clearcoat maps (7/13/14) already get; the light cookies do the same on set 3.
 
 The set-1 slot list lives in exactly one place, `kMaterialTextureBindings` in
-`vulkanUniformLayouts.h`. It used to be duplicated across layout creation, the
+`vulkanUniformLayouts.h`, and `vulkanMaterialBindingIsSeparateImage` beside it is
+the ONE predicate for which of those are images rather than combined samplers —
+the layout, the descriptor writes and the draw binding all call it, and the bundle
+validator's expected table (`generate_vulkan_shader_bundle.py`) has to name the
+binding too. APPEND a new binding to the list, never insert it in numeric order:
+a quad pass's texture slot i is the i-th entry, so an insertion moves every quad
+input after it. The list used to be duplicated across layout creation, the
 binding loop and the descriptor writes, and adding a slot to two of the three
 wrote every binding to the wrong index.
 
@@ -818,8 +826,11 @@ present, but the rule below never depends on reading it.
   of the base-colour map's alpha, so a material that sets ONE texture as both — the
   text element material did until the opacity map was wired — gets alpha squared on
   Metal only, which thins every anti-aliased edge while Vulkan stays unchanged. Set
-  the opacity map only when it is a different texture. The spec-gloss map and
-  the clearcoat maps are Metal only too. DEVIATIONS kept on purpose, marked at the
+  the opacity map only when it is a different texture. The spec-gloss map is
+  Metal only too; the clearcoat intensity/gloss/normal maps are on BOTH backends
+  as of 2026-09-19 (Vulkan reads them as separate images through the shared
+  material sampler, gated on flag bits 14/15/16 as Metal is). DEVIATIONS kept on
+  purpose, marked at the
   code: `refractionIndex` and `iridescenceIOR` are IORs where upstream stores eta, and
   sheen is colour + roughness where upstream has `sheenGloss` + `useSheen`.
 - **Ambient occlusion occludes the AMBIENT diffuse by default, the direct diffuse
@@ -1614,12 +1625,24 @@ What stays HERE is only what bites during UNRELATED work.
   diffuse, normal and AO detail maps and only NORMAL exists here), fog of any
   type, sheen, or iridescence. The last three mean a change to those paths has to
   be driven deliberately to be seen at all.
-- **What is left of the Vulkan/Metal gap is the INDIRECT term.** Direct lighting
-  is done: after the shared BRDF landed (2026-09-06) `parallax-mapping` reads
-  1.0003 of Metal. `clearcoat`, which is environment-dominated, still reads
-  0.986. Treat that number with suspicion before chasing it — the frame is 20-30
-  counts in the region that differs and the tonemap is not linear there, so
-  re-measure against a brighter configuration first.
+- **The clearcoat indirect gap is CLOSED (2026-09-19).** `clearcoat` on Vulkan
+  now reads a mean absolute difference of 0.002 counts against Metal on the
+  whole 900x700 frame, with 12 pixels above 8 counts — isolated specular glints,
+  the same level the rows without maps already had. The 0.986 it used to read
+  was three things stacked: Vulkan had no clearcoat IBL reflection and added the
+  coat's direct specular on top of the base instead of upstream's
+  energy-conserving `lit * (1 - Fc * cc) + (ccDirect + ccReflection) * cc`
+  composition (whole-frame 0.999-1.002 once ported); the three clearcoat MAPS
+  were Metal only, so the "Partial coating" row read 1.3x and the coat-normal
+  rows 0.85-0.95x (ported as separate images, ~1,900 pixels left differing);
+  and the shared sampler those images read through had NO anisotropy where
+  Metal's default sampler and Vulkan's per-texture samplers use the device
+  ratio, which moved only the ribbed coat normal map (the parallax height map,
+  which read through it all along, is too smooth to show it). Direct lighting
+  was already done: `parallax-mapping` reads 1.0003 since the shared BRDF.
+  A SEPARATE image read through a shared sampler must be filtered EXACTLY as the
+  per-texture sampler would filter it — check anisotropy, not just filter and
+  wrap — or every oblique surface diverges by backend.
 - **`clustered-spot-shadows`'s 19/255 difference on its normal-mapped cube faces
   is UNMEASURED since 2026-09-06.** It predates the spot cone fix, the falloff fix
   and the shared BRDF, all of which touch what it measures. Re-measure before

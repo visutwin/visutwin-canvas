@@ -668,19 +668,21 @@ namespace visutwin::canvas
         // Set 1: material textures. Cache identical image/sampler tuples for
         // the lifetime of this frame slot instead of allocating per draw.
         {
-            // 17/23/25 are separate images and 24 is their shared sampler, so
-            // the descriptor for each carries only the half it owns.
+            // The separate images (parallax, detail normal, displacement and the
+            // three clearcoat maps) read through the shared sampler at 24, so the
+            // descriptor for each carries only the half it owns.
             constexpr auto& materialSlots = kMaterialTextureBindings;
             const auto isSeparateImageSlot = [](const int slot) {
-                return slot == 17 || slot == 23 || slot == 25;
+                return vulkanMaterialBindingIsSeparateImage(static_cast<uint32_t>(slot));
             };
+            constexpr int kExtraSampler = static_cast<int>(kMaterialExtraSamplerBinding);
             std::array<VkDescriptorImageInfo, materialSlots.size()> imageInfos{};
             for (size_t i = 0; i < imageInfos.size(); ++i) {
                 const int slot = materialSlots[i];
-                imageInfos[i].sampler = (slot == 24) ? _materialExtraSampler
+                imageInfos[i].sampler = (slot == kExtraSampler) ? _materialExtraSampler
                     : (isSeparateImageSlot(slot) ? VK_NULL_HANDLE : _defaultSampler);
                 imageInfos[i].imageView =
-                    (slot == 24) ? VK_NULL_HANDLE : _whiteImageView;
+                    (slot == kExtraSampler) ? VK_NULL_HANDLE : _whiteImageView;
                 imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
 

@@ -23,18 +23,37 @@ namespace visutwin::canvas
      * statically-used slots are declared: unused gaps consume no sampler
      * descriptors, which matters against MoltenVK's 16-per-stage limit.
      *
-     * 17 (height/parallax), 23 (detail normal) and 25 (displacement) are separate
+     * 17 (height/parallax), 23 (detail normal), 25 (displacement) and the three
+     * clearcoat maps — 7 (intensity), 13 (gloss), 14 (normal) — are separate
      * images sharing the sampler at 24, so they cost no extra sampler slot; 25 is
      * sampled in the vertex stage. Slot 2 carries no material texture but is
      * declared so quad passes get contiguous slots 0..5 (compose binds six).
      *
+     * ORDER MATTERS: a quad pass's texture slot i is the i-th entry here (slot 6
+     * is binding 17, slot 7 is binding 19 — see the quad loop in
+     * vulkanGraphicsDeviceDrawBinding.cpp), so a new binding is APPENDED, never
+     * inserted in numeric order.
+     *
      * This list was duplicated in three places — the layout, the binding loop and
      * the descriptor writes — and the write path detected "is this the material
      * set?" by matching its SIZE, so adding a slot in two of the three silently
-     * wrote every binding to the wrong index. One definition now.
+     * wrote every binding to the wrong index. One definition now, and
+     * vulkanMaterialBindingIsSeparateImage is the one predicate those three
+     * sites share for the image-versus-combined split.
      */
-    inline constexpr std::array<uint32_t, 11> kMaterialTextureBindings =
-        {0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25};
+    inline constexpr std::array<uint32_t, 14> kMaterialTextureBindings =
+        {0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25, 7, 13, 14};
+
+    /// The shared sampler every separate material image reads through.
+    inline constexpr uint32_t kMaterialExtraSamplerBinding = 24;
+
+    /// True for a set-1 binding declared as a SEPARATE image (`texture2D`) that
+    /// the shader combines with the sampler at kMaterialExtraSamplerBinding.
+    constexpr bool vulkanMaterialBindingIsSeparateImage(const uint32_t binding)
+    {
+        return binding == 7 || binding == 13 || binding == 14 ||
+               binding == 17 || binding == 23 || binding == 25;
+    }
 
     // One light, matching the GLSL `Light` struct (set 2).  64 bytes.
     struct VulkanGpuLight
