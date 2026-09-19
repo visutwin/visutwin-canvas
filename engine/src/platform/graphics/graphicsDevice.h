@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <chrono>
+
 #include <array>
 #include <atomic>
 #include <map>
@@ -1022,6 +1024,13 @@ namespace visutwin::canvas
         // (default 1). More than one writes `<stem>_<frame><ext>` per frame, which is
         // what a flicker needs: two frames of ONE run, not two runs.
         uint64_t _screenshotEnvCount = 1;
+        // VISUTWIN_SCREENSHOT_TIME: arm by seconds since the first frame instead of by
+        // frame number (negative = unused). Frame counts are a poor clock for an
+        // animated scene: the same frame index landed 1 s into one run's state and
+        // 2 s past it in the next, because the two runs did not share a frame rate.
+        double _screenshotEnvTime = -1.0;
+        std::chrono::steady_clock::time_point _firstFrameTime{};
+        bool _firstFrameSeen = false;
         uint64_t _frameCounter = 0;
 
     private:

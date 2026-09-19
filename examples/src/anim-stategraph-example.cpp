@@ -238,6 +238,12 @@ protected:
             keyLightComp->setShadowDistance(16.0f);
             keyLightComp->setShadowBias(0.2f);
             keyLightComp->setShadowNormalBias(0.05f);
+            // One cascade, as upstream. A second was tried (2026-09-19) and made the
+            // character's shadow SOFTER: two cascades split the 2048 atlas into 1024
+            // quadrants, and with distribution 0.5 the split lands at 4 m, so the
+            // character at 5 m fell into the far cascade with a 3 cm texel against
+            // the single cascade's 1.7 cm. Cascades pay off only when the far one
+            // has to reach far beyond the subject, and nothing here does.
         }
 
         createDirectionalLight(Vector3(-20.0f, -150.0f, 0.0f), Color(0.65f, 0.75f, 1.0f), 0.5f);

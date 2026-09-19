@@ -5,7 +5,9 @@
 //
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
+#include <string>
 #include <cstring>
 
 #include "graphicsDevice.h"
@@ -99,12 +101,23 @@ namespace visutwin::canvas
                 if (const char* count = std::getenv("VISUTWIN_SCREENSHOT_COUNT"); count && *count) {
                     _screenshotEnvCount = std::max<uint64_t>(std::strtoull(count, nullptr, 10), 1);
                 }
-                spdlog::info("Screenshot armed: '{}' at frame {} x{}", _screenshotEnvPath,
-                    _screenshotEnvFrame, _screenshotEnvCount);
+                if (const char* time = std::getenv("VISUTWIN_SCREENSHOT_TIME"); time && *time) {
+                    _screenshotEnvTime = std::strtod(time, nullptr);
+                }
+                spdlog::info("Screenshot armed: '{}' at frame {} x{}{}", _screenshotEnvPath,
+                    _screenshotEnvFrame, _screenshotEnvCount,
+                    _screenshotEnvTime >= 0.0 ? " (by time: " + std::to_string(_screenshotEnvTime) + " s)" : "");
             }
         }
         ++_frameCounter;
-        if (!_screenshotEnvPath.empty() && _frameCounter >= _screenshotEnvFrame) {
+        if (!_firstFrameSeen) {
+            _firstFrameSeen = true;
+            _firstFrameTime = std::chrono::steady_clock::now();
+        }
+        const bool armedNow = _screenshotEnvTime >= 0.0
+            ? std::chrono::duration<double>(std::chrono::steady_clock::now() - _firstFrameTime).count() >= _screenshotEnvTime
+            : _frameCounter >= _screenshotEnvFrame;
+        if (!_screenshotEnvPath.empty() && armedNow) {
             if (_screenshotEnvCount > 1) {
                 // A burst: number each frame so consecutive frames of one run can be diffed.
                 const size_t dot = _screenshotEnvPath.rfind('.');

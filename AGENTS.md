@@ -1367,6 +1367,12 @@ present, but the rule below never depends on reading it.
   stretched over the floor exactly as upstream shows it. Keep the distance a few
   multiples of the camera distance to the subject, or scale it with the camera as
   the fly demo does.
+  A second cascade is not a free sharpening: the atlas splits into 2x2 quadrants,
+  so every cascade renders at HALF the resolution, and the subject has to fall in
+  the near one to gain anything. On `anim-stategraph` two cascades at distribution
+  0.5 split at 4 m, put the 5 m character in the far cascade and made its shadow
+  softer (3 cm texel vs 1.7). Reach for a cascade when the far one must cover far
+  more floor than the subject needs, not to fix the subject.
 - **A directional receiver's shadow depth is SATURATED, never range-tested.** The
   shadow camera's near and far are fitted to the CASTERS every frame, so a
   receiver that is not a caster — a ground plane, or any surface further along the
@@ -1411,6 +1417,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 6. `VISUTWIN_SCREENSHOT_COUNT=n` captures n CONSECUTIVE frames of one run
    (`<stem>_<frame><ext>`). A flicker is a difference between two frames of one run;
    two runs differ anyway (see the fly demo's 46k-pixel noise floor).
+   `VISUTWIN_SCREENSHOT_TIME=s` arms by seconds since the first frame instead of by
+   frame: an animated example's frame index is not a clock — the same frame landed
+   1 s into one run's state and 2 s past it in the next run of the same binary.
 
 Animated examples cannot be screenshot-diffed across shader changes.
 
