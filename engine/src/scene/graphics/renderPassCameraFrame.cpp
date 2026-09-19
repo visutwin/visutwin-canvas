@@ -840,14 +840,30 @@ namespace visutwin::canvas
     void RenderPassCameraFrame::setupDofPass(const CameraFrameOptions& options, Texture* inputTexture,
         Texture* inputTextureHalf)
     {
-        // Single-pass DOF: the compose shader reads the depth buffer directly and applies
-        // a Poisson-disc blur. The multi-pass DOF pipeline (CoC → Downsample → Blur) is
-        // NOT used — creating the _dofPass with its three sub-passes causes a black screen
-        // because the parent RenderPassDof has no render target, which corrupts the Metal
-        // render encoder state. DOF parameters are passed to the compose pass instead.
-        (void)inputTexture;
-        (void)inputTextureHalf;
-        _dofPass.reset();
+        // Upstream's FramePassDof: a CoC pass from the scene depth, a far pass that
+        // downsamples the scene premultiplied by the far CoC, and a bokeh blur over
+        // both, all feeding the compose pass's applyDof. The orchestrator has no
+        // target of its own and is never init()-ed, so the frame graph schedules its
+        // three before-passes and skips it (RenderPass::render treats an
+        // uninitialised target as "no pass"). This path was dormant until 2026-09-19
+        // behind a note that it black-screened; that note predated the frame graph's
+        // handling of targetless passes and was not re-tested. Persisted across frames
+        // like the other texture-owning sub-passes; needsReset covers the DOF options
+        // that change the textures.
+        if (options.dofEnabled && _cameraComponent && inputTexture && inputTextureHalf) {
+            if (!_dofPass) {
+                _dofPass = std::make_shared<RenderPassDof>(device(), _cameraComponent, inputTexture,
+                    inputTextureHalf, options.dofHighQuality, options.dofNearBlur);
+            }
+            const auto& dof = _cameraComponent->dof();
+            _dofPass->setFocusDistance(dof.focusDistance);
+            _dofPass->setFocusRange(dof.focusRange);
+            _dofPass->setBlurRadius(dof.blurRadius);
+            _dofPass->setBlurRings(dof.blurRings);
+            _dofPass->setBlurRingPoints(dof.blurRingPoints);
+        } else {
+            _dofPass.reset();
+        }
     }
 
     void RenderPassCameraFrame::setupComposePass(const CameraFrameOptions& options)
@@ -857,9 +873,12 @@ namespace visutwin::canvas
         _composePass->setBloomTexture(_bloomPass ? _bloomPass->bloomTexture() : nullptr);
         _composePass->setBloomIntensity(options.bloomIntensity);
         _composePass->setTaaEnabled(options.taaEnabled);
-        _composePass->setCocTexture(nullptr);   // multi-pass DOF disabled; single-pass uses depth directly
-        _composePass->setBlurTexture(nullptr);
-        _composePass->setBlurTextureUpscale(false);
+        // The multi-pass DOF textures (upstream: composePass.cocTexture / blurTexture /
+        // blurTextureUpscale). With no DOF pass the compose falls back to its
+        // single-pass depth blur, which has no near blur.
+        _composePass->setCocTexture(_dofPass ? _dofPass->cocTexture() : nullptr);
+        _composePass->setBlurTexture(_dofPass ? _dofPass->blurTexture() : nullptr);
+        _composePass->setBlurTextureUpscale(_dofPass ? !_dofPass->highQuality() : false);
         _composePass->setDofEnabled(options.dofEnabled);
         _composePass->setSsaoTexture(options.ssaoType == SSAOTYPE_COMBINE && _ssaoPass ? _ssaoPass->ssaoTexture() : nullptr);
         _composePass->setSharpness(options.sharpness);
@@ -874,7 +893,7 @@ namespace visutwin::canvas
         _composePass->setToneMapping(cameraToneMapping != TONEMAP_INHERIT ? cameraToneMapping : sceneToneMapping);
         _composePass->setExposure(_scene ? _scene->exposure() : 1.0f);
 
-        // Single-pass DOF: pass depth texture and DOF settings to compose
+        // Single-pass fallback parameters (read only when no CoC texture is bound).
         if (options.dofEnabled && _cameraComponent) {
             const auto& dof = _cameraComponent->dof();
             _composePass->setDepthTexture(_sceneDepthTexture.get());

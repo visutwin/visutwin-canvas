@@ -512,11 +512,29 @@ present, but the rule below never depends on reading it.
   (`shadow.frag` was compiled but not listed). Do not go back to a hand list.
   Note the bundle is one header included by many engine sources, and Ninja
   rebuilds by mtime, so a comment-only chunk edit still recompiles those files.
-- **The multi-pass DOF path is DEAD CODE.** `RenderPassCameraFrame::setupDofPass()`
-  only calls `_dofPass.reset()`, so `RenderPassDof`, `RenderPassCoC` and
-  `RenderPassDofBlur` are never constructed. Depth of field runs entirely through
-  `applyDofSinglePass` in the compose shader. Screenshot-verifying those passes
-  proves NOTHING. Reviving the path means giving `RenderPassDof` a render target.
+- **Depth of field is the MULTI-PASS pipeline, and a Vulkan quad slot is an INDEX
+  into the material binding list.** `RenderPassCameraFrame::setupDofPass` builds
+  upstream's FramePassDof — a CoC pass from the scene depth, a far pass that box-
+  downsamples the scene premultiplied by the far CoC, a bokeh blur over upstream's
+  concentric kernel (generated in the shader; the radius is a fraction of a 540-row
+  reference frame), and `applyDof` in compose mixing by the CoC sum, with a 3x3
+  CoC-weighted upsample at low quality. It sat dead until 2026-09-19 behind a note
+  that it black-screened, which predated the frame graph's handling of a targetless
+  orchestrator pass (`RenderPass::render` skips an uninitialised target and the
+  graph recurses into its before-passes). The compose keeps `applyDofSinglePass` only
+  as the fallback when no CoC texture is bound; it has no near blur. Two things it
+  cost: the box downsample never implemented `premultiplyTexture` (added as a
+  variant keyed on the channel), and on Vulkan the quad path mapped a quad slot to
+  the set-1 binding of the SAME NUMBER, so slots 6 and 7 had no binding — a quad
+  shader declaring `(set = 1, binding = 6)` made MoltenVK's translation drop the
+  samplers of OTHER textures ("undeclared identifier _NSmplr" on bloom). Now quad
+  slot i is `kMaterialTextureBindings[i]`: 0-5 are bindings 0-5, slot 6 is binding
+  17 (a SEPARATE image — declare `texture2D` and sample through the extra sampler at
+  24) and slot 7 is binding 19 (`sampler2D`). Also: `textureSize()` on a combined
+  sampler does not survive the MSL translation either; pass sizes as uniforms.
+  Verified on `depth-of-field` (nearBlur on): high-pass energy near lamps 2.25 ->
+  1.73 (near blur exists now), far windows 3.29 -> 0.96, cat 7.60 -> 6.93; Metal
+  and Vulkan agree on 786k of 786k pixels but 16.
 - **Reading a texture back goes through `Texture::read`, and reading one the GPU
   wrote means reading it through STAGING.** The seam is `Texture::read` →
   `gpu::HardwareTexture::read`: Metal blits into a shared-storage texture, Vulkan

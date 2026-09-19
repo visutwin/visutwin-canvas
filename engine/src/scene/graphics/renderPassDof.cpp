@@ -77,8 +77,10 @@ namespace visutwin::canvas
         }
 
         if (_blurPass) {
+            // upstream FramePassDof.frameUpdate: one radius for both; the quality
+            // level changes the textures' resolution, not the radius.
             _blurPass->setBlurRadiusNear(_blurRadius);
-            _blurPass->setBlurRadiusFar(_blurRadius * (_highQuality ? 1.0f : 0.5f));
+            _blurPass->setBlurRadiusFar(_blurRadius);
             _blurPass->setBlurRings(_blurRings);
             _blurPass->setBlurRingPoints(_blurRingPoints);
         }

@@ -4,6 +4,8 @@
 //
 #include "renderPassDownsample.h"
 
+#include <string>
+
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/shader.h"
 
@@ -53,6 +55,49 @@ fragment float4 downsampleFragment(
     // Clamp invalid/negative values so bloom & DOF don't propagate NaN/Inf from the scene
     // texture. Matches upstream's REMOVE_INVALID path.
     value = max(value, float3(0.0));
+    return float4(value, 1.0);
+}
+)";
+
+        // Box filter that also multiplies the source by one channel of a second
+        // texture at the same uv — upstream's PREMULTIPLY option. The depth-of-field
+        // far pass uses it to weight the scene by the far circle of confusion before
+        // blurring, so in-focus pixels do not bleed into the blur. `{CH}` is the
+        // channel letter, substituted when the variant is built.
+        constexpr const char* DOWNSAMPLE_SOURCE_SIMPLE_PREMULTIPLY = R"(
+#include <metal_stdlib>
+using namespace metal;
+
+struct QuadVertexIn {
+    float3 position [[attribute(0)]];
+    float3 normal [[attribute(1)]];
+    float2 uv0 [[attribute(2)]];
+    float4 tangent [[attribute(3)]];
+    float2 uv1 [[attribute(4)]];
+};
+
+struct QuadVarying {
+    float4 position [[position]];
+    float2 uv;
+};
+
+vertex QuadVarying downsampleVertex(QuadVertexIn in [[stage_in]])
+{
+    QuadVarying out;
+    out.position = float4(in.position, 1.0);
+    out.uv = in.uv0;
+    return out;
+}
+
+fragment float4 downsampleFragment(
+    QuadVarying in [[stage_in]],
+    texture2d<float> sourceTexture [[texture(0)]],
+    texture2d<float> premultiplyTexture [[texture(1)]],
+    sampler linearSampler [[sampler(0)]])
+{
+    const float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
+    float3 value = max(sourceTexture.sample(linearSampler, uv).rgb, float3(0.0));
+    value *= premultiplyTexture.sample(linearSampler, uv).{CH};
     return float4(value, 1.0);
 }
 )";
@@ -161,6 +206,35 @@ void main() {
 #endif
 )";
 
+        // GLSL twin of DOWNSAMPLE_SOURCE_SIMPLE_PREMULTIPLY.
+        constexpr const char* DOWNSAMPLE_GLSL_SIMPLE_PREMULTIPLY = R"(
+#version 450
+
+#ifdef VT_VERTEX_SHADER
+layout(location = 0) in vec3 vertexPosition;
+layout(location = 2) in vec2 vertexUv0;
+layout(location = 0) out vec2 vUv;
+void main() {
+    vUv = vertexUv0;
+    gl_Position = vec4(vertexPosition, 1.0);
+}
+#endif
+
+#ifdef VT_FRAGMENT_SHADER
+layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
+layout(set = 1, binding = 1) uniform sampler2D premultiplyTexture;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 fragColor;
+void main() {
+    // Single bilinear tap (2x2 averaged by the hardware sampler), then clamp away
+    // negative/invalid values so bloom & DOF cannot propagate NaN/Inf.
+    vec3 value = texture(sourceTexture, clamp(vUv, vec2(0.0), vec2(1.0))).rgb;
+    value = max(value, vec3(0.0)) * texture(premultiplyTexture, clamp(vUv, vec2(0.0), vec2(1.0))).{CH};
+    fragColor = vec4(value, 1.0);
+}
+#endif
+)";
+
         constexpr const char* DOWNSAMPLE_GLSL_KARIS = R"(
 #version 450
 
@@ -228,11 +302,29 @@ void main() {
         // a separate MTL::Library with the same source.  This avoids hitting
         // the AGX compiled-variants footprint limit. Two cache entries because the two
         // filter variants (simple vs Karis) share symbol names but different bodies.
-        const char* cacheKey = options.boxFilter ? "DownsampleQuad:Box" : "DownsampleQuad:Karis";
         const bool glsl = device->shaderLanguage() == ShaderLanguage::Glsl;
-        const char* sourceText = options.boxFilter
-            ? (glsl ? DOWNSAMPLE_GLSL_SIMPLE : DOWNSAMPLE_SOURCE_SIMPLE)
-            : (glsl ? DOWNSAMPLE_GLSL_KARIS : DOWNSAMPLE_SOURCE_KARIS);
+        // The premultiplied box variant is only meaningful with a box filter (as
+        // upstream), and is keyed on the channel it reads.
+        const bool premultiply = options.boxFilter && options.premultiplyTexture != nullptr;
+        const std::string channel(1, premultiply ? options.premultiplySrcChannel : 'x');
+        const std::string cacheKeyStorage = premultiply
+            ? ("DownsampleQuad:BoxPremultiply:" + channel)
+            : std::string(options.boxFilter ? "DownsampleQuad:Box" : "DownsampleQuad:Karis");
+        const char* cacheKey = cacheKeyStorage.c_str();
+        std::string sourceStorage;
+        const char* sourceText = nullptr;
+        if (premultiply) {
+            sourceStorage = glsl ? DOWNSAMPLE_GLSL_SIMPLE_PREMULTIPLY : DOWNSAMPLE_SOURCE_SIMPLE_PREMULTIPLY;
+            const std::string marker = "{CH}";
+            for (size_t at = sourceStorage.find(marker); at != std::string::npos; at = sourceStorage.find(marker, at)) {
+                sourceStorage.replace(at, marker.size(), channel);
+            }
+            sourceText = sourceStorage.c_str();
+        } else {
+            sourceText = options.boxFilter
+                ? (glsl ? DOWNSAMPLE_GLSL_SIMPLE : DOWNSAMPLE_SOURCE_SIMPLE)
+                : (glsl ? DOWNSAMPLE_GLSL_KARIS : DOWNSAMPLE_SOURCE_KARIS);
+        }
         auto cached = device->getCachedShader(cacheKey);
         if (!cached) {
             ShaderDefinition shaderDefinition;

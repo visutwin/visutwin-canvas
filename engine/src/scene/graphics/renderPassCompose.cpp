@@ -108,16 +108,23 @@ namespace visutwin::canvas
         uniforms.lutIntensity2 = _colorLUTIntensity2;
         uniforms.lutBlend = _colorLUTBlend;
 
-        // Slots match the shader declarations in composeShaders.h. The old device
-        // path also bound _cocTexture and _blurTexture, but the multi-pass DOF
-        // branch that read them has been commented out for a long time — only
-        // applyDofSinglePass runs — so those two bindings are gone.
+        // Slots match the shader declarations in composeShaders.h. 6 and 7 carry the
+        // multi-pass DOF's CoC and blur; when both are bound the shader reads them
+        // instead of running its single-pass depth blur.
+        const bool multipassDof = _cocTexture != nullptr && _blurTexture != nullptr;
+        uniforms.dofMultipass = multipassDof ? 1u : 0u;
+        if (multipassDof && _blurTexture->width() > 0 && _blurTexture->height() > 0) {
+            uniforms.dofBlurTexelX = 1.0f / static_cast<float>(_blurTexture->width());
+            uniforms.dofBlurTexelY = 1.0f / static_cast<float>(_blurTexture->height());
+        }
         setQuadTextureBinding(0, _sceneTexture);
         setQuadTextureBinding(1, _bloomTexture);
         setQuadTextureBinding(2, _ssaoTexture);
         setQuadTextureBinding(3, _depthTexture);
         setQuadTextureBinding(4, _colorLUT);
         setQuadTextureBinding(5, _colorLUT2);
+        setQuadTextureBinding(6, _cocTexture);
+        setQuadTextureBinding(7, _blurTexture);
         setQuadUniforms(uniforms);
         RenderPassShaderQuad::execute();
     }

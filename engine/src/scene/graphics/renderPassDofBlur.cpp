@@ -11,7 +11,7 @@
 // screen. Depth of field runs through applyDofSinglePass in the compose shader
 // instead, reading the depth buffer directly. Anything "verified" about this
 // pass by screenshotting an example is therefore vacuous — it did not run.
-// Reviving the multi-pass path means giving RenderPassDof a render target first.
+// Live since 2026-09-19: RenderPassCameraFrame::setupDofPass builds the pipeline.
 //
 #include "renderPassDofBlur.h"
 
@@ -29,19 +29,24 @@ namespace visutwin::canvas
     {
         struct alignas(16) DofBlurUniforms
         {
-            float radii[4];  // x=blurRadiusNear, y=blurRadiusFar, z=invResX, w=invResY
+            float radii[4];  // x=blurRadiusNear, y=blurRadiusFar (both in UV, i.e. / referenceHeight), z=near aspect (h/w, 0 = no near texture), w=far aspect
             float rings[4];  // x=blurRings, y=blurRingPoints
         };
         static_assert(sizeof(DofBlurUniforms) == 32);
 
-        // Disc/bokeh blur: concentric rings weighted by the CoC at each tap.
-        // Texture order is far=0, coc=1, near=2 on both backends now — the Vulkan
-        // path used to bind near/far/coc in a different order and read the CoC
-        // channels swapped (see the divergence note in renderPassCoC.cpp).
+        // Upstream's dofBlur chunk over Kernel.concentric, generated in the shader
+        // rather than uploaded: a centre tap, then ring r of R at radius r / R with
+        // r * P points (upstream's arc spacing works out to exactly that), so the
+        // tap count is 1 + P * R * (R + 1) / 2. The step is in UV: the radius is a
+        // fraction of a 540-row reference frame, corrected for the texture's aspect,
+        // which is what makes the same blurRadius look the same at every resolution.
+        // NEAR: an unweighted average of the half-resolution scene. FAR: taps of the
+        // CoC-premultiplied far texture, weighted by the CoC at each tap, normalised
+        // by the CoC sum and then divided by this pixel's own CoC to undo the
+        // premultiply. Texture order far=0, coc=1, near=2 on both backends.
         constexpr const char* DOF_BLUR_MSL = R"(
 #include <metal_stdlib>
 using namespace metal;
-
 struct ComposeVertexIn {
     float3 position [[attribute(0)]];
     float3 normal [[attribute(1)]];
@@ -49,17 +54,14 @@ struct ComposeVertexIn {
     float4 tangent [[attribute(3)]];
     float2 uv1 [[attribute(4)]];
 };
-
 struct DofBlurVarying {
     float4 position [[position]];
     float2 uv;
 };
-
 struct DofBlurUniforms {
     float4 radii;
     float4 rings;
 };
-
 vertex DofBlurVarying dofBlurVertex(ComposeVertexIn in [[stage_in]])
 {
     DofBlurVarying out;
@@ -67,7 +69,6 @@ vertex DofBlurVarying dofBlurVertex(ComposeVertexIn in [[stage_in]])
     out.uv = in.uv0;
     return out;
 }
-
 fragment float4 dofBlurFragment(
     DofBlurVarying in [[stage_in]],
     texture2d<float> farTexture [[texture(0)]],
@@ -76,72 +77,61 @@ fragment float4 dofBlurFragment(
     sampler linearSampler [[sampler(0)]],
     constant DofBlurUniforms& u [[buffer(3)]])
 {
-    const float2 invResolution = u.radii.zw;
-    float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
-    float2 coc = cocTexture.sample(linearSampler, uv).rg;
+    const float2 uv0 = clamp(in.uv, float2(0.0), float2(1.0));
+    const float2 coc = cocTexture.sample(linearSampler, uv0, level(0)).rg;
+    const float cocFar = coc.r;
+    const float cocNear = coc.g;
+    const int rings = max(int(u.rings.x), 1);
+    const int ringPoints = max(int(u.rings.y), 1);
+    float3 sum = float3(0.0);
 
-    float3 farColor = float3(0.0);
-    float farWeight = 0.0;
-
-    float blurRadius = coc.r * u.radii.y;
-    int rings = max(int(u.rings.x), 1);
-    int ringPoints = max(int(u.rings.y), 1);
-
-    for (int ring = 1; ring <= rings; ring++) {
-        float ringRadius = float(ring) / float(rings);
-        int pointsInRing = ring * ringPoints;
-        for (int p = 0; p < pointsInRing; p++) {
-            float angle = float(p) * 6.283185 / float(pointsInRing);
-            float2 offset = float2(cos(angle), sin(angle)) * ringRadius * blurRadius;
-            float2 sampleUV = uv + offset * invResolution;
-            sampleUV = clamp(sampleUV, float2(0.0), float2(1.0));
-            float sampleCoc = cocTexture.sample(linearSampler, sampleUV).r;
-            float w = sampleCoc;
-            farColor += farTexture.sample(linearSampler, sampleUV).rgb * w;
-            farWeight += w;
-        }
-    }
-
-    if (farWeight > 0.0) {
-        farColor /= farWeight;
-    } else {
-        farColor = farTexture.sample(linearSampler, uv).rgb;
-    }
-
-    float3 result = farColor;
-    if (coc.g > 0.0) {
-        float3 nearColor = float3(0.0);
-        float nearWeight = 0.0;
-        float nearBlurRadius = coc.g * u.radii.x;
-
-        for (int ring = 1; ring <= rings; ring++) {
-            float ringRadius = float(ring) / float(rings);
-            int pointsInRing = ring * ringPoints;
-            for (int p = 0; p < pointsInRing; p++) {
-                float angle = float(p) * 6.283185 / float(pointsInRing);
-                float2 offset = float2(cos(angle), sin(angle)) * ringRadius * nearBlurRadius;
-                float2 sampleUV = uv + offset * invResolution;
-                sampleUV = clamp(sampleUV, float2(0.0), float2(1.0));
-                float sampleCocNear = cocTexture.sample(linearSampler, sampleUV).g;
-                float w = sampleCocNear;
-                nearColor += nearTexture.sample(linearSampler, sampleUV).rgb * w;
-                nearWeight += w;
+    // Texture aspects arrive as uniforms: a textureSize() on a combined image sampler
+    // does not survive SPIRV-Cross's MSL translation under MoltenVK ("undeclared
+    // identifier ..Smplr"), so neither backend queries the texture here.
+    if (cocNear > 0.0001 && u.radii.z > 0.0) {
+        const float2 step = cocNear * u.radii.x * float2(u.radii.z, 1.0);
+        int count = 1;
+        sum += nearTexture.sample(linearSampler, uv0, level(0)).rgb;
+        for (int ring = 1; ring <= rings; ++ring) {
+            const float radius = float(ring) / float(rings);
+            const int points = ring * ringPoints;
+            for (int p = 0; p < points; ++p) {
+                const float angle = float(p) * 6.283185307 / float(points);
+                const float2 uv = uv0 + step * float2(cos(angle), sin(angle)) * radius;
+                sum += nearTexture.sample(linearSampler, uv, level(0)).rgb;
+                ++count;
             }
         }
-
-        if (nearWeight > 0.0) {
-            nearColor /= nearWeight;
-            result = mix(result, nearColor, coc.g);
+        sum /= float(count);
+    } else if (cocFar > 0.0001) {
+        const float2 step = cocFar * u.radii.y * float2(u.radii.w, 1.0);
+        float sumCoc = 0.0;
+        {
+            const float c = cocTexture.sample(linearSampler, uv0, level(0)).r;
+            sum += farTexture.sample(linearSampler, uv0, level(0)).rgb * c;
+            sumCoc += c;
         }
+        for (int ring = 1; ring <= rings; ++ring) {
+            const float radius = float(ring) / float(rings);
+            const int points = ring * ringPoints;
+            for (int p = 0; p < points; ++p) {
+                const float angle = float(p) * 6.283185307 / float(points);
+                const float2 uv = uv0 + step * float2(cos(angle), sin(angle)) * radius;
+                const float c = cocTexture.sample(linearSampler, uv, level(0)).r;
+                sum += farTexture.sample(linearSampler, uv, level(0)).rgb * c;
+                sumCoc += c;
+            }
+        }
+        if (sumCoc > 0.0) {
+            sum /= sumCoc;
+        }
+        sum /= cocFar;
     }
-
-    return float4(result, 1.0);
+    return float4(sum, 1.0);
 }
 )";
-
         constexpr const char* DOF_BLUR_GLSL = R"(
 #version 450
-
 #ifdef VT_VERTEX_SHADER
 layout(location = 0) in vec3 vertexPosition;
 layout(location = 2) in vec2 vertexUv0;
@@ -151,7 +141,6 @@ void main() {
     gl_Position = vec4(vertexPosition, 1.0);
 }
 #endif
-
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform DofBlurUniforms {
     vec4 radii;
@@ -162,68 +151,58 @@ layout(set = 1, binding = 1) uniform sampler2D cocTexture;
 layout(set = 1, binding = 2) uniform sampler2D nearTexture;
 layout(location = 0) in vec2 vUv;
 layout(location = 0) out vec4 fragColor;
-
 void main() {
-    vec2 invResolution = u.radii.zw;
-    vec2 uv = clamp(vUv, vec2(0.0), vec2(1.0));
-    vec2 coc = texture(cocTexture, uv).rg;
-
-    vec3 farColor = vec3(0.0);
-    float farWeight = 0.0;
-
-    float blurRadius = coc.r * u.radii.y;
+    vec2 uv0 = clamp(vUv, vec2(0.0), vec2(1.0));
+    vec2 coc = textureLod(cocTexture, uv0, 0.0).rg;
+    float cocFar = coc.r;
+    float cocNear = coc.g;
     int rings = max(int(u.rings.x), 1);
     int ringPoints = max(int(u.rings.y), 1);
+    vec3 sum = vec3(0.0);
 
-    for (int ring = 1; ring <= rings; ring++) {
-        float ringRadius = float(ring) / float(rings);
-        int pointsInRing = ring * ringPoints;
-        for (int p = 0; p < pointsInRing; p++) {
-            float angle = float(p) * 6.283185 / float(pointsInRing);
-            vec2 offset = vec2(cos(angle), sin(angle)) * ringRadius * blurRadius;
-            vec2 sampleUV = clamp(uv + offset * invResolution, vec2(0.0), vec2(1.0));
-            float w = texture(cocTexture, sampleUV).r;
-            farColor += texture(farTexture, sampleUV).rgb * w;
-            farWeight += w;
-        }
-    }
-
-    if (farWeight > 0.0) {
-        farColor /= farWeight;
-    } else {
-        farColor = texture(farTexture, uv).rgb;
-    }
-
-    vec3 result = farColor;
-    if (coc.g > 0.0) {
-        vec3 nearColor = vec3(0.0);
-        float nearWeight = 0.0;
-        float nearBlurRadius = coc.g * u.radii.x;
-
-        for (int ring = 1; ring <= rings; ring++) {
-            float ringRadius = float(ring) / float(rings);
-            int pointsInRing = ring * ringPoints;
-            for (int p = 0; p < pointsInRing; p++) {
-                float angle = float(p) * 6.283185 / float(pointsInRing);
-                vec2 offset = vec2(cos(angle), sin(angle)) * ringRadius * nearBlurRadius;
-                vec2 sampleUV = clamp(uv + offset * invResolution, vec2(0.0), vec2(1.0));
-                float w = texture(cocTexture, sampleUV).g;
-                nearColor += texture(nearTexture, sampleUV).rgb * w;
-                nearWeight += w;
+    if (cocNear > 0.0001 && u.radii.z > 0.0) {
+        vec2 step = cocNear * u.radii.x * vec2(u.radii.z, 1.0);
+        int count = 1;
+        sum += textureLod(nearTexture, uv0, 0.0).rgb;
+        for (int ring = 1; ring <= rings; ++ring) {
+            float radius = float(ring) / float(rings);
+            int points = ring * ringPoints;
+            for (int p = 0; p < points; ++p) {
+                float angle = float(p) * 6.283185307 / float(points);
+                vec2 uv = uv0 + step * vec2(cos(angle), sin(angle)) * radius;
+                sum += textureLod(nearTexture, uv, 0.0).rgb;
+                ++count;
             }
         }
-
-        if (nearWeight > 0.0) {
-            nearColor /= nearWeight;
-            result = mix(result, nearColor, coc.g);
+        sum /= float(count);
+    } else if (cocFar > 0.0001) {
+        vec2 step = cocFar * u.radii.y * vec2(u.radii.w, 1.0);
+        float sumCoc = 0.0;
+        {
+            float c = textureLod(cocTexture, uv0, 0.0).r;
+            sum += textureLod(farTexture, uv0, 0.0).rgb * c;
+            sumCoc += c;
         }
+        for (int ring = 1; ring <= rings; ++ring) {
+            float radius = float(ring) / float(rings);
+            int points = ring * ringPoints;
+            for (int p = 0; p < points; ++p) {
+                float angle = float(p) * 6.283185307 / float(points);
+                vec2 uv = uv0 + step * vec2(cos(angle), sin(angle)) * radius;
+                float c = textureLod(cocTexture, uv, 0.0).r;
+                sum += textureLod(farTexture, uv, 0.0).rgb * c;
+                sumCoc += c;
+            }
+        }
+        if (sumCoc > 0.0) {
+            sum /= sumCoc;
+        }
+        sum /= cocFar;
     }
-
-    fragColor = vec4(result, 1.0);
+    fragColor = vec4(sum, 1.0);
 }
 #endif
 )";
-
         // Concentric sample kernel equivalent to Kernel.concentric usage in the upstream engine.
         std::vector<float> makeConcentricKernel(const int rings, const int pointsPerRing)
         {
@@ -317,11 +296,19 @@ void main() {
             return;
         }
 
+        // upstream RenderPassDofBlur: the authored radius is a fraction of a 540-row
+        // reference frame, so it reads the same at any resolution.
+        constexpr float referenceHeight = 540.0f;
+        (void)width;
+        (void)height;
         DofBlurUniforms uniforms{};
-        uniforms.radii[0] = _blurRadiusNear;
-        uniforms.radii[1] = _blurRadiusFar;
-        uniforms.radii[2] = 1.0f / width;
-        uniforms.radii[3] = 1.0f / height;
+        uniforms.radii[0] = _blurRadiusNear / referenceHeight;
+        uniforms.radii[1] = _blurRadiusFar / referenceHeight;
+        const auto aspect = [](const Texture* t) {
+            return (t && t->width() > 0) ? static_cast<float>(t->height()) / static_cast<float>(t->width()) : 0.0f;
+        };
+        uniforms.radii[2] = aspect(_nearTexture);
+        uniforms.radii[3] = _farTexture ? aspect(_farTexture) : 1.0f;
         uniforms.rings[0] = static_cast<float>(_blurRings);
         uniforms.rings[1] = static_cast<float>(_blurRingPoints);
 

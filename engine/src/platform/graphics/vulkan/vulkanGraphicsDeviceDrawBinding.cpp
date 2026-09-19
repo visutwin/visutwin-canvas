@@ -712,18 +712,24 @@ namespace visutwin::canvas
                 }
             }
 
-            // Quad passes (bloom downsample, outline extend/blend) carry no
-            // material — their inputs arrive through setQuadTextureBinding.
-            // Mirror the Metal backend, which binds those to fragment texture
-            // slots 0..7: here the same indices are set-1 bindings, so a quad
-            // shader declares its source at (set = 1, binding = 0). Only the
-            // slots this layout actually has are reachable.
+            // Quad passes (bloom downsample, compose, outline extend/blend) carry no
+            // material — their inputs arrive through setQuadTextureBinding, on
+            // fragment slots 0..7 as on Metal. Here quad slot i is the i-th binding of
+            // kMaterialTextureBindings: slots 0-5 are set-1 bindings 0-5, slot 6 is
+            // binding 17 and slot 7 is binding 19. It used to take the slot NUMBER as
+            // the binding, which left 6 and 7 with no binding at all: a quad shader
+            // declaring (set = 1, binding = 6) referenced a binding outside the
+            // pipeline layout and MoltenVK's translation lost the samplers of OTHER
+            // textures too ("use of undeclared identifier _NSmplr", compose-quad,
+            // 2026-09-19). Binding 17 is a SEPARATE image in this layout, so a quad
+            // shader declares slot 6 as `texture2D` and samples it through the extra
+            // sampler at binding 24; slot 7 (19) is an ordinary sampler2D.
             for (size_t slotIndex = 0; slotIndex < materialSlots.size(); ++slotIndex) {
-                const int slot = materialSlots[slotIndex];
-                if (slot < 0 || slot >= static_cast<int>(quadTextureBindings().size())) {
-                    continue;
+                if (slotIndex >= quadTextureBindings().size()) {
+                    break;
                 }
-                Texture* quadTexture = quadTextureBinding(static_cast<size_t>(slot));
+                const int binding = materialSlots[slotIndex];
+                Texture* quadTexture = quadTextureBinding(slotIndex);
                 if (!quadTexture) {
                     continue;
                 }
@@ -732,7 +738,7 @@ namespace visutwin::canvas
                     continue;
                 }
                 imageInfos[slotIndex].imageView = vkTex->imageView();
-                if (!isSeparateImageSlot(slot) && vkTex->sampler() != VK_NULL_HANDLE) {
+                if (!isSeparateImageSlot(binding) && vkTex->sampler() != VK_NULL_HANDLE) {
                     imageInfos[slotIndex].sampler = vkTex->sampler();
                 }
                 if (vkTex->isDepth()) {

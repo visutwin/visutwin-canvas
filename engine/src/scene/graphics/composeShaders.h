@@ -10,9 +10,8 @@
 //   -> ToneMap -> ColorLUT -> Vignette -> display gamma
 //
 // Textures (quad slots, both backends): 0 scene, 1 bloom, 2 ssao, 3 depth,
-// 4 colorLUT, 5 colorLUT2. The Metal shader used to declare a coc and a blur
-// texture for a multi-pass DOF path that has been commented out for a long
-// time — only applyDofSinglePass runs — so those two dead bindings are gone.
+// 4 colorLUT, 5 colorLUT2, 6 coc, 7 dof blur (the last two only with the
+// multi-pass DOF pipeline, live since 2026-09-19; dofMultipass says which).
 //
 #pragma once
 
@@ -76,6 +75,11 @@ namespace visutwin::canvas::compose_shaders
         float lutIntensity1 = 1.0f;
         float lutIntensity2 = 1.0f;
         float lutBlend = 0.0f;
+        // 1 = read the CoC and blur textures (multi-pass DOF), 0 = single-pass depth blur.
+        uint32_t dofMultipass = 0u;
+        // Texel size of the DOF blur texture, for the low-quality 3x3 upsample.
+        float dofBlurTexelX = 0.0f;
+        float dofBlurTexelY = 0.0f;
     };
 
     // A block of scalars (plus one vec2) packs identically under MSL and
@@ -150,6 +154,9 @@ struct ComposeUniforms {
     float lutIntensity1;
     float lutIntensity2;
     float lutBlend;
+    uint dofMultipass;
+    float dofBlurTexelX;
+    float dofBlurTexelY;
 };
 
 float3 toneMapLinear(float3 color, float exposure) {
@@ -392,7 +399,35 @@ float3 applyVignette(float3 color, float2 uv, float inner, float outer,
     return mix(vigColor, color, vignette);
 }
 
-// Single-pass DOF using depth buffer
+// Multi-pass DOF (upstream compose-dof.js): the blur pass's result mixed in by the
+// total circle of confusion. With a quarter-resolution blur (low quality) the blur
+// is upsampled through a 3x3 CoC-weighted fetch so in-focus texels do not bleed.
+float3 applyDof(float3 color, float2 uv, texture2d<float> cocTexture, texture2d<float> blurTexture,
+    sampler s, bool upscale, float2 blurTexel)
+{
+    const float2 coc = cocTexture.sample(s, uv, level(0)).rg;
+    float3 blur;
+    if (upscale) {
+        float3 sum = float3(0.0);
+        float totalWeight = 0.0;
+        for (int i = -1; i <= 1; ++i) {
+            for (int j = -1; j <= 1; ++j) {
+                const float2 offset = float2(i, j) * blurTexel;
+                const float2 cocSample = cocTexture.sample(s, uv + offset, level(0)).rg;
+                const float3 blurSample = blurTexture.sample(s, uv + offset, level(0)).rgb;
+                const float w = saturate(cocSample.r + cocSample.g);
+                sum += blurSample * w;
+                totalWeight += w;
+            }
+        }
+        blur = totalWeight > 0.0 ? sum / totalWeight : sum;
+    } else {
+        blur = blurTexture.sample(s, uv, level(0)).rgb;
+    }
+    return mix(color, blur, saturate(coc.r + coc.g));
+}
+
+// Single-pass DOF using depth buffer (fallback when no CoC texture is bound)
 float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
     texture2d<float> sceneTexture, depth2d<float> depthTexture, sampler s,
     float focusDistance, float focusRange, float blurRadius,
@@ -479,6 +514,8 @@ fragment float4 composeFragment(
     depth2d<float> depthTexture [[texture(3)]],
     texture2d<float> colorLUT [[texture(4)]],
     texture2d<float> colorLUT2 [[texture(5)]],
+    texture2d<float> cocTexture [[texture(6)]],
+    texture2d<float> blurTexture [[texture(7)]],
     sampler linearSampler [[sampler(0)]],
     constant ComposeUniforms& uniforms [[buffer(3)]])
 {
@@ -498,10 +535,15 @@ fragment float4 composeFragment(
     // other way round the defocus washes the occlusion out with everything else.
     // Wherever DOF is not blurring, the order cannot matter and does not.
     if (uniforms.dofEnabled != 0u) {
-        result = applyDofSinglePass(result, uv, uniforms.sceneTextureInvRes,
-            sceneTexture, depthTexture, linearSampler,
-            uniforms.dofFocusDistance, uniforms.dofFocusRange, uniforms.dofBlurRadius,
-            uniforms.dofCameraNear, uniforms.dofCameraFar);
+        if (uniforms.dofMultipass != 0u) {
+            result = applyDof(result, uv, cocTexture, blurTexture, linearSampler, uniforms.blurTextureUpscale != 0u,
+                float2(uniforms.dofBlurTexelX, uniforms.dofBlurTexelY));
+        } else {
+            result = applyDofSinglePass(result, uv, uniforms.sceneTextureInvRes,
+                sceneTexture, depthTexture, linearSampler,
+                uniforms.dofFocusDistance, uniforms.dofFocusRange, uniforms.dofBlurRadius,
+                uniforms.dofCameraNear, uniforms.dofCameraFar);
+        }
     }
 
     // 3. SSAO
@@ -609,6 +651,13 @@ layout(set = 1, binding = 2) uniform sampler2D ssaoTex;
 layout(set = 1, binding = 3) uniform sampler2D depthTex;
 layout(set = 1, binding = 4) uniform sampler2D colorLut1;
 layout(set = 1, binding = 5) uniform sampler2D colorLut2;
+// Quad slots 6 and 7 on Vulkan are material bindings 17 and 19 (see the quad loop in
+// vulkanGraphicsDeviceDrawBinding.cpp). 17 is a separate image in that layout, so the
+// CoC is sampled through the extra sampler at 24; 19 is a combined sampler.
+layout(set = 1, binding = 17) uniform texture2D cocImage;
+layout(set = 1, binding = 24) uniform sampler quadExtraSampler;
+#define cocTex sampler2D(cocImage, quadExtraSampler)
+layout(set = 1, binding = 19) uniform sampler2D blurTex;
 
 layout(std140, set = 0, binding = 0) uniform ComposeParams {
     // Mirrors ComposeUniforms in composeShaders.h field for field. A block of
@@ -658,6 +707,9 @@ layout(std140, set = 0, binding = 0) uniform ComposeParams {
     float lutIntensity1;
     float lutIntensity2;
     float lutBlend;
+    uint dofMultipass;
+    float dofBlurTexelX;
+    float dofBlurTexelY;
 } pc;
 
 layout(location = 0) out vec4 outColor;
@@ -793,7 +845,31 @@ vec3 applyColorLUT(vec3 color, sampler2D lut1, sampler2D lut2,
     return mix(color, lutColor1, intensity1);
 }
 
-// Single-pass DOF from the depth buffer (far blur only, upstream-style CoC).
+// Multi-pass DOF (upstream compose-dof.js), twin of applyDof in the MSL source.
+vec3 applyDof(vec3 color, vec2 uv, bool upscale, vec2 blurTexel) {
+    vec2 coc = textureLod(cocTex, uv, 0.0).rg;
+    vec3 blur;
+    if (upscale) {
+        vec3 sum = vec3(0.0);
+        float totalWeight = 0.0;
+        for (int i = -1; i <= 1; ++i) {
+            for (int j = -1; j <= 1; ++j) {
+                vec2 offset = vec2(i, j) * blurTexel;
+                vec2 cocSample = textureLod(cocTex, uv + offset, 0.0).rg;
+                vec3 blurSample = textureLod(blurTex, uv + offset, 0.0).rgb;
+                float w = clamp(cocSample.r + cocSample.g, 0.0, 1.0);
+                sum += blurSample * w;
+                totalWeight += w;
+            }
+        }
+        blur = totalWeight > 0.0 ? sum / totalWeight : sum;
+    } else {
+        blur = textureLod(blurTex, uv, 0.0).rgb;
+    }
+    return mix(color, blur, clamp(coc.r + coc.g, 0.0, 1.0));
+}
+
+// Single-pass DOF from the depth buffer (fallback when no CoC texture is bound).
 vec3 applyDofSinglePass(vec3 sharpColor, vec2 uv, vec2 invRes,
     float focusDistance, float focusRange, float blurRadius,
     float cameraNear, float cameraFar)
@@ -934,8 +1010,12 @@ void main() {
     // other way round the defocus washes the occlusion out with everything else.
     // Wherever DOF is not blurring, the order cannot matter and does not.
     if (float(pc.dofEnabled) > 0.5) {
-        result = applyDofSinglePass(result, uv, invRes,
-            pc.dofFocusDistance, pc.dofFocusRange, pc.dofBlurRadius, pc.dofCameraNear, pc.dofCameraFar);
+        if (pc.dofMultipass != 0u) {
+            result = applyDof(result, uv, pc.blurTextureUpscale != 0u, vec2(pc.dofBlurTexelX, pc.dofBlurTexelY));
+        } else {
+            result = applyDofSinglePass(result, uv, invRes,
+                pc.dofFocusDistance, pc.dofFocusRange, pc.dofBlurRadius, pc.dofCameraNear, pc.dofCameraFar);
+        }
     }
 
     // 3. SSAO
