@@ -46,7 +46,11 @@ namespace visutwin::canvas
     // AnimCurve links input times → output values for one property of one node.
     struct AnimCurve
     {
-        std::string nodeName;          // target node name (used by AnimBinder)
+        // Target node, resolved by the AnimBinder. The GLB parser writes a PATH of
+        // node names from the glTF root down, joined with '/' ("Root/Arm/Hand"), so
+        // two nodes sharing a name in different branches stay distinct; a bare name
+        // still resolves by findByName. Also the key the evaluator blends on.
+        std::string nodeName;
         std::string propertyPath;      // "localPosition", "localRotation", "localScale", "weights"
         size_t inputIndex = 0;         // index into AnimTrack::_inputs
         size_t outputIndex = 0;        // index into AnimTrack::_outputs

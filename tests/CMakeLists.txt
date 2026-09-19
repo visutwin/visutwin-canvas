@@ -244,6 +244,18 @@ target_link_libraries(visutwin-primitive-geometry-tests PRIVATE visutwin-canvas)
 
 add_test(NAME primitive-geometry COMMAND visutwin-primitive-geometry-tests)
 
+# glTF animation binding: unnamed nodes take upstream's node_<index> identity and
+# targets are name PATHS, so duplicate names in different branches animate their
+# own entity. Builds a tinygltf model in memory, so it needs tinygltf's header.
+add_executable(visutwin-glb-animation-binding-tests
+    glbAnimationBindingTests.cpp
+)
+
+target_include_directories(visutwin-glb-animation-binding-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+target_link_libraries(visutwin-glb-animation-binding-tests PRIVATE visutwin-canvas)
+
+add_test(NAME glb-animation-binding COMMAND visutwin-glb-animation-binding-tests)
+
 add_executable(visutwin-stb-image-flip-tests
     stbImageFlipTests.cpp
 )
