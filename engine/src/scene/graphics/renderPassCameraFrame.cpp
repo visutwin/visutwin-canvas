@@ -12,6 +12,7 @@
 
 #include "renderPassBloom.h"
 #include "renderPassColorGrab.h"
+#include "renderPassDepthGrab.h"
 #include "renderPassCompose.h"
 #include "renderPassDof.h"
 #include "renderPassDownsample.h"
@@ -69,6 +70,11 @@ namespace visutwin::canvas
             if (_sceneDepthTexture && gd->sceneDepthMap() == _sceneDepthTexture.get()) {
                 gd->setSceneDepthMap(nullptr);
             }
+            // Under MSAA the depth GRAB map is this frame's prepass texture (see
+            // frameUpdate); the single-sample copy is owned and withdrawn by _depthGrabPass.
+            if (_sceneDepthTexture && gd->sceneDepthGrabMap() == _sceneDepthTexture.get()) {
+                gd->setSceneDepthGrabMap(nullptr);
+            }
             // Clear ssaoForwardTexture unconditionally — it is set by this CameraFrame's
             // frameUpdate() and must not outlive the SSAO texture it references.
             if (_ssaoPass && gd->ssaoForwardTexture() == _ssaoPass->ssaoTexture()) {
@@ -92,6 +98,7 @@ namespace visutwin::canvas
         _prePass.reset();
         _scenePass.reset();
         _colorGrabPass.reset();
+        _depthGrabPass.reset();
         _scenePassTransparent.reset();
         _ssaoPass.reset();
         _taaPass.reset();
@@ -153,6 +160,7 @@ namespace visutwin::canvas
         // was switched on and every material reading the scene colour sampled a null
         // or stale texture.
         options.sceneColorMap = _cameraComponent->renderSceneColorMap();
+        options.sceneDepthMap = _cameraComponent->renderSceneDepthMap();
 
         options.samples = std::max(rendering.samples, 1);
         // Clamped rather than trusted: the scene target is quadratic in this value,
@@ -203,6 +211,7 @@ namespace visutwin::canvas
             options.bloomEnabled != current.bloomEnabled ||
             options.prepassEnabled != current.prepassEnabled ||
             options.sceneColorMap != current.sceneColorMap ||
+            options.sceneDepthMap != current.sceneDepthMap ||
             options.dofEnabled != current.dofEnabled ||
             options.dofNearBlur != current.dofNearBlur ||
             options.dofHighQuality != current.dofHighQuality ||
@@ -578,7 +587,7 @@ namespace visutwin::canvas
 
         return {_prePass,
             ssaoBeforeScene ? _ssaoPass : nullptr,
-            _scenePass, _colorGrabPass, _scenePassTransparent,
+            _scenePass, _colorGrabPass, _depthGrabPass, _scenePassTransparent,
             ssaoBeforeScene ? nullptr : _ssaoPass,
             _volumetricFogPass, _volumetricFogCombinePass, _taaPass, _scenePassHalf,
             _bloomPass, _dofPass, _composePass, _afterPass};
@@ -622,8 +631,11 @@ namespace visutwin::canvas
         _scenePass->init(_sceneRenderTarget, _sceneOptions);
 
         const int lastActionIndex = static_cast<int>(_sourceActions.size()) - 1;
-        const int lastLayerId = options.sceneColorMap ? options.lastGrabLayerId : options.lastSceneLayerId;
-        const bool lastLayerTransparent = options.sceneColorMap ? options.lastGrabLayerIsTransparent : options.lastSceneLayerIsTransparent;
+        // Either grab splits the scene pass at the grab layer: what comes after has to
+        // read what the grab captured, colour for refraction, depth for SSR.
+        const bool grabSplit = options.sceneColorMap || options.sceneDepthMap;
+        const int lastLayerId = grabSplit ? options.lastGrabLayerId : options.lastSceneLayerId;
+        const bool lastLayerTransparent = grabSplit ? options.lastGrabLayerIsTransparent : options.lastSceneLayerIsTransparent;
 
         // Upstream's addCameraLayers walks the whole layer list and only BREAKS once it
         // reaches the requested layer, so a composition that does not contain that layer
@@ -639,15 +651,36 @@ namespace visutwin::canvas
         info.lastAddedIndex = appendActionsToPass(_scenePass, 0, sceneEndIndex, _sceneRenderTarget);
         info.clearRenderTarget = false;
 
-        if (options.sceneColorMap) {
+        if (grabSplit) {
             // Persisted across frames like the other sub-passes that own a texture: the
             // grab destination is allocated on first use and resized with the scene target,
             // and the device holds a raw pointer to it that the next frame's scene pass
             // binds before this pass re-runs.
-            if (!_colorGrabPass) {
-                _colorGrabPass = std::make_shared<RenderPassColorGrab>(device());
+            if (options.sceneColorMap) {
+                if (!_colorGrabPass) {
+                    _colorGrabPass = std::make_shared<RenderPassColorGrab>(device());
+                }
+                _colorGrabPass->setSource(_sceneRenderTarget);
+            } else {
+                _colorGrabPass.reset();
             }
-            _colorGrabPass->setSource(_sceneRenderTarget);
+            // The depth copy for SSR. Single-sampled, the scene target's depth IS the
+            // attachment and is copied here; under MSAA the attachment is an internal
+            // multisampled buffer no copy can read, so frameUpdate publishes the prepass
+            // depth texture (single-sampled, post-opaque, attached to nothing by then)
+            // as the grab map instead — which needs the prepass to be on.
+            if (options.sceneDepthMap && options.samples == 1) {
+                if (!_depthGrabPass) {
+                    _depthGrabPass = std::make_shared<RenderPassDepthGrab>(device(), nullptr);
+                }
+                _depthGrabPass->setSource(_sceneRenderTarget);
+            } else {
+                _depthGrabPass.reset();
+                if (options.sceneDepthMap && options.samples > 1 && !options.prepassEnabled) {
+                    spdlog::warn("RenderPassCameraFrame: a scene depth grab under MSAA needs the depth "
+                        "prepass (SSAO or TAA); screen-space reflections have no depth to read");
+                }
+            }
 
             // Layers after the grab render in their own pass, so they can read what the
             // grab captured. The target already holds the opaque result, so this pass must
@@ -683,6 +716,7 @@ namespace visutwin::canvas
             }
         } else {
             _colorGrabPass.reset();
+            _depthGrabPass.reset();
         }
 
         return info;
@@ -964,6 +998,10 @@ namespace visutwin::canvas
         // not be published.
         if (gd && _sceneDepthTexture && (_options.samples == 1 || _options.prepassEnabled)) {
             gd->setSceneDepthMap(_sceneDepthTexture.get());
+        }
+        // The depth GRAB under MSAA: the prepass texture, see setupScenePass.
+        if (gd && _sceneDepthTexture && _options.sceneDepthMap && _options.samples > 1 && _options.prepassEnabled) {
+            gd->setSceneDepthGrabMap(_sceneDepthTexture.get());
         }
 
         // When SSAO type is "lighting", bind the SSAO texture on the device

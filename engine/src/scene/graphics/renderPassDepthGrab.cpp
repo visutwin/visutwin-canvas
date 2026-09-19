@@ -6,6 +6,7 @@
 #include "renderPassDepthGrab.h"
 
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/renderTarget.h"
 #include "scene/camera.h"
 #include "sceneGrab.h"
 
@@ -21,36 +22,46 @@ namespace visutwin::canvas
 
     void RenderPassDepthGrab::before()
     {
-        if (!_camera) {
+        // Standalone only: publish the scene depth from the camera's target. Inside a
+        // camera frame the frame owns that publication (its attachment or its prepass
+        // texture), and this pass must not overwrite it with the back buffer's depth.
+        if (_source || !_camera) {
             return;
         }
-
-        // depth grab publishes scene depth to a globally available slot.
-        // On Metal in this port we can directly reference the depth texture from the source RT.
         const auto device = this->device();
         if (!device) {
             return;
         }
-
         const auto sourceTarget = _camera->renderTarget();
         Texture* sceneDepth = sourceTarget ? sourceTarget->depthBuffer() : nullptr;
         if (!sceneDepth) {
             sceneDepth = device->backBuffer() ? device->backBuffer()->depthBuffer() : nullptr;
         }
         device->setSceneDepthMap(sceneDepth);
+    }
 
+    void RenderPassDepthGrab::execute()
+    {
         // Copy the post-opaque depth into a sampleable texture for screen-space
-        // reflections: sampling the still-attached depth buffer in the transparent
-        // pass would be a feedback loop. No mip chain — depth cannot be averaged.
+        // reflections. No mip chain — depth cannot be averaged. The copy used to sit
+        // in before(); RenderPass::render runs before() and execute() back to back for
+        // a pass with no target of its own, so the timing is the same, and execute()
+        // is where the colour grab does its copy too.
+        const auto device = this->device();
+        if (!device) {
+            return;
+        }
+        const std::shared_ptr<RenderTarget> sourceTarget = _source
+            ? _source : (_camera ? _camera->renderTarget() : nullptr);
+        if (_source && !sourceTarget->depthBuffer()) {
+            // A multisampled scene target keeps its depth in an internal buffer no
+            // copy can reach; the frame publishes its prepass depth instead.
+            return;
+        }
         if (Texture* destination = ensureGrabTexture(device.get(), sourceTarget.get(),
                 _grabTexture, true, false, "sceneDepthGrab")) {
             device->copyRenderTarget(sourceTarget.get(), nullptr, destination);
             device->setSceneDepthGrabMap(destination);
         }
-    }
-
-    void RenderPassDepthGrab::execute()
-    {
-        // DEVIATION: no copy pass needed on current Metal path because scene depth is sampled directly.
     }
 }

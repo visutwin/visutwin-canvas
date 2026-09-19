@@ -237,11 +237,10 @@ namespace visutwin::canvas
                 // and compose then overwrote them with a target holding just the
                 // transparent tail, which is a black frame for any camera that asked for a
                 // grab and for any post-processing at the same time.
-                // NOTE: the camera frame owns the scene COLOUR grab and publishes the scene
-                // depth from its own attachment, but it has no counterpart for the
-                // sampleable depth COPY this path also produces (sceneDepthGrabMap, read
-                // only by SSR). Nothing in the tree drives SSR, so that copy is absent
-                // rather than wrong under a camera frame.
+                // The camera frame owns BOTH grabs: the scene colour copy and, since
+                // 2026-09-19, the post-opaque depth copy SSR marches against
+                // (CameraFrameOptions::sceneDepthMap, from requestSceneDepthMap), plus the
+                // scene depth publication from its own attachment or prepass texture.
                 const auto cameraOwnsGrabs = renderAction->camera &&
                     renderAction->camera->onPostprocessing() != nullptr;
                 const auto  isGrabPass = isDepthLayer && !cameraOwnsGrabs &&

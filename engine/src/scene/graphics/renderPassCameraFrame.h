@@ -23,6 +23,7 @@ namespace visutwin::canvas
     class RenderPassForward;
     class RenderPassPrepass;
     class RenderPassColorGrab;
+    class RenderPassDepthGrab;
     class RenderPassSsao;
     class RenderPassVolumetricFog;
     class RenderPassVolumetricFogCombine;
@@ -38,6 +39,10 @@ namespace visutwin::canvas
         bool stencil = false;
         int samples = 1;
         bool sceneColorMap = false;
+        // The post-opaque depth COPY screen-space reflections march against
+        // (upstream rendering.sceneDepthMap). Requested through
+        // CameraComponent::requestSceneDepthMap like the colour grab.
+        bool sceneDepthMap = false;
         int lastGrabLayerId = LAYERID_SKYBOX;
         bool lastGrabLayerIsTransparent = false;
         int lastSceneLayerId = LAYERID_IMMEDIATE;
@@ -190,6 +195,7 @@ namespace visutwin::canvas
         std::shared_ptr<RenderPassPrepass> _prePass;
         std::shared_ptr<RenderPassForward> _scenePass;
         std::shared_ptr<RenderPassColorGrab> _colorGrabPass;
+        std::shared_ptr<RenderPassDepthGrab> _depthGrabPass;
         std::shared_ptr<RenderPassForward> _scenePassTransparent;
         std::shared_ptr<RenderPassSsao> _ssaoPass;
         std::shared_ptr<RenderPassVolumetricFog> _volumetricFogPass;

@@ -29,6 +29,7 @@
 
 #include "cameraControls.h"
 #include "framework/constants.h"
+#include "scene/materials/standardMaterial.h"
 #include "framework/extras/miniStats.h"
 #include "log.h"
 #include "viz/overlay/imguiOverlay.h"
@@ -85,6 +86,42 @@ namespace visutwin::canvas
                 spdlog::info("Ambient SH probe: uniform ({}, {}, {}) from VISUTWIN_AMBIENT_SH", r, g, b);
             } else {
                 spdlog::warn("VISUTWIN_AMBIENT_SH='{}' is not r,g,b; ignored", sh);
+            }
+        }
+
+        // VISUTWIN_SSR_FLOOR=y,size[,ssr] lays a glossy dark metal plane of that size at
+        // height y under any example and asks every camera for the scene colour and
+        // depth grabs, with screen-space reflections on the plane unless the third
+        // field is 0. No upstream example drives SSR, so this is how the path is
+        // exercised: the same scene with the third field 0 is the control, and the
+        // difference between the two frames is the reflection alone. Found the camera
+        // frame's missing depth grab on 2026-09-19 (SSR under post-processing did
+        // nothing on either backend).
+        if (const char* floor = std::getenv("VISUTWIN_SSR_FLOOR"); floor && *floor) {
+            float y = 0.0f, size = 100.0f;
+            int ssr = 1;
+            if (std::sscanf(floor, "%f,%f,%d", &y, &size, &ssr) >= 2) {
+                auto* material = new StandardMaterial();
+                material->setName("ssr-floor");
+                material->setDiffuse(Color(0.1f, 0.1f, 0.12f));
+                material->setGloss(0.95f);
+                material->setMetalness(0.9f);
+                material->setUseMetalness(true);
+                material->setUseScreenSpaceReflection(ssr != 0);
+                createPrimitive("plane", material, Vector3(0.0f, y, 0.0f), Vector3(size, 1.0f, size));
+                int cameras = 0;
+                for (GraphNode* node : _engine->root()->find([](GraphNode* n) {
+                        auto* e = dynamic_cast<Entity*>(n);
+                        return e && e->findComponent<CameraComponent>() != nullptr; })) {
+                    auto* camera = static_cast<Entity*>(node)->findComponent<CameraComponent>();
+                    camera->requestSceneColorMap(true);
+                    camera->requestSceneDepthMap(true);
+                    ++cameras;
+                }
+                spdlog::info("SSR floor: y {} size {} ssr {} from VISUTWIN_SSR_FLOOR; grabs requested on {} camera(s)",
+                    y, size, ssr, cameras);
+            } else {
+                spdlog::warn("VISUTWIN_SSR_FLOOR='{}' is not y,size[,ssr]; ignored", floor);
             }
         }
 

@@ -1443,6 +1443,10 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
    `VISUTWIN_SCREENSHOT_TIME=s` arms by seconds since the first frame instead of by
    frame: an animated example's frame index is not a clock — the same frame landed
    1 s into one run's state and 2 s past it in the next run of the same binary.
+7. `VISUTWIN_SSR_FLOOR=y,size[,ssr]` lays a glossy metal plane under any example with
+   screen-space reflections on it (third field 0 for the control) and requests the
+   colour and depth grabs on every camera, so the SSR path can be measured with no
+   SSR example in the tree.
 
 Animated examples cannot be screenshot-diffed across shader changes.
 
@@ -1529,15 +1533,22 @@ What stays HERE is only what bites during UNRELATED work.
   that size, expecting zero differing pixels. Log the sizes every pass sees
   (target, source texture, device) rather than reasoning about which object a
   resize reaches.
-- **Under a camera frame nothing publishes the sampleable depth COPY.** The frame
-  publishes scene DEPTH from its own attachment, and it owns the colour grab, but
-  `sceneDepthGrabMap` — the post-opaque depth copy that only SSR reads — is
-  produced solely by the standalone `RenderPassDepthGrab`, which that path skips.
-  It is absent rather than stale (the pass clears it on destruction). Nothing in
-  the tree drives SSR, so this is untested either way; giving the camera frame its
-  own depth grab means letting that pass take an explicit source render target.
+- **A camera frame owns BOTH grabs.** `CameraFrameOptions::sceneDepthMap` (from
+  `CameraComponent::requestSceneDepthMap`) gives the frame a `RenderPassDepthGrab`
+  with an explicit source, its offscreen scene target, placed beside the colour
+  grab; either request splits the scene pass at the grab layer. Under MSAA the scene
+  target's depth is an internal multisampled buffer no copy can read, so the frame
+  publishes its PREPASS depth texture as the grab map instead, which needs the
+  prepass (TAA, SSAO, DOF or fog) — without one it warns and SSR has no depth. Until
+  2026-09-19 the frame had no depth grab at all and SSR under any post-processing
+  did nothing on either backend (the Metal shader read an unbound texture, the
+  Vulkan gate saw no map). The standalone `RenderPassDepthGrab` still publishes the
+  scene depth in `before()` for the depth-layer flow; with a source set it only
+  copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
+  on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
+  and Metal and Vulkan agree on the floor mean to 0.1.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
-  `VISUTWIN_AMBIENT_SH`), gsplat SH bands 1-3, detail
+  `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles
   diffuse, normal and AO detail maps and only NORMAL exists here), fog of any
   type, sheen, or iridescence. The last three mean a change to those paths has to
