@@ -13,10 +13,12 @@
 
 namespace visutwin::canvas
 {
-    AnimComponentLayer::AnimComponentLayer(std::string name, AnimComponent* component,
+    AnimComponentLayer::AnimComponentLayer(std::string name, const size_t index, AnimComponent* component,
         const std::vector<AnimStateDesc>& states, const std::vector<AnimTransitionDesc>& transitions,
-        const float weight, const bool activate)
-        : _name(std::move(name)), _component(component), _weight(weight)
+        const float weight, const AnimLayerBlendType blendType, std::unordered_set<std::string> mask,
+        const bool activate)
+        : _name(std::move(name)), _index(index), _component(component), _weight(weight),
+          _blendType(blendType), _mask(std::move(mask))
     {
         // Ensure the control states exist — the controller starts in START and the
         // ANY/END pseudo-states participate in transition lookup (upstream state-graph
@@ -32,6 +34,12 @@ namespace visutwin::canvas
 
         _evaluator = std::make_unique<AnimEvaluator>(
             std::make_unique<DefaultAnimBinder>(component ? component->entity() : nullptr));
+        // The pose goes to the component, not to the nodes: it composes all layers.
+        if (component) {
+            _evaluator->setPoseSink([component, index](const std::string& nodePath, const AnimTransform& value) {
+                component->accumulateLayerPose(index, nodePath, value);
+            });
+        }
         _controller = std::make_unique<AnimController>(
             _evaluator.get(), allStates, transitions, activate,
             [component](const std::string& parameterName) -> AnimParameter* {

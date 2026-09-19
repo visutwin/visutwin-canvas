@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include "framework/anim/evaluator/animTrack.h"
+#include "framework/anim/binder/animBinder.h"
 #include <memory>
 #include <optional>
 #include <string>
@@ -73,6 +75,21 @@ namespace visutwin::canvas
         float speed() const { return _speed; }
         void setSpeed(const float value) { _speed = value; }
 
+        /**
+         * Normalise layer weights by their sum per animated node (upstream
+         * normalizeWeights). Off, upstream's default, a layer's weight is its plain
+         * contribution: OVERWRITE blends toward the layer by that weight, ADDITIVE adds the
+         * layer's offset from the rest pose scaled by it. On, the weights of the layers
+         * driving a node are divided by their total and blended sequentially from
+         * identity, and layers beneath the topmost OVERWRITE layer drop out, as upstream
+         * masks them.
+         */
+        bool normalizeWeights() const { return _normalizeWeights; }
+        void setNormalizeWeights(const bool value) { _normalizeWeights = value; }
+
+        /** A layer's evaluator reports its pose here (see AnimEvaluator::setPoseSink). */
+        void accumulateLayerPose(size_t layerIndex, const std::string& nodePath, const AnimTransform& value);
+
         bool activate() const { return _activate; }
         void setActivate(const bool value) { _activate = value; }
 
@@ -90,6 +107,27 @@ namespace visutwin::canvas
 
         float _speed = 1.0f;
         bool _activate = true;
+        bool _normalizeWeights = false;
+
+        // Per animated node: what each layer produced this update, and the node's
+        // rest value per property, captured the first time a layer drives it — the
+        // baseValue upstream reads at bind. Kept across frames; contributions are
+        // cleared every update.
+        struct LayerContribution
+        {
+            size_t layer = 0;
+            AnimTransform value;
+        };
+        struct TargetValue
+        {
+            std::vector<LayerContribution> contributions;
+            AnimTransform base;
+        };
+        std::unordered_map<std::string, TargetValue> _targets;
+        std::unique_ptr<AnimBinder> _binder;   // resolves node paths for the final write
+
+        void composeTargets();
+        void writeTarget(const std::string& nodePath, TargetValue& target);
 
         friend class AnimComponentLayer;
     };

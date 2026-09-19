@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <unordered_set>
+#include "framework/anim/state-graph/animStateGraph.h"
 #include <memory>
 #include <optional>
 #include <string>
@@ -19,23 +21,33 @@ namespace visutwin::canvas
 
     /**
      * A layer of an AnimComponent: an independent state machine (AnimController) with its
-     * own AnimEvaluator, driving the entity hierarchy while the layer's weight is > 0.
-     *
-     * DEVIATION: no per-target cross-layer blending or bone masks yet (upstream
-     * AnimTargetValue) — layers apply in order, later layers win on shared targets.
+     * own AnimEvaluator. The layer does not write the hierarchy itself: its evaluator
+     * hands the layer's pose to the component, which composes every layer's value for
+     * a node by layer weight and blend type (upstream AnimTargetValue) and writes once.
+     * A weight of 0.25 is therefore a quarter contribution, not an on/off switch, and
+     * a mask limits the layer to the listed node paths.
      */
     class AnimComponentLayer
     {
     public:
-        AnimComponentLayer(std::string name, AnimComponent* component,
+        AnimComponentLayer(std::string name, size_t index, AnimComponent* component,
                            const std::vector<AnimStateDesc>& states,
                            const std::vector<AnimTransitionDesc>& transitions,
-                           float weight, bool activate);
+                           float weight, AnimLayerBlendType blendType,
+                           std::unordered_set<std::string> mask, bool activate);
 
         const std::string& name() const { return _name; }
 
+        size_t index() const { return _index; }
         float weight() const { return _weight; }
         void setWeight(const float value) { _weight = value; }
+        AnimLayerBlendType blendType() const { return _blendType; }
+        void setBlendType(const AnimLayerBlendType value) { _blendType = value; }
+        /** Node paths this layer may drive (curve nodeName); empty = every node. */
+        const std::unordered_set<std::string>& mask() const { return _mask; }
+        void setMask(std::unordered_set<std::string> value) { _mask = std::move(value); }
+        bool drives(const std::string& nodePath) const { return _mask.empty() || _mask.contains(nodePath); }
+        AnimEvaluator* evaluator() const { return _evaluator.get(); }
 
         AnimController* controller() const { return _controller.get(); }
 
@@ -72,8 +84,11 @@ namespace visutwin::canvas
 
     private:
         std::string _name;
+        size_t _index = 0;
         AnimComponent* _component;
         float _weight;
+        AnimLayerBlendType _blendType = AnimLayerBlendType::OVERWRITE;
+        std::unordered_set<std::string> _mask;
         std::unique_ptr<AnimEvaluator> _evaluator;
         std::unique_ptr<AnimController> _controller;
     };

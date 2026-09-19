@@ -218,6 +218,9 @@ namespace visutwin::canvas
 
         Vector3 operator*(float scalar) const;
 
+        /** Linear interpolation a + (b - a) * t, through the backend's arithmetic. */
+        static Vector3 lerp(const Vector3& a, const Vector3& b, const float t) { return a + (b - a) * t; }
+
         Vector3 operator*(const Vector3& other) const;
 
         [[nodiscard]] float dot(const Vector3& other) const;

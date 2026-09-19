@@ -109,6 +109,25 @@ namespace visutwin::canvas
 
         Quaternion operator*(const float scalar) const;
 
+        /** Component-wise sum, on the active SIMD backend (the blend helpers' weighted sums). */
+        Quaternion operator+(const Quaternion& rhs) const;
+
+        /**
+         * Spherical linear interpolation from `a` to `b` by `t`, along the shorter arc
+         * (`b` is negated when a.dot(b) < 0), falling back to a normalised lerp when the
+         * two are within 1e-6 of parallel. The result is renormalised. One definition for
+         * the whole engine: AnimEvaluator, AnimTrack and Skeleton each carried their own
+         * scalar copy until 2026-09-19.
+         */
+        static Quaternion slerp(const Quaternion& a, const Quaternion& b, float t);
+
+        /**
+         * Normalised linear interpolation along the shorter arc — upstream's
+         * AnimBlend.blendQuat, which its layer and clip blends use in place of slerp.
+         * Cheaper than slerp, and exact at t = 0.5 for unit inputs.
+         */
+        static Quaternion nlerp(const Quaternion& a, const Quaternion& b, float t);
+
         [[nodiscard]] Quaternion normalized() const;
 
         [[nodiscard]] Matrix4 toRotationMatrix() const;
@@ -122,6 +141,15 @@ namespace visutwin::canvas
          * Returns the magnitude squared of the specified quaternion
          */
         float lengthSquared() const;
+
+        /**
+         * Four-component dot product, on the active SIMD backend. Its sign is the
+         * shortest-arc test every quaternion blend needs (negative means the two
+         * represent the same rotation from opposite hemispheres, so one is negated
+         * before interpolating); use this rather than spelling the sum out of getX()..getW(),
+         * which leaves the backend and rounds differently from lengthSquared().
+         */
+        float dot(const Quaternion& other) const;
 
         /**
          * Generates the inverse of the specified quaternion

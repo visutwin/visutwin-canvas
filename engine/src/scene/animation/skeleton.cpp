@@ -53,53 +53,6 @@ namespace visutwin::canvas
         updateGraph();
     }
 
-    Vector3 Skeleton::lerpVec3(const Vector3& a, const Vector3& b, const float alpha)
-    {
-        return a + (b - a) * alpha;
-    }
-
-    Quaternion Skeleton::slerpQuat(const Quaternion& a, const Quaternion& b, const float alpha)
-    {
-        float ax = a.getX();
-        float ay = a.getY();
-        float az = a.getZ();
-        float aw = a.getW();
-
-        float bx = b.getX();
-        float by = b.getY();
-        float bz = b.getZ();
-        float bw = b.getW();
-
-        float dot = ax * bx + ay * by + az * bz + aw * bw;
-
-        if (dot < 0.0f) {
-            bx = -bx;
-            by = -by;
-            bz = -bz;
-            bw = -bw;
-            dot = -dot;
-        }
-
-        constexpr float epsilon = 1e-6f;
-        float scale0 = 1.0f - alpha;
-        float scale1 = alpha;
-
-        if ((1.0f - dot) > epsilon) {
-            const float theta = std::acos(std::clamp(dot, -1.0f, 1.0f));
-            const float invSinTheta = 1.0f / std::sin(theta);
-            scale0 = std::sin((1.0f - alpha) * theta) * invSinTheta;
-            scale1 = std::sin(alpha * theta) * invSinTheta;
-        }
-
-        Quaternion result(
-            scale0 * ax + scale1 * bx,
-            scale0 * ay + scale1 * by,
-            scale0 * az + scale1 * bz,
-            scale0 * aw + scale1 * bw);
-
-        return result.normalized();
-    }
-
     void Skeleton::addTime(const float delta)
     {
         if (!_animation) {
@@ -152,9 +105,9 @@ namespace visutwin::canvas
                     if ((k1.time <= _time) && (k2.time >= _time)) {
                         const float alpha = (k2.time > k1.time) ? ((_time - k1.time) / (k2.time - k1.time)) : 0.0f;
 
-                        interpKey.pos = lerpVec3(k1.position, k2.position, alpha);
-                        interpKey.quat = slerpQuat(k1.rotation, k2.rotation, alpha);
-                        interpKey.scale = lerpVec3(k1.scale, k2.scale, alpha);
+                        interpKey.pos = Vector3::lerp(k1.position, k2.position, alpha);
+                        interpKey.quat = Quaternion::slerp(k1.rotation, k2.rotation, alpha);
+                        interpKey.scale = Vector3::lerp(k1.scale, k2.scale, alpha);
                         interpKey.written = true;
 
                         _currKeyIndices[nodeName] = currKeyIndex;
@@ -186,9 +139,9 @@ namespace visutwin::canvas
             auto& dstKey = _interpolatedKeys[i];
 
             if (key1.written && key2.written) {
-                dstKey.quat = slerpQuat(key1.quat, key2.quat, alpha);
-                dstKey.pos = lerpVec3(key1.pos, key2.pos, alpha);
-                dstKey.scale = lerpVec3(key1.scale, key2.scale, alpha);
+                dstKey.quat = Quaternion::slerp(key1.quat, key2.quat, alpha);
+                dstKey.pos = Vector3::lerp(key1.pos, key2.pos, alpha);
+                dstKey.scale = Vector3::lerp(key1.scale, key2.scale, alpha);
                 dstKey.written = true;
             } else if (key1.written) {
                 dstKey.quat = key1.quat;

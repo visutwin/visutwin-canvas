@@ -7,6 +7,9 @@
 #include <vector>
 
 #include "framework/anim/binder/animBinder.h"
+#include <functional>
+#include <string>
+
 #include "animClip.h"
 
 namespace visutwin::canvas
@@ -31,11 +34,21 @@ namespace visutwin::canvas
 
         void update(float dt);
 
-    private:
-        static Vector3 lerpVec3(const Vector3& a, const Vector3& b, float alpha);
-        static Quaternion slerpQuat(const Quaternion& a, const Quaternion& b, float alpha);
+        /**
+         * Where the blended pose goes. By default the evaluator writes each node's
+         * transform (and morph weights) straight through its binder. With a sink set
+         * it hands the per-node result to the sink instead and touches nothing: this is
+         * how an AnimComponent collects every layer's pose and composes them by layer
+         * weight before a single write (upstream AnimTargetValue). The sink receives one
+         * call per animated node per update, keyed by the curve's node path.
+         */
+        using PoseSink = std::function<void(const std::string& nodePath, const AnimTransform& value)>;
+        void setPoseSink(PoseSink sink) { _poseSink = std::move(sink); }
+        AnimBinder* binder() const { return _binder.get(); }
 
+    private:
         std::unique_ptr<AnimBinder> _binder;
+        PoseSink _poseSink;
         std::vector<std::shared_ptr<AnimClip>> _clips;
     };
 }

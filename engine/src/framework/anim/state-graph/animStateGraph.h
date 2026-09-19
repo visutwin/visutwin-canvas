@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <cstdint>
+#include <unordered_set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -13,6 +15,17 @@
 
 namespace visutwin::canvas
 {
+    /**
+     * How a layer's pose combines with the layers beneath it (upstream ANIM_LAYER_*).
+     * OVERWRITE blends the accumulated value toward this layer's by the layer weight;
+     * ADDITIVE adds this layer's offset from the node's rest pose, scaled by the weight.
+     */
+    enum class AnimLayerBlendType : uint8_t
+    {
+        OVERWRITE = 0,
+        ADDITIVE = 1
+    };
+
     /** One animation layer: an independent state machine with its own states and transitions. */
     struct AnimLayerDesc
     {
@@ -20,6 +33,9 @@ namespace visutwin::canvas
         std::vector<AnimStateDesc> states;
         std::vector<AnimTransitionDesc> transitions;
         float weight = 1.0f;
+        AnimLayerBlendType blendType = AnimLayerBlendType::OVERWRITE;
+        /// Node paths this layer may drive (the curves' nodeName). Empty = every node.
+        std::unordered_set<std::string> mask;
     };
 
     /**
@@ -33,9 +49,10 @@ namespace visutwin::canvas
     {
     public:
         /** Add a layer and return it for population. The first layer added is the base layer. */
-        AnimLayerDesc& addLayer(const std::string& name, const float weight = 1.0f)
+        AnimLayerDesc& addLayer(const std::string& name, const float weight = 1.0f,
+            const AnimLayerBlendType blendType = AnimLayerBlendType::OVERWRITE)
         {
-            _layers.push_back(AnimLayerDesc{name, {}, {}, weight});
+            _layers.push_back(AnimLayerDesc{name, {}, {}, weight, blendType, {}});
             return _layers.back();
         }
 

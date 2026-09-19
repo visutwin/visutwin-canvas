@@ -60,7 +60,5 @@ namespace visutwin::canvas
 
         GraphNode* _graph = nullptr;
 
-        static Vector3 lerpVec3(const Vector3& a, const Vector3& b, float alpha);
-        static Quaternion slerpQuat(const Quaternion& a, const Quaternion& b, float alpha);
     };
 }

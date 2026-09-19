@@ -11,50 +11,6 @@ namespace visutwin::canvas
     {
     }
 
-    Vector3 AnimTrack::lerpVec3(const Vector3& a, const Vector3& b, const float alpha)
-    {
-        return a + (b - a) * alpha;
-    }
-
-    Quaternion AnimTrack::slerpQuat(const Quaternion& a, const Quaternion& b, const float alpha)
-    {
-        float ax = a.getX();
-        float ay = a.getY();
-        float az = a.getZ();
-        float aw = a.getW();
-
-        float bx = b.getX();
-        float by = b.getY();
-        float bz = b.getZ();
-        float bw = b.getW();
-
-        float dot = ax * bx + ay * by + az * bz + aw * bw;
-        if (dot < 0.0f) {
-            bx = -bx;
-            by = -by;
-            bz = -bz;
-            bw = -bw;
-            dot = -dot;
-        }
-
-        constexpr float epsilon = 1e-6f;
-        float scale0 = 1.0f - alpha;
-        float scale1 = alpha;
-
-        if ((1.0f - dot) > epsilon) {
-            const float theta = std::acos(std::clamp(dot, -1.0f, 1.0f));
-            const float invSinTheta = 1.0f / std::sin(theta);
-            scale0 = std::sin((1.0f - alpha) * theta) * invSinTheta;
-            scale1 = std::sin(alpha * theta) * invSinTheta;
-        }
-
-        return Quaternion(
-            scale0 * ax + scale1 * bx,
-            scale0 * ay + scale1 * by,
-            scale0 * az + scale1 * bz,
-            scale0 * aw + scale1 * bw).normalized();
-    }
-
     float AnimTrack::hermite(const float t, const float p0, const float m0, const float p1, const float m1)
     {
         const float t2 = t * t;
@@ -141,17 +97,17 @@ namespace visutwin::canvas
                 const float* v1 = &output.data[i1 * static_cast<size_t>(comp)];
 
                 if (curve.propertyPath == "localPosition") {
-                    transform.position = lerpVec3(
+                    transform.position = Vector3::lerp(
                         Vector3(v0[0], v0[1], v0[2]),
                         Vector3(v1[0], v1[1], v1[2]), alpha);
                     transform.hasPosition = true;
                 } else if (curve.propertyPath == "localRotation") {
-                    transform.rotation = slerpQuat(
+                    transform.rotation = Quaternion::slerp(
                         Quaternion(v0[0], v0[1], v0[2], v0[3]),
                         Quaternion(v1[0], v1[1], v1[2], v1[3]), alpha);
                     transform.hasRotation = true;
                 } else if (curve.propertyPath == "localScale") {
-                    transform.scale = lerpVec3(
+                    transform.scale = Vector3::lerp(
                         Vector3(v0[0], v0[1], v0[2]),
                         Vector3(v1[0], v1[1], v1[2]), alpha);
                     transform.hasScale = true;

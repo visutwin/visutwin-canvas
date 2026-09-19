@@ -101,6 +101,47 @@ int main()
     check(near(Vector4(1.0f, 2.0f, 3.0f, 4.0f).dot(Vector4(1.0f, 1.0f, 1.0f, 1.0f)), 10.0f),
         "Vector4 dot sums all four lanes");
 
+    // Quaternion::dot is the shortest-arc test of every rotation blend and the body of
+    // lengthSquared; it must agree with the component sum on every backend.
+    {
+        const Quaternion p(1.0f, 2.0f, 3.0f, 4.0f);
+        const Quaternion q(-2.0f, 0.5f, 1.0f, 2.0f);
+        check(near(p.dot(q), -2.0f + 1.0f + 3.0f + 8.0f), "Quaternion dot matches the component sum");
+        check(near(p.dot(p), p.lengthSquared()), "Quaternion dot with itself is lengthSquared");
+        check(near(p.dot(p), 30.0f), "Quaternion lengthSquared of (1,2,3,4) is 30");
+        check(p.dot(Quaternion(-1.0f, -2.0f, -3.0f, -4.0f)) < 0.0f, "the negated quaternion has a negative dot");
+        check(near(Quaternion(1.0f, 0.0f, 0.0f, 0.0f).dot(Quaternion(0.0f, 0.0f, 0.0f, 1.0f)), 0.0f),
+            "orthogonal quaternions dot to 0");
+    }
+
+    // Quaternion::slerp / nlerp: the one interpolation every animation blend uses.
+    {
+        const float h = std::sqrt(0.5f);
+        const Quaternion id(0.0f, 0.0f, 0.0f, 1.0f);
+        const Quaternion quarterY(0.0f, h, 0.0f, h);          // 90 degrees about Y
+        const Quaternion eighthY(0.0f, std::sin(0.3926991f), 0.0f, std::cos(0.3926991f));   // 45 degrees
+        const Quaternion s0 = Quaternion::slerp(id, quarterY, 0.0f);
+        const Quaternion s1 = Quaternion::slerp(id, quarterY, 1.0f);
+        const Quaternion sh = Quaternion::slerp(id, quarterY, 0.5f);
+        const Quaternion nh = Quaternion::nlerp(id, quarterY, 0.5f);
+        check(near(s0.dot(id), 1.0f), "slerp at t=0 is the start");
+        check(near(s1.dot(quarterY), 1.0f), "slerp at t=1 is the end");
+        check(near(sh.dot(eighthY), 1.0f), "slerp midpoint of identity and a quarter turn is the eighth turn");
+        check(near(nh.dot(eighthY), 1.0f), "nlerp midpoint agrees with slerp for unit inputs");
+        check(near(sh.lengthSquared(), 1.0f) && near(nh.lengthSquared(), 1.0f), "both blends return unit quaternions");
+        // q and -q are one rotation: blending toward the negated spelling must not swing the long way.
+        const Quaternion minusQuarter = quarterY * -1.0f;
+        check(near(std::fabs(Quaternion::slerp(id, minusQuarter, 0.5f).dot(eighthY)), 1.0f),
+            "slerp takes the shorter arc when the end is negated");
+        check(near(std::fabs(Quaternion::nlerp(id, minusQuarter, 0.5f).dot(eighthY)), 1.0f),
+            "nlerp takes the shorter arc when the end is negated");
+        check(near(Quaternion::slerp(quarterY, quarterY, 0.3f).dot(quarterY), 1.0f),
+            "slerp of a quaternion with itself is itself (parallel fallback)");
+        const Quaternion sum = Quaternion(1.0f, 2.0f, 3.0f, 4.0f) + Quaternion(4.0f, 3.0f, 2.0f, 1.0f);
+        check(near(sum.getX(), 5.0f) && near(sum.getY(), 5.0f) && near(sum.getZ(), 5.0f) && near(sum.getW(), 5.0f),
+            "Quaternion operator+ is the component sum");
+    }
+
     // ── Plane normalisation ──────────────────────────────────────────────────
     // A plane whose normal lies along Z is the case the broken reduction destroyed:
     // it summed 2*(x*x + y*y) and dropped z*z, so this normal read as zero length and

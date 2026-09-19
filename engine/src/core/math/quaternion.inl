@@ -1,4 +1,6 @@
 //
+#include <algorithm>
+#include <cmath>
 // Created by Arnis Lektauers on 18.08.2025.
 //
 #pragma once
@@ -227,20 +229,65 @@ namespace visutwin::canvas
 #endif
     }
 
-    inline float Quaternion::lengthSquared() const
+    inline float Quaternion::dot(const Quaternion& other) const
     {
 #if defined(USE_SIMD_SSE)
-        __m128 dot = _mm_dp_ps(simd, simd, 0xFF);
-        return _mm_cvtss_f32(dot);
+        // SSE4.1 is guaranteed on this backend (defines.h gates it on __SSE4_1__).
+        return _mm_cvtss_f32(_mm_dp_ps(simd, other.simd, 0xFF));
 #elif defined(USE_SIMD_APPLE)
-        return simd.vector.x * simd.vector.x + simd.vector.y * simd.vector.y + simd.vector.z * simd.vector.z + simd.
-            vector.w * simd.vector.w;
+        return simd_dot(simd.vector, other.simd.vector);
 #elif defined(USE_SIMD_NEON)
-        float32x4_t mul = vmulq_f32(simd, simd);
-        return vgetq_lane_f32(mul, 0) + vgetq_lane_f32(mul, 1) + vgetq_lane_f32(mul, 2) + vgetq_lane_f32(mul, 3);
+        // Pairwise horizontal sum, the same form Vector4::dot uses on this backend.
+        const float32x4_t mul = vmulq_f32(simd, other.simd);
+        const float32x2_t sum2 = vadd_f32(vget_low_f32(mul), vget_high_f32(mul));
+        return vget_lane_f32(sum2, 0) + vget_lane_f32(sum2, 1);
 #else
-        return x * x + y * y + z * z + w * w;
+        return x * other.x + y * other.y + z * other.z + w * other.w;
 #endif
+    }
+
+    inline Quaternion Quaternion::operator+(const Quaternion& rhs) const
+    {
+#if defined(USE_SIMD_SSE)
+        return Quaternion(_mm_add_ps(simd, rhs.simd));
+#elif defined(USE_SIMD_APPLE)
+        return Quaternion(simd_quaternion(simd.vector + rhs.simd.vector));
+#elif defined(USE_SIMD_NEON)
+        return Quaternion(vaddq_f32(simd, rhs.simd));
+#else
+        return Quaternion(x + rhs.x, y + rhs.y, z + rhs.z, w + rhs.w);
+#endif
+    }
+
+    inline Quaternion Quaternion::slerp(const Quaternion& a, const Quaternion& b, const float t)
+    {
+        float cosTheta = a.dot(b);
+        // Shorter arc: q and -q are one rotation, so blend toward the nearer spelling.
+        const Quaternion bNear = cosTheta < 0.0f ? b * -1.0f : b;
+        if (cosTheta < 0.0f) {
+            cosTheta = -cosTheta;
+        }
+        float scaleA = 1.0f - t;
+        float scaleB = t;
+        constexpr float epsilon = 1e-6f;
+        if ((1.0f - cosTheta) > epsilon) {
+            const float theta = std::acos(std::min(cosTheta, 1.0f));
+            const float invSinTheta = 1.0f / std::sin(theta);
+            scaleA = std::sin((1.0f - t) * theta) * invSinTheta;
+            scaleB = std::sin(t * theta) * invSinTheta;
+        }
+        return (a * scaleA + bNear * scaleB).normalized();
+    }
+
+    inline Quaternion Quaternion::nlerp(const Quaternion& a, const Quaternion& b, const float t)
+    {
+        const Quaternion bNear = a.dot(b) < 0.0f ? b * -1.0f : b;
+        return (a * (1.0f - t) + bNear * t).normalized();
+    }
+
+    inline float Quaternion::lengthSquared() const
+    {
+        return dot(*this);
     }
 
     inline float Quaternion::length() const

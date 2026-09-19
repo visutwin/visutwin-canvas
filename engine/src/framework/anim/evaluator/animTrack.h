@@ -82,8 +82,6 @@ namespace visutwin::canvas
         void eval(float time, std::unordered_map<std::string, AnimTransform>& transforms) const;
 
     private:
-        static Vector3 lerpVec3(const Vector3& a, const Vector3& b, float alpha);
-        static Quaternion slerpQuat(const Quaternion& a, const Quaternion& b, float alpha);
         static float hermite(float t, float p0, float m0, float p1, float m1);
 
         std::string _name;

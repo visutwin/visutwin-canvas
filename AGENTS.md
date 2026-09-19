@@ -879,6 +879,15 @@ present, but the rule below never depends on reading it.
   SIMD intrinsics, so a scalar path can silently stop matching its SIMD twin. The
   engine's FMA-fused scalar code is not a bug; comparing it bit for bit against
   anything is.
+- **Quaternion blending lives in `Quaternion` — `dot`, `slerp`, `nlerp`, `operator+` —
+  and nowhere else.** Each is written once per backend in `quaternion.inl` (SSE
+  `_mm_dp_ps`, Apple `simd_dot`, NEON pairwise sum, scalar), so a caller that spells
+  `ax*bx + ay*by + ...` out of `getX()..getW()` leaves the backend and can round
+  differently from `lengthSquared()`, which is now `dot(*this)`. Until 2026-09-19
+  `AnimEvaluator`, `AnimTrack` and `Skeleton` each carried their own scalar
+  `slerpQuat` and `lerpVec3`; the header even advertised a SIMD slerp that did not
+  exist. `Vector3::lerp` is the vector twin. Contracts for all of them are in
+  `tests/simdMathTests.cpp`, which is per-backend by construction.
 - **A SIMD kernel ships with its scalar reference and a bit-exact test.** Today:
   `scene/gsplat/gsplatSortKeys` (splat depth and sort key) and
   `framework/lightmapper/lightmapperBvh` (4-box slab test). Each exposes the scalar
@@ -914,6 +923,20 @@ present, but the rule below never depends on reading it.
   tested `componentType != FLOAT` and `continue`d, so the mesh simply was not there
   and nothing was logged. Verify a change here by rendering the quantised asset
   against the same geometry written as floats — they must agree to rounding.
+- **An animation layer's weight is a CONTRIBUTION, composed per node across layers;
+  nothing but the component writes an animated node.** Each layer's `AnimEvaluator`
+  has a pose sink (`setPoseSink`) that hands its per-node result to the
+  `AnimComponent`, which blends the layers in order — OVERWRITE lerps toward the
+  layer by its weight, ADDITIVE adds the layer's offset from the node's REST value
+  (captured the first time a layer drives that property) scaled by it, a mask
+  restricts a layer to listed node paths, and `setNormalizeWeights` divides by the
+  total and drops the layers beneath the topmost OVERWRITE one, all as upstream's
+  `AnimTargetValue`. Until 2026-09-19 every layer with weight > 0 wrote the nodes
+  itself and the last one won, so a 0.25 layer was a full overwrite. Two consequences
+  for new code: an evaluator used OUTSIDE a component (no sink) still writes nodes
+  directly, and a zero-weight layer keeps advancing its clocks (upstream does), it
+  just contributes nothing. `tests/animLayerBlendTests.cpp` holds the closed-form
+  cases.
 - **A glTF node's identity is its name or `node_<index>`, and an animation target
   is a PATH of those names.** `glbNodeName` in `glbParser.cpp` is the one spelling,
   used by the node payload the container instantiates, the animation channels and

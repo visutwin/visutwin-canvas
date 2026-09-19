@@ -55,50 +55,6 @@ namespace visutwin::canvas
         }
     }
 
-    Vector3 AnimEvaluator::lerpVec3(const Vector3& a, const Vector3& b, const float alpha)
-    {
-        return a + (b - a) * alpha;
-    }
-
-    Quaternion AnimEvaluator::slerpQuat(const Quaternion& a, const Quaternion& b, const float alpha)
-    {
-        float ax = a.getX();
-        float ay = a.getY();
-        float az = a.getZ();
-        float aw = a.getW();
-
-        float bx = b.getX();
-        float by = b.getY();
-        float bz = b.getZ();
-        float bw = b.getW();
-
-        float dot = ax * bx + ay * by + az * bz + aw * bw;
-        if (dot < 0.0f) {
-            bx = -bx;
-            by = -by;
-            bz = -bz;
-            bw = -bw;
-            dot = -dot;
-        }
-
-        constexpr float epsilon = 1e-6f;
-        float scale0 = 1.0f - alpha;
-        float scale1 = alpha;
-
-        if ((1.0f - dot) > epsilon) {
-            const float theta = std::acos(std::clamp(dot, -1.0f, 1.0f));
-            const float invSinTheta = 1.0f / std::sin(theta);
-            scale0 = std::sin((1.0f - alpha) * theta) * invSinTheta;
-            scale1 = std::sin(alpha * theta) * invSinTheta;
-        }
-
-        return Quaternion(
-            scale0 * ax + scale1 * bx,
-            scale0 * ay + scale1 * by,
-            scale0 * az + scale1 * bz,
-            scale0 * aw + scale1 * bw).normalized();
-    }
-
     void AnimEvaluator::update(const float dt)
     {
         if (!_binder || _clips.empty()) {
@@ -142,7 +98,7 @@ namespace visutwin::canvas
                     if (acc.posCounter == 0 || weight >= 1.0f) {
                         acc.value.position = transform.position;
                     } else {
-                        acc.value.position = lerpVec3(acc.value.position, transform.position, weight);
+                        acc.value.position = Vector3::lerp(acc.value.position, transform.position, weight);
                     }
                     acc.value.hasPosition = true;
                     acc.posCounter++;
@@ -151,7 +107,7 @@ namespace visutwin::canvas
                     if (acc.rotCounter == 0 || weight >= 1.0f) {
                         acc.value.rotation = transform.rotation;
                     } else {
-                        acc.value.rotation = slerpQuat(acc.value.rotation, transform.rotation, weight);
+                        acc.value.rotation = Quaternion::slerp(acc.value.rotation, transform.rotation, weight);
                     }
                     acc.value.hasRotation = true;
                     acc.rotCounter++;
@@ -160,7 +116,7 @@ namespace visutwin::canvas
                     if (acc.sclCounter == 0 || weight >= 1.0f) {
                         acc.value.scale = transform.scale;
                     } else {
-                        acc.value.scale = lerpVec3(acc.value.scale, transform.scale, weight);
+                        acc.value.scale = Vector3::lerp(acc.value.scale, transform.scale, weight);
                     }
                     acc.value.hasScale = true;
                     acc.sclCounter++;
@@ -178,6 +134,15 @@ namespace visutwin::canvas
                     acc.wgtCounter++;
                 }
             }
+        }
+
+        // A component composing several layers takes the pose here and writes nothing
+        // itself; see setPoseSink.
+        if (_poseSink) {
+            for (const auto& [nodeName, acc] : blended) {
+                _poseSink(nodeName, acc.value);
+            }
+            return;
         }
 
         for (const auto& [nodeName, acc] : blended) {
