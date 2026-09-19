@@ -682,6 +682,19 @@ present, but the rule below never depends on reading it.
   omnis went through the array. Clustered lighting is ON by default, as upstream,
   so a scene that needs the non-clustered path (PCSS local shadows, cookies) has to
   say `setClusteredLightingEnabled(false)`.
+- **The clustered shadow atlas follows `LightingParams::shadowAtlasResolution` LIVE.**
+  `LightTextureAtlas::configure` only records the values and runs every frame, right
+  before `update()` in `ForwardRenderer::buildFrameGraph`; a changed resolution
+  RESIZES the atlas texture and target in place (the ShadowMap wrapper the lights
+  hold and the raw pointer the device binds stay valid, and each backend retires the
+  old GPU image itself), bumps the version so every light is re-slotted, and re-arms
+  the one-shot shadows for one render. Until 2026-09-19 the renderer configured the
+  atlas ONCE and the atlas ignored a later resolution anyway, behind a TODO that
+  recreating it "hangs the renderer"; 940 resizes in three seconds, toggling 512 and
+  2048 every five frames, hang neither backend. Configure it where it updates, not
+  later in the frame: the first update creates the texture from whatever was
+  recorded, and a configure that runs afterwards costs a 2048 allocation on frame
+  one and a resize on frame two.
 - **The shadow atlas is cleared per RECT, never by the pass.** It holds one-shot
   shadows of static lights beside realtime ones, so a load-action clear would erase
   the former every frame; each face clears its own viewport with a depth-1 triangle

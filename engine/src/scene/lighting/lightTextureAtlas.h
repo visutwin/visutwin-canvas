@@ -59,11 +59,10 @@ namespace visutwin::canvas
         explicit LightTextureAtlas(const std::shared_ptr<GraphicsDevice>& device) : _device(device) {}
 
         /// The atlas resolution and the split (empty = one equal square per light,
-        /// `ceil(sqrt(count))` on a side). Recorded here and applied when the texture
-        /// is first created; a later change of resolution is ignored, because the
-        /// ShadowMap wrapper the lights already hold cannot follow a resize.
-        /// TODO: recreating the atlas live hangs the renderer, so the live path is
-        /// deliberately not taken. The split, by contrast, may change every frame.
+        /// `ceil(sqrt(count))` on a side). Both may change at any time: a new
+        /// resolution resizes the texture and target in place on the next update(),
+        /// bumps the version so every light is re-slotted and re-armed, and costs one
+        /// re-render of the one-shot shadows (upstream's allocateShadowAtlas).
         void configure(int resolution, const std::vector<int>& atlasSplit);
 
         /// Assigns slots to `lights` for this frame — every shadow-casting spot or

@@ -114,6 +114,15 @@ namespace visutwin::canvas
             // it targets the shadow cameras at the atlas through the ShadowMap
             // wrapper the atlas installs.
             if (clusteredMode && _lightTextureAtlas) {
+                // Configured right before it updates, so the first update creates the
+                // atlas at the SCENE's resolution and a later change is applied on the
+                // next frame (configure only records; update resizes). Configured
+                // anywhere later in the frame, the first frame allocated the 2048
+                // default and resized it a frame later.
+                if (_scene) {
+                    const auto& lightingParams = _scene->lighting();
+                    _lightTextureAtlas->configure(lightingParams.shadowAtlasResolution, lightingParams.atlasSplit);
+                }
                 _lightTextureAtlas->update(atlasLights);
             }
             const auto& cullList = clusteredMode ? atlasLights : localShadowLights;

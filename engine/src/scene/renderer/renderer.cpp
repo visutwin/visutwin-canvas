@@ -765,11 +765,10 @@ namespace visutwin::canvas
             _clusterConfig.cellsY = std::max(1, lightingParams.cellsY);
             _clusterConfig.cellsZ = std::max(1, lightingParams.cellsZ);
             _clusterConfig.maxLightsPerCell = std::max(1, lightingParams.maxLightsPerCell);
-            if (_lightTextureAtlas) {
-                _lightTextureAtlas->configure(lightingParams.shadowAtlasResolution,
-                    lightingParams.atlasSplit);
-            }
         }
+        // The atlas is configured where it updates (ForwardRenderer::buildFrameGraph),
+        // every frame: a scene may change shadowAtlasResolution at any time. It used to
+        // be configured once, here, so a later change was ignored without a word.
 
         const auto defaultMaterial = getDefaultMaterial(_device);
 

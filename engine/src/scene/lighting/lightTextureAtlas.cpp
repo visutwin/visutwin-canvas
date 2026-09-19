@@ -121,6 +121,22 @@ namespace visutwin::canvas
     void LightTextureAtlas::ensureCreated()
     {
         if (_texture) {
+            if (_pendingResolution != _resolution) {
+                // A live resolution change, upstream's allocateShadowAtlas: the same
+                // Texture and RenderTarget objects are RESIZED rather than replaced, so
+                // the ShadowMap wrapper every light holds, and the raw pointer the
+                // device binds each frame, stay valid; the backends retire the old GPU
+                // image themselves (Vulkan defers the destroy behind the frame fences,
+                // Metal's command buffers retain what they reference). The contents are
+                // lost, so the version bumps and every light is re-slotted and re-armed
+                // in update(). Until 2026-09-19 a change after the first frame was
+                // ignored — and never even reached this class, since the renderer
+                // configured the atlas once.
+                spdlog::info("LightTextureAtlas: resolution {} -> {}", _resolution, _pendingResolution);
+                _resolution = _pendingResolution;
+                _renderTarget->resize(_resolution, _resolution);
+                ++_version;
+            }
             return;
         }
         _resolution = _pendingResolution;
