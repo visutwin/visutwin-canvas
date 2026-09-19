@@ -22,6 +22,7 @@
 
 #include <utility>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -89,7 +90,7 @@ namespace visutwin::canvas
             }
         }
 
-        // VISUTWIN_SSR_FLOOR=y,size[,ssr] lays a mirror-like metal plane of that size at
+        // VISUTWIN_SSR_FLOOR=y,size[,ssr[,pole[,gloss]]] lays a mirror-like metal plane of that size at
         // height y under any example and asks every camera for the scene colour and
         // depth grabs, with screen-space reflections on the plane unless the third
         // field is 0. No upstream example drives SSR, so this is how the path is
@@ -105,7 +106,10 @@ namespace visutwin::canvas
             // screen — a vertical world line and its mirror image share one world
             // line — so any sideways offset in the reflection is a march error.
             float pole = 0.0f;
-            const int fields = std::sscanf(floor, "%f,%f,%d,%f", &y, &size, &ssr, &pole);
+            // Optional fifth field: the floor's gloss (default 0.98, a mirror). Lower it
+            // to see the roughness cone blur the reflection while the pillar stays sharp.
+            float gloss = 0.98f;
+            const int fields = std::sscanf(floor, "%f,%f,%d,%f,%f", &y, &size, &ssr, &pole, &gloss);
             if (fields >= 2) {
                 auto* material = new StandardMaterial();
                 material->setName("ssr-floor");
@@ -114,7 +118,7 @@ namespace visutwin::canvas
                 // (the first version of this floor had albedo 0.1 and "lost" a test
                 // pillar that the march was hitting all along).
                 material->setDiffuse(Color(0.95f, 0.95f, 0.95f));
-                material->setGloss(0.98f);
+                material->setGloss(std::clamp(gloss, 0.0f, 1.0f));
                 material->setMetalness(1.0f);
                 material->setUseMetalness(true);
                 material->setUseScreenSpaceReflection(ssr != 0);
@@ -137,8 +141,8 @@ namespace visutwin::canvas
                     camera->requestSceneDepthMap(true);
                     ++cameras;
                 }
-                spdlog::info("SSR floor: y {} size {} ssr {} from VISUTWIN_SSR_FLOOR; grabs requested on {} camera(s)",
-                    y, size, ssr, cameras);
+                spdlog::info("SSR floor: y {} size {} ssr {} gloss {} from VISUTWIN_SSR_FLOOR; grabs requested on {} camera(s)",
+                    y, size, ssr, gloss, cameras);
             } else {
                 spdlog::warn("VISUTWIN_SSR_FLOOR='{}' is not y,size[,ssr]; ignored", floor);
             }

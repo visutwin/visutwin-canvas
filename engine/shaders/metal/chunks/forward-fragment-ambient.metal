@@ -231,6 +231,8 @@
 
         float2 ssrHitUv = float2(0.0);
         float ssrHit = 0.0;
+        float ssrHitT = 0.0;   // distance along the ray to the hit
+        float ssrHitW = 1.0;   // the hit's view depth
         float tPrev = 0.0;
         for (int i = 1; i <= SSR_STEPS; ++i) {
             const float t = ssrStep * float(i);
@@ -249,16 +251,19 @@
                 float lo = tPrev, hi = t;
                 float2 hitUv = uv;
                 float hitDiff = diff;
+                float hitT = t, hitW = clip.w;
                 for (int k = 0; k < SSR_REFINE; ++k) {
                     const float mid = 0.5 * (lo + hi);
                     const float4 c = lighting.viewProjection * float4(rd.worldPos + ssrR * mid, 1.0);
                     const float2 u = c.xy / c.w * float2(0.5, -0.5) + 0.5;
                     const float d = c.w - sceneDepthAt(u);
-                    if (d > 0.0) { hi = mid; hitUv = u; hitDiff = d; } else { lo = mid; }
+                    if (d > 0.0) { hi = mid; hitUv = u; hitDiff = d; hitT = mid; hitW = c.w; } else { lo = mid; }
                 }
                 if (hitDiff < ssrThickness) {
                     ssrHitUv = hitUv;
                     ssrHit = 1.0;
+                    ssrHitT = hitT;
+                    ssrHitW = hitW;
                     break;
                 }
             }
@@ -266,17 +271,34 @@
         }
 
         if (ssrHit > 0.0) {
-            float3 ssrColor = sceneColorTexture.sample(envAtlasSampler, ssrHitUv, level(0)).rgb;
+            // Roughness cone. The GGX lobe of a rough surface spreads the reflected
+            // rays into a cone of half-angle ~ alpha = roughness^2; where the cone
+            // meets the hit, its footprint on screen is tan(alpha) * distance to the
+            // hit, converted to grab pixels by the focal length at the hit's depth.
+            // The grab is mipmapped, so log2 of that footprint is the mip to read:
+            // a rough floor gets a blurred reflection instead of a sharp one faded
+            // out. The focal length in pixels comes from the projection's y scale,
+            // which is the length of the view-projection's clip-y row (V's rows are
+            // unit), times half the grab's height.
+            constexpr sampler ssrColorSampler(coord::normalized, filter::linear, mip_filter::linear, address::clamp_to_edge);
+            const float ssrRoughness = saturate(1.0 - gloss);
+            const float tanCone = ssrRoughness * ssrRoughness;
+            const float p11 = length(float3(lighting.viewProjection[0][1], lighting.viewProjection[1][1], lighting.viewProjection[2][1]));
+            const float focalPx = 0.5 * float(sceneColorTexture.get_height()) * p11;
+            const float footprintPx = tanCone * ssrHitT * focalPx / max(ssrHitW, 1e-3);
+            const float maxLod = max(float(sceneColorTexture.get_num_mip_levels()) - 1.0, 0.0);
+            const float ssrLod = clamp(log2(max(footprintPx, 1.0)), 0.0, maxLod);
+            float3 ssrColor = sceneColorTexture.sample(ssrColorSampler, ssrHitUv, level(ssrLod)).rgb;
             // Decode the grab (tonemapped sRGB, unless the HDR camera-frame path).
             if ((lighting.flagsAndPad.x & (1u << 5)) == 0u) {
                 ssrColor = pow(max(ssrColor, float3(0.0)), float3(2.2));
             }
-            // Fade at screen edges (reflection pops as rays exit the frame) and on
-            // rough surfaces (this port marches sharp — no roughness cone).
+            // Fade at screen edges (reflection pops as rays exit the frame); very rough
+            // surfaces fade out where the mip chain can no longer stand in for the lobe.
             const float2 eLo = smoothstep(float2(0.0), float2(0.12), ssrHitUv);
             const float2 eHi = 1.0 - smoothstep(float2(0.88), float2(1.0), ssrHitUv);
             const float edgeFade = eLo.x * eLo.y * eHi.x * eHi.y;
-            const float roughFade = saturate(gloss * 1.2 - 0.2);
+            const float roughFade = 1.0 - smoothstep(0.7, 1.0, ssrRoughness);
             const float3 ssrFresnel = getFresnel(dot(N, V), gloss, F0);
             indirectSpecular = mix(indirectSpecular, ssrColor * ssrFresnel, edgeFade * roughFade);
         }

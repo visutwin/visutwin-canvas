@@ -228,6 +228,8 @@
 
         vec2 ssrHitUv = vec2(0.0);
         float ssrHit = 0.0;
+        float ssrHitT = 0.0;   // distance along the ray to the hit
+        float ssrHitW = 1.0;   // the hit's view depth
         float tPrev = 0.0;
         for (int i = 1; i <= SSR_STEPS; ++i) {
             float t = ssrStep * float(i);
@@ -250,17 +252,20 @@
                 float lo = tPrev, hi = t;
                 vec2 hitUv = uv;
                 float hitDiff = diff;
+                float hitT = t, hitW = clip.w;
                 for (int k = 0; k < SSR_REFINE; ++k) {
                     float mid = 0.5 * (lo + hi);
                     vec4 c = lighting.viewProjection * vec4(fragWorldPos + ssrR * mid, 1.0);
                     vec2 u = c.xy / c.w * vec2(0.5, -0.5) + 0.5;
                     float rd = textureLod(ssrSceneDepth, u, 0.0).r;
                     float d = c.w - (ssrNear * ssrFar) / max(ssrFar - rd * (ssrFar - ssrNear), 1e-6);
-                    if (d > 0.0) { hi = mid; hitUv = u; hitDiff = d; } else { lo = mid; }
+                    if (d > 0.0) { hi = mid; hitUv = u; hitDiff = d; hitT = mid; hitW = c.w; } else { lo = mid; }
                 }
                 if (hitDiff < ssrThickness) {
                     ssrHitUv = hitUv;
                     ssrHit = 1.0;
+                    ssrHitT = hitT;
+                    ssrHitW = hitW;
                     break;
                 }
             }
@@ -273,8 +278,19 @@
             // flagsAndPad[0]) the forward pass writes linear HDR into an offscreen
             // target and the grab copies THAT, so decoding it a second time would
             // darken every reflection. Metal gates the same decode the same way.
-            // LOD 0 explicitly: implicit derivatives are undefined behind the loop above.
-            vec3 ssrColor = textureLod(ssrSceneColor, ssrHitUv, 0.0).rgb;
+            // Roughness cone (twin of the Metal block): the GGX lobe spreads the rays
+            // into a cone of half-angle ~ roughness^2; its footprint at the hit,
+            // tan(cone) * hit distance, converted to grab pixels by the focal length
+            // (the view-projection's clip-y row length times half the grab height)
+            // over the hit's depth, picks the mip. Explicit LOD: implicit derivatives
+            // are undefined behind the loop above.
+            float tanCone = roughness * roughness;
+            float p11 = length(vec3(lighting.viewProjection[0][1], lighting.viewProjection[1][1], lighting.viewProjection[2][1]));
+            float focalPx = 0.5 * float(textureSize(ssrSceneColor, 0).y) * p11;
+            float footprintPx = tanCone * ssrHitT * focalPx / max(ssrHitW, 1e-3);
+            float maxLod = max(float(textureQueryLevels(ssrSceneColor)) - 1.0, 0.0);
+            float ssrLod = clamp(log2(max(footprintPx, 1.0)), 0.0, maxLod);
+            vec3 ssrColor = textureLod(ssrSceneColor, ssrHitUv, ssrLod).rgb;
             if ((lighting.flagsAndPad[0] & (1u << 5)) == 0u) {
                 ssrColor = srgbToLinear(ssrColor);
             }
@@ -284,7 +300,8 @@
             vec2 eHi = 1.0 - smoothstep(vec2(0.88), vec2(1.0), ssrHitUv);
             float edgeFade = eLo.x * eLo.y * eHi.x * eHi.y;
             float gloss = 1.0 - roughness;
-            float roughFade = clamp(gloss * 1.2 - 0.2, 0.0, 1.0);
+            // Very rough surfaces fade where the mip chain can no longer stand in for the lobe.
+            float roughFade = 1.0 - smoothstep(0.7, 1.0, roughness);
             vec3 ssrFres = ssrFresnel(NdotV, gloss, F0);
             vec3 replaced = mix(indirectSpecular, ssrColor * ssrFres * specularOn,
                 edgeFade * roughFade);

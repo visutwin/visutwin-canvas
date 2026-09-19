@@ -1443,14 +1443,16 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
    `VISUTWIN_SCREENSHOT_TIME=s` arms by seconds since the first frame instead of by
    frame: an animated example's frame index is not a clock — the same frame landed
    1 s into one run's state and 2 s past it in the next run of the same binary.
-7. `VISUTWIN_SSR_FLOOR=y,size[,ssr[,pole]]` lays a MIRROR plane under any example with
+7. `VISUTWIN_SSR_FLOOR=y,size[,ssr[,pole[,gloss]]]` lays a MIRROR plane under any example with
    screen-space reflections on it (third field 0 for the control) and requests the
    colour and depth grabs on every camera; a fourth field stands a magenta pillar on
    the floor at that x. A pillar on a mirror is the SSR oracle: its reflection must
    start at its base row, run its full height and stay collinear with it
    (`scratchpad`-style check: fit the pillar's centre line, measure the reflection's
    deviation from it). A test floor must be a real mirror — a metal's reflectance is
-   its albedo, and a dark metal reflects at a tenth, which "lost" the pillar once.
+   its albedo, and a dark metal reflects at a tenth, which "lost" the pillar once. The
+   fifth field lowers the floor's gloss to watch the roughness cone blur the
+   reflection while the pillar stays sharp.
 
 Animated examples cannot be screenshot-diffed across shader changes.
 
@@ -1552,8 +1554,15 @@ What stays HERE is only what bites during UNRELATED work.
   and could reflect nothing across a 500-unit hall; it is 0.4 x (far - near) in 48
   steps, thickness 1.25 steps. Measured: the pillar's reflection went from 35 rows to
   140 of 140 on both backends, contiguous at the base, mean sideways deviation under
-  a pixel. Not done: a roughness cone (rough surfaces fade instead), and objects
-  thinner than a step can still be skipped.
+  a pixel. A ROUGHNESS CONE picks the colour mip: the GGX lobe's half-angle is taken
+  as roughness^2, its footprint at the hit is tan(cone) x hit distance, converted to
+  grab pixels by the focal length (the view-projection's clip-y row length x half the
+  grab height, since V's rows are unit) over the hit's depth, and log2 of that is the
+  LOD — so a rough floor blurs its reflection instead of fading it, and only
+  roughness above 0.7 fades. Measured with the pillar on the mirror floor at gloss
+  0.98 / 0.8 / 0.6: floor high-pass energy 4.4 / 3.4 / 2.4 while the pillar's own
+  stays put, Metal and Vulkan within 3%. Still true: objects thinner than a step can
+  be skipped.
 - **A camera frame owns BOTH grabs.** `CameraFrameOptions::sceneDepthMap` (from
   `CameraComponent::requestSceneDepthMap`) gives the frame a `RenderPassDepthGrab`
   with an explicit source, its offscreen scene target, placed beside the colour
