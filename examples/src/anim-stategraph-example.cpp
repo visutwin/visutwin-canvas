@@ -230,8 +230,13 @@ protected:
             Color(1.0f, 0.97f, 0.92f), 1.5f, true);
         if (auto* keyLightComp = keyLight->findComponent<LightComponent>()) {
             keyLightComp->setShadowResolution(2048);
-            keyLightComp->setShadowDistance(std::max(radius * 4.0f, 100.0f));
-            keyLightComp->setShadowBias(0.3f);
+            // Upstream's shadowDistance 16, shadowBias 0.2, normalOffsetBias 0.05.
+            // This was max(radius * 4, 100): the one cascade then spans the camera
+            // frustum out to 100 m, a 10 cm shadow texel on a 1.8 m character —
+            // its shadow was a smear whose limbs popped in and out as it moved,
+            // which reads as flicker. At 16 m the texel is under 2 cm.
+            keyLightComp->setShadowDistance(16.0f);
+            keyLightComp->setShadowBias(0.2f);
             keyLightComp->setShadowNormalBias(0.05f);
         }
 

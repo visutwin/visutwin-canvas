@@ -914,6 +914,19 @@ present, but the rule below never depends on reading it.
   tested `componentType != FLOAT` and `continue`d, so the mesh simply was not there
   and nothing was logged. Verify a change here by rendering the quantised asset
   against the same geometry written as floats — they must agree to rounding.
+- **A glTF node's identity is its name or `node_<index>`, and an animation target
+  is a PATH of those names.** `glbNodeName` in `glbParser.cpp` is the one spelling,
+  used by the node payload the container instantiates, the animation channels and
+  the skin's bone list; a new site that names a node must call it, or an unnamed
+  node exists under one name and is animated under another. Channels carry
+  `Root/Arm/Wheel`, upstream's `constructNodePath`, and `DefaultAnimBinder` walks
+  the path from the bound entity (as its children, as itself, or anchored deeper)
+  before falling back to the leaf name, so two "Wheel"s in different branches
+  animate their own entity. Until 2026-09-19 the parser SKIPPED every channel whose
+  node had no name and bound the rest by bare `findByName`; an exporter that names
+  only meshes and bones lost its animation in silence, and duplicate names drove
+  the first match twice. `tests/glbAnimationBindingTests.cpp` builds the model in
+  memory and holds both. Hand-authored tracks keep working with bare names.
 - **`KHR_texture_transform` cannot be copied from upstream, because this parser
   flips V into the vertex and upstream does not.** The composed transform is
   derived in the comment above `applyTextureTransforms`; what matters outside it is
@@ -1342,6 +1355,18 @@ present, but the rule below never depends on reading it.
   `ambient-occlusion` lost every directional shadow and zooming out brought them
   back. A scene that wants cascades sets them, and then must not use one-shot
   directional shadows with a moving camera (upstream has the same limit).
+- **`shadowDistance` sets the shadow TEXEL, and a smeared or popping character
+  shadow is a texel problem before it is a bias problem.** The one default cascade
+  spans the camera frustum out to the shadow distance, so the ortho radius is about
+  the distance and the texel is `2 * radius / resolution`: 100 m at 2048 is a 10 cm
+  texel, and a 1.8 m character's legs are one texel wide and pop as it moves.
+  `anim-stategraph` carried max(radius * 4, 100) where upstream's `locomotion` has
+  16; its shadow was a faint smear. Ablate before blaming the engine — a
+  receive-only floor, a 16 m distance and a maximal bias each left that scene's big
+  white zigzag untouched, because it is the PlayCanvas logo in `playcanvas-grey.png`
+  stretched over the floor exactly as upstream shows it. Keep the distance a few
+  multiples of the camera distance to the subject, or scale it with the camera as
+  the fly demo does.
 - **A directional receiver's shadow depth is SATURATED, never range-tested.** The
   shadow camera's near and far are fitted to the CASTERS every frame, so a
   receiver that is not a caster — a ground plane, or any surface further along the
@@ -1383,6 +1408,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
    env var; drive examples with `run_example.py`.
 5. `VISUTWIN_AMBIENT_SH=r,g,b` switches any example to the SH-probe variant with a
    uniform probe, so the probe path can be measured without a probe-setting scene.
+6. `VISUTWIN_SCREENSHOT_COUNT=n` captures n CONSECUTIVE frames of one run
+   (`<stem>_<frame><ext>`). A flicker is a difference between two frames of one run;
+   two runs differ anyway (see the fly demo's 46k-pixel noise floor).
 
 Animated examples cannot be screenshot-diffed across shader changes.
 

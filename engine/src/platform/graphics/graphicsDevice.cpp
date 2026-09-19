@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 11.09.2025.
 //
 #include <cmath>
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
@@ -95,14 +96,27 @@ namespace visutwin::canvas
                 if (const char* frame = std::getenv("VISUTWIN_SCREENSHOT_FRAME"); frame && *frame) {
                     _screenshotEnvFrame = std::strtoull(frame, nullptr, 10);
                 }
-                spdlog::info("Screenshot armed: '{}' at frame {}", _screenshotEnvPath,
-                    _screenshotEnvFrame);
+                if (const char* count = std::getenv("VISUTWIN_SCREENSHOT_COUNT"); count && *count) {
+                    _screenshotEnvCount = std::max<uint64_t>(std::strtoull(count, nullptr, 10), 1);
+                }
+                spdlog::info("Screenshot armed: '{}' at frame {} x{}", _screenshotEnvPath,
+                    _screenshotEnvFrame, _screenshotEnvCount);
             }
         }
         ++_frameCounter;
         if (!_screenshotEnvPath.empty() && _frameCounter >= _screenshotEnvFrame) {
-            requestScreenshot(_screenshotEnvPath);
-            _screenshotEnvPath.clear();
+            if (_screenshotEnvCount > 1) {
+                // A burst: number each frame so consecutive frames of one run can be diffed.
+                const size_t dot = _screenshotEnvPath.rfind('.');
+                const std::string stem = dot == std::string::npos ? _screenshotEnvPath : _screenshotEnvPath.substr(0, dot);
+                const std::string ext = dot == std::string::npos ? std::string() : _screenshotEnvPath.substr(dot);
+                requestScreenshot(stem + "_" + std::to_string(_frameCounter) + ext);
+            } else {
+                requestScreenshot(_screenshotEnvPath);
+            }
+            if (--_screenshotEnvCount == 0) {
+                _screenshotEnvPath.clear();
+            }
         }
 
         onFrameEnd();

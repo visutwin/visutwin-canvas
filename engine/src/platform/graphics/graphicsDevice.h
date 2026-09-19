@@ -1018,6 +1018,10 @@ namespace visutwin::canvas
         bool _screenshotEnvChecked = false;
         std::string _screenshotEnvPath;
         uint64_t _screenshotEnvFrame = 60;
+        // VISUTWIN_SCREENSHOT_COUNT: consecutive frames to capture from that frame on
+        // (default 1). More than one writes `<stem>_<frame><ext>` per frame, which is
+        // what a flicker needs: two frames of ONE run, not two runs.
+        uint64_t _screenshotEnvCount = 1;
         uint64_t _frameCounter = 0;
 
     private:
