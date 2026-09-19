@@ -148,25 +148,21 @@ if(VISUTWIN_BACKEND_VULKAN)
     set(_VK_SHADER_DIR "${VISUTWIN_ROOT_DIR}/engine/shaders/vulkan")
     set(_VK_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/vulkan")
     set(_VK_SHADER_BUNDLE "${_VK_GENERATED_DIR}/vulkan_shader_bundle.h")
-    set(_VK_SHADER_SOURCES
-        "${_VK_SHADER_DIR}/forward.vert"
-        "${_VK_SHADER_DIR}/forward_instanced.vert"
-        "${_VK_SHADER_DIR}/forward_dynamic_batch.vert"
-        "${_VK_SHADER_DIR}/forward_skinned.vert"
-        "${_VK_SHADER_DIR}/forward_morphed.vert"
-        "${_VK_SHADER_DIR}/forward_skinned_morphed.vert"
-        "${_VK_SHADER_DIR}/forward_sky.vert"
-        "${_VK_SHADER_DIR}/forward_color.vert"
-        "${_VK_SHADER_DIR}/forward_point.vert"
-        "${_VK_SHADER_DIR}/forward.frag"
-        "${_VK_SHADER_DIR}/shadow_vsm_moments.frag"
-        "${_VK_SHADER_DIR}/post_fullscreen.vert"
-        "${_VK_SHADER_DIR}/env_reproject.frag"
-        "${_VK_SHADER_DIR}/instance_cull.comp"
-        "${_VK_SHADER_DIR}/particle.vert"
-        "${_VK_SHADER_DIR}/particle.frag"
-        "${_VK_SHADER_DIR}/gsplat.vert"
-        "${_VK_SHADER_DIR}/gsplat.frag"
+    # EVERY file under the shader directory is a dependency of the bundle: the
+    # top-level stages, the chunks forward.frag #includes, and the shared .glsl
+    # headers (normal_matrix, shadow_opacity). This used to be a hand-written list
+    # of the top-level files only, so editing a chunk or a header did not
+    # regenerate the bundle even in a full build — the next run measured the
+    # previous binary — and the list had already drifted from the generator's
+    # (shadow.frag was compiled but not listed). CONFIGURE_DEPENDS makes Ninja
+    # re-glob at build time, so a new chunk file joins without a reconfigure.
+    # Nothing outside this directory is #included: the generator's -I paths are
+    # this directory and its own work dir, whose files it writes itself.
+    file(GLOB_RECURSE _VK_SHADER_SOURCES CONFIGURE_DEPENDS
+        "${_VK_SHADER_DIR}/*.vert"
+        "${_VK_SHADER_DIR}/*.frag"
+        "${_VK_SHADER_DIR}/*.comp"
+        "${_VK_SHADER_DIR}/*.glsl"
     )
     add_custom_command(
         OUTPUT "${_VK_SHADER_BUNDLE}"

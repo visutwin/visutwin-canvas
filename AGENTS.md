@@ -502,10 +502,16 @@ Each of these has cost real time, and each is self-contained — the incident th
 produced it is recorded in the local `ENGINEERING-LOG.md` where that file is
 present, but the rule below never depends on reading it.
 
-- **A target-only Vulkan build does NOT regenerate the SPIR-V bundle.** After
-  touching ANY GLSL chunk, `touch engine/shaders/vulkan/forward.frag` and build
-  the whole `build-vulkan` target, or you measure the previous binary. This
-  produced two separate false conclusions in one session.
+- **The SPIR-V bundle depends on EVERY file under `engine/shaders/vulkan/`**
+  (`file(GLOB_RECURSE ... CONFIGURE_DEPENDS)` in `engine/CMakeLists.txt`), so a
+  chunk or header edit regenerates it in any build that reaches the engine target,
+  and a new chunk file joins without a reconfigure. Until 2026-09-19 the rule
+  listed only the top-level stages by hand: a chunk edit did not regenerate the
+  bundle even in a full build (two false conclusions in one session came from
+  measuring the previous binary), and the list had drifted from the generator's
+  (`shadow.frag` was compiled but not listed). Do not go back to a hand list.
+  Note the bundle is one header included by many engine sources, and Ninja
+  rebuilds by mtime, so a comment-only chunk edit still recompiles those files.
 - **The multi-pass DOF path is DEAD CODE.** `RenderPassCameraFrame::setupDofPass()`
   only calls `_dofPass.reset()`, so `RenderPassDof`, `RenderPassCoC` and
   `RenderPassDofBlur` are never constructed. Depth of field runs entirely through
@@ -793,6 +799,17 @@ present, but the rule below never depends on reading it.
   property and `setAoMap` writes through to it. Clearing only one of them used
   to clear nothing, which is how the ambient-occlusion example rendered with
   its "disabled" baked AO for as long as it existed.
+- **SH light probes replace the ambient DIFFUSE only; the environment atlas
+  still supplies the SPECULAR.** That is upstream's split (ambient and reflections
+  are separate decisions) and the Metal chunk's; the Vulkan chunk put probes and
+  atlas in one `if / else if` until 2026-09-19, so a scene carrying both lost every
+  environment reflection the moment its probes were enabled (clearcoat's panels
+  went black, the frame fell to 0.91 of Metal from 0.985). No example in the tree
+  sets probes, which is why it lived: `VISUTWIN_AMBIENT_SH=r,g,b` in the examples
+  harness puts a UNIFORM probe on any example's scene, whose diffuse is known
+  exactly (a flat ambient of r,g,b), so the probes-on frame isolates everything
+  else the probe path changes. Verify a change here with probes OFF bit-identical
+  and the probes-on delta matching Metal's.
 - **Material colours are authored in GAMMA space** and owe the shader a decode.
   The split is per-source, not per-material: `setDiffuse` stores raw, so the base
   colour FACTOR is decoded in the shader, while `setEmissive` is pre-linearised by
@@ -1325,10 +1342,26 @@ present, but the rule below never depends on reading it.
   `ambient-occlusion` lost every directional shadow and zooming out brought them
   back. A scene that wants cascades sets them, and then must not use one-shot
   directional shadows with a moving camera (upstream has the same limit).
-- **Large ground planes must stay shadow CASTERS but not receivers-only.** The
-  directional shadow camera fits its depth range to casters, so a receiver-only
-  ground falls outside it and catches no shadow; a huge caster inflates the fitted
-  range into whole-plane acne (PCF) or blown-up penumbras (PCSS).
+- **A directional receiver's shadow depth is SATURATED, never range-tested.** The
+  shadow camera's near and far are fitted to the CASTERS every frame, so a
+  receiver that is not a caster — a ground plane, or any surface further along the
+  light than the last caster — projects to z > 1. Both backends used to reject
+  that and light the fragment, which (a) left a receiver-only ground with no
+  shadow at all, the rule that used to stand here ("ground planes must stay
+  casters"), and (b) where the fit ended INSIDE a shadow, cut it off along a
+  straight line that moved with the casters' bounds: the fly demo's body shadow
+  ended in a hard edge that flickered with every wing beat. Clamping z to [0, 1]
+  is upstream's `getShadowSampleCoord` for an ortho light: 1 compares lit against
+  the cleared map and shadowed against any caster in front, and EVSM's cleared
+  texels already synthesise lit moments. Keep the UV test. A ground plane may now
+  be receiver-only, which it should be: a huge caster inflates the fitted range
+  into whole-plane acne (PCF) or blown-up penumbras (PCSS). Diagnose a suspected
+  recurrence by the shape — a shadow with a STRAIGHT edge that is not any
+  caster's silhouette is the far plane.
+  The other half of the fly demo's shadows was `setShadowNormalBias`, which is in
+  WORLD units and was 0.1 on a 0.3 m subject: every floor receiver was lifted 6 cm
+  and the leg shadows started away from the feet. Size it to about one shadow
+  texel of the scene.
 
 ## Measuring a backend divergence
 
@@ -1348,6 +1381,8 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
    or texture bug.
 4. Screenshot capture is in-engine on both backends via the `VISUTWIN_SCREENSHOT`
    env var; drive examples with `run_example.py`.
+5. `VISUTWIN_AMBIENT_SH=r,g,b` switches any example to the SH-probe variant with a
+   uniform probe, so the probe path can be measured without a probe-setting scene.
 
 Animated examples cannot be screenshot-diffed across shader changes.
 
@@ -1441,7 +1476,8 @@ What stays HERE is only what bites during UNRELATED work.
   It is absent rather than stale (the pass clears it on destruction). Nothing in
   the tree drives SSR, so this is untested either way; giving the camera frame its
   own depth grab means letting that pass take an explicit source render target.
-- **Example coverage gaps.** Nothing exercises: gsplat SH bands 1-3, detail
+- **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
+  `VISUTWIN_AMBIENT_SH`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles
   diffuse, normal and AO detail maps and only NORMAL exists here), fog of any
   type, sheen, or iridescence. The last three mean a change to those paths has to

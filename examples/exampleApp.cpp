@@ -22,6 +22,8 @@
 
 #include <utility>
 
+#include <array>
+#include <cstdio>
 #include <cstdlib>
 #include <string_view>
 
@@ -65,6 +67,25 @@ namespace visutwin::canvas
             destroy();
             shutdown();
             return -1;
+        }
+
+        // VISUTWIN_AMBIENT_SH=r,g,b puts a UNIFORM SH light probe of that radiance on
+        // the scene, which switches every forward variant to VT_FEATURE_LIGHT_PROBES
+        // without touching the example. A uniform probe is the one whose diffuse is
+        // known exactly (a flat ambient of r,g,b — the SH constants are folded in),
+        // so what it isolates is everything ELSE the probe path changes: no example
+        // in the tree sets probes, and this is how the Vulkan chunk was shown to drop
+        // the environment specular under them (2026-09-19).
+        if (const char* sh = std::getenv("VISUTWIN_AMBIENT_SH"); sh && *sh) {
+            float r = 0.0f, g = 0.0f, b = 0.0f;
+            if (std::sscanf(sh, "%f,%f,%f", &r, &g, &b) == 3) {
+                std::array<Vector3, 9> coefficients{};
+                coefficients[0] = Vector3(r, g, b);
+                scene()->setAmbientSH(coefficients);
+                spdlog::info("Ambient SH probe: uniform ({}, {}, {}) from VISUTWIN_AMBIENT_SH", r, g, b);
+            } else {
+                spdlog::warn("VISUTWIN_AMBIENT_SH='{}' is not r,g,b; ignored", sh);
+            }
         }
 
         // The scene exists now, so the initialize phase has something to initialize.

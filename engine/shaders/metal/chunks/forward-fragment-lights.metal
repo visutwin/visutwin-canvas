@@ -341,12 +341,25 @@
             const float3 shadowCoord = shadowClip.xyz / shadowW;
 
             const float2 shadowUv = shadowCoord.xy;
-            const float shadowDepth = shadowCoord.z;
+            // The receiver's depth is SATURATED, not range-tested (upstream's
+            // getShadowSampleCoord for an ortho light). The shadow camera's near
+            // and far are fitted to the CASTERS each frame, so a receiver that is
+            // not itself a caster — a ground plane, or any surface further along
+            // the light than the last caster — projects to z > 1. Rejecting it
+            // left every such receiver unshadowed, and where the fit ended INSIDE
+            // a shadow the shadow was cut off along a straight line that moved
+            // with the casters' bounds: a fly's body shadow ended in a hard edge
+            // that flickered with every wing beat. Clamped to 1 it compares
+            // against the cleared map (1.0) as lit and against any caster in
+            // front as shadowed, which is the right answer for both. A receiver
+            // in front of the near plane clamps to 0 and is lit, since nothing
+            // casts from in front of the nearest caster. The UV test stays: a
+            // point outside the cascade's footprint has no map to read.
+            const float shadowDepth = saturate(shadowCoord.z);
 
             const float resolution = float(shadowTexture.get_width());
             const bool insideShadow = shadowUv.x >= 0.0 && shadowUv.x <= 1.0 &&
-                shadowUv.y >= 0.0 && shadowUv.y <= 1.0 &&
-                shadowDepth >= 0.0 && shadowDepth <= 1.0;
+                shadowUv.y >= 0.0 && shadowUv.y <= 1.0;
             if (insideShadow) {
 #if VT_FEATURE_VSM_SHADOWS
                 // EVSM_16F — sample exponentially-warped moments and reconstruct
@@ -383,11 +396,11 @@
                     const int nextCascade = cascadeIndex + 1;
                     const float4 nextShadowClip = lighting.shadowMatrixPalette[nextCascade] * float4(worldPosBiased, 1.0);
                     const float nextW = max(nextShadowClip.w, 1e-6);
-                    const float3 nextCoord = nextShadowClip.xyz / nextW;
+                    // Depth saturated, as for the primary cascade above.
+                    const float3 nextCoord = float3(nextShadowClip.xy / nextW, saturate(nextShadowClip.z / nextW));
                     float nextShadowFactor = 1.0;
                     if (nextCoord.x >= 0.0 && nextCoord.x <= 1.0 &&
-                        nextCoord.y >= 0.0 && nextCoord.y <= 1.0 &&
-                        nextCoord.z >= 0.0 && nextCoord.z <= 1.0) {
+                        nextCoord.y >= 0.0 && nextCoord.y <= 1.0) {
 #if VT_FEATURE_VSM_SHADOWS
                         const float nextVsmBias = max(lighting.shadowBiasNormalStrength.x, 1e-4);
                         const float nextVisible = getShadowVSM16(shadowTexture, nextCoord.xy, nextCoord.z, nextVsmBias);

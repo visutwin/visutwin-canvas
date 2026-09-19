@@ -13,23 +13,21 @@
         return;
     }
 
-    // Indirect lighting.  With an environment atlas: image-based diffuse
-    // irradiance + roughness-prefiltered specular reflection.  Without one:
-    // a flat ambient term plus a Fresnel-weighted specular floor so metals
-    // aren't pitch black. Diffuse and specular are kept apart so ambient
+    // Indirect lighting, split the way upstream and the Metal chunk split it:
+    // the DIFFUSE irradiance comes from the first of SH light probes, the
+    // environment atlas' ambient rect, or the flat ambient; the SPECULAR
+    // reflection comes from the environment atlas whenever it is bound, whatever
+    // supplied the diffuse. Until 2026-09-19 this backend put the probes and the
+    // atlas in ONE if/else-if, so a scene carrying both lost every environment
+    // reflection the moment its probes were enabled — the metals went flat —
+    // while Metal kept them. Diffuse and specular are kept apart so ambient
     // occlusion can treat them as upstream does (see the occlusion block below).
-    vec3 indirectDiffuse;
-    // Mirrors the specular part of the indirect contribution exactly as it lands
-    // in `color` below, AO factor included. SSR replaces that term where the
-    // reflection ray hits on-screen geometry, so it only has to add the
-    // difference rather than restructure the accumulation.
-    vec3 indirectSpecular = vec3(0.0);
-    // Precedence: SH light probes, then the environment atlas, then a flat ambient.
-    // This backend used to test the atlas FIRST, so a scene carrying both rendered
-    // its ambient from the atlas where Metal rendered it from the probes.
+    vec3 ambientIrradiance;
     if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
+        // 9-coefficient irradiance in the world normal direction (upstream
+        // AMBIENTSH basis, coefficients premultiplied).
         vec3 shN = N;
-        vec3 irradiance =
+        ambientIrradiance = max(
             lighting.ambientSH[0].rgb +
             lighting.ambientSH[1].rgb * shN.x +
             lighting.ambientSH[2].rgb * shN.y +
@@ -38,20 +36,30 @@
             lighting.ambientSH[5].rgb * (shN.z * shN.y) +
             lighting.ambientSH[6].rgb * (shN.y * shN.x) +
             lighting.ambientSH[7].rgb * (3.0 * shN.z * shN.z - 1.0) +
-            lighting.ambientSH[8].rgb * (shN.x * shN.x - shN.y * shN.y);
-        indirectDiffuse = max(irradiance, vec3(0.0)) * diffuseAlbedo;
-        bakeDiffuseLight += max(irradiance, vec3(0.0));
-    } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
+            lighting.ambientSH[8].rgb * (shN.x * shN.x - shN.y * shN.y),
+            vec3(0.0));
+    } else {
+        ambientIrradiance = lighting.ambient.rgb;
+    }
+    // Mirrors the specular part of the indirect contribution exactly as it lands
+    // in `color` below, AO factor included. SSR replaces that term where the
+    // reflection ray hits on-screen geometry, so it only has to add the
+    // difference rather than restructure the accumulation.
+    vec3 indirectSpecular = vec3(0.0);
+    if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
         lighting.envParams.y > 0.5 &&
-        // bit 18: useSkybox off — upstream's useSceneEnv, so this material falls
-        // through to the flat ambient instead of the scene environment.
+        // bit 18: useSkybox off — upstream's useSceneEnv, so this material keeps
+        // the probe or flat ambient above and takes no scene reflection.
         (material.flags & (1u << 18)) == 0u) {
         float intensity = max(lighting.envParams.x, 0.0);
 
-        // Diffuse irradiance (the negate-X matches the engine's atlas lookup
-        // handedness).
-        vec3 diffDir = vec3(-N.x, N.y, N.z);
-        vec3 irradiance = decodeEnv(texture(envAtlas, mapAmbientUv(dirToEquirect(diffDir)))) * intensity;
+        if (!vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
+            // Diffuse irradiance from the atlas' Lambert rect (the negate-X matches
+            // the engine's atlas lookup handedness). Probes take priority over it,
+            // as on Metal.
+            vec3 diffDir = vec3(-N.x, N.y, N.z);
+            ambientIrradiance = decodeEnv(texture(envAtlas, mapAmbientUv(dirToEquirect(diffDir)))) * intensity;
+        }
 
         // Specular: reflect, pick a mip, trilinear between levels. Twin of the
         // block in forward-fragment-ambient.metal, including its shiny path.
@@ -102,24 +110,16 @@
         if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
             Fr = mix(Fr, iridFresnel, iridIntensity);
         }
-
-        // No kD on the irradiance. This branch used to scale it by
-        // (1 - Fr) * (1 - metallic), which applied (1 - metallic) a SECOND time
-        // because diffuseAlbedo already carries it — the same double count that
-        // was fixed on the direct-light path, and a 3.3x deficit on a material at
-        // metalness 0.7. Every other branch below (light probes, flat ambient,
-        // lightmap) already multiplies the irradiance by diffuseAlbedo alone, and
-        // so does the Metal chunk.
-        indirectDiffuse = irradiance * diffuseAlbedo;
         indirectSpecular = prefiltered * Fr * specularOn;
-        bakeDiffuseLight += irradiance;
-    } else {
-        indirectDiffuse = lighting.ambient.rgb * diffuseAlbedo;
-        // No specular floor here: `ambient * F0` is not a term Metal or upstream
-        // has, and it lit metals from nothing in scenes with no environment.
-        indirectSpecular = vec3(0.0);
-        bakeDiffuseLight += lighting.ambient.rgb;
     }
+    // No kD on the irradiance: it used to be scaled by (1 - Fr) * (1 - metallic),
+    // which applied (1 - metallic) a SECOND time because diffuseAlbedo already
+    // carries it — a 3.3x deficit on a material at metalness 0.7 — and no other
+    // source here nor the Metal chunk does that. No specular floor without an
+    // atlas either: `ambient * F0` is not a term Metal or upstream has, and it lit
+    // metals from nothing in scenes with no environment.
+    vec3 indirectDiffuse = ambientIrradiance * diffuseAlbedo;
+    bakeDiffuseLight += ambientIrradiance;
     // Sheen image-based lighting: sample the atlas along the reflection at the
     // sheen roughness, scaled by the analytical directional albedo instead of the
     // DFG lookup upstream samples. Twin of the block in

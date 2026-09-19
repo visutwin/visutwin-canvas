@@ -67,13 +67,24 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
         return 1.0;
     }
     vec3 coord = sc.xyz / sc.w;
+    // The receiver's depth is SATURATED, not range-tested (upstream's
+    // getShadowSampleCoord for an ortho light; twin of the block in
+    // forward-fragment-lights.metal). The shadow camera's near and far are
+    // fitted to the CASTERS each frame, so a receiver that is not itself a
+    // caster — a ground plane, or anything further along the light than the
+    // last caster — projects to z > 1. Rejecting it left such receivers
+    // unshadowed, and cut a shadow off along a straight line wherever the fit
+    // ended inside it, a line that moved with the casters' bounds every frame.
+    // Clamped to 1 it reads the cleared map (1.0) as lit and any caster in
+    // front as shadowed. The UV test stays: outside the footprint there is no
+    // map to read.
+    coord.z = clamp(coord.z, 0.0, 1.0);
     // No V flip: the cascade matrix bakes the Metal top-left atlas convention,
     // and the negative-height viewport used for every Vulkan pass (including
     // shadow renders) stores the map in exactly that orientation. A whole-atlas
     // 1-V flip here would sample the wrong cascade quadrant for any multi-
     // cascade layout.
-    if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0 ||
-        coord.z < 0.0 || coord.z > 1.0) {
+    if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0) {
         return 1.0;
     }
 
@@ -98,8 +109,9 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
             float nextFactor = 1.0;
             if (nsc.w > 0.0) {
                 vec3 ncoord = nsc.xyz / nsc.w;
-                if (all(greaterThanEqual(ncoord, vec3(0.0))) &&
-                    all(lessThanEqual(ncoord, vec3(1.0)))) {
+                ncoord.z = clamp(ncoord.z, 0.0, 1.0);   // saturated, as above
+                if (all(greaterThanEqual(ncoord.xy, vec2(0.0))) &&
+                    all(lessThanEqual(ncoord.xy, vec2(1.0)))) {
                     nextFactor = mix(1.0, sampleCascadeVisibility(ncoord, nextCascade),
                         lighting.shadowParams.w);
                 }
