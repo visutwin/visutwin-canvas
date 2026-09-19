@@ -194,39 +194,79 @@
 
 #if VT_FEATURE_SSR
     // Screen-space reflections: march the reflection ray against the scene depth
-    // grab and sample the scene color grab at the hit, blending OVER the
-    // probe/env-atlas fallback where the ray hits on-screen geometry.
+    // grab and sample the scene colour grab at the hit, blending OVER the
+    // probe/env-atlas fallback where the ray hits on-screen geometry. Twin of the
+    // block in forward-fragment-ambient.glsl.
+    //
+    // Three things this march owes its correctness to, each found 2026-09-19 with a
+    // magenta pillar standing on the SSR floor (VISUTWIN_SSR_FLOOR's fourth field):
+    //   - the colour grab is MIPMAPPED, and this block sits behind a data-dependent
+    //     loop, so implicit-LOD sampling took undefined derivatives and read the
+    //     coarsest mips: every hit came back as the scene's average, which erased a
+    //     thin pillar and turned the boxes into soft blobs. LOD 0, explicitly;
+    //   - the depth taps must be POINT sampled (a bilinear tap across a silhouette
+    //     is a depth belonging to neither surface), as SSAO's are;
+    //   - a coarse step accepted as the hit puts the fetch up to a whole step past
+    //     the intersection along the ray, so the hit is REFINED by bisection
+    //     between the last sample in front and the first behind.
+    // The march length scales with the camera range rather than a fixed 60 units,
+    // so a 0.3 m fly and a 500-unit hall get the same relative reach.
     if (ssrSceneDepthTexture.get_width() > 0 && sceneColorTexture.get_width() > 0) {
+        constexpr sampler ssrDepthSampler(coord::normalized, filter::nearest, address::clamp_to_edge);
         const float ssrNear = lighting.cameraNearFar.x;
         const float ssrFar = lighting.cameraNearFar.y;
         const float3 ssrR = reflect(-V, N);
 
         const int SSR_STEPS = 48;
-        const float SSR_MAX_DIST = 60.0;
-        const float ssrStep = SSR_MAX_DIST / float(SSR_STEPS);
-        const float ssrThickness = 1.5;   // view-space hit tolerance (world units)
+        const int SSR_REFINE = 6;
+        const float ssrMaxDist = 0.4 * (ssrFar - ssrNear);
+        const float ssrStep = ssrMaxDist / float(SSR_STEPS);
+        const float ssrThickness = ssrStep * 1.25;   // view-space tolerance behind the surface
+
+        // Linear view depth stored at `uv`: depth is the GL [-1,1] range remapped to [0,1].
+        auto sceneDepthAt = [&](float2 uv) -> float {
+            const float rawDepth = ssrSceneDepthTexture.sample(ssrDepthSampler, uv);
+            return (ssrNear * ssrFar) / max(ssrFar - rawDepth * (ssrFar - ssrNear), 1e-6);
+        };
 
         float2 ssrHitUv = float2(0.0);
         float ssrHit = 0.0;
+        float tPrev = 0.0;
         for (int i = 1; i <= SSR_STEPS; ++i) {
-            const float3 samplePos = rd.worldPos + ssrR * (ssrStep * float(i));
+            const float t = ssrStep * float(i);
+            const float3 samplePos = rd.worldPos + ssrR * t;
             const float4 clip = lighting.viewProjection * float4(samplePos, 1.0);
             if (clip.w <= 0.0) break;                       // behind the camera
             const float2 uv = clip.xy / clip.w * float2(0.5, -0.5) + 0.5;
             if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;   // left the screen
-            const float marchedZ = clip.w;                  // view-space distance
-            const float rawDepth = ssrSceneDepthTexture.sample(envAtlasSampler, uv);
-            const float sceneZ = (ssrNear * ssrFar) / (ssrFar - rawDepth * (ssrFar - ssrNear));
-            const float diff = marchedZ - sceneZ;           // >0 = marched behind the surface
-            if (diff > 0.0 && diff < ssrThickness) {
-                ssrHitUv = uv;
-                ssrHit = 1.0;
-                break;
+            const float diff = clip.w - sceneDepthAt(uv);   // >0 = marched behind the surface
+            if (diff > 0.0) {
+                // Any crossing is a candidate, however deep the coarse sample landed:
+                // bisect [tPrev, t] to the crossing and judge the thickness THERE. A
+                // true surface crossing refines to a small difference; a ray that
+                // jumped behind a silhouette keeps the depth gap and is rejected, and
+                // the march goes on past it rather than giving up.
+                float lo = tPrev, hi = t;
+                float2 hitUv = uv;
+                float hitDiff = diff;
+                for (int k = 0; k < SSR_REFINE; ++k) {
+                    const float mid = 0.5 * (lo + hi);
+                    const float4 c = lighting.viewProjection * float4(rd.worldPos + ssrR * mid, 1.0);
+                    const float2 u = c.xy / c.w * float2(0.5, -0.5) + 0.5;
+                    const float d = c.w - sceneDepthAt(u);
+                    if (d > 0.0) { hi = mid; hitUv = u; hitDiff = d; } else { lo = mid; }
+                }
+                if (hitDiff < ssrThickness) {
+                    ssrHitUv = hitUv;
+                    ssrHit = 1.0;
+                    break;
+                }
             }
+            tPrev = t;
         }
 
         if (ssrHit > 0.0) {
-            float3 ssrColor = sceneColorTexture.sample(envAtlasSampler, ssrHitUv).rgb;
+            float3 ssrColor = sceneColorTexture.sample(envAtlasSampler, ssrHitUv, level(0)).rgb;
             // Decode the grab (tonemapped sRGB, unless the HDR camera-frame path).
             if ((lighting.flagsAndPad.x & (1u << 5)) == 0u) {
                 ssrColor = pow(max(ssrColor, float3(0.0)), float3(2.2));

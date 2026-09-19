@@ -1443,10 +1443,14 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
    `VISUTWIN_SCREENSHOT_TIME=s` arms by seconds since the first frame instead of by
    frame: an animated example's frame index is not a clock — the same frame landed
    1 s into one run's state and 2 s past it in the next run of the same binary.
-7. `VISUTWIN_SSR_FLOOR=y,size[,ssr]` lays a glossy metal plane under any example with
+7. `VISUTWIN_SSR_FLOOR=y,size[,ssr[,pole]]` lays a MIRROR plane under any example with
    screen-space reflections on it (third field 0 for the control) and requests the
-   colour and depth grabs on every camera, so the SSR path can be measured with no
-   SSR example in the tree.
+   colour and depth grabs on every camera; a fourth field stands a magenta pillar on
+   the floor at that x. A pillar on a mirror is the SSR oracle: its reflection must
+   start at its base row, run its full height and stay collinear with it
+   (`scratchpad`-style check: fit the pillar's centre line, measure the reflection's
+   deviation from it). A test floor must be a real mirror — a metal's reflectance is
+   its albedo, and a dark metal reflects at a tenth, which "lost" the pillar once.
 
 Animated examples cannot be screenshot-diffed across shader changes.
 
@@ -1533,6 +1537,23 @@ What stays HERE is only what bites during UNRELATED work.
   that size, expecting zero differing pixels. Log the sizes every pass sees
   (target, source texture, device) rather than reasoning about which object a
   resize reaches.
+- **The SSR march samples the colour grab at LOD 0, point-samples the depth,
+  bisects to the crossing and reaches 0.4 of the camera range.** All four in both
+  chunks, found 2026-09-19 with the pillar oracle. The colour grab is MIPMAPPED and
+  the fetch sits behind a data-dependent loop, so an implicit LOD took undefined
+  derivatives and read the coarsest mips: every reflection was the scene's average,
+  which turned boxes into blobs and erased a thin pillar (the light-cookie trap
+  again). The depth tap is a silhouette test and must be nearest (Vulkan's head
+  already bound `nearestClampSampler`; Metal sampled it linearly). A hit accepted at
+  the coarse sample sat up to a step past the intersection, so the crossing is
+  bisected six times and the thickness judged at the refined point, with a rejected
+  silhouette jump continuing the march instead of ending it. The reach was a fixed
+  60 world units, which cut a 60-unit pillar's reflection to a quarter of its height
+  and could reflect nothing across a 500-unit hall; it is 0.4 x (far - near) in 48
+  steps, thickness 1.25 steps. Measured: the pillar's reflection went from 35 rows to
+  140 of 140 on both backends, contiguous at the base, mean sideways deviation under
+  a pixel. Not done: a roughness cone (rough surfaces fade instead), and objects
+  thinner than a step can still be skipped.
 - **A camera frame owns BOTH grabs.** `CameraFrameOptions::sceneDepthMap` (from
   `CameraComponent::requestSceneDepthMap`) gives the frame a `RenderPassDepthGrab`
   with an explicit source, its offscreen scene target, placed beside the colour

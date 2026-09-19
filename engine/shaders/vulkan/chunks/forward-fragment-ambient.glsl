@@ -210,8 +210,10 @@
         indirectSpecular = replaced;
     }
     // Screen-space reflections: march the reflection ray against the scene depth
-    // grab and sample the scene color grab at the hit, blending OVER the
-    // probe/env-atlas specular where the ray lands on on-screen geometry.
+    // grab and sample the scene colour grab at the hit, blending OVER the
+    // probe/env-atlas specular where the ray lands on on-screen geometry. Twin of
+    // the block in forward-fragment-ambient.metal, which explains the explicit LOD,
+    // the point-sampled depth (nearestClampSampler, see the head) and the bisection.
     if (vtFeatureEnabled(VT_FEATURE_SSR_BIT) &&
         lighting.cameraNearFar.z > 0.5 && lighting.cameraNearFar.w > 0.5) {
         float ssrNear = lighting.cameraNearFar.x;
@@ -219,14 +221,17 @@
         vec3 ssrR = reflect(-V, N);
 
         const int SSR_STEPS = 48;
-        const float SSR_MAX_DIST = 60.0;
-        float ssrStep = SSR_MAX_DIST / float(SSR_STEPS);
-        const float ssrThickness = 1.5;   // view-space hit tolerance (world units)
+        const int SSR_REFINE = 6;
+        float ssrMaxDist = 0.4 * (ssrFar - ssrNear);
+        float ssrStep = ssrMaxDist / float(SSR_STEPS);
+        float ssrThickness = ssrStep * 1.25;   // view-space tolerance behind the surface
 
         vec2 ssrHitUv = vec2(0.0);
         float ssrHit = 0.0;
+        float tPrev = 0.0;
         for (int i = 1; i <= SSR_STEPS; ++i) {
-            vec3 samplePos = fragWorldPos + ssrR * (ssrStep * float(i));
+            float t = ssrStep * float(i);
+            vec3 samplePos = fragWorldPos + ssrR * t;
             vec4 clip = lighting.viewProjection * vec4(samplePos, 1.0);
             if (clip.w <= 0.0) break;                     // behind the camera
             // The backend rasterises through a NEGATED-height viewport so that
@@ -236,16 +241,30 @@
             // exactly as it does on Metal, Y included.
             vec2 uv = clip.xy / clip.w * vec2(0.5, -0.5) + 0.5;
             if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
-            float marchedZ = clip.w;                      // view-space distance
-            float rawDepth = texture(ssrSceneDepth, uv).r;
-            float sceneZ = (ssrNear * ssrFar) /
-                max(ssrFar - rawDepth * (ssrFar - ssrNear), 1e-6);
-            float diff = marchedZ - sceneZ;               // >0 = behind the surface
-            if (diff > 0.0 && diff < ssrThickness) {
-                ssrHitUv = uv;
-                ssrHit = 1.0;
-                break;
+            float rawDepth = textureLod(ssrSceneDepth, uv, 0.0).r;
+            float sceneZ = (ssrNear * ssrFar) / max(ssrFar - rawDepth * (ssrFar - ssrNear), 1e-6);
+            float diff = clip.w - sceneZ;                 // >0 = behind the surface
+            if (diff > 0.0) {
+                // Any crossing is a candidate; bisect to it and judge the thickness there
+                // (see the Metal twin). A rejected silhouette jump does not end the march.
+                float lo = tPrev, hi = t;
+                vec2 hitUv = uv;
+                float hitDiff = diff;
+                for (int k = 0; k < SSR_REFINE; ++k) {
+                    float mid = 0.5 * (lo + hi);
+                    vec4 c = lighting.viewProjection * vec4(fragWorldPos + ssrR * mid, 1.0);
+                    vec2 u = c.xy / c.w * vec2(0.5, -0.5) + 0.5;
+                    float rd = textureLod(ssrSceneDepth, u, 0.0).r;
+                    float d = c.w - (ssrNear * ssrFar) / max(ssrFar - rd * (ssrFar - ssrNear), 1e-6);
+                    if (d > 0.0) { hi = mid; hitUv = u; hitDiff = d; } else { lo = mid; }
+                }
+                if (hitDiff < ssrThickness) {
+                    ssrHitUv = hitUv;
+                    ssrHit = 1.0;
+                    break;
+                }
             }
+            tPrev = t;
         }
 
         if (ssrHit > 0.0) {
@@ -254,7 +273,8 @@
             // flagsAndPad[0]) the forward pass writes linear HDR into an offscreen
             // target and the grab copies THAT, so decoding it a second time would
             // darken every reflection. Metal gates the same decode the same way.
-            vec3 ssrColor = texture(ssrSceneColor, ssrHitUv).rgb;
+            // LOD 0 explicitly: implicit derivatives are undefined behind the loop above.
+            vec3 ssrColor = textureLod(ssrSceneColor, ssrHitUv, 0.0).rgb;
             if ((lighting.flagsAndPad[0] & (1u << 5)) == 0u) {
                 ssrColor = srgbToLinear(ssrColor);
             }

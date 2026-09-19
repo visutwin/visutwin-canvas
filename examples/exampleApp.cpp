@@ -89,7 +89,7 @@ namespace visutwin::canvas
             }
         }
 
-        // VISUTWIN_SSR_FLOOR=y,size[,ssr] lays a glossy dark metal plane of that size at
+        // VISUTWIN_SSR_FLOOR=y,size[,ssr] lays a mirror-like metal plane of that size at
         // height y under any example and asks every camera for the scene colour and
         // depth grabs, with screen-space reflections on the plane unless the third
         // field is 0. No upstream example drives SSR, so this is how the path is
@@ -100,15 +100,34 @@ namespace visutwin::canvas
         if (const char* floor = std::getenv("VISUTWIN_SSR_FLOOR"); floor && *floor) {
             float y = 0.0f, size = 100.0f;
             int ssr = 1;
-            if (std::sscanf(floor, "%f,%f,%d", &y, &size, &ssr) >= 2) {
+            // Optional fourth field: a magenta pole standing on the floor at x = pole,
+            // z = 0, height size / 10, 0.3 x height wide. Its reflection must be collinear with it on
+            // screen — a vertical world line and its mirror image share one world
+            // line — so any sideways offset in the reflection is a march error.
+            float pole = 0.0f;
+            const int fields = std::sscanf(floor, "%f,%f,%d,%f", &y, &size, &ssr, &pole);
+            if (fields >= 2) {
                 auto* material = new StandardMaterial();
                 material->setName("ssr-floor");
-                material->setDiffuse(Color(0.1f, 0.1f, 0.12f));
-                material->setGloss(0.95f);
-                material->setMetalness(0.9f);
+                // A MIRROR: a metal's reflectance is its base colour, so a dark metal
+                // reflects at a tenth and hides anything but the brightest emitters
+                // (the first version of this floor had albedo 0.1 and "lost" a test
+                // pillar that the march was hitting all along).
+                material->setDiffuse(Color(0.95f, 0.95f, 0.95f));
+                material->setGloss(0.98f);
+                material->setMetalness(1.0f);
                 material->setUseMetalness(true);
                 material->setUseScreenSpaceReflection(ssr != 0);
                 createPrimitive("plane", material, Vector3(0.0f, y, 0.0f), Vector3(size, 1.0f, size));
+                if (fields >= 4) {
+                    auto* poleMaterial = new StandardMaterial();
+                    poleMaterial->setName("ssr-pole");
+                    poleMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f));
+                    poleMaterial->setEmissive(Color(1.0f, 0.0f, 1.0f));
+                    const float height = size / 10.0f;
+                    createPrimitive("box", poleMaterial, Vector3(pole, y + height * 0.5f, 0.0f),
+                        Vector3(height * 0.3f, height, height * 0.3f));
+                }
                 int cameras = 0;
                 for (GraphNode* node : _engine->root()->find([](GraphNode* n) {
                         auto* e = dynamic_cast<Entity*>(n);
