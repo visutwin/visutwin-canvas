@@ -339,7 +339,7 @@ Example: `gsplat-example` (port of upstream `gaussian-splatting/simple` — a CC
 
 ### Spec-Gloss / Oren-Nayar / Detail Normals / Displacement
 The last four stubbed `VT_FEATURE_*` shader features (implemented 2026-07-13):
-- **Spec-gloss** (`VT_FEATURE_SPEC_GLOSS`, KHR_materials_pbrSpecularGlossiness): upstream's specular workflow, which is the DEFAULT (`useMetalness` false, as upstream). `setSpecular` (sRGB-authored, linearised into `specGlossParams.rgb`) + `setGloss` (+ `setGlossInvert`) + `setSpecGlossMap` (Metal only) — F0 = specular colour, roughness = 1-gloss, diffuse NOT scaled by the specular (upstream's combine adds albedo × diffuse light untouched). A material whose specular is black and has no spec-gloss map, clearcoat or metalness renders NO specular at all (`StandardMaterial::rendersSpecular`, upstream's `useSpecular` rule → `VT_FEATURE_NO_SPECULAR`), which is what a code-created `StandardMaterial` gets by default; call `setUseMetalness(true)` for the metal-rough workflow. The spec-gloss texture reuses the metal-rough binding (slot 3, rgb=sRGB specular, a=glossiness). The GLB parser sets `useMetalness` on every metal-rough material and applies KHR_materials_pbrSpecularGlossiness through `setSpecular`/`setGloss`, as upstream's extension handler does. DEVIATION NOT PORTED: upstream scales AMBIENT diffuse by `1 - specularity` under `LIT_SPECULAR`. GOTCHA: the texture sample MUST be gated on the `hasSpecGlossMap` flags bit (21) — an unbound Metal texture on Apple GPUs reports nonzero `get_width()` but samples zero, silently zeroing specular/gloss for factor-only materials (same trap as the env-atlas bug).
+- **Spec-gloss** (`VT_FEATURE_SPEC_GLOSS`, KHR_materials_pbrSpecularGlossiness): upstream's specular workflow, which is the DEFAULT (`useMetalness` false, as upstream). `setSpecular` (sRGB-authored, linearised into `specGlossParams.rgb`) + `setGloss` (+ `setGlossInvert`) + `setSpecGlossMap` (Metal only) — F0 = specular colour, roughness = 1-gloss, diffuse NOT scaled by the specular (upstream's combine adds albedo × diffuse light untouched). A material whose specular is black and has no spec-gloss map, clearcoat or metalness renders NO specular at all (`StandardMaterial::rendersSpecular`, upstream's `useSpecular` rule → `VT_FEATURE_NO_SPECULAR`), which is what a code-created `StandardMaterial` gets by default; call `setUseMetalness(true)` for the metal-rough workflow. The spec-gloss texture reuses the metal-rough binding (slot 3, rgb=sRGB specular, a=glossiness). The GLB parser sets `useMetalness` on every metal-rough material and applies KHR_materials_pbrSpecularGlossiness through `setSpecular`/`setGloss`, as upstream's extension handler does. The AMBIENT diffuse is scaled by `1 - specularity` under specular, as upstream's `LIT_SPECULAR` does (both chunks, 2026-09-19); the DIRECT diffuse is not. GOTCHA: the texture sample MUST be gated on the `hasSpecGlossMap` flags bit (21) — an unbound Metal texture on Apple GPUs reports nonzero `get_width()` but samples zero, silently zeroing specular/gloss for factor-only materials (same trap as the env-atlas bug).
 - **Oren-Nayar diffuse** (`VT_FEATURE_OREN_NAYAR`): `setUseOrenNayar(true)` swaps Lambert `N·L` for the fast qualitative Oren-Nayar form (sigma² = roughness²) in both the multi-light loop and the clustered path.
 - **Detail normals** (`VT_FEATURE_DETAIL_NORMALS`): `setDetailNormalMap` + `setDetailNormalScale` + `setDetailNormalTransform` — UDN blend (detail xy added to base normal xy) at fragment slot **23**, own UV transform.
 - **Displacement** (`VT_FEATURE_DISPLACEMENT`): `setDisplacementMap` + `setDisplacementScale`/`setDisplacementBias` — vertex-stage height sampling (`level(0)`) displaces along the normal before skinning/morph composition. The map routes through a slot>=100 sentinel in `Material::getTextureSlots` to VERTEX texture slot 0 (`MetalTextureBinder`). DEVIATION: standard vertex path only (not instanced/dynamic-batch/skinned).
@@ -569,22 +569,30 @@ already rendered in front of it.
 
 ### Render pass types
 
-**8 render pass types:** `RenderPassForward` (main PBR geometry, multi-light,
-multi-layer), `RenderPassShadowDirectional` (cascades, PCF + EVSM_16F),
-`RenderPassVsmBlur`, `RenderPassShadowLocalClustered` / `NonClustered`,
-`RenderPassUpdateClustered`, `RenderPassPostprocessing`, `RenderPassCookieRenderer`.
+**22 `RenderPass` subclasses.** The scene-level ones: `RenderPassForward` (main PBR
+geometry, multi-light, multi-layer), `RenderPassShadowDirectional` (cascades, PCF +
+EVSM_16F), `RenderPassVsmBlur`, `RenderPassShadowLocalClustered` / `NonClustered`,
+`RenderPassUpdateClustered`, `RenderPassPostprocessing`, `RenderPassCookieRenderer`,
+and the colour and depth grabs. The camera frame's sub-passes: prepass, SSAO, TAA,
+downsample/upsample, bloom, the DOF trio (CoC, far downsample, bokeh blur under a
+targetless `RenderPassDof` orchestrator), volumetric fog and its combine, compose,
+and the after pass. Every quad-drawing pass derives from `RenderPassShaderQuad`.
 
-### The env family, the last effects still on the device vtable
+### The env family over QuadRender
 
-The env family is the remaining real work and is not a mechanical lift. It runs
-OUTSIDE the frame loop at asset-load time, on each backend's own offline channel,
-and there is no way to BEGIN a render pass outside a frame — Metal is close,
-Vulkan is not (frame command buffer, uniform ring and descriptor pools are all
-frame-scoped). The two convolve implementations also genuinely differ: Metal
-importance-samples a table of up to 1024 float4 samples, Vulkan approximates with
-a roughness parameter and ignores the table. Unifying changes Vulkan's output.
-Passing the table as an input TEXTURE would fit the existing 8-slot seam.
-Verification exists: `tools/generate-env-atlas` produces deterministic PNGs.
+The environment bake — equirect-to-cube, reproject, convolve, atlas assembly — is
+written once over `QuadRender` in `scene/graphics/envBake.h`, `envReproject.h` and
+`envLighting.h`, with one MSL and one GLSL body per stage in `envShaders.h`; both
+backends run the same importance-sampled convolution over a sample table passed as
+an input texture. It runs inside `GraphicsDevice::beginOfflineWork` /
+`endOfflineWork`, which is what lets ordinary render passes execute outside the
+frame loop: Metal batches the work into one command buffer and commits without
+waiting, Vulkan records a one-shot buffer and waits so the frame-scoped uniform ring
+and descriptor pools can be reused. A bake still has to run inside a frame, because
+the per-draw uniform rings are handed out by `frameStart` (see AGENTS.md). The
+effect-pass migration off the device vtable is complete; `copyRenderTarget` and
+`generateMipmaps` stay virtual as generic device operations. `tools/generate-env-atlas`
+produces deterministic PNGs and is the regression check for the whole family.
 
 ## Live gotchas
 

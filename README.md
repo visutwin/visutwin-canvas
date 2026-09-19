@@ -19,7 +19,7 @@ backend, volumetric fog, lightmap baking, dynamic reflection probes, and
 geospatial and scientific-visualization layers that have no upstream
 equivalent.
 
-> **Status: Alpha.** The engine renders the scenes shown here and ships 44
+> **Status: Alpha.** The engine renders the scenes shown here and ships 46
 > working examples, but the API is not stable and changes without notice.
 > [FEATURES.md](FEATURES.md) lists what is implemented, module by module, along
 > with the known gaps.
@@ -71,7 +71,7 @@ Presets are `default` (Debug), `release`, `examples`, and `vulkan`. On macOS
 `default` selects Metal and `vulkan` selects Vulkan; either can be forced with
 `VISUTWIN_BACKEND_METAL=ON|OFF` and `VISUTWIN_BACKEND_VULKAN=ON|OFF`.
 
-The 44 examples are opt-in:
+The 46 examples are opt-in:
 
 ```bash
 cmake --preset examples
@@ -87,7 +87,7 @@ recompiling.
 ## Docs
 
 - [FEATURES.md](FEATURES.md) — full feature inventory and per-module status
-- [examples/](examples/README.md) — all 44 examples, grouped and described
+- [examples/](examples/README.md) — all 46 examples, grouped and described
 - [CONTRIBUTING.md](CONTRIBUTING.md) — layout, tests, and shader workflow
 - [canvas.visutwin.com](https://canvas.visutwin.com) — project home page
 
