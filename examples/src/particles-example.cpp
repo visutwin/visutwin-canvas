@@ -34,7 +34,7 @@
 
 #include <framework/assets/asset.h>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "platform/graphics/compute.h"
 #include "platform/graphics/shader.h"

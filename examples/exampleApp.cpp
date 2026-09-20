@@ -28,7 +28,7 @@
 #include <cstdlib>
 #include <string_view>
 
-#include "cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "framework/constants.h"
 #include "scene/materials/standardMaterial.h"
 #include "framework/extras/miniStats.h"

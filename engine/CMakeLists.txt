@@ -11,6 +11,13 @@ if(NOT DEFINED VISUTWIN_ROOT_DIR)
     get_filename_component(VISUTWIN_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 endif()
 
+# ── Installed layout ──────────────────────────────────────────────────
+include(GNUInstallDirs)
+set(VISUTWIN_CANVAS_VERSION 0.1.0)
+set(VISUTWIN_CANVAS_INSTALL_INCLUDE_DIR "${CMAKE_INSTALL_INCLUDEDIR}/visutwin/canvas")
+set(VISUTWIN_CANVAS_INSTALL_METALCPP_DIR "${CMAKE_INSTALL_INCLUDEDIR}/visutwin/canvas-metal-cpp")
+set(VISUTWIN_CANVAS_INSTALL_SHADER_DIR "${CMAKE_INSTALL_DATADIR}/visutwin-canvas")
+
 # ── Backend selection ─────────────────────────────────────────────────
 if(APPLE)
     set(_VISUTWIN_METAL_DEFAULT ON)
@@ -26,6 +33,12 @@ option(VISUTWIN_BACKEND_VULKAN "Enable Vulkan backend" ${_VISUTWIN_VULKAN_DEFAUL
 # application supplies one. This option only decides whether the Jolt-backed
 # implementation is compiled in alongside it.
 option(VISUTWIN_PHYSICS_JOLT "Build the Jolt Physics backend" ON)
+
+# Static by default; several sibling projects consume this engine, and a shared
+# build gives each of them one 16 MB dylib to link instead of its own copy of a
+# 450 MB Debug archive. vcpkg's osx/linux triplets build the dependencies static,
+# so they are absorbed into the dylib rather than becoming runtime requirements.
+option(VISUTWIN_CANVAS_SHARED "Build the engine as a shared library" ${BUILD_SHARED_LIBS})
 
 if(VISUTWIN_BACKEND_METAL AND NOT APPLE)
     message(FATAL_ERROR "VISUTWIN_BACKEND_METAL is only supported on Apple platforms")
@@ -55,10 +68,12 @@ find_package(assimp        CONFIG REQUIRED)
 # ── KTX2 transcoding backend ─────────────────────────────────────────
 # The standalone basisu port and libktx each bundle their own copy of
 # basis_universal (2.1.0 vs 1.16) and export the same basist:: symbols, so a
-# program linking both fails to link. Consumers that already pull in libktx —
-# via cesium-native, for instance — select it here and get a single copy.
+# program linking both fails to link. libktx is therefore the default for every
+# VisuTwin project: visutwin-geo pulls it in through cesium-native, and an engine
+# built the other way cannot be linked into that program at all. The choice is
+# compiled in and is reported to consumers as VISUTWIN_CANVAS_KTX2_USE_LIBKTX.
 option(VISUTWIN_KTX2_USE_LIBKTX
-    "Transcode KTX2 textures via libktx instead of the standalone basisu transcoder" OFF)
+    "Transcode KTX2 textures via libktx instead of the standalone basisu transcoder" ON)
 
 if(VISUTWIN_KTX2_USE_LIBKTX)
     # KTX::ktx declares a C link interface, so C has to be an enabled language
@@ -236,9 +251,37 @@ if(VISUTWIN_BACKEND_METAL)
     endforeach()
     add_custom_target(visutwin_embedded_shaders DEPENDS ${_MSL_EMBED_OUTPUTS})
 endif()
-add_library(visutwin-canvas STATIC
+if(VISUTWIN_CANVAS_SHARED)
+    set(_VISUTWIN_CANVAS_LIBRARY_TYPE SHARED)
+else()
+    set(_VISUTWIN_CANVAS_LIBRARY_TYPE STATIC)
+endif()
+
+add_library(visutwin-canvas ${_VISUTWIN_CANVAS_LIBRARY_TYPE}
     ${VISUTWIN_CANVAS_SOURCES}
 )
+
+# Needed either way: static dependencies are absorbed into the dylib in a shared
+# build, and a static engine may itself be linked into someone else's shared library.
+set_target_properties(visutwin-canvas PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+if(VISUTWIN_CANVAS_SHARED)
+    # Carries metal-cpp's selector globals inside the dylib (see
+    # metal/metalCppImplementation.cpp).
+    target_compile_definitions(visutwin-canvas PRIVATE VISUTWIN_CANVAS_SHARED_BUILD)
+    # Every symbol is exported, as on a static build: the engine has no export
+    # macros, so hiding symbols by default would silently drop its whole API.
+    # A Windows port would have to introduce them before this works there.
+    set_target_properties(visutwin-canvas PROPERTIES
+        VERSION ${VISUTWIN_CANVAS_VERSION}
+        SOVERSION 0
+        MACOSX_RPATH ON)
+    if(WIN32)
+        message(FATAL_ERROR
+            "VISUTWIN_CANVAS_SHARED is not supported on Windows yet: the engine has no "
+            "dllexport annotations, so the import library would be empty.")
+    endif()
+endif()
 
 # Generate the Metal embed headers before compiling and expose their include
 # directory only when that backend is part of this build.
@@ -253,13 +296,15 @@ if(VISUTWIN_BACKEND_VULKAN)
 endif()
 
 add_library(visutwin::canvas ALIAS visutwin-canvas)
+set_target_properties(visutwin-canvas PROPERTIES EXPORT_NAME canvas)
 
 target_include_directories(visutwin-canvas
     PUBLIC
-        ${VISUTWIN_ROOT_DIR}/engine/src
-        ${STB_INCLUDE_DIR}
-        ${TINYGLTF_INCLUDE_DIRS}
-        ${NLOHMANN_JSON_INCLUDE_DIRS}
+        $<BUILD_INTERFACE:${VISUTWIN_ROOT_DIR}/engine/src>
+        $<INSTALL_INTERFACE:${VISUTWIN_CANVAS_INSTALL_INCLUDE_DIR}>
+        $<BUILD_INTERFACE:${STB_INCLUDE_DIR}>
+        $<BUILD_INTERFACE:${TINYGLTF_INCLUDE_DIRS}>
+        $<BUILD_INTERFACE:${NLOHMANN_JSON_INCLUDE_DIRS}>
     PRIVATE
         ${VISUTWIN_ROOT_DIR}
 )
@@ -306,6 +351,17 @@ target_compile_definitions(visutwin-canvas PUBLIC
     $<$<CONFIG:Debug>:VISUTWIN_DEBUG_GPU_VALIDATION>
 )
 
+# Runtime shader-chunk lookup for an INSTALLED engine.
+#
+# shaderChunks.cpp finds the chunk trees from this file's __FILE__ path and from
+# the working directory, which covers every build-tree consumer but finds nothing
+# once the library is installed elsewhere. Bake the installed data directory in as
+# a last-resort candidate. It is an absolute path, so an installed tree that is
+# later moved needs $VISUTWIN_CANVAS_SHADERS instead (also honoured, and checked
+# first, so a developer can point a deployed binary at a working tree).
+target_compile_definitions(visutwin-canvas PRIVATE
+    VISUTWIN_CANVAS_INSTALLED_SHADER_DIR="${CMAKE_INSTALL_PREFIX}/${VISUTWIN_CANVAS_INSTALL_SHADER_DIR}")
+
 if(VISUTWIN_KTX2_USE_LIBKTX)
     target_compile_definitions(visutwin-canvas PRIVATE VISUTWIN_KTX2_USE_LIBKTX)
 endif()
@@ -314,7 +370,8 @@ endif()
 if(VISUTWIN_BACKEND_METAL)
     target_compile_definitions(visutwin-canvas PUBLIC VISUTWIN_HAS_METAL)
     target_include_directories(visutwin-canvas PUBLIC
-        ${VISUTWIN_ROOT_DIR}/engine/lib/metal-cpp
+        $<BUILD_INTERFACE:${VISUTWIN_ROOT_DIR}/engine/lib/metal-cpp>
+        $<INSTALL_INTERFACE:${VISUTWIN_CANVAS_INSTALL_METALCPP_DIR}>
     )
     target_link_libraries(visutwin-canvas PUBLIC
         "-framework Metal"
@@ -355,3 +412,68 @@ if(VISUTWIN_BACKEND_VULKAN)
         message(STATUS "shaderc not found - runtime custom GLSL is disabled")
     endif()
 endif()
+
+# ── Install and export ────────────────────────────────────────────────
+# Consumers include engine headers as "core/...", "framework/...", so the source
+# tree is installed under one subdirectory that becomes the include root. That
+# keeps every existing #include working while avoiding generic names in a shared
+# include prefix.
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+if(VISUTWIN_CANVAS_SHARED)
+    # Consumers of the installed dylib find it through this path.
+    set_target_properties(visutwin-canvas PROPERTIES
+        INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
+endif()
+
+install(TARGETS visutwin-canvas
+    EXPORT VisuTwinCanvasTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${VISUTWIN_CANVAS_INSTALL_INCLUDE_DIR})
+
+install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/src/"
+    DESTINATION ${VISUTWIN_CANVAS_INSTALL_INCLUDE_DIR}
+    FILES_MATCHING PATTERN "*.h" PATTERN "*.inl")
+
+if(VISUTWIN_BACKEND_METAL)
+    install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/lib/metal-cpp/"
+        DESTINATION ${VISUTWIN_CANVAS_INSTALL_METALCPP_DIR}
+        FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+endif()
+
+# Runtime-loaded chunk trees, in the layout shaderChunks.cpp expects below its root.
+install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/shaders/metal/chunks"
+    DESTINATION "${VISUTWIN_CANVAS_INSTALL_SHADER_DIR}/engine/shaders/metal")
+install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/shaders/vulkan/chunks"
+    DESTINATION "${VISUTWIN_CANVAS_INSTALL_SHADER_DIR}/engine/shaders/vulkan")
+
+install(FILES "${VISUTWIN_ROOT_DIR}/LICENSE" "${VISUTWIN_ROOT_DIR}/NOTICE"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/visutwin-canvas")
+
+if(TARGET unofficial::shaderc::shaderc)
+    set(VISUTWIN_HAS_SHADERC ON)
+else()
+    set(VISUTWIN_HAS_SHADERC OFF)
+endif()
+
+configure_package_config_file(
+    "${VISUTWIN_ROOT_DIR}/cmake/VisuTwinCanvasConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/VisuTwinCanvasConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/VisuTwinCanvas"
+    PATH_VARS VISUTWIN_CANVAS_INSTALL_SHADER_DIR)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/VisuTwinCanvasConfigVersion.cmake"
+    VERSION ${VISUTWIN_CANVAS_VERSION}
+    COMPATIBILITY SameMinorVersion)
+
+install(EXPORT VisuTwinCanvasTargets
+    FILE VisuTwinCanvasTargets.cmake
+    NAMESPACE visutwin::
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/VisuTwinCanvas")
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/VisuTwinCanvasConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/VisuTwinCanvasConfigVersion.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/VisuTwinCanvas")

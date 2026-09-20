@@ -48,7 +48,7 @@
 
 #include <framework/assets/asset.h>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "framework/components/render/renderComponent.h"
 #include "scene/constants.h"

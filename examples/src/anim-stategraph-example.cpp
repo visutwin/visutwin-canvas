@@ -14,7 +14,7 @@
 #include <memory>
 #include <string>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "core/shape/boundingBox.h"
 #include "framework/assets/asset.h"

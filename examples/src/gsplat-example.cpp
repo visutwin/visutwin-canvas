@@ -15,7 +15,7 @@
 #include <cmath>
 #include <memory>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "framework/components/gsplat/gsplatComponent.h"
 #include "framework/components/gsplat/gsplatComponentSystem.h"

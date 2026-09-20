@@ -16,7 +16,7 @@
 #include <memory>
 #include <vector>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "scene/constants.h"
 #include "scene/graphics/wideLine.h"

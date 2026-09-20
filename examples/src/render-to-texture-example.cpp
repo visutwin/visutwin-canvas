@@ -40,7 +40,7 @@
 #include <variant>
 #include <vector>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "core/math/curve.h"
 #include "core/math/curveSet.h"

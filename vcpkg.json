@@ -4,12 +4,12 @@
   "version-string": "0.1.0",
   "description": "C++ 3D engine targeting Apple Metal, derived from the PlayCanvas engine",
   "license": "Apache-2.0",
-  "builtin-baseline": "1e199d32ad53aab1defda61ce41c380302e3f95c",
+  "builtin-baseline": "b472291f295551b7127359ea38fdd2ca092f6f1b",
   "dependencies": [
     { "name": "spdlog",         "version>=": "1.17.0", "default-features": false, "features": ["tz-offset"] },
     { "name": "sdl3",           "version>=": "3.4.2", "features": ["vulkan"] },
     { "name": "stb"                                    },
-    { "name": "basisu"                                 },
+    { "name": "ktx"                                    },
     { "name": "tinyobjloader"                         },
     { "name": "tinygltf"                              },
     { "name": "draco"                                 },
@@ -19,6 +19,12 @@
     { "name": "implot"                               }
   ],
   "features": {
+    "basisu-transcoder": {
+      "description": "Use the standalone basisu KTX2 transcoder instead of libktx (-DVISUTWIN_KTX2_USE_LIBKTX=OFF). Incompatible with anything that also links libktx, such as cesium-native: the two bundle different copies of basis_universal and export the same symbols",
+      "dependencies": [
+        { "name": "basisu" }
+      ]
+    },
     "jolt": {
       "description": "Jolt Physics backend for the PhysicsWorld seam",
       "dependencies": [

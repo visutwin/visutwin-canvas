@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "core/math/quaternion.h"
 #include "framework/assets/asset.h"

@@ -6,10 +6,12 @@
 #include "shaderChunks.h"
 
 #include <array>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <optional>
 #include <sstream>
+#include <vector>
 
 #include "spdlog/spdlog.h"
 
@@ -53,14 +55,25 @@ namespace visutwin::canvas
             const std::string extension =
                 language == ShaderLanguage::Glsl ? ".glsl" : ".metal";
 
+            // Candidate roots, in order: an explicit override, this file's own
+            // source tree (set when the engine is compiled from source), the
+            // working directory and its parents, and finally the directory the
+            // chunk trees were INSTALLED into. The installed path is last so a
+            // build tree always wins, and it is what lets a consumer that links
+            // an installed libvisutwin-canvas find chunks at all.
             const auto sourceRoot = projectRootFromThisSource();
             const auto cwd = std::filesystem::current_path();
-            const std::array<std::filesystem::path, 4> chunkRoots = {
-                sourceRoot / subdir,
-                cwd / subdir,
-                cwd.parent_path() / subdir,
-                cwd.parent_path().parent_path() / subdir
-            };
+            std::vector<std::filesystem::path> chunkRoots;
+            if (const char* override = std::getenv("VISUTWIN_CANVAS_SHADERS"); override && *override) {
+                chunkRoots.emplace_back(std::filesystem::path(override) / subdir);
+            }
+            chunkRoots.push_back(sourceRoot / subdir);
+            chunkRoots.push_back(cwd / subdir);
+            chunkRoots.push_back(cwd.parent_path() / subdir);
+            chunkRoots.push_back(cwd.parent_path().parent_path() / subdir);
+#ifdef VISUTWIN_CANVAS_INSTALLED_SHADER_DIR
+            chunkRoots.emplace_back(std::filesystem::path(VISUTWIN_CANVAS_INSTALLED_SHADER_DIR) / subdir);
+#endif
 
             for (const auto& root : chunkRoots) {
                 if (!std::filesystem::exists(root) || !std::filesystem::is_directory(root)) {

@@ -19,7 +19,7 @@
 #include <core/shape/boundingBox.h>
 #include <framework/assets/asset.h>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"

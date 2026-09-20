@@ -18,7 +18,7 @@
 #include <random>
 #include <vector>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "platform/graphics/vertexFormat.h"
 #include "scene/constants.h"

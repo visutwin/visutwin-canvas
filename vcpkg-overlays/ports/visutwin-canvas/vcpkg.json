@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "visutwin-canvas",
+  "version": "0.1.0",
+  "description": "VisuTwin Canvas rendering engine, built once and shared by consuming projects",
+  "homepage": "https://canvas.visutwin.com",
+  "license": "Apache-2.0",
+  "supports": "!windows",
+  "dependencies": [
+    { "name": "spdlog", "default-features": false, "features": ["tz-offset"] },
+    { "name": "sdl3", "features": ["vulkan"] },
+    "stb",
+    "ktx",
+    "tinyobjloader",
+    "tinygltf",
+    "draco",
+    "assimp",
+    "boost-core",
+    { "name": "imgui", "features": ["sdl3-binding", { "name": "metal-binding", "platform": "osx" }, "docking-experimental"] },
+    "implot",
+    { "name": "vcpkg-cmake", "host": true },
+    { "name": "vcpkg-cmake-config", "host": true }
+  ],
+  "default-features": ["jolt"],
+  "features": {
+    "basisu-transcoder": {
+      "description": "Use the standalone basisu KTX2 transcoder instead of libktx; incompatible with anything that also links libktx",
+      "dependencies": ["basisu"]
+    },
+    "jolt": {
+      "description": "Jolt Physics backend for the PhysicsWorld seam",
+      "dependencies": ["joltphysics"]
+    },
+    "vulkan": {
+      "description": "Vulkan rendering backend",
+      "dependencies": [
+        { "name": "imgui", "features": ["vulkan-binding"] },
+        "vulkan-headers",
+        "vulkan-memory-allocator",
+        "vk-bootstrap",
+        "shaderc",
+        "spirv-cross"
+      ]
+    }
+  }
+}

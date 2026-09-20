@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers 28.12.2025
 //
-#include "cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include <algorithm>
 #include <cmath>
 #include <framework/engine.h>

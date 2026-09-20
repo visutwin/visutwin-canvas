@@ -62,7 +62,6 @@ function(visutwin_add_example example_name)
     add_executable(${target} MACOSX_BUNDLE
         ${example_source}
         ${VISUTWIN_ROOT_DIR}/examples/exampleApp.cpp
-        ${VISUTWIN_ROOT_DIR}/examples/cameraControls.cpp
         ${ARG_EXTRA_SOURCES}
     )
     target_link_libraries(${target} PRIVATE visutwin-canvas)

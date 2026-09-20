@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "framework/components/collision/collisionComponent.h"
 #include "framework/components/collision/collisionComponentSystem.h"

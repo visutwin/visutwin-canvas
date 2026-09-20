@@ -56,7 +56,7 @@
 #include <string>
 #include <variant>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "framework/anim/state-graph/animStateGraph.h"
 #include "framework/assets/asset.h"

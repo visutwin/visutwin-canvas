@@ -16,7 +16,7 @@
 #include <memory>
 
 #include "../exampleApp.h"
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "framework/assets/asset.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"

@@ -27,7 +27,7 @@
 #include <cmath>
 #include <memory>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
 #include "scene/constants.h"

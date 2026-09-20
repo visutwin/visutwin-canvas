@@ -26,7 +26,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "../cameraControls.h"
+#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
 #include "framework/graphics/picker.h"
