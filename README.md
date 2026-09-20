@@ -71,6 +71,21 @@ Presets are `default` (Debug), `release`, `examples`, and `vulkan`. On macOS
 `default` selects Metal and `vulkan` selects Vulkan; either can be forced with
 `VISUTWIN_BACKEND_METAL=ON|OFF` and `VISUTWIN_BACKEND_VULKAN=ON|OFF`.
 
+The Metal backend uses Apple's header-only metal-cpp, carried in
+`engine/lib/metal-cpp` and installed to
+`<prefix>/include/visutwin/canvas-metal-cpp` for downstream consumers. This is
+the authoritative copy for the VisuTwin projects; `visutwin-sim` keeps a
+fallback so it builds on its own and is normally pointed here instead:
+
+```bash
+cmake -S . -B build -DVISUTWIN_SIM_ENABLE_METAL=ON \
+  -DVISUTWIN_SIM_METAL_CPP_DIR=../visutwin-canvas/engine/lib/metal-cpp
+```
+
+`VISUTWIN_CANVAS_METAL_CPP_DIR` does the same for this project, so the shared
+copy can live anywhere. Keep the copies in step when upgrading; nothing checks
+that automatically.
+
 The 46 examples are opt-in:
 
 ```bash

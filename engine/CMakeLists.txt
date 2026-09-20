@@ -16,6 +16,13 @@ include(GNUInstallDirs)
 set(VISUTWIN_CANVAS_VERSION 0.1.0)
 set(VISUTWIN_CANVAS_INSTALL_INCLUDE_DIR "${CMAKE_INSTALL_INCLUDEDIR}/visutwin/canvas")
 set(VISUTWIN_CANVAS_INSTALL_METALCPP_DIR "${CMAKE_INSTALL_INCLUDEDIR}/visutwin/canvas-metal-cpp")
+
+# metal-cpp lives here by default. Point this at a directory shared with the
+# other VisuTwin projects to keep one copy on disk; visutwin-sim has the same
+# option, spelled VISUTWIN_SIM_METAL_CPP_DIR. The directory must contain
+# metal-cpp's Foundation/ and Metal/ subdirectories.
+set(VISUTWIN_CANVAS_METAL_CPP_DIR "${VISUTWIN_ROOT_DIR}/engine/lib/metal-cpp"
+    CACHE PATH "Directory containing metal-cpp's Foundation/ and Metal/ headers")
 set(VISUTWIN_CANVAS_INSTALL_SHADER_DIR "${CMAKE_INSTALL_DATADIR}/visutwin-canvas")
 
 # ── Backend selection ─────────────────────────────────────────────────
@@ -376,9 +383,16 @@ endif()
 
 # ── Metal backend linking ─────────────────────────────────────────────
 if(VISUTWIN_BACKEND_METAL)
+    foreach(_required Foundation/Foundation.hpp Metal/Metal.hpp)
+        if(NOT EXISTS "${VISUTWIN_CANVAS_METAL_CPP_DIR}/${_required}")
+            message(FATAL_ERROR
+                "VISUTWIN_CANVAS_METAL_CPP_DIR does not look like metal-cpp: "
+                "${VISUTWIN_CANVAS_METAL_CPP_DIR}/${_required} is missing")
+        endif()
+    endforeach()
     target_compile_definitions(visutwin-canvas PUBLIC VISUTWIN_HAS_METAL)
     target_include_directories(visutwin-canvas PUBLIC
-        $<BUILD_INTERFACE:${VISUTWIN_ROOT_DIR}/engine/lib/metal-cpp>
+        $<BUILD_INTERFACE:${VISUTWIN_CANVAS_METAL_CPP_DIR}>
         $<INSTALL_INTERFACE:${VISUTWIN_CANVAS_INSTALL_METALCPP_DIR}>
     )
     target_link_libraries(visutwin-canvas PUBLIC
@@ -447,7 +461,7 @@ install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/src/"
     FILES_MATCHING PATTERN "*.h" PATTERN "*.inl")
 
 if(VISUTWIN_BACKEND_METAL)
-    install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/lib/metal-cpp/"
+    install(DIRECTORY "${VISUTWIN_CANVAS_METAL_CPP_DIR}/"
         DESTINATION ${VISUTWIN_CANVAS_INSTALL_METALCPP_DIR}
         FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 endif()
