@@ -58,7 +58,7 @@
 #include "framework/components/script/scriptComponentSystem.h"
 // Every example logs, so the spdlog wrapper comes along with the host rather
 // than being repeated in 41 files.
-#include "log.h"
+#include "core/log.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "scene/constants.h"
 

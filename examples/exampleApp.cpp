@@ -32,8 +32,8 @@
 #include "framework/constants.h"
 #include "scene/materials/standardMaterial.h"
 #include "framework/extras/miniStats.h"
-#include "log.h"
-#include "viz/overlay/imguiOverlay.h"
+#include "core/log.h"
+#include "overlay/imguiOverlay.h"
 
 namespace visutwin::canvas
 {

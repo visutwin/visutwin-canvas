@@ -82,7 +82,15 @@ if(VISUTWIN_KTX2_USE_LIBKTX)
     find_package(Ktx        CONFIG REQUIRED)
     set(VISUTWIN_KTX2_BACKEND_LIB KTX::ktx)
 else()
-    find_package(basisu     CONFIG REQUIRED)
+    find_package(basisu     CONFIG QUIET)
+    if(NOT TARGET basisu::basisu_encoder)
+        message(FATAL_ERROR
+            "VISUTWIN_KTX2_USE_LIBKTX is OFF, but the basisu package was not found. libktx is the "
+            "default KTX2 backend; the standalone transcoder needs the manifest feature too, e.g. "
+            "-DVCPKG_MANIFEST_FEATURES=basisu-transcoder. An existing build directory configured "
+            "before that change keeps the old OFF value in its cache: pass "
+            "-DVISUTWIN_KTX2_USE_LIBKTX=ON or delete the build directory.")
+    endif()
     set(VISUTWIN_KTX2_BACKEND_LIB basisu::basisu_encoder)
 endif()
 

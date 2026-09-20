@@ -17,7 +17,7 @@
 #include "framework/applicationStats.h"
 #include "framework/engine.h"
 #include "platform/graphics/graphicsDevice.h"
-#include "viz/overlay/imguiOverlay.h"
+#include "overlay/imguiOverlay.h"
 
 namespace visutwin::canvas
 {
