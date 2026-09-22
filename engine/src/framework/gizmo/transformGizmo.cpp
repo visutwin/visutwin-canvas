@@ -8,6 +8,7 @@
 
 #include <SDL3/SDL_mouse.h>
 
+#include "core/math/vector2.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/componentSystem.h"
 #include "framework/engine.h"
@@ -37,23 +38,17 @@ namespace visutwin::canvas
             const float ax, const float ay,
             const float bx, const float by)
         {
-            const float abx = bx - ax;
-            const float aby = by - ay;
-            const float apx = px - ax;
-            const float apy = py - ay;
-            const float abLenSq = abx * abx + aby * aby;
+            const Vector2 p(px, py);
+            const Vector2 a(ax, ay);
+            const Vector2 ab = Vector2(bx, by) - a;
+            const Vector2 ap = p - a;
+            const float abLenSq = ab.lengthSquared();
             if (abLenSq <= 1e-6f) {
-                const float dx = px - ax;
-                const float dy = py - ay;
-                return dx * dx + dy * dy;
+                return ap.lengthSquared();
             }
 
-            const float t = clamp01((apx * abx + apy * aby) / abLenSq);
-            const float cx = ax + abx * t;
-            const float cy = ay + aby * t;
-            const float dx = px - cx;
-            const float dy = py - cy;
-            return dx * dx + dy * dy;
+            const float t = clamp01(ap.dot(ab) / abLenSq);
+            return (p - (a + ab * t)).lengthSquared();
         }
     }
 
@@ -468,13 +463,14 @@ namespace visutwin::canvas
             return false;
         }
 
-        const Vector4 clip = proj * Vector4(viewPos.getX(), viewPos.getY(), viewPos.getZ(), 1.0f);
+        const Vector4 clip = proj * Vector4(viewPos, 1.0f);
         if (std::abs(clip.getW()) < 1e-6f) {
             return false;
         }
 
-        const float ndcX = clip.getX() / clip.getW();
-        const float ndcY = clip.getY() / clip.getW();
+        const Vector3 ndc = clip.perspectiveDivide();
+        const float ndcX = ndc.getX();
+        const float ndcY = ndc.getY();
         outX = (ndcX * 0.5f + 0.5f) * _windowWidth;
         outY = (1.0f - (ndcY * 0.5f + 0.5f)) * _windowHeight;
         return true;
@@ -502,8 +498,7 @@ namespace visutwin::canvas
             return Vector3(1.0f, 0.0f, 0.0f);
         }
         const auto& wt = _camera->entity()->worldTransform();
-        const Vector4 c0 = wt.getColumn(0);
-        return Vector3(c0.getX(), c0.getY(), c0.getZ()).normalized();
+        return Vector3(wt.getColumn(0)).normalized();
     }
 
     Vector3 TransformGizmo::cameraUp() const
@@ -512,8 +507,7 @@ namespace visutwin::canvas
             return Vector3(0.0f, 1.0f, 0.0f);
         }
         const auto& wt = _camera->entity()->worldTransform();
-        const Vector4 c1 = wt.getColumn(1);
-        return Vector3(c1.getX(), c1.getY(), c1.getZ()).normalized();
+        return Vector3(wt.getColumn(1)).normalized();
     }
 
     Vector3 TransformGizmo::cameraForward() const
@@ -522,8 +516,7 @@ namespace visutwin::canvas
             return Vector3(0.0f, 0.0f, -1.0f);
         }
         const auto& wt = _camera->entity()->worldTransform();
-        const Vector4 c2 = wt.getColumn(2);
-        return Vector3(c2.getX(), c2.getY(), c2.getZ()).normalized();
+        return Vector3(wt.getColumn(2)).normalized();
     }
 
     void TransformGizmo::beginDrag(const Axis axis, const float mouseX, const float mouseY)
@@ -581,16 +574,13 @@ namespace visutwin::canvas
                     return;
                 }
 
-                const float ax = sx1 - sx0;
-                const float ay = sy1 - sy0;
-                const float len = std::sqrt(ax * ax + ay * ay);
+                const Vector2 screenAxis(sx1 - sx0, sy1 - sy0);
+                const float len = screenAxis.length();
                 if (len < 1e-4f) {
                     return;
                 }
 
-                const float dirx = ax / len;
-                const float diry = ay / len;
-                const float projectedPixels = dx * dirx + dy * diry;
+                const float projectedPixels = Vector2(dx, dy).dot(screenAxis.normalized());
                 const float pixelsPerWorld = len / _gizmoSize;
                 float worldDelta = projectedPixels / std::max(pixelsPerWorld, 1e-4f);
 
@@ -625,12 +615,8 @@ namespace visutwin::canvas
             } else if (_activeAxis == Axis::Z) {
                 scale = Vector3(scale.getX(), scale.getY(), std::max(0.05f, _targetStartScale.getZ() * factor));
             } else {
-                scale = _targetStartScale * factor;
-                scale = Vector3(
-                    std::max(0.05f, scale.getX()),
-                    std::max(0.05f, scale.getY()),
-                    std::max(0.05f, scale.getZ())
-                );
+                // max(floor, v) is std::max(0.05f, v) per lane, argument order included.
+                scale = Vector3::max(Vector3(0.05f), _targetStartScale * factor);
             }
             _target->setLocalScale(scale);
         }

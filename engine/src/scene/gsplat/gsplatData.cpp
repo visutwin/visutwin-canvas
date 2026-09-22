@@ -207,12 +207,10 @@ namespace visutwin::canvas
                 return;
             }
 
-            minPos = Vector3(std::min(minPos.getX(), s.center[0] - extentX),
-                             std::min(minPos.getY(), s.center[1] - extentY),
-                             std::min(minPos.getZ(), s.center[2] - extentZ));
-            maxPos = Vector3(std::max(maxPos.getX(), s.center[0] + extentX),
-                             std::max(maxPos.getY(), s.center[1] + extentY),
-                             std::max(maxPos.getZ(), s.center[2] + extentZ));
+            const Vector3 center = Vector3::load(s.center);
+            const Vector3 extent(extentX, extentY, extentZ);
+            minPos = Vector3::min(minPos, center - extent);
+            maxPos = Vector3::max(maxPos, center + extent);
             boundsSet = true;
         };
 

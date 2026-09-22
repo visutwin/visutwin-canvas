@@ -12,6 +12,7 @@
 #include <cstring>
 #include <numbers>
 
+#include "lightCamera.h"
 #include "renderPassShadowDirectional.h"
 #include "renderPassVsmBlur.h"
 #include "renderer.h"
@@ -195,8 +196,6 @@ namespace visutwin::canvas
             //   4. translate the shadow camera so the near plane sits just
             //      behind the nearest caster, set farClip to the depth span.
             {
-                const Matrix4 shadowCamView = shadowCamNode->worldTransform().inverse();
-
                 bool haveAabb = false;
                 BoundingBox visibleSceneAabb;
                 visibleSceneAabb.setCenter(0.0f, 0.0f, 0.0f);
@@ -296,10 +295,10 @@ namespace visutwin::canvas
                 float depthMin = 1e30f;
                 float depthMax = -1e30f;
                 for (int i = 0; i < 8; ++i) {
-                    const Vector3 corner = c + Vector3(
-                        (i & 1) ? h.getX() : -h.getX(),
-                        (i & 2) ? h.getY() : -h.getY(),
-                        (i & 4) ? h.getZ() : -h.getZ());
+                    const Vector3 corner = c + h * Vector3(
+                        (i & 1) ? 1.0f : -1.0f,
+                        (i & 2) ? 1.0f : -1.0f,
+                        (i & 4) ? 1.0f : -1.0f);
                     const float z = shadowCamView.transformPoint(corner).getZ();
                     if (z < depthMin) depthMin = z;
                     if (z > depthMax) depthMax = z;
@@ -315,26 +314,13 @@ namespace visutwin::canvas
             const Matrix4 shadowVP = shadowCam->projectionMatrix() * shadowView;
 
             const Vector4& vp = light->cascadeViewports()[cascade];
-            // upstream Mat4.setViewport: maps clip coords to viewport sub-region.
-            // Metal texture origin is top-left (vs OpenGL bottom-left), which flips the
-            // Y axis. This is handled by negating the Y scale; the Y translate stays the
-            // same as upstream because the viewport coordinates already correspond to
-            // Metal's top-left-origin coordinate system. Remaps NDC [-1,1] → [0,1] for Z.
-            Matrix4 viewportMatrix = Matrix4::identity();
-            viewportMatrix.setElement(0, 0, vp.getZ() * 0.5f);                         // X: scale by width/2
-            viewportMatrix.setElement(3, 0, vp.getX() + vp.getZ() * 0.5f);              // X: translate to region center
-            // Metal: negative Y scale maps NDC Y to top-down texture V; the translate
-            // is the same as upstream (no extra 1-y flip needed) because Metal viewport
-            // and texture coordinates share the same top-left origin.
-            viewportMatrix.setElement(1, 1, -vp.getW() * 0.5f);                         // Y: scale by -height/2 (Metal Y flip)
-            viewportMatrix.setElement(3, 1, vp.getY() + vp.getW() * 0.5f);              // Y: translate to region center
-            // Z: map from OpenGL NDC [-1,1] to Metal [0,1]
-            // Note: shadow-vertex.metal applies clip.z = 0.5*(clip.z+clip.w), so depth
-            // is already in [0,1] after vertex shader. The projection matrix produces
-            // OpenGL NDC z in [-1,1], but we bake the [0,1] mapping here since the
-            // shader reads the final shadow depth directly.
-            viewportMatrix.setElement(2, 2, 0.5f);                                      // Z: scale by 0.5
-            viewportMatrix.setElement(3, 2, 0.5f);                                      // Z: bias by 0.5
+            // upstream Mat4.setViewport: maps clip coords to the cascade's viewport
+            // sub-region, with the Y scale negated for the top-left texture origin (the
+            // translate stays upstream's, since the viewport rect is already top-left) and
+            // NDC z [-1,1] -> [0,1] baked in because the shader reads the final shadow depth.
+            // LightCamera::viewportProjectionBias is exactly that matrix, the one the
+            // clustered spot rects use too.
+            const Matrix4 viewportMatrix = LightCamera::viewportProjectionBias(vp);
 
             const Matrix4 shadowMatrix = viewportMatrix * shadowVP;
 

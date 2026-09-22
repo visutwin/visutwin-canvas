@@ -7,7 +7,6 @@
 #include "metalUniformBinder.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstring>
 #include "metalUniformRingBuffer.h"
 #include "metalUtils.h"
@@ -62,49 +61,19 @@ namespace visutwin::canvas
         }
 
         // ModelData at slot 2 — changes per draw, allocated from ring buffer.
-        // Normal matrix = (M^-1)^T of the upper-left 3x3.
-        // Computed via 3x3 cofactors instead of full 4x4 inverse().transpose() (~5-7x cheaper).
+        // Normal matrix = (M^-1)^T of the upper-left 3x3, built by Matrix4::normalMatrix
+        // from 3x3 cofactors instead of a full 4x4 inverse().transpose() (~5-7x cheaper).
         // The cofactor matrix C satisfies: (M^-1)^T = C / det(M).
         // Since the vertex shader multiplies by float4(normal, 0.0), only the 3x3 matters.
-        const float m00 = model.getElement(0, 0);
-        const float m01 = model.getElement(0, 1);
-        const float m02 = model.getElement(0, 2);
-        const float m10 = model.getElement(1, 0);
-        const float m11 = model.getElement(1, 1);
-        const float m12 = model.getElement(1, 2);
-        const float m20 = model.getElement(2, 0);
-        const float m21 = model.getElement(2, 1);
-        const float m22 = model.getElement(2, 2);
-
-        // 3x3 cofactors (reused for both determinant and normal matrix).
-        const float c00 = m11 * m22 - m12 * m21;
-        const float c01 = m12 * m20 - m10 * m22;
-        const float c02 = m10 * m21 - m11 * m20;
-        const float c10 = m02 * m21 - m01 * m22;
-        const float c11 = m00 * m22 - m02 * m20;
-        const float c12 = m01 * m20 - m00 * m21;
-        const float c20 = m01 * m12 - m02 * m11;
-        const float c21 = m02 * m10 - m00 * m12;
-        const float c22 = m00 * m11 - m01 * m10;
-
+        //
         // Dividing by the SIGNED determinant is what makes this the inverse
         // transpose rather than a cofactor matrix, and a mirrored mesh depends on
         // that sign: its normals flip with its surface, as upstream's matrix_normal
         // does, and the renderer flips which of its faces is culled to match.
-        const float det3 = m00 * c00 + m01 * c01 + m02 * c02;
-        const float invDet = (std::abs(det3) > 1e-8f) ? (1.0f / det3) : 0.0f;
-
-        // Pack cofactor/det into simd::float4x4 directly (avoids Matrix4 intermediary).
-        const simd::float4x4 normalMatrix = simd::float4x4(
-            simd::float4{c00 * invDet, c01 * invDet, c02 * invDet, 0.0f},
-            simd::float4{c10 * invDet, c11 * invDet, c12 * invDet, 0.0f},
-            simd::float4{c20 * invDet, c21 * invDet, c22 * invDet, 0.0f},
-            simd::float4{0.0f, 0.0f, 0.0f, 1.0f}
-        );
-
+        // A near-singular 3x3 (|det| <= 1e-8) uploads a zero normal matrix.
         const ModelData modelData{
             toSimdMatrix(model),
-            normalMatrix
+            toSimdMatrix(model.normalMatrix())
         };
         // Allocate ModelData from ring buffer and update offset (slot 2).
         // The ring buffer itself was bound to slot 2 in startRenderPass().
@@ -126,9 +95,7 @@ namespace visutwin::canvas
         // irradiance coefficients, or zeros when disabled.
         if (ambientSH) {
             for (int i = 0; i < 9; ++i) {
-                _lightingUniforms.ambientSH[i][0] = ambientSH[i].getX();
-                _lightingUniforms.ambientSH[i][1] = ambientSH[i].getY();
-                _lightingUniforms.ambientSH[i][2] = ambientSH[i].getZ();
+                ambientSH[i].store(&_lightingUniforms.ambientSH[i].x);
                 _lightingUniforms.ambientSH[i][3] = 0.0f;
             }
         } else {
@@ -137,15 +104,11 @@ namespace visutwin::canvas
 
         // Camera view-projection for fragment-stage screen projection
         // (dynamic grab-pass refraction). Identity when not provided.
-        // Column-major, and getElement takes (col, row): this used to pass (row, col),
+        // Column-major, as Matrix4::store writes it: this used to pass getElement(row, col),
         // uploading the TRANSPOSE, which gives every refracting fragment a negative w and
         // clamps its grab UV into a corner - a flat, dark, opaque-looking surface.
         if (viewProjection) {
-            for (int col = 0; col < 4; ++col) {
-                for (int row = 0; row < 4; ++row) {
-                    _lightingUniforms.viewProjection[col * 4 + row] = viewProjection->getElement(col, row);
-                }
-            }
+            viewProjection->store(_lightingUniforms.viewProjection);
         } else {
             std::memset(_lightingUniforms.viewProjection, 0, sizeof(_lightingUniforms.viewProjection));
             _lightingUniforms.viewProjection[0] = _lightingUniforms.viewProjection[5] =
@@ -173,13 +136,9 @@ namespace visutwin::canvas
                 const auto& src = lights[i];
                 Color lightLinear;
                 lightLinear.linear(&src.color);
-                dst.positionRange[0] = src.position.getX();
-                dst.positionRange[1] = src.position.getY();
-                dst.positionRange[2] = src.position.getZ();
+                src.position.store(&dst.positionRange.x);
                 dst.positionRange[3] = src.range;
-                dst.directionCone[0] = src.direction.getX();
-                dst.directionCone[1] = src.direction.getY();
-                dst.directionCone[2] = src.direction.getZ();
+                src.direction.store(&dst.directionCone.x);
                 dst.colorIntensity[0] = lightLinear.r;
                 dst.colorIntensity[1] = lightLinear.g;
                 dst.colorIntensity[2] = lightLinear.b;
@@ -191,9 +150,7 @@ namespace visutwin::canvas
                     // coneAngles[1..3] = areaRight.xyz   (was outerConeCos/pad/pad)
                     dst.directionCone[3] = src.areaHalfWidth;
                     dst.coneAngles[0] = src.areaHalfHeight;
-                    dst.coneAngles[1] = src.areaRight.getX();
-                    dst.coneAngles[2] = src.areaRight.getY();
-                    dst.coneAngles[3] = src.areaRight.getZ();
+                    src.areaRight.store(&dst.coneAngles[1]);
                 } else {
                     dst.directionCone[3] = src.outerConeCos;
                     dst.coneAngles[0] = src.innerConeCos;
@@ -225,9 +182,7 @@ namespace visutwin::canvas
         } else {
             _lightingUniforms.flagsAndPad[0] &= ~(1u << 2);
         }
-        _lightingUniforms.cameraPositionSkyboxIntensity[0] = cameraPosition.getX();
-        _lightingUniforms.cameraPositionSkyboxIntensity[1] = cameraPosition.getY();
-        _lightingUniforms.cameraPositionSkyboxIntensity[2] = cameraPosition.getZ();
+        cameraPosition.store(&_lightingUniforms.cameraPositionSkyboxIntensity.x);
         _lightingUniforms.skyboxMipAndPad[1] = exposure;
         // forward-fragment-tail uses this to select the tone mapping curve
         // when CameraFrame is not active (non-deferred path).
@@ -321,13 +276,7 @@ namespace visutwin::canvas
                 } else {
                     _localShadowTexture1 = ls.shadowMap;
                 }
-                const auto& m = ls.viewProjection;
-                // Matrix4::getElement takes (col, row) — upload column-major.
-                for (int col = 0; col < 4; ++col) {
-                    for (int row = 0; row < 4; ++row) {
-                        matDst[col * 4 + row] = m.getElement(col, row);
-                    }
-                }
+                ls.viewProjection.store(matDst);  // column-major
             }
             paramsDst[0] = ls.bias;
             paramsDst[1] = ls.normalBias;
@@ -399,12 +348,7 @@ namespace visutwin::canvas
                 paramsDst = (src.cookieIndex == 0)
                     ? &_lightingUniforms.cookieParams2D0.x : &_lightingUniforms.cookieParams2D1.x;
             }
-            // Matrix4::getElement takes (col, row) — upload column-major.
-            for (int col = 0; col < 4; ++col) {
-                for (int row = 0; row < 4; ++row) {
-                    matDst[col * 4 + row] = src.cookieMatrix.getElement(col, row);
-                }
-            }
+            src.cookieMatrix.store(matDst);  // column-major
             paramsDst[0] = src.cookieIntensity;
             paramsDst[1] = src.cookieFalloff ? 1.0f : 0.0f;
             paramsDst[2] = static_cast<float>(src.cookieChannel);
@@ -432,12 +376,8 @@ namespace visutwin::canvas
         const Vector3& boxMax, const bool boxProjection, const float intensity, const float maxLod)
     {
         _reflectionProbeCubeTexture = cubemap;
-        _lightingUniforms.reflectionProbeBoxMin[0] = boxMin.getX();
-        _lightingUniforms.reflectionProbeBoxMin[1] = boxMin.getY();
-        _lightingUniforms.reflectionProbeBoxMin[2] = boxMin.getZ();
-        _lightingUniforms.reflectionProbeBoxMax[0] = boxMax.getX();
-        _lightingUniforms.reflectionProbeBoxMax[1] = boxMax.getY();
-        _lightingUniforms.reflectionProbeBoxMax[2] = boxMax.getZ();
+        boxMin.store(&_lightingUniforms.reflectionProbeBoxMin.x);
+        boxMax.store(&_lightingUniforms.reflectionProbeBoxMax.x);
         _lightingUniforms.reflectionProbeParams[0] = boxProjection ? 1.0f : 0.0f;
         _lightingUniforms.reflectionProbeParams[1] = intensity;
         _lightingUniforms.reflectionProbeParams[2] = maxLod;
@@ -453,9 +393,7 @@ namespace visutwin::canvas
         _lightingUniforms.skyboxMipAndPad[0] = skyboxMip;
 
         // pack dome center for SKYTYPE_DOME/BOX
-        _lightingUniforms.skyDomeCenter[0] = skyDomeCenter.getX();
-        _lightingUniforms.skyDomeCenter[1] = skyDomeCenter.getY();
-        _lightingUniforms.skyDomeCenter[2] = skyDomeCenter.getZ();
+        skyDomeCenter.store(&_lightingUniforms.skyDomeCenter.x);
         _lightingUniforms.skyDomeCenter[3] = isDome ? 1.0f : 0.0f;
         if (_envAtlasTexture) {
             _lightingUniforms.flagsAndPad[0] |= (1u << 1);

@@ -108,16 +108,8 @@ namespace visutwin::canvas
                 const auto lightMin = light.aabb.center() - light.aabb.halfExtents();
                 const auto lightMax = light.aabb.center() + light.aabb.halfExtents();
 
-                bMin = Vector3(
-                    std::min(bMin.getX(), lightMin.getX()),
-                    std::min(bMin.getY(), lightMin.getY()),
-                    std::min(bMin.getZ(), lightMin.getZ())
-                );
-                bMax = Vector3(
-                    std::max(bMax.getX(), lightMax.getX()),
-                    std::max(bMax.getY(), lightMax.getY()),
-                    std::max(bMax.getZ(), lightMax.getZ())
-                );
+                bMin = Vector3::min(bMin, lightMin);
+                bMax = Vector3::max(bMax, lightMax);
             }
 
             _boundsMin = bMin;
@@ -127,9 +119,9 @@ namespace visutwin::canvas
         // Add small epsilon padding to prevent division by zero.
         constexpr float eps = 0.001f;
         const auto range = _boundsMax - _boundsMin;
-        if (range.getX() < eps) { _boundsMax = Vector3(_boundsMax.getX() + eps, _boundsMax.getY(), _boundsMax.getZ()); }
-        if (range.getY() < eps) { _boundsMax = Vector3(_boundsMax.getX(), _boundsMax.getY() + eps, _boundsMax.getZ()); }
-        if (range.getZ() < eps) { _boundsMax = Vector3(_boundsMax.getX(), _boundsMax.getY(), _boundsMax.getZ() + eps); }
+        const Vector3 padding(range.getX() < eps ? eps : 0.0f, range.getY() < eps ? eps : 0.0f,
+            range.getZ() < eps ? eps : 0.0f);
+        _boundsMax = _boundsMax + padding;
     }
 
     void WorldClusters::assignLightsToCells()
@@ -152,6 +144,9 @@ namespace visutwin::canvas
         const float invRangeX = range.getX() > 1e-6f ? 1.0f / range.getX() : 0.0f;
         const float invRangeY = range.getY() > 1e-6f ? 1.0f / range.getY() : 0.0f;
         const float invRangeZ = range.getZ() > 1e-6f ? 1.0f / range.getZ() : 0.0f;
+        const Vector3 invRange(invRangeX, invRangeY, invRangeZ);
+        const Vector3 cells(static_cast<float>(_config.cellsX), static_cast<float>(_config.cellsY),
+            static_cast<float>(_config.cellsZ));
 
         // Track light count per cell for fast insertion.
         // Use a temporary vector since we only need counts during assignment.
@@ -164,12 +159,15 @@ namespace visutwin::canvas
             const auto lMin = light.aabb.center() - light.aabb.halfExtents();
             const auto lMax = light.aabb.center() + light.aabb.halfExtents();
 
-            int cellMinX = static_cast<int>(std::floor((lMin.getX() - _boundsMin.getX()) * invRangeX * static_cast<float>(_config.cellsX)));
-            int cellMinY = static_cast<int>(std::floor((lMin.getY() - _boundsMin.getY()) * invRangeY * static_cast<float>(_config.cellsY)));
-            int cellMinZ = static_cast<int>(std::floor((lMin.getZ() - _boundsMin.getZ()) * invRangeZ * static_cast<float>(_config.cellsZ)));
-            int cellMaxX = static_cast<int>(std::floor((lMax.getX() - _boundsMin.getX()) * invRangeX * static_cast<float>(_config.cellsX)));
-            int cellMaxY = static_cast<int>(std::floor((lMax.getY() - _boundsMin.getY()) * invRangeY * static_cast<float>(_config.cellsY)));
-            int cellMaxZ = static_cast<int>(std::floor((lMax.getZ() - _boundsMin.getZ()) * invRangeZ * static_cast<float>(_config.cellsZ)));
+            const Vector3 cellMin = ((lMin - _boundsMin) * invRange * cells).floor();
+            const Vector3 cellMax = ((lMax - _boundsMin) * invRange * cells).floor();
+
+            int cellMinX = static_cast<int>(cellMin.getX());
+            int cellMinY = static_cast<int>(cellMin.getY());
+            int cellMinZ = static_cast<int>(cellMin.getZ());
+            int cellMaxX = static_cast<int>(cellMax.getX());
+            int cellMaxY = static_cast<int>(cellMax.getY());
+            int cellMaxZ = static_cast<int>(cellMax.getZ());
 
             // Clamp to valid cell range.
             cellMinX = std::clamp(cellMinX, 0, _config.cellsX - 1);
@@ -212,14 +210,10 @@ namespace visutwin::canvas
             const auto& ld = entry.data;
             auto& gpu = _gpuLights[i];
 
-            gpu.positionRange[0] = ld.position.getX();
-            gpu.positionRange[1] = ld.position.getY();
-            gpu.positionRange[2] = ld.position.getZ();
+            ld.position.store(gpu.positionRange);
             gpu.positionRange[3] = ld.range;
 
-            gpu.directionSpot[0] = ld.direction.getX();
-            gpu.directionSpot[1] = ld.direction.getY();
-            gpu.directionSpot[2] = ld.direction.getZ();
+            ld.direction.store(gpu.directionSpot);
             gpu.directionSpot[3] = entry.outerConeCos;
 
             // Convert sRGB color to linear for GPU.
@@ -250,26 +244,19 @@ namespace visutwin::canvas
                 for (float& value : gpu.shadowMatrix) {
                     value = 0.0f;
                 }
-                gpu.shadowMatrix[0] = ld.atlasViewport.getX();
-                gpu.shadowMatrix[1] = ld.atlasViewport.getY();
-                gpu.shadowMatrix[2] = ld.atlasViewport.getZ();
+                ld.atlasViewport.store(gpu.shadowMatrix);  // xyz; w is overwritten below
                 gpu.shadowMatrix[3] = static_cast<float>(LightTextureAtlas::kShadowEdgePixels);
                 gpu.shadowMatrix[4] = ld.shadowNear;
                 gpu.shadowMatrix[5] = ld.shadowFar;
                 gpu.shadowMatrix[6] = ld.shadowRelativeBias;
                 gpu.shadowMatrix[7] = 0.0f;
             } else if (hasShadow) {
-                // Column-major float4x4 for the GPU (dest[col*4+row] = M(row,col)).
-                // Matrix4::getElement takes (col, row), so M(row,col) is
-                // getElement(col, row) — the arguments are NOT in source order.
-                // This was uploading the transpose, which put every receiver's
-                // shadow coordinate outside [0,1] so the clustered shadow test
-                // silently fell through to unshadowed on both backends.
-                for (int col = 0; col < 4; ++col) {
-                    for (int row = 0; row < 4; ++row) {
-                        gpu.shadowMatrix[col * 4 + row] = ld.shadowMatrix.getElement(col, row);
-                    }
-                }
+                // Column-major float4x4 for the GPU (dest[col*4+row] = M(row,col)),
+                // which is exactly Matrix4's own storage order. An element loop here
+                // once uploaded the transpose, which put every receiver's shadow
+                // coordinate outside [0,1] so the clustered shadow test silently fell
+                // through to unshadowed on both backends.
+                ld.shadowMatrix.store(gpu.shadowMatrix);
             }
         }
     }

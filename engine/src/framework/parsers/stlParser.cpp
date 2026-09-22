@@ -81,18 +81,28 @@ namespace visutwin::canvas
 
         // ── Compute geometric face normal from 3 vertices ────────────────
 
-        Vector3 computeFaceNormal(float v0x, float v0y, float v0z,
-                                  float v1x, float v1y, float v1z,
-                                  float v2x, float v2y, float v2z)
+        Vector3 computeFaceNormal(const Vector3& v0, const Vector3& v1, const Vector3& v2)
         {
-            Vector3 e1(v1x - v0x, v1y - v0y, v1z - v0z);
-            Vector3 e2(v2x - v0x, v2y - v0y, v2z - v0z);
+            Vector3 e1 = v1 - v0;
+            Vector3 e2 = v2 - v0;
             Vector3 n = e1.cross(e2);
             float len = n.length();
             if (len > 1e-8f) {
                 return n * (1.0f / len);
             }
             return Vector3(0.0f, 1.0f, 0.0f);  // degenerate triangle fallback
+        }
+
+        // ── Apply the config's scale and Y/Z flip to one STL vertex ──────
+
+        Vector3 transformPosition(float x, float y, float z, const StlParserConfig& config)
+        {
+            Vector3 p = Vector3(x, y, z) * config.uniformScale;
+            if (config.flipYZ) {
+                // (x, y, z) -> (x, z, -y)
+                p = Vector3(p.getX(), p.getZ(), -p.getY());
+            }
+            return p;
         }
 
         // ── Binary format detection ──────────────────────────────────────
@@ -244,8 +254,7 @@ namespace visutwin::canvas
             const StlParserConfig& config,
             std::vector<PackedVertex>& outVertices,
             std::vector<uint32_t>& outIndices,
-            float& minX, float& minY, float& minZ,
-            float& maxX, float& maxY, float& maxZ)
+            Vector3& minPos, Vector3& maxPos)
         {
             const size_t triCount = triangles.size();
             outVertices.reserve(triCount * 3);
@@ -254,26 +263,15 @@ namespace visutwin::canvas
             for (size_t i = 0; i < triCount; ++i) {
                 const auto& tri = triangles[i];
 
-                // Scale vertices
-                float positions[3][3] = {
-                    {tri.v0x * config.uniformScale, tri.v0y * config.uniformScale, tri.v0z * config.uniformScale},
-                    {tri.v1x * config.uniformScale, tri.v1y * config.uniformScale, tri.v1z * config.uniformScale},
-                    {tri.v2x * config.uniformScale, tri.v2y * config.uniformScale, tri.v2z * config.uniformScale}
+                // Scale vertices and apply FlipYZ
+                const Vector3 positions[3] = {
+                    transformPosition(tri.v0x, tri.v0y, tri.v0z, config),
+                    transformPosition(tri.v1x, tri.v1y, tri.v1z, config),
+                    transformPosition(tri.v2x, tri.v2y, tri.v2z, config)
                 };
 
-                // FlipYZ
-                if (config.flipYZ) {
-                    for (auto& p : positions) {
-                        std::swap(p[1], p[2]);
-                        p[2] = -p[2];
-                    }
-                }
-
                 // Recompute face normal from geometry (don't trust stored normal)
-                Vector3 faceN = computeFaceNormal(
-                    positions[0][0], positions[0][1], positions[0][2],
-                    positions[1][0], positions[1][1], positions[1][2],
-                    positions[2][0], positions[2][1], positions[2][2]);
+                Vector3 faceN = computeFaceNormal(positions[0], positions[1], positions[2]);
 
                 float fnx = faceN.getX();
                 float fny = faceN.getY();
@@ -297,9 +295,9 @@ namespace visutwin::canvas
                 for (int j = 0; j < 3; ++j) {
                     int oi = order[j];
                     PackedVertex vert{};
-                    vert.px = positions[oi][0];
-                    vert.py = positions[oi][1];
-                    vert.pz = positions[oi][2];
+                    vert.px = positions[oi].getX();
+                    vert.py = positions[oi].getY();
+                    vert.pz = positions[oi].getZ();
                     vert.nx = fnx;
                     vert.ny = fny;
                     vert.nz = fnz;
@@ -316,12 +314,8 @@ namespace visutwin::canvas
                     outVertices.push_back(vert);
                     outIndices.push_back(idx);
 
-                    minX = std::min(minX, vert.px);
-                    minY = std::min(minY, vert.py);
-                    minZ = std::min(minZ, vert.pz);
-                    maxX = std::max(maxX, vert.px);
-                    maxY = std::max(maxY, vert.py);
-                    maxZ = std::max(maxZ, vert.pz);
+                    minPos = Vector3::min(minPos, positions[oi]);
+                    maxPos = Vector3::max(maxPos, positions[oi]);
                 }
             }
         }
@@ -333,15 +327,14 @@ namespace visutwin::canvas
             const StlParserConfig& config,
             std::vector<PackedVertex>& outVertices,
             std::vector<uint32_t>& outIndices,
-            float& minX, float& minY, float& minZ,
-            float& maxX, float& maxY, float& maxZ)
+            Vector3& minPos, Vector3& maxPos)
         {
             const size_t triCount = triangles.size();
             const float cosCrease = std::cos(config.creaseAngle * 3.14159265358979f / 180.0f);
 
             // Step 1: Transform all positions and compute face normals
             struct TransformedTri {
-                float pos[3][3];    // 3 vertices × (x,y,z)
+                Vector3 pos[3];     // 3 vertices
                 Vector3 faceNormal;
             };
 
@@ -350,27 +343,11 @@ namespace visutwin::canvas
             for (size_t i = 0; i < triCount; ++i) {
                 const auto& src = triangles[i];
 
-                tris[i].pos[0][0] = src.v0x * config.uniformScale;
-                tris[i].pos[0][1] = src.v0y * config.uniformScale;
-                tris[i].pos[0][2] = src.v0z * config.uniformScale;
-                tris[i].pos[1][0] = src.v1x * config.uniformScale;
-                tris[i].pos[1][1] = src.v1y * config.uniformScale;
-                tris[i].pos[1][2] = src.v1z * config.uniformScale;
-                tris[i].pos[2][0] = src.v2x * config.uniformScale;
-                tris[i].pos[2][1] = src.v2y * config.uniformScale;
-                tris[i].pos[2][2] = src.v2z * config.uniformScale;
+                tris[i].pos[0] = transformPosition(src.v0x, src.v0y, src.v0z, config);
+                tris[i].pos[1] = transformPosition(src.v1x, src.v1y, src.v1z, config);
+                tris[i].pos[2] = transformPosition(src.v2x, src.v2y, src.v2z, config);
 
-                if (config.flipYZ) {
-                    for (auto& p : tris[i].pos) {
-                        std::swap(p[1], p[2]);
-                        p[2] = -p[2];
-                    }
-                }
-
-                tris[i].faceNormal = computeFaceNormal(
-                    tris[i].pos[0][0], tris[i].pos[0][1], tris[i].pos[0][2],
-                    tris[i].pos[1][0], tris[i].pos[1][1], tris[i].pos[1][2],
-                    tris[i].pos[2][0], tris[i].pos[2][1], tris[i].pos[2][2]);
+                tris[i].faceNormal = computeFaceNormal(tris[i].pos[0], tris[i].pos[1], tris[i].pos[2]);
             }
 
             // Step 2: Weld vertices by quantized position
@@ -384,7 +361,7 @@ namespace visutwin::canvas
             std::unordered_map<PositionKey, uint32_t, PositionKeyHash> weldMap;
             // Per welded vertex: list of (triIndex, cornerIndex) pairs
             struct WeldedVertex {
-                float px, py, pz;
+                Vector3 position;
                 std::vector<std::pair<size_t, int>> incidents;  // (triIdx, corner 0/1/2)
             };
             std::vector<WeldedVertex> welded;
@@ -394,11 +371,9 @@ namespace visutwin::canvas
 
             for (size_t i = 0; i < triCount; ++i) {
                 for (int c = 0; c < 3; ++c) {
-                    float px = tris[i].pos[c][0];
-                    float py = tris[i].pos[c][1];
-                    float pz = tris[i].pos[c][2];
+                    const Vector3& p = tris[i].pos[c];
 
-                    PositionKey key = quantize(px, py, pz, invEpsilon);
+                    PositionKey key = quantize(p.getX(), p.getY(), p.getZ(), invEpsilon);
                     auto it = weldMap.find(key);
                     uint32_t wIdx;
                     if (it != weldMap.end()) {
@@ -406,7 +381,7 @@ namespace visutwin::canvas
                     } else {
                         wIdx = static_cast<uint32_t>(welded.size());
                         WeldedVertex wv;
-                        wv.px = px; wv.py = py; wv.pz = pz;
+                        wv.position = p;
                         welded.push_back(std::move(wv));
                         weldMap[key] = wIdx;
                     }
@@ -547,7 +522,7 @@ namespace visutwin::canvas
                         const auto& wv = welded[wIdx];
 
                         PackedVertex vert{};
-                        vert.px = wv.px; vert.py = wv.py; vert.pz = wv.pz;
+                        vert.px = wv.position.getX(); vert.py = wv.position.getY(); vert.pz = wv.position.getZ();
                         vert.nx = nx; vert.ny = ny; vert.nz = nz;
                         vert.u = 0.0f; vert.v = 0.0f;
                         vert.tx = tx; vert.ty = ty; vert.tz = tz; vert.tw = tw;
@@ -557,12 +532,8 @@ namespace visutwin::canvas
                         vertexMap[key] = idx;
                         outIndices.push_back(idx);
 
-                        minX = std::min(minX, vert.px);
-                        minY = std::min(minY, vert.py);
-                        minZ = std::min(minZ, vert.pz);
-                        maxX = std::max(maxX, vert.px);
-                        maxY = std::max(maxY, vert.py);
-                        maxZ = std::max(maxZ, vert.pz);
+                        minPos = Vector3::min(minPos, wv.position);
+                        maxPos = Vector3::max(maxPos, wv.position);
                     }
                 }
             }
@@ -629,19 +600,15 @@ namespace visutwin::canvas
         // Build vertex/index data
         std::vector<PackedVertex> vertices;
         std::vector<uint32_t> indices;
-        float minX = std::numeric_limits<float>::max();
-        float minY = std::numeric_limits<float>::max();
-        float minZ = std::numeric_limits<float>::max();
-        float maxX = std::numeric_limits<float>::lowest();
-        float maxY = std::numeric_limits<float>::lowest();
-        float maxZ = std::numeric_limits<float>::lowest();
+        Vector3 minPos(std::numeric_limits<float>::max());
+        Vector3 maxPos(std::numeric_limits<float>::lowest());
 
         if (config.generateSmoothNormals) {
             buildSmoothMesh(triangles, config, vertices, indices,
-                            minX, minY, minZ, maxX, maxY, maxZ);
+                            minPos, maxPos);
         } else {
             buildFlatMesh(triangles, config, vertices, indices,
-                          minX, minY, minZ, maxX, maxY, maxZ);
+                          minPos, maxPos);
         }
 
         if (vertices.empty()) {
@@ -699,14 +666,8 @@ namespace visutwin::canvas
         meshResource->setPrimitive(prim, 0);
 
         BoundingBox bounds;
-        bounds.setCenter(
-            (minX + maxX) * 0.5f,
-            (minY + maxY) * 0.5f,
-            (minZ + maxZ) * 0.5f);
-        bounds.setHalfExtents(
-            (maxX - minX) * 0.5f,
-            (maxY - minY) * 0.5f,
-            (maxZ - minZ) * 0.5f);
+        bounds.setCenter((minPos + maxPos) * 0.5f);
+        bounds.setHalfExtents((maxPos - minPos) * 0.5f);
         meshResource->setAabb(bounds);
 
         // ── Create default PBR material ──────────────────────────────────
@@ -743,7 +704,7 @@ namespace visutwin::canvas
 
         spdlog::info("STL parse complete [{}]: {} vertices, {} indices, bounds=[{:.3f},{:.3f},{:.3f}]-[{:.3f},{:.3f},{:.3f}]",
             path, vertices.size(), indices.size(),
-            minX, minY, minZ, maxX, maxY, maxZ);
+            minPos.getX(), minPos.getY(), minPos.getZ(), maxPos.getX(), maxPos.getY(), maxPos.getZ());
 
         return container;
     }

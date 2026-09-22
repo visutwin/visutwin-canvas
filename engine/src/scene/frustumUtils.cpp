@@ -27,28 +27,16 @@ namespace visutwin::canvas
 
     bool isVisibleInFrustum(const Frustum& frustum, const BoundingBox& bounds)
     {
-        const auto center = bounds.center();
-        const auto extents = bounds.halfExtents();
+        const Vector4 center(bounds.center(), 1.0f);
+        const auto& extents = bounds.halfExtents();
         const float extentLen = extents.length();
         const float baseSlop = std::max(0.01f, extentLen * 0.05f);
 
         constexpr size_t PLANE_COUNT = 6;
         for (size_t i = 0; i < PLANE_COUNT; ++i) {
             const auto& plane = frustum.planes[i];
-            const float px = plane.getX();
-            const float py = plane.getY();
-            const float pz = plane.getZ();
-            const float pw = plane.getW();
-            const float distanceToCenter =
-                px * center.getX() +
-                py * center.getY() +
-                pz * center.getZ() +
-                pw;
-
-            const float projectedRadius =
-                std::abs(px) * extents.getX() +
-                std::abs(py) * extents.getY() +
-                std::abs(pz) * extents.getZ();
+            const float distanceToCenter = plane.planeDotCoord(center);
+            const float projectedRadius = Vector3(plane).abs().dot(extents);
 
             // Be conservative near frustum boundaries to avoid visible popping / over-cull.
             // Near plane is most sensitive when camera/projection conventions differ slightly.

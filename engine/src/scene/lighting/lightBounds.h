@@ -50,25 +50,21 @@ namespace visutwin::canvas
 
         const float outer = std::clamp(outerConeAngleDegrees, 0.0f, 180.0f)
             * (std::numbers::pi_v<float> / 180.0f);
-        const float axisComponent[3] = {axis.getX(), axis.getY(), axis.getZ()};
-        const float apex[3] = {position.getX(), position.getY(), position.getZ()};
 
-        float boundsMin[3];
-        float boundsMax[3];
-        for (int i = 0; i < 3; ++i) {
-            // How far the sector reaches along +e_i and along -e_i. Never less than
-            // zero: the apex is always in the volume, so it is the fallback extreme.
-            const auto reach = [&](const float cosPhi) {
-                const float phi = std::acos(std::clamp(cosPhi, -1.0f, 1.0f));
-                const float extent = (phi <= outer) ? range : range * std::cos(phi - outer);
-                return std::max(extent, 0.0f);
-            };
-            boundsMax[i] = apex[i] + reach(axisComponent[i]);
-            boundsMin[i] = apex[i] - reach(-axisComponent[i]);
-        }
+        // How far the sector reaches along a query axis at cosine cosPhi from the
+        // light's own axis. Never less than zero: the apex is always in the volume, so
+        // it is the fallback extreme.
+        const auto reach = [&](const float cosPhi) {
+            const float phi = std::acos(std::clamp(cosPhi, -1.0f, 1.0f));
+            const float extent = (phi <= outer) ? range : range * std::cos(phi - outer);
+            return std::max(extent, 0.0f);
+        };
 
-        const Vector3 low(boundsMin[0], boundsMin[1], boundsMin[2]);
-        const Vector3 high(boundsMax[0], boundsMax[1], boundsMax[2]);
+        // Along +e_i the cosine is axis[i], along -e_i it is -axis[i].
+        const Vector3 reachPositive(reach(axis[0]), reach(axis[1]), reach(axis[2]));
+        const Vector3 reachNegative(reach(-axis[0]), reach(-axis[1]), reach(-axis[2]));
+        const Vector3 low = position - reachNegative;
+        const Vector3 high = position + reachPositive;
         return BoundingBox((low + high) * 0.5f, (high - low) * 0.5f);
     }
 

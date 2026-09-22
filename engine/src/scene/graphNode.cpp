@@ -127,9 +127,9 @@ namespace visutwin::canvas
 
         // Columns are the basis vectors — the convention Quaternion::fromMatrix4 reads.
         const Matrix4 basis(
-            Vector4(xAxis.getX(), xAxis.getY(), xAxis.getZ(), 0.0f),
-            Vector4(yAxis.getX(), yAxis.getY(), yAxis.getZ(), 0.0f),
-            Vector4(zAxis.getX(), zAxis.getY(), zAxis.getZ(), 0.0f),
+            Vector4(xAxis, 0.0f),
+            Vector4(yAxis, 0.0f),
+            Vector4(zAxis, 0.0f),
             Vector4(0.0f, 0.0f, 0.0f, 1.0f)
         );
         setRotation(Quaternion::fromMatrix4(basis));
@@ -166,19 +166,7 @@ namespace visutwin::canvas
     float GraphNode::worldScaleSign()
     {
         if (_worldScaleSign == 0) {
-            const auto& wt = worldTransform();
-            const float m00 = wt.getElement(0, 0);
-            const float m01 = wt.getElement(0, 1);
-            const float m02 = wt.getElement(0, 2);
-            const float m10 = wt.getElement(1, 0);
-            const float m11 = wt.getElement(1, 1);
-            const float m12 = wt.getElement(1, 2);
-            const float m20 = wt.getElement(2, 0);
-            const float m21 = wt.getElement(2, 1);
-            const float m22 = wt.getElement(2, 2);
-            const float det3 = m00 * (m11 * m22 - m12 * m21) -
-                m01 * (m10 * m22 - m12 * m20) +
-                m02 * (m10 * m21 - m11 * m20);
+            const float det3 = worldTransform().determinant3x3();
             _worldScaleSign = det3 < 0.0f ? -1 : 1;
         }
         return static_cast<float>(_worldScaleSign);
@@ -455,16 +443,16 @@ namespace visutwin::canvas
 
     void GraphNode::setLocalPosition(float x, float y, float z)
     {
-        _localPosition = Vector3(x, y, z);
-
-        if (!_dirtyLocal) {
-            dirtifyLocal();
-        }
+        setLocalPosition(Vector3(x, y, z));
     }
 
     void GraphNode::setLocalPosition(const Vector3& position)
     {
-        setLocalPosition(position.getX(), position.getY(), position.getZ());
+        _localPosition = position;
+
+        if (!_dirtyLocal) {
+            dirtifyLocal();
+        }
     }
 
     void GraphNode::setLocalScale(float x, float y, float z)

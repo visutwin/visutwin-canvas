@@ -99,17 +99,12 @@ namespace visutwin::canvas
 
     Vector3 GSplatInstance::sortDirection(const Matrix4& model, const Vector3& cameraForward)
     {
-        // Column-major: columns 0/1/2 are the transformed X/Y/Z axes.
+        // Column-major: columns 0/1/2 are the transformed X/Y/Z axes, and weight i is
+        // the camera forward projected onto axis i.
         const Vector3 weights(
-            model.getElement(0, 0) * cameraForward.getX() +
-            model.getElement(0, 1) * cameraForward.getY() +
-            model.getElement(0, 2) * cameraForward.getZ(),
-            model.getElement(1, 0) * cameraForward.getX() +
-            model.getElement(1, 1) * cameraForward.getY() +
-            model.getElement(1, 2) * cameraForward.getZ(),
-            model.getElement(2, 0) * cameraForward.getX() +
-            model.getElement(2, 1) * cameraForward.getY() +
-            model.getElement(2, 2) * cameraForward.getZ());
+            Vector3(model.getColumn(0)).dot(cameraForward),
+            Vector3(model.getColumn(1)).dot(cameraForward),
+            Vector3(model.getColumn(2)).dot(cameraForward));
 
         // Normalising is order-preserving — every key and the min/max bounds share
         // the positive factor — and keeps the sorter's fixed camera-movement epsilon

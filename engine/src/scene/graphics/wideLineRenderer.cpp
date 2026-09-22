@@ -2,7 +2,6 @@
 // Copyright 2025-2026 Arnis Lektauers
 #include "wideLineRenderer.h"
 
-#include <cmath>
 #include <cstring>
 
 #include <spdlog/spdlog.h>
@@ -37,13 +36,10 @@ namespace visutwin::canvas
             float dashFlags[4];     // dashOffset, connectedFlags, worldSpaceWidth, pad
         };
 
-        void readPoint(const WideLine& line, const size_t index, float* out)
+        Vector3 readPoint(const WideLine& line, const size_t index)
         {
-            const auto& p = line.positions();
             const size_t clamped = std::min(index, line.pointCount() - 1);
-            out[0] = p[clamped * 3 + 0];
-            out[1] = p[clamped * 3 + 1];
-            out[2] = p[clamped * 3 + 2];
+            return Vector3::load(&line.positions()[clamped * 3]);
         }
 
         void readColor(const WideLine& line, const size_t index, float* out)
@@ -61,14 +57,6 @@ namespace visutwin::canvas
         {
             const auto& w = line.widths();
             return w.size() == 1 ? w[0] : w[std::min(index, line.pointCount() - 1)];
-        }
-
-        float distanceBetween(const float* a, const float* b)
-        {
-            const float dx = b[0] - a[0];
-            const float dy = b[1] - a[1];
-            const float dz = b[2] - a[2];
-            return std::sqrt(dx * dx + dy * dy + dz * dz);
         }
     }
 
@@ -182,41 +170,29 @@ namespace visutwin::canvas
                 const size_t endIndex = (i + 1) % points;
 
                 SegmentRecord record{};
-                float start[3];
-                float end[3];
-                readPoint(*line, startIndex, start);
-                readPoint(*line, endIndex, end);
+                const Vector3 start = readPoint(*line, startIndex);
+                const Vector3 end = readPoint(*line, endIndex);
 
                 // The neighbours the shader needs for its joins. On an open line the
                 // ends have no neighbour, so they repeat the segment's own point and
                 // the shader falls back to the segment direction.
                 const bool startConnected = closed || i > 0;
                 const bool endConnected = closed || i + 1 < segments;
-                float prev[3];
-                float next[3];
-                readPoint(*line, startConnected ? (startIndex + points - 1) % points : startIndex, prev);
-                readPoint(*line, endConnected ? (endIndex + 1) % points : endIndex, next);
+                const Vector3 prev = readPoint(*line, startConnected ? (startIndex + points - 1) % points : startIndex);
+                const Vector3 next = readPoint(*line, endConnected ? (endIndex + 1) % points : endIndex);
 
-                const float segmentLength = distanceBetween(start, end);
+                const float segmentLength = start.distance(end);
 
-                record.prevWidth[0] = prev[0];
-                record.prevWidth[1] = prev[1];
-                record.prevWidth[2] = prev[2];
+                prev.store(record.prevWidth);
                 record.prevWidth[3] = readWidth(*line, startIndex);
 
-                record.startWidth[0] = start[0];
-                record.startWidth[1] = start[1];
-                record.startWidth[2] = start[2];
+                start.store(record.startWidth);
                 record.startWidth[3] = readWidth(*line, endIndex);
 
-                record.endDistance[0] = end[0];
-                record.endDistance[1] = end[1];
-                record.endDistance[2] = end[2];
+                end.store(record.endDistance);
                 record.endDistance[3] = travelled;
 
-                record.nextDistance[0] = next[0];
-                record.nextDistance[1] = next[1];
-                record.nextDistance[2] = next[2];
+                next.store(record.nextDistance);
                 record.nextDistance[3] = travelled + segmentLength;
 
                 readColor(*line, startIndex, record.startColor);

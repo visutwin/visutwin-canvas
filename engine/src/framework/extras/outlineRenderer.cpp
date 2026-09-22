@@ -473,7 +473,7 @@ void main() {
             outlineCamera->setFarClip(sceneCamera->farClip());
         }
         const auto& pos = sceneCameraEntity->localPosition();
-        _cameraEntity->setLocalPosition(pos.getX(), pos.getY(), pos.getZ());
+        _cameraEntity->setLocalPosition(pos);
         _cameraEntity->setLocalRotation(sceneCameraEntity->localRotation());
 
         // Refresh quad inputs (textures can be recreated on resize).

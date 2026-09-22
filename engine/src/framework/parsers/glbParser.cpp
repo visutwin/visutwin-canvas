@@ -740,8 +740,8 @@ namespace visutwin::canvas
                 // bone.worldTransform * inverseBind (see MeshInstance::aabb()).
                 {
                     const size_t jointCount = skin.joints.size();
-                    std::vector<float> mins(jointCount * 3, std::numeric_limits<float>::max());
-                    std::vector<float> maxs(jointCount * 3, std::numeric_limits<float>::lowest());
+                    std::vector<Vector3> mins(jointCount, Vector3(std::numeric_limits<float>::max()));
+                    std::vector<Vector3> maxs(jointCount, Vector3(std::numeric_limits<float>::lowest()));
                     std::vector<uint8_t> used(jointCount, 0);
                     const int skinIndex = static_cast<int>(container->skinPayloadCount());
 
@@ -780,11 +780,9 @@ namespace visutwin::canvas
                                         continue;
                                     }
                                     used[joint] = 1;
-                                    for (int c = 0; c < 3; ++c) {
-                                        const float value = positions[v * 3 + static_cast<size_t>(c)];
-                                        mins[joint * 3 + static_cast<size_t>(c)] = std::min(mins[joint * 3 + static_cast<size_t>(c)], value);
-                                        maxs[joint * 3 + static_cast<size_t>(c)] = std::max(maxs[joint * 3 + static_cast<size_t>(c)], value);
-                                    }
+                                    const Vector3 position = Vector3::load(&positions[v * 3]);
+                                    mins[joint] = Vector3::min(mins[joint], position);
+                                    maxs[joint] = Vector3::max(maxs[joint], position);
                                 }
                             }
                         }
@@ -797,14 +795,8 @@ namespace visutwin::canvas
                             continue;
                         }
                         anyUsed = true;
-                        boneAabbs[j].setCenter(
-                            (mins[j * 3] + maxs[j * 3]) * 0.5f,
-                            (mins[j * 3 + 1] + maxs[j * 3 + 1]) * 0.5f,
-                            (mins[j * 3 + 2] + maxs[j * 3 + 2]) * 0.5f);
-                        boneAabbs[j].setHalfExtents(
-                            (maxs[j * 3] - mins[j * 3]) * 0.5f,
-                            (maxs[j * 3 + 1] - mins[j * 3 + 1]) * 0.5f,
-                            (maxs[j * 3 + 2] - mins[j * 3 + 2]) * 0.5f);
+                        boneAabbs[j].setCenter((mins[j] + maxs[j]) * 0.5f);
+                        boneAabbs[j].setHalfExtents((maxs[j] - mins[j]) * 0.5f);
                     }
                     if (anyUsed) {
                         payload.skin->setBoneAabbs(std::move(boneAabbs), std::move(used));
@@ -1179,16 +1171,9 @@ namespace visutwin::canvas
                     uv1[0], uv1[1]
                 };
 
-                outMinPos = Vector3(
-                    std::min(outMinPos.getX(), pos[0]),
-                    std::min(outMinPos.getY(), pos[1]),
-                    std::min(outMinPos.getZ(), pos[2])
-                );
-                outMaxPos = Vector3(
-                    std::max(outMaxPos.getX(), pos[0]),
-                    std::max(outMaxPos.getY(), pos[1]),
-                    std::max(outMaxPos.getZ(), pos[2])
-                );
+                const Vector3 position = Vector3::load(pos.data());
+                outMinPos = Vector3::min(outMinPos, position);
+                outMaxPos = Vector3::max(outMaxPos, position);
             }
 
             outIndices.clear();
@@ -1380,17 +1365,15 @@ namespace visutwin::canvas
 
             // Match upstream / Quat.setFromMat4 convention for mirrored transforms:
             // keep rotation right-handed and encode mirror sign into X scale.
-            const float det = col0.getX() * (col1.getY() * col2.getZ() - col1.getZ() * col2.getY())
-                - col1.getX() * (col0.getY() * col2.getZ() - col0.getZ() * col2.getY())
-                + col2.getX() * (col0.getY() * col1.getZ() - col0.getZ() * col1.getY());
+            const float det = col0.dot(col1.cross(col2));
             if (det < 0.0f) {
                 sx = -sx;
             }
 
             const Matrix4 trs = Matrix4(
-                Vector4(col0.getX(), col0.getY(), col0.getZ(), 0.0f),
-                Vector4(col1.getX(), col1.getY(), col1.getZ(), 0.0f),
-                Vector4(col2.getX(), col2.getY(), col2.getZ(), 0.0f),
+                Vector4(col0, 0.0f),
+                Vector4(col1, 0.0f),
+                Vector4(col2, 0.0f),
                 Vector4(0.0f, 0.0f, 0.0f, 1.0f)
             );
             outR = Quaternion::fromMatrix4(trs).normalized();
@@ -2163,12 +2146,16 @@ namespace visutwin::canvas
         for (size_t i = 0; i < model.nodes.size(); ++i) {
             const auto& node = model.nodes[i];
             if (!node.matrix.empty() && node.matrix.size() == 16) {
-                // glTF stores matrices in column-major order.
-                Matrix4 m;
-                for (int col = 0; col < 4; ++col)
-                    for (int row = 0; row < 4; ++row)
-                        m.setElement(row, col, static_cast<float>(node.matrix[static_cast<size_t>(col * 4 + row)]));
-                nodeWorldMatrices[i] = m;
+                // glTF stores matrices in column-major order, as Matrix4 does, so the
+                // sixteen values are the four columns in sequence. This used to go through
+                // setElement with (row, col) swapped, which wrote the matrix TRANSPOSED;
+                // parseSkins builds the inverse bind matrices this same way.
+                const auto& m = node.matrix;
+                nodeWorldMatrices[i] = Matrix4(
+                    Vector4(static_cast<float>(m[0]), static_cast<float>(m[1]), static_cast<float>(m[2]), static_cast<float>(m[3])),
+                    Vector4(static_cast<float>(m[4]), static_cast<float>(m[5]), static_cast<float>(m[6]), static_cast<float>(m[7])),
+                    Vector4(static_cast<float>(m[8]), static_cast<float>(m[9]), static_cast<float>(m[10]), static_cast<float>(m[11])),
+                    Vector4(static_cast<float>(m[12]), static_cast<float>(m[13]), static_cast<float>(m[14]), static_cast<float>(m[15])));
             } else {
                 Vector3 t(0.0f, 0.0f, 0.0f);
                 Quaternion q(0.0f, 0.0f, 0.0f, 1.0f);
@@ -2189,21 +2176,8 @@ namespace visutwin::canvas
                                 static_cast<float>(node.scale[1]),
                                 static_cast<float>(node.scale[2]));
                 }
-                // Compose T * R * S (column-major: col c = scale_c * col c of R).
-                Matrix4 rotMat = q.toRotationMatrix();
-                const float sc[3] = {s.getX(), s.getY(), s.getZ()};
-                Matrix4 trs;
-                for (int c = 0; c < 3; ++c) {
-                    for (int r = 0; r < 3; ++r)
-                        trs.setElement(c, r, rotMat.getElement(c, r) * sc[c]);
-                    trs.setElement(c, 3, 0.0f);  // row 3 of rotation/scale columns
-                }
-                // Column 3 = translation.
-                trs.setElement(3, 0, t.getX());
-                trs.setElement(3, 1, t.getY());
-                trs.setElement(3, 2, t.getZ());
-                trs.setElement(3, 3, 1.0f);
-                nodeWorldMatrices[i] = trs;
+                // T * R * S: column c of R scaled by s_c, translation in column 3.
+                nodeWorldMatrices[i] = Matrix4::trs(t, q, s);
             }
         }
 
@@ -2331,16 +2305,8 @@ namespace visutwin::canvas
                                 cr, cg, cb, ca
                             };
 
-                            ptMin = Vector3(
-                                std::min(ptMin.getX(), pos.getX()),
-                                std::min(ptMin.getY(), pos.getY()),
-                                std::min(ptMin.getZ(), pos.getZ())
-                            );
-                            ptMax = Vector3(
-                                std::max(ptMax.getX(), pos.getX()),
-                                std::max(ptMax.getY(), pos.getY()),
-                                std::max(ptMax.getZ(), pos.getZ())
-                            );
+                            ptMin = Vector3::min(ptMin, pos);
+                            ptMax = Vector3::max(ptMax, pos);
                         }
 
                         auto pointVertexFormat = std::make_shared<VertexFormat>(
@@ -2451,16 +2417,8 @@ namespace visutwin::canvas
                                 cr, cg, cb, ca
                             };
 
-                            mergedPtMin = Vector3(
-                                std::min(mergedPtMin.getX(), pos.getX()),
-                                std::min(mergedPtMin.getY(), pos.getY()),
-                                std::min(mergedPtMin.getZ(), pos.getZ())
-                            );
-                            mergedPtMax = Vector3(
-                                std::max(mergedPtMax.getX(), pos.getX()),
-                                std::max(mergedPtMax.getY(), pos.getY()),
-                                std::max(mergedPtMax.getZ(), pos.getZ())
-                            );
+                            mergedPtMin = Vector3::min(mergedPtMin, pos);
+                            mergedPtMax = Vector3::max(mergedPtMax, pos);
                         }
                     }
                     continue;
@@ -2568,16 +2526,8 @@ namespace visutwin::canvas
                             u1, v1
                         };
 
-                        minPos = Vector3(
-                            std::min(minPos.getX(), pos.getX()),
-                            std::min(minPos.getY(), pos.getY()),
-                            std::min(minPos.getZ(), pos.getZ())
-                        );
-                        maxPos = Vector3(
-                            std::max(maxPos.getX(), pos.getX()),
-                            std::max(maxPos.getY(), pos.getY()),
-                            std::max(maxPos.getZ(), pos.getZ())
-                        );
+                        minPos = Vector3::min(minPos, pos);
+                        maxPos = Vector3::max(maxPos, pos);
                     }
 
                     if (!tangentAccessor && primitive.mode == TINYGLTF_MODE_TRIANGLES) {
@@ -3155,8 +3105,8 @@ namespace visutwin::canvas
                             u, v, tangent.getX(), tangent.getY(), tangent.getZ(), tangent.getW(),
                             u1, v1
                         };
-                        minPos = Vector3(std::min(minPos.getX(), pos.getX()), std::min(minPos.getY(), pos.getY()), std::min(minPos.getZ(), pos.getZ()));
-                        maxPos = Vector3(std::max(maxPos.getX(), pos.getX()), std::max(maxPos.getY(), pos.getY()), std::max(maxPos.getZ(), pos.getZ()));
+                        minPos = Vector3::min(minPos, pos);
+                        maxPos = Vector3::max(maxPos, pos);
                     }
                     if (!tanAcc && primitive.mode == TINYGLTF_MODE_TRIANGLES) {
                         if (primitive.indices >= 0) { if (const auto* ia = getAccessor(model, primitive.indices)) readIndices(model, *ia, parsedIndices); }
@@ -3367,8 +3317,8 @@ namespace visutwin::canvas
                             u, v, tangent.getX(), tangent.getY(), tangent.getZ(), tangent.getW(),
                             u1, v1
                         };
-                        minPos = Vector3(std::min(minPos.getX(), pos.getX()), std::min(minPos.getY(), pos.getY()), std::min(minPos.getZ(), pos.getZ()));
-                        maxPos = Vector3(std::max(maxPos.getX(), pos.getX()), std::max(maxPos.getY(), pos.getY()), std::max(maxPos.getZ(), pos.getZ()));
+                        minPos = Vector3::min(minPos, pos);
+                        maxPos = Vector3::max(maxPos, pos);
                     }
                     if (!tanAcc && primitive.mode == TINYGLTF_MODE_TRIANGLES) {
                         if (primitive.indices >= 0) { if (const auto* ia = getAccessor(model, primitive.indices)) readIndices(model, *ia, parsedIndices); }

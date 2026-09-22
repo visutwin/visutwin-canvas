@@ -6,6 +6,7 @@
 //
 #pragma once
 
+#include <cstring>
 #include <simd/simd.h>
 #include <Metal/Metal.hpp>
 
@@ -16,15 +17,15 @@
 
 namespace visutwin::canvas::metal
 {
-    /// Convert a column-major Matrix4 to a SIMD float4x4.
+    /// Convert a column-major Matrix4 to a SIMD float4x4. Every SIMD backend stores
+    /// Matrix4 as sixteen contiguous column-major floats, which is float4x4's layout too,
+    /// so this is one 64-byte copy whichever backend the engine compiled.
     inline simd::float4x4 toSimdMatrix(const Matrix4& matrix)
     {
-        simd::float4x4 out{};
-        for (int col = 0; col < 4; ++col) {
-            for (int row = 0; row < 4; ++row) {
-                out.columns[col][row] = matrix.getElement(col, row);
-            }
-        }
+        static_assert(sizeof(simd::float4x4) == 64 && sizeof(Matrix4) == 64,
+            "toSimdMatrix copies sixteen packed floats");
+        simd::float4x4 out;
+        std::memcpy(&out, &matrix, sizeof(out));
         return out;
     }
 

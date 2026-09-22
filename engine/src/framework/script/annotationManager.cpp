@@ -19,11 +19,34 @@
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/components/camera/cameraComponent.h"
+#include "core/math/vector2.h"
 #include "core/math/vector4.h"
 #include "scene/camera.h"
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // The visible annotation whose screen position is nearest (x, y), strictly
+        // closer than maxDistance; nullptr if there is none.
+        Annotation* closestAnnotation(const std::vector<AnnotationScreenInfo>& infos,
+            const float x, const float y, float maxDistance)
+        {
+            Annotation* closest = nullptr;
+            const Vector2 point(x, y);
+            for (const auto& info : infos) {
+                if (!info.visible) continue;
+
+                const float dist = (point - Vector2(info.screenX, info.screenY)).length();
+                if (dist < maxDistance) {
+                    maxDistance = dist;
+                    closest = info.annotation;
+                }
+            }
+            return closest;
+        }
+    }
+
     AnnotationManager::~AnnotationManager()
     {
         // The engine can outlive this script; leaving the [this] subscriptions
@@ -101,13 +124,14 @@ namespace visutwin::canvas
         }
 
         // Transform to clip space
-        Vector4 clipPos = projMatrix * Vector4(viewPos.getX(), viewPos.getY(), viewPos.getZ(), 1.0f);
+        Vector4 clipPos = projMatrix * Vector4(viewPos, 1.0f);
 
         if (std::abs(clipPos.getW()) < 1e-6f) return false;
 
         // NDC coordinates
-        float ndcX = clipPos.getX() / clipPos.getW();
-        float ndcY = clipPos.getY() / clipPos.getW();
+        const Vector3 ndc = clipPos.perspectiveDivide();
+        float ndcX = ndc.getX();
+        float ndcY = ndc.getY();
 
         // Get screen dimensions
         int windowW = 0, windowH = 0;
@@ -177,51 +201,21 @@ namespace visutwin::canvas
 
     void AnnotationManager::updateHover(float mouseX, float mouseY)
     {
-        float closestDist = _hotspotSize + 5.0f;
-        Annotation* closest = nullptr;
-
-        for (const auto& info : _screenInfos) {
-            if (!info.visible) continue;
-
-            float dx = mouseX - info.screenX;
-            float dy = mouseY - info.screenY;
-            float dist = std::sqrt(dx * dx + dy * dy);
-
-            if (dist < closestDist) {
-                closestDist = dist;
-                closest = info.annotation;
-            }
-        }
-
-        _hoveredAnnotation = closest;
+        _hoveredAnnotation = closestAnnotation(_screenInfos, mouseX, mouseY, _hotspotSize + 5.0f);
     }
 
     void AnnotationManager::handleClick(float screenX, float screenY)
     {
-        float closestDist = _hotspotSize + 5.0f;
-        Annotation* closestAnnotation = nullptr;
+        Annotation* const closest = closestAnnotation(_screenInfos, screenX, screenY, _hotspotSize + 5.0f);
 
-        for (const auto& info : _screenInfos) {
-            if (!info.visible) continue;
-
-            float dx = screenX - info.screenX;
-            float dy = screenY - info.screenY;
-            float dist = std::sqrt(dx * dx + dy * dy);
-
-            if (dist < closestDist) {
-                closestDist = dist;
-                closestAnnotation = info.annotation;
-            }
-        }
-
-        if (closestAnnotation) {
-            if (_activeAnnotation == closestAnnotation) {
+        if (closest) {
+            if (_activeAnnotation == closest) {
                 // Toggle off
                 _activeAnnotation = nullptr;
-                spdlog::info("Annotation hidden: '{}'", closestAnnotation->title());
+                spdlog::info("Annotation hidden: '{}'", closest->title());
             } else {
-                _activeAnnotation = closestAnnotation;
-                spdlog::info("Annotation selected: '{}' -- {}", closestAnnotation->title(), closestAnnotation->text());
+                _activeAnnotation = closest;
+                spdlog::info("Annotation selected: '{}' -- {}", closest->title(), closest->text());
             }
         } else {
             _activeAnnotation = nullptr;

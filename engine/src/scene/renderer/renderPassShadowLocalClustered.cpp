@@ -57,9 +57,7 @@ namespace visutwin::canvas
                 }
                 // The face's rect in pixels: a spot's inset slot, or one of an omni
                 // light's six tiles.
-                const Vector4& vp = rd->shadowViewport;
-                const Vector4 rect(vp.getX() * atlasSize, vp.getY() * atlasSize,
-                    vp.getZ() * atlasSize, vp.getW() * atlasSize);
+                const Vector4 rect = rd->shadowViewport * atlasSize;
 
                 // Clear only this rect, then draw the face into it. The clear rebinds
                 // shader and depth state, so the shadow state is bound after it.

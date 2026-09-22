@@ -123,21 +123,12 @@ namespace visutwin::canvas
             return;
         }
 
-        // Matrix4::getElement takes (col, row); MSL float4x4 and GLSL mat4 are
-        // both column-major, so [col * 4 + row] maps straight across.
-        const auto packMatrix = [](const Matrix4& m, float* dest) {
-            for (int col = 0; col < 4; ++col) {
-                for (int row = 0; row < 4; ++row) {
-                    dest[col * 4 + row] = m.getElement(col, row);
-                }
-            }
-        };
-
         Texture* history = _historyTextures[1 - _historyIndex].get();
 
         taa_shaders::TaaUniforms uniforms{};
-        packMatrix(camera->viewProjectionPrevious(), uniforms.viewProjectionPrevious);
-        packMatrix(camera->viewProjectionInverse(), uniforms.viewProjectionInverse);
+        // MSL float4x4 and GLSL mat4 are both column-major, which is what Matrix4::store writes.
+        camera->viewProjectionPrevious().store(uniforms.viewProjectionPrevious);
+        camera->viewProjectionInverse().store(uniforms.viewProjectionInverse);
         const auto& jitters = camera->jitters();
         for (int i = 0; i < 4; ++i) {
             uniforms.jitters[i] = jitters[i];

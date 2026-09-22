@@ -453,10 +453,8 @@ namespace visutwin::canvas
             }
             case PhysicsShapeType::Box:
             default: {
-                const JPH::BoxShapeSettings settings(JPH::Vec3(
-                    std::max(desc.halfExtents.getX(), 1e-3f),
-                    std::max(desc.halfExtents.getY(), 1e-3f),
-                    std::max(desc.halfExtents.getZ(), 1e-3f)));
+                const JPH::BoxShapeSettings settings(
+                    toJolt(Vector3::max(desc.halfExtents, Vector3(1e-3f))));
                 shapeResult = settings.Create();
                 break;
             }
@@ -617,10 +615,10 @@ namespace visutwin::canvas
                 settings.mAxisY1 = settings.mAxisY2 = axisY;
                 using Axis = JPH::SixDOFConstraintSettings::EAxis;
                 const Axis linear[3] = {Axis::TranslationX, Axis::TranslationY, Axis::TranslationZ};
-                const float stiffness[3] = {desc.linearStiffness.getX(),
-                    desc.linearStiffness.getY(), desc.linearStiffness.getZ()};
-                const float equilibrium[3] = {desc.linearEquilibrium.getX(),
-                    desc.linearEquilibrium.getY(), desc.linearEquilibrium.getZ()};
+                float stiffness[3];
+                float equilibrium[3];
+                desc.linearStiffness.store(stiffness);
+                desc.linearEquilibrium.store(equilibrium);
                 for (int i = 0; i < 3; ++i) {
                     if (!desc.linearFree[i]) {
                         settings.MakeFixedAxis(linear[i]);

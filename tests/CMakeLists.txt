@@ -266,6 +266,15 @@ target_link_libraries(visutwin-glb-animation-binding-tests PRIVATE visutwin-canv
 
 add_test(NAME glb-animation-binding COMMAND visutwin-glb-animation-binding-tests)
 
+add_executable(visutwin-glb-point-node-matrix-tests
+    glbPointNodeMatrixTests.cpp
+)
+
+target_include_directories(visutwin-glb-point-node-matrix-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+target_link_libraries(visutwin-glb-point-node-matrix-tests PRIVATE visutwin-canvas)
+
+add_test(NAME glb-point-node-matrix COMMAND visutwin-glb-point-node-matrix-tests)
+
 add_executable(visutwin-stb-image-flip-tests
     stbImageFlipTests.cpp
 )

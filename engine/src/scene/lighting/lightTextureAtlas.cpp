@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include <spdlog/spdlog.h>
 
@@ -47,15 +48,16 @@ namespace visutwin::canvas
         const float invSize = 1.0f / static_cast<float>(splitCount);
         for (int i = 0; i < splitCount; ++i) {
             for (int j = 0; j < splitCount; ++j) {
-                const Vector4 rect(static_cast<float>(i) * invSize, static_cast<float>(j) * invSize, invSize, invSize);
+                const Vector4 rect = Vector4(static_cast<float>(i), static_cast<float>(j), 1.0f, 1.0f) * invSize;
                 const size_t nextIndex = 1 + static_cast<size_t>(i * splitCount + j);
                 const int nextSplit = nextIndex < split.size() ? split[nextIndex] : 1;
                 if (nextSplit > 1) {
                     const float invNext = invSize / static_cast<float>(nextSplit);
+                    const Vector4 origin(rect.getX(), rect.getY(), 0.0f, 0.0f);
                     for (int x = 0; x < nextSplit; ++x) {
                         for (int y = 0; y < nextSplit; ++y) {
-                            rects.emplace_back(rect.getX() + static_cast<float>(x) * invNext,
-                                rect.getY() + static_cast<float>(y) * invNext, invNext, invNext);
+                            rects.push_back(origin +
+                                Vector4(static_cast<float>(x), static_cast<float>(y), 1.0f, 1.0f) * invNext);
                         }
                     }
                 } else {
@@ -73,15 +75,19 @@ namespace visutwin::canvas
     {
         const int clamped = std::clamp(face, 0, 5);
         const float tile = slot.getZ() / 3.0f;
-        return Vector4(slot.getX() + tile * static_cast<float>(kCubeTileOffsets[clamped][0]),
-            slot.getY() + tile * static_cast<float>(kCubeTileOffsets[clamped][1]), tile, tile);
+        const Vector4 origin(slot.getX(), slot.getY(), 0.0f, 0.0f);
+        return origin + Vector4(static_cast<float>(kCubeTileOffsets[clamped][0]),
+            static_cast<float>(kCubeTileOffsets[clamped][1]), 1.0f, 1.0f) * tile;
     }
 
     Vector4 LightTextureAtlas::spotViewport(const Vector4& slot, const int resolution, const int edgePixels)
     {
         const float inset = static_cast<float>(edgePixels) / static_cast<float>(std::max(resolution, 1));
-        return Vector4(slot.getX() + inset, slot.getY() + inset,
-            std::max(slot.getZ() - 2.0f * inset, 0.0f), std::max(slot.getW() - 2.0f * inset, 0.0f));
+        // Offset the corner by the inset and shrink the size by twice it, the size never
+        // below zero. The corner is not clamped: max against -infinity returns it as is.
+        constexpr float kNoClamp = -std::numeric_limits<float>::infinity();
+        return Vector4::max(slot + Vector4(inset, inset, -2.0f * inset, -2.0f * inset),
+            Vector4(kNoClamp, kNoClamp, 0.0f, 0.0f));
     }
 
     Vector2 LightTextureAtlas::cubemapFaceCoordinates(const Vector3& dir, int& faceIndex)
@@ -91,9 +97,10 @@ namespace visutwin::canvas
         // GL storage and this engine's targets are top-down, so v runs the other way.
         // tests/lightTextureAtlasTests.cpp holds this against the cameras' real
         // projection; it is what found the sign.
-        const float ax = std::fabs(dir.getX());
-        const float ay = std::fabs(dir.getY());
-        const float az = std::fabs(dir.getZ());
+        const Vector3 absDir = dir.abs();
+        const float ax = absDir.getX();
+        const float ay = absDir.getY();
+        const float az = absDir.getZ();
         float ma;
         Vector2 uv;
         if (az >= ax && az >= ay) {
@@ -109,7 +116,7 @@ namespace visutwin::canvas
             ma = 0.5f / ax;
             uv = Vector2(dir.getX() < 0.0f ? dir.getZ() : -dir.getZ(), dir.getY());
         }
-        return Vector2(uv.x * ma + 0.5f, uv.y * ma + 0.5f);
+        return uv * ma + Vector2(0.5f);
     }
 
     void LightTextureAtlas::configure(const int resolution, const std::vector<int>& atlasSplit)

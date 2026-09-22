@@ -7,6 +7,32 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // The four cubic Hermite basis weights at t, the same polynomials AnimTrack::hermite
+        // evaluates per component, computed once so a whole Vector3 / Quaternion can be blended.
+        struct HermiteBasis
+        {
+            float h00, h10, h01, h11;
+
+            explicit HermiteBasis(const float t)
+            {
+                const float t2 = t * t;
+                const float t3 = t2 * t;
+                h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
+                h10 = t3 - 2.0f * t2 + t;
+                h01 = -2.0f * t3 + 3.0f * t2;
+                h11 = t3 - t2;
+            }
+
+            template <typename T>
+            [[nodiscard]] T blend(const T& p0, const T& m0, const T& p1, const T& m1) const
+            {
+                return p0 * h00 + m0 * h10 + p1 * h01 + m1 * h11;
+            }
+        };
+    }
+
     AnimTrack::AnimTrack(std::string name, const float duration) : _name(std::move(name)), _duration(duration)
     {
     }
@@ -78,13 +104,13 @@ namespace visutwin::canvas
                 const float* v = &output.data[i0 * static_cast<size_t>(comp)];
 
                 if (curve.propertyPath == "localPosition") {
-                    transform.position = Vector3(v[0], v[1], v[2]);
+                    transform.position = Vector3::load(v);
                     transform.hasPosition = true;
                 } else if (curve.propertyPath == "localRotation") {
-                    transform.rotation = Quaternion(v[0], v[1], v[2], v[3]);
+                    transform.rotation = Quaternion::load(v);
                     transform.hasRotation = true;
                 } else if (curve.propertyPath == "localScale") {
-                    transform.scale = Vector3(v[0], v[1], v[2]);
+                    transform.scale = Vector3::load(v);
                     transform.hasScale = true;
                 } else if (curve.propertyPath == "weights") {
                     transform.weights.assign(v, v + comp);
@@ -97,19 +123,13 @@ namespace visutwin::canvas
                 const float* v1 = &output.data[i1 * static_cast<size_t>(comp)];
 
                 if (curve.propertyPath == "localPosition") {
-                    transform.position = Vector3::lerp(
-                        Vector3(v0[0], v0[1], v0[2]),
-                        Vector3(v1[0], v1[1], v1[2]), alpha);
+                    transform.position = Vector3::lerp(Vector3::load(v0), Vector3::load(v1), alpha);
                     transform.hasPosition = true;
                 } else if (curve.propertyPath == "localRotation") {
-                    transform.rotation = Quaternion::slerp(
-                        Quaternion(v0[0], v0[1], v0[2], v0[3]),
-                        Quaternion(v1[0], v1[1], v1[2], v1[3]), alpha);
+                    transform.rotation = Quaternion::slerp(Quaternion::load(v0), Quaternion::load(v1), alpha);
                     transform.hasRotation = true;
                 } else if (curve.propertyPath == "localScale") {
-                    transform.scale = Vector3::lerp(
-                        Vector3(v0[0], v0[1], v0[2]),
-                        Vector3(v1[0], v1[1], v1[2]), alpha);
+                    transform.scale = Vector3::lerp(Vector3::load(v0), Vector3::load(v1), alpha);
                     transform.hasScale = true;
                 } else if (curve.propertyPath == "weights") {
                     transform.weights.resize(static_cast<size_t>(comp));
@@ -132,8 +152,7 @@ namespace visutwin::canvas
                 const float* val1 = g1 + comp;           // value at i1
                 const float* inTan1 = g1;                // in-tangent at i1
 
-                // Hermite spline per component.
-                // Weights channels can have arbitrarily many components (one per
+                // Hermite spline. Weights channels can have arbitrarily many components (one per
                 // morph target); transform channels use at most 4.
                 if (curve.propertyPath == "weights") {
                     transform.weights.resize(static_cast<size_t>(comp));
@@ -144,19 +163,22 @@ namespace visutwin::canvas
                     transform.hasWeights = true;
                     continue;
                 }
-                float result[4];
-                for (int c = 0; c < comp && c < 4; ++c) {
-                    result[c] = hermite(alpha, val0[c], outTan0[c] * timeDelta, val1[c], inTan1[c] * timeDelta);
-                }
+                // Transform channels blend the whole vector with the basis weights.
+                const HermiteBasis basis(alpha);
+                const auto blendVector3 = [&] {
+                    return basis.blend(Vector3::load(val0), Vector3::load(outTan0) * timeDelta,
+                        Vector3::load(val1), Vector3::load(inTan1) * timeDelta);
+                };
 
                 if (curve.propertyPath == "localPosition") {
-                    transform.position = Vector3(result[0], result[1], result[2]);
+                    transform.position = blendVector3();
                     transform.hasPosition = true;
                 } else if (curve.propertyPath == "localRotation") {
-                    transform.rotation = Quaternion(result[0], result[1], result[2], result[3]).normalized();
+                    transform.rotation = basis.blend(Quaternion::load(val0), Quaternion::load(outTan0) * timeDelta,
+                        Quaternion::load(val1), Quaternion::load(inTan1) * timeDelta).normalized();
                     transform.hasRotation = true;
                 } else if (curve.propertyPath == "localScale") {
-                    transform.scale = Vector3(result[0], result[1], result[2]);
+                    transform.scale = blendVector3();
                     transform.hasScale = true;
                 }
             }

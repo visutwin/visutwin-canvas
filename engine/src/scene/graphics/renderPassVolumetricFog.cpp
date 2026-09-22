@@ -77,17 +77,6 @@ namespace visutwin::canvas
             float cameraNear = 0.1f;
             float cameraFar = 1000.0f;
         };
-        // Matrix4::getElement takes (col, row); both MSL float4x4 and GLSL mat4 are
-        // column-major, so element [col * 4 + row] matches directly.
-        void packMatrix(const Matrix4& m, float* dest)
-        {
-            for (int col = 0; col < 4; ++col) {
-                for (int row = 0; row < 4; ++row) {
-                    dest[col * 4 + row] = m.getElement(col, row);
-                }
-            }
-        }
-
         std::shared_ptr<Shader> fogShader(GraphicsDevice* device, const char* cacheKey,
             const char* vertexEntry, const char* fragmentEntry,
             const char* msl, const char* glsl)
@@ -203,9 +192,7 @@ namespace visutwin::canvas
         params.invView = cameraWorld;
 
         const Vector3 cameraPosition(cameraWorld.getColumn(3));
-        params.cameraPosition[0] = cameraPosition.getX();
-        params.cameraPosition[1] = cameraPosition.getY();
-        params.cameraPosition[2] = cameraPosition.getZ();
+        cameraPosition.store(params.cameraPosition);
 
         // The camera looks down its local -Z.
         Vector3 forward = Vector3(cameraWorld.getColumn(2)) * -1.0f;
@@ -214,9 +201,7 @@ namespace visutwin::canvas
         } else {
             forward = Vector3(0.0f, 0.0f, -1.0f);
         }
-        params.cameraForward[0] = forward.getX();
-        params.cameraForward[1] = forward.getY();
-        params.cameraForward[2] = forward.getZ();
+        forward.store(params.cameraForward);
 
         // NDC -> near plane scale. Mirrors the perspective half-size derivation.
         const float fovRad = camera->fov() * (std::numbers::pi_v<float> / 180.0f);
@@ -265,9 +250,7 @@ namespace visutwin::canvas
             } else {
                 towardsLight = Vector3(0.0f, 1.0f, 0.0f);
             }
-            params.lightDirection[0] = towardsLight.getX();
-            params.lightDirection[1] = towardsLight.getY();
-            params.lightDirection[2] = towardsLight.getZ();
+            towardsLight.store(params.lightDirection);
 
             // Shadow cascades, when the light actually rendered a shadow map this frame.
             Light* sceneLight = lightComponent->light();
@@ -279,14 +262,8 @@ namespace visutwin::canvas
                 // projection, view, the atlas viewport remap and the [0,1] depth mapping.
                 const auto& palette = sceneLight->shadowMatrixPalette();
                 for (int cascade = 0; cascade < 4; ++cascade) {
-                    // The palette is column-major, 16 floats per cascade, so element
-                    // [col * 4 + row] maps straight onto setElement(col, row).
-                    Matrix4& dest = params.shadowMatrixPalette[cascade];
-                    for (int col = 0; col < 4; ++col) {
-                        for (int row = 0; row < 4; ++row) {
-                            dest.setElement(col, row, palette[cascade * 16 + col * 4 + row]);
-                        }
-                    }
+                    // The palette is column-major, 16 floats per cascade: Matrix4's own layout.
+                    params.shadowMatrixPalette[cascade] = Matrix4::load(&palette[cascade * 16]);
                 }
                 const auto& distances = sceneLight->shadowCascadeDistances();
                 for (int i = 0; i < 4; ++i) {
@@ -313,9 +290,10 @@ namespace visutwin::canvas
         // Pack into the GPU block and draw through the shared quad path — no
         // backend pass class involved.
         volumetric_fog::FogUniforms uniforms{};
-        packMatrix(params.invView, uniforms.invView);
+        // Both MSL float4x4 and GLSL mat4 are column-major, which is what Matrix4::store writes.
+        params.invView.store(uniforms.invView);
         for (int i = 0; i < 4; ++i) {
-            packMatrix(params.shadowMatrixPalette[i], uniforms.shadowMatrixPalette[i]);
+            params.shadowMatrixPalette[i].store(uniforms.shadowMatrixPalette[i]);
         }
         for (int i = 0; i < 3; ++i) {
             uniforms.cameraPosition[i] = params.cameraPosition[i];

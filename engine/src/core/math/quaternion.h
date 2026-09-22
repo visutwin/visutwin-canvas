@@ -101,6 +101,9 @@ namespace visutwin::canvas
 #endif
         }
 
+        /** Reads four consecutive floats as (x, y, z, w) — glTF's order. No alignment is required. */
+        static Quaternion load(const float* p) { return Quaternion(p[0], p[1], p[2], p[3]); }
+
         [[nodiscard]] Quaternion conjugate() const;
 
         Quaternion operator*(const Quaternion& rhs) const;

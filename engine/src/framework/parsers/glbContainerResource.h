@@ -67,6 +67,9 @@ namespace visutwin::canvas
         void addAnimTrack(const std::string& name, const std::shared_ptr<AnimTrack>& track) { _animTracks[name] = track; }
         const std::unordered_map<std::string, std::shared_ptr<AnimTrack>>& animTracks() const { return _animTracks; }
 
+        /// The mesh payloads in the order the parser added them; tests read the parsed geometry through here.
+        const std::vector<GlbMeshPayload>& meshPayloads() const { return _meshPayloads; }
+
         Entity* instantiateRenderEntity() override;
 
     private:

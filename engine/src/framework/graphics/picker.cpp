@@ -66,14 +66,14 @@ namespace visutwin::canvas
                 const Vector3 half = aabb.halfExtents();
 
                 std::array<Vector3, 8> corners = {{
-                    Vector3(center.getX() - half.getX(), center.getY() - half.getY(), center.getZ() - half.getZ()),
-                    Vector3(center.getX() + half.getX(), center.getY() - half.getY(), center.getZ() - half.getZ()),
-                    Vector3(center.getX() - half.getX(), center.getY() + half.getY(), center.getZ() - half.getZ()),
-                    Vector3(center.getX() + half.getX(), center.getY() + half.getY(), center.getZ() - half.getZ()),
-                    Vector3(center.getX() - half.getX(), center.getY() - half.getY(), center.getZ() + half.getZ()),
-                    Vector3(center.getX() + half.getX(), center.getY() - half.getY(), center.getZ() + half.getZ()),
-                    Vector3(center.getX() - half.getX(), center.getY() + half.getY(), center.getZ() + half.getZ()),
-                    Vector3(center.getX() + half.getX(), center.getY() + half.getY(), center.getZ() + half.getZ())
+                    center + half * Vector3(-1.0f, -1.0f, -1.0f),
+                    center + half * Vector3( 1.0f, -1.0f, -1.0f),
+                    center + half * Vector3(-1.0f,  1.0f, -1.0f),
+                    center + half * Vector3( 1.0f,  1.0f, -1.0f),
+                    center + half * Vector3(-1.0f, -1.0f,  1.0f),
+                    center + half * Vector3( 1.0f, -1.0f,  1.0f),
+                    center + half * Vector3(-1.0f,  1.0f,  1.0f),
+                    center + half * Vector3( 1.0f,  1.0f,  1.0f)
                 }};
 
                 bool anyProjected = false;
@@ -216,13 +216,14 @@ namespace visutwin::canvas
             return false;
         }
 
-        const Vector4 clipPos = projMatrix * Vector4(viewPos.getX(), viewPos.getY(), viewPos.getZ(), 1.0f);
+        const Vector4 clipPos = projMatrix * Vector4(viewPos, 1.0f);
         if (std::abs(clipPos.getW()) < 1e-6f) {
             return false;
         }
 
-        const float ndcX = clipPos.getX() / clipPos.getW();
-        const float ndcY = clipPos.getY() / clipPos.getW();
+        const Vector3 ndc = clipPos.perspectiveDivide();
+        const float ndcX = ndc.getX();
+        const float ndcY = ndc.getY();
 
         outX = (ndcX * 0.5f + 0.5f) * static_cast<float>(_width);
         outY = (1.0f - (ndcY * 0.5f + 0.5f)) * static_cast<float>(_height);
@@ -256,16 +257,8 @@ namespace visutwin::canvas
             return false;
         }
 
-        const Vector3 nearWorld(
-            nearClip.getX() / nearClip.getW(),
-            nearClip.getY() / nearClip.getW(),
-            nearClip.getZ() / nearClip.getW()
-        );
-        const Vector3 farWorld(
-            farClip.getX() / farClip.getW(),
-            farClip.getY() / farClip.getW(),
-            farClip.getZ() / farClip.getW()
-        );
+        const Vector3 nearWorld = nearClip.perspectiveDivide();
+        const Vector3 farWorld = farClip.perspectiveDivide();
 
         const Vector3 dir = farWorld - nearWorld;
         if (dir.lengthSquared() < 1e-10f) {

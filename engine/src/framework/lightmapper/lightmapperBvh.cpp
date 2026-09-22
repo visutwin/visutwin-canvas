@@ -54,11 +54,6 @@ namespace visutwin::canvas
             const Vector3 e = n.bmax - n.bmin;
             return e.getX() * e.getY() + e.getY() * e.getZ() + e.getZ() * e.getX();
         }
-
-        float axisValue(const Vector3& v, const int axis)
-        {
-            return axis == 0 ? v.getX() : (axis == 1 ? v.getY() : v.getZ());
-        }
     }
 
     struct LightmapperBvh::Builder
@@ -72,43 +67,34 @@ namespace visutwin::canvas
             const int index = static_cast<int>(binary.size());
             binary.emplace_back();
 
-            float bminX = 1e30f, bminY = 1e30f, bminZ = 1e30f;
-            float bmaxX = -1e30f, bmaxY = -1e30f, bmaxZ = -1e30f;
-            float cminX = 1e30f, cminY = 1e30f, cminZ = 1e30f;
-            float cmaxX = -1e30f, cmaxY = -1e30f, cmaxZ = -1e30f;
+            Vector3 bmin(1e30f), bmax(-1e30f);
+            Vector3 cmin(1e30f), cmax(-1e30f);
             for (int i = 0; i < count; ++i) {
                 const BvhTriangle& t = triangles[static_cast<size_t>(order[static_cast<size_t>(start + i)])];
-                const float loX = std::min({t.a.getX(), t.b.getX(), t.c.getX()});
-                const float loY = std::min({t.a.getY(), t.b.getY(), t.c.getY()});
-                const float loZ = std::min({t.a.getZ(), t.b.getZ(), t.c.getZ()});
-                const float hiX = std::max({t.a.getX(), t.b.getX(), t.c.getX()});
-                const float hiY = std::max({t.a.getY(), t.b.getY(), t.c.getY()});
-                const float hiZ = std::max({t.a.getZ(), t.b.getZ(), t.c.getZ()});
-                bminX = std::min(bminX, loX); bmaxX = std::max(bmaxX, hiX);
-                bminY = std::min(bminY, loY); bmaxY = std::max(bmaxY, hiY);
-                bminZ = std::min(bminZ, loZ); bmaxZ = std::max(bmaxZ, hiZ);
-                const float cX = (loX + hiX) * 0.5f, cY = (loY + hiY) * 0.5f, cZ = (loZ + hiZ) * 0.5f;
-                cminX = std::min(cminX, cX); cmaxX = std::max(cmaxX, cX);
-                cminY = std::min(cminY, cY); cmaxY = std::max(cmaxY, cY);
-                cminZ = std::min(cminZ, cZ); cmaxZ = std::max(cmaxZ, cZ);
+                // min(min(a, b), c) is std::min({a, b, c}) lane by lane, NaN handling included.
+                const Vector3 lo = Vector3::min(Vector3::min(t.a, t.b), t.c);
+                const Vector3 hi = Vector3::max(Vector3::max(t.a, t.b), t.c);
+                bmin = Vector3::min(bmin, lo);
+                bmax = Vector3::max(bmax, hi);
+                const Vector3 c = (lo + hi) * 0.5f;
+                cmin = Vector3::min(cmin, c);
+                cmax = Vector3::max(cmax, c);
             }
-            const Vector3 bmin(bminX, bminY, bminZ), bmax(bmaxX, bmaxY, bmaxZ);
 
             if (count <= LEAF_SIZE) {
                 binary[static_cast<size_t>(index)] = {bmin, bmax, start, count, -1, -1};
                 return index;
             }
 
-            const float extX = cmaxX - cminX, extY = cmaxY - cminY, extZ = cmaxZ - cminZ;
+            const Vector3 ext = cmax - cmin;
+            const float extX = ext.getX(), extY = ext.getY(), extZ = ext.getZ();
             const int axis = extX > extY ? (extX > extZ ? 0 : 2) : (extY > extZ ? 1 : 2);
-            const float cmin = axis == 0 ? cminX : (axis == 1 ? cminY : cminZ);
-            const float cmax = axis == 0 ? cmaxX : (axis == 1 ? cmaxY : cmaxZ);
-            const float mid = 0.5f * (cmin + cmax);
+            const float mid = 0.5f * (cmin[axis] + cmax[axis]);
             const int* first = order.data() + start;
             const int* split = std::partition(order.data() + start, order.data() + start + count,
                 [&](const int idx) {
                     const BvhTriangle& t = triangles[static_cast<size_t>(idx)];
-                    return axisValue((t.a + t.b + t.c) * (1.0f / 3.0f), axis) < mid;
+                    return ((t.a + t.b + t.c) * (1.0f / 3.0f))[axis] < mid;
                 });
             int leftCount = static_cast<int>(split - first);
             if (leftCount == 0 || leftCount == count) leftCount = count / 2;  // degenerate guard
@@ -146,9 +132,7 @@ namespace visutwin::canvas
         // outside the box. A box that rejected such a ray would lose a real hit;
         // padding only ever adds candidates, which the triangle test then decides.
         const BinaryNode& root = builder.binary.front();
-        const float scale = std::max({1.0f, std::fabs(root.bmin.getX()), std::fabs(root.bmin.getY()),
-            std::fabs(root.bmin.getZ()), std::fabs(root.bmax.getX()), std::fabs(root.bmax.getY()),
-            std::fabs(root.bmax.getZ())});
+        const float scale = std::max(1.0f, Vector3::max(root.bmin.abs(), root.bmax.abs()).maxComponent());
         const float pad = scale * 1e-5f;
 
         _nodes.reserve(builder.binary.size() / 2 + 1);

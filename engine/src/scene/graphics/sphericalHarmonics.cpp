@@ -133,6 +133,6 @@ namespace visutwin::canvas::sh
             + coefficients[1] * x + coefficients[2] * y + coefficients[3] * z
             + coefficients[4] * (x * z) + coefficients[5] * (z * y) + coefficients[6] * (y * x)
             + coefficients[7] * (3.0f * z * z - 1.0f) + coefficients[8] * (x * x - y * y);
-        return Vector3(std::max(result.getX(), 0.0f), std::max(result.getY(), 0.0f), std::max(result.getZ(), 0.0f));
+        return Vector3::max(result, Vector3(0.0f));
     }
 }

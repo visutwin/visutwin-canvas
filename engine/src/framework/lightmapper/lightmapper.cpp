@@ -172,17 +172,16 @@ namespace visutwin::canvas
             forEachTriangle(target, [&](const Vertex& a, const Vertex& b, const Vertex& c) {
                 for (const auto& v : {a, b, c}) {
                     const Vector3 w = worldTransform.transformPoint(v.pos);
-                    bmin = Vector3(std::min(bmin.getX(), w.getX()), std::min(bmin.getY(), w.getY()),
-                                   std::min(bmin.getZ(), w.getZ()));
-                    bmax = Vector3(std::max(bmax.getX(), w.getX()), std::max(bmax.getY(), w.getY()),
-                                   std::max(bmax.getZ(), w.getZ()));
+                    bmin = Vector3::min(bmin, w);
+                    bmax = Vector3::max(bmax, w);
                 }
             });
             if (bmax.getX() >= bmin.getX()) {
                 // upstream uses the half extents and the three face areas, unit area per axis
-                const float hx = (bmax.getX() - bmin.getX()) * 0.5f;
-                const float hy = (bmax.getY() - bmin.getY()) * 0.5f;
-                const float hz = (bmax.getZ() - bmin.getZ()) * 0.5f;
+                const Vector3 half = (bmax - bmin) * 0.5f;
+                const float hx = half.getX();
+                const float hy = half.getY();
+                const float hz = half.getZ();
                 const float totalArea = std::sqrt(hy * hz + hx * hz + hx * hy);
                 size = std::clamp(nextPowerOfTwo(static_cast<int>(totalArea * options.sizeMultiplier)),
                     8, std::clamp(options.maxResolution, 8, maxSize));

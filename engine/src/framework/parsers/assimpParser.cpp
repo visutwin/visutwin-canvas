@@ -127,6 +127,14 @@ namespace visutwin::canvas
             }
         }
 
+        // ── Assimp vector -> Vector3, with the optional Y/Z flip ────────
+
+        Vector3 toVector3(const aiVector3D& v, bool flipYZ)
+        {
+            // flipYZ: (x, y, z) -> (x, z, -y)
+            return flipYZ ? Vector3(v.x, v.z, -v.y) : Vector3(v.x, v.y, v.z);
+        }
+
         // ── Tangent-from-normal fallback (no UVs available) ─────────────
 
         void tangentFromNormal(float nx, float ny, float nz,
@@ -373,14 +381,16 @@ namespace visutwin::canvas
             material.setRoughnessFactor(roughness);
 
             // Metalness heuristic (same algorithm as ObjParser)
-            float kdLum = 0.2126f * diffuse.r + 0.7152f * diffuse.g + 0.0722f * diffuse.b;
-            float ksLum = 0.2126f * specular.r + 0.7152f * specular.g + 0.0722f * specular.b;
+            const Vector3 lumaWeights(0.2126f, 0.7152f, 0.0722f);
+            const Vector3 ks(specular.r, specular.g, specular.b);
+            float kdLum = lumaWeights.dot(Vector3(diffuse.r, diffuse.g, diffuse.b));
+            float ksLum = lumaWeights.dot(ks);
             float metalness = 0.0f;
             if (kdLum < 0.04f && ksLum > 0.5f) {
                 metalness = 1.0f;
             } else if (ksLum > 0.25f) {
-                float ksMax = std::max({specular.r, specular.g, specular.b});
-                float ksMin = std::min({specular.r, specular.g, specular.b});
+                float ksMax = ks.maxComponent();
+                float ksMin = ks.minComponent();
                 float sat = (ksMax > 0.001f) ? (ksMax - ksMin) / ksMax : 0.0f;
                 if (sat > 0.2f) metalness = 0.8f;
             }
@@ -480,12 +490,8 @@ namespace visutwin::canvas
 
             std::vector<PackedVertex> vertices(vertexCount);
 
-            float minX = std::numeric_limits<float>::max();
-            float minY = std::numeric_limits<float>::max();
-            float minZ = std::numeric_limits<float>::max();
-            float maxX = std::numeric_limits<float>::lowest();
-            float maxY = std::numeric_limits<float>::lowest();
-            float maxZ = std::numeric_limits<float>::lowest();
+            Vector3 minPos(std::numeric_limits<float>::max());
+            Vector3 maxPos(std::numeric_limits<float>::lowest());
 
             const bool hasNormals  = aiM->HasNormals();
             const bool hasUVs      = aiM->HasTextureCoords(0);
@@ -493,28 +499,12 @@ namespace visutwin::canvas
             const bool hasTangents = aiM->HasTangentsAndBitangents();
 
             for (unsigned int i = 0; i < vertexCount; ++i) {
-                float px = aiM->mVertices[i].x;
-                float py = aiM->mVertices[i].y;
-                float pz = aiM->mVertices[i].z;
-
                 // Apply config transforms
-                px *= config.uniformScale;
-                py *= config.uniformScale;
-                pz *= config.uniformScale;
-                if (config.flipYZ) {
-                    std::swap(py, pz);
-                    pz = -pz;
-                }
+                const Vector3 pos = toVector3(aiM->mVertices[i], config.flipYZ) * config.uniformScale;
 
-                float nx = 0.0f, ny = 1.0f, nz = 0.0f;
+                Vector3 n(0.0f, 1.0f, 0.0f);
                 if (hasNormals) {
-                    nx = aiM->mNormals[i].x;
-                    ny = aiM->mNormals[i].y;
-                    nz = aiM->mNormals[i].z;
-                    if (config.flipYZ) {
-                        std::swap(ny, nz);
-                        nz = -nz;
-                    }
+                    n = toVector3(aiM->mNormals[i], config.flipYZ);
                 }
 
                 // UVs already flipped by aiProcess_FlipUVs -- no manual flip needed
@@ -532,39 +522,27 @@ namespace visutwin::canvas
 
                 float tx = 0.0f, ty = 0.0f, tz = 0.0f, tw = 1.0f;
                 if (hasTangents) {
-                    tx = aiM->mTangents[i].x;
-                    ty = aiM->mTangents[i].y;
-                    tz = aiM->mTangents[i].z;
-                    if (config.flipYZ) {
-                        std::swap(ty, tz);
-                        tz = -tz;
-                    }
+                    const Vector3 t = toVector3(aiM->mTangents[i], config.flipYZ);
+                    tx = t.getX();
+                    ty = t.getY();
+                    tz = t.getZ();
                     // Compute handedness from bitangent
-                    Vector3 n(nx, ny, nz);
-                    Vector3 t(tx, ty, tz);
-                    float bx = aiM->mBitangents[i].x;
-                    float by = aiM->mBitangents[i].y;
-                    float bz = aiM->mBitangents[i].z;
-                    if (config.flipYZ) {
-                        std::swap(by, bz);
-                        bz = -bz;
-                    }
-                    Vector3 b(bx, by, bz);
+                    const Vector3 b = toVector3(aiM->mBitangents[i], config.flipYZ);
                     tw = (n.cross(t).dot(b) < 0.0f) ? -1.0f : 1.0f;
                 } else {
-                    tangentFromNormal(nx, ny, nz, tx, ty, tz, tw);
+                    tangentFromNormal(n.getX(), n.getY(), n.getZ(), tx, ty, tz, tw);
                 }
 
                 vertices[i] = PackedVertex{
-                    px, py, pz,
-                    nx, ny, nz,
+                    pos.getX(), pos.getY(), pos.getZ(),
+                    n.getX(), n.getY(), n.getZ(),
                     u, v,
                     tx, ty, tz, tw,
                     u1, v1
                 };
 
-                minX = std::min(minX, px); minY = std::min(minY, py); minZ = std::min(minZ, pz);
-                maxX = std::max(maxX, px); maxY = std::max(maxY, py); maxZ = std::max(maxZ, pz);
+                minPos = Vector3::min(minPos, pos);
+                maxPos = Vector3::max(maxPos, pos);
             }
 
             // Build index buffer
@@ -638,19 +616,13 @@ namespace visutwin::canvas
                 aiM->mAABB.mMin.z <= aiM->mAABB.mMax.z &&
                 config.uniformScale == 1.0f && !config.flipYZ)
             {
-                minX = aiM->mAABB.mMin.x; minY = aiM->mAABB.mMin.y; minZ = aiM->mAABB.mMin.z;
-                maxX = aiM->mAABB.mMax.x; maxY = aiM->mAABB.mMax.y; maxZ = aiM->mAABB.mMax.z;
+                minPos = toVector3(aiM->mAABB.mMin, false);
+                maxPos = toVector3(aiM->mAABB.mMax, false);
             }
 
             BoundingBox bounds;
-            bounds.setCenter(
-                (minX + maxX) * 0.5f,
-                (minY + maxY) * 0.5f,
-                (minZ + maxZ) * 0.5f);
-            bounds.setHalfExtents(
-                (maxX - minX) * 0.5f,
-                (maxY - minY) * 0.5f,
-                (maxZ - minZ) * 0.5f);
+            bounds.setCenter((minPos + maxPos) * 0.5f);
+            bounds.setHalfExtents((maxPos - minPos) * 0.5f);
             meshResource->setAabb(bounds);
 
             return meshResource;

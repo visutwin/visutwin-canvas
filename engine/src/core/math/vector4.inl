@@ -14,18 +14,30 @@ namespace visutwin::canvas
     inline Vector4::Vector4(const Vector3& vec3, float w)
     {
 #if defined(USE_SIMD_SSE)
-        __m128 xyz = _mm_set_ps(w, vec3.getZ(), vec3.getY(), vec3.getX());
-        m128 = xyz;
+        m128 = _mm_insert_ps(vec3.m128, _mm_set_ss(w), 0x30);
 #elif defined(USE_SIMD_APPLE)
         m128 = simd_make_float4(vec3.m128, w);
 #elif defined(USE_SIMD_NEON)
-        float temp[4] = {vec3.getX(), vec3.getY(), vec3.getZ(), w};
-        m128 = vld1q_f32(temp);
+        m128 = vsetq_lane_f32(w, vec3.m128, 3);
 #else
         v[0] = vec3.x;
         v[1] = vec3.y;
         v[2] = vec3.z;
         v[3] = w;
+#endif
+    }
+
+    inline Vector3 Vector4::perspectiveDivide() const
+    {
+#if defined(USE_SIMD_SSE)
+        const __m128 w = _mm_shuffle_ps(m128, m128, _MM_SHUFFLE(3, 3, 3, 3));
+        return Vector3(_mm_insert_ps(_mm_div_ps(m128, w), _mm_setzero_ps(), 0x30));
+#elif defined(USE_SIMD_APPLE)
+        return Vector3(simd_make_float3(m128) / m128.w);
+#elif defined(USE_SIMD_NEON)
+        return Vector3(vsetq_lane_f32(0.0f, vdivq_f32(m128, vdupq_laneq_f32(m128, 3)), 3));
+#else
+        return Vector3(x / w, y / w, z / w);
 #endif
     }
 }

@@ -438,6 +438,15 @@ them, so the build-time bundle and the runtime composition share one source.
   test hook placed above the example's own setter was overwritten every run); and
   prefer a one-line `spdlog` of what the binder receives over a shader probe,
   which puts a transfer curve and a bundle rebuild between you and the answer.
+  A fourth, added 2026-09-22: when a change moves a LOT of pixels by very LITTLE (a few
+  percent of the frame at one count, with a thin tail at silhouettes), suspect something
+  that moved the CAMERA or the geometry, not the shading — and when two targeted reverts
+  each change the count by nothing, stop guessing and BISECT. Revert every changed file in
+  a scratch clone, confirm that build reproduces the reference EXACTLY (0 pixels; without
+  that check the bisection proves nothing), then add the files back in halves. That is how
+  a whole-frame difference in `ambient-occlusion` was traced to one line in
+  `cameraControls.cpp` — a camera forward vector rebuilt through a quaternion agreed with
+  the trig it replaced only to 3.6e-7, which is enough to shift every pixel by a count.
 - **`common-brdf.glsl` is the twin of `common-brdf.metal` and both must change
   together.** It owns `distributionGGX`, `getVisibilitySmithGGX` (a VISIBILITY
   term — the `1/(4 NdotL NdotV)` is folded in, so call sites write `D * Vis * F`
@@ -930,6 +939,27 @@ present, but the rule below never depends on reading it.
   `slerpQuat` and `lerpVec3`; the header even advertised a SIMD slerp that did not
   exist. `Vector3::lerp` is the vector twin. Contracts for all of them are in
   `tests/simdMathTests.cpp`, which is per-backend by construction.
+- **The same rule holds for component-wise vector work: use the core, not
+  `getX()..getZ()`.** As of 2026-09-22 `Vector3` and `Vector4` carry `min`, `max`,
+  `abs`, component-wise divide and multiply, `floor`, `clamp`, `minComponent` /
+  `maxComponent`, `operator[]`, `lerp`, exact `==`, `perspectiveDivide` (a true
+  division, so it rounds as `x / w` does) and `load` / `store` to raw floats;
+  `Matrix4` has `load` / `store` (sixteen column-major floats), `normalMatrix`,
+  `determinant3x3`, `translation(Vector3)` and a SIMD `mulAffine`. An audit that day
+  found some forty files spelling these out by hand, most of them AABB accumulation
+  and 16-element `getElement` copies into uniform blocks. `min` / `max` answer
+  EXACTLY `std::min` / `std::max` per lane on every backend, NaN included — `(b < a)
+  ? b : a` — because the native instructions disagree (NEON's `vminq` propagates a
+  NaN, Apple's `simd_min` drops it) and an AABB grown over a NaN position must not
+  depend on the backend; each backend therefore selects on a comparison rather than
+  calling its min instruction. `Matrix4` is trivially copyable (its old hand-written
+  copy assignment was removed), so a `memcpy` of one is well-defined; prefer
+  `store`. `Vector2` is two plain floats and its new operators are scalar on purpose.
+  To check all four backends of `tests/simdMathTests.cpp` from a Mac: Apple and NEON
+  (`-DUSE_SIMD_PREFER_NEON`) build natively, scalar builds if the standard headers
+  are included first and `__APPLE__` / `__ARM_NEON` are then undefined, and SSE
+  only COMPILES (`-arch x86_64 -msse4.1 -fsyntax-only`) — running it needs an x86
+  machine or Rosetta, which is not installed here.
 - **A SIMD kernel ships with its scalar reference and a bit-exact test.** Today:
   `scene/gsplat/gsplatSortKeys` (splat depth and sort key) and
   `framework/lightmapper/lightmapperBvh` (4-box slab test). Each exposes the scalar
@@ -1266,7 +1296,14 @@ present, but the rule below never depends on reading it.
 - **metal-cpp framework extern constants** (e.g. `MTL::CommonCounterSetTimestamp`)
   only link in the `*_PRIVATE_IMPLEMENTATION` TU. Compare string values instead
   inside the engine library.
-- **`Matrix4::getElement` takes (col, row)**, not (row, col).
+- **`Matrix4::getElement` takes (col, row)**, not (row, col). Reading an AXIS with it is
+  where this bites: `getElement(0,0), getElement(1,0), getElement(2,0)` is ROW 0 — the X
+  components of all three axes — not the X axis, and the two agree only for an unrotated
+  node. That spelling gave every rotated rect or disk light an LTC quad outside its own
+  plane until 2026-09-22 (`makeGpuLight`, now `getColumn(0)`). Use `getColumn`. It is also a full
+  16-byte store and reload per call on the SSE and NEON backends (free only on
+  Apple's), so a loop of them is the slow way to read a matrix: use `getColumn`,
+  `store`, or a whole-matrix operation.
 - **A hand-built sphere's triangle winding has to be counter-clockwise seen from
   OUTSIDE**, or its normals face inward. A mirror ball HIDES this — it still
   reflects something — so the inverted winding in a reflection-probe example went
@@ -1276,9 +1313,10 @@ present, but the rule below never depends on reading it.
 - **A normal is carried by the INVERSE TRANSPOSE of the model matrix, and both
   backends now compute it.** Under non-uniform scale the bare 3x3 and the inverse
   transpose differ, and lighting reads the difference directly: a flattened sphere
-  shades as if it were still round. Metal uploads the matrix per draw
-  (`metalUniformBinder.cpp` builds it from 3x3 cofactors, cheaper than a 4x4
-  inverse, then divided by the SIGNED determinant); Vulkan computes the cofactor
+  shades as if it were still round. Metal uploads the matrix per draw, built by
+  `Matrix4::normalMatrix()`: column i is the cross product of the other two model
+  columns — the 3x3 cofactor matrix, cheaper than a 4x4 inverse — divided by the
+  SIGNED determinant (their triple product); Vulkan computes the cofactor
   matrix per vertex in `shaders/vulkan/normal_matrix.glsl`, which every vertex
   module includes, and applies the determinant's sign explicitly. The two are
   equal by construction — a cofactor matrix is the inverse transpose times the

@@ -24,7 +24,7 @@ namespace visutwin::canvas
         if (!_node) {
             return 0.0f;
         }
-        const Vector3 cameraPosition(_node->worldTransform().getColumn(3));
+        const Vector3 cameraPosition = _node->worldTransform().getTranslation();
         const float distance = (sphere.center() - cameraPosition).length();
 
         // Inside the sphere it fills the view; the asin below would also be out of

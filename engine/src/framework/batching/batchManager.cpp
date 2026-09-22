@@ -10,6 +10,8 @@
 #include "skinBatchInstance.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstring>
 #include <unordered_map>
 
 #include "framework/components/render/renderComponent.h"
@@ -56,6 +58,20 @@ namespace visutwin::canvas
     };
 
     static_assert(sizeof(DynamicBatchVertex) == 60, "DynamicBatchVertex must be 60 bytes (15 floats)");
+
+    // createDynamicBatch copies a PackedVertex into the front of a DynamicBatchVertex
+    // with one memcpy, which needs the two leading layouts to be identical.
+#define VT_SAME_OFFSET(field) \
+    static_assert(offsetof(PackedVertex, field) == offsetof(DynamicBatchVertex, field), \
+        "DynamicBatchVertex must start with PackedVertex's layout (" #field ")")
+    VT_SAME_OFFSET(px); VT_SAME_OFFSET(py); VT_SAME_OFFSET(pz);
+    VT_SAME_OFFSET(nx); VT_SAME_OFFSET(ny); VT_SAME_OFFSET(nz);
+    VT_SAME_OFFSET(u);  VT_SAME_OFFSET(v);
+    VT_SAME_OFFSET(tx); VT_SAME_OFFSET(ty); VT_SAME_OFFSET(tz); VT_SAME_OFFSET(tw);
+    VT_SAME_OFFSET(u1); VT_SAME_OFFSET(v1);
+#undef VT_SAME_OFFSET
+    static_assert(offsetof(DynamicBatchVertex, boneIndex) == sizeof(PackedVertex),
+        "boneIndex must follow the PackedVertex prefix");
 
     static_assert(sizeof(PackedVertex) == kPackedVertexStride,
         "batchSplit's packed stride must be the struct the merge paths read");
@@ -457,29 +473,11 @@ namespace visutwin::canvas
                 v.px = pos.getX(); v.py = pos.getY(); v.pz = pos.getZ();
 
                 // Transform normal by normal matrix (3x3 part only, no translation).
-                float nnx = normalMatrix.getElement(0, 0) * v.nx +
-                            normalMatrix.getElement(1, 0) * v.ny +
-                            normalMatrix.getElement(2, 0) * v.nz;
-                float nny = normalMatrix.getElement(0, 1) * v.nx +
-                            normalMatrix.getElement(1, 1) * v.ny +
-                            normalMatrix.getElement(2, 1) * v.nz;
-                float nnz = normalMatrix.getElement(0, 2) * v.nx +
-                            normalMatrix.getElement(1, 2) * v.ny +
-                            normalMatrix.getElement(2, 2) * v.nz;
-                Vector3 transformedNormal = Vector3(nnx, nny, nnz).normalized();
+                Vector3 transformedNormal = Vector3(v.nx, v.ny, v.nz).transformNormal(normalMatrix).normalized();
                 v.nx = transformedNormal.getX(); v.ny = transformedNormal.getY(); v.nz = transformedNormal.getZ();
 
                 // Transform tangent.xyz by normal matrix (3x3 part only), preserve w (handedness).
-                float ttx = normalMatrix.getElement(0, 0) * v.tx +
-                            normalMatrix.getElement(1, 0) * v.ty +
-                            normalMatrix.getElement(2, 0) * v.tz;
-                float tty = normalMatrix.getElement(0, 1) * v.tx +
-                            normalMatrix.getElement(1, 1) * v.ty +
-                            normalMatrix.getElement(2, 1) * v.tz;
-                float ttz = normalMatrix.getElement(0, 2) * v.tx +
-                            normalMatrix.getElement(1, 2) * v.ty +
-                            normalMatrix.getElement(2, 2) * v.tz;
-                Vector3 transformedTangent = Vector3(ttx, tty, ttz).normalized();
+                Vector3 transformedTangent = Vector3(v.tx, v.ty, v.tz).transformNormal(normalMatrix).normalized();
                 v.tx = transformedTangent.getX(); v.ty = transformedTangent.getY(); v.tz = transformedTangent.getZ();
                 // v.tw (handedness) is preserved unchanged.
 
@@ -675,11 +673,7 @@ namespace visutwin::canvas
             for (int i = 0; i < vertCount; i++) {
                 const PackedVertex& sv = srcVerts[i];
                 DynamicBatchVertex dv;
-                dv.px = sv.px; dv.py = sv.py; dv.pz = sv.pz;
-                dv.nx = sv.nx; dv.ny = sv.ny; dv.nz = sv.nz;
-                dv.u = sv.u;   dv.v = sv.v;
-                dv.tx = sv.tx; dv.ty = sv.ty; dv.tz = sv.tz; dv.tw = sv.tw;
-                dv.u1 = sv.u1; dv.v1 = sv.v1;
+                std::memcpy(&dv, &sv, sizeof(PackedVertex));
                 dv.boneIndex = static_cast<float>(instIdx);
                 mergedVertices.push_back(dv);
             }

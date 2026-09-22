@@ -1318,9 +1318,7 @@ namespace visutwin::canvas
     {
         if (ambientSH) {
             for (size_t i = 0; i < 9; ++i) {
-                _lightingUbo.ambientSH[i][0] = ambientSH[i].getX();
-                _lightingUbo.ambientSH[i][1] = ambientSH[i].getY();
-                _lightingUbo.ambientSH[i][2] = ambientSH[i].getZ();
+                ambientSH[i].store(_lightingUbo.ambientSH[i]);
                 _lightingUbo.ambientSH[i][3] = 0.0f;
             }
         } else {
@@ -1329,14 +1327,10 @@ namespace visutwin::canvas
         }
         // SSR projects each marched world position to screen UV with this.
         // Packed column-major for the GLSL mat4, mirroring MetalUniformBinder.
-        // getElement takes (col, row); passing (row, col) uploaded the transpose.
+        // Matrix4::store writes column-major; reading getElement as (row, col)
+        // used to upload the transpose.
         if (viewProjection) {
-            for (int col = 0; col < 4; ++col) {
-                for (int row = 0; row < 4; ++row) {
-                    _lightingUbo.viewProjection[col * 4 + row] =
-                        viewProjection->getElement(col, row);
-                }
-            }
+            viewProjection->store(_lightingUbo.viewProjection);
         } else {
             std::memset(_lightingUbo.viewProjection, 0,
                 sizeof(_lightingUbo.viewProjection));
@@ -1455,14 +1449,10 @@ namespace visutwin::canvas
                 // Matrix4::getElement takes (col, row) — reading it (row, col) here
                 // uploaded the transpose, which threw every projected coordinate
                 // outside [0,1] and silently made spot lights cast no shadow at all
-                // on this backend.
+                // on this backend. Matrix4::store writes column-major directly.
                 Texture*& tex = (i == 0) ? _localShadowTexture0 : _localShadowTexture1;
                 tex = ls.shadowMap;
-                for (int col = 0; col < 4; ++col) {
-                    for (int row = 0; row < 4; ++row) {
-                        matDst[col * 4 + row] = ls.viewProjection.getElement(col, row);
-                    }
-                }
+                ls.viewProjection.store(matDst);
             }
             paramsDst[0] = ls.bias;
             paramsDst[1] = ls.normalBias;
@@ -1485,9 +1475,7 @@ namespace visutwin::canvas
         _lightingUbo.ambient[2] = ambientLinear.b;
         _lightingUbo.ambient[3] = 0.0f;
 
-        _lightingUbo.cameraPosExposure[0] = cameraPosition.getX();
-        _lightingUbo.cameraPosExposure[1] = cameraPosition.getY();
-        _lightingUbo.cameraPosExposure[2] = cameraPosition.getZ();
+        cameraPosition.store(_lightingUbo.cameraPosExposure);
         _lightingUbo.cameraPosExposure[3] = exposure;
 
         constexpr uint32_t kMaxLights = 8;
@@ -1505,14 +1493,10 @@ namespace visutwin::canvas
             Color lightLinear;
             lightLinear.linear(&src.color);
 
-            dst.positionRange[0] = src.position.getX();
-            dst.positionRange[1] = src.position.getY();
-            dst.positionRange[2] = src.position.getZ();
+            src.position.store(dst.positionRange);
             dst.positionRange[3] = src.range;
 
-            dst.directionType[0] = src.direction.getX();
-            dst.directionType[1] = src.direction.getY();
-            dst.directionType[2] = src.direction.getZ();
+            src.direction.store(dst.directionType);
             dst.directionType[3] =
                 static_cast<float>(static_cast<uint32_t>(src.type));
 
@@ -1535,14 +1519,10 @@ namespace visutwin::canvas
             if (src.type == GpuLightType::AreaRect) {
                 dst.coneParams[3] = static_cast<float>(src.areaShape);
             }
-            dst.areaRightHalfWidth[0] = src.areaRight.getX();
-            dst.areaRightHalfWidth[1] = src.areaRight.getY();
-            dst.areaRightHalfWidth[2] = src.areaRight.getZ();
+            src.areaRight.store(dst.areaRightHalfWidth);
             dst.areaRightHalfWidth[3] = src.areaHalfWidth;
             const Vector3 areaUp = src.direction.cross(src.areaRight).normalized();
-            dst.areaUpHalfHeight[0] = areaUp.getX();
-            dst.areaUpHalfHeight[1] = areaUp.getY();
-            dst.areaUpHalfHeight[2] = areaUp.getZ();
+            areaUp.store(dst.areaUpHalfHeight);
             dst.areaUpHalfHeight[3] = src.areaHalfHeight;
 
             dst.cookieFlags[0] = (src.cookieIndex >= 0 && src.cookie) ? 1.0f : 0.0f;
@@ -1594,13 +1574,9 @@ namespace visutwin::canvas
                     paramsDst = (src.cookieIndex == 0)
                         ? _lightingUbo.cookieParams2D0 : _lightingUbo.cookieParams2D1;
                 }
-                // Matrix4::getElement takes (col, row) — upload column-major, which
-                // is what a GLSL mat4 expects for `m * vec4(p, 1)`.
-                for (int col = 0; col < 4; ++col) {
-                    for (int row = 0; row < 4; ++row) {
-                        matDst[col * 4 + row] = src.cookieMatrix.getElement(col, row);
-                    }
-                }
+                // Upload column-major, which is what a GLSL mat4 expects for
+                // `m * vec4(p, 1)`.
+                src.cookieMatrix.store(matDst);
                 paramsDst[0] = src.cookieIntensity;
                 paramsDst[1] = src.cookieFalloff ? 1.0f : 0.0f;
                 paramsDst[2] = static_cast<float>(src.cookieChannel);
@@ -1629,17 +1605,9 @@ namespace visutwin::canvas
         const bool boxProjection, const float intensity, const float maxLod)
     {
         _reflectionProbeTexture = cubemap;
-        const Vector3 position = (boxMin + boxMax) * 0.5f;
-        const Vector3 values[3] = {boxMin, boxMax, position};
-        float* destinations[3] = {
-            _lightingUbo.reflectionProbeBoxMin,
-            _lightingUbo.reflectionProbeBoxMax,
-            _lightingUbo.reflectionProbePosition};
-        for (int v = 0; v < 3; ++v) {
-            destinations[v][0] = values[v].getX();
-            destinations[v][1] = values[v].getY();
-            destinations[v][2] = values[v].getZ();
-        }
+        boxMin.store(_lightingUbo.reflectionProbeBoxMin);
+        boxMax.store(_lightingUbo.reflectionProbeBoxMax);
+        ((boxMin + boxMax) * 0.5f).store(_lightingUbo.reflectionProbePosition);
         _lightingUbo.reflectionProbeParams[0] = boxProjection ? 1.0f : 0.0f;
         _lightingUbo.reflectionProbeParams[1] = intensity;
         _lightingUbo.reflectionProbeParams[2] = maxLod;
@@ -1654,9 +1622,7 @@ namespace visutwin::canvas
         _skyboxCubeTexture = skyboxCubeMap;
 
         // skyParams2: xyz = dome center, w = flags (bit0 cubemap, bit1 dome).
-        _lightingUbo.skyParams2[0] = skyDomeCenter.getX();
-        _lightingUbo.skyParams2[1] = skyDomeCenter.getY();
-        _lightingUbo.skyParams2[2] = skyDomeCenter.getZ();
+        skyDomeCenter.store(_lightingUbo.skyParams2);
         _lightingUbo.skyParams2[3] = static_cast<float>(
             (skyboxCubeMap ? 1u : 0u) | (isDome ? 2u : 0u));
 

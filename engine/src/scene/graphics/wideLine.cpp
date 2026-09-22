@@ -36,12 +36,9 @@ namespace visutwin::canvas
     void WideLine::setPoints(const std::vector<Vector3>& positions, const Color& color,
         const float width)
     {
-        std::vector<float> packed;
-        packed.reserve(positions.size() * 3);
-        for (const auto& p : positions) {
-            packed.push_back(p.getX());
-            packed.push_back(p.getY());
-            packed.push_back(p.getZ());
+        std::vector<float> packed(positions.size() * 3);
+        for (size_t i = 0; i < positions.size(); ++i) {
+            positions[i].store(&packed[i * 3]);
         }
         setPoints(packed, {color.r, color.g, color.b}, {width});
     }

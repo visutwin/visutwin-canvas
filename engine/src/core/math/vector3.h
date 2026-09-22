@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -26,7 +27,7 @@ namespace visutwin::canvas
      *
      * Vector3 uses a 16-byte aligned union supporting scalar, SSE, Apple SIMD, and NEON
      * backends. The active backend is controlled by USE_SIMD_MATH / USE_SIMD_PREFER_NEON
-     * defines (currently scalar fallback is active).
+     * in defines.h; exactly one is compiled per build.
      */
     struct alignas(16) Vector3
     {
@@ -288,6 +289,54 @@ namespace visutwin::canvas
         [[nodiscard]] Vector3 transformNormal(const Matrix4& mat) const;
 
         Vector3 operator-() const;
+
+        // ── Component-wise operations ────────────────────────────────────────
+        // One definition per backend, so a caller never spells min/max/abs out of
+        // getX()..getZ() and leaves the SIMD path. Every one of these keeps the
+        // unused fourth lane of the SSE and NEON register at zero, which the
+        // 3-component dot and length rely on.
+
+        /** Component-wise quotient. A zero divisor component gives +/-inf or NaN, as scalar division does. */
+        Vector3 operator/(const Vector3& other) const;
+
+        /** Division by a scalar. Divides, rather than multiplying by a reciprocal, so it rounds as x / s does. */
+        Vector3 operator/(float scalar) const;
+
+        /**
+         * Component-wise minimum with std::min's semantics on EVERY backend:
+         * (b < a) ? b : a per lane. So a NaN in `b` keeps `a`, and a NaN in `a` stays.
+         * The native instructions disagree about NaN (NEON's vminq propagates it,
+         * Apple's simd_min ignores it), which is why each backend selects on a
+         * comparison instead of calling them.
+         */
+        static Vector3 min(const Vector3& a, const Vector3& b);
+
+        /** Component-wise maximum, std::max's semantics: (a < b) ? b : a per lane. */
+        static Vector3 max(const Vector3& a, const Vector3& b);
+
+        /** Component-wise clamp: max(lo, min(v, hi)). */
+        static Vector3 clamp(const Vector3& v, const Vector3& lo, const Vector3& hi) { return max(lo, min(v, hi)); }
+
+        /** Component-wise absolute value (clears the sign bit, so -0 becomes +0). */
+        [[nodiscard]] Vector3 abs() const;
+
+        /** Component-wise floor. */
+        [[nodiscard]] Vector3 floor() const;
+
+        /** Smallest of the three components. */
+        [[nodiscard]] float minComponent() const { return std::min(getX(), std::min(getY(), getZ())); }
+
+        /** Largest of the three components. */
+        [[nodiscard]] float maxComponent() const { return std::max(getX(), std::max(getY(), getZ())); }
+
+        /** Component `i` (0 = x, 1 = y, 2 = z), for code that selects an axis at run time. */
+        [[nodiscard]] float operator[](int i) const;
+
+        /** Reads three consecutive floats (x, y, z). No alignment is required. */
+        static Vector3 load(const float* p);
+
+        /** Writes x, y, z to three consecutive floats. No alignment is required; exactly three are written. */
+        void store(float* p) const;
     };
 
     template<typename T>

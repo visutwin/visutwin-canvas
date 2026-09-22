@@ -3,6 +3,9 @@
 //
 #pragma once
 
+#include <cstring>
+#include <type_traits>
+
 #include "vector2.h"
 #include "vector4.h"
 #include "quaternion.h"
@@ -472,51 +475,118 @@ namespace visutwin::canvas
 
     inline Matrix4 Matrix4::mulAffine(const Matrix4& rhs) const
     {
-        auto a00 = getElement(0, 0);
-        auto a01 = getElement(0, 1);
-        auto a02 = getElement(0, 2);
-        auto a10 = getElement(1, 0);
-        auto a11 = getElement(1, 1);
-        auto a12 = getElement(1, 2);
-        auto a20 = getElement(2, 0);
-        auto a21 = getElement(2, 1);
-        auto a22 = getElement(2, 2);
-        auto a30 = getElement(3, 0);
-        auto a31 = getElement(3, 1);
-        auto a32 = getElement(3, 2);
+        // Both operands are affine: each column of the product is this matrix's
+        // upper 3x4 applied to the matching rhs column, and the bottom row is FORCED
+        // to (0, 0, 0, 1) rather than computed, exactly as upstream's mulAffine2 does.
+#if defined(USE_SIMD_APPLE)
+        const simd_float4 a0 = cm.columns[0];
+        const simd_float4 a1 = cm.columns[1];
+        const simd_float4 a2 = cm.columns[2];
+        const auto linear = [&](const simd_float4 b) { return a0 * b.x + a1 * b.y + a2 * b.z; };
+        simd_float4 r0 = linear(rhs.cm.columns[0]);
+        simd_float4 r1 = linear(rhs.cm.columns[1]);
+        simd_float4 r2 = linear(rhs.cm.columns[2]);
+        simd_float4 r3 = linear(rhs.cm.columns[3]) + cm.columns[3];
+        r0.w = 0.0f;
+        r1.w = 0.0f;
+        r2.w = 0.0f;
+        r3.w = 1.0f;
+        return Matrix4(r0, r1, r2, r3);
+#elif defined(USE_SIMD_SSE)
+        const auto linear = [&](const __m128 b) {
+            const __m128 bx = _mm_shuffle_ps(b, b, _MM_SHUFFLE(0, 0, 0, 0));
+            const __m128 by = _mm_shuffle_ps(b, b, _MM_SHUFFLE(1, 1, 1, 1));
+            const __m128 bz = _mm_shuffle_ps(b, b, _MM_SHUFFLE(2, 2, 2, 2));
+            return _mm_add_ps(_mm_add_ps(_mm_mul_ps(c[0], bx), _mm_mul_ps(c[1], by)), _mm_mul_ps(c[2], bz));
+        };
+        const __m128 zero = _mm_setzero_ps();
+        Matrix4 result;
+        result.c[0] = _mm_insert_ps(linear(rhs.c[0]), zero, 0x30);
+        result.c[1] = _mm_insert_ps(linear(rhs.c[1]), zero, 0x30);
+        result.c[2] = _mm_insert_ps(linear(rhs.c[2]), zero, 0x30);
+        result.c[3] = _mm_insert_ps(_mm_add_ps(linear(rhs.c[3]), c[3]), _mm_set_ss(1.0f), 0x30);
+        return result;
+#elif defined(USE_SIMD_NEON)
+        const auto linear = [&](const float32x4_t b) {
+            return vaddq_f32(vaddq_f32(vmulq_laneq_f32(c[0], b, 0), vmulq_laneq_f32(c[1], b, 1)),
+                vmulq_laneq_f32(c[2], b, 2));
+        };
+        Matrix4 result;
+        result.c[0] = vsetq_lane_f32(0.0f, linear(rhs.c[0]), 3);
+        result.c[1] = vsetq_lane_f32(0.0f, linear(rhs.c[1]), 3);
+        result.c[2] = vsetq_lane_f32(0.0f, linear(rhs.c[2]), 3);
+        result.c[3] = vsetq_lane_f32(1.0f, vaddq_f32(linear(rhs.c[3]), c[3]), 3);
+        return result;
+#else
+        Matrix4 result;
+        for (int col = 0; col < 4; ++col) {
+            const float b0 = rhs.m[col][0];
+            const float b1 = rhs.m[col][1];
+            const float b2 = rhs.m[col][2];
+            for (int row = 0; row < 3; ++row) {
+                const float linear = m[0][row] * b0 + m[1][row] * b1 + m[2][row] * b2;
+                result.m[col][row] = col == 3 ? linear + m[3][row] : linear;
+            }
+            result.m[col][3] = col == 3 ? 1.0f : 0.0f;
+        }
+        return result;
+#endif
+    }
 
-        auto b0 = rhs.getElement(0, 0);
-        auto b1 = rhs.getElement(0, 1);
-        auto b2 = rhs.getElement(0, 2);
-        Vector4 col0(a00 * b0 + a10 * b1 + a20 * b2,
-            a01 * b0 + a11 * b1 + a21 * b2,
-            a02 * b0 + a12 * b1 + a22 * b2,
-            0);
+    inline Matrix4 Matrix4::translation(const Vector3& t)
+    {
+        return translation(t.getX(), t.getY(), t.getZ());
+    }
 
-        b0 = rhs.getElement(1, 0);
-        b1 = rhs.getElement(1, 1);
-        b2 = rhs.getElement(1, 2);
-        Vector4 col1(a00 * b0 + a10 * b1 + a20 * b2,
-            a01 * b0 + a11 * b1 + a21 * b2,
-            a02 * b0 + a12 * b1 + a22 * b2,
-            0);
+    inline float Matrix4::determinant3x3() const
+    {
+        const Vector3 c0(getColumn(0));
+        const Vector3 c1(getColumn(1));
+        const Vector3 c2(getColumn(2));
+        return c0.dot(c1.cross(c2));
+    }
 
-        b0 = rhs.getElement(2, 0);
-        b1 = rhs.getElement(2, 1);
-        b2 = rhs.getElement(2, 2);
-        Vector4 col2(a00 * b0 + a10 * b1 + a20 * b2,
-            a01 * b0 + a11 * b1 + a21 * b2,
-            a02 * b0 + a12 * b1 + a22 * b2,
-            0);
+    inline Matrix4 Matrix4::normalMatrix() const
+    {
+        const Vector3 c0(getColumn(0));
+        const Vector3 c1(getColumn(1));
+        const Vector3 c2(getColumn(2));
+        const Vector3 n0 = c1.cross(c2);
+        const Vector3 n1 = c2.cross(c0);
+        const Vector3 n2 = c0.cross(c1);
+        const float det = c0.dot(n0);
+        const float invDet = std::abs(det) > 1e-8f ? 1.0f / det : 0.0f;
+        return Matrix4(Vector4(n0 * invDet, 0.0f), Vector4(n1 * invDet, 0.0f), Vector4(n2 * invDet, 0.0f),
+            Vector4(0.0f, 0.0f, 0.0f, 1.0f));
+    }
 
-        b0 = rhs.getElement(3, 0);
-        b1 = rhs.getElement(3, 1);
-        b2 = rhs.getElement(3, 2);
-        Vector4 col3(a00 * b0 + a10 * b1 + a20 * b2 + a30,
-            a01 * b0 + a11 * b1 + a21 * b2 + a31,
-            a02 * b0 + a12 * b1 + a22 * b2 + a32,
-            1);
+    // Every backend stores the matrix as sixteen contiguous column-major floats.
+    static_assert(sizeof(Matrix4) == 16 * sizeof(float), "Matrix4 must be sixteen packed floats");
+    static_assert(std::is_trivially_copyable_v<Matrix4>, "Matrix4 must stay memcpy-able");
 
-        return Matrix4(col0, col1, col2, col3);
+    // Copied through the union member, not the object: GCC's -Wclass-memaccess treats
+    // Matrix4 as non-trivial because its default constructor writes the identity.
+    inline Matrix4 Matrix4::load(const float* p)
+    {
+        Matrix4 result;
+#if defined(USE_SIMD_APPLE)
+        std::memcpy(&result.cm, p, sizeof(Matrix4));
+#elif defined(USE_SIMD_SSE) || defined(USE_SIMD_NEON)
+        std::memcpy(result.c, p, sizeof(Matrix4));
+#else
+        std::memcpy(result.m, p, sizeof(Matrix4));
+#endif
+        return result;
+    }
+
+    inline void Matrix4::store(float* p) const
+    {
+#if defined(USE_SIMD_APPLE)
+        std::memcpy(p, &cm, sizeof(Matrix4));
+#elif defined(USE_SIMD_SSE) || defined(USE_SIMD_NEON)
+        std::memcpy(p, c, sizeof(Matrix4));
+#else
+        std::memcpy(p, m, sizeof(Matrix4));
+#endif
     }
 }

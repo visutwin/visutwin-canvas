@@ -85,14 +85,9 @@ namespace visutwin::canvas
                 const float u = geometry.uvs[uvOffset];
                 const float v = geometry.uvs[uvOffset + 1u];
 
-                minBounds = Vector3(
-                    std::min(minBounds.getX(), px),
-                    std::min(minBounds.getY(), py),
-                    std::min(minBounds.getZ(), pz));
-                maxBounds = Vector3(
-                    std::max(maxBounds.getX(), px),
-                    std::max(maxBounds.getY(), py),
-                    std::max(maxBounds.getZ(), pz));
+                const Vector3 position(px, py, pz);
+                minBounds = Vector3::min(minBounds, position);
+                maxBounds = Vector3::max(maxBounds, position);
 
                 interleaved.insert(interleaved.end(), {
                     px, py, pz,
@@ -154,14 +149,7 @@ namespace visutwin::canvas
             constexpr int uSegments = 1;
             constexpr int vSegments = 1;
 
-            struct Vec3f
-            {
-                float x;
-                float y;
-                float z;
-            };
-
-            const std::array<Vec3f, 8> corners = {{
+            const std::array<Vector3, 8> corners = {{
                 {-halfExtent, -halfExtent, halfExtent},
                 {halfExtent, -halfExtent, halfExtent},
                 {halfExtent, halfExtent, halfExtent},
@@ -206,22 +194,13 @@ namespace visutwin::canvas
                         const auto& c1 = corners[faceAxes[side][1]];
                         const auto& c2 = corners[faceAxes[side][2]];
 
-                        const Vec3f temp1 = {
-                            c0.x + (c1.x - c0.x) * u,
-                            c0.y + (c1.y - c0.y) * u,
-                            c0.z + (c1.z - c0.z) * u
-                        };
-                        const Vec3f temp2 = {
-                            c0.x + (c2.x - c0.x) * v,
-                            c0.y + (c2.y - c0.y) * v,
-                            c0.z + (c2.z - c0.z) * v
-                        };
+                        const Vector3 temp1 = Vector3::lerp(c0, c1, u);
+                        const Vector3 temp2 = Vector3::lerp(c0, c2, v);
+                        const Vector3 position = temp1 + (temp2 - c0);
 
                         pushVertex(
                             geometry,
-                            temp1.x + (temp2.x - c0.x),
-                            temp1.y + (temp2.y - c0.y),
-                            temp1.z + (temp2.z - c0.z),
+                            position.getX(), position.getY(), position.getZ(),
                             faceNormals[side][0], faceNormals[side][1], faceNormals[side][2],
                             u, 1.0f - v);
 

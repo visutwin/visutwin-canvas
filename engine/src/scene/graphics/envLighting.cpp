@@ -15,6 +15,7 @@
 #include <spdlog/spdlog.h>
 
 #include "core/math/random.h"
+#include "core/math/vector3.h"
 #include "envReproject.h"
 #include "platform/graphics/texture.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -92,28 +93,21 @@ namespace visutwin::canvas
     }
 
     // Face index + UV -> 3D direction (used by generateSkyboxCubemap).
-    static void faceUvToDir(int face, float u, float v, float& x, float& y, float& z)
+    static Vector3 faceUvToDir(int face, float u, float v)
     {
         // Convert UV [0,1] to [-1,1]
         const float sc = u * 2.0f - 1.0f;
         const float tc = v * 2.0f - 1.0f;
 
         switch (face) {
-            case 0: x =  1.0f; y = -tc;   z = -sc;   break; // +X
-            case 1: x = -1.0f; y = -tc;   z =  sc;   break; // -X
-            case 2: x =  sc;   y =  1.0f; z =  tc;   break; // +Y
-            case 3: x =  sc;   y = -1.0f; z = -tc;   break; // -Y
-            case 4: x =  sc;   y = -tc;   z =  1.0f; break; // +Z
-            case 5: x = -sc;   y = -tc;   z = -1.0f; break; // -Z
-            default: x = y = z = 0.0f; break;
-        }
-
-        // Normalize
-        const float len = std::sqrt(x * x + y * y + z * z);
-        if (len > 0.0f) {
-            x /= len;
-            y /= len;
-            z /= len;
+            case 0: return Vector3( 1.0f, -tc,  -sc  ).normalized();  // +X
+            case 1: return Vector3(-1.0f, -tc,   sc  ).normalized();  // -X
+            case 2: return Vector3( sc,    1.0f, tc  ).normalized();  // +Y
+            case 3: return Vector3( sc,   -1.0f, -tc ).normalized();  // -Y
+            case 4: return Vector3( sc,   -tc,   1.0f).normalized();  // +Z
+            case 5: return Vector3(-sc,   -tc,  -1.0f).normalized();  // -Z
+            // normalized() leaves the zero vector alone, as the manual divide did.
+            default: return Vector3(0.0f, 0.0f, 0.0f);
         }
     }
 
@@ -184,18 +178,17 @@ namespace visutwin::canvas
                 static_cast<float>(i) / static_cast<float>(requiredSamples),
                 Random::radicalInverse(i), a);
 
+            // Reflection of N about H, with N = (0, 0, 1): L = 2 (N.H) H - N.
             const float NoH = hz;
-            const float lx = 2.0f * NoH * hx;
-            const float ly = 2.0f * NoH * hy;
-            const float lz = 2.0f * NoH * hz - 1.0f;
+            const Vector3 l = Vector3(hx, hy, hz) * (2.0f * NoH) - Vector3(0.0f, 0.0f, 1.0f);
 
-            if (lz > 0.0f) {
+            if (l.getZ() > 0.0f) {
                 const float pdf = D_GGX(std::min(1.0f, NoH), a) / 4.0f + 0.001f;
                 const float mip = 0.5f * std::log2(pixelsPerSample / pdf);
-                table.push_back(lx);
-                table.push_back(ly);
-                table.push_back(lz);
-                table.push_back(mip);
+                const size_t base = table.size();
+                table.resize(base + 4);
+                l.store(&table[base]);
+                table[base + 3] = mip;
                 ++valid;
             }
         }
@@ -423,12 +416,11 @@ namespace visutwin::canvas
                     const float v = (static_cast<float>(py) + 0.5f) / static_cast<float>(size);
 
                     // Face UV -> world direction
-                    float dx, dy, dz;
-                    faceUvToDir(face, u, v, dx, dy, dz);
+                    const Vector3 dir = faceUvToDir(face, u, v);
 
                     // Direction -> equirect UV
                     float srcU, srcV;
-                    dirToEquirectUv(dx, dy, dz, srcU, srcV);
+                    dirToEquirectUv(dir.getX(), dir.getY(), dir.getZ(), srcU, srcV);
 
                     // Wrap horizontally, clamp vertically
                     srcU = srcU - std::floor(srcU);
@@ -455,22 +447,17 @@ namespace visutwin::canvas
                     const float* p01 = pixel(x0, y1);
                     const float* p11 = pixel(x1, y1);
 
-                    float r = 0.0f, g = 0.0f, b = 0.0f;
-                    for (int c = 0; c < 3; ++c) {
-                        const float top = p00[c] * (1.0f - sx) + p10[c] * sx;
-                        const float bot = p01[c] * (1.0f - sx) + p11[c] * sx;
-                        const float val = top * (1.0f - sy) + bot * sy;
-                        if (c == 0) r = val;
-                        else if (c == 1) g = val;
-                        else b = val;
-                    }
+                    // RGBA32F source, rgb only.
+                    const Vector3 top = Vector3::lerp(Vector3::load(p00), Vector3::load(p10), sx);
+                    const Vector3 bot = Vector3::lerp(Vector3::load(p01), Vector3::load(p11), sx);
+                    const Vector3 rgb = Vector3::lerp(top, bot, sy);
 
                     // Tonemap: clamp HDR to [0, 1] with simple reinhard
                     // Upstream uses numSamples=1024 reprojectTexture which is essentially
                     // a direct copy. The skybox shader applies exposure + tonemapping at runtime,
                     // so we store linear clamped to displayable range.
                     // Use RGBP encoding for HDR preservation (same as envAtlas).
-                    const auto encoded = encodeRGBP(r, g, b);
+                    const auto encoded = encodeRGBP(rgb.getX(), rgb.getY(), rgb.getZ());
 
                     const size_t offset = (static_cast<size_t>(py) * size + px) * 4;
                     faceData[offset + 0] = encoded[0];

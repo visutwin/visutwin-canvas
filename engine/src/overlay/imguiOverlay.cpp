@@ -203,17 +203,29 @@ namespace visutwin::canvas
             initInfo.DescriptorPool = pool;
             initInfo.MinImageCount = 2;
             initInfo.ImageCount = vulkanDevice->swapchainImageCount();
-            initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+            // The instance the device was created with (vk-bootstrap's
+            // require_api_version(1, 3, 0)). Left at zero, the backend falls back to its
+            // own default and would load the dynamic-rendering entry points as the KHR
+            // extension, which this device does not enable — it takes them from core 1.3.
+            initInfo.ApiVersion = VK_API_VERSION_1_3;
 
             // This backend renders with dynamic rendering, as the rest of the engine
             // does, so ImGui gets no VkRenderPass and builds its pipeline against the
             // swapchain's colour format alone. That is also why a swapchain resize
             // needs nothing here: ImGui owns no framebuffers or image views.
+            //
+            // The main viewport's pipeline settings live in PipelineInfoMain: imgui moved
+            // RenderPass, Subpass, MSAASamples and PipelineRenderingCreateInfo out of
+            // InitInfo on 2025/09/26 (1.92.x). PipelineInfoForViewports is for secondary
+            // viewports, which the backend creates itself; the overlay never enables
+            // multi-viewport, so it is left zeroed.
             initInfo.UseDynamicRendering = true;
-            initInfo.PipelineRenderingCreateInfo = {
+            initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+            initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = {
                 VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-            initInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-            initInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &gOverlayColorFormat;
+            initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+            initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats =
+                &gOverlayColorFormat;
 
             ImGui_ImplVulkan_Init(&initInfo);
 #endif
@@ -405,14 +417,15 @@ namespace visutwin::canvas
     bool ImGuiOverlay::worldToScreen(const Vector3& worldPos, float& screenX, float& screenY) const
     {
         // Transform to clip space
-        Vector4 clip = _viewProjection * Vector4(worldPos.getX(), worldPos.getY(), worldPos.getZ(), 1.0f);
+        Vector4 clip = _viewProjection * Vector4(worldPos, 1.0f);
 
         // Behind camera check
         if (clip.getW() <= 0.0f) return false;
 
         // NDC
-        const float ndcX = clip.getX() / clip.getW();
-        const float ndcY = clip.getY() / clip.getW();
+        const Vector3 ndc = clip.perspectiveDivide();
+        const float ndcX = ndc.getX();
+        const float ndcY = ndc.getY();
 
         // NDC to screen: X [-1,+1] → [0, windowW], Y [-1,+1] → [windowH, 0]
         screenX = (ndcX * 0.5f + 0.5f) * static_cast<float>(_windowW);

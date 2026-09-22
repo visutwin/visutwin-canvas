@@ -151,18 +151,18 @@ namespace visutwin::canvas
         for (int i = 0; i < 3; ++i) {
             _handles[i] = makeHandle(axisColors[i], _handleRadius);
             const Vector3 p = kAxes[i] * (kAxisLength * _lineLength);
-            _handles[i]->setLocalPosition(p.getX(), p.getY(), p.getZ());
+            _handles[i]->setLocalPosition(p);
 
             _handles[i + 3] = makeHandle(negative, _handleRadius * 0.8f);
             const Vector3 n = kAxes[i + 3] * (kAxisLength * _lineLength);
-            _handles[i + 3]->setLocalPosition(n.getX(), n.getY(), n.getZ());
+            _handles[i + 3]->setLocalPosition(n);
 
             _rods[i] = makeRod(axisColors[i]);
             const Vector3 mid = kAxes[i] * (kAxisLength * _lineLength * 0.5f);
-            _rods[i]->setLocalPosition(mid.getX(), mid.getY(), mid.getZ());
+            _rods[i]->setLocalPosition(mid);
             const Vector3 scale = Vector3(rodThickness, rodThickness, rodThickness)
                 + kAxes[i] * (kAxisLength * _lineLength - rodThickness);
-            _rods[i]->setLocalScale(std::abs(scale.getX()), std::abs(scale.getY()), std::abs(scale.getZ()));
+            _rods[i]->setLocalScale(scale.abs());
         }
     }
 
@@ -195,7 +195,7 @@ namespace visutwin::canvas
 
         const Vector3 anchor = camPos + forward * distance
             + right * (halfWidth - margin) + up * (halfHeight - margin);
-        _root->setLocalPosition(anchor.getX(), anchor.getY(), anchor.getZ());
+        _root->setLocalPosition(anchor);
         _root->setLocalScale(gnomonScale, gnomonScale, gnomonScale);
         // World-aligned rotation: the gnomon shows the world axes.
         _root->setLocalRotation(Quaternion());
@@ -226,8 +226,7 @@ namespace visutwin::canvas
         if (std::abs(farPoint.getW()) < 1e-8f) {
             return std::nullopt;
         }
-        const Vector3 target(farPoint.getX() / farPoint.getW(),
-            farPoint.getY() / farPoint.getW(), farPoint.getZ() / farPoint.getW());
+        const Vector3 target = farPoint.perspectiveDivide();
         const Vector3 dir = (target - camPos).normalized();
 
         // Nearest ray-sphere hit against the six handles.

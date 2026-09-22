@@ -216,26 +216,18 @@ namespace visutwin::canvas
 
         GpuParticleSimParams params{};
         params.emitterTransform = _options.localSpace ? Matrix4::identity() : emitterTransform;
-        params.gravityDamping[0] = _options.gravity.getX();
-        params.gravityDamping[1] = _options.gravity.getY();
-        params.gravityDamping[2] = _options.gravity.getZ();
+        _options.gravity.store(params.gravityDamping);
         params.gravityDamping[3] = std::clamp(_options.damping, 0.0f, 1.0f);
         if (_options.emitterShape == ParticleEmitterShape::EMITTERSHAPE_SPHERE) {
             params.shapeParams[0] = std::max(_options.emitterRadius, 0.0f);
             params.shapeParams[3] = 1.0f;
         } else {
-            params.shapeParams[0] = _options.emitterExtents.getX();
-            params.shapeParams[1] = _options.emitterExtents.getY();
-            params.shapeParams[2] = _options.emitterExtents.getZ();
+            _options.emitterExtents.store(params.shapeParams);
             params.shapeParams[3] = 0.0f;
         }
-        params.velocityBase[0] = _options.initialVelocity.getX();
-        params.velocityBase[1] = _options.initialVelocity.getY();
-        params.velocityBase[2] = _options.initialVelocity.getZ();
+        _options.initialVelocity.store(params.velocityBase);
         params.velocityBase[3] = _options.localSpace ? 1.0f : 0.0f;
-        params.velocitySpread[0] = _options.velocitySpread.getX();
-        params.velocitySpread[1] = _options.velocitySpread.getY();
-        params.velocitySpread[2] = _options.velocitySpread.getZ();
+        _options.velocitySpread.store(params.velocitySpread);
         params.velocitySpread[3] = _options.loop ? 1.0f : 0.0f;
         const float birthInterval = (_options.rate > 0.0f)
             ? _options.rate

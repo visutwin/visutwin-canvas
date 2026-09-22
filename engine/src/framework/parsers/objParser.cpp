@@ -235,9 +235,7 @@ namespace visutwin::canvas
                         faceNormal = Vector3(0.0f, 1.0f, 0.0f);
                     }
                     for (unsigned int j = 0; j < fv; ++j) {
-                        outNormals[(base + j) * 3 + 0] = faceNormal.getX();
-                        outNormals[(base + j) * 3 + 1] = faceNormal.getY();
-                        outNormals[(base + j) * 3 + 2] = faceNormal.getZ();
+                        faceNormal.store(&outNormals[(base + j) * 3]);
                     }
                 } else {
                     // Smooth shading: accumulate for later normalization
@@ -263,10 +261,7 @@ namespace visutwin::canvas
                     SmoothKey key{vi, sg};
                     auto it = accum.find(key);
                     if (it != accum.end()) {
-                        Vector3 n = it->second.normalized();
-                        outNormals[(base + j) * 3 + 0] = n.getX();
-                        outNormals[(base + j) * 3 + 1] = n.getY();
-                        outNormals[(base + j) * 3 + 2] = n.getZ();
+                        it->second.normalized().store(&outNormals[(base + j) * 3]);
                     } else {
                         outNormals[(base + j) * 3 + 0] = 0.0f;
                         outNormals[(base + j) * 3 + 1] = 1.0f;
@@ -379,14 +374,16 @@ namespace visutwin::canvas
                 material->setRoughnessFactor(roughness);
 
                 // Metallic heuristic: if diffuse is very dark and specular is bright + colored -> metallic
-                float kdLum = 0.2126f * mtl.diffuse[0] + 0.7152f * mtl.diffuse[1] + 0.0722f * mtl.diffuse[2];
-                float ksLum = 0.2126f * mtl.specular[0] + 0.7152f * mtl.specular[1] + 0.0722f * mtl.specular[2];
+                const Vector3 lumaWeights(0.2126f, 0.7152f, 0.0722f);
+                const Vector3 ks = Vector3::load(mtl.specular);
+                float kdLum = lumaWeights.dot(Vector3::load(mtl.diffuse));
+                float ksLum = lumaWeights.dot(ks);
                 float metallic = 0.0f;
                 if (kdLum < 0.04f && ksLum > 0.5f) {
                     metallic = 1.0f;
                 } else if (ksLum > 0.25f) {
-                    float ksMax = std::max({mtl.specular[0], mtl.specular[1], mtl.specular[2]});
-                    float ksMin = std::min({mtl.specular[0], mtl.specular[1], mtl.specular[2]});
+                    float ksMax = ks.maxComponent();
+                    float ksMin = ks.minComponent();
                     float sat = (ksMax > 0.001f) ? (ksMax - ksMin) / ksMax : 0.0f;
                     if (sat > 0.2f) metallic = 0.8f;
                 }
@@ -584,12 +581,8 @@ namespace visutwin::canvas
                 std::unordered_map<VertexKey, uint32_t, VertexKeyHash> vertexMap;
                 std::vector<PackedVertex> vertices;
                 std::vector<uint32_t> indices;
-                float minX = std::numeric_limits<float>::max();
-                float minY = std::numeric_limits<float>::max();
-                float minZ = std::numeric_limits<float>::max();
-                float maxX = std::numeric_limits<float>::lowest();
-                float maxY = std::numeric_limits<float>::lowest();
-                float maxZ = std::numeric_limits<float>::lowest();
+                Vector3 minPos(std::numeric_limits<float>::max());
+                Vector3 maxPos(std::numeric_limits<float>::lowest());
 
                 for (size_t fi : faceIndices) {
                     const size_t base = faceOffsets[fi];
@@ -599,46 +592,30 @@ namespace visutwin::canvas
                         const size_t idx = base + j;
                         const auto& objIdx = mesh.indices[idx];
 
-                        // Position
-                        float px = attrib.vertices[3 * objIdx.vertex_index + 0];
-                        float py = attrib.vertices[3 * objIdx.vertex_index + 1];
-                        float pz = attrib.vertices[3 * objIdx.vertex_index + 2];
-
-                        // Apply config transforms
-                        px *= config.uniformScale;
-                        py *= config.uniformScale;
-                        pz *= config.uniformScale;
+                        // Position: apply config transforms
+                        Vector3 pos = Vector3::load(&attrib.vertices[3 * objIdx.vertex_index]) * config.uniformScale;
                         if (config.flipYZ) {
-                            std::swap(py, pz);
-                            pz = -pz;
+                            // (x, y, z) -> (x, z, -y)
+                            pos = Vector3(pos.getX(), pos.getZ(), -pos.getY());
                         }
 
                         // Normal
-                        float nx, ny, nz;
+                        Vector3 n(0.0f, 1.0f, 0.0f);
                         if (hasNormals && objIdx.normal_index >= 0) {
-                            nx = attrib.normals[3 * objIdx.normal_index + 0];
-                            ny = attrib.normals[3 * objIdx.normal_index + 1];
-                            nz = attrib.normals[3 * objIdx.normal_index + 2];
+                            n = Vector3::load(&attrib.normals[3 * objIdx.normal_index]);
                             if (config.flipYZ) {
-                                std::swap(ny, nz);
-                                nz = -nz;
+                                n = Vector3(n.getX(), n.getZ(), -n.getY());
                             }
                             // Re-normalize
-                            float len = std::sqrt(nx * nx + ny * ny + nz * nz);
+                            const float len = n.length();
                             if (len > 1e-8f) {
-                                float inv = 1.0f / len;
-                                nx *= inv; ny *= inv; nz *= inv;
+                                n = n * (1.0f / len);
                             }
                         } else if (!generatedNormals.empty()) {
-                            nx = generatedNormals[idx * 3 + 0];
-                            ny = generatedNormals[idx * 3 + 1];
-                            nz = generatedNormals[idx * 3 + 2];
+                            n = Vector3::load(&generatedNormals[idx * 3]);
                             if (config.flipYZ) {
-                                std::swap(ny, nz);
-                                nz = -nz;
+                                n = Vector3(n.getX(), n.getZ(), -n.getY());
                             }
-                        } else {
-                            nx = 0.0f; ny = 1.0f; nz = 0.0f;
                         }
 
                         // Texcoord
@@ -660,11 +637,11 @@ namespace visutwin::canvas
 
                             // Tangent placeholder (will be overwritten by generateTangents if UVs exist)
                             float tx, ty, tz, tw;
-                            tangentFromNormal(nx, ny, nz, tx, ty, tz, tw);
+                            tangentFromNormal(n.getX(), n.getY(), n.getZ(), tx, ty, tz, tw);
 
                             PackedVertex vert{};
-                            vert.px = px; vert.py = py; vert.pz = pz;
-                            vert.nx = nx; vert.ny = ny; vert.nz = nz;
+                            vert.px = pos.getX(); vert.py = pos.getY(); vert.pz = pos.getZ();
+                            vert.nx = n.getX(); vert.ny = n.getY(); vert.nz = n.getZ();
                             vert.u = u;   vert.v = vt;
                             vert.tx = tx; vert.ty = ty; vert.tz = tz; vert.tw = tw;
                             vert.u1 = u;  vert.v1 = vt;  // UV1 = UV0 for OBJ
@@ -673,8 +650,8 @@ namespace visutwin::canvas
                             vertexMap[key] = newIdx;
                             indices.push_back(newIdx);
 
-                            minX = std::min(minX, px); minY = std::min(minY, py); minZ = std::min(minZ, pz);
-                            maxX = std::max(maxX, px); maxY = std::max(maxY, py); maxZ = std::max(maxZ, pz);
+                            minPos = Vector3::min(minPos, pos);
+                            maxPos = Vector3::max(maxPos, pos);
                         }
                     }
 
@@ -733,14 +710,8 @@ namespace visutwin::canvas
                 meshResource->setPrimitive(prim, 0);
 
                 BoundingBox bounds;
-                bounds.setCenter(
-                    (minX + maxX) * 0.5f,
-                    (minY + maxY) * 0.5f,
-                    (minZ + maxZ) * 0.5f);
-                bounds.setHalfExtents(
-                    (maxX - minX) * 0.5f,
-                    (maxY - minY) * 0.5f,
-                    (maxZ - minZ) * 0.5f);
+                bounds.setCenter((minPos + maxPos) * 0.5f);
+                bounds.setHalfExtents((maxPos - minPos) * 0.5f);
                 meshResource->setAabb(bounds);
 
                 // ── Add payload ─────────────────────────────────────────

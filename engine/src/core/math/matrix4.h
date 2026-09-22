@@ -79,31 +79,9 @@ namespace visutwin::canvas
             : cm(simd_matrix(col0, col1, col2, col3)) {}
 #endif
 
-        Matrix4& operator=(const Matrix4& other)
-        {
-            if (this == &other)
-            {
-                return *this; // self-assignment check
-            }
-
-#if defined(USE_SIMD_SSE) || defined(USE_SIMD_NEON)
-            c[0] = other.c[0];
-            c[1] = other.c[1];
-            c[2] = other.c[2];
-            c[3] = other.c[3];
-#elif defined(USE_SIMD_APPLE)
-            cm = other.cm;
-#else
-            for (int col = 0; col < 4; ++col)
-            {
-                for (int row = 0; row < 4; ++row)
-                {
-                    m[col][row] = other.m[col][row];
-                }
-            }
-#endif
-            return *this;
-        }
+        // No user-provided copy operations: the implicit ones copy the union exactly, and
+        // keeping Matrix4 trivially copyable is what makes store() / load() and the
+        // backends' memcpy of a whole matrix into a uniform block well-defined.
 
         static Matrix4 identity()
         {
@@ -413,6 +391,30 @@ namespace visutwin::canvas
          * The parameters are not verified to be in the expected format.
          */
         Matrix4 mulAffine(const Matrix4& rhs) const;
+
+        /** Translation matrix from a vector; the same matrix as translation(x, y, z). */
+        static Matrix4 translation(const Vector3& t);
+
+        /**
+         * Determinant of the upper-left 3x3, as the scalar triple product of the first
+         * three columns. Its SIGN says whether the transform mirrors (negative) or not.
+         */
+        [[nodiscard]] float determinant3x3() const;
+
+        /**
+         * Normal matrix: the inverse transpose of the upper-left 3x3, in columns 0-2 with
+         * a zero fourth row, and (0, 0, 0, 1) as column 3. Built from the columns' cross
+         * products — column i is (c[i+1] x c[i+2]) / det — which IS the cofactor matrix over
+         * the SIGNED determinant, so a mirrored transform flips its normals with its
+         * surface. A near-singular 3x3 (|det| <= 1e-8) returns a zero 3x3 rather than infinities.
+         */
+        [[nodiscard]] Matrix4 normalMatrix() const;
+
+        /** Reads sixteen consecutive floats in column-major order (glTF's). No alignment is required. */
+        static Matrix4 load(const float* p);
+
+        /** Writes the sixteen elements in column-major order, the layout every GPU uniform here expects. */
+        void store(float* p) const;
 
         static Matrix4 perspective(float fov, float aspect, float zNear, float zFar, bool fovIsHorizontal = false);
 

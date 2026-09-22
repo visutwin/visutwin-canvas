@@ -63,6 +63,36 @@ namespace visutwin::canvas
             return std::sqrt(dot(*this));
         }
 
+        /** Squared length, for comparisons that do not need the square root. */
+        [[nodiscard]] float lengthSquared() const
+        {
+            return dot(*this);
+        }
+
+        /** Unit-length copy; a zero vector stays zero, as Vector3::normalized does. */
+        [[nodiscard]] Vector2 normalized() const
+        {
+            const float len = length();
+            if (len == 0.0f) {
+                return {};
+            }
+            return {x / len, y / len};
+        }
+
+        // Vector2 is two plain floats, not a SIMD register, so the operators below are
+        // written scalar on purpose: packing two lanes into a 128-bit register and back
+        // costs more than the two operations it would replace.
+        Vector2 operator+(const Vector2& other) const
+        {
+            return {x + other.x, y + other.y};
+        }
+
+        /** Component-wise product. */
+        Vector2 operator*(const Vector2& other) const
+        {
+            return {x * other.x, y * other.y};
+        }
+
         Vector2 operator-(const Vector2& other) const
         {
 #if defined(USE_SIMD_NEON)

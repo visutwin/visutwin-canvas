@@ -35,6 +35,12 @@ namespace visutwin::canvas
     {
         constexpr float EPS = 1e-6f;
 
+        /// The vector projected onto the XZ plane (y dropped), for the Y-axis capsule body.
+        Vector3 flattenY(const Vector3& v)
+        {
+            return Vector3(v.getX(), 0.0f, v.getZ());
+        }
+
         bool intersectSegmentSphere(
             const Vector3& start, const Vector3& end, const Vector3& center, const float radius,
             float& outT, Vector3& outPoint, Vector3& outNormal)
@@ -84,21 +90,20 @@ namespace visutwin::canvas
             float tMax = 1.0f;
             Vector3 hitNormal(0.0f, 0.0f, 0.0f);
 
-            const float minB[3] = {-halfExtents.getX(), -halfExtents.getY(), -halfExtents.getZ()};
-            const float maxB[3] = { halfExtents.getX(),  halfExtents.getY(),  halfExtents.getZ()};
-            const float s[3] = {start.getX(), start.getY(), start.getZ()};
-            const float v[3] = {d.getX(), d.getY(), d.getZ()};
-
             for (int axis = 0; axis < 3; ++axis) {
-                if (std::abs(v[axis]) < EPS) {
-                    if (s[axis] < minB[axis] || s[axis] > maxB[axis]) {
+                const float minB = -halfExtents[axis];
+                const float maxB = halfExtents[axis];
+                const float s = start[axis];
+                const float v = d[axis];
+                if (std::abs(v) < EPS) {
+                    if (s < minB || s > maxB) {
                         return false;
                     }
                     continue;
                 }
 
-                float t1 = (minB[axis] - s[axis]) / v[axis];
-                float t2 = (maxB[axis] - s[axis]) / v[axis];
+                float t1 = (minB - s) / v;
+                float t2 = (maxB - s) / v;
                 float enter = std::min(t1, t2);
                 float exit = std::max(t1, t2);
 
@@ -136,9 +141,11 @@ namespace visutwin::canvas
             Vector3 bestNormal;
 
             // Cylinder body (around Y axis).
-            const float a = d.getX() * d.getX() + d.getZ() * d.getZ();
-            const float b = 2.0f * (start.getX() * d.getX() + start.getZ() * d.getZ());
-            const float c = start.getX() * start.getX() + start.getZ() * start.getZ() - radius * radius;
+            const Vector3 dXZ = flattenY(d);
+            const Vector3 sXZ = flattenY(start);
+            const float a = dXZ.dot(dXZ);
+            const float b = 2.0f * sXZ.dot(dXZ);
+            const float c = sXZ.dot(sXZ) - radius * radius;
             if (a > EPS) {
                 const float disc = b * b - 4.0f * a * c;
                 if (disc >= 0.0f) {
@@ -157,7 +164,7 @@ namespace visutwin::canvas
                         }
                         if (t < bestT) {
                             const Vector3 p = start + d * t;
-                            const Vector3 n = Vector3(p.getX(), 0.0f, p.getZ()).normalized();
+                            const Vector3 n = flattenY(p).normalized();
                             bestT = t;
                             bestPoint = p;
                             bestNormal = n.lengthSquared() > EPS ? n : Vector3(1.0f, 0.0f, 0.0f);

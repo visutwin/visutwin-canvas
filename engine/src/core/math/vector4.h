@@ -6,7 +6,9 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 
 #include "defines.h"
 
@@ -285,6 +287,119 @@ namespace visutwin::canvas
             }
             // Return a zero plane if the normal vector is degenerate
             return {};
+#endif
+        }
+
+        /** Component-wise product. */
+        Vector4 operator*(const Vector4& other) const
+        {
+#if defined(USE_SIMD_SSE)
+            return Vector4(_mm_mul_ps(m128, other.m128));
+#elif defined(USE_SIMD_APPLE)
+            return Vector4(m128 * other.m128);
+#elif defined(USE_SIMD_NEON)
+            return Vector4(vmulq_f32(m128, other.m128));
+#else
+            return Vector4(x * other.x, y * other.y, z * other.z, w * other.w);
+#endif
+        }
+
+        /** Linear interpolation a + (b - a) * t, through the backend's arithmetic. */
+        static Vector4 lerp(const Vector4& a, const Vector4& b, const float t) { return a + (b - a) * t; }
+
+        /**
+         * Exact equality of all four components, as `==` on each float would answer:
+         * -0 equals +0 and a NaN equals nothing, itself included.
+         */
+        bool operator==(const Vector4& other) const
+        {
+#if defined(USE_SIMD_SSE)
+            return _mm_movemask_ps(_mm_cmpeq_ps(m128, other.m128)) == 0xF;
+#elif defined(USE_SIMD_APPLE)
+            return simd_all(m128 == other.m128);
+#elif defined(USE_SIMD_NEON)
+            return vminvq_u32(vceqq_f32(m128, other.m128)) == 0xFFFFFFFFu;
+#else
+            return x == other.x && y == other.y && z == other.z && w == other.w;
+#endif
+        }
+
+        bool operator!=(const Vector4& other) const { return !(*this == other); }
+
+        /** Component-wise minimum, std::min's semantics on every backend (see Vector3::min). */
+        static Vector4 min(const Vector4& a, const Vector4& b)
+        {
+#if defined(USE_SIMD_SSE)
+            return Vector4(_mm_min_ps(b.m128, a.m128));
+#elif defined(USE_SIMD_APPLE)
+            return Vector4(simd_select(a.m128, b.m128, b.m128 < a.m128));
+#elif defined(USE_SIMD_NEON)
+            return Vector4(vbslq_f32(vcltq_f32(b.m128, a.m128), b.m128, a.m128));
+#else
+            return Vector4(std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z), std::min(a.w, b.w));
+#endif
+        }
+
+        /** Component-wise maximum, std::max's semantics on every backend (see Vector3::max). */
+        static Vector4 max(const Vector4& a, const Vector4& b)
+        {
+#if defined(USE_SIMD_SSE)
+            return Vector4(_mm_max_ps(b.m128, a.m128));
+#elif defined(USE_SIMD_APPLE)
+            return Vector4(simd_select(a.m128, b.m128, a.m128 < b.m128));
+#elif defined(USE_SIMD_NEON)
+            return Vector4(vbslq_f32(vcltq_f32(a.m128, b.m128), b.m128, a.m128));
+#else
+            return Vector4(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z), std::max(a.w, b.w));
+#endif
+        }
+
+        /** Component-wise absolute value. */
+        [[nodiscard]] Vector4 abs() const
+        {
+#if defined(USE_SIMD_SSE)
+            return Vector4(_mm_andnot_ps(_mm_set1_ps(-0.0f), m128));
+#elif defined(USE_SIMD_APPLE)
+            return Vector4(simd_abs(m128));
+#elif defined(USE_SIMD_NEON)
+            return Vector4(vabsq_f32(m128));
+#else
+            return Vector4(std::fabs(x), std::fabs(y), std::fabs(z), std::fabs(w));
+#endif
+        }
+
+        /**
+         * (x, y, z) / w — the perspective divide of a clip-space position. Divides each
+         * component, so it rounds exactly as x / w does; the caller owns the w == 0 case.
+         */
+        [[nodiscard]] Vector3 perspectiveDivide() const;
+
+        /** Reads four consecutive floats. No alignment is required. */
+        static Vector4 load(const float* p)
+        {
+#if defined(USE_SIMD_SSE)
+            return Vector4(_mm_loadu_ps(p));
+#elif defined(USE_SIMD_NEON)
+            return Vector4(vld1q_f32(p));
+#else
+            return Vector4(p[0], p[1], p[2], p[3]);
+#endif
+        }
+
+        /** Writes the four components to consecutive floats. No alignment is required. */
+        void store(float* p) const
+        {
+#if defined(USE_SIMD_SSE)
+            _mm_storeu_ps(p, m128);
+#elif defined(USE_SIMD_NEON)
+            vst1q_f32(p, m128);
+#elif defined(USE_SIMD_APPLE)
+            std::memcpy(p, &m128, 4 * sizeof(float));
+#else
+            p[0] = x;
+            p[1] = y;
+            p[2] = z;
+            p[3] = w;
 #endif
         }
 

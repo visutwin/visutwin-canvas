@@ -259,10 +259,7 @@ namespace visutwin::canvas
         bool frustumsEqual(const Frustum& a, const Frustum& b)
         {
             for (int i = 0; i < 6; ++i) {
-                if (a.planes[i].getX() != b.planes[i].getX() ||
-                    a.planes[i].getY() != b.planes[i].getY() ||
-                    a.planes[i].getZ() != b.planes[i].getZ() ||
-                    a.planes[i].getW() != b.planes[i].getW()) {
+                if (a.planes[i] != b.planes[i]) {
                     return false;
                 }
             }
@@ -1056,9 +1053,15 @@ namespace visutwin::canvas
                     lightData.areaHalfHeight = lightComponent->areaHeight() * 0.5f;
                     lightData.areaShape = static_cast<uint32_t>(lightComponent->areaShape());
                     {
-                        // Right vector from entity's world transform X axis.
+                        // Right vector: the light's world X AXIS, which is column 0 — the same
+                        // column upstream's LTC width axis comes from (it transforms (-0.5, 0, 0)
+                        // by the world matrix; the sign is immaterial here because the shader
+                        // derives up as cross(direction, right) and the quad is symmetric).
+                        // This read ROW 0 until 2026-09-22, which is the X component of all
+                        // three axes: right for an unrotated light, a vector outside the light's
+                        // own plane for any rotated one.
                         const auto& wt = lightComponent->entity()->worldTransform();
-                        Vector3 right(wt.getElement(0, 0), wt.getElement(1, 0), wt.getElement(2, 0));
+                        Vector3 right(wt.getColumn(0));
                         if (right.lengthSquared() > 1e-8f) {
                             lightData.areaRight = right.normalized();
                         }
@@ -1478,9 +1481,12 @@ namespace visutwin::canvas
                 const auto cellsBySize = clusters->cellsCountByBoundsSize();
                 const auto& cfg = clusters->config();
 
-                const float boundsMinArr[3] = {bMin.getX(), bMin.getY(), bMin.getZ()};
-                const float boundsRangeArr[3] = {bRange.getX(), bRange.getY(), bRange.getZ()};
-                const float cellsBySizeArr[3] = {cellsBySize.getX(), cellsBySize.getY(), cellsBySize.getZ()};
+                float boundsMinArr[3];
+                float boundsRangeArr[3];
+                float cellsBySizeArr[3];
+                bMin.store(boundsMinArr);
+                bRange.store(boundsRangeArr);
+                cellsBySize.store(cellsBySizeArr);
 
                 _device->setClusterGridParams(boundsMinArr, boundsRangeArr, cellsBySizeArr,
                     cfg.cellsX, cfg.cellsY, cfg.cellsZ, cfg.maxLightsPerCell,
@@ -1665,7 +1671,7 @@ namespace visutwin::canvas
                             ? entry->meshInstance->node()->worldTransform()
                             : Matrix4::identity();
                     } else {
-                        modelMatrix = Matrix4::translation(cameraPosition.getX(), cameraPosition.getY(), cameraPosition.getZ());
+                        modelMatrix = Matrix4::translation(cameraPosition);
                     }
                 } else {
                     modelMatrix = Matrix4::identity();
@@ -1729,7 +1735,7 @@ namespace visutwin::canvas
                             ? entry->meshInstance->node()->worldTransform()
                             : Matrix4::identity();
                     } else {
-                        modelMatrix = Matrix4::translation(cameraPosition.getX(), cameraPosition.getY(), cameraPosition.getZ());
+                        modelMatrix = Matrix4::translation(cameraPosition);
                     }
                 } else {
                     modelMatrix = (entry->meshInstance && entry->meshInstance->node())

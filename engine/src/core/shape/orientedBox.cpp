@@ -38,17 +38,18 @@ namespace visutwin::canvas
 
     bool OrientedBox::intersectsLocalAabbRay(const Ray& localRay, Vector3* localPoint) const
     {
-        const Vector3 min(-_halfExtents.getX(), -_halfExtents.getY(), -_halfExtents.getZ());
-        const Vector3 max(_halfExtents.getX(), _halfExtents.getY(), _halfExtents.getZ());
-        const Vector3 dir = localRay.direction();
-        const Vector3 origin = localRay.origin();
+        const Vector3& dir = localRay.direction();
+        const Vector3& origin = localRay.origin();
+        const Vector3 tMinDist = -_halfExtents - origin;
+        const Vector3 tMaxDist = _halfExtents - origin;
 
-        float txMin = min.getX() - origin.getX();
-        float txMax = max.getX() - origin.getX();
-        float tyMin = min.getY() - origin.getY();
-        float tyMax = max.getY() - origin.getY();
-        float tzMin = min.getZ() - origin.getZ();
-        float tzMax = max.getZ() - origin.getZ();
+        // Per axis, because a zero direction component selects instead of dividing.
+        float txMin = tMinDist.getX();
+        float txMax = tMaxDist.getX();
+        float tyMin = tMinDist.getY();
+        float tyMax = tMaxDist.getY();
+        float tzMin = tMinDist.getZ();
+        float tzMax = tMaxDist.getZ();
 
         if (dir.getX() == 0.0f) {
             txMin = txMin < 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
@@ -72,8 +73,10 @@ namespace visutwin::canvas
             tzMax /= dir.getZ();
         }
 
-        const Vector3 realMin(std::min(txMin, txMax), std::min(tyMin, tyMax), std::min(tzMin, tzMax));
-        const Vector3 realMax(std::max(txMin, txMax), std::max(tyMin, tyMax), std::max(tzMin, tzMax));
+        const Vector3 tMin(txMin, tyMin, tzMin);
+        const Vector3 tMax(txMax, tyMax, tzMax);
+        const Vector3 realMin = Vector3::min(tMin, tMax);
+        const Vector3 realMax = Vector3::max(tMin, tMax);
 
         const float minMax = std::min(std::min(realMax.getX(), realMax.getY()), realMax.getZ());
         const float maxMin = std::max(std::max(realMin.getX(), realMin.getY()), realMin.getZ());
@@ -86,10 +89,10 @@ namespace visutwin::canvas
 
     bool OrientedBox::fastIntersectsLocalAabbRay(const Ray& localRay) const
     {
-        const Vector3 diff = localRay.origin() - Vector3(0.0f);
-        const Vector3 absDiff(std::abs(diff.getX()), std::abs(diff.getY()), std::abs(diff.getZ()));
-        const Vector3 prod(diff.getX() * localRay.direction().getX(), diff.getY() * localRay.direction().getY(),
-            diff.getZ() * localRay.direction().getZ());
+        const Vector3& diff = localRay.origin();
+        const Vector3& dir = localRay.direction();
+        const Vector3 absDiff = diff.abs();
+        const Vector3 prod = diff * dir;
 
         if (absDiff.getX() > _halfExtents.getX() && prod.getX() >= 0.0f) {
             return false;
@@ -101,10 +104,8 @@ namespace visutwin::canvas
             return false;
         }
 
-        const Vector3 absDir(std::abs(localRay.direction().getX()), std::abs(localRay.direction().getY()),
-            std::abs(localRay.direction().getZ()));
-        Vector3 cross = localRay.direction().cross(diff);
-        cross = Vector3(std::abs(cross.getX()), std::abs(cross.getY()), std::abs(cross.getZ()));
+        const Vector3 absDir = dir.abs();
+        const Vector3 cross = dir.cross(diff).abs();
 
         if (cross.getX() > _halfExtents.getY() * absDir.getZ() + _halfExtents.getZ() * absDir.getY()) {
             return false;
@@ -121,11 +122,7 @@ namespace visutwin::canvas
 
     Vector3 OrientedBox::closestPointOnLocalAabb(const Vector3& localPoint) const
     {
-        return Vector3(
-            std::max(-_halfExtents.getX(), std::min(localPoint.getX(), _halfExtents.getX())),
-            std::max(-_halfExtents.getY(), std::min(localPoint.getY(), _halfExtents.getY())),
-            std::max(-_halfExtents.getZ(), std::min(localPoint.getZ(), _halfExtents.getZ()))
-        );
+        return Vector3::clamp(localPoint, -_halfExtents, _halfExtents);
     }
 
     bool OrientedBox::intersectsRay(const Ray& ray, Vector3* point) const
@@ -147,10 +144,10 @@ namespace visutwin::canvas
 
     bool OrientedBox::containsPoint(const Vector3& point) const
     {
-        const Vector3 localPoint = _modelTransform.transformPoint(point);
-        return std::abs(localPoint.getX()) <= _halfExtents.getX() &&
-            std::abs(localPoint.getY()) <= _halfExtents.getY() &&
-            std::abs(localPoint.getZ()) <= _halfExtents.getZ();
+        const Vector3 localDistance = _modelTransform.transformPoint(point).abs();
+        return localDistance.getX() <= _halfExtents.getX() &&
+            localDistance.getY() <= _halfExtents.getY() &&
+            localDistance.getZ() <= _halfExtents.getZ();
     }
 
     bool OrientedBox::intersectsBoundingSphere(const BoundingSphere& sphere) const

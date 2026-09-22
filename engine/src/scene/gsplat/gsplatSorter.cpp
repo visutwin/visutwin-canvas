@@ -27,33 +27,26 @@ namespace visutwin::canvas
         const size_t numChunks = (numVertices + CHUNK_SIZE - 1) / CHUNK_SIZE;
         _chunks.resize(numChunks * 4);
 
-        float bminX = std::numeric_limits<float>::max(), bminY = bminX, bminZ = bminX;
-        float bmaxX = std::numeric_limits<float>::lowest(), bmaxY = bmaxX, bmaxZ = bmaxX;
+        Vector3 boundMin(std::numeric_limits<float>::max());
+        Vector3 boundMax(std::numeric_limits<float>::lowest());
 
         for (size_t c = 0; c < numChunks; ++c) {
-            float mx = std::numeric_limits<float>::max(), my = mx, mz = mx;
-            float Mx = std::numeric_limits<float>::lowest(), My = Mx, Mz = Mx;
+            Vector3 chunkMin(std::numeric_limits<float>::max());
+            Vector3 chunkMax(std::numeric_limits<float>::lowest());
             const size_t start = c * CHUNK_SIZE;
             const size_t end = std::min(numVertices, (c + 1) * CHUNK_SIZE);
             for (size_t i = start; i < end; ++i) {
-                const float x = _centers[i * 3 + 0];
-                const float y = _centers[i * 3 + 1];
-                const float z = _centers[i * 3 + 2];
-                mx = std::min(mx, x); Mx = std::max(Mx, x);
-                my = std::min(my, y); My = std::max(My, y);
-                mz = std::min(mz, z); Mz = std::max(Mz, z);
+                const Vector3 p = Vector3::load(&_centers[i * 3]);
+                chunkMin = Vector3::min(chunkMin, p);
+                chunkMax = Vector3::max(chunkMax, p);
             }
-            _chunks[c * 4 + 0] = (mx + Mx) * 0.5f;
-            _chunks[c * 4 + 1] = (my + My) * 0.5f;
-            _chunks[c * 4 + 2] = (mz + Mz) * 0.5f;
-            _chunks[c * 4 + 3] = 0.5f * std::sqrt((Mx - mx) * (Mx - mx) +
-                (My - my) * (My - my) + (Mz - mz) * (Mz - mz));
-            bminX = std::min(bminX, mx); bmaxX = std::max(bmaxX, Mx);
-            bminY = std::min(bminY, my); bmaxY = std::max(bmaxY, My);
-            bminZ = std::min(bminZ, mz); bmaxZ = std::max(bmaxZ, Mz);
+            ((chunkMin + chunkMax) * 0.5f).store(&_chunks[c * 4]);
+            _chunks[c * 4 + 3] = 0.5f * (chunkMax - chunkMin).length();
+            boundMin = Vector3::min(boundMin, chunkMin);
+            boundMax = Vector3::max(boundMax, chunkMax);
         }
-        _boundMin = Vector3(bminX, bminY, bminZ);
-        _boundMax = Vector3(bmaxX, bmaxY, bmaxZ);
+        _boundMin = boundMin;
+        _boundMax = boundMax;
 
         _worker = std::thread([this] { workerLoop(); });
     }
@@ -108,14 +101,17 @@ namespace visutwin::canvas
                 _requestPending = false;
             }
 
-            // Skip when the camera barely moved (upstream epsilon check).
+            // Skip when the camera barely moved (upstream epsilon check). Per component
+            // rather than through maxComponent(), which reduces with std::max and would
+            // drop a NaN lane: a NaN camera position must still reach the sort, as it did
+            // when this was three explicit comparisons.
             constexpr float epsilon = 0.001f;
-            if (std::abs(position.getX() - _lastPosition.getX()) < epsilon &&
-                std::abs(position.getY() - _lastPosition.getY()) < epsilon &&
-                std::abs(position.getZ() - _lastPosition.getZ()) < epsilon &&
-                std::abs(direction.getX() - _lastDirection.getX()) < epsilon &&
-                std::abs(direction.getY() - _lastDirection.getY()) < epsilon &&
-                std::abs(direction.getZ() - _lastDirection.getZ()) < epsilon) {
+            const Vector3 movedPosition = (position - _lastPosition).abs();
+            const Vector3 movedDirection = (direction - _lastDirection).abs();
+            if (movedPosition.getX() < epsilon && movedPosition.getY() < epsilon &&
+                movedPosition.getZ() < epsilon &&
+                movedDirection.getX() < epsilon && movedDirection.getY() < epsilon &&
+                movedDirection.getZ() < epsilon) {
                 continue;
             }
             _lastPosition = position;
@@ -134,20 +130,15 @@ namespace visutwin::canvas
 
         const float dx = direction.getX(), dy = direction.getY(), dz = direction.getZ();
 
-        // Min/max projected distance over the bound corners.
-        float minDist = 0.0f, maxDist = 0.0f;
-        for (int i = 0; i < 8; ++i) {
-            const float x = (i & 1) ? _boundMin.getX() : _boundMax.getX();
-            const float y = (i & 2) ? _boundMin.getY() : _boundMax.getY();
-            const float z = (i & 4) ? _boundMin.getZ() : _boundMax.getZ();
-            const float d = x * dx + y * dy + z * dz;
-            if (i == 0) {
-                minDist = maxDist = d;
-            } else {
-                minDist = std::min(minDist, d);
-                maxDist = std::max(maxDist, d);
-            }
-        }
+        // Min/max projected distance over the bound corners. A corner picks min or max
+        // per axis, so the extremes are the sums of the per-axis extreme products; the
+        // rounding of a sum is monotone, so this is the same corner the full sweep finds.
+        const Vector3 productMin = _boundMin * direction;
+        const Vector3 productMax = _boundMax * direction;
+        const Vector3 lowest = Vector3::min(productMax, productMin);
+        const Vector3 highest = Vector3::max(productMax, productMin);
+        const float minDist = lowest.getX() + lowest.getY() + lowest.getZ();
+        const float maxDist = highest.getX() + highest.getY() + highest.getZ();
 
         const int compareBits = std::max(10, std::min(20,
             static_cast<int>(std::lround(std::log2(std::max(1.0, static_cast<double>(numVertices) / 4.0))))));
@@ -168,11 +159,8 @@ namespace visutwin::canvas
             int binCount[NUM_BINS] = {};
             const size_t numChunks = _chunks.size() / 4;
             for (size_t i = 0; i < numChunks; ++i) {
-                const float x = _chunks[i * 4 + 0];
-                const float y = _chunks[i * 4 + 1];
-                const float z = _chunks[i * 4 + 2];
                 const float r = _chunks[i * 4 + 3];
-                const float d = x * dx + y * dy + z * dz - minDist;
+                const float d = Vector3::load(&_chunks[i * 4]).dot(direction) - minDist;
                 const int binMin = std::max(0, static_cast<int>(std::floor((d - r) * NUM_BINS / range)));
                 const int binMax = std::min(NUM_BINS, static_cast<int>(std::ceil((d + r) * NUM_BINS / range)));
                 for (int j = binMin; j < binMax; ++j) {
@@ -220,10 +208,9 @@ namespace visutwin::canvas
 
         // Count splats behind the camera (projected distance < camera distance):
         // they occupy the front of the ascending order.
-        const float cameraDist = position.getX() * dx + position.getY() * dy + position.getZ() * dz;
+        const float cameraDist = position.dot(direction);
         const auto distAt = [&](const size_t i) {
-            const size_t o = static_cast<size_t>(_order[i]) * 3;
-            return _centers[o] * dx + _centers[o + 1] * dy + _centers[o + 2] * dz - cameraDist;
+            return Vector3::load(&_centers[static_cast<size_t>(_order[i]) * 3]).dot(direction) - cameraDist;
         };
         size_t behindCount = 0;
         {

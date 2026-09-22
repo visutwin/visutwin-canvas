@@ -17,10 +17,9 @@ namespace visutwin::canvas
 #if defined(USE_SIMD_APPLE)
         m128 = simd_make_float3(other.m128);
 #elif defined(USE_SIMD_SSE)
-        m128 = _mm_set_ps(0.0f, other.getZ(), other.getY(), other.getX());
+        m128 = _mm_insert_ps(other.m128, _mm_setzero_ps(), 0x30); // drop w
 #elif defined(USE_SIMD_NEON)
-        float tmp[4] = {other.getX(), other.getY(), other.getZ(), 0.0f};
-        m128 = vld1q_f32(tmp);
+        m128 = vsetq_lane_f32(0.0f, other.m128, 3); // drop w
 #else
         x = other.getX();
         y = other.getY();
@@ -301,6 +300,134 @@ namespace visutwin::canvas
         return Vector3(-getX(), -getY(), -getZ());
 #else
         return Vector3(-x, -y, -z);
+#endif
+    }
+
+    inline Vector3 Vector3::operator/(const Vector3& other) const
+    {
+#if defined(USE_SIMD_SSE)
+        // 0/0 in the unused lane is NaN; put the zero back.
+        return Vector3(_mm_insert_ps(_mm_div_ps(m128, other.m128), _mm_setzero_ps(), 0x30));
+#elif defined(USE_SIMD_APPLE)
+        return Vector3(m128 / other.m128);
+#elif defined(USE_SIMD_NEON)
+        return Vector3(vsetq_lane_f32(0.0f, vdivq_f32(m128, other.m128), 3));
+#else
+        return Vector3(x / other.x, y / other.y, z / other.z);
+#endif
+    }
+
+    inline Vector3 Vector3::operator/(const float scalar) const
+    {
+#if defined(USE_SIMD_SSE)
+        return Vector3(_mm_insert_ps(_mm_div_ps(m128, _mm_set1_ps(scalar)), _mm_setzero_ps(), 0x30));
+#elif defined(USE_SIMD_APPLE)
+        return Vector3(m128 / scalar);
+#elif defined(USE_SIMD_NEON)
+        return Vector3(vsetq_lane_f32(0.0f, vdivq_f32(m128, vdupq_n_f32(scalar)), 3));
+#else
+        return Vector3(x / scalar, y / scalar, z / scalar);
+#endif
+    }
+
+    inline Vector3 Vector3::min(const Vector3& a, const Vector3& b)
+    {
+#if defined(USE_SIMD_SSE)
+        // MINPS returns its SECOND operand unless the first is strictly less, which
+        // with the operands swapped is exactly std::min(a, b) = (b < a) ? b : a.
+        return Vector3(_mm_min_ps(b.m128, a.m128));
+#elif defined(USE_SIMD_APPLE)
+        return Vector3(simd_select(a.m128, b.m128, b.m128 < a.m128));
+#elif defined(USE_SIMD_NEON)
+        return Vector3(vbslq_f32(vcltq_f32(b.m128, a.m128), b.m128, a.m128));
+#else
+        return Vector3(std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z));
+#endif
+    }
+
+    inline Vector3 Vector3::max(const Vector3& a, const Vector3& b)
+    {
+#if defined(USE_SIMD_SSE)
+        // MAXPS(b, a) = (b > a) ? b : a = std::max(a, b).
+        return Vector3(_mm_max_ps(b.m128, a.m128));
+#elif defined(USE_SIMD_APPLE)
+        return Vector3(simd_select(a.m128, b.m128, a.m128 < b.m128));
+#elif defined(USE_SIMD_NEON)
+        return Vector3(vbslq_f32(vcltq_f32(a.m128, b.m128), b.m128, a.m128));
+#else
+        return Vector3(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z));
+#endif
+    }
+
+    inline Vector3 Vector3::abs() const
+    {
+#if defined(USE_SIMD_SSE)
+        return Vector3(_mm_andnot_ps(_mm_set1_ps(-0.0f), m128));
+#elif defined(USE_SIMD_APPLE)
+        return Vector3(simd_abs(m128));
+#elif defined(USE_SIMD_NEON)
+        return Vector3(vabsq_f32(m128));
+#else
+        return Vector3(std::fabs(x), std::fabs(y), std::fabs(z));
+#endif
+    }
+
+    inline Vector3 Vector3::floor() const
+    {
+#if defined(USE_SIMD_SSE)
+        return Vector3(_mm_floor_ps(m128));
+#elif defined(USE_SIMD_APPLE)
+        return Vector3(__builtin_elementwise_floor(m128));
+#elif defined(USE_SIMD_NEON)
+        return Vector3(vrndmq_f32(m128));
+#else
+        return Vector3(std::floor(x), std::floor(y), std::floor(z));
+#endif
+    }
+
+    inline float Vector3::operator[](const int i) const
+    {
+#if defined(USE_SIMD_APPLE)
+        return m128[i];
+#elif defined(USE_SIMD_SSE)
+        alignas(16) float tmp[4];
+        _mm_store_ps(tmp, m128);
+        return tmp[i];
+#elif defined(USE_SIMD_NEON)
+        switch (i) {
+            case 0: return vgetq_lane_f32(m128, 0);
+            case 1: return vgetq_lane_f32(m128, 1);
+            default: return vgetq_lane_f32(m128, 2);
+        }
+#else
+        return v[i];
+#endif
+    }
+
+    inline Vector3 Vector3::load(const float* p)
+    {
+        return Vector3(p[0], p[1], p[2]);
+    }
+
+    inline void Vector3::store(float* p) const
+    {
+#if defined(USE_SIMD_SSE)
+        alignas(16) float tmp[4];
+        _mm_store_ps(tmp, m128);
+        p[0] = tmp[0];
+        p[1] = tmp[1];
+        p[2] = tmp[2];
+#elif defined(USE_SIMD_APPLE)
+        p[0] = m128.x;
+        p[1] = m128.y;
+        p[2] = m128.z;
+#elif defined(USE_SIMD_NEON)
+        vst1_f32(p, vget_low_f32(m128));
+        vst1q_lane_f32(p + 2, m128, 2);
+#else
+        p[0] = x;
+        p[1] = y;
+        p[2] = z;
 #endif
     }
 }

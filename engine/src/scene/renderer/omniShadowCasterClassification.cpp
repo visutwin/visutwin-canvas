@@ -72,21 +72,24 @@ namespace visutwin::canvas
             }
 
             const BoundingBox& aabb = meshInstance->aabb();
-            const Vector3 halfExtents = aabb.halfExtents();
-            const Vector3 centre = aabb.center();
+            const Vector3& halfExtents = aabb.halfExtents();
+            const Vector3 offset = aabb.center() - lightPosition;
+            const Vector3 distance = offset.abs();
             const float ex = halfExtents.getX();
             const float ey = halfExtents.getY();
             const float ez = halfExtents.getZ();
-            const float x = centre.getX() - lightPosition.getX();
-            const float y = centre.getY() - lightPosition.getY();
-            const float z = centre.getZ() - lightPosition.getZ();
 
-            // Cheap rejection against the cube that bounds all six frusta.
-            if (x > bounds + ex || x < -bounds - ex ||
-                y > bounds + ey || y < -bounds - ey ||
-                z > bounds + ez || z < -bounds - ez) {
+            // Cheap rejection against the cube that bounds all six frusta:
+            // |x| > bounds + ex is x > bounds + ex || x < -bounds - ex, per axis.
+            if (distance.getX() > bounds + ex ||
+                distance.getY() > bounds + ey ||
+                distance.getZ() > bounds + ez) {
                 continue;
             }
+
+            const float x = offset.getX();
+            const float y = offset.getY();
+            const float z = offset.getZ();
 
             // A box is outside a plane when its signed distance is no greater than
             // minus its extent along that plane's normal. For a face with axial extent
