@@ -1438,7 +1438,7 @@ namespace visutwin::canvas
         // GPU profiler: sample timestamps at this pass's stage boundaries.
         if (_metalGpuProfiler) {
             _metalGpuProfiler->attachToRenderPass(passDesc,
-                renderPass ? renderPass->name() : std::string("backbuffer"), isBackBufferPass);
+                renderPass ? renderPass->name() : std::string("backbuffer"));
         }
 
         const auto& colorOpsArray = renderPass ? renderPass->colorArrayOps() : std::vector<std::shared_ptr<ColorAttachmentOps>>{};

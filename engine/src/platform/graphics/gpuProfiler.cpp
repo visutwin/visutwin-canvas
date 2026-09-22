@@ -12,27 +12,34 @@ namespace visutwin::canvas
         _passTimings.clear();
         _frameMilliseconds = 0.0;
 
-        bool havePreviousEnd = false;
-        uint64_t previousEnd = 0;
+        // The previous frame's last end anchors this frame's first pass (see the header).
+        bool havePreviousEnd = _havePreviousFrameEnd;
+        uint64_t previousEnd = _previousFrameEnd;
+
         for (const auto& pass : passes) {
             if (!pass.valid || pass.end < pass.start) {
                 _passTimings.push_back({pass.name, 0.0});
                 continue;
             }
-            uint64_t ticks;
-            if (havePreviousEnd && !pass.backBuffer) {
-                // End-to-end delta: the pass's own work, not the queueing overlap.
-                ticks = pass.end >= previousEnd ? pass.end - previousEnd : 0;
-            } else {
-                // The frame's first pass, or one targeting the drawable: its own
-                // interval (see the header for why the delta is wrong here).
-                ticks = pass.end - pass.start;
+
+            // Its own interval, and — when there is an earlier end to measure from — its
+            // share of the serial timeline. The smaller one is the pass's work: the delta
+            // is inflated by any wait before the pass, the interval by any overlap with
+            // its neighbours.
+            uint64_t ticks = pass.end - pass.start;
+            if (havePreviousEnd) {
+                const uint64_t delta = pass.end >= previousEnd ? pass.end - previousEnd : 0;
+                ticks = std::min(ticks, delta);
             }
+
             const double ms = static_cast<double>(ticks) * millisecondsPerTick;
             _passTimings.push_back({pass.name, ms});
             _frameMilliseconds += ms;
             previousEnd = pass.end;
             havePreviousEnd = true;
         }
+
+        _previousFrameEnd = previousEnd;
+        _havePreviousFrameEnd = havePreviousEnd;
     }
 }

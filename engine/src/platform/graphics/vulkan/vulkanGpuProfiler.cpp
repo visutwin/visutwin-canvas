@@ -103,13 +103,12 @@ namespace visutwin::canvas::gpu
         vkCmdResetQueryPool(cmd, slot.queryPool, 0, MAX_PASSES * SAMPLES_PER_PASS);
         slot.passCount = 0;
         slot.passNames.clear();
-        slot.passBackBuffer.clear();
         slot.submitted = true;
         _openPass = -1;
     }
 
     void VulkanGpuProfiler::beginPass(const VkCommandBuffer cmd,
-        const std::string& name, const bool backBuffer)
+        const std::string& name)
     {
         if (!_enabled || cmd == VK_NULL_HANDLE) {
             return;
@@ -128,7 +127,6 @@ namespace visutwin::canvas::gpu
         vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
             slot.queryPool, static_cast<uint32_t>(passIndex * SAMPLES_PER_PASS));
         slot.passNames.push_back(name);
-        slot.passBackBuffer.push_back(backBuffer);
         slot.passCount = passIndex + 1;
         _openPass = passIndex;
     }
@@ -174,7 +172,6 @@ namespace visutwin::canvas::gpu
             const size_t endIndex = startIndex + 2;
             RawPass pass;
             pass.name = slot.passNames[static_cast<size_t>(i)];
-            pass.backBuffer = slot.passBackBuffer[static_cast<size_t>(i)];
             pass.start = results[startIndex];
             pass.end = results[endIndex];
             pass.valid = results[startIndex + 1] != 0 && results[endIndex + 1] != 0;

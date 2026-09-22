@@ -114,12 +114,11 @@ namespace visutwin::canvas::gpu
 
         auto& slot = _slots[_currentSlot];
         slot.passNames.clear();
-        slot.passBackBuffer.clear();
         slot.passCount = 0;
     }
 
     void MetalGpuProfiler::attachToRenderPass(MTL::RenderPassDescriptor* passDescriptor,
-        const std::string& name, const bool backBuffer)
+        const std::string& name)
     {
         if (!_enabled || !passDescriptor) {
             return;
@@ -139,7 +138,6 @@ namespace visutwin::canvas::gpu
             static_cast<NS::UInteger>(slot.passCount * SAMPLES_PER_PASS + 1));
 
         slot.passNames.push_back(name.empty() ? "pass" : name);
-        slot.passBackBuffer.push_back(backBuffer);
         slot.passCount++;
     }
 
@@ -170,7 +168,6 @@ namespace visutwin::canvas::gpu
         for (int i = 0; i < slot.passCount; ++i) {
             RawPass pass;
             pass.name = slot.passNames[static_cast<size_t>(i)];
-            pass.backBuffer = slot.passBackBuffer[static_cast<size_t>(i)];
             pass.start = samples[i * SAMPLES_PER_PASS + 0].timestamp;
             pass.end = samples[i * SAMPLES_PER_PASS + 1].timestamp;
             // MTLCounterErrorValue marks samples the GPU could not take.
