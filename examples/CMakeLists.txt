@@ -7,7 +7,12 @@
 # explicit binary dir (required — the source sits outside CMAKE_SOURCE_DIR).
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.28)
-    project(visutwin-canvas-examples LANGUAGES CXX)
+    # C as well as CXX: the engine links KTX::ktx, whose imported target carries
+    # INTERFACE_COMPILE_FEATURES "c_std_11", and CMake resolves that against the
+    # TOP-LEVEL project's languages. The engine's own enable_language(C) comes too
+    # late for that, so a standalone configure failed to generate with "No known
+    # features for C compiler". The root project declares C CXX for the same reason.
+    project(visutwin-canvas-examples LANGUAGES C CXX)
     set(CMAKE_CXX_STANDARD 23)
     set(CMAKE_CXX_STANDARD_REQUIRED True)
     set(CMAKE_CXX_EXTENSIONS OFF)

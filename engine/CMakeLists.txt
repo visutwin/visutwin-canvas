@@ -1,6 +1,8 @@
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.28)
-    project(visutwin-canvas-canvas LANGUAGES CXX)
+    # C as well as CXX — see the note in examples/CMakeLists.txt: a dependency's
+    # INTERFACE_COMPILE_FEATURES can ask for C features in the top-level scope.
+    project(visutwin-canvas-canvas LANGUAGES C CXX)
     set(CMAKE_CXX_STANDARD 23)
     set(CMAKE_CXX_STANDARD_REQUIRED True)
     set(CMAKE_CXX_EXTENSIONS OFF)

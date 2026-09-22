@@ -13,7 +13,8 @@
       "cacheVariables": {
         "CMAKE_CXX_STANDARD": "23",
         "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_MANIFEST_DIR": "${sourceDir}/.."
+        "VCPKG_MANIFEST_DIR": "${sourceDir}/..",
+        "VCPKG_MANIFEST_FEATURES": "jolt"
       }
     },
     {
@@ -32,7 +33,7 @@
       "binaryDir": "${sourceDir}/build-vulkan",
       "cacheVariables": {
         "VISUTWIN_BACKEND_VULKAN": "ON",
-        "VCPKG_MANIFEST_FEATURES": "vulkan"
+        "VCPKG_MANIFEST_FEATURES": "vulkan;jolt"
       }
     },
     {
@@ -42,7 +43,7 @@
       "binaryDir": "${sourceDir}/build-vulkan-release",
       "cacheVariables": {
         "VISUTWIN_BACKEND_VULKAN": "ON",
-        "VCPKG_MANIFEST_FEATURES": "vulkan",
+        "VCPKG_MANIFEST_FEATURES": "vulkan;jolt",
         "CMAKE_BUILD_TYPE": "Release"
       }
     }
