@@ -80,6 +80,18 @@ namespace visutwin::canvas
          */
         void markGroupDirty(int groupId);
 
+        /**
+         * Some of a group's SOURCE mesh instances are about to go away — their render
+         * component is being disabled, destroyed, moved to another group or is
+         * replacing its mesh instances. A batch keeps raw pointers to its sources (and
+         * a dynamic batch to their nodes, read every frame), so the group's batches are
+         * destroyed NOW, while those pointers are still good, and the group is marked
+         * dirty for updateAll() to rebuild from what remains. Upstream only marks the
+         * group dirty (its remove()); garbage collection keeps its sources alive until
+         * the rebuild, which C++ does not.
+         */
+        void sourcesLeaving(int groupId);
+
         /** Groups awaiting regeneration. Empty in the steady state. */
         const std::vector<int>& dirtyGroups() const { return _dirtyGroups; }
 

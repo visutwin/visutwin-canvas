@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "core/eventHandler.h"
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
 #include "framework/physics/physicsWorld.h"
@@ -82,8 +83,16 @@ namespace visutwin::canvas
         void syncToSimulation(PhysicsWorld& world);
         void releaseJoint(PhysicsWorld& world);
 
+        /// Called by RigidBodyComponent BEFORE it destroys the physics body of
+        /// `owner`. The world frees every constraint touching a body it destroys, so
+        /// each joint naming `owner` as an end releases its own first, while the
+        /// pointer is still good, and is rebuilt against the new body once it exists.
+        static void bodyWillBeDestroyed(const Entity* owner);
+
     private:
         void markStale() { _stale = true; }
+        void dropJoint();
+        void watchEnd(Entity* entity, EventHandlePtr& handle, bool isA);
 
         inline static std::vector<JointComponent*> _instances;
 
@@ -110,6 +119,11 @@ namespace visutwin::canvas
         bool _wantEnabled = true;
         bool _broken = false;
         bool _warnedNoBody = false;
+        // An end's entity was destroyed: the joint is gone and stays gone until an
+        // end is set again, rather than silently re-pinning that end to the world.
+        bool _endDestroyed = false;
+        EventHandlePtr _entityADestroyed;
+        EventHandlePtr _entityBDestroyed;
         std::function<void()> _onBreak;
     };
 }

@@ -17,6 +17,8 @@
 
 namespace visutwin::canvas
 {
+    class BatchManager;
+
     struct RenderComponentData
     {
     };
@@ -65,17 +67,18 @@ namespace visutwin::canvas
         //batchGroupId getter/setter.
         // Propagates to all MeshInstances.
         int batchGroupId() const { return _batchGroupId; }
-        void setBatchGroupId(int id) {
-            _batchGroupId = id;
-            for (const auto& mi : _meshInstances) {
-                mi->setBatchGroupId(id);
-            }
-        }
+        /// Leaving a group tears that group's batches down (they point at this
+        /// component's mesh instances); joining one marks it for rebuilding.
+        void setBatchGroupId(int id);
+
+        void onEnable() override;
+        void onDisable() override;
 
         static const std::vector<RenderComponent*>& instances() { return _instances; }
 
     private:
         void rebuildPrimitiveMesh();
+        BatchManager* batcher() const;
         void rebuildMeshInstanceView() const;
 
         inline static std::vector<RenderComponent*> _instances;

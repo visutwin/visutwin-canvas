@@ -197,6 +197,19 @@ namespace visutwin::canvas
         generate(scene, allGroups);
     }
 
+    void BatchManager::sourcesLeaving(const int groupId)
+    {
+        if (groupId < 0 || _groups.find(groupId) == _groups.end()) {
+            return;
+        }
+        const bool hasBatches = std::any_of(_batches.begin(), _batches.end(),
+            [groupId](const std::unique_ptr<Batch>& batch) { return batch && batch->batchGroupId == groupId; });
+        if (hasBatches) {
+            destroyGroups(_scene, {groupId});
+        }
+        markGroupDirty(groupId);
+    }
+
     void BatchManager::markGroupDirty(const int groupId)
     {
         if (std::find(_dirtyGroups.begin(), _dirtyGroups.end(), groupId) == _dirtyGroups.end()) {
@@ -244,7 +257,9 @@ namespace visutwin::canvas
         std::unordered_map<MaterialKey, std::vector<MeshInstance*>, MaterialKeyHash> groups;
 
         for (auto* rc : RenderComponent::instances()) {
-            if (!rc || !rc->enabled()) continue;
+            // active(), not enabled(): a render component on a disabled entity draws
+            // nothing, so its meshes must not reappear inside a batch either.
+            if (!rc || !rc->active()) continue;
 
             const int groupId = rc->batchGroupId();
             if (groupId < 0) continue;                     // Not tagged for batching.

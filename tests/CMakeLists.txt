@@ -299,3 +299,19 @@ target_include_directories(visutwin-morph-bounds-tests PRIVATE ${TINYGLTF_INCLUD
 target_link_libraries(visutwin-morph-bounds-tests PRIVATE visutwin-canvas)
 
 add_test(NAME morph-bounds COMMAND visutwin-morph-bounds-tests)
+
+add_executable(visutwin-joint-lifetime-tests
+    jointLifetimeTests.cpp
+)
+
+target_link_libraries(visutwin-joint-lifetime-tests PRIVATE visutwin-canvas)
+
+add_test(NAME joint-lifetime COMMAND visutwin-joint-lifetime-tests)
+
+add_executable(visutwin-batch-lifetime-tests
+    batchLifetimeTests.cpp
+)
+
+target_link_libraries(visutwin-batch-lifetime-tests PRIVATE visutwin-canvas)
+
+add_test(NAME batch-lifetime COMMAND visutwin-batch-lifetime-tests)

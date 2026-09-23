@@ -319,6 +319,16 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
 - **`raycastAll` returns hits NEAREST FIRST on both paths.** It used to sort only
   on the CPU fallback, so the order depended on whether a physics world had been
   supplied.
+- **A joint lets go of its constraint BEFORE the world frees it.** The world destroys
+  every joint touching a body it destroys, so `RigidBodyComponent` calls
+  `JointComponent::bodyWillBeDestroyed(entity)` before each `destroyBody` (a setter
+  that rebuilds the body, `releaseBody`, the destructor); each joint naming that entity
+  drops its constraint and is rebuilt against the new body. A joint also watches its
+  ends' `destroy` events: a destroyed end drops the joint and clears the reference, and
+  the joint stays gone until an end is set again rather than re-pinning that end to the
+  world. Until 2026-09-23 the component kept the freed pointer and called `isBroken()`
+  on it every update. `tests/jointLifetimeTests.cpp` runs the components against a world
+  that never frees its joints and counts every call on a dead one.
 - `teleport()` rather than `setPosition()` on a simulated entity: the step would
   overwrite a bare transform, and Jolt does not wake a body that was only moved.
 - `CollisionComponent::height` is the FULL height for a capsule, caps included;
@@ -1439,6 +1449,17 @@ present, but the rule below never depends on reading it.
   and unbatched, which costs draw calls and nothing else. The split happens once,
   at `prepare()`, from the transforms in place THEN, so a dynamic batch whose
   instances wander apart later keeps the grouping it was built with.
+
+  **A source leaving a group tears that group's batches down AT ONCE.** A batch keeps raw
+  pointers to its source mesh instances (and a dynamic batch to their nodes, read every
+  frame), so a render component that is disabled, destroyed, moved to another group or
+  replacing its mesh instances calls `BatchManager::sourcesLeaving(groupId)` while those
+  pointers are still good, and the group is rebuilt at the next `updateAll()`. Upstream
+  only marks the group dirty; its garbage collector keeps the sources alive until the
+  rebuild, which C++ does not. Joining a group (enable, a new mesh instance, a new id)
+  only marks it dirty. The rebuild collects sources with `active()`, not `enabled()`, so
+  a disabled entity's meshes stay out. `tests/batchLifetimeTests.cpp` builds an engine
+  on a CPU-buffer stub device and holds all four cases.
 
   `prepare()` is `generate()` over every registered group; `generate(scene, ids)`
   rebuilds only those, and `markGroupDirty` queues one for `updateAll()` to pick up

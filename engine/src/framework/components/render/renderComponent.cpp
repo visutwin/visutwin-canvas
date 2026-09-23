@@ -16,6 +16,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "framework/batching/batchManager.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -496,6 +497,10 @@ namespace visutwin::canvas
 
     RenderComponent::~RenderComponent()
     {
+        // A batch still pointing at these mesh instances must go before they do.
+        if (auto* batches = batcher(); batches && !_meshInstances.empty()) {
+            batches->sourcesLeaving(_batchGroupId);
+        }
         clearMeshInstances();
         _ownedMeshes.clear();
 
@@ -517,11 +522,59 @@ namespace visutwin::canvas
         auto* meshInstanceRaw = meshInstance.get();
         _meshInstances.push_back(std::move(meshInstance));
         _meshInstanceViewDirty = true;
+        // A new source for the group (upstream's batcher insert).
+        if (auto* batches = batcher(); batches && active()) {
+            batches->markGroupDirty(_batchGroupId);
+        }
         return meshInstanceRaw;
+    }
+
+    BatchManager* RenderComponent::batcher() const
+    {
+        if (_batchGroupId < 0 || entity() == nullptr || entity()->engine() == nullptr) {
+            return nullptr;
+        }
+        return entity()->engine()->batcher();
+    }
+
+    void RenderComponent::setBatchGroupId(const int id)
+    {
+        if (id == _batchGroupId) {
+            return;
+        }
+        if (auto* batches = batcher(); batches && active()) {
+            batches->sourcesLeaving(_batchGroupId);
+        }
+        _batchGroupId = id;
+        for (const auto& mi : _meshInstances) {
+            mi->setBatchGroupId(id);
+        }
+        if (auto* batches = batcher(); batches && active()) {
+            batches->markGroupDirty(_batchGroupId);
+        }
+    }
+
+    // Upstream's render component inserts into and removes from the batcher on
+    // enable and disable. Disabling is also what an entity's destroy() does first.
+    void RenderComponent::onEnable()
+    {
+        if (auto* batches = batcher()) {
+            batches->markGroupDirty(_batchGroupId);
+        }
+    }
+
+    void RenderComponent::onDisable()
+    {
+        if (auto* batches = batcher()) {
+            batches->sourcesLeaving(_batchGroupId);
+        }
     }
 
     void RenderComponent::clearMeshInstances()
     {
+        if (auto* batches = batcher(); batches && !_meshInstances.empty()) {
+            batches->sourcesLeaving(_batchGroupId);
+        }
         _meshInstances.clear();
         _meshInstanceView.clear();
         _meshInstanceViewDirty = false;

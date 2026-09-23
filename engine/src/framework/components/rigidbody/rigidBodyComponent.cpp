@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 
 #include "framework/components/collision/collisionComponent.h"
+#include "framework/components/joint/jointComponent.h"
 #include "framework/entity.h"
 #include "framework/physics/physicsWorld.h"
 
@@ -45,6 +46,7 @@ namespace visutwin::canvas
     RigidBodyComponent::~RigidBodyComponent()
     {
         if (_world != nullptr && _body != nullptr) {
+            JointComponent::bodyWillBeDestroyed(entity());
             _world->destroyBody(_body);
         }
         std::erase(_instances, this);
@@ -172,6 +174,9 @@ namespace visutwin::canvas
         }
 
         if (_bodyStale && _body != nullptr) {
+            // A joint on this body is freed with it; let it go first (see
+            // JointComponent::bodyWillBeDestroyed).
+            JointComponent::bodyWillBeDestroyed(owner);
             world.destroyBody(_body);
             _body = nullptr;
         }
@@ -224,6 +229,7 @@ namespace visutwin::canvas
     void RigidBodyComponent::releaseBody(PhysicsWorld& world)
     {
         if (_body != nullptr) {
+            JointComponent::bodyWillBeDestroyed(entity());
             world.destroyBody(_body);
             _body = nullptr;
         }

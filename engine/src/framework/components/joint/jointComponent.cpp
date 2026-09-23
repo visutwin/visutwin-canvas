@@ -25,10 +25,56 @@ namespace visutwin::canvas
 
     JointComponent::~JointComponent()
     {
+        // Safe whether or not the ends still exist: a retained handle outlives its
+        // emitter and off() then does nothing.
+        if (_entityADestroyed) { _entityADestroyed->off(); }
+        if (_entityBDestroyed) { _entityBDestroyed->off(); }
+        dropJoint();
+        std::erase(_instances, this);
+    }
+
+    void JointComponent::dropJoint()
+    {
         if (_world != nullptr && _joint != nullptr) {
             _world->destroyJoint(_joint);
         }
-        std::erase(_instances, this);
+        _joint = nullptr;
+        _broken = false;
+    }
+
+    void JointComponent::bodyWillBeDestroyed(const Entity* owner)
+    {
+        if (owner == nullptr) {
+            return;
+        }
+        for (auto* joint : _instances) {
+            if (joint != nullptr && joint->_joint != nullptr &&
+                (joint->_entityA == owner || joint->_entityB == owner)) {
+                joint->dropJoint();
+                joint->markStale();
+            }
+        }
+    }
+
+    // An end's entity going away frees its body, and with it this constraint, a
+    // little later in the same teardown; the entity itself is freed after that. So
+    // the joint lets go of both now, while they are still valid, rather than keep
+    // pointers the next update would read.
+    void JointComponent::watchEnd(Entity* entity, EventHandlePtr& handle, const bool isA)
+    {
+        if (handle) {
+            handle->off();
+            handle.reset();
+        }
+        if (entity == nullptr) {
+            return;
+        }
+        handle = entity->on("destroy", [this, isA](const EventArgs&) {
+            dropJoint();
+            (isA ? _entityA : _entityB) = nullptr;
+            _endDestroyed = true;
+            _stale = false;
+        });
     }
 
     void JointComponent::setType(const PhysicsJointType type)
@@ -58,6 +104,8 @@ namespace visutwin::canvas
     {
         if (_entityA != entity) {
             _entityA = entity;
+            watchEnd(entity, _entityADestroyed, true);
+            _endDestroyed = false;
             markStale();
         }
     }
@@ -66,6 +114,8 @@ namespace visutwin::canvas
     {
         if (_entityB != entity) {
             _entityB = entity;
+            watchEnd(entity, _entityBDestroyed, false);
+            _endDestroyed = false;
             markStale();
         }
     }
@@ -160,6 +210,10 @@ namespace visutwin::canvas
             world.destroyJoint(_joint);
             _joint = nullptr;
             _broken = false;
+        }
+
+        if (_endDestroyed) {
+            return;
         }
 
         if (_entityA == nullptr) {
