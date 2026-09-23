@@ -118,7 +118,8 @@ namespace visutwin::canvas
     {
         const auto& cameras = CameraComponent::instances();
         // Fingerprint the camera state the render actions bake in: identity,
-        // enabled flag, render target, camera-passes mode, and layer list.
+        // active state, render target, camera-passes mode, layer list and the
+        // clear flags (setupClears copies them into the actions).
         // A count-only comparison missed enabled toggles, render-target changes,
         // and destroy+create at equal count — all of which left stale actions
         // holding dangling RenderAction::camera pointers.
@@ -129,9 +130,17 @@ namespace visutwin::canvas
         for (const auto* cameraComponent : cameras) {
             mix(reinterpret_cast<size_t>(cameraComponent));
             if (cameraComponent) {
-                mix(cameraComponent->enabled() ? 1u : 2u);
+                // active(), not enabled(): a camera on a disabled entity renders
+                // nothing, and switching the ENTITY must rebuild the actions just as
+                // switching the component does.
+                mix(cameraComponent->active() ? 1u : 2u);
                 const auto* camera = cameraComponent->camera();
                 mix(reinterpret_cast<size_t>(camera ? camera->renderTarget().get() : nullptr));
+                if (camera) {
+                    mix((camera->clearColorBufferEnabled() ? 1u : 0u) |
+                        (camera->clearDepthBufferEnabled() ? 2u : 0u) |
+                        (camera->clearStencilBufferEnabled() ? 4u : 0u));
+                }
                 mix(cameraComponent->renderPasses().size());
                 // The render actions bake in the camera ORDER, so a priority change
                 // has to rebuild them like any other identity change.
@@ -260,7 +269,7 @@ namespace visutwin::canvas
             });
 
         for (auto* cameraComponent : ordered) {
-            if (!cameraComponent || !cameraComponent->enabled() || !cameraComponent->camera()) {
+            if (!cameraComponent || !cameraComponent->active() || !cameraComponent->camera()) {
                 continue;
             }
 

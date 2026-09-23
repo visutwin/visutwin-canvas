@@ -1161,6 +1161,13 @@ present, but the rule below never depends on reading it.
   even if that light is switched off mid-bake, and the camera's render-data purge,
   where a disabled light is exactly the one holding a stale pointer.
 
+  CAMERAS had it too until 2026-09-23: `LayerComposition` built its render actions
+  from `enabled()` and fingerprinted the same flag, so a camera on a disabled entity
+  kept rendering and switching the entity did not even trigger a rebuild. The
+  fingerprint now also carries the camera's clear flags, because `setupClears`
+  COPIES them into the actions and a runtime change was otherwise ignored.
+  `tests/componentActiveTests.cpp` holds both.
+
   SCRIPTS had the same hole and the same fix: every phase — initialize,
   postInitialize, fixedUpdate, update, postUpdate — gates on `active()`, and
   `Script::enabled()` folds in its component's active state, so a script on a

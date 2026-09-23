@@ -11,10 +11,16 @@
 #include <iostream>
 #include <memory>
 
+#include "framework/components/camera/cameraComponent.h"
 #include "framework/components/component.h"
 #include "framework/components/light/lightComponent.h"
 #include "framework/components/script/scriptComponent.h"
 #include "framework/entity.h"
+#include "scene/camera.h"
+#include "scene/composition/layerComposition.h"
+#include "scene/composition/renderAction.h"
+#include "scene/constants.h"
+#include "scene/layer.h"
 #include "scene/light.h"
 
 using namespace visutwin::canvas;
@@ -135,6 +141,56 @@ int main()
 
         root->setEnabled(true);
         check(scripts->active(), "re-enabling the entity makes it active again");
+    }
+
+    std::cout << "\ncamera component\n";
+
+    // A camera on a disabled entity must render nothing. The composition built its
+    // render actions from Component::enabled() until 2026-09-23, so switching the
+    // ENTITY off left the camera rendering every frame, and the change fingerprint
+    // that decides when to rebuild did not see the switch either.
+    {
+        auto root = makeRoot();
+        auto* camera = static_cast<CameraComponent*>(
+            root->addComponentInstance(
+                std::make_unique<CameraComponent>(nullptr, root.get()), 9104));
+        camera->initializeComponentData();
+        camera->setLayers({LAYERID_WORLD});
+
+        LayerComposition composition;
+        composition.pushOpaque(std::make_shared<Layer>("World", LAYERID_WORLD));
+
+        const auto actionsFor = [&composition, camera]() {
+            int count = 0;
+            for (const auto* action : composition.renderActions()) {
+                count += (action && action->camera == camera) ? 1 : 0;
+            }
+            return count;
+        };
+
+        check(actionsFor() == 1, "an active camera gets a render action");
+
+        root->setEnabled(false);
+        check(camera->enabled() && !camera->active(), "a camera on a disabled entity is NOT active");
+        check(actionsFor() == 0, "and the composition gives it no render action");
+
+        root->setEnabled(true);
+        check(actionsFor() == 1, "re-enabling the entity brings its render action back");
+
+        // The actions COPY the camera's clear flags, so a runtime change must
+        // rebuild them or the old clears stay in force.
+        camera->camera()->setClearColorBuffer(true);
+        const auto clearColorOf = [&composition, camera]() {
+            for (const auto* action : composition.renderActions()) {
+                if (action && action->camera == camera) {
+                    return action->clearColor;
+                }
+            }
+            return false;
+        };
+        check(clearColorOf(), "the render action clears colour while the camera does");
+        camera->camera()->setClearColorBuffer(false);
+        check(!clearColorOf(), "and stops the frame after the camera's clear is switched off");
     }
 
     std::cout << (failures == 0 ? "\nAll component active tests passed\n"
