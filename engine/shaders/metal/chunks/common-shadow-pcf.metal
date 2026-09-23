@@ -25,10 +25,10 @@ static inline float getShadowPCF3x3(depth2d<float> shadowMap, float2 shadowUv, f
     const float v1 = (t / vw1 + 1.0) * shadowMapSizeInv + base_uv.y;
 
     float sum = 0.0;
-    sum += uw0 * vw0 * shadowMap.sample_compare(shadowCompSampler, float2(u0, v0), z);
-    sum += uw1 * vw0 * shadowMap.sample_compare(shadowCompSampler, float2(u1, v0), z);
-    sum += uw0 * vw1 * shadowMap.sample_compare(shadowCompSampler, float2(u0, v1), z);
-    sum += uw1 * vw1 * shadowMap.sample_compare(shadowCompSampler, float2(u1, v1), z);
+    sum += uw0 * vw0 * shadowMap.sample_compare(shadowCompSampler, float2(u0, v0), z, level(0));
+    sum += uw1 * vw0 * shadowMap.sample_compare(shadowCompSampler, float2(u1, v0), z, level(0));
+    sum += uw0 * vw1 * shadowMap.sample_compare(shadowCompSampler, float2(u0, v1), z, level(0));
+    sum += uw1 * vw1 * shadowMap.sample_compare(shadowCompSampler, float2(u1, v1), z, level(0));
 
     return sum * (1.0 / 16.0);
 }

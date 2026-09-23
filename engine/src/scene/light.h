@@ -310,7 +310,7 @@ namespace visutwin::canvas
         // fitted once to the empty near slices of the original view.
         int _numCascades = 1;
         float _cascadeDistribution = 0.5f;   // 0=linear splits, 1=logarithmic, 0.5=practical blend
-        float _cascadeBlend = 0.0f;          // 0=no blend, >0=dither transition width at cascade edges
+        float _cascadeBlend = 0.0f;          // fraction: 0 = off, else dither + far fade (upstream)
 
         // Viewport rects per cascade (normalized 0..1 within shadow texture).
         // Layout matches upstream directionalCascades:

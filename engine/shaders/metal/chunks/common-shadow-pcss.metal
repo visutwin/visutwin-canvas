@@ -72,7 +72,7 @@ static inline float getShadowPCSSDirectional(depth2d<float> shadowMap, float3 sh
         int numBlockers = 0;
         for (int i = 0; i < blockerSamples; ++i) {
             const float2 sampleUv = shadowCoords.xy + pcssDiskSample(diskData) * searchWidthUv;
-            const float shadowMapDepth = shadowMap.sample(shadowRawSampler, sampleUv);
+            const float shadowMapDepth = shadowMap.sample(shadowRawSampler, sampleUv, level(0));
             if (shadowMapDepth < receiverDepthClamped) {
                 blockerSum += shadowMapDepth;
                 numBlockers++;
@@ -99,7 +99,7 @@ static inline float getShadowPCSSDirectional(depth2d<float> shadowMap, float3 sh
     float sum = 0.0;
     for (int i = 0; i < shadowSamples; ++i) {
         const float2 sampleUv = shadowCoords.xy + pcssDiskSample(diskData) * filterRadius;
-        const float depth = shadowMap.sample(shadowRawSampler, sampleUv);
+        const float depth = shadowMap.sample(shadowRawSampler, sampleUv, level(0));
         sum += step(receiverDepthClamped, depth);
     }
     return sum / float(shadowSamples);
@@ -154,7 +154,7 @@ static inline float getShadowPCSSSpot(depth2d<float> shadowMap, float3 shadowCoo
     for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
         const float2 sampleUv = shadowCoords.xy + pcssDiskSample(diskData) * searchArea;
         const float depthLin = pcssLinearizeDepth(
-            shadowMap.sample(shadowRawSampler, sampleUv), nearClip, farClip);
+            shadowMap.sample(shadowRawSampler, sampleUv, level(0)), nearClip, farClip);
         if (depthLin < receiverDepth) {
             blockerSum += depthLin;
             numBlockers++;
@@ -173,7 +173,7 @@ static inline float getShadowPCSSSpot(depth2d<float> shadowMap, float3 shadowCoo
     for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
         const float2 sampleUv = shadowCoords.xy + pcssDiskSample(diskData) * filterRadius;
         const float depthLin = pcssLinearizeDepth(
-            shadowMap.sample(shadowRawSampler, sampleUv), nearClip, farClip);
+            shadowMap.sample(shadowRawSampler, sampleUv, level(0)), nearClip, farClip);
         sum += step(receiverDepth, depthLin);
     }
     return sum / float(PCSS_LOCAL_SAMPLE_COUNT);
@@ -195,7 +195,7 @@ static inline float getShadowPCSSOmni(depthcube<float> shadowMap, float3 lightDi
         const float3 sampleDir = normalize(
             lightDirNorm + pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * searchArea);
         const float depthLin = pcssCubeStoredToLinear(
-            shadowMap.sample(shadowRawSampler, sampleDir), nearClip, farClip);
+            shadowMap.sample(shadowRawSampler, sampleDir, level(0)), nearClip, farClip);
         if (depthLin < receiverDepth) {
             blockerSum += depthLin;
             numBlockers++;
@@ -215,7 +215,7 @@ static inline float getShadowPCSSOmni(depthcube<float> shadowMap, float3 lightDi
         const float3 sampleDir = normalize(
             lightDirNorm + pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * filterRadius);
         const float depthLin = pcssCubeStoredToLinear(
-            shadowMap.sample(shadowRawSampler, sampleDir), nearClip, farClip);
+            shadowMap.sample(shadowRawSampler, sampleDir, level(0)), nearClip, farClip);
         sum += step(receiverDepth, depthLin);
     }
     return sum / float(PCSS_LOCAL_SAMPLE_COUNT);

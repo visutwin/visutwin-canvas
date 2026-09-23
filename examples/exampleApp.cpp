@@ -176,6 +176,16 @@ namespace visutwin::canvas
         const uint64_t perfFrequency = SDL_GetPerformanceFrequency();
         uint64_t previousCounter = SDL_GetPerformanceCounter();
 
+        // VISUTWIN_FIXED_DT=seconds replaces the measured frame time with a constant,
+        // so an animated example reaches the SAME state at the same frame in every
+        // run and two builds can be screenshot-diffed (VISUTWIN_SCREENSHOT_FRAME).
+        // Without it, frame N lands wherever the wall clock put it.
+        float fixedDt = 0.0f;
+        if (const char* value = std::getenv("VISUTWIN_FIXED_DT"); value && *value) {
+            fixedDt = std::max(std::strtof(value, nullptr), 0.0f);
+            spdlog::info("Fixed frame time {} s from VISUTWIN_FIXED_DT", fixedDt);
+        }
+
         while (_running) {
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
@@ -183,7 +193,7 @@ namespace visutwin::canvas
             }
 
             const uint64_t nowCounter = SDL_GetPerformanceCounter();
-            const auto dt = static_cast<float>(
+            const auto dt = fixedDt > 0.0f ? fixedDt : static_cast<float>(
                 static_cast<double>(nowCounter - previousCounter) / static_cast<double>(perfFrequency));
             previousCounter = nowCounter;
             _elapsed += dt;

@@ -91,12 +91,19 @@ float parallaxSelfShadow(vec2 uv, vec3 lightDirTS, float heightScale,
 // 3×3 percentage-closer filter: average binary depth comparisons over the
 // texel neighbourhood.  `receiver` is the (biased) light-space depth of the
 // shaded point; a texel is lit when its stored occluder depth is no nearer.
+// Every shadow tap on this backend is textureLod(..., 0.0), never texture():
+// the lookups sit inside the per-light loop and behind a per-pixel cascade pick,
+// so a 2x2 quad can straddle two atlas quadrants, and the implicit-LOD
+// derivatives across it span half the atlas. Under the anisotropic sampler that
+// averaged taps from other cascades into the result — the cascade dither
+// (2026-09-23) turned every dithered pixel of a shadow darker than either
+// cascade alone.
 float pcf3x3(sampler2D tex, vec2 uv, float receiver) {
     vec2 texel = 1.0 / vec2(textureSize(tex, 0));
     float sum = 0.0;
     for (int y = -1; y <= 1; ++y) {
         for (int x = -1; x <= 1; ++x) {
-            float occluder = texture(tex, uv + vec2(x, y) * texel).r;
+            float occluder = textureLod(tex, uv + vec2(x, y) * texel, 0.0).r;
             sum += (receiver <= occluder) ? 1.0 : 0.0;
         }
     }
@@ -119,7 +126,7 @@ float pcf3x3Atlas(vec2 uv, float receiver) {
     float sum = 0.0;
     for (int y = -1; y <= 1; ++y) {
         for (int x = -1; x <= 1; ++x) {
-            float occluder = texture(clusterShadowAtlas, uv + vec2(x, y) * texel).r;
+            float occluder = textureLod(clusterShadowAtlas, uv + vec2(x, y) * texel, 0.0).r;
             sum += (receiver <= occluder) ? 1.0 : 0.0;
         }
     }

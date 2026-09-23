@@ -51,7 +51,7 @@ float getShadowPCSSDirectional(vec2 uv, float receiverDepth,
         for (int i = 0; i < blockerSamples; ++i) {
             vec2 sampleUv = uv +
                 pcssDiskSample(float(i), invBlockers, initialAngle) * searchWidthUv;
-            float occluder = texture(shadowMap, sampleUv).r;
+            float occluder = textureLod(shadowMap, sampleUv, 0.0).r;
             if (occluder < receiverDepthClamped) {
                 blockerSum += occluder;
                 numBlockers++;
@@ -78,7 +78,7 @@ float getShadowPCSSDirectional(vec2 uv, float receiverDepth,
     for (int i = 0; i < shadowSamples; ++i) {
         vec2 sampleUv = uv +
             pcssDiskSample(float(i), invSamples, initialAngle) * filterRadius;
-        sum += step(receiverDepthClamped, texture(shadowMap, sampleUv).r);
+        sum += step(receiverDepthClamped, textureLod(shadowMap, sampleUv, 0.0).r);
     }
     return sum * invSamples;
 }
@@ -118,7 +118,7 @@ float getShadowPCSSSpot(sampler2D tex, vec2 uv, float receiverZ,
     for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
         vec2 sampleUv = uv +
             pcssDiskSample(float(i), invCount, initialAngle) * searchArea;
-        float depthLin = pcssLinearizeDepth(texture(tex, sampleUv).r, nearClip, farClip);
+        float depthLin = pcssLinearizeDepth(textureLod(tex, sampleUv, 0.0).r, nearClip, farClip);
         if (depthLin < receiverDepth) {
             blockerSum += depthLin;
             numBlockers++;
@@ -136,7 +136,7 @@ float getShadowPCSSSpot(sampler2D tex, vec2 uv, float receiverZ,
     for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
         vec2 sampleUv = uv +
             pcssDiskSample(float(i), invCount, initialAngle) * filterRadius;
-        float depthLin = pcssLinearizeDepth(texture(tex, sampleUv).r, nearClip, farClip);
+        float depthLin = pcssLinearizeDepth(textureLod(tex, sampleUv, 0.0).r, nearClip, farClip);
         sum += step(receiverDepth, depthLin);
     }
     return sum * invCount;
@@ -157,7 +157,7 @@ float getShadowPCSSOmni(samplerCube tex, vec3 lightDir, float searchArea,
     for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
         vec3 sampleDir = normalize(lightDirNorm +
             pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * searchArea);
-        float depthLin = pcssCubeStoredToLinear(texture(tex, sampleDir).r, nearClip, farClip);
+        float depthLin = pcssCubeStoredToLinear(textureLod(tex, sampleDir, 0.0).r, nearClip, farClip);
         if (depthLin < receiverDepth) {
             blockerSum += depthLin;
             numBlockers++;
@@ -176,7 +176,7 @@ float getShadowPCSSOmni(samplerCube tex, vec3 lightDir, float searchArea,
     for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
         vec3 sampleDir = normalize(lightDirNorm +
             pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * filterRadius);
-        float depthLin = pcssCubeStoredToLinear(texture(tex, sampleDir).r, nearClip, farClip);
+        float depthLin = pcssCubeStoredToLinear(textureLod(tex, sampleDir, 0.0).r, nearClip, farClip);
         sum += step(receiverDepth, depthLin);
     }
     return sum * invCount;

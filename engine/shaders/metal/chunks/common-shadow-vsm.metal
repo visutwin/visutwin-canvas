@@ -72,6 +72,6 @@ static inline float calculateEVSM(float3 moments, float Z, float vsmBias, float 
 static inline float getShadowVSM16(texture2d<float> momentsTex, float2 shadowUv, float receiverDepth, float vsmBias)
 {
     constexpr sampler vsmSampler(coord::normalized, filter::linear, address::clamp_to_edge);
-    const float3 moments = momentsTex.sample(vsmSampler, shadowUv).xyz;
+    const float3 moments = momentsTex.sample(vsmSampler, shadowUv, level(0)).xyz;
     return calculateEVSM(moments, receiverDepth, vsmBias, VSM_EXPONENT);
 }

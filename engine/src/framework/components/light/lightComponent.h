@@ -152,7 +152,9 @@ namespace visutwin::canvas
         void setCascadeDistribution(const float value) { _cascadeDistribution = value; }
 
         float cascadeBlend() const { return _cascadeBlend; }
-        void setCascadeBlend(const float value) { _cascadeBlend = value; }
+        // A FRACTION of each cascade's range (and of the shadow distance, for the
+        // far fade), clamped to [0, 1] as upstream's setter does; 0 turns both off.
+        void setCascadeBlend(const float value) { _cascadeBlend = std::clamp(value, 0.0f, 1.0f); }
 
         // --- Light Cookie (upstream light.cookie / cookieIntensity / cookieChannel /
         // cookieFalloff) ---

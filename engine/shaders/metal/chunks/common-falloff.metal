@@ -38,6 +38,27 @@ static inline int getShadowCascadeIndex(float4 distances, int count, float depth
     return min(int(dot(comparisons, float4(1.0))), count - 1);
 }
 
+// Upstream ditherShadowCascadeIndex (shadowCascades.js): over the stretch of a
+// cascade from blendFactor x its end distance to its end, move a growing,
+// pseudo-randomly dithered share of the fragments to the NEXT cascade, so the
+// seam between two shadow resolutions dissolves instead of drawing a line.
+// fragCoord is the pixel position; the hash is upstream's.
+static inline int ditherShadowCascadeIndex(int cascadeIndex, float4 distances, int count,
+                                           float blendFactor, float depth, float2 fragCoord) {
+    if (cascadeIndex < count - 1) {
+        const float currentRangeEnd = distances[cascadeIndex];
+        const float transitionStart = blendFactor * currentRangeEnd;
+        if (depth > transitionStart) {
+            const float transitionFactor = smoothstep(transitionStart, currentRangeEnd, depth);
+            const float dither = fract(sin(dot(fragCoord, float2(12.9898, 78.233))) * 43758.5453);
+            if (dither < transitionFactor) {
+                cascadeIndex += 1;
+            }
+        }
+    }
+    return cascadeIndex;
+}
+
 // Uses 4 hardware comparison samples with bilinear interpolation to cover a 3×3 texel region.
 // Each sample_compare with filter::linear performs a 2×2 PCF automatically; carefully chosen
 // offsets and weights combine four such lookups into a full 3×3 kernel (4 taps, not 9).

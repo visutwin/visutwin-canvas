@@ -143,7 +143,8 @@ protected:
         if (auto* cameraComp = camera->findComponent<CameraComponent>();
             cameraComp && cameraComp->camera()) {
             cameraComp->camera()->setClearColor(Color(0.9f, 0.9f, 0.9f, 1.0f));
-            cameraComp->camera()->setFarClip(1000.0f);
+            // upstream 0b30839ea: keep geometry visible beyond the light's shadow distance
+            cameraComp->camera()->setFarClip(3000.0f);
             cameraComp->setToneMapping(TONEMAP_ACES);
         }
 

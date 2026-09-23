@@ -711,7 +711,24 @@ present, but the rule below never depends on reading it.
 - **Screen-space derivatives are undefined inside the per-light loop**, which sits
   behind fragment-varying `continue`s. An undefined mip LOD reads a fully averaged
   mip — a heart-shaped cookie became a flat wash of its own average. Sample with
-  an explicit LOD 0 (`level(0)` / `textureLod`).
+  an explicit LOD 0 (`level(0)` / `textureLod`). That includes EVERY shadow tap,
+  on both backends, since 2026-09-23: the cascade dither puts neighbouring pixels
+  in different atlas quadrants, and Vulkan's implicit-LOD `texture()` under an
+  anisotropic sampler then averaged other cascades into the tap, so each dithered
+  pixel came out darker than either cascade alone. Metal's taps were implicit too
+  and happened to be immune (no mips, no anisotropy); adding `level(0)` there
+  changed no pixel.
+- **`cascadeBlend` is a FRACTION, as upstream, and 0 turns off both of its jobs.**
+  It dithers the cascade pick from `cascadeBlend x` each cascade's end distance to
+  that end (upstream's `ditherShadowCascadeIndex`, its hash included), and fades the
+  shadow to lit by `smoothstep(cascadeBlend x distance, distance, depth)`; beyond
+  the shadow distance nothing is sampled. Until 2026-09-23 the port read it as a
+  WIDTH in world units — so `shadow-cascades`' 0.1 was a 0.1-unit cross-fade, i.e.
+  none — sampled two cascades to blend, and always faded over the last 10% whatever
+  the blend. Note upstream's own JSDoc says 0.1 fades "the last 10%" while its
+  shader, which the port follows, fades from 10% of the distance on. A dithered
+  cascade pick must look the same whichever cascade a pixel lands in; if it shows
+  as noise, force the pick to always and never switch and compare the three.
 - **Under clustered lighting NO local light enters the main light array.** Every
   spot and omni is in the cluster grid and its shadow comes from the
   LightTextureAtlas; the main-array allocation clears `castShadows` when its two
@@ -1577,8 +1594,12 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
    directional light to any example. Aimed like the key light, the frame minus a run
    without it is the fill alone, and it must be as bright inside the key light's
    shadow as outside it.
+9. `VISUTWIN_FIXED_DT=seconds` replaces the measured frame time, so an animated
+   example reaches the same state at the same frame in every run. With it, two runs
+   of one binary are bit-identical and two builds CAN be screenshot-diffed.
 
-Animated examples cannot be screenshot-diffed across shader changes.
+Animated examples cannot be screenshot-diffed across shader changes unless they run
+under `VISUTWIN_FIXED_DT`.
 
 ## Feature notes
 

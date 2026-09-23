@@ -13,7 +13,7 @@ float chebyshevUpperBound(vec2 moments, float mean, float minVariance) {
 
 float sampleShadowVSM16(vec2 uv, float receiverZ, float vsmBias) {
     const float VSM_EXPONENT = 5.54;
-    vec3 moments = texture(shadowMap, uv).xyz;
+    vec3 moments = textureLod(shadowMap, uv, 0.0).xyz;
     float warped = exp(VSM_EXPONENT * (2.0 * receiverZ - 1.0));
     vec2 stored = moments.xy + vec2(warped, warped * warped) * (1.0 - moments.z);
     float depthScale = vsmBias * VSM_EXPONENT * warped;
@@ -40,11 +40,38 @@ float sampleCascadeVisibility(vec3 coord, int cascade) {
     return pcf3x3(shadowMap, coord.xy, coord.z - lighting.shadowParams.z);
 }
 
+// Upstream ditherShadowCascadeIndex (shadowCascades.js): over the stretch of a
+// cascade from blendFactor x its end distance to its end, move a growing,
+// pseudo-randomly dithered share of the fragments to the NEXT cascade, so the
+// seam between two shadow resolutions dissolves instead of drawing a line.
+// Twin of common-falloff.metal; the hash is upstream's.
+int ditherShadowCascadeIndex(int cascadeIndex, int cascadeCount, float blendFactor, float depth) {
+    if (cascadeIndex < cascadeCount - 1) {
+        float currentRangeEnd = lighting.shadowCascadeDistances[cascadeIndex];
+        float transitionStart = blendFactor * currentRangeEnd;
+        if (depth > transitionStart) {
+            float transitionFactor = smoothstep(transitionStart, currentRangeEnd, depth);
+            float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+            if (dither < transitionFactor) {
+                cascadeIndex += 1;
+            }
+        }
+    }
+    return cascadeIndex;
+}
+
 float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
     if (lighting.shadowParams.x < 0.5) {
         return 1.0;
     }
-    int cascadeCount = int(lighting.shadowParams.y);
+    int cascadeCount = max(int(lighting.shadowParams.y), 1);
+
+    // Beyond the shadow distance the fragment is lit, and nothing is sampled
+    // (upstream a59f9ef29).
+    float shadowDistance = lighting.shadowCascadeDistances[cascadeCount - 1];
+    if (viewDepth > shadowDistance) {
+        return 1.0;
+    }
 
     // Cascade = number of split distances the fragment is beyond.
     int cascade = 0;
@@ -52,6 +79,13 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
         if (viewDepth > lighting.shadowCascadeDistances[i]) {
             cascade = i + 1;
         }
+    }
+    // cascadeBlend is a FRACTION (upstream): it dithers the cascade pick across
+    // the end of each cascade and fades the shadow out toward the shadow
+    // distance, and 0 turns both off. Twin of forward-fragment-lights.metal.
+    float cascadeBlend = lighting.shadowParams2.y;
+    if (cascadeBlend > 0.0) {
+        cascade = ditherShadowCascadeIndex(cascade, cascadeCount, cascadeBlend, viewDepth);
     }
 
     // World-space normal bias, scaled by grazing angle to curb peter-panning
@@ -95,38 +129,13 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
     float visible = sampleCascadeVisibility(coord, cascade);
     float shadowFactor = mix(1.0, visible, lighting.shadowParams.w);
 
-    // Cross-cascade blend, twin of the block in forward-fragment-lights.metal.
-    // Without it each cascade ends in a hard line across the ground where the
-    // filter radius changes; Metal has blended since cascades were added and this
-    // backend never did, so the same scene showed seams on one backend only.
-    float blendWidth = lighting.shadowParams2.y;
-    if (blendWidth > 0.0 && cascade < cascadeCount - 1) {
-        float cascadeFar = lighting.shadowCascadeDistances[cascade];
-        float fade = clamp((cascadeFar - viewDepth) / blendWidth, 0.0, 1.0);
-        if (fade < 1.0) {
-            int nextCascade = cascade + 1;
-            vec4 nsc = lighting.shadowMatrices[nextCascade] * vec4(biased, 1.0);
-            float nextFactor = 1.0;
-            if (nsc.w > 0.0) {
-                vec3 ncoord = nsc.xyz / nsc.w;
-                ncoord.z = clamp(ncoord.z, 0.0, 1.0);   // saturated, as above
-                if (all(greaterThanEqual(ncoord.xy, vec2(0.0))) &&
-                    all(lessThanEqual(ncoord.xy, vec2(1.0)))) {
-                    nextFactor = mix(1.0, sampleCascadeVisibility(ncoord, nextCascade),
-                        lighting.shadowParams.w);
-                }
-            }
-            shadowFactor = mix(nextFactor, shadowFactor, fade);
-        }
-    }
-
-    // Fade the shadow out over the last tenth of the cascade range, so geometry
-    // does not step from shadowed to lit at the edge of the furthest cascade.
-    float maxDist = lighting.shadowCascadeDistances[cascadeCount - 1];
-    float fadeStart = maxDist * 0.9;
-    if (viewDepth > fadeStart && maxDist > fadeStart) {
+    // Fade to fully lit at the shadow distance without sampling another cascade
+    // (upstream 0b30839ea); the intensity mix above commutes with it. NOTE: this
+    // is upstream's CODE, which starts the fade at cascadeBlend x the distance, so
+    // 0.1 fades over the last 90%; upstream's JSDoc says "the last 10%".
+    if (cascadeBlend > 0.0) {
         shadowFactor = mix(shadowFactor, 1.0,
-            clamp((viewDepth - fadeStart) / (maxDist - fadeStart), 0.0, 1.0));
+            smoothstep(cascadeBlend * shadowDistance, shadowDistance, viewDepth));
     }
     return shadowFactor;
 }
@@ -214,8 +223,8 @@ float sampleOmniShadow(int slot, vec3 worldPos, vec3 lightPos) {
                    : (i == 1) ? vec2( 1.0, -1.0)
                    : (i == 2) ? vec2(-1.0,  1.0) : vec2(1.0, 1.0);
             vec3 tapDir = normalize(t0 + (tx * o.x + ty * o.y) * kOmniTapRadius);
-            float tapOccluder = (slot == 0) ? texture(omniShadowCube0, tapDir).r
-                                            : texture(omniShadowCube1, tapDir).r;
+            float tapOccluder = (slot == 0) ? textureLod(omniShadowCube0, tapDir, 0.0).r
+                                            : textureLod(omniShadowCube1, tapDir, 0.0).r;
             visible += (compareValue <= tapOccluder) ? 0.25 : 0.0;
         }
     }
