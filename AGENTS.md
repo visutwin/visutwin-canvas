@@ -1654,6 +1654,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 9. `VISUTWIN_FIXED_DT=seconds` replaces the measured frame time, so an animated
    example reaches the same state at the same frame in every run. With it, two runs
    of one binary are bit-identical and two builds CAN be screenshot-diffed.
+10. `VISUTWIN_LOCAL_LIGHT=x,y,z,intensity,range` adds a white omni light, which under
+    the default clustered lighting goes through the CLUSTER loop. The frame minus a run
+    without it is that light alone; compare it across backends.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.
@@ -1785,6 +1788,18 @@ What stays HERE is only what bites during UNRELATED work.
   diffuse, normal and AO detail maps and only NORMAL exists here), fog of any
   type, sheen, or iridescence. The last three mean a change to those paths has to
   be driven deliberately to be seen at all.
+- **The cluster loop owes every material term the main light loop has.** With clustered
+  lighting the default, every spot and omni light is shaded in
+  `forward-fragment-clustered.*`, not the main loop. The Vulkan cluster loop had GGX and
+  anisotropy only — no clearcoat, sheen, Oren-Nayar or iridescence — until 2026-09-23,
+  and Vulkan's direct clearcoat everywhere used the base normal and the material's flat
+  coat roughness where Metal uses `ccNormalW` and the gloss-mapped `ccAlpha2`. Measured on
+  `clearcoat` with `VISUTWIN_LOCAL_LIGHT=6,2,1,3,15`: the light's contribution now matches
+  Metal to 0.00 counts on average over 592k lit pixels (0.28 before), and the frame
+  without it fell from 56 to 15 pixels over 8 counts. Sheen, iridescence and Oren-Nayar
+  under a local light are ported line for line from the main loop but no example drives
+  them. When a term lands in one light loop, add it to the other three (main, area,
+  cluster) on both backends.
 - **The clearcoat indirect gap is CLOSED (2026-09-19).** `clearcoat` on Vulkan
   now reads a mean absolute difference of 0.002 counts against Metal on the
   whole 900x700 frame, with 12 pixels above 8 counts — isolated specular glints,

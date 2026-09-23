@@ -73,16 +73,53 @@
                     Vis = 1.0;
                 }
                 vec3 F = F0;
+                if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
+                    F = mix(F, iridFresnel, iridIntensity);
+                }
                 vec3 radiance = cl.colorIntensity.rgb *
                     cl.colorIntensity.w * atten;
+                // Oren-Nayar, iridescence, clearcoat and sheen below are the main
+                // loop's terms (forward-fragment-lights.glsl), and the Metal twin has
+                // all four. This loop had none of them until 2026-09-23 — and with
+                // clustered lighting the default, it is the loop EVERY spot and omni
+                // light goes through, so a coated, sheened, rough-diffuse or
+                // iridescent material lost that term under every local light.
+                float diffuseTerm = 1.0;
+                if (vtFeatureEnabled(VT_FEATURE_OREN_NAYAR_BIT)) {
+                    float sigma2 = roughness * roughness;
+                    float onA = 1.0 - 0.5 * sigma2 / (sigma2 + 0.33);
+                    float onB = 0.45 * sigma2 / (sigma2 + 0.09);
+                    float sTerm = dot(L, V) - nl * NdotV;
+                    float tTerm = sTerm <= 0.0 ? 1.0 : max(max(nl, NdotV), 1e-4);
+                    diffuseTerm = onA + onB * sTerm / tTerm;
+                }
                 // Same convention as the punctual path: no 1/PI, no kD, and no
                 // explicit 1/(4 NdotL NdotV) because the visibility term carries it.
                 vec3 clusteredSpecular = D * Vis * F * specularOn;
-                color += (diffuseAlbedo + clusteredSpecular) * radiance * nl;
+                color += (diffuseAlbedo * diffuseTerm + clusteredSpecular) * radiance * nl;
                 directSpecular += clusteredSpecular * radiance * nl;
-                directDiffuse += diffuseAlbedo * radiance * nl;
-                bakeDiffuseLight += radiance * nl;
-                bakeDirectLight += radiance * nl;
+                directDiffuse += diffuseAlbedo * diffuseTerm * radiance * nl;
+                bakeDiffuseLight += diffuseTerm * radiance * nl;
+                bakeDirectLight += diffuseTerm * radiance * nl;
+                if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+                    // Nothing from a light behind the SURFACE, the coat included, as
+                    // Metal skips the whole light there; every other term here already
+                    // carries the surface's NdotL.
+                    float ccNdotL = max(dot(ccNormalW, L), 0.0);
+                    if (nl > 0.0 && ccNdotL > 0.0) {
+                        float ccNdotH = max(dot(ccNormalW, H), 0.0);
+                        float ccLdotH = max(dot(L, H), 0.0);
+                        float ccDenom = ccNdotH * ccNdotH * (ccAlpha2 - 1.0) + 1.0;
+                        float ccD = ccAlpha2 / max(PI * ccDenom * ccDenom, 1e-7);
+                        ccSpecularLight += radiance * ccNdotL * ccD *
+                            getVisibilityKelemen(ccLdotH) * getFresnelCC(ccLdotH);
+                    }
+                }
+                if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
+                    sheenSpecularDirect += radiance * nl * sheenTint
+                        * sheenDistribution(nh, sheenRoughness)
+                        * sheenVisibility(NdotV, nl);
+                }
             }
         }
     }

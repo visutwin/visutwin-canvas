@@ -170,6 +170,33 @@ namespace visutwin::canvas
             }
         }
 
+        // VISUTWIN_LOCAL_LIGHT=x,y,z,intensity,range adds a white OMNI light, which under
+        // the default clustered lighting goes through the cluster loop rather than the
+        // main light array. No example puts a local light on a clearcoat, sheen,
+        // iridescent or Oren-Nayar material, so this is how that loop's material terms
+        // are driven; a run without it is the control, and the difference between the
+        // two frames is the light's contribution alone. Found the Vulkan cluster loop
+        // missing all four terms (2026-09-23).
+        if (const char* local = std::getenv("VISUTWIN_LOCAL_LIGHT"); local && *local) {
+            float x = 0.0f, y = 0.0f, z = 0.0f, intensity = 1.0f, range = 10.0f;
+            if (std::sscanf(local, "%f,%f,%f,%f,%f", &x, &y, &z, &intensity, &range) == 5) {
+                auto* lightEntity = new Entity();
+                lightEntity->setName("local-light");
+                lightEntity->setEngine(_engine.get());
+                _engine->root()->addChild(lightEntity);
+                lightEntity->setLocalPosition(x, y, z);
+                auto* light = static_cast<LightComponent*>(lightEntity->addComponent<LightComponent>());
+                light->setType(LightType::LIGHTTYPE_OMNI);
+                light->setColor(Color(1.0f, 1.0f, 1.0f));
+                light->setIntensity(intensity);
+                light->setRange(range);
+                spdlog::info("Local light: omni at ({}, {}, {}) intensity {} range {} from VISUTWIN_LOCAL_LIGHT",
+                    x, y, z, intensity, range);
+            } else {
+                spdlog::warn("VISUTWIN_LOCAL_LIGHT='{}' is not x,y,z,intensity,range; ignored", local);
+            }
+        }
+
         // The scene exists now, so the initialize phase has something to initialize.
         _engine->start();
 

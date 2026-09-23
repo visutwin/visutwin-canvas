@@ -119,9 +119,9 @@
             directSpecular += areaRadiance * ltcSpec * specFres * specularOn;
 
             if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
-                // Clearcoat LTC specular with a fixed F0 of 0.04.
-                float ccRough = clamp(material.clearCoatRoughness, 0.04, 1.0);
-                vec2 ccUv = ltcUv(N, V, ccRough);
+                // Clearcoat LTC specular with a fixed F0 of 0.04, at the coat's own
+                // normal and gloss (Metal passes the gloss; this ltcUv takes 1 - gloss).
+                vec2 ccUv = ltcUv(ccNormalW, V, 1.0 - ccGlossiness);
                 vec4 ccT2 = textureLod(areaLightLut2, ccUv, 0.0);
                 vec3 ccFres = vec3(0.04) * ccT2.x + vec3(0.96) * ccT2.y;
                 vec4 ccT1 = textureLod(areaLightLut1, ccUv, 0.0);
@@ -130,8 +130,8 @@
                     vec3(0.0, 1.0, 0.0),
                     vec3(ccT1.z, 0.0, ccT1.w));
                 float ccLtc = (areaShape != 0u)
-                    ? ltcEvaluateDisk(N, V, fragWorldPos, ccMInv, p0, p1, p2)
-                    : ltcEvaluateRect(N, V, fragWorldPos, ccMInv, p0, p1, p2, p3);
+                    ? ltcEvaluateDisk(ccNormalW, V, fragWorldPos, ccMInv, p0, p1, p2)
+                    : ltcEvaluateRect(ccNormalW, V, fragWorldPos, ccMInv, p0, p1, p2, p3);
                 // Accumulated; the tail applies ccSpecularity and dims the base (as Metal).
                 ccSpecularLight += areaRadiance * ccLtc * ccFres;
             }
@@ -255,16 +255,16 @@
             // taken at the clearcoat's own half vector. This used to divide by
             // 4*NdotV with no NdotL anywhere, which is not a reflectance integral
             // at all — the coat brightened as the surface turned away from the light.
-            float ccRough = clamp(material.clearCoatRoughness, 0.04, 1.0);
+            // Taken at the COAT normal with the coat's own roughness, as Metal does.
+            float ccNdotL = max(dot(ccNormalW, L), 0.0);
+            float ccNdotH = max(dot(ccNormalW, H), 0.0);
             float ccLdotH = max(dot(L, H), 0.0);
-            float ccA = ccRough * ccRough;
-            float ccA2 = ccA * ccA;
-            float ccDenom = NdotH * NdotH * (ccA2 - 1.0) + 1.0;
-            float ccD = ccA2 / max(PI * ccDenom * ccDenom, 1e-7);
+            float ccDenom = ccNdotH * ccNdotH * (ccAlpha2 - 1.0) + 1.0;
+            float ccD = ccAlpha2 / max(PI * ccDenom * ccDenom, 1e-7);
             float ccVis = getVisibilityKelemen(ccLdotH);
             float ccF = getFresnelCC(ccLdotH);
             // Accumulated; the tail applies ccSpecularity and dims the base (as Metal).
-            ccSpecularLight += radiance * NdotL * ccD * ccVis * ccF;
+            ccSpecularLight += radiance * ccNdotL * ccD * ccVis * ccF;
         }
         if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
             // Charlie distribution + Ashikhmin visibility (common-sheen.glsl),

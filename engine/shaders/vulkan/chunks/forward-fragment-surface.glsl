@@ -383,6 +383,12 @@ void main() {
             ccNormalW = normalize(mat3(ccT, ccB, N) * ccSample);
         }
     }
+    // The coat's own GGX roughness for DIRECT light, from its gloss (map included),
+    // twin of forward-fragment-surface.metal. The light loops used the material's
+    // flat clearCoatRoughness and the base normal until 2026-09-23, so a coat
+    // normal or gloss map changed the coat's reflections but not its highlights.
+    float ccRoughness = max(1.0 - ccGlossiness, 0.04);
+    float ccAlpha2 = ccRoughness * ccRoughness * ccRoughness * ccRoughness;
     vec3 ccSpecularLight = vec3(0.0);
     vec3 ccReflection = vec3(0.0);
 
