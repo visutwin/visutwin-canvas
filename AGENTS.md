@@ -1026,8 +1026,12 @@ present, but the rule below never depends on reading it.
   attached used to be written back into the new one as its indirect light), and Metal
   rebinds the material textures when only the instance lightmap changed, since its
   "same material, skip binding" shortcut would otherwise keep the last mesh's bake.
-  NOTE built-in primitives mirror UV0 into UV1, where upstream unwraps each face into
-  its own padded cell: a baked box's six faces share one lightmap square.
+  A lightmap is sampled through UV1, and the built-in box, cylinder, cone and capsule
+  carry upstream's UV1 unwrap: every face or part in its own cell, padded by 8/64 of
+  it (`PrimitiveGeometry::uvs1`; the plane and sphere use UV0, as upstream). Until
+  2026-09-23 every primitive copied UV0 into UV1, so a baked box wrote all six faces
+  into one square and showed their blend; `tests/primitiveGeometryTests.cpp` holds the
+  cells disjoint.
 - **The CPU lightmapper's BVH skipped most of every tree until 2026-09-13.** It
   stored only a node's left child and walked `left` and `left + 1`, but children
   are built depth-first, so `left + 1` is the right sibling only when the left child

@@ -23,6 +23,8 @@
 #include <cstddef>
 #include <iostream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "framework/components/render/primitiveGeometry.h"
 
@@ -232,6 +234,73 @@ int main()
         check(badOrtho == 0, (prefix + "tangent is orthogonal to the normal (" + std::to_string(badOrtho) + " bad)").c_str());
         check(badU == 0, (prefix + "tangent points along +u (" + std::to_string(badU) + " bad)").c_str());
         check(badV == 0, (prefix + "cross(n, t) * w points along +v (" + std::to_string(badV) + " bad)").c_str());
+    }
+
+    // UV1 is the LIGHTMAP unwrap. The box, cylinder, cone and capsule carry upstream's
+    // (every face or part in its own padded cell); until 2026-09-23 every primitive
+    // copied UV0 into UV1, so a baked box wrote all six faces into one square and each
+    // face showed a blend of them. A part's cell must lie inside [0, 1] and overlap no
+    // other part's cell, or two surfaces share lightmap texels.
+    {
+        struct Rect { float minU = 2.0f, minV = 2.0f, maxU = -1.0f, maxV = -1.0f; };
+        const auto grow = [](Rect& r, const float u, const float v) {
+            r.minU = std::min(r.minU, u); r.maxU = std::max(r.maxU, u);
+            r.minV = std::min(r.minV, v); r.maxV = std::max(r.maxV, v);
+        };
+        const auto inside = [](const Rect& r) {
+            return r.minU >= 0.0f && r.minV >= 0.0f && r.maxU <= 1.0f && r.maxV <= 1.0f;
+        };
+        // Strictly disjoint: the padding keeps a gap, so touching is a failure too.
+        const auto disjoint = [](const Rect& a, const Rect& b) {
+            return a.maxU < b.minU || b.maxU < a.minU || a.maxV < b.minV || b.maxV < a.minV;
+        };
+        const auto checkCells = [&](const char* name, const std::vector<Rect>& cells) {
+            int outside = 0;
+            int overlaps = 0;
+            for (size_t i = 0; i < cells.size(); ++i) {
+                outside += inside(cells[i]) ? 0 : 1;
+                for (size_t j = i + 1; j < cells.size(); ++j) {
+                    overlaps += disjoint(cells[i], cells[j]) ? 0 : 1;
+                }
+            }
+            const std::string prefix = std::string(name) + ": ";
+            check(outside == 0, (prefix + "every UV1 cell lies inside [0, 1] (" + std::to_string(outside) + " outside)").c_str());
+            check(overlaps == 0, (prefix + "no two UV1 cells overlap (" + std::to_string(overlaps) + " overlapping pairs)").c_str());
+        };
+
+        // Box: six faces of four vertices each, in generation order.
+        const PrimitiveGeometry box = createBoxGeometry();
+        check(box.uvs1.size() == box.uvs.size(), "box: carries its own UV1");
+        std::vector<Rect> faces(6);
+        for (size_t vertex = 0; vertex * 2 < box.uvs1.size(); ++vertex) {
+            grow(faces[std::min<size_t>(vertex / 4, 5)], box.uvs1[vertex * 2], box.uvs1[vertex * 2 + 1]);
+        }
+        checkCells("box faces", faces);
+
+        // Cylinder: the body and the two flat caps, told apart by their normals.
+        const PrimitiveGeometry cylinder = createCylinderGeometry();
+        check(cylinder.uvs1.size() == cylinder.uvs.size(), "cylinder: carries its own UV1");
+        std::vector<Rect> parts(3);
+        for (size_t vertex = 0; vertex * 2 < cylinder.uvs1.size(); ++vertex) {
+            const float ny = cylinder.normals[vertex * 3 + 1];
+            const size_t part = ny > 0.5f ? 2 : (ny < -0.5f ? 1 : 0);
+            grow(parts[part], cylinder.uvs1[vertex * 2], cylinder.uvs1[vertex * 2 + 1]);
+        }
+        checkCells("cylinder body and caps", parts);
+
+        for (const auto& [name, geometry] : std::vector<std::pair<const char*, PrimitiveGeometry>>{
+                 {"cone", createConeGeometry()}, {"capsule", createCapsuleGeometry()}}) {
+            Rect all;
+            for (size_t i = 0; i + 1 < geometry.uvs1.size(); i += 2) {
+                grow(all, geometry.uvs1[i], geometry.uvs1[i + 1]);
+            }
+            check(geometry.uvs1.size() == geometry.uvs.size() && inside(all),
+                (std::string(name) + ": carries its own UV1, inside [0, 1]").c_str());
+        }
+
+        // Upstream's plane and sphere use UV0 as UV1; an empty uvs1 says so.
+        check(createPlaneGeometry().uvs1.empty(), "plane: UV1 is its UV0 (no unwrap of its own)");
+        check(createSphereGeometry().uvs1.empty(), "sphere: UV1 is its UV0 (no unwrap of its own)");
     }
 
     std::cout << (failures == 0 ? "PASS\n" : "FAILED\n");

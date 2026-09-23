@@ -38,6 +38,22 @@ namespace visutwin::canvas
             geometry.uvs.insert(geometry.uvs.end(), {u, v});
         }
 
+        // Upstream's primitiveUv1Padding: every lightmap cell keeps an 8/64 border of
+        // its own size free, so bilinear taps and the bake's dilation stay inside it.
+        constexpr float kUv1Padding = 8.0f / 64.0f;
+        constexpr float kUv1PaddingScale = 1.0f - kUv1Padding * 2.0f;
+
+        // One UV1 in upstream's layout. (u, v) are upstream's UNFLIPPED coordinates in
+        // [0, 1] for the part; they are padded, scaled into the part's cell and offset
+        // to it, and stored as (u, 1 - v) like every other uv here.
+        void pushUv1(PrimitiveGeometry& geometry, const float u, const float v,
+            const float scaleU, const float scaleV, const float offsetU, const float offsetV)
+        {
+            const float cellU = (u * kUv1PaddingScale + kUv1Padding) * scaleU + offsetU;
+            const float cellV = (v * kUv1PaddingScale + kUv1Padding) * scaleV + offsetV;
+            geometry.uvs1.insert(geometry.uvs1.end(), {cellU, 1.0f - cellV});
+        }
+
         // Every primitive's tangent frame is derived from its UVs rather than written
         // by hand: hand-written frames gave the box (1, 0, 0) on every face — parallel
         // to the normal on +/-X — and the sphere and capsule caps a reversed tangent.
@@ -54,6 +70,10 @@ namespace visutwin::canvas
             }
 
             const int vertexCount = static_cast<int>(geometry.positions.size() / 3);
+            // A primitive without an unwrap of its own uses its UV0 as UV1 (upstream's
+            // plane and sphere set `uvs1 = uvs`).
+            const std::vector<float>& uvs1 =
+                geometry.uvs1.size() == geometry.uvs.size() ? geometry.uvs1 : geometry.uvs;
             std::vector<float> interleaved;
             interleaved.reserve(static_cast<size_t>(vertexCount) * 14u);
 
@@ -84,6 +104,8 @@ namespace visutwin::canvas
                 const float tw = hasTangents ? geometry.tangents[tanOffset + 3u] : 1.0f;
                 const float u = geometry.uvs[uvOffset];
                 const float v = geometry.uvs[uvOffset + 1u];
+                const float u1 = uvs1[uvOffset];
+                const float v1 = uvs1[uvOffset + 1u];
 
                 const Vector3 position(px, py, pz);
                 minBounds = Vector3::min(minBounds, position);
@@ -94,8 +116,7 @@ namespace visutwin::canvas
                     nx, ny, nz,
                     u, v,
                     tx, ty, tz, tw,
-                    // DEVIATION: Primitive mesh path currently mirrors UV0 into UV1.
-                    u, v
+                    u1, v1
                 });
             }
 
@@ -203,6 +224,10 @@ namespace visutwin::canvas
                             position.getX(), position.getY(), position.getZ(),
                             faceNormals[side][0], faceNormals[side][1], faceNormals[side][2],
                             u, 1.0f - v);
+                        // Upstream packs the six faces 3x2, one face per cell (the
+                        // top third of the square stays empty rather than stretching).
+                        pushUv1(geometry, u, v, 1.0f / 3.0f, 1.0f / 3.0f,
+                            static_cast<float>(side % 3) / 3.0f, static_cast<float>(side / 3) / 3.0f);
 
                         if (i < uSegments && j < vSegments) {
                             geometry.indices.push_back(vertexCounter + static_cast<uint32_t>(vSegments + 1));
@@ -290,6 +315,9 @@ namespace visutwin::canvas
                             pos.getX(), pos.getY(), pos.getZ(),
                             norm.getX(), norm.getY(), norm.getZ(),
                             u, v);
+                        // The body fills the first third, full height, with u and v
+                        // swapped so the sweep runs down the long side of the cell.
+                        pushUv1(geometry, 1.0f - v, u, 1.0f / 3.0f, 1.0f, 0.0f, 0.0f);
 
                         if (i < heightSegments && j < capSegments) {
                             const uint32_t first = static_cast<uint32_t>(i * (capSegments + 1) + j);
@@ -325,6 +353,8 @@ namespace visutwin::canvas
                             x * peakRadius, y * peakRadius + capOffset, z * peakRadius,
                             x, y, z,
                             u, v);
+                        // Top cap in the second third.
+                        pushUv1(geometry, u, 1.0f - v, 1.0f / 3.0f, 1.0f / 3.0f, 1.0f / 3.0f, 0.0f);
                     }
                 }
 
@@ -357,6 +387,8 @@ namespace visutwin::canvas
                             x * peakRadius, y * peakRadius - capOffset, z * peakRadius,
                             x, y, z,
                             u, v);
+                        // Bottom cap in the third third.
+                        pushUv1(geometry, u, 1.0f - v, 1.0f / 3.0f, 1.0f / 3.0f, 2.0f / 3.0f, 0.0f);
                     }
                 }
 
@@ -386,6 +418,8 @@ namespace visutwin::canvas
                             x * baseRadius, -height * 0.5f, z * baseRadius,
                             0.0f, -1.0f, 0.0f,
                             u, v);
+                        // Flat bottom cap in the second third.
+                        pushUv1(geometry, u, 1.0f - v, 1.0f / 3.0f, 1.0f / 3.0f, 1.0f / 3.0f, 0.0f);
                         if (i > 1) {
                             geometry.indices.insert(geometry.indices.end(), {offset, offset + static_cast<uint32_t>(i), offset + static_cast<uint32_t>(i - 1)});
                         }
@@ -404,6 +438,8 @@ namespace visutwin::canvas
                             x * peakRadius, height * 0.5f, z * peakRadius,
                             0.0f, 1.0f, 0.0f,
                             u, v);
+                        // Flat top cap in the third third.
+                        pushUv1(geometry, u, 1.0f - v, 1.0f / 3.0f, 1.0f / 3.0f, 2.0f / 3.0f, 0.0f);
                         if (i > 1) {
                             geometry.indices.insert(geometry.indices.end(), {offset, offset + static_cast<uint32_t>(i - 1), offset + static_cast<uint32_t>(i)});
                         }

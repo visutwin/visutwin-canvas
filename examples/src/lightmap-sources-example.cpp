@@ -24,10 +24,6 @@
 //   no lightmap filter, and no occlusion brightness/contrast for the ambient bake.
 // - Upstream's shadowBias 0.2 is in its own units; the authoring value here is 0.05,
 //   as in lightmap-bake (0.2 pushes casters away far enough to lose small shadows).
-// - Built-in primitives here mirror UV0 into UV1, where upstream's box unwraps each
-//   face into its own padded cell. The six faces of the box therefore share one
-//   lightmap square, and the box's own bake is a blend of all of them; the PLANE's
-//   UV1 is the same in both engines, which is why the planes carry the comparison.
 // - Labels are text elements scaled into world units (ElementComponent::setFontSize
 //   takes an int), in Liberation Sans, metric-compatible with upstream's Arial.
 //

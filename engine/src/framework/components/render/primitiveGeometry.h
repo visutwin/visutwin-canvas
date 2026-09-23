@@ -24,6 +24,11 @@ namespace visutwin::canvas
         std::vector<float> positions;   // xyz per vertex
         std::vector<float> normals;     // xyz per vertex
         std::vector<float> uvs;         // uv per vertex, v = 0 at the image's top row
+        // Lightmap uv per vertex (UV1). The box, cylinder, cone and capsule carry
+        // upstream's unwrap, every face or part in its own cell padded by 8/64 of the
+        // cell, so a bake gives each its own texels. Empty on the sphere and plane,
+        // whose UV1 IS their UV0, as upstream (`uvs1 = uvs`).
+        std::vector<float> uvs1;
         // xyzw per vertex, derived from the UVs (scene/geometry/geometryUtils.h):
         // t along +u, bitangent = cross(n, t) * w toward -v, the image's top row.
         std::vector<float> tangents;
