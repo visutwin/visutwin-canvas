@@ -18,6 +18,19 @@ namespace visutwin::canvas
     Morph::Morph(std::vector<MorphTarget> targets, const int vertexCount, GraphicsDevice* device)
         : _targets(std::move(targets)), _vertexCount(vertexCount)
     {
+        // Delta bounds first, so they exist whether or not there is a device.
+        Vector3 deltaMin(0.0f, 0.0f, 0.0f);
+        Vector3 deltaMax(0.0f, 0.0f, 0.0f);
+        for (const auto& target : _targets) {
+            for (size_t i = 0; i + 2 < target.deltaPositions.size(); i += 3) {
+                const Vector3 delta = Vector3::load(&target.deltaPositions[i]);
+                deltaMin = Vector3::min(deltaMin, delta);
+                deltaMax = Vector3::max(deltaMax, delta);
+            }
+        }
+        _aabb.setCenter((deltaMin + deltaMax) * 0.5f);
+        _aabb.setHalfExtents((deltaMax - deltaMin) * 0.5f);
+
         if (_targets.empty() || _vertexCount <= 0 || !device) {
             return;
         }

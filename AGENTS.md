@@ -1324,6 +1324,18 @@ present, but the rule below never depends on reading it.
   pins the bounds geometry and the cull decision, because NO example in the tree has a
   light off screen — every one of them keeps its lights in view, so a culled light is
   never exercised by a render at all.
+- **A morphed mesh's bounds grow by how far its targets REACH.** `Morph::aabb` is the
+  union of every target's position-DELTA bounds and the origin (upstream `Morph.aabb`),
+  and `MeshInstance::aabb` adds its min to the rest-pose min and its max to the max
+  (upstream `_expand`); a skinned, morphed glTF's bone boxes take each vertex's reach
+  under all its targets at once, negative deltas summed toward the min and positive
+  toward the max (upstream `_initBoneAabbs`, in the GLB parser here). Until 2026-09-23
+  the first was a commented-out TODO and the second ignored targets, so culling, light
+  culling and the shadow fit all read rest-pose bounds and a mesh morphed outward could
+  be culled on screen. Like upstream this is the one-target-at-a-time case, not every
+  target stacked at full weight. No render shows it unless a morph carries a mesh across
+  a frustum edge (`mesh-morph` is bit-identical); `tests/morphBoundsTests.cpp` holds the
+  numbers.
 - **A splat cloud's bounds carry each splat's EXTENT, taken from the covariance
   DIAGONAL.** A splat is an ellipsoid, so the cloud reaches past the hull of its
   centres by the size of whatever sits on its rim; bounding the centres alone culls

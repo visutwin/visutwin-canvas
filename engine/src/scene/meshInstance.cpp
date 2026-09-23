@@ -7,6 +7,7 @@
 
 #include "skin.h"
 #include "skinInstance.h"
+#include "morph.h"
 
 #include <algorithm>
 #include <cstring>
@@ -229,11 +230,17 @@ namespace visutwin::canvas
                     localAabb->setHalfExtents(0, 0, 0);
                 }
 
-                // Note: morph target AABB expansion not yet implemented.
-                // if (_mesh && _mesh->morph) {
-                //     const BoundingBox& morphAabb = _mesh->morph->aabb;
-                //     localAabb->_expand(morphAabb.getMin(), morphAabb.getMax());
-                // }
+                // A morph moves vertices past the rest pose, so the local bounds grow by
+                // its delta bounds (upstream localAabb._expand(morph.aabb)). Culling, light
+                // culling and the shadow fit all read these; left at the rest pose, a
+                // mesh whose targets push it outward was culled while still on screen.
+                if (_morphInstance && _morphInstance->morph()) {
+                    // Adding the delta box's min to the min and its max to the max moves
+                    // the centre by the delta box's centre and widens by its extents.
+                    const BoundingBox& morphAabb = _morphInstance->morph()->aabb();
+                    localAabb->setCenter(localAabb->center() + morphAabb.center());
+                    localAabb->setHalfExtents(localAabb->halfExtents() + morphAabb.halfExtents());
+                }
 
                 toWorldSpace = true;
                 if (_node) {

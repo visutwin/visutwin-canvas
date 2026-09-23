@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <core/math/vector3.h>
+#include <core/shape/boundingBox.h>
 
 namespace visutwin::canvas
 {
@@ -53,9 +54,20 @@ namespace visutwin::canvas
         /** Packed delta buffer: targetCount * vertexCount pairs of float4 (pos, normal). */
         const std::shared_ptr<VertexBuffer>& deltaBuffer() const { return _deltaBuffer; }
 
+        /**
+         * How far the targets can move the mesh, as a box of position DELTAS (upstream
+         * Morph.aabb): the union of every target's delta bounds, and of the origin, so
+         * its min is <= 0 and its max >= 0 on every axis. A mesh instance adds its min to
+         * its rest-pose min and its max to its max. Like upstream it is the typical
+         * case, one target at a time, not the stacked worst case of every target at full
+         * weight; a scene that stacks them needs a custom AABB.
+         */
+        const BoundingBox& aabb() const { return _aabb; }
+
     private:
         std::vector<MorphTarget> _targets;
         int _vertexCount = 0;
         std::shared_ptr<VertexBuffer> _deltaBuffer;
+        BoundingBox _aabb;
     };
 }

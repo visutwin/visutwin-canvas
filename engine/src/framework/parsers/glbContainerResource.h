@@ -69,6 +69,8 @@ namespace visutwin::canvas
 
         /// The mesh payloads in the order the parser added them; tests read the parsed geometry through here.
         const std::vector<GlbMeshPayload>& meshPayloads() const { return _meshPayloads; }
+        /// The skin payloads in glTF skin order; tests read the bone bounds through here.
+        const std::vector<GlbSkinPayload>& skinPayloads() const { return _skinPayloads; }
 
         Entity* instantiateRenderEntity() override;
 

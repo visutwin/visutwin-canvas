@@ -290,3 +290,12 @@ add_executable(visutwin-texture-gpu-size-tests
 target_link_libraries(visutwin-texture-gpu-size-tests PRIVATE visutwin-canvas)
 
 add_test(NAME texture-gpu-size COMMAND visutwin-texture-gpu-size-tests)
+
+add_executable(visutwin-morph-bounds-tests
+    morphBoundsTests.cpp
+)
+
+target_include_directories(visutwin-morph-bounds-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+target_link_libraries(visutwin-morph-bounds-tests PRIVATE visutwin-canvas)
+
+add_test(NAME morph-bounds COMMAND visutwin-morph-bounds-tests)

@@ -267,6 +267,8 @@ namespace visutwin::canvas
         void setMorphInstance(const std::shared_ptr<MorphInstance>& morphInstance)
         {
             _morphInstance = morphInstance;
+            // The local bounds grow by the morph's reach, so the cached ones are stale.
+            _aabbVer = -1;
         }
 
         // --- Batching support (batchGroupId, visible) ---

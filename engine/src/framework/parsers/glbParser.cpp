@@ -769,7 +769,21 @@ namespace visutwin::canvas
                                 attributes.weights.size() < vertexCount * 4) {
                                 continue;
                             }
+                            // A morphed skin: each vertex can also move by its morph deltas, so
+                            // the bone boxes take the vertex's reach under every target at once
+                            // — the negative deltas summed toward the min, the positive toward
+                            // the max, per axis — as upstream's _initBoneAabbs does. Without it
+                            // a skinned mesh whose targets push it outward was culled on screen.
+                            const auto morphTargets = readMorphTargets(model, primitive, vertexCount);
                             for (size_t v = 0; v < vertexCount; ++v) {
+                                const Vector3 rest = Vector3::load(&positions[v * 3]);
+                                Vector3 reachMin = rest;
+                                Vector3 reachMax = rest;
+                                for (const auto& target : morphTargets) {
+                                    const Vector3 delta = Vector3::load(&target.deltaPositions[v * 3]);
+                                    reachMin += Vector3::min(delta, Vector3(0.0f, 0.0f, 0.0f));
+                                    reachMax += Vector3::max(delta, Vector3(0.0f, 0.0f, 0.0f));
+                                }
                                 for (int k = 0; k < 4; ++k) {
                                     const float weight = attributes.weights[v * 4 + static_cast<size_t>(k)];
                                     if (weight <= 1e-4f) {
@@ -780,9 +794,8 @@ namespace visutwin::canvas
                                         continue;
                                     }
                                     used[joint] = 1;
-                                    const Vector3 position = Vector3::load(&positions[v * 3]);
-                                    mins[joint] = Vector3::min(mins[joint], position);
-                                    maxs[joint] = Vector3::max(maxs[joint], position);
+                                    mins[joint] = Vector3::min(mins[joint], reachMin);
+                                    maxs[joint] = Vector3::max(maxs[joint], reachMax);
                                 }
                             }
                         }
