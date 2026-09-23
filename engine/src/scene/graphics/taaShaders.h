@@ -149,6 +149,13 @@ static inline float4 colorClamp(texture2d<float> sourceTexture, sampler linearSa
     return float4(clamped, historyColor.a);
 }
 
+// Point-sampled depth (AGENTS.md "Depth taps in a quad pass must be POINT
+// sampled"): a bilinear tap across a silhouette returns a depth belonging to
+// neither surface. The Vulkan backend binds a nearest sampler for every depth
+// texture of a quad pass; this is the Metal twin of that.
+constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
+                                    mip_filter::none, address::clamp_to_edge);
+
 fragment float4 taaFragment(
     TaaVarying in [[stage_in]],
     texture2d<float> sourceTexture [[texture(0)]],
@@ -172,7 +179,9 @@ fragment float4 taaFragment(
     // screenDepthPS for the round-trip; the linearize->delinearize is an identity
     // on the raw hardware depth.  We skip the round-trip and use rawDepth directly
     // since reproject() only needs the original viewport [0,1] depth.
-    float depth = depthTexture.sample(linearSampler, uv);
+    // Point sampled: an edge pixel reprojected with a depth halfway between the
+    // object and the background fetches history from neither, which ghosts edges.
+    float depth = depthTexture.sample(depthPointSampler, uv);
 
     // Reproject: find where this pixel was in the previous frame
     float2 historyUv = reproject(uv, depth, uniforms);

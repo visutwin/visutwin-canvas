@@ -80,6 +80,13 @@ static inline float getLinearDepth(float rawDepth, float cameraNear, float camer
     return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
 }
 
+// Point-sampled depth (AGENTS.md "Depth taps in a quad pass must be POINT
+// sampled"): a bilinear tap across a silhouette returns a depth belonging to
+// neither surface. The Vulkan backend binds a nearest sampler for every depth
+// texture of a quad pass; this is the Metal twin of that.
+constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
+                                    mip_filter::none, address::clamp_to_edge);
+
 fragment float4 cocFragment(
     CoCVarying in [[stage_in]],
     depth2d<float> depthTexture [[texture(0)]],
@@ -87,7 +94,7 @@ fragment float4 cocFragment(
     constant CoCUniforms& u [[buffer(3)]])
 {
     float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
-    float rawDepth = depthTexture.sample(linearSampler, uv);
+    float rawDepth = depthTexture.sample(depthPointSampler, uv);
     float linearDepth = getLinearDepth(rawDepth, u.focus.z, u.focus.w);
 
     // upstream coc.js: a dead zone of +/- focusRange/2 around the focus distance,

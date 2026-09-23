@@ -701,7 +701,13 @@ present, but the rule below never depends on reading it.
   to the texture's own sampler gave SSAO linear taps on Metal and part-nearest
   taps on Vulkan. Vulkan now binds `_shadowSampler` (nearest, clamp, mip-less) for
   any depth texture in the quad path and the MSL passes declare their own point
-  sampler. Establish this kind of thing by making the shader REPORT it: sample at
+  sampler — SSAO, the depth-aware blur and SSR from the start, and TAA, CoC,
+  volumetric fog (march and combine) and compose's single-pass DOF fallback since
+  2026-09-23 (`depthPointSampler`; they read depth through the pass's LINEAR sampler
+  before). On the shipped scenes that moved `taa` by at most 1 count and
+  `depth-of-field` not at all, because their taps land on depth texel centres; it
+  matters where a tap does not, as in the fog upsample's offset taps, which no example
+  drives. Establish this kind of thing by making the shader REPORT it: sample at
   a texel centre, one texel across, and exactly halfway, then check whether the
   halfway tap is the average. Reading the sampler-creation code is not enough.
 - **A pass that reconstructs a position from a depth tap must SNAP the tap's UV to

@@ -427,13 +427,20 @@ float3 applyDof(float3 color, float2 uv, texture2d<float> cocTexture, texture2d<
     return mix(color, blur, saturate(coc.r + coc.g));
 }
 
+// Point-sampled depth (AGENTS.md "Depth taps in a quad pass must be POINT
+// sampled"): a bilinear tap across a silhouette returns a depth belonging to
+// neither surface. The Vulkan backend binds a nearest sampler for every depth
+// texture of a quad pass; this is the Metal twin of that.
+constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
+                                    mip_filter::none, address::clamp_to_edge);
+
 // Single-pass DOF using depth buffer (fallback when no CoC texture is bound)
 float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
     texture2d<float> sceneTexture, depth2d<float> depthTexture, sampler s,
     float focusDistance, float focusRange, float blurRadius,
     float cameraNear, float cameraFar)
 {
-    float rawDepth = depthTexture.sample(s, uv);
+    float rawDepth = depthTexture.sample(depthPointSampler, uv);
     float linearDepth = (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
 
     // upstream-style CoC: far range starts at focusDistance + focusRange/2
@@ -459,7 +466,7 @@ float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
         float2 sampleUV = clamp(uv + offsets[i] * step, float2(0.0), float2(1.0));
 
         // Read depth at sample position to compute its CoC
-        float sampleRawDepth = depthTexture.sample(s, sampleUV);
+        float sampleRawDepth = depthTexture.sample(depthPointSampler, sampleUV);
         float sampleLinearDepth = (cameraNear * cameraFar) / (cameraFar - sampleRawDepth * (cameraFar - cameraNear));
         float sampleCoc = clamp((sampleLinearDepth - farRange) * invRange, 0.0, 1.0);
 

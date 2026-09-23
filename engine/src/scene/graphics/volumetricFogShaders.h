@@ -133,6 +133,13 @@ static inline float sampleFogShadow(float3 worldPos, float viewDepth,
     return shadowMap.sample_compare(shadowSampler, coord.xy, coord.z - u.shadowParams.y);
 }
 
+// Point-sampled depth (AGENTS.md "Depth taps in a quad pass must be POINT
+// sampled"): a bilinear tap across a silhouette returns a depth belonging to
+// neither surface. The Vulkan backend binds a nearest sampler for every depth
+// texture of a quad pass; this is the Metal twin of that.
+constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
+                                    mip_filter::none, address::clamp_to_edge);
+
 fragment float4 fogFragment(
     FogVarying in [[stage_in]],
     depth2d<float> depthTexture [[texture(0)]],
@@ -153,7 +160,7 @@ fragment float4 fogFragment(
 
     // Distance along the ray to the scene surface. The depth buffer stores distance along the
     // view axis, so divide by the ray's projection onto the forward vector.
-    const float rawDepth = depthTexture.sample(linearSampler, uv);
+    const float rawDepth = depthTexture.sample(depthPointSampler, uv);
     const float sceneDepth = getLinearDepth(rawDepth, cameraNear, cameraFar);
     const float rayDot = max(dot(rayDir, u.cameraForward.xyz), 0.001);
     const float rayLength = min(sceneDepth / rayDot, u.fogParams.w);
@@ -372,6 +379,13 @@ static inline float getLinearDepth(float rawDepth, float cameraNear, float camer
     return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
 }
 
+// Point-sampled depth (AGENTS.md "Depth taps in a quad pass must be POINT
+// sampled"): a bilinear tap across a silhouette returns a depth belonging to
+// neither surface. The Vulkan backend binds a nearest sampler for every depth
+// texture of a quad pass; this is the Metal twin of that.
+constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
+                                    mip_filter::none, address::clamp_to_edge);
+
 fragment float4 fogCombineFragment(
     FogCombineVarying in [[stage_in]],
     depth2d<float> depthTexture [[texture(0)]],
@@ -383,7 +397,7 @@ fragment float4 fogCombineFragment(
     const float cameraNear = u.cameraParams.x;
     const float cameraFar = u.cameraParams.y;
 
-    const float depth = getLinearDepth(depthTexture.sample(linearSampler, uv), cameraNear, cameraFar);
+    const float depth = getLinearDepth(depthTexture.sample(depthPointSampler, uv), cameraNear, cameraFar);
 
     // The four nearest texel centres of the low-resolution fog texture.
     const float2 texel = uv * u.textureSize.xy - 0.5;
@@ -408,7 +422,7 @@ fragment float4 fogCombineFragment(
     float sumWeight = 0.0;
     for (int i = 0; i < 4; ++i) {
         const float sampleDepth = getLinearDepth(
-            depthTexture.sample(linearSampler, uvs[i]), cameraNear, cameraFar);
+            depthTexture.sample(depthPointSampler, uvs[i]), cameraNear, cameraFar);
         const float w = bilinear[i] / (1.0 + 16.0 * abs(sampleDepth - depth) / max(depth, 0.001));
         sum += fogTexture.sample(linearSampler, uvs[i]) * w;
         sumWeight += w;
