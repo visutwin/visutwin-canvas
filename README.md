@@ -86,7 +86,7 @@ cmake -S . -B build -DVISUTWIN_SIM_ENABLE_METAL=ON \
 copy can live anywhere. Keep the copies in step when upgrading; nothing checks
 that automatically.
 
-The 46 examples are opt-in:
+The 47 examples are opt-in:
 
 ```bash
 cmake --preset examples
@@ -102,7 +102,7 @@ recompiling.
 ## Docs
 
 - [FEATURES.md](FEATURES.md) — full feature inventory and per-module status
-- [examples/](examples/README.md) — all 46 examples, grouped and described
+- [examples/](examples/README.md) — all 47 examples, grouped and described
 - [CONTRIBUTING.md](CONTRIBUTING.md) — layout, tests, and shader workflow
 - [canvas.visutwin.com](https://canvas.visutwin.com) — project home page
 

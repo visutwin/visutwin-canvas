@@ -646,6 +646,13 @@ namespace visutwin::canvas
         void setMaterial(const Material* material) { _material = material; }
         const Material* material() const { return _material; }
 
+        // The drawing mesh instance's own lightmap (MeshInstance::lightMap), bound in
+        // the material's lightmap slot OVER whatever the material supplies there. Set
+        // per draw by the forward renderer and cleared after its draw loop, so no
+        // other pass inherits it. Non-owning: the mesh instance owns the texture.
+        void setInstanceLightMap(Texture* texture) { _instanceLightMap = texture; }
+        Texture* instanceLightMap() const { return _instanceLightMap; }
+
         // when true, forward shaders output linear HDR
         // (tonemapping + gamma are deferred to the compose pass).  Set by
         // RenderPassForward when running inside a CameraFrame pipeline.
@@ -1010,6 +1017,7 @@ namespace visutwin::canvas
         std::shared_ptr<StencilParameters> _stencilFront;
         std::shared_ptr<StencilParameters> _stencilBack;
         const Material* _material = nullptr;
+        Texture* _instanceLightMap = nullptr;
 
         // GPU pass profiler — assigned by backends that support one.
         std::shared_ptr<GpuProfiler> _gpuProfiler;

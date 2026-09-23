@@ -40,10 +40,13 @@ namespace visutwin::canvas
         // instancing / instancingColor come from the draw's mesh instance, not the material:
         // instancing is true when it carries a per-instance buffer, instancingColor when that
         // buffer's format has the trailing per-instance color (80-byte stride).
+        // instanceLightmap: the draw's mesh instance carries a lightmap of its own
+        // (MeshInstance::lightMap), which turns the lightmap path on whether or not
+        // the material has one.
         std::shared_ptr<Shader> getForwardShader(const Material* material, bool transparentPass,
                                                     bool dynamicBatch = false, bool skinning = false,
                                                     bool morphing = false, bool instancing = false,
-                                                    bool instancingColor = false);
+                                                    bool instancingColor = false, bool instanceLightmap = false);
         // The caster's material decides the shadow FRONTEND: an alpha-tested caster
         // has to sample its base-colour texture before writing depth, or it throws
         // the shadow of its bounding quad, and a caster with opacityShadowDither
@@ -63,7 +66,7 @@ namespace visutwin::canvas
 
         void bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material, bool transparentPass,
                           bool dynamicBatch = false, bool skinning = false, bool morphing = false,
-                          bool instancing = false, bool instancingColor = false);
+                          bool instancing = false, bool instancingColor = false, bool instanceLightmap = false);
 
         // set whether a skybox cubemap is available.
         // When true, skybox materials compile with VT_FEATURE_SKY_CUBEMAP.
@@ -252,7 +255,8 @@ namespace visutwin::canvas
         ShaderVariantOptions buildForwardVariantOptions(const Material* material, bool transparentPass,
                                                          bool dynamicBatch = false, bool skinning = false,
                                                          bool morphing = false, bool instancing = false,
-                                                         bool instancingColor = false) const;
+                                                         bool instancingColor = false,
+                                                         bool instanceLightmap = false) const;
         static std::string resolveProgramName(const ShaderVariantOptions& options);
         static ShaderFeatureSet makeFeatureSet(const ShaderVariantOptions& options);
         VariantKey makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;

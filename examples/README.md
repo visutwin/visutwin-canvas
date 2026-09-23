@@ -1,6 +1,6 @@
 # VisuTwin Canvas Examples
 
-46 example applications, each a small self-contained program built on the
+47 example applications, each a small self-contained program built on the
 engine. All but one are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The
@@ -115,6 +115,7 @@ The second column is the upstream example each one ports, as
 | pcss-dither | graphics/dithered-transparency | Blend and dither strengths decoupled, dithered shadows |
 | pcss-local | test/contact-hardening-shadows | PCSS contact-hardening shadows from local lights |
 | lightmap-bake | graphics/lights-baked-a-o | CPU-baked lightmaps with shadows and AO |
+| lightmap-sources | test/lightmap-sources | A material lightmap vs a mesh instance's own bake, and which wins |
 
 ### Reflections & environment
 

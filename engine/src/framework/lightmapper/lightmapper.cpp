@@ -20,7 +20,6 @@
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
 #include "scene/mesh.h"
-#include "scene/materials/standardMaterial.h"
 
 namespace visutwin::canvas
 {
@@ -506,14 +505,5 @@ namespace visutwin::canvas
         spdlog::info("Lightmapper: baked {}x{} lightmap ({} lights, {} occluder tris, AO {})",
             size, size, _lights.size(), _occluders.size(), options.ambientOcclusion);
         return texture;
-    }
-
-    void Lightmapper::bakeAndApply(StandardMaterial* material, const Mesh& target,
-        const Matrix4& worldTransform, const Options& options)
-    {
-        auto tex = bake(target, worldTransform, options);
-        if (material && tex) {
-            material->setLightMap(tex.get());
-        }
     }
 }

@@ -273,7 +273,7 @@ namespace visutwin::canvas
 
     ProgramLibrary::ShaderVariantOptions ProgramLibrary::buildForwardVariantOptions(const Material* material,
         const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor) const
+        const bool instancing, const bool instancingColor, const bool instanceLightmap) const
     {
         ShaderVariantOptions options{};
         options.transparentPass = transparentPass;
@@ -386,6 +386,9 @@ namespace visutwin::canvas
         } else {
             options.lightmap = (variantBits & (1ull << 34)) != 0ull;
         }
+        // A mesh instance's own lightmap needs the path whatever the material says;
+        // the device binds it over the material's (upstream useInstanceLightMap).
+        options.lightmap = options.lightmap || instanceLightmap;
         // Vertex colors stay an explicit opt-in (bit 21) because the material cannot
         // see whether the mesh even carries a color stream — but asking for
         // emissiveVertexColor is that opt-in, and would otherwise silently do nothing.
@@ -470,6 +473,13 @@ namespace visutwin::canvas
         options.planarReflectionDepthPass = _planarReflectionDepthPass;
         options.lightmapBake = _lightmapBakePass;
         options.lightmapBakeAccum = _lightmapBakeAccumulate;
+        // A bake computes the light afresh. With a previous bake still attached (to
+        // the mesh instance or the material) the lightmap path would replace the
+        // ambient with it, and the non-accumulating pass writes that indirect term
+        // back out — so every re-bake fed on the one before.
+        if (options.lightmapBake) {
+            options.lightmap = false;
+        }
 
         // Debug surface-quantity output, set by the renderer from the camera's debugShaderPass.
         options.debugPass = _debugPassEnabled;
@@ -828,14 +838,14 @@ namespace visutwin::canvas
 
     std::shared_ptr<Shader> ProgramLibrary::getForwardShader(const Material* material, const bool transparentPass,
         const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor)
+        const bool instancing, const bool instancingColor, const bool instanceLightmap)
     {
         if (!_device) {
             return nullptr;
         }
 
         const ShaderVariantOptions options = buildForwardVariantOptions(material, transparentPass, dynamicBatch,
-            skinning, morphing, instancing, instancingColor);
+            skinning, morphing, instancing, instancingColor, instanceLightmap);
         const std::string programName = resolveProgramName(options);
         if (!hasProgram(programName)) {
             spdlog::error("ProgramLibrary has no registered program '{}'.", programName);
@@ -966,7 +976,7 @@ namespace visutwin::canvas
 
     void ProgramLibrary::bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material,
         const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor)
+        const bool instancing, const bool instancingColor, const bool instanceLightmap)
     {
         if (!device) {
             return;
@@ -975,7 +985,7 @@ namespace visutwin::canvas
         auto shader = material ? material->shaderOverride() : nullptr;
         if (!shader) {
             shader = getForwardShader(material, transparentPass, dynamicBatch, skinning, morphing,
-                instancing, instancingColor);
+                instancing, instancingColor, instanceLightmap);
         }
 
         auto blendState = material ? material->blendState() : nullptr;

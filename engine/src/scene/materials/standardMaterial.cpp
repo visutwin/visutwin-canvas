@@ -322,7 +322,7 @@ namespace visutwin::canvas
         overrideSlot(13, _clearCoatGlossMap);
         overrideSlot(14, _clearCoatNormalMap);
         overrideSlot(17, _heightMap);
-        overrideSlot(19, _lightMap);
+        overrideSlot(kLightMapTextureSlot, _lightMap);
         // Spec-gloss reuses the metal-rough binding (slot 3) — the two
         // parameterizations are mutually exclusive and VT_FEATURE_SPEC_GLOSS
         // reinterprets the sample as rgb=specular color (sRGB), a=glossiness.

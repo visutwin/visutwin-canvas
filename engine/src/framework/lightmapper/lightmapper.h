@@ -18,7 +18,6 @@ namespace visutwin::canvas
     class GraphicsDevice;
     class Mesh;
     class Texture;
-    class StandardMaterial;
 
     /**
      * Bakes scene lighting into per-mesh lightmap textures sampled at UV1 (the
@@ -106,10 +105,6 @@ namespace visutwin::canvas
         /// return the uploaded RGBA8 texture (nullptr on failure).
         std::shared_ptr<Texture> bake(const Mesh& target, const Matrix4& worldTransform,
             const Options& options);
-
-        /// Bake and assign the result to a material's lightmap slot.
-        void bakeAndApply(StandardMaterial* material, const Mesh& target,
-            const Matrix4& worldTransform, const Options& options);
 
     private:
         struct Tri { Vector3 a, b, c; };

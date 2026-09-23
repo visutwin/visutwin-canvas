@@ -23,7 +23,6 @@ namespace visutwin::canvas
     class Layer;
     class MeshInstance;
     class RenderTarget;
-    class StandardMaterial;
     class Texture;
 
     /**
@@ -115,7 +114,8 @@ namespace visutwin::canvas
         /// Baked textures, one per target, in the order passed to bake().
         const std::vector<std::shared_ptr<Texture>>& lightmaps() const { return _lightmaps; }
 
-        /// Restores the materials' pre-bake state (no lightmap), for A/B toggles.
+        /// Detaches the baked lightmaps from their mesh instances (or reattaches
+        /// them), for A/B toggles.
         void setLightmapsEnabled(bool enabled);
 
     private:
@@ -131,7 +131,6 @@ namespace visutwin::canvas
         std::vector<std::shared_ptr<RenderTarget>> _targetsRT;
         std::vector<std::shared_ptr<Layer>> _layers;
         std::vector<Entity*> _cameras;
-        std::vector<StandardMaterial*> _materials;
         std::vector<uint32_t> _originalMasks;
         std::vector<std::pair<LightComponent*, std::vector<int>>> _lightLayerBackup;
         std::vector<std::pair<LightComponent*, uint32_t>> _lightMaskBackup;

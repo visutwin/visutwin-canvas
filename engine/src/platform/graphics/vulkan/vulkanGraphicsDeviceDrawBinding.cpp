@@ -689,6 +689,8 @@ namespace visutwin::canvas
             if (_material) {
                 std::vector<TextureSlot> texSlots;
                 _material->getTextureSlots(texSlots);
+                // The mesh instance's own lightmap goes over the material's.
+                applyInstanceLightMap(texSlots, instanceLightMap());
                 for (const auto& ts : texSlots) {
                     // The displacement map arrives on the >=100 sentinel slot
                     // that routes it to the vertex stage (mirrors Metal).

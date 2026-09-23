@@ -1587,6 +1587,7 @@ namespace visutwin::canvas
         bool lastShaderMorphed = false;
         bool lastShaderInstanced = false;
         bool lastShaderInstanceColor = false;
+        bool lastShaderInstanceLightMap = false;
 
         for (const auto* entry : drawEntries) {
             const Material* boundMaterial = entry->material ? entry->material : defaultMaterial.get();
@@ -1605,17 +1606,26 @@ namespace visutwin::canvas
             const bool hasInstanceColor = isInstanced && instanceBuffer->format() &&
                 instanceBuffer->format()->hasInstanceColor();
 
+            // A lightmap the mesh instance owns (a lightmapper's bake) overrides the
+            // material's, so it both selects the lightmap variant and is bound by the
+            // device over the material's lightmap slot.
+            Texture* instanceLightMap = entry->meshInstance ? entry->meshInstance->lightMap().get() : nullptr;
+            const bool hasInstanceLightMap = instanceLightMap != nullptr;
+            _device->setInstanceLightMap(instanceLightMap);
+
             if (boundMaterial != lastShaderMaterial || isDynBatch != lastShaderDynBatch ||
                 isSkinned != lastShaderSkinned || isMorphed != lastShaderMorphed ||
-                isInstanced != lastShaderInstanced || hasInstanceColor != lastShaderInstanceColor) {
+                isInstanced != lastShaderInstanced || hasInstanceColor != lastShaderInstanceColor ||
+                hasInstanceLightMap != lastShaderInstanceLightMap) {
                 programLibrary->bindMaterial(_device, boundMaterial, transparent, isDynBatch, isSkinned, isMorphed,
-                    isInstanced, hasInstanceColor);
+                    isInstanced, hasInstanceColor, hasInstanceLightMap);
                 lastShaderMaterial = boundMaterial;
                 lastShaderDynBatch = isDynBatch;
                 lastShaderSkinned = isSkinned;
                 lastShaderMorphed = isMorphed;
                 lastShaderInstanced = isInstanced;
                 lastShaderInstanceColor = hasInstanceColor;
+                lastShaderInstanceLightMap = hasInstanceLightMap;
             }
 
             // Phase 4: reuse cached light list when mask matches (zero allocation per draw).
@@ -1788,6 +1798,8 @@ namespace visutwin::canvas
             }
             _forwardDrawCalls++;
         }
+        // No other pass may inherit the last draw's lightmap.
+        _device->setInstanceLightMap(nullptr);
 
         // Restore global viewport/scissor after this camera-layer pass.
         _device->setViewport(oldVx, oldVy, oldVw, oldVh);

@@ -82,6 +82,28 @@ namespace visutwin::canvas
         Texture* texture = nullptr;
     };
 
+    // The texture slot a lightmap binds to (Metal fragment slot 19, Vulkan set-1
+    // binding 19). The material's lightMap goes there, and a mesh instance's own
+    // lightmap is bound over it by the device (GraphicsDevice::setInstanceLightMap).
+    inline constexpr int kLightMapTextureSlot = 19;
+
+    // Binds a mesh instance's own lightmap OVER the material's lightmap slot, the
+    // one step both backends take after Material::getTextureSlots. Null leaves the
+    // material's slots as they are.
+    inline void applyInstanceLightMap(std::vector<TextureSlot>& slots, Texture* instanceLightMap)
+    {
+        if (!instanceLightMap) {
+            return;
+        }
+        for (auto& entry : slots) {
+            if (entry.slot == kLightMapTextureSlot) {
+                entry.texture = instanceLightMap;
+                return;
+            }
+        }
+        slots.push_back({kLightMapTextureSlot, instanceLightMap});
+    }
+
     /**
      * @brief Base class for GPU materials — owns uniform data, texture bindings, blend/depth state, and shader compilation.
      * @ingroup group_scene_materials

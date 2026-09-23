@@ -174,6 +174,41 @@ int main()
         check(boundAt34, "the opacity map is bound at texture slot 34");
     }
 
+    // A mesh instance's own lightmap (what a lightmapper bakes) goes over the
+    // material's lightmap slot, and leaves the material itself untouched. The bakers
+    // used to write into the shared material, so meshes sharing one showed a single
+    // bake; upstream gave the mesh instance its own slot in 0cd268478.
+    {
+        const auto assigned = makeTexture(&device);
+        const auto baked = makeTexture(&device);
+        const auto slotTexture = [](const std::vector<TextureSlot>& slots) -> Texture* {
+            for (const auto& slot : slots) {
+                if (slot.slot == kLightMapTextureSlot) return slot.texture;
+            }
+            return nullptr;
+        };
+
+        StandardMaterial material;
+        std::vector<TextureSlot> slots;
+        material.getTextureSlots(slots);
+        applyInstanceLightMap(slots, baked.get());
+        check(slotTexture(slots) == baked.get(),
+            "an instance lightmap is bound at the lightmap slot when the material has none");
+
+        material.setLightMap(assigned.get());
+        slots.clear();
+        material.getTextureSlots(slots);
+        check(slotTexture(slots) == assigned.get(), "the material's own lightmap binds at the lightmap slot");
+        applyInstanceLightMap(slots, baked.get());
+        check(slotTexture(slots) == baked.get(), "the instance lightmap WINS over the material's");
+        check(material.lightMap() == assigned.get(), "and the material's lightmap is left alone");
+
+        slots.clear();
+        material.getTextureSlots(slots);
+        applyInstanceLightMap(slots, nullptr);
+        check(slotTexture(slots) == assigned.get(), "no instance lightmap leaves the material's in place");
+    }
+
     if (failures != 0) {
         std::printf("standard material workflow: %d check(s) FAILED\n", failures);
         return 1;

@@ -99,7 +99,6 @@ namespace visutwin::canvas
         _options = options;
         _targets = targets;
         _lightmaps.clear();
-        _materials.clear();
         _originalMasks.clear();
 
         const auto& device = _engine->graphicsDevice();
@@ -109,7 +108,6 @@ namespace visutwin::canvas
             auto* meshInstance = _targets[i];
             if (!meshInstance || !meshInstance->mesh()) {
                 _lightmaps.push_back(nullptr);
-                _materials.push_back(nullptr);
                 continue;
             }
 
@@ -178,7 +176,6 @@ namespace visutwin::canvas
             _targetsRT.push_back(std::move(renderTarget));
             _layers.push_back(std::move(layer));
             _cameras.push_back(cameraEntity);
-            _materials.push_back(dynamic_cast<StandardMaterial*>(meshInstance->material()));
         }
 
         // Lights are filtered per layer, so every scene light has to be told about the
@@ -287,9 +284,11 @@ namespace visutwin::canvas
                 continue;
             }
             meshInstance->setMask(MASK_AFFECT_LIGHTMAPPED);
-            if (auto* material = (i < _materials.size()) ? _materials[i] : nullptr) {
-                material->setLightMap(_lightmaps[i].get());
-            }
+            // The bake belongs to the MESH INSTANCE (upstream 0cd268478): meshes that
+            // share one material each keep their own, and the material's lightMap is
+            // left alone. It used to be written into the shared material, so every
+            // mesh using it showed whichever target was baked last.
+            meshInstance->setLightMap(_lightmaps[i]);
         }
 
 
@@ -303,9 +302,9 @@ namespace visutwin::canvas
 
     void GpuLightmapper::setLightmapsEnabled(const bool enabled)
     {
-        for (size_t i = 0; i < _materials.size(); ++i) {
-            if (auto* material = _materials[i]) {
-                material->setLightMap((enabled && i < _lightmaps.size()) ? _lightmaps[i].get() : nullptr);
+        for (size_t i = 0; i < _targets.size() && i < _lightmaps.size(); ++i) {
+            if (auto* meshInstance = _targets[i]) {
+                meshInstance->setLightMap(enabled ? _lightmaps[i] : nullptr);
             }
         }
     }

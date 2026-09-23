@@ -8,14 +8,13 @@
 // geometry is registered as ray occluders so submeshes shadow each other and
 // AO forms in the crevices. The helipad env atlas provides the skybox / ambient.
 // Each house mesh is masked out of realtime lighting (MASK_AFFECT_LIGHTMAPPED),
-// so its whole look comes from the bake. Auto-toggles the lightmaps ON/OFF every
-// 3 s to show the baked shadows + AO appear/disappear. Esc quits.
+// so its whole look comes from the bake. L toggles the lightmaps ON/OFF to show the
+// baked shadows + AO appear/disappear. Esc quits.
 //
 #include <algorithm>
 #include <chrono>
 #include <memory>
 #include <string>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -28,7 +27,6 @@
 #include "framework/lightmapper/lightmapper.h"
 #include "platform/graphics/texture.h"
 #include "scene/constants.h"
-#include "scene/materials/standardMaterial.h"
 #include "scene/meshInstance.h"
 
 using namespace visutwin::canvas;
@@ -243,8 +241,8 @@ protected:
             return true;
         case SDLK_L:
             _lightmapOn = !_lightmapOn;
-            for (auto& [mat, tex] : _bakedMaterials) {
-                mat->setLightMap(_lightmapOn ? tex.get() : nullptr);
+            for (size_t i = 0; i < _houseMeshes.size() && i < _bakedLightmaps.size(); ++i) {
+                _houseMeshes[i]->setLightMap(_lightmapOn ? _bakedLightmaps[i] : nullptr);
             }
             spdlog::info("House lightmaps: {}", _lightmapOn ? "ON (baked shadows + AO)" : "OFF");
             return true;
@@ -275,6 +273,8 @@ protected:
             const auto gpuMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - _gpuBakeStart).count();
             spdlog::info("GPU bake duration: {} ms", gpuMs);
+            // Same order as _houseMeshes, which is what bake() was given.
+            _bakedLightmaps = _gpuLightmapper->lightmaps();
             _lightmapOn = true;
         }
     }
@@ -339,12 +339,12 @@ private:
         _bakeOptions.ambientBakeSpherePart = _hemisphereEnabled ? 0.4f : 1.0f;
         _bakeOptions.filterEnabled = _filterEnabled;
 
-        _bakedMaterials.clear();
-        _seenMaterials.clear();
-        _keepAlive.clear();
+        _bakedLightmaps.assign(_houseMeshes.size(), nullptr);
 
         const auto bakeStart = std::chrono::steady_clock::now();
-        for (auto* mi : _houseMeshes) {
+        int baked = 0;
+        for (size_t i = 0; i < _houseMeshes.size(); ++i) {
+            auto* mi = _houseMeshes[i];
             auto* node = mi->node();
             if (!node) {
                 continue;
@@ -353,25 +353,17 @@ private:
             if (!lightmap) {
                 continue;
             }
-            _keepAlive.push_back(lightmap);
             mi->setMask(MASK_AFFECT_LIGHTMAPPED);
-
-            if (auto* stdMat = dynamic_cast<StandardMaterial*>(mi->material())) {
-                stdMat->setLightMap(lightmap.get());
-                // DEVIATION/RISK: submeshes sharing one StandardMaterial but with
-                // distinct UV1 layouts collide — last bake wins. Track the material
-                // once so the toggle stays consistent.
-                if (_seenMaterials.insert(stdMat).second) {
-                    _bakedMaterials.emplace_back(stdMat, std::move(lightmap));
-                } else {
-                    _bakedMaterials.back().second = _keepAlive.back();
-                }
-            }
+            // Each mesh instance owns its bake (upstream 0cd268478), so submeshes that
+            // share one material no longer collide with the last bake winning.
+            mi->setLightMap(lightmap);
+            _bakedLightmaps[i] = std::move(lightmap);
+            ++baked;
         }
         const auto bakeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - bakeStart).count();
         // JS: data.stats.duration
-        spdlog::info("Bake duration: {} ms ({} lightmapped material(s))", bakeMs, _bakedMaterials.size());
+        spdlog::info("Bake duration: {} ms ({} lightmapped mesh(es))", bakeMs, baked);
     }
 
     // The GPU bake is upstream's own mechanism and costs a single frame, so it is what
@@ -418,10 +410,9 @@ private:
     LightComponent* _omniLight = nullptr;
     LightComponent* _spotLight = nullptr;
 
-    // Track unique materials so the ON/OFF toggle can restore them.
-    std::vector<std::pair<StandardMaterial*, std::shared_ptr<Texture>>> _bakedMaterials;
-    std::unordered_set<StandardMaterial*> _seenMaterials;
-    std::vector<std::shared_ptr<Texture>> _keepAlive;  // hold every baked texture
+    // The last bake, one per house mesh in _houseMeshes order, from whichever baker
+    // ran last, so the ON/OFF toggle can put them back.
+    std::vector<std::shared_ptr<Texture>> _bakedLightmaps;
 
     std::chrono::steady_clock::time_point _gpuBakeStart;
 

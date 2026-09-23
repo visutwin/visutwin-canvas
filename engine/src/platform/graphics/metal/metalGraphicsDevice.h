@@ -329,6 +329,9 @@ namespace visutwin::canvas
 
         // Per-pass texture binding deduplication (slots 0-8 + sampler).
         MetalTextureBinder _textureBinder;
+        // The instance lightmap the material slots were last bound with, so a draw
+        // that keeps the material but changes it still rebinds (see draw()).
+        Texture* _boundInstanceLightMap = nullptr;
 
         // LTC area-light lookup textures (slots 20/21), owned by the renderer.
         Texture* _areaLightLut1 = nullptr;

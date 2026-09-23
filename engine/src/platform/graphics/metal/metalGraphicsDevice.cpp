@@ -1187,17 +1187,22 @@ namespace visutwin::canvas
                 uniformData = &boundMaterial->packedUniforms();
             }
 
-            // Skip texture rebinding when same material is still bound.
-            if (materialChanged) {
+            // Skip texture rebinding when same material is still bound — unless the
+            // mesh instance's own lightmap changed, which rides in the material's
+            // lightmap slot: two meshes sharing a material each bring their own.
+            if (materialChanged || instanceLightMap() != _boundInstanceLightMap) {
                 // Reused: this runs on every material switch, and the slot list is
                 // consumed immediately by bindMaterialTextures.
                 static thread_local std::vector<TextureSlot> textureSlots;
                 textureSlots.clear();
                 boundMaterial->getTextureSlots(textureSlots);
+                applyInstanceLightMap(textureSlots, instanceLightMap());
                 _textureBinder.bindMaterialTextures(passEncoder, textureSlots);
+                _boundInstanceLightMap = instanceLightMap();
             }
         } else {
             _textureBinder.clearAllMaterialSlots(passEncoder);
+            _boundInstanceLightMap = nullptr;
         }
 
         // A quad pass has no material, so its own uniform block takes the material

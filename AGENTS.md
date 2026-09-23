@@ -43,7 +43,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
-  examples/        # 46 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 47 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -1014,6 +1014,20 @@ present, but the rule below never depends on reading it.
   depths must be clamped to the bin range before any integer conversion, because
   the unclamped negative-to-`uint32_t` cast is undefined — x86 wrapped a splat
   nearer than the nearest bound corner to the FARTHEST key.
+- **A baked lightmap belongs to the MESH INSTANCE, not the material.**
+  `MeshInstance::setLightMap` owns it (a `shared_ptr`); the renderer hands it to the
+  device per draw (`GraphicsDevice::setInstanceLightMap`, cleared after the draw loop),
+  both backends bind it OVER the material's slot (`applyInstanceLightMap`, slot
+  `kLightMapTextureSlot`), and it switches the lightmap variant on by itself. Upstream
+  0cd268478. Until 2026-09-23 both bakers wrote into the SHARED material, so meshes
+  sharing one showed whichever bake was applied last, and a material shared with an
+  unbaked mesh carried the bake onto it — `lightmap-sources` shows all of it. Two
+  things came with it: a bake variant never samples a lightmap (a previous bake still
+  attached used to be written back into the new one as its indirect light), and Metal
+  rebinds the material textures when only the instance lightmap changed, since its
+  "same material, skip binding" shortcut would otherwise keep the last mesh's bake.
+  NOTE built-in primitives mirror UV0 into UV1, where upstream unwraps each face into
+  its own padded cell: a baked box's six faces share one lightmap square.
 - **The CPU lightmapper's BVH skipped most of every tree until 2026-09-13.** It
   stored only a node's left child and walked `left` and `left + 1`, but children
   are built depth-first, so `left + 1` is the right sibling only when the left child

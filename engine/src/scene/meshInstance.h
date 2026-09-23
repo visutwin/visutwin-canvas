@@ -97,6 +97,15 @@ namespace visutwin::canvas
         bool receiveShadow() const { return _receiveShadow; }
         void setReceiveShadow(const bool value) { _receiveShadow = value; }
 
+        // A lightmap of this mesh instance's own, which is what a lightmapper bakes
+        // (upstream MeshInstance's instance_lightMap, 0cd268478). It takes PRIORITY
+        // over the material's lightMap, and binds in the same slot, so meshes that
+        // share one material each show their own bake; until 2026-09-23 the bakers
+        // wrote into the shared material and every such mesh showed the last one.
+        // Owned here: the texture must outlive every draw that samples it.
+        const std::shared_ptr<Texture>& lightMap() const { return _lightMap; }
+        void setLightMap(std::shared_ptr<Texture> texture) { _lightMap = std::move(texture); }
+
         bool cull() const { return _cull; }
         void setCull(const bool value) { _cull = value; }
 
@@ -342,6 +351,7 @@ namespace visutwin::canvas
 
         bool _castShadow = true;
         bool _receiveShadow = true;
+        std::shared_ptr<Texture> _lightMap;
         bool _cull = true;
         bool _visibleThisFrame = false;
         int _drawOrder = 0;
