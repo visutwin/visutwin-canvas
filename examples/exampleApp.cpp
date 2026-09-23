@@ -148,6 +148,28 @@ namespace visutwin::canvas
             }
         }
 
+        // VISUTWIN_FILL_LIGHT=pitch,yaw,intensity[,shadows] adds a second, white
+        // directional light aimed by those Euler angles (degrees). Only one directional
+        // shadow exists per layer, so this light must come out UNSHADOWED however the
+        // key light is set up — with shadows=1 too, since it is created after the
+        // example's own light and so loses the one slot. Aim it like the key light and
+        // the difference from a run without it is the fill alone, which must be as
+        // bright inside the key light's shadow as outside it. No example has two
+        // directional lights; this is how Vulkan was found shadowing a shadowless fill
+        // with the key light's map (2026-09-23).
+        if (const char* fill = std::getenv("VISUTWIN_FILL_LIGHT"); fill && *fill) {
+            float pitch = 0.0f, yaw = 0.0f, intensity = 1.0f;
+            int shadows = 0;
+            if (std::sscanf(fill, "%f,%f,%f,%d", &pitch, &yaw, &intensity, &shadows) >= 3) {
+                createDirectionalLight(Vector3(pitch, yaw, 0.0f), Color(1.0f, 1.0f, 1.0f),
+                    intensity, shadows != 0);
+                spdlog::info("Fill light: euler ({}, {}) intensity {} shadows {} from VISUTWIN_FILL_LIGHT",
+                    pitch, yaw, intensity, shadows);
+            } else {
+                spdlog::warn("VISUTWIN_FILL_LIGHT='{}' is not pitch,yaw,intensity[,shadows]; ignored", fill);
+            }
+        }
+
         // The scene exists now, so the initialize phase has something to initialize.
         _engine->start();
 

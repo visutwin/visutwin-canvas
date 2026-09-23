@@ -638,6 +638,27 @@ present, but the rule below never depends on reading it.
   limiter mix at both counts.
   Separate 4x and 1x recordings had put the SSAO pass 1.5x slower under MSAA too,
   a pass MSAA cannot touch — the signature of a clock-state difference.
+- **Our HUD's GPU figure and upstream's are not comparable as read, for three reasons
+  that are not the profiler.** Verified 2026-09-23 on `ambient-occlusion` (HUD 4-5 ms vs
+  upstream ~1 ms) with `xctrace` per-encoder intervals, which both profilers reproduce
+  within 10%. (1) PIXELS: `ExampleApp` opens 900x700 POINTS under
+  `SDL_WINDOW_HIGH_PIXEL_DENSITY`, a 1800x1400 drawable on a Retina display, while
+  upstream's `GraphicsDevice` caps `maxPixelRatio` at 1, so its 900x700 canvas is 900x700
+  pixels — four times fewer. Resize the browser tab to 1800x1400 (upstream then reads 2.7
+  ms) or run ours at a 450x350 window before reading either number. (2) CLOCK: the
+  `gpu-performance-state-intervals` table shows the GPU in its MINIMUM state 55-88% of the
+  time under either engine, and every pass costs 2-3x more there than at Maximum; bucket
+  per-frame costs by state, or run both engines at once so they share one clock. (3) A
+  pass interval is a WALL interval on a shared GPU: with our window on screen WindowServer
+  composites a 29-encoder buffer every frame at 120 Hz INSIDE our forward pass's interval,
+  and the hardware counters show the forward window as ~1 ms of shading followed by ~1.4 ms
+  at zero utilization with the GPU still "Active" — a stall, not our work — which is why
+  the forward pass reads 0.90 ms at 900x700 and 0.93 at 1800x1400. At matched pixels and
+  one clock, ours is 1.5x upstream per frame, all of it in the forward pass. Two traps in
+  the measurement itself: `xctrace record --launch` leaves a SECOND instance of the example
+  running after its time limit (start the binary yourself and record `--all-processes`;
+  `pgrep -fl visutwin-ambient` before every recording), and a browser's frames must be
+  grouped by command buffer with 5+ encoders, not by Metal's `frame-number`.
 - **`xctrace` gives a GPU capture without the Xcode GUI.** `xcrun xctrace record
   --template 'Metal System Trace' --time-limit 8s --env VISUTWIN_BACKEND=metal
   --launch -- <binary>`, then `xctrace export --xpath '/trace-toc/run[@number="1"]/
@@ -1451,6 +1472,18 @@ present, but the rule below never depends on reading it.
   frame 2 (`setShadowUpdateMode(THISFRAME)`) and compare; and read the shadow map
   back (`Texture::read` on the atlas) rather than the lit frame, converting the
   crushed perspective depth to distance before looking at it.
+- **There is ONE directional shadow per layer, and only the light that owns it may
+  be shadowed.** DEVIATION: upstream samples every directional caster's map; here
+  the lighting block has one cascade palette and one directional shadow slot. The
+  renderer gives it to the first directional caster, marks that light with
+  `shadowMapIndex = 0` (Vulkan reads it from `coneParams.w`), and clears
+  `castShadows` on every other directional light with a one-time warning. Until
+  2026-09-23 Vulkan ran the cascade lookup for EVERY directional light, so a
+  shadowless fill light was darkened by the key light's shadow: measured on
+  `ambient-occlusion` with `VISUTWIN_FILL_LIGHT=35,30,1`, the fill's contribution
+  inside the key shadow was 0.01 counts on Vulkan against 37.85 on Metal, and is
+  37.87 now. A second directional shadow needs a second palette and texture slot on
+  both backends, and the Vulkan fragment stage is at MoltenVK's sampler limit.
 - **The default is ONE shadow cascade, as upstream.** It was 4, and a one-shot
   directional shadow is unusable with more than one: the receiver picks its cascade
   by VIEW depth, so moving the camera carries the scene into cascades whose maps were
@@ -1533,6 +1566,10 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
    its albedo, and a dark metal reflects at a tenth, which "lost" the pillar once. The
    fifth field lowers the floor's gloss to watch the roughness cone blur the
    reflection while the pillar stays sharp.
+8. `VISUTWIN_FILL_LIGHT=pitch,yaw,intensity[,shadows]` adds a second, white
+   directional light to any example. Aimed like the key light, the frame minus a run
+   without it is the fill alone, and it must be as bright inside the key light's
+   shadow as outside it.
 
 Animated examples cannot be screenshot-diffed across shader changes.
 

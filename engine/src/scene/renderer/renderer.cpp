@@ -1115,8 +1115,30 @@ namespace visutwin::canvas
                 continue;
             }
 
+            // DEVIATION: ONE directional shadow per layer, where upstream samples
+            // every directional caster's map. The lighting block has a single
+            // cascade palette and a single directional shadow texture slot, so the
+            // first directional caster owns it, and every other directional light
+            // must be told it casts nothing: the shaders gate the cascade lookup on
+            // the light's own flag, and a light that kept it would be darkened by
+            // the OWNER's shadow — a shadowless fill light carrying the key light's
+            // shadows, which is what Vulkan did until 2026-09-23.
+            if (lightData.castShadows && shadowParams.enabled &&
+                lightData.type == GpuLightType::Directional) {
+                lightData.castShadows = false;
+                static bool warned = false;
+                if (!warned) {
+                    warned = true;
+                    spdlog::warn("Renderer: more than one directional light casts shadows on one layer; "
+                                 "only the first is shadowed");
+                }
+            }
             if (lightData.castShadows && !shadowParams.enabled &&
                 lightData.type == GpuLightType::Directional) {
+                // Slot 0 marks this light as the owner of the directional shadow;
+                // the Vulkan chunk reads it from the same component the local
+                // shadows use, so a directional light without it stays unshadowed.
+                lightData.shadowMapIndex = 0;
                 shadowParams.enabled = true;
                 shadowParams.normalBias = lightComponent->shadowNormalBias();
                 shadowParams.strength = lightComponent->shadowStrength();
