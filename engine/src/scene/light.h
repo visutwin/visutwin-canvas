@@ -143,7 +143,8 @@ namespace visutwin::canvas
         BoundingSphere boundingSphere() const;
 
         LightType type() const { return _type; }
-        void setType(const LightType value) { _type = value; }
+        // Re-resolves the shadow type for the new light type, as upstream's setter does.
+        void setType(LightType value);
 
         bool castShadows() const;
         void setCastShadows(bool value);

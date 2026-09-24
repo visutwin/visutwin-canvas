@@ -185,12 +185,58 @@ namespace
         }
         return true;
     }
+
+    // VSM is directional-only in this port: a spot or omni light asking for it gets
+    // PCF3 (it used to keep VSM and come out unshadowed), and the resolution follows
+    // the light TYPE, so changing the type re-resolves the kept request.
+    bool checkLocalVsmFallsBack()
+    {
+        Light light(nullptr);
+        light.setShadowType(SHADOW_VSM_16F);
+        if (light.shadowType() != SHADOW_VSM_16F) {
+            std::cerr << "a directional light asking for VSM did not get it\n";
+            return false;
+        }
+        giveShadowMap(light);
+        light.setType(LightType::LIGHTTYPE_SPOT);
+        if (light.shadowType() != SHADOW_PCF3_32F || light.requestedShadowType() != SHADOW_VSM_16F) {
+            std::cerr << "a spot light asking for VSM did not fall back to PCF3 (or lost the request)\n";
+            return false;
+        }
+        if (!expectDropped("setType(SPOT)", light)) {
+            return false;
+        }
+        giveShadowMap(light);
+        light.setType(LightType::LIGHTTYPE_SPOT);
+        if (!expectKept("setType(SPOT) again", light)) {
+            return false;
+        }
+        light.setType(LightType::LIGHTTYPE_OMNI);
+        if (light.shadowType() != SHADOW_PCF3_32F) {
+            std::cerr << "an omni light asking for VSM did not fall back to PCF3\n";
+            return false;
+        }
+        light.setType(LightType::LIGHTTYPE_DIRECTIONAL);
+        if (light.shadowType() != SHADOW_VSM_16F) {
+            std::cerr << "back to directional, the kept VSM request was not honoured again\n";
+            return false;
+        }
+        // Setting VSM on a light that is ALREADY a spot resolves at once too.
+        Light spot(nullptr);
+        spot.setType(LightType::LIGHTTYPE_SPOT);
+        spot.setShadowType(SHADOW_VSM_16F);
+        if (spot.shadowType() != SHADOW_PCF3_32F) {
+            std::cerr << "VSM requested on an existing spot light was not resolved to PCF3\n";
+            return false;
+        }
+        return true;
+    }
 }
 
 int main()
 {
     const bool ok = checkResolution() && checkShadowType() && checkNumCascades() &&
-        checkCastShadows() && checkUpdateModeRearmed();
+        checkCastShadows() && checkUpdateModeRearmed() && checkLocalVsmFallsBack();
     if (!ok) {
         std::cerr << "shadow map invalidation tests FAILED\n";
         return 1;

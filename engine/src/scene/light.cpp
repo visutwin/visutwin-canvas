@@ -150,7 +150,36 @@ namespace visutwin::canvas
                 "device lacks — falling back to PCF3");
             return SHADOW_PCF3_32F;
         }
+        // VSM is rendered and sampled for DIRECTIONAL lights only. A spot or omni
+        // light left at VSM got an RGBA16F moments map that no pass wrote (the local
+        // shadow passes use the depth-only shader) and no forward path sampled, so it
+        // came out UNSHADOWED without a word. Upstream falls back to PCF3 for an omni
+        // light too (`light.js`: VSM is not supported for omni). DEVIATION for a spot
+        // light, which upstream does shadow with VSM.
+        if (requested == SHADOW_VSM_16F && _type != LightType::LIGHTTYPE_DIRECTIONAL) {
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                spdlog::warn("Light: VSM_16F shadows are directional-only in this port — "
+                    "a spot or omni light falls back to PCF3");
+            }
+            return SHADOW_PCF3_32F;
+        }
         return requested;
+    }
+
+    void Light::setType(const LightType value)
+    {
+        if (_type == value) {
+            return;
+        }
+        _type = value;
+        // The shadow type a request resolves to depends on the light type (VSM is
+        // directional-only), and the map's shape does too (a cube for omni), so the
+        // render data and the map are rebuilt, as upstream's type setter does.
+        _shadowType = resolveShadowType(_requestedShadowType);
+        _renderData.clear();
+        destroyShadowMap();
     }
 
     void Light::setShadowType(const ShadowType value)

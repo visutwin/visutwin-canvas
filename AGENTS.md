@@ -1701,6 +1701,15 @@ present, but the rule below never depends on reading it.
   against the atlas's nine uniform taps). The golden set now includes the scene, and
   fails at 13.9% against the old code. When a pipeline ignores a state the engine set,
   the bug is invisible until something depends on the non-default value.
+- **VSM is DIRECTIONAL-ONLY; a spot or omni light asking for it gets PCF3.**
+  `Light::resolveShadowType` falls back with a one-time warning, and `Light::setType`
+  re-resolves the kept request (`requestedShadowType`), as upstream's type setter
+  does. Upstream falls back for omni too; for a spot it is a DEVIATION, since upstream
+  shadows spots with VSM. Before 2026-09-24 a local light kept VSM, got an RGBA16F
+  moments map no pass wrote and no forward path sampled, and cast NO shadow
+  (`pcss-local` with its spots forced to VSM: no shadow at all; with the fallback,
+  within 0.007 of the authored frame). Porting local VSM means moments in the local
+  shadow passes, the blur, and a sampling path in both forward chunks.
 - **A shadow pass must not take its variant from a scene-wide switch set by the
   FORWARD pass.** `renderForwardLayer` sets ProgramLibrary's feature switches (VSM,
   PCSS, cookies, local shadows ...) when the forward pass executes, which is AFTER
