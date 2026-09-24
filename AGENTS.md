@@ -1391,6 +1391,20 @@ present, but the rule below never depends on reading it.
   The default gsplat example pose cannot see any of it — nothing there straddles a
   plane, and the frame must come back bit-identical, which is the control that says
   a change here is confined to the splats that actually cross.
+- **A splat's colour is GAMMA space, and it owes the target an output stage.**
+  Upstream's `gsplatOutput` (`prepareOutputFromGamma`): decode when tone mapping, fog or
+  a linear target needs linear, fog at the view depth, tone map with exposure, and
+  encode back for a gamma target. The renderer fills the tail of `GpuGSplatParams`
+  (fog, exposure, tone-mapping mode, linear-HDR target from `GraphicsDevice::hdrPass()`)
+  per draw, and both splat vertex shaders apply it (`gsplatPrepareOutput`). Until
+  2026-09-24 both decoded to linear and stopped, which is right only under a camera
+  frame: on a gamma target the splats were written linear, untonemapped and unfogged
+  beside tonemapped meshes — `gsplat-example` (ACES) read ~2.5 counts darker on
+  average with 640k pixels off by up to 97. The tone-mapping curves are the forward
+  pass's own, not a copy: Metal splices the `common-tonemap` chunk into the splat source
+  at creation, and `gsplat.vert` includes `chunks/common-tonemap.glsl` under
+  `VT_TONEMAP_OPERATORS_ONLY` and calls `toneMapByMode`. Growing `GpuGSplatParams` means
+  the bundle validator's expected size and both backends' staging arrays too.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.

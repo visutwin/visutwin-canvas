@@ -1752,8 +1752,27 @@ namespace visutwin::canvas
                 gsplat->update(cameraPosition, cameraForward, modelMatrix, viewMatrix, projMatrix,
                     static_cast<float>(viewportW), static_cast<float>(viewportH));
                 if (gsplat->visibleCount() > 0) {
+                    // The output stage: a splat carries a GAMMA-space colour, so it owes
+                    // the target the fog, exposure, tone mapping and encode the forward
+                    // tail applies to lit colour (upstream gsplatOutput). Until 2026-09-24
+                    // both backends decoded to linear and stopped, which was right only
+                    // under a camera frame: on a gamma target the splats were written
+                    // linear, untonemapped and unfogged beside tonemapped meshes.
+                    GpuGSplatParams splatParams = gsplat->gpuParams();
+                    Color fogLinear;
+                    fogLinear.linear(&fogParams.color);
+                    splatParams.fogColor[0] = fogLinear.r;
+                    splatParams.fogColor[1] = fogLinear.g;
+                    splatParams.fogColor[2] = fogLinear.b;
+                    splatParams.fogParams[0] = fogParams.start;
+                    splatParams.fogParams[1] = fogParams.end;
+                    splatParams.fogParams[2] = fogParams.density;
+                    splatParams.fogParams[3] = fogParams.enabled ? static_cast<float>(fogParams.type) : 0.0f;
+                    splatParams.output[0] = _scene ? _scene->exposure() : 1.0f;
+                    splatParams.output[1] = static_cast<float>(toneMapping);
+                    splatParams.output[2] = _device->hdrPass() ? 1.0f : 0.0f;
                     _device->setGSplatState(gsplat->resource()->splatBuffer(), gsplat->orderBuffer(),
-                        gsplat->resource()->shBuffer(), &gsplat->gpuParams(), sizeof(GpuGSplatParams));
+                        gsplat->resource()->shBuffer(), &splatParams, sizeof(GpuGSplatParams));
                     _device->setTransformUniforms(viewProjection, modelMatrix);
                     _device->draw(entry->primitive, entry->indexBuffer,
                         static_cast<int>(gsplat->visibleCount()), -1, true, true);

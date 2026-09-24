@@ -66,9 +66,8 @@ vec3 toneMapNeutral(vec3 color) {
     return mix(color, vec3(newPeak), g);
 }
 
-// Exposure-scaled color -> tonemapped color, by scene mode.
-vec3 applyToneMap(vec3 color) {
-    int mode = int(lighting.shadowParams2.z + 0.5);
+// Exposure-scaled color -> tonemapped color, by mode.
+vec3 toneMapByMode(vec3 color, int mode) {
     if (mode == 1) return toneMapFilmic(color);
     if (mode == 2) return toneMapHejl(color);
     if (mode == 3) return toneMapAcesFit(color);
@@ -76,3 +75,12 @@ vec3 applyToneMap(vec3 color) {
     if (mode == 5) return toneMapNeutral(color);
     return color; // LINEAR (0) and NONE (6): exposure only
 }
+
+// The forward pass's dispatch, by the scene mode in the lighting block. A shader
+// with no lighting block (gsplat.vert) defines VT_TONEMAP_OPERATORS_ONLY before
+// including this file and calls toneMapByMode itself.
+#ifndef VT_TONEMAP_OPERATORS_ONLY
+vec3 applyToneMap(vec3 color) {
+    return toneMapByMode(color, int(lighting.shadowParams2.z + 0.5));
+}
+#endif

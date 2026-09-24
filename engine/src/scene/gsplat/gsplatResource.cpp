@@ -6,6 +6,8 @@
 #include "gsplatResource.h"
 
 #include <cstring>
+#include <string>
+#include <string_view>
 
 #include <spdlog/spdlog.h>
 
@@ -19,6 +21,7 @@
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
 #include "scene/materials/material.h"
+#include "scene/shader-lib/programLibrary.h"
 
 namespace visutwin::canvas
 {
@@ -36,6 +39,31 @@ namespace visutwin::canvas
 #else
         constexpr const char* GSPLAT_SHADER_SOURCE = "";
 #endif
+    }
+
+    namespace
+    {
+        // The Metal splat program with the forward pass's tone mapping operators
+        // spliced in after its prologue, so a splat tonemaps exactly as a mesh does
+        // rather than through a second copy of the curves. Empty on Vulkan, which
+        // takes the prebuilt `gsplat` module (its GLSL includes the same chunk).
+        std::string splatShaderSource(const std::shared_ptr<GraphicsDevice>& device)
+        {
+            std::string source = GSPLAT_SHADER_SOURCE;
+            if (source.empty()) {
+                return source;
+            }
+            const auto library = getProgramLibrary(device);
+            const std::string* toneMapping = library ? library->chunks().get("common-tonemap") : nullptr;
+            constexpr std::string_view prologue = "using namespace metal;\n";
+            const size_t at = source.find(prologue);
+            if (!toneMapping || at == std::string::npos) {
+                spdlog::error("GSplatResource: no common-tonemap chunk to splice; the splat shader will not compile");
+                return source;
+            }
+            source.insert(at + prologue.size(), "\n" + *toneMapping + "\n");
+            return source;
+        }
     }
 
     GSplatResource::GSplatResource(std::unique_ptr<GSplatData> data,
@@ -93,7 +121,7 @@ namespace visutwin::canvas
         definition.name = "gsplat";
         definition.vshader = "gsplatVS";
         definition.fshader = "gsplatFS";
-        _shader = createShader(device.get(), definition, GSPLAT_SHADER_SOURCE);
+        _shader = createShader(device.get(), definition, splatShaderSource(device));
 
         _material = std::make_shared<Material>();
         _material->setName("gsplat");

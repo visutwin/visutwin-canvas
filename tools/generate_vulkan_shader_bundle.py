@@ -159,7 +159,7 @@ def validate(module: str, reflection: dict) -> None:
             (6, 0, "StorageBuffer", 0),
             (6, 1, "StorageBuffer", 0),
             (6, 2, "StorageBuffer", 0),
-            (6, 3, "UniformBuffer", 160),
+            (6, 3, "UniformBuffer", 208),  # GpuGSplatParams (gsplatInstance.h)
         ]
         if bindings != expected or push_constant_size(reflection):
             raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")

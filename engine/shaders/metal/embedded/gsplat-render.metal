@@ -15,7 +15,52 @@ struct GSplatParams {
     uint splatCount;
     uint shBands;           // 0 = SH0 only; 1-3 = view-dependent SH color
     uint pad1; uint pad2;
+    float4 fogColor;        // linear rgb
+    float4 fogParams;       // start, end, density, type (0 = none, 1 linear, 2 exp, 3 exp2)
+    float4 output;          // exposure, tone mapping mode, linear HDR target, unused
 };
+
+// toneMap(color, exposure, mode) is the forward pass's own, from the common-tonemap
+// chunk, which GSplatResource splices in after the metal_stdlib prologue below.
+
+// Upstream gsplatOutput's prepareOutputFromGamma, with the port's targets: a camera
+// frame's scene pass is linear HDR with tone mapping deferred to compose (upstream's
+// GAMMA_NONE + TONEMAP_NONE there), anything else is a gamma target that the forward
+// tail tonemaps and encodes. `depth` is the view depth, as the forward fog uses.
+static inline float3 gsplatPrepareOutput(float3 gammaColor, float depth, constant GSplatParams& params)
+{
+    const bool linearTarget = params.output.z > 0.5;
+    const uint fogType = uint(params.fogParams.w + 0.5);
+    const bool fog = fogType != 0u;
+    // TONEMAP_NONE (6) skips tone mapping, and a linear target leaves it to compose.
+    const bool tonemap = !linearTarget && params.output.y < 5.5;
+
+    float3 color = gammaColor;
+    if (tonemap || linearTarget || fog) {
+        color = pow(max(color, float3(0.0)), float3(2.2));          // upstream decodeGamma
+    }
+    if (fog) {
+        const float density = max(params.fogParams.z, 0.0);
+        float fogFactor;
+        if (fogType == 1u) {
+            const float fogEnd = max(params.fogParams.y, params.fogParams.x + 1e-3);
+            fogFactor = (fogEnd - depth) / (fogEnd - params.fogParams.x);
+        } else if (fogType == 2u) {
+            fogFactor = exp(-depth * density);
+        } else {
+            const float d = depth * density;
+            fogFactor = exp(-d * d);
+        }
+        color = mix(params.fogColor.xyz, color, saturate(fogFactor));
+    }
+    if (tonemap) {
+        color = toneMap(color, max(params.output.x, 0.0), params.output.y);
+    }
+    if (tonemap || (!linearTarget && fog)) {
+        color = pow(max(color, float3(0.0)) + 0.0000001, float3(1.0 / 2.2)); // upstream gammaCorrectOutput
+    }
+    return color;
+}
 
 struct GSplatVaryings {
     float4 position [[position]];
@@ -186,8 +231,9 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
 
     out.position = clip;
     out.uv = uv;
-    // sRGB-ish splat color → linear (the HDR pipeline tonemaps/encodes on output).
-    out.color = half4(pow(half3(max(displayColor, 0.0)), half3(2.2h)), color.a);
+    // The colour is gamma space; the output stage makes it what the target wants.
+    // clip.w is the view depth (positive here), the same depth the forward fog uses.
+    out.color = half4(half3(gsplatPrepareOutput(max(displayColor, float3(0.0)), clip.w, params)), color.a);
     return out;
 }
 

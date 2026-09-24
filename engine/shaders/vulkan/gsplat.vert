@@ -5,7 +5,51 @@ layout(set=6,binding=2,std430) readonly buffer SH { float values[]; } sh;
 layout(set=6,binding=3,std140) uniform Params {
     mat4 modelView; mat4 projection; vec4 viewport;
     uint splatCount; uint shBands; uvec2 padding;
+    vec4 fogColor;   // linear rgb
+    vec4 fogParams;  // start, end, density, type (0 = none, 1 linear, 2 exp, 3 exp2)
+    vec4 outputParams; // exposure, tone mapping mode, linear HDR target, unused
 } params;
+
+// The forward pass's tone mapping operators, without its lighting-block dispatch.
+#define VT_TONEMAP_OPERATORS_ONLY
+#include "chunks/common-tonemap.glsl"
+
+// Upstream gsplatOutput's prepareOutputFromGamma; twin of gsplatPrepareOutput in
+// gsplat-render.metal. A camera frame's scene pass is linear HDR with tone mapping
+// left to compose; any other target is gamma, tonemapped and encoded here. Exposure
+// scales before the curve and is skipped with it for NONE, as the Metal toneMap does.
+vec3 gsplatPrepareOutput(vec3 gammaColor, float depth) {
+    bool linearTarget = params.outputParams.z > 0.5;
+    uint fogType = uint(params.fogParams.w + 0.5);
+    bool fog = fogType != 0u;
+    bool tonemap = !linearTarget && params.outputParams.y < 5.5;
+
+    vec3 color = gammaColor;
+    if (tonemap || linearTarget || fog) {
+        color = pow(max(color, vec3(0.0)), vec3(2.2));
+    }
+    if (fog) {
+        float density = max(params.fogParams.z, 0.0);
+        float fogFactor;
+        if (fogType == 1u) {
+            float fogEnd = max(params.fogParams.y, params.fogParams.x + 1e-3);
+            fogFactor = (fogEnd - depth) / (fogEnd - params.fogParams.x);
+        } else if (fogType == 2u) {
+            fogFactor = exp(-depth * density);
+        } else {
+            float d = depth * density;
+            fogFactor = exp(-d * d);
+        }
+        color = mix(params.fogColor.xyz, color, clamp(fogFactor, 0.0, 1.0));
+    }
+    if (tonemap) {
+        color = toneMapByMode(color * max(params.outputParams.x, 0.0), int(params.outputParams.y + 0.5));
+    }
+    if (tonemap || (!linearTarget && fog)) {
+        color = pow(max(color, vec3(0.0)) + 0.0000001, vec3(1.0 / 2.2));
+    }
+    return color;
+}
 layout(location=0) out vec2 outUv;
 layout(location=1) out vec4 outColor;
 vec3 load3(uint base) { return vec3(uintBitsToFloat(splats.words[base]),uintBitsToFloat(splats.words[base+1]),uintBitsToFloat(splats.words[base+2])); }
@@ -78,5 +122,6 @@ void main() {
         vec3 direction=normalize(transpose(mat3(params.modelView))*view.xyz);
         displayColor+=evaluateSH(index*45u,params.shBands,direction);
     }
-    outColor=vec4(pow(max(displayColor,vec3(0)),vec3(2.2)),color.a);
+    // Gamma-space colour -> what the target wants (clip.w is the view depth).
+    outColor=vec4(gsplatPrepareOutput(max(displayColor,vec3(0)), clip.w),color.a);
 }

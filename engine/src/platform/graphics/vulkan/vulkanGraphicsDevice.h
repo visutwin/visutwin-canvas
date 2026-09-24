@@ -554,7 +554,7 @@ namespace visutwin::canvas
         std::shared_ptr<VertexBuffer> _pendingGSplatBuffer;
         std::shared_ptr<VertexBuffer> _pendingGSplatOrderBuffer;
         std::shared_ptr<VertexBuffer> _pendingGSplatShBuffer;
-        std::array<uint8_t, 160> _pendingGSplatParams{};
+        std::array<uint8_t, 256> _pendingGSplatParams{};
         size_t _pendingGSplatParamsSize = 0;
 
         // ── Render pipeline ──────────────────────────────────────────────

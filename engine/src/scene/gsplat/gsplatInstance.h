@@ -28,8 +28,14 @@ namespace visutwin::canvas
         uint32_t splatCount;
         uint32_t shBands;       // 0 = SH0 only; 1-3 evaluate view-dependent color
         uint32_t pad[2];
+        // Output stage (upstream gsplatOutput's prepareOutputFromGamma). A splat's
+        // colour is GAMMA space; these say what the target wants done to it. Filled
+        // by the renderer per draw from the same scene state the forward pass reads.
+        float fogColor[4];      // linear rgb, unused
+        float fogParams[4];     // start, end, density, type (FogType; 0 = none)
+        float output[4];        // exposure, tone mapping mode, linear HDR target (0/1), unused
     };
-    static_assert(sizeof(GpuGSplatParams) == 160);
+    static_assert(sizeof(GpuGSplatParams) == 208);
 
     /**
      * Per-mesh-instance Gaussian splat state: the background depth sorter and the
