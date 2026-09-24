@@ -1582,6 +1582,9 @@ namespace visutwin::canvas
         bool lastShaderInstanceColor = false;
         bool lastShaderInstanceLightMap = false;
 
+        bool lightingSet = false;
+        uint32_t lightingSetMask = 0;
+        bool lightingSetReceivesShadow = true;
         for (const auto* entry : drawEntries) {
             const Material* boundMaterial = entry->material ? entry->material : defaultMaterial.get();
             const bool isDynBatch = entry->meshInstance && entry->meshInstance->isDynamicBatch();
@@ -1631,9 +1634,18 @@ namespace visutwin::canvas
             //controls SHADERDEF_NOSHADOW.
             // When a mesh instance has receiveShadow=false, suppress shadow params for this draw.
             const bool drawReceivesShadow = (!entry->meshInstance || entry->meshInstance->receiveShadow());
+            // The lighting block depends on the DRAW only through its light mask and
+            // receiveShadow; everything else in it is the layer's. Set it on the layer's
+            // first draw and when either changes — it used to be set for every draw,
+            // which repacked ~2.8 KB per draw on Metal and made Vulkan allocate and
+            // upload a fresh copy per draw (setLightingUniforms flags an upload).
+            const bool lightingChanged = !lightingSet || drawLightMask != lightingSetMask ||
+                drawReceivesShadow != lightingSetReceivesShadow;
             const Vector3* ambientSH = (_scene && _scene->hasAmbientSH())
                 ? _scene->ambientSH().data() : nullptr;
-            if (drawReceivesShadow) {
+            if (!lightingChanged) {
+                // unchanged since the previous draw: the device keeps the block
+            } else if (drawReceivesShadow) {
                 _device->setLightingUniforms(ambientColor, cachedGpuLights, cameraPosition, true,
                     (_scene ? _scene->exposure() : 1.0f), fogParams, shadowParams,
                     toneMapping, ambientSH, &viewProjection);
@@ -1643,6 +1655,11 @@ namespace visutwin::canvas
                 _device->setLightingUniforms(ambientColor, cachedGpuLights, cameraPosition, true,
                     (_scene ? _scene->exposure() : 1.0f), fogParams, noShadow,
                     toneMapping, ambientSH, &viewProjection);
+            }
+            if (lightingChanged) {
+                lightingSet = true;
+                lightingSetMask = drawLightMask;
+                lightingSetReceivesShadow = drawReceivesShadow;
             }
 
             // Phase 4: cache material's base cull mode (skip parameter map lookups),

@@ -1523,6 +1523,14 @@ present, but the rule below never depends on reading it.
   at creation, and `gsplat.vert` includes `chunks/common-tonemap.glsl` under
   `VT_TONEMAP_OPERATORS_ONLY` and calls `toneMapByMode`. Growing `GpuGSplatParams` means
   the bundle validator's expected size and both backends' staging arrays too.
+- **The lighting block is set once per LAYER, not per draw.** `renderForwardLayer`
+  calls `setLightingUniforms` on a layer's first draw and again only when a draw's
+  light mask or `receiveShadow` differs from the previous draw's — the only two
+  inputs to that block that depend on the draw. Anything genuinely per draw must go
+  in the model or material block, never in the lighting block, or every draw after
+  the first reads the first one's value. It used to be set for every draw: Metal
+  repacked ~2.8 KB and Vulkan allocated and uploaded a fresh UBO each time (60-95
+  calls a frame on the shipped scenes, now 2-3; frames bit-identical).
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
