@@ -168,6 +168,29 @@ namespace visutwin::canvas
             }
         }
 
+        // VISUTWIN_DEBUG_PASS=n renders every camera with DebugShaderPass n (the enum
+        // value; ALBEDO and LIGHTING are the ones "Measuring a backend divergence"
+        // splits with). Frames that agree in ALBEDO and differ in the lit result put a
+        // divergence in the lighting; frames that differ in ALBEDO too put it in the
+        // geometry or the material frontend.
+        if (const char* pass = std::getenv("VISUTWIN_DEBUG_PASS"); pass && *pass) {
+            int value = -1;
+            if (std::sscanf(pass, "%d", &value) == 1 && value >= 0) {
+                int cameras = 0;
+                for (GraphNode* node : _engine->root()->find([](GraphNode* n) {
+                        auto* e = dynamic_cast<Entity*>(n);
+                        return e && e->findComponent<CameraComponent>() != nullptr; })) {
+                    if (auto* camera = static_cast<Entity*>(node)->findComponent<CameraComponent>()->camera()) {
+                        camera->setDebugShaderPass(static_cast<DebugShaderPass>(value));
+                        ++cameras;
+                    }
+                }
+                spdlog::info("Debug shader pass {} on {} camera(s) from VISUTWIN_DEBUG_PASS", value, cameras);
+            } else {
+                spdlog::warn("VISUTWIN_DEBUG_PASS='{}' is not a DebugShaderPass value; ignored", pass);
+            }
+        }
+
         // VISUTWIN_SHADOW_TYPE=n sets ShadowType n (the enum value) on every directional
         // light that casts shadows. The PCSS and VSM directional paths are otherwise
         // reached only through a key press in shadow-cascades, which a screenshot run

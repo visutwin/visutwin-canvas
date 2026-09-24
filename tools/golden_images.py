@@ -56,6 +56,11 @@ CASES = [
     {"example": "ambient-occlusion", "frame": 90},
     {"example": "dynamic-batching", "frame": 150},
     {"example": "clustered-lighting", "frame": 90},
+    # Moving spot lights over the clustered shadow atlas: the one case that catches
+    # a per-rect atlas clear that stops clearing (shadows from every past light
+    # position accumulate — Vulkan's depth-only pipelines forced LessEqual until
+    # 2026-09-24). Every static scene renders the atlas the same either way.
+    {"example": "clustered-spot-shadows", "frame": 60},
 ]
 
 DOWNSCALE = 4

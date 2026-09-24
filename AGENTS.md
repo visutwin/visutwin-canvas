@@ -106,12 +106,12 @@ ctest --preset default
   read.
 - **Golden images are LOCAL ONLY** (`tools/golden_images.py`, `ctest --preset golden`
   on the `examples` build for Metal; the script with `--backend vulkan` on a Release
-  Vulkan examples build — a Debug one crashes in the validation layer). Eight
+  Vulkan examples build — a Debug one crashes in the validation layer). Nine
   deterministic examples render under `VISUTWIN_FIXED_DT`, are downscaled 4x and
   compared with `tests/golden/<backend>/`; a changed pixel density (the drawable
   follows the display, and a sleeping display comes back at 1x) SKIPS a case rather
   than failing it. Both backends reproduce every reference bit for bit run to run, and
-  a 1.03 factor on every lit colour fails all eight, so a failure is real. When a
+  a 1.03 factor on every lit colour failed all eight original cases, so a failure is real. When a
   rendering change is intended, look at the images it writes to
   `<examples-dir>/golden-failures`, then re-capture with `--update` and commit the new
   references with the change. The script needs numpy and Pillow: CMake checks
@@ -1689,6 +1689,18 @@ present, but the rule below never depends on reading it.
   ruled out by experiment). `vulkanSmoke`'s shadow-catcher step had been failing
   since 2026-09-23 for test reasons only (a light with shadowMapIndex -1 and cascade
   distances of 0); it sets both now.
+- **A depth-only Vulkan pipeline honours the bound `DepthState`'s compare function.**
+  `vulkanRenderPipeline.cpp` used to force `LESS_OR_EQUAL` whenever the pass had no
+  colour attachment, which silently turned the clustered atlas's per-rect clear
+  (`clearDepthRect`: a depth-1 triangle under ALWAYS) into a no-op wherever a caster
+  had written before. Shadows from every past position of a moving spot light
+  accumulated, so `clustered-spot-shadows` sat 12.7 counts mean from Metal over 360k
+  pixels — the old "19/255 on the normal-mapped cube faces" was this, not shading —
+  while every static scene rendered identically either way. Measured 2026-09-24:
+  0.21 after the fix, the rest on shadow edges (Metal's bilinear hardware-compare PCF
+  against the atlas's nine uniform taps). The golden set now includes the scene, and
+  fails at 13.9% against the old code. When a pipeline ignores a state the engine set,
+  the bug is invisible until something depends on the non-default value.
 - **A shadow pass must not take its variant from a scene-wide switch set by the
   FORWARD pass.** `renderForwardLayer` sets ProgramLibrary's feature switches (VSM,
   PCSS, cookies, local shadows ...) when the forward pass executes, which is AFTER
@@ -1803,6 +1815,12 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 12. `VISUTWIN_SHADOW_TYPE=n` sets `ShadowType` n on every shadow-casting directional
     light (0 PCF3, 2 VSM, 5 PCF1, 6 PCSS). `shadow-cascades` otherwise reaches VSM and
     PCSS only through a key press.
+13. `VISUTWIN_DEBUG_PASS=n` renders every camera with `DebugShaderPass` n (1 ALBEDO,
+    2 WORLDNORMAL, 9 LIGHTING). Step 1 above without editing an example: frames that
+    match in ALBEDO and WORLDNORMAL but not in LIGHTING put the divergence in lighting.
+    A near-zero `VISUTWIN_FIXED_DT` (1e-7) freezes an animated scene; a gap that
+    vanishes frozen is TIMING (something from another frame), not shading, and a large
+    step (2.0) magnifies it until the wrong backend is obvious.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.
@@ -1863,21 +1881,6 @@ What stays HERE is only what bites during UNRELATED work.
   none of those things. So the HUD shows the remainder as "other" rather than
   letting a subtraction that does not balance read as a bug. **Add the hint when you
   add a texture creation site**, or its bytes land only in the undifferentiated total.
-- **Vulkan reflections are slightly SOFTER than Metal's.** Re-measured 2026-09-05
-  with the scene frozen, on the since-removed `reflection-probe` scene (re-measure
-  on `reflection-probe-dynamic` before chasing): it matched to 0.3% in the mean, but the
-  reflection carries 6.5% less horizontal gradient energy where a direct texture
-  on the same frame carries 0.4% less. Hardware trilinear mips approximate the GGX
-  prefilter upstream bakes per level, and the two backends round it differently.
-  Not worth chasing unless a scene shows it. The probes themselves are no longer
-  suspect: with the sky fixed, a probe's captured sky matches Metal exactly.
-- **`ambient-occlusion-davinci`'s floor still reads ~0.92x Metal in RED** (0.96
-  green, 0.98 blue), down from 0.81 once the depth tap was aligned. Its sky
-  matches exactly, and its whole-frame difference is under 1/255, so the red gap
-  lives in the darkest part of the floor where a 2-count difference is a large
-  ratio. NOT normal mapping: aligning `normalScale` left this scene bit-identical.
-  The bilateral blur multiplies whatever the SSAO pass disagrees about by roughly
-  2.5, so an input difference worth 3% shows up as 8%.
 - **Under MSAA the sampleable scene depth is the PREPASS's texture, not an
   attachment of the scene target, so a resize has to resize it by hand.**
   `RenderPassCameraFrame::frameUpdate` resizes the scene target from the device
@@ -1964,11 +1967,6 @@ What stays HERE is only what bites during UNRELATED work.
   A SEPARATE image read through a shared sampler must be filtered EXACTLY as the
   per-texture sampler would filter it — check anisotropy, not just filter and
   wrap — or every oblique surface diverges by backend.
-- **`clustered-spot-shadows`'s 19/255 difference on its normal-mapped cube faces
-  is UNMEASURED since 2026-09-06.** It predates the spot cone fix, the falloff fix
-  and the shared BRDF, all of which touch what it measures. Re-measure before
-  treating it as a finding.
-
 - **The ambient diffuse is scaled by `(1 - specularity)` on both backends**, right
   where upstream's `litForwardBackend` does it after `addAmbient`: per channel, F0 in
   either workflow, only when the material renders specular, and only on the ambient

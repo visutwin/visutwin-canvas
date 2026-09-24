@@ -20,6 +20,13 @@
     ],
     "frame": 90
   },
+  "clustered-spot-shadows": {
+    "capture_size": [
+      1800,
+      1400
+    ],
+    "frame": 60
+  },
   "depth-of-field": {
     "capture_size": [
       2048,
