@@ -75,6 +75,22 @@ namespace visutwin::canvas
 
         Material* material() const { return _material; }
 
+        /// The shared ownership this instance holds of its mesh and material, or null
+        /// when it only borrows them. A clone takes the same ownership, so it keeps
+        /// rendering after the source (or the container it came from) is gone.
+        const std::shared_ptr<Mesh>& meshShared() const { return _meshOwned; }
+        const std::shared_ptr<Material>& materialShared() const { return _materialOwned; }
+
+        /// A new instance of the same mesh and material on `node`, for Entity::clone.
+        /// Carries the drawing settings (shadows, cull, mask, bucket, draw order,
+        /// sort callback, batch group), the same shared ownership, and a NEW morph
+        /// instance holding the same weights and a NEW skin instance on the same
+        /// bones — the entity clone remaps those bones into the cloned subtree.
+        /// Per-instance data that belongs to where the source sits is left out, as
+        /// upstream leaves it out: the baked lightmap, instancing buffers, a custom
+        /// (world-space) AABB and batch membership.
+        [[nodiscard]] std::unique_ptr<MeshInstance> cloneFor(GraphNode* node) const;
+
         /**
          * Replaces the material of this instance (upstream `meshInstance.material = ...`),
          * e.g. to render a loaded model with a custom ShaderMaterial. Drops any

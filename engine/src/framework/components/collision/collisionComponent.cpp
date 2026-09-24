@@ -49,4 +49,16 @@ namespace visutwin::canvas
 
         return BoundingSphere(entity()->position(), std::max(_halfExtents.length(), _radius));
     }
+
+    void CollisionComponent::cloneFrom(const Component* source)
+    {
+        const auto* src = dynamic_cast<const CollisionComponent*>(source);
+        if (!src) {
+            return;
+        }
+        _type = src->_type;
+        _halfExtents = src->_halfExtents;
+        _radius = src->_radius;
+        _height = src->_height;
+    }
 }

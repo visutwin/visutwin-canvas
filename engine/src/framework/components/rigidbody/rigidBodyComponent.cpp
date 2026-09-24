@@ -271,4 +271,21 @@ namespace visutwin::canvas
         _world = nullptr;
         _bodyStale = false;
     }
+
+    void RigidBodyComponent::cloneFrom(const Component* source)
+    {
+        const auto* src = dynamic_cast<const RigidBodyComponent*>(source);
+        if (!src) {
+            return;
+        }
+        // Settings only (upstream's property list). The clone's body is created from
+        // them lazily, at the clone's own transform; velocities are simulation state.
+        _type = src->_type;
+        _mass = src->_mass;
+        _friction = src->_friction;
+        _restitution = src->_restitution;
+        _linearDamping = src->_linearDamping;
+        _angularDamping = src->_angularDamping;
+        markBodyStale();
+    }
 }

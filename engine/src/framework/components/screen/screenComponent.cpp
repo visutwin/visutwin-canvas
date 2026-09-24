@@ -35,4 +35,16 @@ namespace visutwin::canvas
             _scale = 1.0f;
         }
     }
+
+    void ScreenComponent::cloneFrom(const Component* source)
+    {
+        const auto* src = dynamic_cast<const ScreenComponent*>(source);
+        if (!src) {
+            return;
+        }
+        _referenceResolution = src->_referenceResolution;
+        _resolution = src->_resolution;
+        _screenSpace = src->_screenSpace;
+        _scale = src->_scale;
+    }
 }

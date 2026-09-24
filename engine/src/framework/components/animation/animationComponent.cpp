@@ -221,6 +221,34 @@ namespace visutwin::canvas
         _playing = true;
     }
 
+    void AnimationComponent::cloneFrom(const Component* source)
+    {
+        const auto* src = dynamic_cast<const AnimationComponent*>(source);
+        if (!src) {
+            return;
+        }
+        // Upstream's property list plus the animation map. The clips are shared; the
+        // playback (controller, skeletons, current clip) is the clone's own and starts
+        // when it is enabled, as a fresh component's does.
+        _activate = src->_activate;
+        _speed = src->_speed;
+        _loop = src->_loop;
+        _assets = src->_assets;
+        _animationsIndex = src->_animationsIndex;
+        if (src->_hasBlendCurve) {
+            setBlendCurve(src->_blendCurve);
+        }
+        setModel(src->_model);   // remapped into the clone once it exists
+        setAnimations(src->_animations);
+    }
+
+    void AnimationComponent::resolveClonedReferences(const Component* source, const CloneNodeMap& map)
+    {
+        if (const auto* src = dynamic_cast<const AnimationComponent*>(source)) {
+            setModel(remapCloned(src->_model, map));
+        }
+    }
+
     void AnimationComponent::onSetAnimations()
     {
         if (_entity && !_model) {

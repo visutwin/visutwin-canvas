@@ -176,11 +176,13 @@ namespace visutwin::canvas
         void onHierarchyStateChanged(bool enabled) override;
 
         /**
-         * Create a deep clone of the entity. Creates a new entity with the same
-         * transform, components, and children hierarchy. Component data is cloned
-         * via Component::cloneFrom(). The clone is NOT automatically added to any parent.
-         *
-         * / _cloneRecursively().
+         * Deep copy of this entity and its Entity descendants (upstream `clone`): name,
+         * tags, local transform, enabled flag, and every component through
+         * Component::cloneFrom, in creation order. Then a second pass over the whole
+         * copy, Component::resolveClonedReferences, points each reference into the
+         * source subtree — a joint's ends, a button's image, a skin's bones — at the
+         * matching copy. The clone has no parent; add it to one (which enables its
+         * components) and it is the caller's to own until then.
          */
         Entity* clone() const;
 
@@ -197,6 +199,9 @@ namespace visutwin::canvas
         Engine* findEngine() const;
 
     private:
+        Entity* cloneRecursively(CloneNodeMap& map) const;
+        static void resolveClonedReferences(const Entity& source, Entity& clone, const CloneNodeMap& map);
+
         Engine* _engine = nullptr;
 
         bool _destroying = false;

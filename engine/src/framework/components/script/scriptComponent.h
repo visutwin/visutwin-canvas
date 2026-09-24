@@ -39,7 +39,16 @@ namespace visutwin::canvas
             return static_cast<T*>(create(T::scriptName()));
         }
 
+        /// The script of that name on this component, or null (upstream `get`).
+        Script* get(const std::string& name) const
+        {
+            const auto it = _scriptsIndex.find(name);
+            return it != _scriptsIndex.end() ? _scripts[it->second].instance.get() : nullptr;
+        }
+
         void initializeComponentData() override {};
+        void cloneFrom(const Component* source) override;
+        void resolveClonedReferences(const Component* source, const CloneNodeMap& map) override;
 
         /// Initializes any script created while this component was inactive.
         /// Fires for both halves of "active": the component's own flag and the

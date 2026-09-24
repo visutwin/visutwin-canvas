@@ -102,4 +102,21 @@ namespace visutwin::canvas
         }
         _emitter->update(dt, _entity->worldTransform());
     }
+
+    void ParticleSystemComponent::cloneFrom(const Component* source)
+    {
+        const auto* src = dynamic_cast<const ParticleSystemComponent*>(source);
+        if (!src) {
+            return;
+        }
+        // Options are shared settings; the emitter (its particle state and GPU
+        // buffers) is the clone's own, built only if the source had built one.
+        _options = src->_options;
+        if (src->_emitter) {
+            apply();
+            if (src->playing()) {
+                play();
+            }
+        }
+    }
 }

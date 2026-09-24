@@ -25,6 +25,7 @@ namespace visutwin::canvas
         ~GSplatComponent() override;
 
         void initializeComponentData() override {}
+        void cloneFrom(const Component* source) override;
 
         static const std::vector<GSplatComponent*>& instances() { return _instances; }
 

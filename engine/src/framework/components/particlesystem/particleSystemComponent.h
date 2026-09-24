@@ -29,6 +29,7 @@ namespace visutwin::canvas
         ~ParticleSystemComponent() override;
 
         void initializeComponentData() override {}
+        void cloneFrom(const Component* source) override;
 
         static const std::vector<ParticleSystemComponent*>& instances() { return _instances; }
 

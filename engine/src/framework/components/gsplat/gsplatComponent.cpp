@@ -51,4 +51,12 @@ namespace visutwin::canvas
         spdlog::info("GSplatComponent: attached {} splats to '{}'",
             _resource->numSplats(), _entity->name());
     }
+
+    void GSplatComponent::cloneFrom(const Component* source)
+    {
+        // The resource is shared; the splat instance (and its sort) is the clone's own.
+        if (const auto* src = dynamic_cast<const GSplatComponent*>(source); src && src->_resource) {
+            setResource(src->_resource);
+        }
+    }
 }

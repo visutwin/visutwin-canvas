@@ -283,4 +283,42 @@ namespace visutwin::canvas
         _world = nullptr;
         _stale = false;
     }
+
+    void JointComponent::cloneFrom(const Component* source)
+    {
+        const auto* src = dynamic_cast<const JointComponent*>(source);
+        if (!src) {
+            return;
+        }
+        _type = src->_type;
+        _enableLimits = src->_enableLimits;
+        _minLimit = src->_minLimit;
+        _maxLimit = src->_maxLimit;
+        _motorSpeed = src->_motorSpeed;
+        _maxMotorForce = src->_maxMotorForce;
+        _swingLimitY = src->_swingLimitY;
+        _swingLimitZ = src->_swingLimitZ;
+        _twistLimit = src->_twistLimit;
+        _breakImpulse = src->_breakImpulse;
+        std::copy(std::begin(src->_linearFree), std::end(src->_linearFree), std::begin(_linearFree));
+        _linearStiffness = src->_linearStiffness;
+        _linearEquilibrium = src->_linearEquilibrium;
+        _wantEnabled = src->_wantEnabled;
+        // The ends as they are; resolveClonedReferences moves any end inside the
+        // cloned subtree onto its copy. The break callback is not copied — it was
+        // written for the source joint.
+        setEntityA(src->_entityA);
+        setEntityB(src->_entityB);
+        markStale();
+    }
+
+    void JointComponent::resolveClonedReferences(const Component* source, const CloneNodeMap& map)
+    {
+        const auto* src = dynamic_cast<const JointComponent*>(source);
+        if (!src) {
+            return;
+        }
+        setEntityA(remapCloned(src->_entityA, map));
+        setEntityB(remapCloned(src->_entityB, map));
+    }
 }

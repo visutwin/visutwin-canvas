@@ -146,7 +146,11 @@ namespace visutwin::canvas
         _cookieFalloff = src->_cookieFalloff;
         _areaWidth = src->_areaWidth;
         _areaHeight = src->_areaHeight;
+        _areaShape = src->_areaShape;
+        _penumbraSize = src->_penumbraSize;
+        _penumbraFalloff = src->_penumbraFalloff;
         _layers = src->_layers;
+        syncToLight();
         setEnabled(src->enabled());
     }
 

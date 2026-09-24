@@ -83,6 +83,41 @@ namespace visutwin::canvas
         return script;
     }
 
+    void ScriptComponent::cloneFrom(const Component* source)
+    {
+        const auto* src = dynamic_cast<const ScriptComponent*>(source);
+        if (!src) {
+            return;
+        }
+        // Each script by NAME, in the source's order and with its enabled flag, as
+        // upstream's cloneComponent does. The clone is not in a hierarchy yet, so none
+        // of them initializes here: that waits for the clone to be enabled, after
+        // Script::cloneFrom has copied what the script chooses to share.
+        _executionOrder = src->_executionOrder;
+        for (const auto& entry : src->_scripts) {
+            if (!entry.instance) {
+                continue;
+            }
+            if (Script* script = create(entry.name, {.enabled = entry.instance->_enabled})) {
+                script->cloneFrom(*entry.instance);
+            }
+        }
+    }
+
+    void ScriptComponent::resolveClonedReferences(const Component* source, const CloneNodeMap& map)
+    {
+        const auto* src = dynamic_cast<const ScriptComponent*>(source);
+        if (!src) {
+            return;
+        }
+        for (const auto& entry : src->_scripts) {
+            const auto it = _scriptsIndex.find(entry.name);
+            if (entry.instance && it != _scriptsIndex.end() && _scripts[it->second].instance) {
+                _scripts[it->second].instance->resolveClonedReferences(*entry.instance, map);
+            }
+        }
+    }
+
     void ScriptComponent::onEnable()
     {
         // A script created while this component was inactive — disabled, or on a

@@ -34,6 +34,7 @@ namespace visutwin::canvas
         ~ElementComponent() override;
 
         void initializeComponentData() override {}
+        void cloneFrom(const Component* source) override;
 
         static const std::vector<ElementComponent*>& instances() { return _instances; }
 

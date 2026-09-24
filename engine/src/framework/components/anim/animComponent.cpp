@@ -9,6 +9,8 @@
 #include "scene/morphInstance.h"
 #include "framework/anim/evaluator/animEvaluator.h"
 #include "framework/anim/binder/defaultAnimBinder.h"
+#include "framework/anim/controller/animNode.h"
+#include "framework/anim/controller/animState.h"
 
 #include <algorithm>
 
@@ -33,6 +35,7 @@ namespace visutwin::canvas
     void AnimComponent::loadStateGraph(const AnimStateGraph& stateGraph)
     {
         removeStateGraph();
+        _stateGraph = stateGraph;
         _parameters = stateGraph.parameters();
         _binder = std::make_unique<DefaultAnimBinder>(entity());
         for (const auto& layerDesc : stateGraph.layers()) {
@@ -48,10 +51,51 @@ namespace visutwin::canvas
     void AnimComponent::removeStateGraph()
     {
         _layers.clear();
+        _stateGraph.reset();
         _targets.clear();
         _binder.reset();
         _parameters.clear();
         _consumedTriggers.clear();
+    }
+
+    void AnimComponent::cloneFrom(const Component* source)
+    {
+        const auto* src = dynamic_cast<const AnimComponent*>(source);
+        if (!src) {
+            return;
+        }
+        // Upstream's cloneComponent: the settings, the same state graph, every layer's
+        // weight, blend type and mask, the animations assigned to each state, the
+        // parameter values and the playing flag. The binder is built on THIS entity,
+        // so the clone animates its own subtree by the same node paths.
+        _speed = src->_speed;
+        _activate = src->_activate;
+        _normalizeWeights = src->_normalizeWeights;
+        if (!src->_stateGraph) {
+            return;
+        }
+        loadStateGraph(*src->_stateGraph);
+        _parameters = src->_parameters;
+        for (size_t i = 0; i < _layers.size() && i < src->_layers.size(); ++i) {
+            AnimComponentLayer& layer = *_layers[i];
+            const AnimComponentLayer& srcLayer = *src->_layers[i];
+            layer.setWeight(srcLayer.weight());
+            layer.setBlendType(srcLayer.blendType());
+            layer.setMask(srcLayer.mask());
+            const AnimController* controller = srcLayer.controller();
+            for (const auto& stateName : controller->states()) {
+                const AnimState* state = controller->state(stateName);
+                if (!state) {
+                    continue;
+                }
+                for (const AnimNode* node : state->animations()) {
+                    if (node && node->animTrack()) {
+                        layer.assignAnimation(node->path(), node->animTrack(), state->speed(), state->loop());
+                    }
+                }
+            }
+        }
+        setPlaying(src->playing());
     }
 
     AnimComponentLayer* AnimComponent::findAnimationLayer(const std::string& name) const

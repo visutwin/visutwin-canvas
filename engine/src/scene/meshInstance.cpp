@@ -8,6 +8,7 @@
 #include "skin.h"
 #include "skinInstance.h"
 #include "morph.h"
+#include "morphInstance.h"
 
 #include <algorithm>
 #include <cstring>
@@ -29,6 +30,39 @@ namespace visutwin::canvas
         : _material(material.get()), _mesh(mesh.get()),
           _meshOwned(std::move(mesh)), _materialOwned(std::move(material)), _node(node)
     {
+    }
+
+    std::unique_ptr<MeshInstance> MeshInstance::cloneFor(GraphNode* node) const
+    {
+        auto clone = std::make_unique<MeshInstance>(_mesh, _material, node);
+        clone->_meshOwned = _meshOwned;
+        clone->_materialOwned = _materialOwned;
+        clone->_castShadow = _castShadow;
+        clone->_receiveShadow = _receiveShadow;
+        clone->_cull = _cull;
+        clone->_mask = _mask;
+        clone->_drawBucket = _drawBucket;
+        clone->_drawOrder = _drawOrder;
+        clone->_calculateSortDistance = _calculateSortDistance;
+        clone->_batchGroupId = _batchGroupId;
+
+        // A morph and a skin are per-instance STATE over shared data: the clone gets
+        // its own, so animating one entity does not move the other.
+        if (_morphInstance) {
+            auto morph = std::make_shared<MorphInstance>(_morphInstance->morph());
+            for (int i = 0; i < _morphInstance->weightCount(); ++i) {
+                morph->setWeight(i, _morphInstance->weight(i));
+            }
+            clone->setMorphInstance(morph);
+        }
+        if (_skinInstance) {
+            auto skin = std::make_shared<SkinInstance>(_skinInstance->skin());
+            skin->setBones(_skinInstance->bones());
+            skin->setRootBone(_skinInstance->rootBone());
+            clone->setSkinInstance(skin);
+            clone->_cull = _cull;   // setSkinInstance re-derives it; keep the source's
+        }
+        return clone;
     }
 
     void MeshInstance::updateInstancingAabb()

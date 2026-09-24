@@ -7,6 +7,8 @@
 
 #include <core/eventHandler.h>
 
+#include "framework/components/component.h"
+
 #define SCRIPT_NAME(Name) \
     static constexpr const char* scriptName() { return Name; }
 
@@ -64,6 +66,22 @@ namespace visutwin::canvas
          * Called after all scripts update on each tick.
          */
         virtual void postUpdate(float /*dt*/) {}
+
+        /*
+         * Called on a script that Entity::clone created, before it initializes, with the
+         * source entity's script of the same name. It stands in for upstream's copy of
+         * script ATTRIBUTES, which this port does not have: copy whatever configuration
+         * the clone should share. The default copies nothing, so a clone starts from the
+         * script's defaults.
+         */
+        virtual void cloneFrom(const Script& /*source*/) {}
+
+        /*
+         * Called once the whole cloned subtree exists (upstream remaps entity-typed
+         * attributes here): point a reference into the source subtree at its copy with
+         * Component::remapCloned(pointer, map).
+         */
+        virtual void resolveClonedReferences(const Script& /*source*/, const CloneNodeMap& /*map*/) {}
 
         bool enabled() const;
 

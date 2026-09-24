@@ -41,6 +41,10 @@ namespace visutwin::canvas
         const std::string& name() const { return _name; }
         void setName(const std::string& name) { _name = name; }
 
+        /// Upstream `GraphNode.tags`.
+        Tags& tags() { return _tags; }
+        const Tags& tags() const { return _tags; }
+
         Quaternion rotation();
         void setRotation(const Quaternion& rotation);
         void setLocalRotation(const Quaternion& rotation);

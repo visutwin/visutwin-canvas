@@ -7,12 +7,17 @@
 
 #include <cstddef>
 #include <memory>
+#include <unordered_map>
 #include <core/eventHandler.h>
 
 namespace visutwin::canvas
 {
     class IComponentSystem;
     class Entity;
+    class GraphNode;
+
+    /// Every node of a subtree Entity::clone copied, mapped to its copy.
+    using CloneNodeMap = std::unordered_map<const GraphNode*, GraphNode*>;
 
     using ComponentTypeID = std::size_t;
 
@@ -86,6 +91,26 @@ namespace visutwin::canvas
          * Subclasses override to copy their specific properties.
          */
         virtual void cloneFrom(const Component* /*source*/) {}
+
+        /**
+         * Second pass of Entity::clone, run once the WHOLE subtree exists: a reference
+         * the source held to a node INSIDE the cloned subtree is pointed at that node's
+         * copy, and one to a node outside it is left alone (upstream's
+         * resolveDuplicatedEntityReferenceProperties). A component that holds a node
+         * or entity pointer overrides this; cloneFrom copies the pointer as it is.
+         */
+        virtual void resolveClonedReferences(const Component* /*source*/, const CloneNodeMap& /*map*/) {}
+
+        /// The copy of `node` if it is inside the cloned subtree, else `node` itself.
+        template <class T>
+        static T* remapCloned(T* node, const CloneNodeMap& map)
+        {
+            if (!node) {
+                return nullptr;
+            }
+            const auto it = map.find(node);
+            return it != map.end() ? static_cast<T*>(it->second) : node;
+        }
 
     protected:
         // Called internally when the enabled setter changes the value.

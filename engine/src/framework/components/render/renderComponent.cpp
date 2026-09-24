@@ -22,6 +22,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexFormat.h"
 #include "scene/geometry/geometryUtils.h"
+#include "scene/skinInstance.h"
 
 namespace visutwin::canvas
 {
@@ -630,29 +631,50 @@ namespace visutwin::canvas
             return;
         }
 
-        //
-        // Copy scalar properties.
+        // Fields, not setters: setType / setMaterial would build a SECOND primitive
+        // mesh when the source's can be shared.
         _type = src->_type;
         _layers = src->_layers;
         _material = src->_material;
         _receiveShadows = src->_receiveShadows;
         _castShadows = src->_castShadows;
+        _batchGroupId = src->_batchGroupId;
         setEnabled(src->enabled());
 
-        // Clone mesh instances: create new MeshInstance per source, sharing mesh and material,
-        // but pointing to this component's entity (the cloned node).
-        clearMeshInstances();
-
+        // The mesh instances share the source's meshes and materials (upstream
+        // `_onSetMeshes(meshes)` plus the material copy). A primitive's mesh is owned
+        // by the component, so the clone co-owns it: it has to outlive the source.
+        //
+        // An instance another owner attached here — a splat (GSplatComponent), an
+        // emitter (ParticleSystemComponent), a storage draw (WideLineRenderer) — is
+        // NOT copied: its owner builds the clone's own, and may already have done so
+        // on this component, which is why nothing is cleared first.
+        _ownedMeshes = src->_ownedMeshes;
         for (const auto& srcMi : src->_meshInstances) {
-            if (!srcMi) {
+            if (!srcMi || srcMi->gsplatInstance() || srcMi->particleEmitter() ||
+                srcMi->storageDrawCount() > 0) {
                 continue;
             }
-            auto clonedMi = std::make_unique<MeshInstance>(srcMi->mesh(), srcMi->material(), _entity);
-            clonedMi->setCastShadow(srcMi->castShadow());
-            clonedMi->setReceiveShadow(srcMi->receiveShadow());
-            clonedMi->setCull(srcMi->cull());
-            clonedMi->setMask(srcMi->mask());
-            addMeshInstance(std::move(clonedMi));
+            addMeshInstance(srcMi->cloneFor(_entity));
+        }
+    }
+
+    void RenderComponent::resolveClonedReferences(const Component* /*source*/, const CloneNodeMap& map)
+    {
+        // A skinned mesh's bones are nodes of the model it came with; the clone must
+        // be driven by the CLONED skeleton (upstream remaps `rootBone`, from which it
+        // rebuilds the skin). A bone outside the cloned subtree stays shared.
+        for (const auto& mi : _meshInstances) {
+            auto* skin = mi ? mi->skinInstance() : nullptr;
+            if (!skin) {
+                continue;
+            }
+            std::vector<GraphNode*> bones = skin->bones();
+            for (auto& bone : bones) {
+                bone = remapCloned(bone, map);
+            }
+            skin->setBones(std::move(bones));
+            skin->setRootBone(remapCloned(skin->rootBone(), map));
         }
     }
 

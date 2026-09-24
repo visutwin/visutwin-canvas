@@ -101,6 +101,9 @@ namespace visutwin::canvas
         void reset();
         void update(float dt);
 
+        /// The state of that name, or null (read access for Entity::clone).
+        AnimState* state(const std::string& stateName) const { return findState(stateName); }
+
         const AnimParameter* findParameter(const std::string& name) const
         {
             return _findParameter ? _findParameter(name) : nullptr;

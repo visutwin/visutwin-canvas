@@ -63,6 +63,7 @@ namespace visutwin::canvas
          * Clones mesh instances (sharing mesh/material), layers, type, shadow flags.
          */
         void cloneFrom(const Component* source) override;
+        void resolveClonedReferences(const Component* source, const CloneNodeMap& map) override;
 
         //batchGroupId getter/setter.
         // Propagates to all MeshInstances.

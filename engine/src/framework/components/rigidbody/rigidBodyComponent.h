@@ -47,6 +47,7 @@ namespace visutwin::canvas
         ~RigidBodyComponent() override;
 
         void initializeComponentData() override {}
+        void cloneFrom(const Component* source) override;
 
         static const std::vector<RigidBodyComponent*>& instances() { return _instances; }
 

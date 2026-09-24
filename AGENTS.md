@@ -1374,6 +1374,26 @@ present, but the rule below never depends on reading it.
   for the rest of the call. Note the `_destroying` guard in
   `removeComponentInstance` — teardown has already disabled everything in order,
   and without it each component would get a second `onDisable`.
+- **`Entity::clone` is TWO passes, and a new component owes both.** The first builds
+  the copy — node state and tags, then each component in CREATION order through
+  `Component::cloneFrom` — and the second, once the whole subtree exists, calls
+  `Component::resolveClonedReferences(source, map)`, which points any reference into
+  the source subtree at its copy (`Component::remapCloned`) and leaves one outside it
+  alone: joint ends, a button's image, skin bones and root, the legacy animation's
+  model, and a script's own references through `Script::resolveClonedReferences`
+  (upstream `resolveDuplicatedEntityReferenceProperties`). A component with settings
+  overrides `cloneFrom`; one holding an Entity or node pointer overrides the second
+  too. Scripts are recreated by NAME and copy nothing unless `Script::cloneFrom` does
+  — the stand-in for upstream's attribute copy. A render clone takes
+  `MeshInstance::cloneFor` (shared mesh and material ownership, its own morph and skin
+  instance, no lightmap or instancing) and CO-OWNS a primitive mesh, and skips
+  instances a splat, emitter or wide line attached; those owners rebuild their own.
+  Until 2026-09-24 only render and light had a `cloneFrom`: every other component came
+  back default-constructed, nothing was remapped, and a cloned box borrowed its mesh
+  from the source. `tests/entityCloneTests.cpp` fails 19 checks on that behaviour.
+- **`Tags::add` / `remove` with a string literal recursed until the stack ran out**
+  (the variadic template re-deduced itself for the vector it built), so nothing could
+  tag a node until 2026-09-24. They forward through a const reference now.
 - **`Engine::start()` must be called AFTER the scene exists.** It fires the
   initialize phase (`start`, then systems `initialize` / `postInitialize`, then
   the app's `initialize` / `postinitialize`) and then ticks. `ExampleApp` starts

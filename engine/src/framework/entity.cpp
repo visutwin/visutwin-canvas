@@ -200,66 +200,100 @@ namespace visutwin::canvas
 
     Entity* Entity::clone() const
     {
-        //
-        // 1. Create new entity
-        auto* cloned = new Entity();
+        CloneNodeMap map;
+        Entity* cloned = cloneRecursively(map);
+        resolveClonedReferences(*this, *cloned, map);
+        return cloned;
+    }
 
-        // Find engine: prefer direct reference, then walk hierarchy.
-        // Entities from parsers (e.g., GLB) don't have _engine set directly,
-        // but their ancestor (root node) does.
+    Entity* Entity::cloneRecursively(CloneNodeMap& map) const
+    {
+        auto* cloned = new Entity();
+        map[this] = cloned;
+
+        // Entities from parsers (e.g., GLB) don't have _engine set directly, but their
+        // ancestor (root node) does.
         auto* engine = findEngine();
         cloned->setEngine(engine);
 
-        // 2. Copy GraphNode state (JS: GraphNode._cloneInternal)
+        // GraphNode state (upstream GraphNode._cloneInternal).
         cloned->setName(name());
+        cloned->tags().add(tags().list());
         cloned->setLocalPosition(localPosition());
         cloned->setLocalRotation(localRotation());
         cloned->setLocalScale(localScale());
         cloned->setEnabled(enabledLocal());
-        // Clone is not in hierarchy yet — _enabledInHierarchy stays false until addChild.
+        // Not in a hierarchy yet, so nothing is enabled: adding the clone to a parent
+        // is what fires onEnable, after every component has its data.
 
-        // 3. Clone each component via system->addComponent + cloneFrom
-        //cloneComponent(this, clone) for each component
-        for (const auto& [typeId, srcComponent] : _components) {
-            auto* system = srcComponent->system();
+        // Components in CREATION order, as upstream walks `this.c` — the map's order is
+        // a hash detail and would give each clone a different order.
+        for (const auto& srcComponent : _componentStorage) {
+            const Component& srcRef = *srcComponent;
+            auto* system = srcRef.system();
 
-            // Components created outside the system (e.g., by the GLB parser) may have
-            // a null system pointer. Fall back to the engine's system registry using the
-            // component's runtime type to find the correct system.
+            // Components created outside the system (e.g., by the GLB parser) may have a
+            // null system pointer; find the system from the component's runtime type.
             if (!system && engine && engine->systems()) {
-                system = engine->systems()->getByComponentTypeInfo(typeid(*srcComponent));
+                system = engine->systems()->getByComponentTypeInfo(typeid(srcRef));
             }
             if (!system) {
                 continue;
             }
-
-            auto newComponent = system->addComponent(cloned);
-            if (!newComponent) {
+            const auto typeId = componentTypeIdOf(srcComponent.get());
+            if (!typeId) {
                 continue;
             }
 
-            // Copy data from source component
-            newComponent->cloneFrom(srcComponent);
-
-            auto* raw = newComponent.get();
-            cloned->_components[typeId] = raw;
-            cloned->_componentStorage.push_back(std::move(newComponent));
-
-            if (typeId == componentTypeID<ScriptComponent>()) {
-                cloned->_script = static_cast<ScriptComponent*>(raw);
+            // A component cloned earlier may already have created this one (a splat or
+            // particle component makes the render component it draws through); clone
+            // into it rather than make a second.
+            Component* raw = nullptr;
+            if (const auto it = cloned->_components.find(*typeId); it != cloned->_components.end()) {
+                raw = it->second;
+            } else if (auto newComponent = system->addComponent(cloned)) {
+                raw = cloned->addComponentInstance(std::move(newComponent), *typeId);
             }
+            if (!raw) {
+                continue;
+            }
+            raw->cloneFrom(srcComponent.get());
+            raw->setEnabled(srcComponent->enabled());
         }
 
-        // 4. Recursively clone children
-        // for each child, child._cloneRecursively(), clone.addChild(newChild)
+        // Only Entity children are copied, as upstream.
         for (const auto& child : children()) {
-            const auto* childEntity = dynamic_cast<const Entity*>(child.get());
-            if (childEntity) {
-                auto* clonedChild = childEntity->clone();
-                cloned->addChild(clonedChild);
+            if (const auto* childEntity = dynamic_cast<const Entity*>(child.get())) {
+                cloned->addChild(childEntity->cloneRecursively(map));
             }
         }
 
         return cloned;
+    }
+
+    void Entity::resolveClonedReferences(const Entity& source, Entity& clone, const CloneNodeMap& map)
+    {
+        for (const auto& srcComponent : source._componentStorage) {
+            const auto typeId = source.componentTypeIdOf(srcComponent.get());
+            if (!typeId) {
+                continue;
+            }
+            if (const auto it = clone._components.find(*typeId); it != clone._components.end()) {
+                it->second->resolveClonedReferences(srcComponent.get(), map);
+            }
+        }
+
+        // Children were cloned in order, skipping the same non-Entity nodes.
+        std::vector<const Entity*> sourceChildren;
+        for (const auto& child : source.children()) {
+            if (const auto* e = dynamic_cast<const Entity*>(child.get())) {
+                sourceChildren.push_back(e);
+            }
+        }
+        for (const auto* sourceChild : sourceChildren) {
+            if (const auto it = map.find(sourceChild); it != map.end()) {
+                resolveClonedReferences(*sourceChild, *static_cast<Entity*>(it->second), map);
+            }
+        }
     }
 }

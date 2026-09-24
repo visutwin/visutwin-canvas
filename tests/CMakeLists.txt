@@ -386,6 +386,14 @@ target_link_libraries(visutwin-mirrored-body-tests PRIVATE visutwin-canvas)
 
 add_test(NAME mirrored-body COMMAND visutwin-mirrored-body-tests)
 
+add_executable(visutwin-entity-clone-tests
+    entityCloneTests.cpp
+)
+
+target_link_libraries(visutwin-entity-clone-tests PRIVATE visutwin-canvas)
+
+add_test(NAME entity-clone COMMAND visutwin-entity-clone-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

@@ -236,6 +236,34 @@ namespace visutwin::canvas
         return _taaPass;
     }
 
+    void CameraComponent::cloneFrom(const Component* source)
+    {
+        const auto* src = dynamic_cast<const CameraComponent*>(source);
+        if (!src) {
+            return;
+        }
+        // Upstream copies the camera's properties through the component; the Camera
+        // holds most of them here, so it copies itself.
+        if (_camera && src->_camera) {
+            _camera->copy(*src->_camera);
+        }
+        _layers = src->_layers;
+        _priority = src->_priority;
+        setDof(src->_dof);
+        setSsao(src->_ssao);
+        setTaa(src->_taa);
+        _volumetricFog = src->_volumetricFog;
+        _rendering = src->_rendering;
+        // renderSceneColorMap / renderSceneDepthMap are upstream properties whose
+        // setter makes ONE request; the source's count belongs to its own requesters.
+        if (src->renderSceneColorMap()) {
+            requestSceneColorMap(true);
+        }
+        if (src->renderSceneDepthMap()) {
+            requestSceneDepthMap(true);
+        }
+    }
+
     void CameraComponent::setPriority(const int value)
     {
         _priority = value;

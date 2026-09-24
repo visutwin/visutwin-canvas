@@ -159,6 +159,36 @@ namespace visutwin::canvas
         // exists only for this camera.
         void setOwnedNode(std::unique_ptr<GraphNode> value);
 
+        /// Copy every SETTING of `other` (upstream `Camera.copy`): projection, clip
+        /// planes, clears, rects, render target, tone mapping, culling mask, jitter
+        /// and debug pass. Not copied: the node, the grab passes and render passes
+        /// (per-camera objects its component rebuilds) and the per-frame matrices.
+        void copy(const Camera& other)
+        {
+            _aspectRatio = other._aspectRatio;
+            _aspectRatioMode = other._aspectRatioMode;
+            _farClip = other._farClip;
+            _nearClip = other._nearClip;
+            _fov = other._fov;
+            _horizontalFov = other._horizontalFov;
+            _orthoHeight = other._orthoHeight;
+            _projection = other._projection;
+            _projectionOffset = other._projectionOffset;
+            _cullingMask = other._cullingMask;
+            _clearColor = other._clearColor;
+            _clearColorBuffer = other._clearColorBuffer;
+            _clearDepthBuffer = other._clearDepthBuffer;
+            _clearStencilBuffer = other._clearStencilBuffer;
+            _scissorRectClear = other._scissorRectClear;
+            _rect = other._rect;
+            _scissorRect = other._scissorRect;
+            _renderTarget = other._renderTarget;
+            _toneMapping = other._toneMapping;
+            _jitter = other._jitter;
+            _debugShaderPass = other._debugShaderPass;
+            _projMatDirty = true;
+        }
+
         void setScissorRectClear(bool value) { _scissorRectClear = value; }
 
         void setClearDepthBuffer(bool value) { _clearDepthBuffer = value; }

@@ -21,6 +21,7 @@ namespace visutwin::canvas
         ~CollisionComponent() override;
 
         void initializeComponentData() override {}
+        void cloneFrom(const Component* source) override;
 
         static const std::vector<CollisionComponent*>& instances() { return _instances; }
 

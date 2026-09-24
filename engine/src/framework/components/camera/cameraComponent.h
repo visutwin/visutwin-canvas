@@ -192,6 +192,8 @@ namespace visutwin::canvas
 
         void initializeComponentData() override;
 
+        void cloneFrom(const Component* source) override;
+
         // Gets the render passes the camera uses for rendering, instead of its default rendering
         const std::vector<std::shared_ptr<RenderPass>>& renderPasses() const { return _camera->renderPasses(); }
 

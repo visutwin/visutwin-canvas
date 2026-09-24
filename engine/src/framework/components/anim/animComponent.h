@@ -32,6 +32,7 @@ namespace visutwin::canvas
         ~AnimComponent() override;
 
         void initializeComponentData() override {}
+        void cloneFrom(const Component* source) override;
 
         static const std::vector<AnimComponent*>& instances() { return _instances; }
 
@@ -124,6 +125,8 @@ namespace visutwin::canvas
             AnimTransform base;
         };
         std::unordered_map<std::string, TargetValue> _targets;
+        // The graph loadStateGraph was given, kept so a clone can load the same one.
+        std::optional<AnimStateGraph> _stateGraph;
         std::unique_ptr<AnimBinder> _binder;   // resolves node paths for the final write
 
         void composeTargets();

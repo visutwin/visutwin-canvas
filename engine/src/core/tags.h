@@ -43,7 +43,10 @@ namespace visutwin::canvas
             std::vector<std::string> tags;
             tags.reserve(sizeof...(Args));
             (appendFlat(tags, std::forward<Args>(args)), ...);
-            return add(tags);
+            // Through a CONST reference: a non-const vector lvalue deduces this template
+            // again as an exact match and recursed until the stack ran out — every
+            // `add("literal")` did, since a string literal also prefers the template.
+            return add(static_cast<const std::vector<std::string>&>(tags));
         }
 
         bool remove(const std::string& tag);
@@ -57,7 +60,10 @@ namespace visutwin::canvas
             std::vector<std::string> tags;
             tags.reserve(sizeof...(Args));
             (appendFlat(tags, std::forward<Args>(args)), ...);
-            return remove(tags);
+            // Through a CONST reference: a non-const vector lvalue deduces this template
+            // again as an exact match and recursed until the stack ran out — every
+            // `remove("literal")` did, since a string literal also prefers the template.
+            return remove(static_cast<const std::vector<std::string>&>(tags));
         }
 
         void clear();

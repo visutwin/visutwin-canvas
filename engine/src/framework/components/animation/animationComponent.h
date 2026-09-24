@@ -29,6 +29,8 @@ namespace visutwin::canvas
         ~AnimationComponent() override;
 
         void initializeComponentData() override {}
+        void cloneFrom(const Component* source) override;
+        void resolveClonedReferences(const Component* source, const CloneNodeMap& map) override;
 
         static const std::vector<AnimationComponent*>& instances() { return _instances; }
 
