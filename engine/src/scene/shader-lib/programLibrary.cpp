@@ -889,7 +889,7 @@ namespace visutwin::canvas
 
     std::shared_ptr<Shader> ProgramLibrary::getShadowShader(const Material* material,
         const bool dynamicBatch, const bool skinning,
-        const bool morphing, const bool instancing, const bool instancingColor)
+        const bool morphing, const bool instancing, const bool instancingColor, const bool vsm)
     {
         if (!_device) {
             return nullptr;
@@ -934,9 +934,15 @@ namespace visutwin::canvas
         options.instancing = instancing;
         options.instancingColor = instancing && instancingColor;
         // The shadow fragment shader needs to know whether to write moments
-        // (RGBA16F EVSM) or just rely on hardware depth (PCF). Both shadow
-        // shader variants are cached separately by the variant key.
-        options.vsmShadows = _vsmShadowsEnabled;
+        // (RGBA16F EVSM) or just rely on hardware depth (PCF). That is a property
+        // of the LIGHT being rendered, so the caller says it. It used to come from
+        // the scene-wide VSM switch, which renderForwardLayer sets — AFTER the
+        // frame's shadow passes have run — so the first VSM shadow a light ever
+        // rendered used the depth-only variant and wrote no moments. A realtime
+        // shadow was right one frame later; a one-shot one stayed blank for good
+        // (zeros on Vulkan, uninitialised memory on Metal). It also handed spot
+        // shadows and the depth prepass the moments variant under a VSM key light.
+        options.vsmShadows = vsm;
 
         const VariantKey key = makeVariantKey("shadow", options, material);
         const auto cached = _forwardShaderCache.find(key);

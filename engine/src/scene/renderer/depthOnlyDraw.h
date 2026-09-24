@@ -31,6 +31,8 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> skinnedMorphed;
         std::shared_ptr<Shader> instanced;
         std::shared_ptr<Shader> instancedColor;
+        // Every variant writes EVSM moments (a VSM light's shadow pass).
+        bool vsm = false;
     };
 
     /**

@@ -151,7 +151,7 @@ namespace visutwin::canvas
     std::shared_ptr<Shader> shadowCasterShader(ProgramLibrary* programLibrary,
         const Material* frontendMaterial, std::shared_ptr<Shader>& cached,
         const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor)
+        const bool instancing, const bool instancingColor, const bool vsm)
     {
         if (!programLibrary) {
             return nullptr;
@@ -160,11 +160,11 @@ namespace visutwin::canvas
             // Per-material variant. ProgramLibrary caches these on the variant key,
             // so two masked casters with the same feature set share one program.
             return programLibrary->getShadowShader(frontendMaterial, dynamicBatch,
-                skinning, morphing, instancing, instancingColor);
+                skinning, morphing, instancing, instancingColor, vsm);
         }
         if (!cached) {
             cached = programLibrary->getShadowShader(nullptr, dynamicBatch, skinning,
-                morphing, instancing, instancingColor);
+                morphing, instancing, instancingColor, vsm);
         }
         return cached;
     }

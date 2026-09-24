@@ -1689,6 +1689,20 @@ present, but the rule below never depends on reading it.
   ruled out by experiment). `vulkanSmoke`'s shadow-catcher step had been failing
   since 2026-09-23 for test reasons only (a light with shadowMapIndex -1 and cascade
   distances of 0); it sets both now.
+- **A shadow pass must not take its variant from a scene-wide switch set by the
+  FORWARD pass.** `renderForwardLayer` sets ProgramLibrary's feature switches (VSM,
+  PCSS, cookies, local shadows ...) when the forward pass executes, which is AFTER
+  that frame's shadow passes. `getShadowShader` read the VSM switch, so the first
+  VSM shadow any light rendered used the depth-only variant and wrote no moments; a
+  realtime shadow was right one frame later, a ONE-SHOT one stayed blank for good —
+  zeros on Vulkan, uninitialised private memory on Metal, which is why
+  `ambient-occlusion` under `VISUTWIN_SHADOW_TYPE=2` was ~10 counts apart between
+  backends over 700k pixels (2026-09-24). The caller now passes `vsm` from the light
+  it renders (`DepthOnlyShaders::vsm`). Anything a shadow or depth pass compiles must
+  come from its own light or pass, never from state the forward pass leaves behind.
+  Diagnose this class by reading the map back (`Texture::read`) on frame 1 and after a
+  one-shot re-arm at frame 2: a map that is only right the SECOND time is a first-use
+  bug, and realtime updates hide it.
 - **The default is ONE shadow cascade, as upstream.** It was 4, and a one-shot
   directional shadow is unusable with more than one: the receiver picks its cascade
   by VIEW depth, so moving the camera carries the scene into cascades whose maps were

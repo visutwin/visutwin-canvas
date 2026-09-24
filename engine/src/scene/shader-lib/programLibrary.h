@@ -57,7 +57,7 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> getShadowShader(const Material* material = nullptr,
                                                 bool dynamicBatch = false, bool skinning = false,
                                                 bool morphing = false, bool instancing = false,
-                                                bool instancingColor = false);
+                                                bool instancingColor = false, bool vsm = false);
 
         // True when this caster's material needs that frontend, and therefore needs
         // its uniforms and textures bound for the shadow draw. Shadow passes bind a

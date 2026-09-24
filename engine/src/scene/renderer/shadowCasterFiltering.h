@@ -63,5 +63,5 @@ namespace visutwin::canvas
     std::shared_ptr<Shader> shadowCasterShader(ProgramLibrary* programLibrary,
         const Material* frontendMaterial, std::shared_ptr<Shader>& cached,
         bool dynamicBatch = false, bool skinning = false, bool morphing = false,
-        bool instancing = false, bool instancingColor = false);
+        bool instancing = false, bool instancingColor = false, bool vsm = false);
 }

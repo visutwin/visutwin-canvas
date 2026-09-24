@@ -50,8 +50,10 @@ namespace visutwin::canvas
             return;
         }
 
-        auto shadowShader = programLibrary->getShadowShader(nullptr, false);
-        auto shadowShaderDynBatch = programLibrary->getShadowShader(nullptr, true);
+        // A VSM light's pass writes EVSM moments; the light decides, not a scene flag.
+        const bool vsm = _light->shadowType() == SHADOW_VSM_16F;
+        auto shadowShader = programLibrary->getShadowShader(nullptr, false, false, false, false, false, vsm);
+        auto shadowShaderDynBatch = programLibrary->getShadowShader(nullptr, true, false, false, false, false, vsm);
         if (!shadowShader) {
             // Returning here draws NOTHING into the shadow map, which then reads as
             // its cleared 1.0 and lights every fragment: a total, silent loss of
@@ -71,6 +73,7 @@ namespace visutwin::canvas
         DepthOnlyShaders shaders;
         shaders.plain = shadowShader;
         shaders.dynamicBatch = shadowShaderDynBatch;
+        shaders.vsm = vsm;
 
         _graphicsDevice->setShader(shadowShader);
 

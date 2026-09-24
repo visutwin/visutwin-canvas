@@ -56,7 +56,7 @@ namespace visutwin::canvas
                 instancing.vertexBuffer->format()->hasInstanceColor();
             auto& cachedVariant = instanceColor ? shaders.instancedColor : shaders.instanced;
             if (const auto variant = shadowCasterShader(programLibrary, frontendMaterial,
-                    cachedVariant, false, false, false, true, instanceColor)) {
+                    cachedVariant, false, false, false, true, instanceColor, shaders.vsm)) {
                 device->setShader(variant);
             }
             device->setVertexBuffer(instancing.vertexBuffer, 5);
@@ -69,7 +69,7 @@ namespace visutwin::canvas
             device->setShader(shaders.plain);
         } else if (meshInstance->isDynamicBatch()) {
             if (const auto variant = shadowCasterShader(programLibrary, frontendMaterial,
-                    shaders.dynamicBatch, true)) {
+                    shaders.dynamicBatch, true, false, false, false, false, shaders.vsm)) {
                 device->setShader(variant);
             }
             if (auto* sbi = meshInstance->skinBatchInstance()) {
@@ -87,7 +87,7 @@ namespace visutwin::canvas
                 ? (morphed ? shaders.skinnedMorphed : shaders.skinned)
                 : shaders.morphed;
             if (const auto variant = shadowCasterShader(programLibrary, frontendMaterial,
-                    cachedVariant, false, skinned, morphed)) {
+                    cachedVariant, false, skinned, morphed, false, false, shaders.vsm)) {
                 device->setShader(variant);
             }
             if (skinned) {
@@ -111,7 +111,8 @@ namespace visutwin::canvas
             // The pass-wide shader is already bound; a caster with an opacity frontend
             // swaps in its own variant and puts the plain one back, as above.
             if (frontendMaterial) {
-                if (const auto variant = programLibrary->getShadowShader(frontendMaterial)) {
+                if (const auto variant = programLibrary->getShadowShader(frontendMaterial,
+                        false, false, false, false, false, shaders.vsm)) {
                     device->setShader(variant);
                 }
             }
