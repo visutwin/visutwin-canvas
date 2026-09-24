@@ -378,6 +378,14 @@ target_link_libraries(visutwin-raycast-fallback-tests PRIVATE visutwin-canvas)
 
 add_test(NAME raycast-fallback COMMAND visutwin-raycast-fallback-tests)
 
+add_executable(visutwin-mirrored-body-tests
+    mirroredBodyTests.cpp
+)
+
+target_link_libraries(visutwin-mirrored-body-tests PRIVATE visutwin-canvas)
+
+add_test(NAME mirrored-body COMMAND visutwin-mirrored-body-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

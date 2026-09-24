@@ -222,8 +222,43 @@ namespace visutwin::canvas
             return;
         }
 
+        const Vector3 scale = owner->localScale();
+        if (scale.getX() < 0.0f || scale.getY() < 0.0f || scale.getZ() < 0.0f ||
+            owner->worldScaleSign() < 0.0f) {
+            setMirroredTransform(_body->position(), _body->rotation());
+            return;
+        }
         owner->setPosition(_body->position());
         owner->setRotation(_body->rotation());
+    }
+
+    // The rotation read from a mirrored world transform is NOT the entity's rotation:
+    // Quaternion::fromMatrix4 negates the X axis of a mirrored basis to make it a
+    // rotation, and a pair of negative scale factors reads as a 180-degree turn. The body
+    // was created with that rotation, so writing it back as the WORLD rotation baked the
+    // correction into the local rotation and the entity turned on its first step. Apply
+    // instead the rotation the body turned through since the entity was last synced, to
+    // the LOCAL rotation — upstream #9500. tests/mirroredBodyTests.cpp holds it.
+    void RigidBodyComponent::setMirroredTransform(const Vector3& position, const Quaternion& bodyRotation)
+    {
+        Entity* owner = entity();
+        // World-space rotation from the entity's current (read) rotation to the body's.
+        Quaternion delta = bodyRotation * owner->rotation().invert();
+
+        if (GraphNode* parent = owner->parent()) {
+            // Expressed in the parent's space.
+            const Quaternion parentRotation = parent->rotation();
+            delta = parentRotation.invert() * delta * parentRotation;
+            // A mirrored parent's rotation is read with its X axis negated, so the
+            // parent's space is the mirror image of that rotation's: reflect the delta
+            // through YZ.
+            if (parent->worldScaleSign() < 0.0f) {
+                delta = Quaternion(delta.getX(), -delta.getY(), -delta.getZ(), delta.getW());
+            }
+        }
+
+        owner->setPosition(position);
+        owner->setLocalRotation((delta * owner->localRotation()).normalized());
     }
 
     void RigidBodyComponent::releaseBody(PhysicsWorld& world)

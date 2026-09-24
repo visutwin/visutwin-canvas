@@ -375,6 +375,16 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   world. Until 2026-09-23 the component kept the freed pointer and called `isBroken()`
   on it every update. `tests/jointLifetimeTests.cpp` runs the components against a world
   that never frees its joints and counts every call on a dead one.
+- **A dynamic body on a MIRRORED entity writes back the rotation it turned through,
+  not a world rotation** (`RigidBodyComponent::setMirroredTransform`, upstream #9500).
+  The rotation read from a mirrored world transform is not the entity's: 
+  `Quaternion::fromMatrix4` negates the X axis of a mirrored basis, and two negative
+  scale factors read as a 180-degree turn. Written back as the world rotation it turned
+  the entity on its first step (negative local Y, Y and Z, or a mirrored parent; a lone
+  negative X is exactly what the extraction undoes and was always right). The delta is
+  applied to the LOCAL rotation, expressed in the parent's space and reflected through
+  YZ under a mirrored parent. `tests/mirroredBodyTests.cpp` drives it with a world
+  that holds bodies still or turns them by a known rotation.
 - `teleport()` rather than `setPosition()` on a simulated entity: the step would
   overwrite a bare transform, and Jolt does not wake a body that was only moved.
 - `CollisionComponent::height` is the FULL height for a capsule, caps included;

@@ -99,6 +99,13 @@ namespace visutwin::canvas
         /// Called by RigidBodyComponentSystem; creates the body if it does not
         /// exist yet and mirrors its transform onto the entity.
         void syncFromSimulation(PhysicsWorld& world);
+
+    private:
+        // Writes a dynamic body's pose to an entity with a negative local scale or a
+        // mirrored world transform (upstream _setMirroredTransform).
+        void setMirroredTransform(const Vector3& position, const Quaternion& bodyRotation);
+
+    public:
         /// Called by RigidBodyComponentSystem before the world is destroyed.
         void releaseBody(PhysicsWorld& world);
 
