@@ -1137,6 +1137,16 @@ present, but the rule below never depends on reading it.
   so `setBaseColorTransform` from the parser was overwritten before it ever reached
   the GPU — the same trap as `setDiffuse` versus `setBaseColorFactor`, one field
   further out. The parser writes `setDiffuseMapTiling` and its four siblings.
+- **A glTF material is built in ONE place, `createGltfMaterial` in `glbParser.cpp`,
+  for all three load paths** — the synchronous `parse()`, `createFromModel` and
+  `prepareFromModel` + `createFromPrepared` (the last two are what `loadAsync` uses).
+  Each used to carry its own copy, and the two async copies had drifted: no occlusion
+  texture, no emissive texture, no metallic-roughness UV set and no
+  `KHR_materials_unlit`, so a model loaded asynchronously lost its baked AO and its glow
+  and an unlit model came out lit. No example loads asynchronously, which is how it
+  lived; `tests/glbMaterialPathsTests.cpp` builds a model using all four in memory and
+  checks both async paths. A new material feature goes into that function and nowhere
+  else.
 - **`extensionsRequired` is consulted, and the list of what the parser supports
   lives in `warnUnsupportedRequiredExtensions`.** Add an extension there when you
   implement it, or a file that needs it keeps warning; leave it out when you only

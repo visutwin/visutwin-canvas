@@ -315,3 +315,12 @@ add_executable(visutwin-batch-lifetime-tests
 target_link_libraries(visutwin-batch-lifetime-tests PRIVATE visutwin-canvas)
 
 add_test(NAME batch-lifetime COMMAND visutwin-batch-lifetime-tests)
+
+add_executable(visutwin-glb-material-paths-tests
+    glbMaterialPathsTests.cpp
+)
+
+target_include_directories(visutwin-glb-material-paths-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+target_link_libraries(visutwin-glb-material-paths-tests PRIVATE visutwin-canvas)
+
+add_test(NAME glb-material-paths COMMAND visutwin-glb-material-paths-tests)

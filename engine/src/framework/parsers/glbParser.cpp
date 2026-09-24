@@ -1841,6 +1841,179 @@ namespace visutwin::canvas
         }
     }
 
+    // The material a primitive with no material gets.
+    static std::shared_ptr<StandardMaterial> createDefaultGltfMaterial()
+    {
+        auto material = std::make_shared<StandardMaterial>();
+        material->setName("glTF-default");
+        material->setTransparent(false);
+        material->setAlphaMode(AlphaMode::OPAQUE);
+        material->setMetallicFactor(0.0f);
+        material->setRoughnessFactor(1.0f);
+        // StandardMaterial scalars always apply, so the default material states them too.
+        material->setUseMetalness(true);
+        material->setMetalness(0.0f);
+        material->setGloss(0.0f);
+        material->setShaderVariantKey(1);
+        return material;
+    }
+
+    // One glTF material, for EVERY load path: the synchronous parse(), createFromModel
+    // and createFromPrepared (the two asynchronous ones). Each used to carry its own
+    // copy of this, and the two async copies had drifted — no occlusion texture, no
+    // emissive texture, no metallic-roughness UV set and no KHR_materials_unlit — so a
+    // model loaded with loadAsync lost its baked AO and its glow, and an unlit model
+    // came out lit. `textureCount`, when given, counts the core textures bound.
+    static std::shared_ptr<StandardMaterial> createGltfMaterial(const tinygltf::Material& srcMaterial,
+        const std::function<std::shared_ptr<Texture>(int)>& getOrCreateTexture, size_t* textureCount = nullptr)
+    {
+        auto material = std::make_shared<StandardMaterial>();
+        material->setName(srcMaterial.name.empty() ? "glTF-material" : srcMaterial.name);
+
+        // A core texture that the model names but that could not be created is worth a
+        // warning on every path; before, only one async path said so.
+        const auto bindTexture = [&](const int textureIndex, const char* what) -> std::shared_ptr<Texture> {
+            auto texture = getOrCreateTexture(textureIndex);
+            if (texture) {
+                if (textureCount) {
+                    ++*textureCount;
+                }
+            } else {
+                spdlog::warn("GLB material '{}': {} texture {} could not be created",
+                    material->name(), what, textureIndex);
+            }
+            return texture;
+        };
+
+        const auto& pbr = srcMaterial.pbrMetallicRoughness;
+        if (pbr.baseColorFactor.size() == 4) {
+            const Color baseColor(
+                static_cast<float>(pbr.baseColorFactor[0]),
+                static_cast<float>(pbr.baseColorFactor[1]),
+                static_cast<float>(pbr.baseColorFactor[2]),
+                static_cast<float>(pbr.baseColorFactor[3]));
+            material->setBaseColorFactor(baseColor);
+            // Also set StandardMaterial diffuse + opacity so that updateUniforms() uses
+            // the glTF base color (not white default). glTF baseColorFactor is linear;
+            // StandardMaterial.diffuse expects sRGB (the shader applies srgbToLinear).
+            Color diffuseColor(baseColor);
+            diffuseColor.gamma();
+            material->setDiffuse(diffuseColor);
+            material->setOpacity(baseColor.a);
+        }
+        const float metallicFactor = static_cast<float>(pbr.metallicFactor);
+        const float roughnessFactor = static_cast<float>(pbr.roughnessFactor);
+        material->setMetallicFactor(metallicFactor);
+        material->setRoughnessFactor(roughnessFactor);
+        // StandardMaterial convention: gloss = 1 - roughness (glossInvert=false).
+        material->setMetalness(metallicFactor);
+        material->setGloss(1.0f - roughnessFactor);
+        // glTF metallic-roughness: upstream createMaterial sets useMetalness for every glTF material.
+        material->setUseMetalness(true);
+
+        if (!srcMaterial.alphaMode.empty()) {
+            if (srcMaterial.alphaMode == "BLEND") {
+                material->setAlphaMode(AlphaMode::BLEND);
+                material->setTransparent(true);
+            } else if (srcMaterial.alphaMode == "MASK") {
+                material->setAlphaMode(AlphaMode::MASK);
+                material->setTransparent(false);
+            } else {
+                material->setAlphaMode(AlphaMode::OPAQUE);
+                material->setTransparent(false);
+            }
+        }
+        material->setCullMode(srcMaterial.doubleSided ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK);
+        material->setAlphaCutoff(static_cast<float>(srcMaterial.alphaCutoff));
+
+        applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
+        applyVolumeExtensions(srcMaterial, material.get(), getOrCreateTexture);
+        applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
+        applyEmissiveStrength(srcMaterial, material.get());
+        applyTextureTransforms(srcMaterial, material.get());
+
+        if (pbr.baseColorTexture.index >= 0) {
+            if (auto texture = bindTexture(pbr.baseColorTexture.index, "baseColor")) {
+                material->setBaseColorTexture(texture.get());
+                material->setHasBaseColorTexture(true);
+                material->setBaseColorUvSet(pbr.baseColorTexture.texCoord);
+            }
+        }
+        if (srcMaterial.normalTexture.index >= 0) {
+            if (auto texture = bindTexture(srcMaterial.normalTexture.index, "normal")) {
+                material->setNormalTexture(texture.get());
+                material->setHasNormalTexture(true);
+                material->setNormalUvSet(srcMaterial.normalTexture.texCoord);
+            }
+            material->setNormalScale(static_cast<float>(srcMaterial.normalTexture.scale));
+            material->setBumpiness(static_cast<float>(srcMaterial.normalTexture.scale));
+        }
+        if (pbr.metallicRoughnessTexture.index >= 0) {
+            if (auto texture = bindTexture(pbr.metallicRoughnessTexture.index, "metallicRoughness")) {
+                material->setMetallicRoughnessTexture(texture.get());
+                material->setHasMetallicRoughnessTexture(true);
+                material->setMetallicRoughnessUvSet(pbr.metallicRoughnessTexture.texCoord);
+            }
+        }
+        if (srcMaterial.occlusionTexture.index >= 0) {
+            if (auto texture = bindTexture(srcMaterial.occlusionTexture.index, "occlusion")) {
+                material->setOcclusionTexture(texture.get());
+                material->setHasOcclusionTexture(true);
+                material->setOcclusionUvSet(srcMaterial.occlusionTexture.texCoord);
+            }
+            material->setOcclusionStrength(static_cast<float>(srcMaterial.occlusionTexture.strength));
+        }
+        if (srcMaterial.emissiveFactor.size() == 3) {
+            // glTF emissiveFactor is linear; material.emissive expects sRGB.
+            Color emissiveColor(
+                static_cast<float>(srcMaterial.emissiveFactor[0]),
+                static_cast<float>(srcMaterial.emissiveFactor[1]),
+                static_cast<float>(srcMaterial.emissiveFactor[2]),
+                1.0f);
+            emissiveColor.gamma();
+            material->setEmissiveFactor(emissiveColor);
+            // StandardMaterial::updateUniforms overrides emissiveFactor with
+            // _emissive * _emissiveIntensity — mirror into the authoritative slot.
+            material->setEmissive(emissiveColor);
+        }
+        if (srcMaterial.emissiveTexture.index >= 0) {
+            if (auto texture = bindTexture(srcMaterial.emissiveTexture.index, "emissive")) {
+                material->setEmissiveTexture(texture.get());
+                material->setHasEmissiveTexture(true);
+                material->setEmissiveUvSet(srcMaterial.emissiveTexture.texCoord);
+            }
+        }
+
+        const bool isUnlit = srcMaterial.extensions.contains("KHR_materials_unlit");
+
+        uint64_t variant = 1;
+        if (material->hasBaseColorTexture()) {
+            variant |= (1ull << 1);
+        }
+        if (material->hasNormalTexture()) {
+            variant |= (1ull << 4);
+        }
+        if (material->hasMetallicRoughnessTexture()) {
+            variant |= (1ull << 5);
+        }
+        if (material->hasOcclusionTexture()) {
+            variant |= (1ull << 6);
+        }
+        if (material->hasEmissiveTexture()) {
+            variant |= (1ull << 7);
+        }
+        if (material->alphaMode() == AlphaMode::BLEND) {
+            variant |= (1ull << 2);
+        } else if (material->alphaMode() == AlphaMode::MASK) {
+            variant |= (1ull << 3);
+        }
+        if (isUnlit) {
+            variant |= (1ull << 32);  // VT_FEATURE_UNLIT
+        }
+        material->setShaderVariantKey(variant);
+        return material;
+    }
+
     std::unique_ptr<GlbContainerResource> GlbParser::parse(const std::string& path,
         const std::shared_ptr<GraphicsDevice>& device)
     {
@@ -1882,21 +2055,6 @@ namespace visutwin::canvas
         size_t dracoPrimitiveCount = 0;
         size_t dracoDecodeSuccessCount = 0;
         size_t dracoDecodeFailureCount = 0;
-
-        auto makeDefaultMaterial = []() {
-            auto material = std::make_shared<StandardMaterial>();
-            material->setName("glTF-default");
-            material->setTransparent(false);
-            material->setAlphaMode(AlphaMode::OPAQUE);
-            material->setMetallicFactor(0.0f);
-            material->setRoughnessFactor(1.0f);
-            // StandardMaterial scalars always apply, so the default material states them too.
-            material->setUseMetalness(true);
-            material->setMetalness(0.0f);
-            material->setGloss(0.0f);
-            material->setShaderVariantKey(1);
-            return material;
-        };
 
         std::vector<std::shared_ptr<Material>> gltfMaterials;
         gltfMaterials.reserve(std::max<size_t>(1, model.materials.size()));
@@ -2003,149 +2161,10 @@ namespace visutwin::canvas
         };
 
         if (model.materials.empty()) {
-            gltfMaterials.push_back(makeDefaultMaterial());
+            gltfMaterials.push_back(createDefaultGltfMaterial());
         } else {
             for (size_t materialIndex = 0; materialIndex < model.materials.size(); ++materialIndex) {
-                const auto& srcMaterial = model.materials[materialIndex];
-                auto material = std::make_shared<StandardMaterial>();
-                material->setName(srcMaterial.name.empty() ? "glTF-material" : srcMaterial.name);
-
-                const auto& pbr = srcMaterial.pbrMetallicRoughness;
-                if (pbr.baseColorFactor.size() == 4) {
-                    const Color baseColor(
-                        static_cast<float>(pbr.baseColorFactor[0]),
-                        static_cast<float>(pbr.baseColorFactor[1]),
-                        static_cast<float>(pbr.baseColorFactor[2]),
-                        static_cast<float>(pbr.baseColorFactor[3])
-                    );
-                    material->setBaseColorFactor(baseColor);
-                    // Also set StandardMaterial diffuse + opacity so that
-                    // updateUniforms() uses the glTF base color (not white default).
-                    // glTF baseColorFactor is linear; StandardMaterial.diffuse
-                    // expects sRGB (the shader applies srgbToLinear). Convert with .gamma().
-                    Color diffuseColor(baseColor);
-                    diffuseColor.gamma();
-                    material->setDiffuse(diffuseColor);
-                    material->setOpacity(baseColor.a);
-                }
-                float metallicFactor = static_cast<float>(pbr.metallicFactor);
-                float roughnessFactor = static_cast<float>(pbr.roughnessFactor);
-                material->setMetallicFactor(metallicFactor);
-                material->setRoughnessFactor(roughnessFactor);
-                // Also set StandardMaterial metalness + gloss so that
-                // updateUniforms() uses the glTF values (not defaults).
-                // StandardMaterial convention: gloss = 1 - roughness (glossInvert=false).
-                material->setMetalness(metallicFactor);
-                material->setGloss(1.0f - roughnessFactor);
-                // glTF metallic-roughness: upstream createMaterial sets useMetalness for every glTF material.
-                material->setUseMetalness(true);
-
-                if (!srcMaterial.alphaMode.empty()) {
-                    if (srcMaterial.alphaMode == "BLEND") {
-                        material->setAlphaMode(AlphaMode::BLEND);
-                        material->setTransparent(true);
-                    } else if (srcMaterial.alphaMode == "MASK") {
-                        material->setAlphaMode(AlphaMode::MASK);
-                        material->setTransparent(false);
-                    } else {
-                        material->setAlphaMode(AlphaMode::OPAQUE);
-                        material->setTransparent(false);
-                    }
-                }
-                material->setCullMode(srcMaterial.doubleSided ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK);
-                material->setAlphaCutoff(static_cast<float>(srcMaterial.alphaCutoff));
-
-                // Handle KHR_materials_pbrSpecularGlossiness extension
-                applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
-                applyVolumeExtensions(srcMaterial, material.get(), getOrCreateTexture);
-                applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
-                applyEmissiveStrength(srcMaterial, material.get());
-                applyTextureTransforms(srcMaterial, material.get());
-
-                if (pbr.baseColorTexture.index >= 0) {
-                    if (auto baseColorTexture = getOrCreateTexture(pbr.baseColorTexture.index)) {
-                        material->setBaseColorTexture(baseColorTexture.get());
-                        material->setHasBaseColorTexture(true);
-                        material->setBaseColorUvSet(pbr.baseColorTexture.texCoord);
-                    }
-                }
-
-                if (srcMaterial.normalTexture.index >= 0) {
-                    if (auto normalTexture = getOrCreateTexture(srcMaterial.normalTexture.index)) {
-                        material->setNormalTexture(normalTexture.get());
-                        material->setHasNormalTexture(true);
-                        material->setNormalUvSet(srcMaterial.normalTexture.texCoord);
-                    }
-                    material->setNormalScale(static_cast<float>(srcMaterial.normalTexture.scale));
-                    material->setBumpiness(static_cast<float>(srcMaterial.normalTexture.scale));
-                }
-                if (pbr.metallicRoughnessTexture.index >= 0) {
-                    if (auto mrTexture = getOrCreateTexture(pbr.metallicRoughnessTexture.index)) {
-                        material->setMetallicRoughnessTexture(mrTexture.get());
-                        material->setHasMetallicRoughnessTexture(true);
-                        material->setMetallicRoughnessUvSet(pbr.metallicRoughnessTexture.texCoord);
-                    }
-                }
-                if (srcMaterial.occlusionTexture.index >= 0) {
-                    if (auto occlusionTexture = getOrCreateTexture(srcMaterial.occlusionTexture.index)) {
-                        material->setOcclusionTexture(occlusionTexture.get());
-                        material->setHasOcclusionTexture(true);
-                        material->setOcclusionUvSet(srcMaterial.occlusionTexture.texCoord);
-                    }
-                    material->setOcclusionStrength(static_cast<float>(srcMaterial.occlusionTexture.strength));
-                }
-                if (srcMaterial.emissiveFactor.size() == 3) {
-                    // glTF emissiveFactor is linear;
-                    // material.emissive expects sRGB. Convert with .gamma().
-                    Color emissiveColor(
-                        static_cast<float>(srcMaterial.emissiveFactor[0]),
-                        static_cast<float>(srcMaterial.emissiveFactor[1]),
-                        static_cast<float>(srcMaterial.emissiveFactor[2]),
-                        1.0f
-                    );
-                    emissiveColor.gamma();
-                    material->setEmissiveFactor(emissiveColor);
-                    // StandardMaterial::updateUniforms overrides emissiveFactor with
-                    // _emissive * _emissiveIntensity — mirror into the authoritative slot.
-                    material->setEmissive(emissiveColor);
-                }
-                if (srcMaterial.emissiveTexture.index >= 0) {
-                    if (auto emissiveTexture = getOrCreateTexture(srcMaterial.emissiveTexture.index)) {
-                        material->setEmissiveTexture(emissiveTexture.get());
-                        material->setHasEmissiveTexture(true);
-                        material->setEmissiveUvSet(srcMaterial.emissiveTexture.texCoord);
-                    }
-                }
-
-                // Detect KHR_materials_unlit extension.
-                const bool isUnlit = srcMaterial.extensions.contains("KHR_materials_unlit");
-
-                uint64_t variant = 1;
-                if (material->hasBaseColorTexture()) {
-                    variant |= (1ull << 1);
-                }
-                if (material->hasNormalTexture()) {
-                    variant |= (1ull << 4);
-                }
-                if (material->hasMetallicRoughnessTexture()) {
-                    variant |= (1ull << 5);
-                }
-                if (material->hasOcclusionTexture()) {
-                    variant |= (1ull << 6);
-                }
-                if (material->hasEmissiveTexture()) {
-                    variant |= (1ull << 7);
-                }
-                if (material->alphaMode() == AlphaMode::BLEND) {
-                    variant |= (1ull << 2);
-                } else if (material->alphaMode() == AlphaMode::MASK) {
-                    variant |= (1ull << 3);
-                }
-                if (isUnlit) {
-                    variant |= (1ull << 32);  // VT_FEATURE_UNLIT
-                }
-                material->setShaderVariantKey(variant);
-                gltfMaterials.push_back(material);
+                gltfMaterials.push_back(createGltfMaterial(model.materials[materialIndex], getOrCreateTexture));
             }
         }
 
@@ -2875,21 +2894,6 @@ namespace visutwin::canvas
         size_t dracoDecodeSuccessCount = 0;
         size_t dracoDecodeFailureCount = 0;
 
-        auto makeDefaultMaterial = []() {
-            auto material = std::make_shared<StandardMaterial>();
-            material->setName("glTF-default");
-            material->setTransparent(false);
-            material->setAlphaMode(AlphaMode::OPAQUE);
-            material->setMetallicFactor(0.0f);
-            material->setRoughnessFactor(1.0f);
-            // StandardMaterial scalars always apply, so the default material states them too.
-            material->setUseMetalness(true);
-            material->setMetalness(0.0f);
-            material->setGloss(0.0f);
-            material->setShaderVariantKey(1);
-            return material;
-        };
-
         std::vector<std::shared_ptr<Material>> gltfMaterials;
         gltfMaterials.reserve(std::max<size_t>(1, model.materials.size()));
         std::vector<std::shared_ptr<Texture>> gltfTextures(model.textures.size());
@@ -2976,95 +2980,10 @@ namespace visutwin::canvas
         };
 
         if (model.materials.empty()) {
-            gltfMaterials.push_back(makeDefaultMaterial());
+            gltfMaterials.push_back(createDefaultGltfMaterial());
         } else {
             for (size_t materialIndex = 0; materialIndex < model.materials.size(); ++materialIndex) {
-                const auto& srcMaterial = model.materials[materialIndex];
-                auto material = std::make_shared<StandardMaterial>();
-                material->setName(srcMaterial.name.empty() ? "glTF-material" : srcMaterial.name);
-
-                const auto& pbr = srcMaterial.pbrMetallicRoughness;
-                if (pbr.baseColorFactor.size() == 4) {
-                    const Color baseColor(
-                        static_cast<float>(pbr.baseColorFactor[0]),
-                        static_cast<float>(pbr.baseColorFactor[1]),
-                        static_cast<float>(pbr.baseColorFactor[2]),
-                        static_cast<float>(pbr.baseColorFactor[3]));
-                    material->setBaseColorFactor(baseColor);
-                    Color diffuseColor(baseColor);
-                    diffuseColor.gamma();
-                    material->setDiffuse(diffuseColor);
-                    material->setOpacity(baseColor.a);
-                }
-                material->setMetallicFactor(static_cast<float>(pbr.metallicFactor));
-                material->setRoughnessFactor(static_cast<float>(pbr.roughnessFactor));
-                material->setMetalness(static_cast<float>(pbr.metallicFactor));
-                material->setGloss(1.0f - static_cast<float>(pbr.roughnessFactor));
-                // glTF metallic-roughness: upstream createMaterial sets useMetalness for every glTF material.
-                material->setUseMetalness(true);
-
-                if (!srcMaterial.alphaMode.empty()) {
-                    if (srcMaterial.alphaMode == "BLEND") {
-                        material->setAlphaMode(AlphaMode::BLEND);
-                        material->setTransparent(true);
-                    } else if (srcMaterial.alphaMode == "MASK") {
-                        material->setAlphaMode(AlphaMode::MASK);
-                    } else {
-                        material->setAlphaMode(AlphaMode::OPAQUE);
-                    }
-                }
-                material->setCullMode(srcMaterial.doubleSided ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK);
-                material->setAlphaCutoff(static_cast<float>(srcMaterial.alphaCutoff));
-
-                // Handle KHR_materials_pbrSpecularGlossiness extension
-                applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
-                applyVolumeExtensions(srcMaterial, material.get(), getOrCreateTexture);
-                applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
-                applyEmissiveStrength(srcMaterial, material.get());
-                applyTextureTransforms(srcMaterial, material.get());
-
-                if (pbr.baseColorTexture.index >= 0) {
-                    if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {
-                        material->setBaseColorTexture(tex.get());
-                        material->setHasBaseColorTexture(true);
-                        material->setBaseColorUvSet(pbr.baseColorTexture.texCoord);
-                    }
-                }
-                if (srcMaterial.normalTexture.index >= 0) {
-                    if (auto tex = getOrCreateTexture(srcMaterial.normalTexture.index)) {
-                        material->setNormalTexture(tex.get());
-                        material->setHasNormalTexture(true);
-                        material->setNormalUvSet(srcMaterial.normalTexture.texCoord);
-                    }
-                    material->setNormalScale(static_cast<float>(srcMaterial.normalTexture.scale));
-                    material->setBumpiness(static_cast<float>(srcMaterial.normalTexture.scale));
-                }
-                if (pbr.metallicRoughnessTexture.index >= 0) {
-                    if (auto tex = getOrCreateTexture(pbr.metallicRoughnessTexture.index)) {
-                        material->setMetallicRoughnessTexture(tex.get());
-                        material->setHasMetallicRoughnessTexture(true);
-                    }
-                }
-                if (srcMaterial.emissiveFactor.size() == 3) {
-                    Color emissiveColor(
-                        static_cast<float>(srcMaterial.emissiveFactor[0]),
-                        static_cast<float>(srcMaterial.emissiveFactor[1]),
-                        static_cast<float>(srcMaterial.emissiveFactor[2]), 1.0f);
-                    emissiveColor.gamma();
-                    material->setEmissiveFactor(emissiveColor);
-                    // StandardMaterial::updateUniforms overrides emissiveFactor with
-                    // _emissive * _emissiveIntensity — mirror into the authoritative slot.
-                    material->setEmissive(emissiveColor);
-                }
-
-                uint64_t variant = 1;
-                if (material->hasBaseColorTexture()) variant |= (1ull << 1);
-                if (material->hasNormalTexture()) variant |= (1ull << 4);
-                if (material->hasMetallicRoughnessTexture()) variant |= (1ull << 5);
-                if (material->alphaMode() == AlphaMode::BLEND) variant |= (1ull << 2);
-                else if (material->alphaMode() == AlphaMode::MASK) variant |= (1ull << 3);
-                material->setShaderVariantKey(variant);
-                gltfMaterials.push_back(material);
+                gltfMaterials.push_back(createGltfMaterial(model.materials[materialIndex], getOrCreateTexture));
             }
         }
 
@@ -3403,21 +3322,6 @@ namespace visutwin::canvas
         auto skinnedVertexFormat = std::make_shared<VertexFormat>(
             static_cast<int>(SKINNED_VERTEX_STRIDE), VertexFormat::skinnedElements(), true, false);
 
-        auto makeDefaultMaterial = []() {
-            auto material = std::make_shared<StandardMaterial>();
-            material->setName("glTF-default");
-            material->setTransparent(false);
-            material->setAlphaMode(AlphaMode::OPAQUE);
-            material->setMetallicFactor(0.0f);
-            material->setRoughnessFactor(1.0f);
-            // StandardMaterial scalars always apply, so the default material states them too.
-            material->setUseMetalness(true);
-            material->setMetalness(0.0f);
-            material->setGloss(0.0f);
-            material->setShaderVariantKey(1);
-            return material;
-        };
-
         std::vector<std::shared_ptr<Material>> gltfMaterials;
         gltfMaterials.reserve(std::max<size_t>(1, model.materials.size()));
         std::vector<std::shared_ptr<Texture>> gltfTextures(model.textures.size());
@@ -3533,121 +3437,10 @@ namespace visutwin::canvas
         // ── Create materials ─────────────────────────────────────────
         size_t actualTextureCount = 0;
         if (model.materials.empty()) {
-            gltfMaterials.push_back(makeDefaultMaterial());
+            gltfMaterials.push_back(createDefaultGltfMaterial());
         } else {
             for (size_t materialIndex = 0; materialIndex < model.materials.size(); ++materialIndex) {
-                const auto& srcMaterial = model.materials[materialIndex];
-                auto material = std::make_shared<StandardMaterial>();
-                material->setName(srcMaterial.name.empty() ? "glTF-material" : srcMaterial.name);
-
-                const auto& pbr = srcMaterial.pbrMetallicRoughness;
-                if (pbr.baseColorFactor.size() == 4) {
-                    const Color baseColor(
-                        static_cast<float>(pbr.baseColorFactor[0]),
-                        static_cast<float>(pbr.baseColorFactor[1]),
-                        static_cast<float>(pbr.baseColorFactor[2]),
-                        static_cast<float>(pbr.baseColorFactor[3]));
-                    material->setBaseColorFactor(baseColor);
-                    Color diffuseColor(baseColor);
-                    diffuseColor.gamma();
-                    material->setDiffuse(diffuseColor);
-                    material->setOpacity(baseColor.a);
-                }
-                material->setMetallicFactor(static_cast<float>(pbr.metallicFactor));
-                material->setRoughnessFactor(static_cast<float>(pbr.roughnessFactor));
-                material->setMetalness(static_cast<float>(pbr.metallicFactor));
-                material->setGloss(1.0f - static_cast<float>(pbr.roughnessFactor));
-                // glTF metallic-roughness: upstream createMaterial sets useMetalness for every glTF material.
-                material->setUseMetalness(true);
-
-                if (!srcMaterial.alphaMode.empty()) {
-                    if (srcMaterial.alphaMode == "BLEND") {
-                        material->setAlphaMode(AlphaMode::BLEND);
-                        material->setTransparent(true);
-                    } else if (srcMaterial.alphaMode == "MASK") {
-                        material->setAlphaMode(AlphaMode::MASK);
-                    } else {
-                        material->setAlphaMode(AlphaMode::OPAQUE);
-                    }
-                }
-                material->setCullMode(srcMaterial.doubleSided ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK);
-                material->setAlphaCutoff(static_cast<float>(srcMaterial.alphaCutoff));
-
-                // Diagnostic: log texture indices and extensions for each material
-                {
-                    std::string exts;
-                    for (const auto& [k, v] : srcMaterial.extensions) {
-                        if (!exts.empty()) exts += ", ";
-                        exts += k;
-                    }
-                    spdlog::info("  GLB mat[{}] '{}': baseColorTex.idx={}, normalTex.idx={}, mrTex.idx={}, alpha={}, extensions=[{}]",
-                        materialIndex, material->name(),
-                        pbr.baseColorTexture.index,
-                        srcMaterial.normalTexture.index,
-                        pbr.metallicRoughnessTexture.index,
-                        srcMaterial.alphaMode.empty() ? "OPAQUE" : srcMaterial.alphaMode,
-                        exts.empty() ? "none" : exts);
-                }
-
-                // Handle KHR_materials_pbrSpecularGlossiness extension
-                applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
-                applyVolumeExtensions(srcMaterial, material.get(), getOrCreateTexture);
-                applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
-                applyEmissiveStrength(srcMaterial, material.get());
-                applyTextureTransforms(srcMaterial, material.get());
-
-                if (pbr.baseColorTexture.index >= 0) {
-                    if (auto tex = getOrCreateTexture(pbr.baseColorTexture.index)) {
-                        material->setBaseColorTexture(tex.get());
-                        material->setHasBaseColorTexture(true);
-                        material->setBaseColorUvSet(pbr.baseColorTexture.texCoord);
-                        spdlog::info("    -> baseColor texture OK ({}x{})", tex->width(), tex->height());
-                        actualTextureCount++;
-                    } else {
-                        spdlog::warn("    -> baseColor texture FAILED for texIdx={}", pbr.baseColorTexture.index);
-                    }
-                }
-                if (srcMaterial.normalTexture.index >= 0) {
-                    if (auto tex = getOrCreateTexture(srcMaterial.normalTexture.index)) {
-                        material->setNormalTexture(tex.get());
-                        material->setHasNormalTexture(true);
-                        material->setNormalUvSet(srcMaterial.normalTexture.texCoord);
-                        actualTextureCount++;
-                    } else {
-                        spdlog::warn("    -> normal texture FAILED for texIdx={}", srcMaterial.normalTexture.index);
-                    }
-                    material->setNormalScale(static_cast<float>(srcMaterial.normalTexture.scale));
-                    material->setBumpiness(static_cast<float>(srcMaterial.normalTexture.scale));
-                }
-                if (pbr.metallicRoughnessTexture.index >= 0) {
-                    if (auto tex = getOrCreateTexture(pbr.metallicRoughnessTexture.index)) {
-                        material->setMetallicRoughnessTexture(tex.get());
-                        material->setHasMetallicRoughnessTexture(true);
-                        actualTextureCount++;
-                    } else {
-                        spdlog::warn("    -> metallicRoughness texture FAILED for texIdx={}", pbr.metallicRoughnessTexture.index);
-                    }
-                }
-                if (srcMaterial.emissiveFactor.size() == 3) {
-                    Color emissiveColor(
-                        static_cast<float>(srcMaterial.emissiveFactor[0]),
-                        static_cast<float>(srcMaterial.emissiveFactor[1]),
-                        static_cast<float>(srcMaterial.emissiveFactor[2]), 1.0f);
-                    emissiveColor.gamma();
-                    material->setEmissiveFactor(emissiveColor);
-                    // StandardMaterial::updateUniforms overrides emissiveFactor with
-                    // _emissive * _emissiveIntensity — mirror into the authoritative slot.
-                    material->setEmissive(emissiveColor);
-                }
-
-                uint64_t variant = 1;
-                if (material->hasBaseColorTexture()) variant |= (1ull << 1);
-                if (material->hasNormalTexture()) variant |= (1ull << 4);
-                if (material->hasMetallicRoughnessTexture()) variant |= (1ull << 5);
-                if (material->alphaMode() == AlphaMode::BLEND) variant |= (1ull << 2);
-                else if (material->alphaMode() == AlphaMode::MASK) variant |= (1ull << 3);
-                material->setShaderVariantKey(variant);
-                gltfMaterials.push_back(material);
+                gltfMaterials.push_back(createGltfMaterial(model.materials[materialIndex], getOrCreateTexture, &actualTextureCount));
             }
         }
 
