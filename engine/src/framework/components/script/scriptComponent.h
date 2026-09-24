@@ -66,15 +66,35 @@ namespace visutwin::canvas
     private:
         void initializeScriptInstance(Script* script);
 
+        // Calls `call` on each script in order, safely against what a script may do
+        // from inside its own method: create another script (it is appended, so the
+        // walk is by index and it runs in the same pass) or destroy its own entity,
+        // which destroys this component in the middle of the loop. See RunState.
+        template <typename Call>
+        void forEachScript(Call&& call);
+
         struct ScriptEntry
         {
             std::string name;
             std::unique_ptr<Script> instance;
         };
 
+        // Outlives the component while a loop is running over it. The destructor
+        // clears `alive` and, when a loop is in progress, hands the scripts to
+        // `retired` instead of freeing them — the script whose method destroyed the
+        // entity is still executing — and they are freed when the last loop lets go
+        // of this state, after that method has returned.
+        struct RunState
+        {
+            int depth = 0;
+            bool alive = true;
+            std::vector<std::unique_ptr<Script>> retired;
+        };
+
         std::unordered_map<std::string, size_t> _scriptsIndex;
 
         std::vector<ScriptEntry> _scripts;
+        std::shared_ptr<RunState> _run = std::make_shared<RunState>();
         int _executionOrder = 0;
     };
 }

@@ -15,6 +15,33 @@ namespace visutwin::canvas
         if (auto* scriptSystem = dynamic_cast<ScriptComponentSystem*>(system())) {
             scriptSystem->unregisterComponent(this);
         }
+        // Destroyed from inside one of our own loops — a script destroyed its
+        // entity. Keep every script alive until that loop has unwound out of the
+        // running one; the loop sees `alive` false and touches nothing of ours.
+        _run->alive = false;
+        if (_run->depth > 0) {
+            for (auto& entry : _scripts) {
+                _run->retired.push_back(std::move(entry.instance));
+            }
+        }
+    }
+
+    template <typename Call>
+    void ScriptComponent::forEachScript(Call&& call)
+    {
+        // A local copy: it keeps the state alive if `this` is destroyed below.
+        const std::shared_ptr<RunState> run = _run;
+        ++run->depth;
+        for (size_t i = 0;; ++i) {
+            // `alive` first: once it is false, `this` is gone and so is _scripts.
+            if (!run->alive || i >= _scripts.size()) {
+                break;
+            }
+            if (Script* script = _scripts[i].instance.get()) {
+                call(script);
+            }
+        }
+        --run->depth;
     }
 
     Script* ScriptComponent::create(const std::string& name, const ScriptCreateOptions& options)
@@ -66,9 +93,7 @@ namespace visutwin::canvas
         // component becomes active two ways: its own flag, and its ENTITY's. The
         // hook fires for both; setEnabled saw only the first, so a script on an
         // entity that was enabled later never initialized at all.
-        for (auto& entry : _scripts) {
-            initializeScriptInstance(entry.instance.get());
-        }
+        forEachScript([this](Script* script) { initializeScriptInstance(script); });
     }
 
     void ScriptComponent::initializeScriptInstance(Script* script)
@@ -97,14 +122,13 @@ namespace visutwin::canvas
         if (!active()) {
             return;
         }
-        for (auto& entry : _scripts) {
-            Script* script = entry.instance.get();
-            if (!script || !script->enabled() || script->_initialized) {
-                continue;
+        forEachScript([](Script* script) {
+            if (!script->enabled() || script->_initialized) {
+                return;
             }
             script->_initialized = true;
             script->initialize();
-        }
+        });
     }
 
     void ScriptComponent::postInitializeScripts()
@@ -112,15 +136,13 @@ namespace visutwin::canvas
         if (!active()) {
             return;
         }
-        for (auto& entry : _scripts) {
-            Script* script = entry.instance.get();
-            if (!script || !script->enabled() || !script->_initialized ||
-                script->_postInitialized) {
-                continue;
+        forEachScript([](Script* script) {
+            if (!script->enabled() || !script->_initialized || script->_postInitialized) {
+                return;
             }
             script->_postInitialized = true;
             script->postInitialize();
-        }
+        });
     }
 
     void ScriptComponent::fixedUpdateScripts(const float fixedDt)
@@ -129,13 +151,11 @@ namespace visutwin::canvas
             return;
         }
 
-        for (auto& entry : _scripts) {
-            auto* script = entry.instance.get();
-            if (!script || !script->_initialized || !script->enabled()) {
-                continue;
+        forEachScript([fixedDt](Script* script) {
+            if (script->_initialized && script->enabled()) {
+                script->fixedUpdate(fixedDt);
             }
-            script->fixedUpdate(fixedDt);
-        }
+        });
     }
 
     void ScriptComponent::updateScripts(const float dt)
@@ -144,13 +164,11 @@ namespace visutwin::canvas
             return;
         }
 
-        for (auto& entry : _scripts) {
-            auto* script = entry.instance.get();
-            if (!script || !script->_initialized || !script->enabled()) {
-                continue;
+        forEachScript([dt](Script* script) {
+            if (script->_initialized && script->enabled()) {
+                script->update(dt);
             }
-            script->update(dt);
-        }
+        });
     }
 
     void ScriptComponent::postUpdateScripts(const float dt)
@@ -159,12 +177,10 @@ namespace visutwin::canvas
             return;
         }
 
-        for (auto& entry : _scripts) {
-            auto* script = entry.instance.get();
-            if (!script || !script->_initialized || !script->enabled()) {
-                continue;
+        forEachScript([dt](Script* script) {
+            if (script->_initialized && script->enabled()) {
+                script->postUpdate(dt);
             }
-            script->postUpdate(dt);
-        }
+        });
     }
 }

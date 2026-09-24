@@ -13,6 +13,7 @@
 #include "core/math/vector3.h"
 #include <framework/handlers/containerResource.h>
 #include "framework/anim/evaluator/animTrack.h"
+#include "scene/materials/material.h"
 #include "scene/mesh.h"
 #include "scene/morph.h"
 #include "scene/skin.h"
@@ -57,12 +58,23 @@ namespace visutwin::canvas
     class GlbContainerResource : public ContainerResource
     {
     public:
-        void addMeshPayload(const GlbMeshPayload& payload) { _meshPayloads.push_back(payload); }
+        // A payload's material holds raw Texture*s into this container's textures, so
+        // it keeps the container's texture list alive (Material::retainResource). A
+        // mesh instance co-owns its mesh and material already; with this an entity
+        // built from the container can outlive the Asset's unload() without its
+        // materials pointing at freed textures, which is what happened until 2026-09-24.
+        void addMeshPayload(const GlbMeshPayload& payload)
+        {
+            if (payload.material) {
+                payload.material->retainResource(_ownedTextures);
+            }
+            _meshPayloads.push_back(payload);
+        }
         void addNodePayload(const GlbNodePayload& payload) { _nodePayloads.push_back(payload); }
         void addSkinPayload(const GlbSkinPayload& payload) { _skinPayloads.push_back(payload); }
         size_t skinPayloadCount() const { return _skinPayloads.size(); }
         void addRootNodeIndex(const int index) { _rootNodeIndices.push_back(index); }
-        void addOwnedTexture(const std::shared_ptr<Texture>& texture) { _ownedTextures.push_back(texture); }
+        void addOwnedTexture(const std::shared_ptr<Texture>& texture) { _ownedTextures->push_back(texture); }
 
         void addAnimTrack(const std::string& name, const std::shared_ptr<AnimTrack>& track) { _animTracks[name] = track; }
         const std::unordered_map<std::string, std::shared_ptr<AnimTrack>>& animTracks() const { return _animTracks; }
@@ -79,7 +91,9 @@ namespace visutwin::canvas
         std::vector<GlbNodePayload> _nodePayloads;
         std::vector<GlbSkinPayload> _skinPayloads;
         std::vector<int> _rootNodeIndices;
-        std::vector<std::shared_ptr<Texture>> _ownedTextures;
+        // Shared, so the materials handed out can keep it alive past this container.
+        std::shared_ptr<std::vector<std::shared_ptr<Texture>>> _ownedTextures =
+            std::make_shared<std::vector<std::shared_ptr<Texture>>>();
         std::unordered_map<std::string, std::shared_ptr<AnimTrack>> _animTracks;
     };
 }

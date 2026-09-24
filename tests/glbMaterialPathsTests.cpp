@@ -26,6 +26,7 @@
 #include "framework/parsers/glbParser.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/indexBuffer.h"
+#include "platform/graphics/texture.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "scene/materials/material.h"
 
@@ -214,6 +215,28 @@ int main()
         const auto container = GlbParser::createFromPrepared(model, std::move(prepared), device,
             "glbMaterialPathsTests");
         checkMaterial(container.get(), "createFromPrepared");
+    }
+
+    // A material holds raw Texture*s into its container. A mesh instance co-owns its
+    // material, so an entity built from an asset used to survive the asset's unload()
+    // with materials pointing at freed textures; the container's texture list is now
+    // kept alive by every material it hands out. The device's texture VRAM figure is
+    // the observable: a texture gives its bytes back in its destructor.
+    std::cout << "\na material outlives its container\n";
+    {
+        tinygltf::Model model = buildModel();
+        auto container = GlbParser::createFromModel(model, device, "glbMaterialPathsTests");
+        const size_t before = device->vram().tex;
+        std::shared_ptr<Material> material =
+            container && !container->meshPayloads().empty() ? container->meshPayloads()[0].material : nullptr;
+        check(material != nullptr && before > 0, "the parsed textures are counted in VRAM");
+        container.reset();   // what Asset::unload() does
+        check(device->vram().tex == before,
+            "unloading the container frees none of the textures a live material uses");
+        check(material && material->occlusionTexture() && material->occlusionTexture()->width() == 2,
+            "and they are still readable through the material");
+        material.reset();
+        check(device->vram().tex == 0, "releasing the last material frees them");
     }
 
     std::cout << (failures == 0 ? "\nAll GLB material path tests passed\n" : "\nGLB material path tests FAILED\n");

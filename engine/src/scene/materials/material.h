@@ -142,6 +142,24 @@ namespace visutwin::canvas
         const std::unordered_map<std::string, std::string>& shaderChunkOverrides() const { return _shaderChunkOverrides; }
         uint64_t shaderChunksHash() const { return _shaderChunksHash; }
 
+        /// Keeps `owner` alive for as long as this material lives. A material holds its
+        /// textures as RAW pointers, so whatever owns them has to outlive it; a loader
+        /// that owns the textures itself (the GLB container) hands its texture list in
+        /// here, which lets an entity built from an asset outlive the asset's unload().
+        /// The same owner twice is kept once.
+        void retainResource(const std::shared_ptr<const void>& owner)
+        {
+            if (!owner) {
+                return;
+            }
+            for (const auto& retained : _retainedResources) {
+                if (retained == owner) {
+                    return;
+                }
+            }
+            _retainedResources.push_back(owner);
+        }
+
         const std::shared_ptr<Shader>& shaderOverride() const { return _shaderOverride; }
         void setShaderOverride(const std::shared_ptr<Shader>& shader) { _shaderOverride = shader; markUniformsDirty(); }
         const std::shared_ptr<BlendState>& blendState() const { return _blendState; }
@@ -329,6 +347,7 @@ namespace visutwin::canvas
 
         // Optional user-provided shader override.
         std::shared_ptr<Shader> _shaderOverride;
+        std::vector<std::shared_ptr<const void>> _retainedResources;
 
         // Material render states used by the renderer when binding draw calls.
         std::shared_ptr<BlendState> _blendState;

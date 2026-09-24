@@ -1261,6 +1261,23 @@ present, but the rule below never depends on reading it.
   component was inactive; that logic used to live in its `setEnabled` override,
   which saw only the component's own flag, so a script created on an entity that
   was enabled LATER never initialized at all.
+- **A script may create a sibling or destroy its own entity from inside its own
+  method, and the component's loops are built for it.** `ScriptComponent::forEachScript`
+  walks by INDEX, so a script created mid-pass (appended, possibly reallocating the
+  vector) runs in the same pass; and a shared `RunState` outlives the component, so when
+  a script's `entity()->destroy()` frees the component mid-loop, the destructor hands the
+  scripts to `RunState::retired` instead of freeing the one still executing, and the
+  loop checks `alive` before touching the component again. Until 2026-09-24 the loops
+  range-iterated `_scripts`: both cases were undefined behaviour that usually still
+  worked. `tests/scriptLifetimeTests.cpp` holds both, and under the `sanitize` preset
+  the old code aborts with a heap use-after-free.
+- **An entity built from a container outlives the Asset's `unload()`.** A mesh instance
+  co-owns its mesh and material, and every material a `GlbContainerResource` hands out
+  keeps the container's texture list alive (`Material::retainResource`), because a
+  material holds its textures as RAW pointers. All four parsers (glb, obj, stl, assimp)
+  build that container. Until 2026-09-24 unloading the asset freed the textures under a
+  live entity's materials. Still borrowed: a `Texture*` from a TEXTURE asset set on a
+  material by hand — that asset must outlive the material.
 - **Component lifecycle runs in `Component::order()`, not container order.**
   Lowest first on enable, reverse on disable, creation order as the tiebreak;
   `RigidBodyComponent` returns -1 so its body exists before anything can move or

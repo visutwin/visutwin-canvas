@@ -360,3 +360,11 @@ target_include_directories(visutwin-glb-material-paths-tests PRIVATE ${TINYGLTF_
 target_link_libraries(visutwin-glb-material-paths-tests PRIVATE visutwin-canvas)
 
 add_test(NAME glb-material-paths COMMAND visutwin-glb-material-paths-tests)
+
+add_executable(visutwin-script-lifetime-tests
+    scriptLifetimeTests.cpp
+)
+
+target_link_libraries(visutwin-script-lifetime-tests PRIVATE visutwin-canvas)
+
+add_test(NAME script-lifetime COMMAND visutwin-script-lifetime-tests)
