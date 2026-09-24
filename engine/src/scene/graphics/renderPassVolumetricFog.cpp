@@ -237,7 +237,8 @@ namespace visutwin::canvas
         auto* lightComponent = findDirectionalLight();
         if (lightComponent) {
             const Color& color = lightComponent->color();
-            const float scale = _settings.intensity * lightComponent->intensity() * exposure;
+            const float scale = _settings.intensity *
+                lightComponent->renderIntensity(_scene && _scene->physicalUnits()) * exposure;
             params.lightColor[0] = color.r * scale;
             params.lightColor[1] = color.g * scale;
             params.lightColor[2] = color.b * scale;

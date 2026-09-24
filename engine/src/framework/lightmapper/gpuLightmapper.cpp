@@ -225,7 +225,7 @@ namespace visutwin::canvas
                 auto* node = lightComponent->entity();
                 _directionalLights.emplace_back(lightComponent,
                     node ? node->localRotation() : Quaternion(),
-                    lightComponent->intensity());
+                    lightComponent->intensity(), lightComponent->luminance());
                 lightComponent->setEnabled(false);
             }
             if (!_directionalLights.empty()) {
@@ -374,7 +374,7 @@ namespace visutwin::canvas
             }
         }
 
-        for (auto& [lightComponent, rotation, intensity] : _directionalLights) {
+        for (auto& [lightComponent, rotation, intensity, luminance] : _directionalLights) {
             if (!lightComponent) {
                 continue;
             }
@@ -395,7 +395,9 @@ namespace visutwin::canvas
             // The lightmap accumulates in linear space, so the copies simply split the
             // authored intensity. (Upstream's pow-based split compensates for its own
             // gamma-space accumulation; doing that here would multiply the sun by N^0.55.)
-            lightComponent->setIntensity(intensity / static_cast<float>(std::max(_dirSampleCount, 1)));
+            const float share = 1.0f / static_cast<float>(std::max(_dirSampleCount, 1));
+            lightComponent->setIntensity(intensity * share);
+            lightComponent->setLuminance(luminance * share);
         }
     }
 
@@ -444,11 +446,12 @@ namespace visutwin::canvas
     void GpuLightmapper::destroyBakeNodes()
     {
         // Restore the directional lights the virtual copies borrowed.
-        for (auto& [lightComponent, rotation, intensity] : _directionalLights) {
+        for (auto& [lightComponent, rotation, intensity, luminance] : _directionalLights) {
             if (!lightComponent) {
                 continue;
             }
             lightComponent->setIntensity(intensity);
+            lightComponent->setLuminance(luminance);
             if (auto* node = lightComponent->entity()) {
                 node->setLocalRotation(rotation);
             }

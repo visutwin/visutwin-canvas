@@ -71,6 +71,13 @@ namespace visutwin::canvas
         void setSkyboxIntensity(float value);
         float skyboxIntensity() const { return _skyboxIntensity; }
 
+        /// Upstream `Scene.physicalUnits`: lights shine with their LUMINANCE (candela for
+        /// spot and omni, lux for directional) instead of their intensity. The camera's
+        /// physical exposure (aperture, shutter, sensitivity) is NOT ported; set the
+        /// matching exposure with setExposure.
+        void setPhysicalUnits(const bool value) { _physicalUnits = value; }
+        bool physicalUnits() const { return _physicalUnits; }
+
         void setExposure(float value) { _exposure = value; }
         float exposure() const { return _exposure; }
 
@@ -178,6 +185,7 @@ namespace visutwin::canvas
 
         float _skyboxIntensity = 1.0f;
         float _exposure = 1.0f;
+        bool _physicalUnits = false;
         int _skyType = SKYTYPE_INFINITE;
 
         Texture* _envAtlas = nullptr;

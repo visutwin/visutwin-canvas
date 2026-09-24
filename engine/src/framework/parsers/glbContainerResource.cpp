@@ -8,6 +8,8 @@
 #include <spdlog/spdlog.h>
 
 #include "framework/components/animation/animationComponent.h"
+#include "framework/components/camera/cameraComponent.h"
+#include "framework/components/light/lightComponent.h"
 #include "framework/components/render/renderComponent.h"
 #include "scene/morphInstance.h"
 #include "scene/skinInstance.h"
@@ -86,6 +88,51 @@ namespace visutwin::canvas
                     renderComponentRaw->addMeshInstance(std::move(meshInstance));
                 }
                 nodeEntity->addComponentInstance(std::move(renderComponent), componentTypeID<RenderComponent>());
+            }
+
+            // A camera goes on the node itself: glTF and this engine both look down -Z.
+            // Imported DISABLED, as upstream's createCamera does — a model does not
+            // get to take over the view; the app enables the one it wants.
+            if (nodePayload.camera) {
+                const auto& payload = *nodePayload.camera;
+                auto cameraComponent = std::make_unique<CameraComponent>(nullptr, nodeEntity);
+                cameraComponent->initializeComponentData();
+                Camera* camera = cameraComponent->camera();
+                camera->setProjection(payload.projection);
+                camera->setNearClip(payload.nearClip);
+                if (payload.farClip) {
+                    camera->setFarClip(*payload.farClip);
+                }
+                camera->setFov(payload.fovDegrees);
+                camera->setOrthoHeight(payload.orthoHeight);
+                if (payload.aspectRatio) {
+                    camera->setAspectRatioMode(AspectRatioMode::ASPECT_MANUAL);
+                    camera->setAspectRatio(*payload.aspectRatio);
+                }
+                cameraComponent->setEnabled(false);
+                nodeEntity->addComponentInstance(std::move(cameraComponent), componentTypeID<CameraComponent>());
+            }
+
+            // A light goes on a CHILD turned 90 degrees about X: a glTF light shines down
+            // its node's -Z, a light here down -Y (upstream adds the same extra entity,
+            // named after the node). Imported DISABLED, as upstream's createLight does.
+            if (nodePayload.light) {
+                const auto& payload = *nodePayload.light;
+                auto* lightEntity = new Entity();
+                lightEntity->setName(nodeEntity->name());
+                lightEntity->rotateLocal(90.0f, 0.0f, 0.0f);
+                auto lightComponent = std::make_unique<LightComponent>(nullptr, lightEntity);
+                lightComponent->setType(payload.type);
+                lightComponent->setColor(payload.color);
+                lightComponent->setIntensity(payload.intensity);
+                lightComponent->setLuminance(payload.luminance);
+                lightComponent->setRange(payload.range);
+                lightComponent->setFalloffMode(LightFalloff::LIGHTFALLOFF_INVERSESQUARED);
+                lightComponent->setInnerConeAngle(payload.innerConeDegrees);
+                lightComponent->setOuterConeAngle(payload.outerConeDegrees);
+                lightComponent->setEnabled(false);
+                lightEntity->addComponentInstance(std::move(lightComponent), componentTypeID<LightComponent>());
+                nodeEntity->addChild(lightEntity);
             }
 
             nodeEntities[i] = nodeEntity;

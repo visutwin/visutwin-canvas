@@ -46,6 +46,21 @@ namespace visutwin::canvas
         float intensity() const { return _intensity; }
         void setIntensity(const float intensity) { _intensity = intensity; }
 
+        /// Upstream `luminance`: the physically based strength, candela for a spot or
+        /// omni light and lux for a directional one, used instead of the intensity
+        /// when the scene has physical units on. Defaults to 0, as upstream.
+        float luminance() const { return _luminance; }
+        void setLuminance(const float value) { _luminance = value; }
+
+        /// The intensity the light shines with: its luminance over the unit conversion
+        /// under physical units, its intensity otherwise (upstream Light._updateLinearColor).
+        float renderIntensity(bool physicalUnits) const;
+
+        /// Upstream Light.getLightUnitConversion: luminous intensity per unit of
+        /// luminance for the type, over the cone for a spot (angles in RADIANS).
+        static float lightUnitConversion(LightType type, float outerAngleRadians = 0.78539816f,
+            float innerAngleRadians = 0.0f);
+
         LightType type() const { return _type; }
         void setType(const LightType type) { _type = type; }
 
@@ -215,6 +230,7 @@ namespace visutwin::canvas
         LightType _type = LightType::LIGHTTYPE_DIRECTIONAL;
         Color _color = Color(1.0f, 1.0f, 1.0f, 1.0f);
         float _intensity = 1.0f;
+        float _luminance = 0.0f;
         float _range = 10.0f;
         float _innerConeAngle = 30.0f;
         float _outerConeAngle = 45.0f;

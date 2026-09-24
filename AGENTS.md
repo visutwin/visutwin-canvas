@@ -1242,6 +1242,21 @@ present, but the rule below never depends on reading it.
   asynchronously, which is how it lived. `tests/glbMaterialPathsTests.cpp` and
   `tests/glbPointCloudTests.cpp` build models in memory and check both halves. A new
   glTF feature goes into the shared step, never into one entry point.
+- **glTF cameras and `KHR_lights_punctual` lights are imported DISABLED**, as upstream's
+  `createCamera` / `createLight` build them; an app enables the ones it wants
+  (`findComponents<CameraComponent>()`). A camera sits on its node (glTF and this engine
+  both look down -Z). A light sits on an extra CHILD entity named after the node and
+  turned 90 degrees about X, because a glTF light shines down -Z and a light here down
+  -Y; code that walks a glTF hierarchy by name will meet that extra node. The file's
+  intensity is photometric, so it is stored twice: as `LightComponent::luminance`
+  (times upstream's `getLightUnitConversion`), which a scene shines with under
+  `Scene::setPhysicalUnits(true)`, and clamped to [0, 2] as the intensity every other
+  scene uses. Physical units cover the LIGHTS only — there is no camera aperture,
+  shutter or sensitivity, so set the matching `Scene::setExposure` yourself (the
+  `glb-loader` example does). Anything that reads a light's strength for rendering goes
+  through `LightComponent::renderIntensity(physicalUnits)`, not `intensity()`.
+  Until 2026-09-24 the parser read neither, and `glb-loader` parsed the JSON itself.
+  `tests/glbCameraLightTests.cpp` checks both load paths.
 - **`extensionsRequired` is consulted, and the list of what the parser supports
   lives in `warnUnsupportedRequiredExtensions`.** Add an extension there when you
   implement it, or a file that needs it keeps warning; leave it out when you only

@@ -394,6 +394,15 @@ target_link_libraries(visutwin-entity-clone-tests PRIVATE visutwin-canvas)
 
 add_test(NAME entity-clone COMMAND visutwin-entity-clone-tests)
 
+add_executable(visutwin-glb-camera-light-tests
+    glbCameraLightTests.cpp
+)
+
+target_include_directories(visutwin-glb-camera-light-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+target_link_libraries(visutwin-glb-camera-light-tests PRIVATE visutwin-canvas)
+
+add_test(NAME glb-camera-light COMMAND visutwin-glb-camera-light-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

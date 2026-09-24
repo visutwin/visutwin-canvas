@@ -148,9 +148,10 @@ namespace visutwin::canvas
         int _dirSample = -1;
         int _dirSampleCount = 0;
         bool _accumulating = false;
-        // Directional lights baked as virtual copies: their authored rotation and intensity,
-        // restored before each sample is offset and after the bake.
-        std::vector<std::tuple<LightComponent*, Quaternion, float>> _directionalLights;
+        // Directional lights baked as virtual copies: their authored rotation, intensity and
+        // luminance (whichever the scene's units read), restored before each sample is
+        // offset and after the bake.
+        std::vector<std::tuple<LightComponent*, Quaternion, float, float>> _directionalLights;
         Color _savedAmbient{0.0f, 0.0f, 0.0f, 1.0f};
     };
 }

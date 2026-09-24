@@ -10,7 +10,10 @@
 
 #include "glbParser.h"
 
+#include "framework/components/light/lightComponent.h"
+
 #include <algorithm>
+#include <numbers>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -1451,6 +1454,75 @@ namespace visutwin::canvas
      * usual case is one cosmetic extension on an otherwise usable file, and the
      * name in the log is what turns an hour of bisecting into a one-line answer.
      */
+    // A glTF camera as upstream's createCamera reads it: perspective yfov in radians
+    // to degrees, orthographic ymag as the half height, a manual aspect only where
+    // the file gives one (perspective aspectRatio, orthographic xmag / ymag), and the
+    // far plane only when present — glTF's infinite perspective has none.
+    static GlbCameraPayload gltfCameraPayload(const tinygltf::Camera& camera)
+    {
+        GlbCameraPayload payload;
+        if (camera.type == "orthographic") {
+            const auto& ortho = camera.orthographic;
+            payload.projection = ProjectionType::Orthographic;
+            payload.nearClip = static_cast<float>(ortho.znear);
+            if (ortho.zfar > 0.0) {
+                payload.farClip = static_cast<float>(ortho.zfar);
+            }
+            payload.orthoHeight = static_cast<float>(ortho.ymag);
+            if (ortho.xmag != 0.0 && ortho.ymag != 0.0) {
+                payload.aspectRatio = static_cast<float>(ortho.xmag / ortho.ymag);
+            }
+        } else {
+            const auto& perspective = camera.perspective;
+            payload.projection = ProjectionType::Perspective;
+            payload.nearClip = static_cast<float>(perspective.znear);
+            if (perspective.zfar > 0.0) {
+                payload.farClip = static_cast<float>(perspective.zfar);
+            }
+            payload.fovDegrees = static_cast<float>(perspective.yfov * 180.0 / std::numbers::pi);
+            if (perspective.aspectRatio > 0.0) {
+                payload.aspectRatio = static_cast<float>(perspective.aspectRatio);
+            }
+        }
+        return payload;
+    }
+
+    // A KHR_lights_punctual light as upstream's createLight reads it. "point" is an
+    // omni light, cone angles go from radians to degrees (defaults 0 and 45), an
+    // absent range becomes 9999 (infinity would poison the bounds), the falloff is
+    // inverse-squared. The file's intensity is photometric (candela, lux), so it is
+    // stored twice: as the LUMINANCE, times the unit conversion, which a scene with
+    // physical units shines with (luminance / conversion gives the file's value
+    // back), and CLAMPED to [0, 2] as the intensity everything else uses. The colour
+    // is taken as the file gives it, as upstream's `new Color(gltfLight.color)` does.
+    // DEVIATION: an intensity the file leaves out is its spec default of 1, where
+    // upstream leaves the luminance at 0 — tinygltf does not say which it was.
+    static GlbLightPayload gltfLightPayload(const tinygltf::Light& light)
+    {
+        GlbLightPayload payload;
+        if (light.type == "directional") {
+            payload.type = LightType::LIGHTTYPE_DIRECTIONAL;
+        } else if (light.type == "spot") {
+            payload.type = LightType::LIGHTTYPE_SPOT;
+            payload.innerConeDegrees = static_cast<float>(light.spot.innerConeAngle * 180.0 / std::numbers::pi);
+            payload.outerConeDegrees = static_cast<float>(light.spot.outerConeAngle * 180.0 / std::numbers::pi);
+        } else {
+            payload.type = LightType::LIGHTTYPE_OMNI;
+        }
+        if (light.color.size() >= 3) {
+            payload.color = Color(static_cast<float>(light.color[0]), static_cast<float>(light.color[1]),
+                static_cast<float>(light.color[2]), 1.0f);
+        }
+        payload.intensity = std::clamp(static_cast<float>(light.intensity), 0.0f, 2.0f);
+        constexpr double degToRad = std::numbers::pi / 180.0;
+        payload.luminance = static_cast<float>(light.intensity) * LightComponent::lightUnitConversion(payload.type,
+            static_cast<float>(payload.outerConeDegrees * degToRad), static_cast<float>(payload.innerConeDegrees * degToRad));
+        if (light.range > 0.0) {
+            payload.range = static_cast<float>(light.range);
+        }
+        return payload;
+    }
+
     static void warnUnsupportedRequiredExtensions(const tinygltf::Model& model, const std::string& debugName)
     {
         // What the parser actually acts on. The texture-container extensions are
@@ -1459,6 +1531,7 @@ namespace visutwin::canvas
         // answers with its own per-image warning.
         static const std::set<std::string> supported = {
             "KHR_draco_mesh_compression",
+            "KHR_lights_punctual",
             "KHR_materials_clearcoat",
             "KHR_materials_dispersion",
             "KHR_materials_emissive_strength",
@@ -2751,6 +2824,16 @@ namespace visutwin::canvas
             }
             nodePayload.skinIndex = node.skin;
             nodePayload.children = node.children;
+            if (node.camera >= 0 && node.camera < static_cast<int>(model.cameras.size())) {
+                nodePayload.camera = gltfCameraPayload(model.cameras[static_cast<size_t>(node.camera)]);
+            }
+            if (node.light >= 0 && node.light < static_cast<int>(model.lights.size())) {
+                nodePayload.light = gltfLightPayload(model.lights[static_cast<size_t>(node.light)]);
+            }
+            // A node that carries a camera or a light is not a disposable points leaf.
+            if (nodePayload.camera || nodePayload.light) {
+                nodePayload.skip = false;
+            }
             container->addNodePayload(nodePayload);
         }
 

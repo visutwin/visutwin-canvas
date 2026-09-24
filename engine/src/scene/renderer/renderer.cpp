@@ -1082,7 +1082,7 @@ namespace visutwin::canvas
                 lightData.direction = Vector3(0.0f, -1.0f, 0.0f);
             }
             lightData.color = lightComponent->color();
-            lightData.intensity = std::max(lightComponent->intensity(), 0.0f);
+            lightData.intensity = std::max(lightComponent->renderIntensity(_scene && _scene->physicalUnits()), 0.0f);
             lightData.range = std::max(lightComponent->range(), 1e-4f);
             // inner/outerConeAngle are HALF-angles in degrees (upstream Light:
             // `cos(angle * DEG_TO_RAD)`, and its spot shadow/cookie cameras use

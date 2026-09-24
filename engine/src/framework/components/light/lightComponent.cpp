@@ -5,6 +5,8 @@
 //
 #include "lightComponent.h"
 
+#include <numbers>
+
 #include <cmath>
 
 #include "framework/engine.h"
@@ -111,6 +113,34 @@ namespace visutwin::canvas
         }
     }
 
+    float LightComponent::lightUnitConversion(const LightType type, const float outerAngleRadians,
+        const float innerAngleRadians)
+    {
+        switch (type) {
+        case LightType::LIGHTTYPE_SPOT: {
+            const float falloffEnd = std::cos(outerAngleRadians);
+            const float falloffStart = std::cos(innerAngleRadians);
+            return 2.0f * std::numbers::pi_v<float> * ((1.0f - falloffStart) + (falloffStart - falloffEnd) / 2.0f);
+        }
+        case LightType::LIGHTTYPE_OMNI:
+        case LightType::LIGHTTYPE_POINT:
+            return 4.0f * std::numbers::pi_v<float>;
+        default:
+            // Directional (lux); an area light has no conversion upstream either.
+            return 1.0f;
+        }
+    }
+
+    float LightComponent::renderIntensity(const bool physicalUnits) const
+    {
+        if (!physicalUnits) {
+            return _intensity;
+        }
+        constexpr float degToRad = std::numbers::pi_v<float> / 180.0f;
+        const float conversion = lightUnitConversion(_type, _outerConeAngle * degToRad, _innerConeAngle * degToRad);
+        return conversion > 0.0f ? _luminance / conversion : 0.0f;
+    }
+
     void LightComponent::cloneFrom(const Component* source)
     {
         const auto* src = dynamic_cast<const LightComponent*>(source);
@@ -121,6 +151,7 @@ namespace visutwin::canvas
         _type = src->_type;
         _color = src->_color;
         _intensity = src->_intensity;
+        _luminance = src->_luminance;
         _range = src->_range;
         _innerConeAngle = src->_innerConeAngle;
         _outerConeAngle = src->_outerConeAngle;

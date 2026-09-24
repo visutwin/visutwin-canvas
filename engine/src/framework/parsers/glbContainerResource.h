@@ -5,10 +5,12 @@
 //
 #pragma once
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "core/math/color.h"
 #include "core/math/quaternion.h"
 #include "core/math/vector3.h"
 #include <framework/handlers/containerResource.h>
@@ -16,6 +18,8 @@
 #include "scene/materials/material.h"
 #include "scene/mesh.h"
 #include "scene/morph.h"
+#include "scene/camera.h"
+#include "scene/constants.h"
 #include "scene/skin.h"
 #include "scene/materials/material.h"
 
@@ -40,6 +44,29 @@ namespace visutwin::canvas
         std::vector<int> jointNodeIndices;
     };
 
+    /// A glTF camera (core glTF), in the units the camera component takes.
+    struct GlbCameraPayload
+    {
+        ProjectionType projection = ProjectionType::Perspective;
+        float nearClip = 0.1f;
+        std::optional<float> farClip;        // absent: an infinite perspective; keep the default
+        float fovDegrees = 45.0f;            // vertical, perspective only
+        float orthoHeight = 10.0f;           // glTF ymag, the HALF height
+        std::optional<float> aspectRatio;    // manual aspect when the file gives one
+    };
+
+    /// A KHR_lights_punctual light, in the units the light component takes.
+    struct GlbLightPayload
+    {
+        LightType type = LightType::LIGHTTYPE_OMNI;
+        Color color = Color(1.0f, 1.0f, 1.0f, 1.0f);
+        float intensity = 1.0f;              // clamped to [0, 2], for non-physical scenes
+        float luminance = 0.0f;              // the file's intensity x the unit conversion
+        float range = 9999.0f;
+        float innerConeDegrees = 0.0f;
+        float outerConeDegrees = 45.0f;
+    };
+
     struct GlbNodePayload
     {
         std::string name;
@@ -50,6 +77,8 @@ namespace visutwin::canvas
         std::vector<int> children;
         int skinIndex = -1;  // Index into skin payloads (glTF node.skin), -1 = unskinned.
         bool skip = false;  // When true, no Entity is created (e.g., consumed POINTS leaf).
+        std::optional<GlbCameraPayload> camera;
+        std::optional<GlbLightPayload> light;
     };
 
     /**
