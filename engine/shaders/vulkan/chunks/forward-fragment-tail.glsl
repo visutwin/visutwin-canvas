@@ -207,8 +207,7 @@
 
     // Exposure, tonemap, then display-gamma encode (swapchain is a linear
     // UNORM target, matching the Metal BGRA8Unorm drawable).
-    color *= lighting.cameraPosExposure.w;
-    color = applyToneMap(color);
+    color = applyToneMap(color);   // exposure + tonemap
     color = pow(max(color, vec3(0.0)), vec3(1.0 / 2.2));
 
     outColor = vec4(color, albedo.a);

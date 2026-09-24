@@ -370,6 +370,14 @@ target_link_libraries(visutwin-glb-point-cloud-tests PRIVATE visutwin-canvas)
 
 add_test(NAME glb-point-cloud COMMAND visutwin-glb-point-cloud-tests)
 
+add_executable(visutwin-raycast-fallback-tests
+    raycastFallbackTests.cpp
+)
+
+target_link_libraries(visutwin-raycast-fallback-tests PRIVATE visutwin-canvas)
+
+add_test(NAME raycast-fallback COMMAND visutwin-raycast-fallback-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

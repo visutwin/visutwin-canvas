@@ -76,11 +76,22 @@ vec3 toneMapByMode(vec3 color, int mode) {
     return color; // LINEAR (0) and NONE (6): exposure only
 }
 
+// Exposure then tonemap, by mode — the twin of common-tonemap.metal's toneMap(color,
+// exposure, mode). NONE (6) returns the colour UNTOUCHED, exposure included, as
+// upstream's tonemappingNone does; the callers used to multiply by exposure before
+// dispatching, so NONE applied exposure on Vulkan alone.
+vec3 toneMapExposed(vec3 color, float exposure, int mode) {
+    if (mode == 6) {
+        return color;
+    }
+    return toneMapByMode(color * exposure, mode);
+}
+
 // The forward pass's dispatch, by the scene mode in the lighting block. A shader
 // with no lighting block (gsplat.vert) defines VT_TONEMAP_OPERATORS_ONLY before
 // including this file and calls toneMapByMode itself.
 #ifndef VT_TONEMAP_OPERATORS_ONLY
 vec3 applyToneMap(vec3 color) {
-    return toneMapByMode(color, int(lighting.shadowParams2.z + 0.5));
+    return toneMapExposed(color, lighting.cameraPosExposure.w, int(lighting.shadowParams2.z + 0.5));
 }
 #endif

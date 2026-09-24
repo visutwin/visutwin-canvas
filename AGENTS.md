@@ -359,6 +359,9 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   `Engine::fixedDeltaTime()`; `RigidBodyComponentSystem::step(dt)` is public for
   driving the simulation from another clock, and `setTimeScale(0)` pauses it
   (nothing steps, nothing is written back) while the rest of the engine runs on.
+- **The CPU raycast fallback skips colliders that are not `active()`.** It tested only
+  the components' own `enabled()` until 2026-09-24, so a collider on a disabled
+  entity, or under a disabled parent, was still hit; `tests/raycastFallbackTests.cpp`.
 - **`raycastAll` returns hits NEAREST FIRST on both paths.** It used to sort only
   on the CPU fallback, so the order depended on whether a physics world had been
   supplied.
@@ -445,6 +448,13 @@ Set scene-wide with `Scene::setToneMapping` or per camera with
 `RenderingSettings::toneMapping` is a separate, currently **unread** field —
 `applyCameraSettings` never copies it into `CameraFrameOptions`. Use
 `setToneMapping`.
+
+**Tone mapping NONE applies NEITHER curve NOR exposure**, as upstream's
+`tonemappingNone`. On Vulkan exposure is applied inside the dispatch
+(`toneMapExposed` in `common-tonemap.glsl`, the twin of Metal's `toneMap(color,
+exposure, mode)`); the forward callers used to multiply first, so NONE was exposed on
+Vulkan alone — 31.5 counts brighter than Metal on `clearcoat` at exposure 2. The
+compose pass already had it right in both languages.
 
 **Under CameraFrame the forward pass must output LINEAR HDR** and leave exposure,
 tonemap and gamma to compose. The gate is bit 5 of `LightingData::flagsAndPad[0]`,
@@ -1008,6 +1018,14 @@ present, but the rule below never depends on reading it.
   of a second late, while windowed mode never showed it. Measure pacing as the
   frame-dt distribution (median, p5, p95, counts under 10 and over 25 ms), and
   measure it in fullscreen as well as windowed before touching either setting.
+- **The scissor is clamped to the pass's attachments on BOTH backends.** Vulkan always
+  did (`applyScissor`); Metal took the rect as given until 2026-09-24, so a camera rect
+  reaching past the target wrapped a negative x to a huge `NS::UInteger` or left the
+  attachment, which Metal forbids (upstream #9516 fixed the same on WebGPU).
+- **TAA clamps and mixes in PREMULTIPLIED space and writes the CURRENT alpha**
+  (upstream `taaResolve.js`); both backends used the history alpha before 2026-09-24.
+  Opaque content moves by at most 1 count (the Catmull-Rom history's alpha is not
+  exactly 1), about 30k pixels on `taa`.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.
@@ -1460,6 +1478,12 @@ present, but the rule below never depends on reading it.
   `tests/gsplatAabbTests.cpp` pins it by writing PLYs whose answer is closed-form.
   The default gsplat example pose cannot see a bounds change at all — the cloud is
   wholly in view, so culling never fires and the frame must come back bit-identical.
+- **A splat's footprint takes its focal length PER AXIS and keeps the SIGNS**
+  (`viewport.xy * (P[0][0], P[1][1])`, upstream #9486/#9490, both backends since
+  2026-09-24). One focal from the width for both axes squashed every splat whenever the
+  viewport's pixel aspect differed from the projection's (a manual camera aspect, a
+  side-by-side stereo target); with square pixels the two agree, and the golden
+  `gsplat` case did not move.
 - **A splat's clip z is CLAMPED to the depth range, and that only works because
   its screen-space kernel is clamped too.** A gaussian splat is a quad built around
   ONE projected centre, so the whole quad carries that centre's depth: an unclamped

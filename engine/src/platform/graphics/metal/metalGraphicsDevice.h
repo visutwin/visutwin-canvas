@@ -342,6 +342,10 @@ namespace visutwin::canvas
         // color made by the depth-layer grab pass, wrapped for slot-22 binding.
 
         // Clustered lighting GPU buffers (fragment slots 7 and 8).
+        // Attachment size of the open render pass, which the scissor is clamped to.
+        int _passWidth = 0;
+        int _passHeight = 0;
+
         MTL::Buffer* _clusterLightBuffer = nullptr;
         MTL::Buffer* _clusterCellBuffer = nullptr;
         size_t _clusterLightBufferCapacity = 0;

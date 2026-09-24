@@ -43,7 +43,7 @@ vec3 gsplatPrepareOutput(vec3 gammaColor, float depth) {
         color = mix(params.fogColor.xyz, color, clamp(fogFactor, 0.0, 1.0));
     }
     if (tonemap) {
-        color = toneMapByMode(color * max(params.outputParams.x, 0.0), int(params.outputParams.y + 0.5));
+        color = toneMapExposed(color, max(params.outputParams.x, 0.0), int(params.outputParams.y + 0.5));
     }
     if (tonemap || (!linearTarget && fog)) {
         color = pow(max(color, vec3(0.0)) + 0.0000001, vec3(1.0 / 2.2));
@@ -87,8 +87,9 @@ void main() {
     uint base=index*10u; vec3 center=load3(base); vec3 ca=load3(base+4u), cb=load3(base+7u);
     vec4 view=params.modelView*vec4(center,1), clip=params.projection*view; if(clip.w<=0.0)return;
     mat3 covariance=mat3(ca.x,ca.y,ca.z, ca.y,cb.x,cb.y, ca.z,cb.y,cb.z);
-    float focal=params.viewport.x*params.projection[0][0], j=focal/view.z;
-    mat3 J=mat3(j,0,-j*view.x/view.z, 0,j,-j*view.y/view.z, 0,0,0);
+    // Per-axis, signed focal length (upstream #9486/#9490) — see gsplat-render.metal.
+    vec2 j=params.viewport.xy*vec2(params.projection[0][0],params.projection[1][1])/view.z;
+    mat3 J=mat3(j.x,0,-j.x*view.x/view.z, 0,j.y,-j.y*view.y/view.z, 0,0,0);
     mat3 W=transpose(mat3(params.modelView)); mat3 T=W*J;
     mat3 cov=transpose(T)*covariance*T;
     float d1=cov[0][0]+0.3, od=cov[0][1], d2=cov[1][1]+0.3;

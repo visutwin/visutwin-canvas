@@ -279,12 +279,14 @@ namespace visutwin::canvas
         results.reserve(RigidBodyComponent::instances().size());
 
         for (auto* rigidbody : RigidBodyComponent::instances()) {
-            if (!rigidbody || !rigidbody->enabled() || !rigidbody->entity()) {
+            // active(), not enabled(): a collider on a disabled entity, or under a
+            // disabled parent, must not be hit — the rule every gathering loop follows.
+            if (!rigidbody || !rigidbody->active() || !rigidbody->entity()) {
                 continue;
             }
 
             auto* collision = rigidbody->collision();
-            if (!collision || !collision->enabled()) {
+            if (!collision || !collision->active()) {
                 continue;
             }
 

@@ -148,13 +148,18 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
                                   float3(covA.y, covB.x, covB.y),
                                   float3(covA.z, covB.y, covB.z));
 
-    // Perspective Jacobian at the splat center (upstream gsplatCorner.js).
-    const float focal = params.viewport.x * params.projection[0][0];
+    // Perspective Jacobian at the splat center (upstream gsplatCorner.js). The focal
+    // length in pixels is taken PER AXIS (upstream #9486): one focal from the width
+    // for both axes squashes every splat when the viewport's pixel aspect differs
+    // from the projection's (a manual aspect ratio, a side-by-side stereo target).
+    // Signs are kept (upstream #9490): the footprint is added to the centre in clip
+    // space, so a projection that flips an axis must flip the footprint with it.
+    const float2 focal = params.viewport.xy * float2(params.projection[0][0], params.projection[1][1]);
     const float3 v = view.xyz;
-    const float J1 = focal / v.z;
+    const float2 J1 = focal / v.z;
     const float2 J2 = -J1 / v.z * v.xy;
-    const float3x3 J = float3x3(float3(J1, 0.0, J2.x),
-                                float3(0.0, J1, J2.y),
+    const float3x3 J = float3x3(float3(J1.x, 0.0, J2.x),
+                                float3(0.0, J1.y, J2.y),
                                 float3(0.0, 0.0, 0.0));
 
     const float3x3 W = transpose(float3x3(params.modelView[0].xyz,

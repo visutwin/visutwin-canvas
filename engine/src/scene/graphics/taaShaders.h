@@ -133,20 +133,22 @@ static inline float4 SampleTextureCatmullRom(
     return result;
 }
 
-static inline float4 colorClamp(texture2d<float> sourceTexture, sampler linearSampler, float2 uv, float4 historyColor, float2 textureSize)
+// 3x3 neighbourhood clamp in PREMULTIPLIED space, the same domain as the temporal
+// mix (upstream taaResolve.js colorClampPremul).
+static inline float3 colorClampPremul(texture2d<float> sourceTexture, sampler linearSampler, float2 uv,
+    float3 historyPremul, float2 textureSize)
 {
-    float3 minColor = float3(9999.0);
-    float3 maxColor = float3(-9999.0);
+    float3 minPremul = float3(9999.0);
+    float3 maxPremul = float3(-9999.0);
     for (float x = -1.0; x <= 1.0; ++x) {
         for (float y = -1.0; y <= 1.0; ++y) {
-            float3 color = sourceTexture.sample(linearSampler, uv + float2(x, y) / textureSize).rgb;
-            minColor = min(minColor, color);
-            maxColor = max(maxColor, color);
+            const float4 s = sourceTexture.sample(linearSampler, uv + float2(x, y) / textureSize);
+            const float3 premul = s.rgb * s.a;
+            minPremul = min(minPremul, premul);
+            maxPremul = max(maxPremul, premul);
         }
     }
-
-    float3 clamped = clamp(historyColor.rgb, minColor, maxColor);
-    return float4(clamped, historyColor.a);
+    return clamp(historyPremul, minPremul, maxPremul);
 }
 
 // Point-sampled depth (AGENTS.md "Depth taps in a quad pass must be POINT
@@ -194,14 +196,26 @@ fragment float4 taaFragment(
         historyColor = historyTexture.sample(linearSampler, historyUv);
     }
 
-    // Color clamping to handle disocclusion
-    float4 historyColorClamped = colorClamp(sourceTexture, linearSampler, uv, historyColor, uniforms.texSizeFlags.xy);
+    // Premultiplied (rgb * a) is the coverage-correct space for TAA (upstream
+    // taaResolve.js): straight RGB interpolates colour and opacity independently at
+    // edges, which fringes and ghosts. Clamp and mix premultiplied, then
+    // un-premultiply by the CURRENT alpha — alpha is not filtered over time. Both
+    // backends used to blend (Metal) or keep (Vulkan) the HISTORY alpha. With alpha
+    // 1 the result is unchanged bit for bit.
+    const float3 historyPremul = historyColor.rgb * historyColor.a;
+    const float3 srcPremul = srcColor.rgb * srcColor.a;
+    const float3 historyPremulClamped = colorClampPremul(sourceTexture, linearSampler, uv,
+        historyPremul, uniforms.texSizeFlags.xy);
 
     // Reject history samples that project outside the frame
-    float mixFactor = (historyUv.x < 0.0 || historyUv.x > 1.0 ||
-                       historyUv.y < 0.0 || historyUv.y > 1.0) ? 1.0 : 0.05;
+    const float mixFactor = (historyUv.x < 0.0 || historyUv.x > 1.0 ||
+                             historyUv.y < 0.0 || historyUv.y > 1.0) ? 1.0 : 0.05;
 
-    return mix(historyColorClamped, srcColor, mixFactor);
+    const float3 mixedPremul = mix(historyPremulClamped, srcPremul, mixFactor);
+    const float a = srcColor.a;
+    // Below one UNORM8 alpha step un-premultiplying is ill-defined; use the current RGB.
+    const float3 rgbStraight = (a > 1.0 / 255.0) ? (mixedPremul / a) : srcColor.rgb;
+    return float4(rgbStraight, a);
 }
 )";
 
@@ -284,17 +298,19 @@ vec4 sampleCatmullRom(vec2 uv, vec2 texSize) {
     return result;
 }
 
-vec4 colorClamp(vec2 uv, vec4 historyColor, vec2 texSize) {
-    vec3 minColor = vec3(9999.0);
-    vec3 maxColor = vec3(-9999.0);
+// Twin of the MSL colorClampPremul (upstream taaResolve.js).
+vec3 colorClampPremul(vec2 uv, vec3 historyPremul, vec2 texSize) {
+    vec3 minPremul = vec3(9999.0);
+    vec3 maxPremul = vec3(-9999.0);
     for (float x = -1.0; x <= 1.0; x += 1.0) {
         for (float y = -1.0; y <= 1.0; y += 1.0) {
-            vec3 color = texture(sourceTex, uv + vec2(x, y) / texSize).rgb;
-            minColor = min(minColor, color);
-            maxColor = max(maxColor, color);
+            vec4 s = texture(sourceTex, uv + vec2(x, y) / texSize);
+            vec3 premul = s.rgb * s.a;
+            minPremul = min(minPremul, premul);
+            maxPremul = max(maxPremul, premul);
         }
     }
-    return vec4(clamp(historyColor.rgb, minColor, maxColor), historyColor.a);
+    return clamp(historyPremul, minPremul, maxPremul);
 }
 
 void main() {
@@ -315,12 +331,18 @@ void main() {
         ? sampleCatmullRom(historyUv, texSize)
         : texture(historyTex, historyUv);
 
-    vec4 historyColorClamped = colorClamp(uv, historyColor, texSize);
+    // Premultiplied clamp and mix, current alpha out — see the MSL body.
+    vec3 historyPremul = historyColor.rgb * historyColor.a;
+    vec3 srcPremul = srcColor.rgb * srcColor.a;
+    vec3 historyPremulClamped = colorClampPremul(uv, historyPremul, texSize);
 
     float mixFactor = (historyUv.x < 0.0 || historyUv.x > 1.0 ||
                        historyUv.y < 0.0 || historyUv.y > 1.0) ? 1.0 : 0.05;
 
-    outColor = mix(historyColorClamped, srcColor, mixFactor);
+    vec3 mixedPremul = mix(historyPremulClamped, srcPremul, mixFactor);
+    float a = srcColor.a;
+    vec3 rgbStraight = (a > 1.0 / 255.0) ? (mixedPremul / a) : srcColor.rgb;
+    outColor = vec4(rgbStraight, a);
 }
 #endif
 )";

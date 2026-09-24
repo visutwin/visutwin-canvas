@@ -54,8 +54,7 @@ void main() {
             outColor = vec4(max(sky, vec3(0.0)), 1.0);
             return;
         }
-        sky *= lighting.cameraPosExposure.w;            // exposure
-        sky = applyToneMap(sky);
+        sky = applyToneMap(sky);                         // exposure + tonemap
         outColor = vec4(pow(max(sky, vec3(0.0)), vec3(1.0 / 2.2)), 1.0); // display-gamma encode
         return;
     }
@@ -197,8 +196,7 @@ void main() {
         if ((material.flags & (1u << 23)) != 0u) {
             unlitEmissive *= clamp(fragColor.rgb, 0.0, 1.0);
         }
-        vec3 unlit = (albedo.rgb + unlitEmissive) * lighting.cameraPosExposure.w;
-        unlit = applyToneMap(unlit);
+        vec3 unlit = applyToneMap(albedo.rgb + unlitEmissive);   // exposure + tonemap
         outColor = vec4(pow(max(unlit, vec3(0.0)), vec3(1.0 / 2.2)), albedo.a);
         return;
     }

@@ -1646,6 +1646,8 @@ namespace visutwin::canvas
             }
             const int targetWidth = activeTarget ? activeTarget->width() : size().first;
             const int targetHeight = activeTarget ? activeTarget->height() : size().second;
+            _passWidth = std::max(targetWidth, 0);
+            _passHeight = std::max(targetHeight, 0);
             if (targetWidth > 0 && targetHeight > 0) {
                 setViewport(0.0f, 0.0f, static_cast<float>(targetWidth), static_cast<float>(targetHeight));
                 setScissor(0, 0, targetWidth, targetHeight);
@@ -1761,11 +1763,20 @@ namespace visutwin::canvas
     {
         GraphicsDevice::setScissor(x, y, w, h);
         if (_renderPassEncoder && w > 0 && h > 0) {
+            // Clamped to the pass's attachments, as Vulkan's applyScissor does and
+            // upstream does on WebGPU (#9516): a camera rect reaching past the target
+            // makes the scissor do the same, and Metal requires the rect to lie within
+            // the attachments. A negative x or y used to wrap to an enormous
+            // NS::UInteger rather than clip.
+            const int64_t left = std::clamp<int64_t>(x, 0, _passWidth);
+            const int64_t top = std::clamp<int64_t>(y, 0, _passHeight);
+            const int64_t right = std::clamp<int64_t>(static_cast<int64_t>(x) + w, left, _passWidth);
+            const int64_t bottom = std::clamp<int64_t>(static_cast<int64_t>(y) + h, top, _passHeight);
             MTL::ScissorRect scissor;
-            scissor.x = static_cast<NS::UInteger>(x);
-            scissor.y = static_cast<NS::UInteger>(y);
-            scissor.width = static_cast<NS::UInteger>(w);
-            scissor.height = static_cast<NS::UInteger>(h);
+            scissor.x = static_cast<NS::UInteger>(left);
+            scissor.y = static_cast<NS::UInteger>(top);
+            scissor.width = static_cast<NS::UInteger>(right - left);
+            scissor.height = static_cast<NS::UInteger>(bottom - top);
             _renderPassEncoder->setScissorRect(scissor);
         }
     }
