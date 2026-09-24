@@ -41,6 +41,7 @@ namespace visutwin::canvas
 
     void RenderPassBloom::destroyRenderPasses()
     {
+        _prefilterPass = nullptr;
         clearBeforePasses();
     }
 
@@ -93,9 +94,16 @@ namespace visutwin::canvas
 
     void RenderPassBloom::createRenderPasses(const int numPasses)
     {
+        const bool prefilter = _threshold > 0.0f;
+        _prefilterEnabled = prefilter;
         Texture* passSourceTexture = _sourceTexture;
         for (int i = 0; i < numPasses; ++i) {
-            auto pass = std::make_shared<RenderPassDownsample>(device(), passSourceTexture);
+            RenderPassDownsample::Options downsampleOptions;
+            downsampleOptions.prefilter = prefilter && i == 0;
+            auto pass = std::make_shared<RenderPassDownsample>(device(), passSourceTexture, downsampleOptions);
+            if (pass->prefilter()) {
+                _prefilterPass = pass.get();
+            }
             auto options = std::make_shared<RenderPassOptions>();
             options->resizeSource = std::shared_ptr<Texture>(passSourceTexture, [](Texture*) {});
             options->scaleX = 0.5f;
@@ -143,11 +151,19 @@ namespace visutwin::canvas
 
         const int maxNumPasses = calcMipLevels(mutableThis->_sourceTexture->width(), mutableThis->_sourceTexture->height(), 1);
         const int numPasses = std::clamp(maxNumPasses, 1, mutableThis->_blurLevel);
-        if (static_cast<int>(mutableThis->_renderTargets.size()) != numPasses) {
+        // The high pass is a shader variant of the first downsample, so switching the
+        // threshold on or off rebuilds the passes, as upstream does.
+        if (static_cast<int>(mutableThis->_renderTargets.size()) != numPasses ||
+            mutableThis->_prefilterEnabled != (mutableThis->_threshold > 0.0f)) {
             mutableThis->destroyRenderPasses();
             mutableThis->destroyRenderTargets(1);
             mutableThis->createRenderTargets(numPasses);
             mutableThis->createRenderPasses(numPasses);
+        }
+
+        if (mutableThis->_prefilterPass) {
+            mutableThis->_prefilterPass->setPrefilterThreshold(mutableThis->_threshold);
+            mutableThis->_prefilterPass->setPrefilterKnee(mutableThis->_threshold * 0.5f);
         }
     }
 }

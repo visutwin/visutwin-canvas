@@ -176,6 +176,16 @@ namespace visutwin::canvas
         }
     }
 
+    void SkyMesh::setDepthWrite(const bool value)
+    {
+        if (!_material) {
+            return;
+        }
+        auto depthState = std::make_shared<DepthState>();
+        depthState->setDepthWrite(value);
+        _material->setDepthState(depthState);
+    }
+
     SkyMesh::SkyMesh(const std::shared_ptr<GraphicsDevice>& device, Scene* scene,
         GraphNode* node, Texture* texture, const int type)
         : _scene(scene)

@@ -314,7 +314,12 @@ void main() {
             return;
         }
 
-        if (auto* render = entity->findComponent<RenderComponent>()) {
+        // Only a component that is actually rendered (upstream 7c1e90f34): a disabled
+        // component or entity keeps its mesh instances, still visible, but out of the
+        // scene's layers — and this renderer has its own layer, so cloning them outlined
+        // an object that is not drawn. Checked when the entity is added, as upstream;
+        // removal goes by the record and needs no check.
+        if (auto* render = entity->findComponent<RenderComponent>(); render && render->active()) {
             // Flat unlit silhouette material in the outline color.
             auto material = std::make_shared<StandardMaterial>();
             material->setName("outline-silhouette");

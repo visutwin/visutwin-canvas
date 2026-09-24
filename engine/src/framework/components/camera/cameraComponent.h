@@ -127,6 +127,12 @@ namespace visutwin::canvas
         // once a mip would go below 2 px.
         int bloomBlurLevel = 16;
 
+        // Brightness below which the scene does not contribute to bloom, with a soft
+        // knee of half the threshold (upstream CameraFrame.bloom.threshold). In the
+        // units the scene is rendered in, before exposure and tone mapping, so a scene
+        // whose exposure is far from 1 needs it scaled to match. 0 = no threshold.
+        float bloomThreshold = 0.0f;
+
         // Vignette
         bool vignetteEnabled = false;
         float vignetteInner = 0.5f;

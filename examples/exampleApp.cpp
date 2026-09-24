@@ -148,6 +148,26 @@ namespace visutwin::canvas
             }
         }
 
+        // VISUTWIN_BLOOM_THRESHOLD=t sets the bloom threshold (soft knee t/2) on every
+        // camera. Upstream's examples never set one, so this is how the high pass is
+        // exercised: t=0 must be bit-identical to not setting it (no high-pass variant
+        // is compiled), and a threshold above the scene's peak removes the bloom.
+        if (const char* bloom = std::getenv("VISUTWIN_BLOOM_THRESHOLD"); bloom && *bloom) {
+            float threshold = 0.0f;
+            if (std::sscanf(bloom, "%f", &threshold) == 1) {
+                int cameras = 0;
+                for (GraphNode* node : _engine->root()->find([](GraphNode* n) {
+                        auto* e = dynamic_cast<Entity*>(n);
+                        return e && e->findComponent<CameraComponent>() != nullptr; })) {
+                    static_cast<Entity*>(node)->findComponent<CameraComponent>()->rendering().bloomThreshold = threshold;
+                    ++cameras;
+                }
+                spdlog::info("Bloom threshold {} on {} camera(s) from VISUTWIN_BLOOM_THRESHOLD", threshold, cameras);
+            } else {
+                spdlog::warn("VISUTWIN_BLOOM_THRESHOLD='{}' is not a number; ignored", bloom);
+            }
+        }
+
         // VISUTWIN_FILL_LIGHT=pitch,yaw,intensity[,shadows] adds a second, white
         // directional light aimed by those Euler angles (degrees). Only one directional
         // shadow exists per layer, so this light must come out UNSHADOWED however the

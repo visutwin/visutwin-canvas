@@ -11,6 +11,8 @@
 
 namespace visutwin::canvas
 {
+    class RenderPassDownsample;
+
     class RenderPassBloom : public RenderPass
     {
     public:
@@ -23,6 +25,13 @@ namespace visutwin::canvas
         Texture* bloomTexture() const { return _bloomTexture; }
         void setBlurLevel(const int value) { _blurLevel = std::max(value, 1); }
 
+        // Brightness below which the scene does not contribute to bloom, with a soft
+        // knee of half the threshold (upstream FramePassBloom.threshold). In the
+        // scene-referred units the scene is rendered in, before exposure and tone
+        // mapping. 0 (the default) keeps the whole scene and compiles no high pass.
+        float threshold() const { return _threshold; }
+        void setThreshold(const float value) { _threshold = std::max(value, 0.0f); }
+
     private:
         void destroyRenderTargets(int startIndex = 0);
         void destroyRenderPasses();
@@ -34,6 +43,12 @@ namespace visutwin::canvas
         Texture* _sourceTexture = nullptr;
         PixelFormat _textureFormat = PixelFormat::PIXELFORMAT_RGBA8;
         int _blurLevel = 16;
+        float _threshold = 0.0f;
+        // The first downsample, when it carries the high pass; null at threshold 0.
+        // Whether it does is fixed at creation, so a threshold crossing zero rebuilds
+        // the passes.
+        RenderPassDownsample* _prefilterPass = nullptr;
+        bool _prefilterEnabled = false;
         std::shared_ptr<RenderTarget> _bloomRenderTarget;
         Texture* _bloomTexture = nullptr;
         std::vector<std::shared_ptr<RenderTarget>> _renderTargets;

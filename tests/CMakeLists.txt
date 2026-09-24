@@ -368,3 +368,11 @@ add_executable(visutwin-script-lifetime-tests
 target_link_libraries(visutwin-script-lifetime-tests PRIVATE visutwin-canvas)
 
 add_test(NAME script-lifetime COMMAND visutwin-script-lifetime-tests)
+
+add_executable(visutwin-picker-tests
+    pickerTests.cpp
+)
+
+target_link_libraries(visutwin-picker-tests PRIVATE visutwin-canvas)
+
+add_test(NAME picker COMMAND visutwin-picker-tests)

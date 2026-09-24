@@ -31,6 +31,11 @@ namespace visutwin::canvas
 
         MeshInstance* meshInstance() const { return _meshInstance.get(); }
 
+        /// Whether the sky writes depth (upstream SkyMesh.depthWrite, off by default).
+        /// A skydome that writes it gives depth-based effects a real sky depth instead
+        /// of the cleared far value; Sky passes its own setting on.
+        void setDepthWrite(bool value);
+
         /// Create a full UV sphere mesh (no flattening). Used for atmosphere sky.
         static std::shared_ptr<Mesh> createSphereMesh(const std::shared_ptr<GraphicsDevice>& device,
             int latBands = 64, int lonBands = 64);

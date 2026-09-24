@@ -169,6 +169,7 @@ namespace visutwin::canvas
         options.bloomEnabled = rendering.bloomIntensity > 0.0f;
         options.bloomIntensity = rendering.bloomIntensity;
         options.bloomBlurLevel = std::max(rendering.bloomBlurLevel, 1);
+        options.bloomThreshold = std::max(rendering.bloomThreshold, 0.0f);
         options.sharpness = rendering.sharpness;
         options.vignetteEnabled = rendering.vignetteEnabled;
         options.vignetteInner = rendering.vignetteInner;
@@ -229,6 +230,11 @@ namespace visutwin::canvas
         _options = sanitized;
         if (!_sceneTexture) {
             setupRenderPasses(_options);
+        }
+        // Not a reset option: the bloom pass rebuilds its own chain when the threshold
+        // crosses zero, and otherwise only needs the new value.
+        if (_bloomPass) {
+            _bloomPass->setThreshold(_options.bloomThreshold);
         }
     }
 
@@ -832,6 +838,7 @@ namespace visutwin::canvas
             }
             // Applied every rebuild — the pass itself is reused across frames.
             _bloomPass->setBlurLevel(options.bloomBlurLevel);
+            _bloomPass->setThreshold(options.bloomThreshold);
         } else {
             _bloomPass.reset();
         }

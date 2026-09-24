@@ -172,6 +172,7 @@ Upstream `framework/anim/controller` + `components/anim` port at `engine/src/fra
 `engine/src/framework/extras/` (ports of upstream `extras/`):
 - **OutlineRenderer** (`outline-renderer.js`): colored selection outlines. A dedicated "Outline" layer (id 100, excluded from the main camera's default layer list) + offscreen camera render flat **unlit clone** mesh instances (sharing mesh+node with the source — DEVIATION: upstream re-renders originals through a shader-pass override) into an RGBA8 target; H/V extend quad passes (5-tap dilate + edge alpha, offsets/srcMultiplier baked into two shader variants since quad passes carry no uniforms) then an alpha-blend quad composite over the back buffer. The three post passes register via **`Renderer::addAppendPass`** — a new engine mechanism appending app passes to the END of the frame graph. GOTCHA that motivated it: rendering to the back buffer AFTER `Engine::render()` crashes (frameEnd presents the drawable; a stale `_frameDrawable` reuse is a pointer-auth SIGSEGV — the older edge-detect example has this latent bug). Per frame: `outline->frameUpdate(cameraEntity)` before render.
 - **ViewCube** (`view-cube.js`): world-axis orientation gizmo. DEVIATION: upstream is DOM/SVG; this port renders unlit sphere handles + axis rods on the IMMEDIATE layer with depth test off, anchored each frame to the camera's top-right corner (`update(cameraEntity)`). `onClick(x, y, w, h, cameraEntity)` unprojects a ray (standard-Z, near plane at clip z=0), ray-sphere picks the six handles, and fires `ViewCube::EVENT_CAMERAALIGN` with the world axis (EventHandler payload).
+- An entity whose render component is not `active()` (its own flag, or a disabled entity or ancestor) draws no outline, as upstream 7c1e90f34; before 2026-09-24 a hidden object kept its outline.
 - Example: `outline-viewcube-example.cpp` (auto-cycling outline over three objects + view cube; includes an onClick scan self-test).
 
 ### Vertex Color Routing + Unlit Emissive
@@ -834,6 +835,10 @@ The cross-cutting traps stay in `AGENTS.md`.
   ambient only. The CPU `Lightmapper` is the quality reference.
 
 ### Atmosphere (Nishita)
+`Sky::setDepthWrite` (upstream's `Sky.depthWrite`, default false) makes the sky dome
+write depth, for effects that need a finite depth where the sky is — DOF, fog,
+SSAO. It is applied to the current mesh and to every rebuilt one.
+
 Two traps, both of which silently produce no sky at all:
 - **`Scene::setAtmosphereEnabled` must rebuild the sky mesh.** The atmosphere
   branch of `Sky::updateSkyMesh` requires the flag to be set ALREADY, and every

@@ -55,6 +55,7 @@ namespace visutwin::canvas
         bool bloomEnabled = false;
         float bloomIntensity = 0.01f;
         int bloomBlurLevel = 16;
+        float bloomThreshold = 0.0f;
         float sharpness = 0.0f;
         std::string_view ssaoType = SSAOTYPE_NONE;
         bool ssaoBlurEnabled = true;

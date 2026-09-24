@@ -402,6 +402,13 @@ ComposePassParams.
   leaves bloom in green only. It also overwrites R and B from the raw scene
   texture, which paints magenta over occluded pixels if combined with
   compose-mode SSAO. That is upstream's own design; fix the scene, not the engine.
+- **Bloom has a THRESHOLD** (`RenderingSettings::bloomThreshold`, upstream
+  `CameraFrame.bloom.threshold`, 192121560): a soft-knee high pass (knee = half the
+  threshold) compiled into the FIRST bloom downsample only while the threshold is
+  above zero, applied to the Karis-filtered result rather than per tap. It is in
+  scene-referred units, before exposure. Crossing zero rebuilds the bloom chain; at 0
+  no variant exists and the frame is bit-identical to a build without it (verified
+  on `post-processing`, both backends, driven by `VISUTWIN_BLOOM_THRESHOLD`).
 - The 3D LUT is a 256x16 Unreal strip with dual-LUT blend; the port loads it
   non-sRGB so the sample is pow(2.2)-decoded in-shader. Test asset:
   `assets/textures/lut-teal-orange.tga`.
@@ -1138,6 +1145,13 @@ present, but the rule below never depends on reading it.
   plane with a checkerboard or a rock texture does not look wrong either way.
   `tests/primitiveGeometryTests.cpp` pins the orientation; test anything new here
   with an ASYMMETRIC image, never a checker.
+- **The CPU picker's ray goes through the pixel CENTRE, from the NEAR plane out.**
+  `Picker::getWorldPoint` adds 0.5 to the pixel coordinate (upstream 5cc6269d5) and
+  unprojects NDC z -1 as near and +1 as far — the GL-style projection this engine
+  uses. Until 2026-09-24 it passed the pixel's corner and built the ray from the far
+  plane back toward the camera, so the nearest hit was the FAR side of the object.
+  DEVIATION kept: it intersects bounding spheres, not a depth readback.
+  `tests/pickerTests.cpp` holds both halves.
 - **Primitive tangents are DERIVED from the UVs, never written by hand, and the
   bitangent `cross(n, t) * w` points toward DECREASING v** — the image's top row,
   where a normal map's green channel points. `calculateTangents`
@@ -1722,6 +1736,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 10. `VISUTWIN_LOCAL_LIGHT=x,y,z,intensity,range` adds a white omni light, which under
     the default clustered lighting goes through the CLUSTER loop. The frame minus a run
     without it is that light alone; compare it across backends.
+
+11. `VISUTWIN_BLOOM_THRESHOLD=t` sets the bloom threshold on every camera. No upstream
+    example sets one; t=0 must reproduce the unset frame exactly.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.

@@ -29,9 +29,15 @@ namespace visutwin::canvas
         }
     }
 
+    // Upstream Sky.depthWrite: stored, and handed to the sky mesh now and whenever
+    // one is built. It used to be stored and never read — the mesh always forced
+    // depth writes off.
     void Sky::setDepthWrite(const bool value)
     {
         _depthWrite = value;
+        if (_skyMesh) {
+            _skyMesh->setDepthWrite(value);
+        }
     }
 
     void Sky::updateSkyMesh()
@@ -70,6 +76,7 @@ namespace visutwin::canvas
                     _scene->layers() ? "yes" : "no");
                 resetSkyMesh();
                 _skyMesh = std::make_unique<SkyMesh>(_device, _scene, &_node, _atmosphereDummyTexture.get(), SKYTYPE_ATMOSPHERE);
+                _skyMesh->setDepthWrite(_depthWrite);
                 return;
             }
         }
@@ -107,6 +114,7 @@ namespace visutwin::canvas
             _scene->layers() ? "yes" : "no");
         resetSkyMesh();
         _skyMesh = std::make_unique<SkyMesh>(_device, _scene, &_node, skyTex, _type);
+        _skyMesh->setDepthWrite(_depthWrite);
     }
 
     void Sky::resetSkyMesh()

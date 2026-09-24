@@ -114,7 +114,7 @@ struct QuadVertexIn {
     float2 uv1 [[attribute(4)]];
 };
 
-struct QuadVarying {
+{PREFILTER_DECL}struct QuadVarying {
     float4 position [[position]];
     float2 uv;
 };
@@ -130,7 +130,7 @@ vertex QuadVarying downsampleVertex(QuadVertexIn in [[stage_in]])
 fragment float4 downsampleFragment(
     QuadVarying in [[stage_in]],
     texture2d<float> sourceTexture [[texture(0)]],
-    sampler linearSampler [[sampler(0)]])
+    sampler linearSampler [[sampler(0)]]{PREFILTER_ARG})
 {
     // 13-tap Karis partial-average (Call of Duty: Advanced Warfare — Next Generation Post
     // Processing). Same weights upstream uses for its bloom mip-chain downsample
@@ -166,7 +166,7 @@ fragment float4 downsampleFragment(
     value += (j + k + l + m) * 0.125;
 
     value = max(value, float3(0.0));
-    return float4(value, 1.0);
+{PREFILTER_APPLY}    return float4(value, 1.0);
 }
 )";
 
@@ -249,7 +249,7 @@ void main() {
 #endif
 
 #ifdef VT_FRAGMENT_SHADER
-layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
+{PREFILTER_DECL}layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
 layout(location = 0) in vec2 vUv;
 layout(location = 0) out vec4 fragColor;
 void main() {
@@ -282,10 +282,64 @@ void main() {
     value += (b + d + f + h) * 0.0625;
     value += (j + k + l + m) * 0.125;
 
-    fragColor = vec4(max(value, vec3(0.0)), 1.0);
+    value = max(value, vec3(0.0));
+{PREFILTER_APPLY}    fragColor = vec4(value, 1.0);
 }
 #endif
 )";
+
+        // Upstream's PREFILTER option: a soft-knee high pass on the Karis result, compiled
+        // only into the FIRST bloom downsample and only while the bloom threshold is above
+        // zero. It scales the filtered value down by how far its brightest channel sits
+        // below the threshold, with a quadratic knee (upstream uses half the threshold)
+        // smoothing the transition. It runs on the FILTERED result rather than per tap, as
+        // upstream does, so an isolated bright pixel that the filter has already averaged
+        // down needs a proportionally lower threshold. The Karis sources carry three
+        // markers that are substituted with these, or with nothing for the plain variant.
+        constexpr const char* PREFILTER_MSL_DECL = R"(struct PrefilterUniforms {
+    float4 thresholdKnee;   // x: threshold, y: knee
+};
+
+)";
+        constexpr const char* PREFILTER_MSL_ARG = R"(,
+    constant PrefilterUniforms& u [[buffer(3)]])";
+        constexpr const char* PREFILTER_MSL_APPLY = R"(
+    {
+        const float luminance = max(value.r, max(value.g, value.b));
+        const float threshold = u.thresholdKnee.x;
+        const float knee = u.thresholdKnee.y;
+        float soft = clamp(luminance - threshold + knee, 0.0, 2.0 * knee);
+        soft = soft * soft / (4.0 * knee + 1e-4);
+        value *= clamp(max(soft, luminance - threshold) / max(luminance, 1e-4), 0.0, 1.0);
+    }
+)";
+        constexpr const char* PREFILTER_GLSL_DECL = R"(layout(set = 0, binding = 0) uniform PrefilterUniforms {
+    vec4 thresholdKnee;   // x: threshold, y: knee
+} u;
+)";
+        constexpr const char* PREFILTER_GLSL_APPLY = R"(
+    {
+        float luminance = max(value.r, max(value.g, value.b));
+        float threshold = u.thresholdKnee.x;
+        float knee = u.thresholdKnee.y;
+        float soft = clamp(luminance - threshold + knee, 0.0, 2.0 * knee);
+        soft = soft * soft / (4.0 * knee + 1e-4);
+        value *= clamp(max(soft, luminance - threshold) / max(luminance, 1e-4), 0.0, 1.0);
+    }
+)";
+
+        struct alignas(16) PrefilterUniforms
+        {
+            float thresholdKnee[4];
+        };
+        static_assert(sizeof(PrefilterUniforms) == 16);
+
+        void replaceAll(std::string& text, const std::string& marker, const std::string& value)
+        {
+            for (size_t at = text.find(marker); at != std::string::npos; at = text.find(marker, at + value.size())) {
+                text.replace(at, marker.size(), value);
+            }
+        }
     }
 
     RenderPassDownsample::RenderPassDownsample(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture)
@@ -295,7 +349,8 @@ void main() {
 
     RenderPassDownsample::RenderPassDownsample(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture,
         const Options& options)
-        : RenderPassShaderQuad(device), _sourceTexture(sourceTexture), _premultiplyTexture(options.premultiplyTexture), _options(options)
+        : RenderPassShaderQuad(device), _sourceTexture(sourceTexture), _premultiplyTexture(options.premultiplyTexture),
+          _options(options), _prefilter(options.prefilter && !options.boxFilter)
     {
         // Cache the downsample shader at the device level so that bloom passes
         // (which create many RenderPassDownsample instances) don't each compile
@@ -309,7 +364,8 @@ void main() {
         const std::string channel(1, premultiply ? options.premultiplySrcChannel : 'x');
         const std::string cacheKeyStorage = premultiply
             ? ("DownsampleQuad:BoxPremultiply:" + channel)
-            : std::string(options.boxFilter ? "DownsampleQuad:Box" : "DownsampleQuad:Karis");
+            : std::string(options.boxFilter ? "DownsampleQuad:Box"
+                : _prefilter ? "DownsampleQuad:KarisPrefilter" : "DownsampleQuad:Karis");
         const char* cacheKey = cacheKeyStorage.c_str();
         std::string sourceStorage;
         const char* sourceText = nullptr;
@@ -320,10 +376,16 @@ void main() {
                 sourceStorage.replace(at, marker.size(), channel);
             }
             sourceText = sourceStorage.c_str();
+        } else if (options.boxFilter) {
+            sourceText = glsl ? DOWNSAMPLE_GLSL_SIMPLE : DOWNSAMPLE_SOURCE_SIMPLE;
         } else {
-            sourceText = options.boxFilter
-                ? (glsl ? DOWNSAMPLE_GLSL_SIMPLE : DOWNSAMPLE_SOURCE_SIMPLE)
-                : (glsl ? DOWNSAMPLE_GLSL_KARIS : DOWNSAMPLE_SOURCE_KARIS);
+            sourceStorage = glsl ? DOWNSAMPLE_GLSL_KARIS : DOWNSAMPLE_SOURCE_KARIS;
+            replaceAll(sourceStorage, "{PREFILTER_DECL}",
+                _prefilter ? (glsl ? PREFILTER_GLSL_DECL : PREFILTER_MSL_DECL) : "");
+            replaceAll(sourceStorage, "{PREFILTER_ARG}", _prefilter && !glsl ? PREFILTER_MSL_ARG : "");
+            replaceAll(sourceStorage, "{PREFILTER_APPLY}",
+                _prefilter ? (glsl ? PREFILTER_GLSL_APPLY : PREFILTER_MSL_APPLY) : "");
+            sourceText = sourceStorage.c_str();
         }
         auto cached = device->getCachedShader(cacheKey);
         if (!cached) {
@@ -352,6 +414,13 @@ void main() {
         } else {
             _sourceInvResolution[0] = 1.0f;
             _sourceInvResolution[1] = 1.0f;
+        }
+
+        if (_prefilter) {
+            PrefilterUniforms uniforms{};
+            uniforms.thresholdKnee[0] = _prefilterThreshold;
+            uniforms.thresholdKnee[1] = _prefilterKnee;
+            setQuadUniforms(uniforms);
         }
 
         RenderPassShaderQuad::execute();

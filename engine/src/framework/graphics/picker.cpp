@@ -160,6 +160,10 @@ namespace visutwin::canvas
         return selection.empty() ? nullptr : selection.front();
     }
 
+    // DEVIATION: upstream reads the pick buffer's DEPTH and unprojects it, so its point
+    // is on the rendered surface. This picker has no GPU readback; it intersects the
+    // pixel's ray with each candidate's bounding SPHERE (around its world AABB), so the
+    // point is on that sphere's camera-facing side, not on the mesh.
     std::optional<Vector3> Picker::getWorldPoint(const int x, const int y) const
     {
         if (!_depth || !_camera) {
@@ -236,9 +240,13 @@ namespace visutwin::canvas
             return false;
         }
 
+        // Through the CENTRE of the pixel the pick reads (upstream 5cc6269d5), after
+        // clamping it into the buffer. Through the integer coordinate the ray passed the
+        // pixel's top-left corner, so a picked point sat half a pixel off the surface
+        // point the pixel shows — two canvas pixels at a 0.25 pick scale.
         const Rect rect = sanitizeRect(x, y, 1, 1);
-        const float px = static_cast<float>(rect.x);
-        const float py = static_cast<float>(rect.y);
+        const float px = static_cast<float>(rect.x) + 0.5f;
+        const float py = static_cast<float>(rect.y) + 0.5f;
 
         const float ndcX = (px / static_cast<float>(_width)) * 2.0f - 1.0f;
         const float ndcY = 1.0f - (py / static_cast<float>(_height)) * 2.0f;
@@ -247,8 +255,11 @@ namespace visutwin::canvas
         const Matrix4 viewProjection = _camera->camera()->projectionMatrix() * viewMatrix;
         const Matrix4 invViewProjection = viewProjection.inverse();
 
-        Vector4 nearClip(ndcX, ndcY, 1.0f, 1.0f);
-        Vector4 farClip(ndcX, ndcY, 0.0f, 1.0f);
+        // The camera projection is GL-style, NDC z from -1 (near) to +1 (far). This
+        // used +1 as "near" and 0 as "far", so the ray started at the far plane and
+        // pointed back at the camera: the nearest hit was the FAR side of the object.
+        Vector4 nearClip(ndcX, ndcY, -1.0f, 1.0f);
+        Vector4 farClip(ndcX, ndcY, 1.0f, 1.0f);
 
         nearClip = invViewProjection * nearClip;
         farClip = invViewProjection * farClip;
