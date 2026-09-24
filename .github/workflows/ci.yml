@@ -8,8 +8,15 @@
 #                  by anything; two wrong SSE sums lived there unnoticed. The test
 #                  and the maths it covers are header-only, so this needs no
 #                  vcpkg and runs in seconds.
-#   macos-metal    The default preset: Metal backend, every unit test. The SIMD
-#                  test runs here too with the Apple backend expected.
+#   macos-metal    The default preset: Metal backend, every unit test, and every
+#                  example application built (not run) so an API change cannot
+#                  leave one uncompiled. The SIMD test runs here too with the Apple
+#                  backend expected.
+#   macos-sanitize The unit tests again under AddressSanitizer and
+#                  UndefinedBehaviorSanitizer (the `sanitize` preset). Lifetime
+#                  bugs rarely change a test's result — a freed joint or batch
+#                  source read back still looks plausible — so this is what
+#                  catches them.
 #   linux-vulkan   The vulkan preset on Linux: engine build plus every unit test.
 #                  The Vulkan validation smoke test needs a GPU and a window, so
 #                  the test presets exclude its label everywhere in CI.
@@ -91,8 +98,10 @@ jobs:
           path: ${{ github.workspace }}/vcpkg-binary-cache
           key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+      # The examples are OFF in the default preset to keep local builds lean; CI
+      # builds all of them so nothing leaves an example uncompiled.
       - name: Configure
-        run: cmake --preset default
+        run: cmake --preset default -DVISUTWIN_BUILD_EXAMPLES=ON
       - name: Build
         run: cmake --build --preset default
       - name: Unit tests
@@ -102,6 +111,47 @@ jobs:
           # silicon, independently of the maths classes' Apple simd backend.
           VISUTWIN_EXPECT_KERNEL_BACKEND: neon
         run: ctest --preset default
+
+  macos-sanitize:
+    name: macOS (ASan + UBSan)
+    runs-on: macos-15
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
+      UBSAN_OPTIONS: print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: brew install ninja
+      - name: Ensure the Metal shader compiler is present
+        run: |
+          if ! xcrun --find metal >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun metal --version
+      - name: Check out vcpkg at the manifest baseline
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+      # Same key as macos-metal: the dependencies are not instrumented, so the
+      # sanitizer build reuses the same binary cache.
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+      - name: Configure
+        run: cmake --preset sanitize
+      - name: Build
+        run: cmake --build --preset sanitize
+      - name: Unit tests under the sanitizers
+        env:
+          VISUTWIN_EXPECT_SIMD_BACKEND: apple
+          VISUTWIN_EXPECT_KERNEL_BACKEND: neon
+        run: ctest --preset sanitize
 
   linux-vulkan:
     name: Linux (Vulkan)

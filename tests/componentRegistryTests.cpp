@@ -69,9 +69,12 @@ int main()
 
     // A duplicate id is rejected, and the system already wired up survives.
     {
-        ComponentSystemRegistry registry;
+        // The flags outlive the registry: its destructor destroys the systems, which
+        // write them (declared after it, they would already be gone — the sanitizer
+        // build caught that as a stack use after scope).
         bool firstAlive = false;
         bool secondAlive = false;
+        ComponentSystemRegistry registry;
 
         auto first = std::make_unique<ProbeSystem<AlphaComponent>>(nullptr, "alpha", &firstAlive);
         auto* firstRaw = first.get();
@@ -92,9 +95,12 @@ int main()
     // rejected: getByComponentType has only one slot, and the loser would otherwise
     // stay alive behind it.
     {
-        ComponentSystemRegistry registry;
+        // The flags outlive the registry: its destructor destroys the systems, which
+        // write them (declared after it, they would already be gone — the sanitizer
+        // build caught that as a stack use after scope).
         bool firstAlive = false;
         bool secondAlive = false;
+        ComponentSystemRegistry registry;
         registry.add(std::make_unique<ProbeSystem<AlphaComponent>>(nullptr, "alpha", &firstAlive));
         registry.add(std::make_unique<ProbeSystem<AlphaComponent>>(nullptr, "other", &secondAlive));
 
@@ -107,9 +113,11 @@ int main()
 
     // remove() clears all three containers together.
     {
-        ComponentSystemRegistry registry;
+        // Declared before the registry so they outlive it (see the blocks above).
         bool alphaAlive = false;
         bool betaAlive = false;
+        bool replacementAlive = false;
+        ComponentSystemRegistry registry;
         auto alpha = std::make_unique<ProbeSystem<AlphaComponent>>(nullptr, "alpha", &alphaAlive);
         auto* alphaRaw = alpha.get();
         registry.add(std::move(alpha));
@@ -125,7 +133,6 @@ int main()
 
         // Re-registering the same id must now succeed, which only holds if remove
         // really cleared every container.
-        bool replacementAlive = false;
         registry.add(std::make_unique<ProbeSystem<AlphaComponent>>(
             nullptr, "alpha", &replacementAlive));
         check(registry.getById("alpha") != nullptr && replacementAlive,

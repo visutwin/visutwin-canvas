@@ -71,17 +71,41 @@ cmake --build --preset default
 ctest --preset default
 ```
 
-- **Test presets exclude the `vulkan` label.** `vulkan-validation-smoke` needs a
-  GPU and a window, so `ctest --preset default` and `ctest --preset vulkan` run
-  the unit tests only, and `ctest --preset vulkan-smoke` runs the smoke test on
-  its own. Every preset errors when it matches no tests, so a broken filter fails
-  rather than passing on nothing.
-- **CI is `.github/workflows/ci.yml`**, three jobs: `simd-backends` compiles the
+- **Test presets exclude the `vulkan` and `golden` labels.** `vulkan-validation-smoke`
+  and `golden-images` need a GPU and a window, so `ctest --preset default`, `vulkan`
+  and `sanitize` run the unit tests only, `ctest --preset vulkan-smoke` runs the smoke
+  test and `ctest --preset golden` the golden images. Every preset errors when it
+  matches no tests, so a broken filter fails rather than passing on nothing.
+- **CI is `.github/workflows/ci.yml`**, four jobs: `simd-backends` compiles the
   header-only SIMD contract test once per backend (SSE and scalar on Linux x86,
   NEON and Apple on macOS arm64) with no vcpkg; `macos-metal` builds the `default`
-  preset and runs its tests; `linux-vulkan` builds the `vulkan` preset with GCC 14
-  and runs its unit tests. All three are gating; `linux-vulkan` was verified on
-  an Ubuntu 24.04-based machine with the same presets and packages before it was.
+  preset WITH every example (`-DVISUTWIN_BUILD_EXAMPLES=ON`, built not run) and runs
+  its tests; `macos-sanitize` builds the `sanitize` preset and runs the unit tests
+  under AddressSanitizer and UndefinedBehaviorSanitizer; `linux-vulkan` builds the
+  `vulkan` preset with GCC 14 and runs its unit tests. All are gating; `linux-vulkan`
+  was verified on an Ubuntu 24.04-based machine with the same presets and packages
+  before it was. The examples are built on macOS only — building them on Linux wants
+  the same verification on a Linux machine first.
+- **`VISUTWIN_SANITIZE` (the `sanitize` preset: `address;undefined`) instruments this
+  project's own targets, not vcpkg's**, and undefined behaviour aborts rather than
+  printing and carrying on. A lifetime bug rarely changes a test's RESULT — a freed
+  joint or batch source read back still looks plausible, which is how the tests for
+  those were written to check the contract instead — so the sanitizer build is what
+  catches the rest. Its first run found one: a test whose locals were declared after
+  the object whose destructor wrote them.
+- **Golden images are LOCAL ONLY** (`tools/golden_images.py`, `ctest --preset golden`
+  on the `examples` build for Metal; the script with `--backend vulkan` on a Release
+  Vulkan examples build — a Debug one crashes in the validation layer). Eight
+  deterministic examples render under `VISUTWIN_FIXED_DT`, are downscaled 4x and
+  compared with `tests/golden/<backend>/`; a changed pixel density (the drawable
+  follows the display, and a sleeping display comes back at 1x) SKIPS a case rather
+  than failing it. Both backends reproduce every reference bit for bit run to run, and
+  a 1.03 factor on every lit colour fails all eight, so a failure is real. When a
+  rendering change is intended, look at the images it writes to
+  `<examples-dir>/golden-failures`, then re-capture with `--update` and commit the new
+  references with the change. The script needs numpy and Pillow: CMake checks
+  `VISUTWIN_GOLDEN_PYTHON` at configure time (Homebrew's Python has neither;
+  `/usr/bin/python3` does here).
 - **`VISUTWIN_EXPECT_SIMD_BACKEND=sse|neon|apple|scalar` makes the SIMD test FAIL
   unless that backend is the one `defines.h` selected.** Only one backend compiles
   per build, and a missing flag falls through to another backend silently and

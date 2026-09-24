@@ -52,6 +52,42 @@ if(VISUTWIN_BACKEND_VULKAN)
     )
 endif()
 
+# Golden images (tools/golden_images.py): renders deterministic examples with this
+# build's backend and compares them with tests/golden/<backend>/. It needs a GPU, a
+# window and the example binaries, so it exists only when the examples are built and
+# carries the `golden` label, which every CI test preset excludes; run it with
+# `ctest --preset golden` (Metal, the `examples` build). A Vulkan build of the examples
+# runs the same script with --backend vulkan (Release only: a Debug Vulkan build
+# crashes in the validation layer, see AGENTS.md).
+if(VISUTWIN_BUILD_EXAMPLES)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    # The script needs numpy and Pillow, which the interpreter CMake finds first may
+    # not have (Homebrew's often does not); say so at configure time, not as a
+    # failing test.
+    set(VISUTWIN_GOLDEN_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
+        "Python with numpy and Pillow, for the golden-images test")
+    execute_process(COMMAND "${VISUTWIN_GOLDEN_PYTHON}" -c "import numpy, PIL"
+        RESULT_VARIABLE _visutwin_golden_python_ok OUTPUT_QUIET ERROR_QUIET)
+    if(NOT _visutwin_golden_python_ok EQUAL 0)
+        message(WARNING "golden-images: ${VISUTWIN_GOLDEN_PYTHON} lacks numpy or Pillow, so the "
+            "test will fail. Point it at one that has them, e.g. -DVISUTWIN_GOLDEN_PYTHON=/usr/bin/python3")
+    endif()
+    if(VISUTWIN_BACKEND_METAL)
+        set(_visutwin_golden_backend metal)
+    else()
+        set(_visutwin_golden_backend vulkan)
+    endif()
+    add_test(NAME golden-images
+        COMMAND "${VISUTWIN_GOLDEN_PYTHON}" "${CMAKE_SOURCE_DIR}/tools/golden_images.py"
+            --examples-dir "${CMAKE_BINARY_DIR}/examples"
+            --backend ${_visutwin_golden_backend})
+    set_tests_properties(golden-images PROPERTIES
+        LABELS "golden"
+        SKIP_RETURN_CODE 77
+        TIMEOUT 900
+    )
+endif()
+
 add_executable(visutwin-gsplat-sort-tests
     gsplatSortTests.cpp
 )

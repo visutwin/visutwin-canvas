@@ -37,6 +37,14 @@
         "VISUTWIN_BACKEND_VULKAN": "ON",
         "VCPKG_MANIFEST_FEATURES": "vulkan;jolt"
       }
+    },
+    {
+      "name": "sanitize",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-sanitize",
+      "cacheVariables": {
+        "VISUTWIN_SANITIZE": "address;undefined"
+      }
     }
   ],
   "buildPresets": [
@@ -47,6 +55,10 @@
     {
       "name": "vulkan",
       "configurePreset": "vulkan"
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize"
     }
   ],
   "testPresets": [
@@ -61,7 +73,7 @@
       },
       "filter": {
         "exclude": {
-          "label": "vulkan"
+          "label": "vulkan|golden"
         }
       }
     },
@@ -76,7 +88,7 @@
       },
       "filter": {
         "exclude": {
-          "label": "vulkan"
+          "label": "vulkan|golden"
         }
       }
     },
@@ -92,6 +104,36 @@
       "filter": {
         "include": {
           "label": "vulkan"
+        }
+      }
+    },
+    {
+      "name": "golden",
+      "configurePreset": "examples",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      },
+      "filter": {
+        "include": {
+          "label": "golden"
+        }
+      }
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      },
+      "filter": {
+        "exclude": {
+          "label": "vulkan|golden"
         }
       }
     }

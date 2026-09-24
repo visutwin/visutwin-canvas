@@ -1,0 +1,58 @@
+{
+  "ambient-occlusion": {
+    "capture_size": [
+      1800,
+      1400
+    ],
+    "frame": 90
+  },
+  "clearcoat": {
+    "capture_size": [
+      1800,
+      1400
+    ],
+    "frame": 60
+  },
+  "clustered-lighting": {
+    "capture_size": [
+      2200,
+      1500
+    ],
+    "frame": 90
+  },
+  "depth-of-field": {
+    "capture_size": [
+      2048,
+      1536
+    ],
+    "frame": 90
+  },
+  "dynamic-batching": {
+    "capture_size": [
+      2200,
+      1500
+    ],
+    "frame": 150
+  },
+  "gsplat": {
+    "capture_size": [
+      2400,
+      1600
+    ],
+    "frame": 90
+  },
+  "lightmap-sources": {
+    "capture_size": [
+      1800,
+      1400
+    ],
+    "frame": 120
+  },
+  "shadow-cascades": {
+    "capture_size": [
+      2200,
+      1500
+    ],
+    "frame": 90
+  }
+}
