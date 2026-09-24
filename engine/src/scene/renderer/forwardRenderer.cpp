@@ -228,7 +228,7 @@ namespace visutwin::canvas
         RenderTarget* renderTarget = nullptr;
         const auto& renderActions = layerComposition->renderActions();
 
-        for (int i = startIndex; i < renderActions.size(); i++) {
+        for (int i = startIndex; i < static_cast<int>(renderActions.size()); i++) {
             if (auto* renderAction = renderActions[i]; renderAction->useCameraPasses)  {
                 // schedule render passes from the camera
                 for (auto renderPass : renderAction->camera->renderPasses()) {
@@ -263,7 +263,7 @@ namespace visutwin::canvas
                 }
 
                 // info about the next render action
-                auto* nextRenderAction = (i + 1 < renderActions.size()) ? renderActions[i + 1] : nullptr;
+                auto* nextRenderAction = (i + 1 < static_cast<int>(renderActions.size())) ? renderActions[i + 1] : nullptr;
                 const auto isNextLayerDepth = nextRenderAction ? (!nextRenderAction->useCameraPasses && nextRenderAction->layer->id() == LAYERID_DEPTH) : false;
                 const auto isNextLayerGrabPass = isNextLayerDepth && !cameraOwnsGrabs &&
                     (renderAction->camera->renderSceneColorMap() || renderAction->camera->renderSceneDepthMap());
@@ -342,7 +342,7 @@ namespace visutwin::canvas
                     // postprocessing
                     if (!useCameraFrame && renderAction->triggerPostprocess && renderAction->camera &&
                         renderAction->camera->onPostprocessing()) {
-                        auto renderPass = std::make_shared<RenderPassPostprocessing>(_device, this, renderAction);
+                        auto renderPass = std::make_shared<RenderPassPostprocessing>(_device, renderAction);
                         frameGraph->addRenderPass(renderPass);
                     }
 

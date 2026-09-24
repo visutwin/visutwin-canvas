@@ -477,7 +477,7 @@ namespace visutwin::canvas::gpu
         _metalTexture->replaceRegion(region, mipLevel, 0, imageData, bytesPerRow, bytesPerImage);
     }
 
-    void MetalTexture::propertyChanged(uint32_t flag)
+    void MetalTexture::propertyChanged(uint32_t /*flag*/)
     {
         // Clear samplers to force recreation
         for (auto* sampler : _samplers) {

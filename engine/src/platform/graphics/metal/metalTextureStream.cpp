@@ -11,8 +11,8 @@
 
 namespace visutwin::canvas
 {
-    MetalTextureStream::MetalTextureStream(MTL::Device* device, const Descriptor& desc)
-        : _device(device), _desc(desc)
+    MetalTextureStream::MetalTextureStream([[maybe_unused]] MTL::Device* device, const Descriptor& desc)
+        : _desc(desc)
     {
         assert(device && "MetalTextureStream requires a valid MTL::Device");
         assert(desc.width > 0 && desc.height > 0 && "Texture dimensions must be positive");

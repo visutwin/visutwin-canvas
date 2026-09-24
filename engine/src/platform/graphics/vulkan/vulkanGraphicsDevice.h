@@ -685,6 +685,7 @@ namespace visutwin::canvas
         // Directional cascaded shadow map (depth atlas), bound at set 3.  Read
         // through a dedicated clamp sampler.  Non-owning.
         Texture* _shadowMapTexture = nullptr;
+        Texture* _shadowMapTexture1 = nullptr;   // directional shadow slot 1 (scene binding 22)
         VkSampler _shadowSampler = VK_NULL_HANDLE;
 
         // Local light shadows (set 3): up to 2 spot-light 2D depth maps and 2

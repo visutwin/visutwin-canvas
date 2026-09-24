@@ -111,6 +111,15 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 reflectionDepthParams;       // x = planeDistance, y = heightRange,
                                       // z = colour map bound, w = depth map bound
     uvec4 flagsAndPad;                // [1] = DebugShaderPass mode (see below)
+    // Second directional shadow slot (VulkanLightingUBO::dirShadow1*): the
+    // shadow fields above for the light whose coneParams.w is 1.
+    mat4 dirShadow1Matrices[4];
+    vec4 dirShadow1CascadeDistances;
+    vec4 dirShadow1Params;            // enabled, numCascades, depthBias, strength
+    vec4 dirShadow1Params2;           // normalBias, cascadeBlend
+    vec4 dirShadow1PcssParams;
+    vec4 dirShadow1PcssCascadeRadii;
+    vec4 dirShadow1PcssCascadeDepthRanges;
 } lighting;
 
 // Debug shader passes. Must match scene/constants.h :: DebugShaderPass. The
@@ -145,11 +154,13 @@ layout(std430, set = 5, binding = 1) readonly buffer ClusterCells {
 
 // Set 3: scene textures. Binding 0 = equirectangular environment atlas
 // (IBL irradiance + roughness mips + skybox source). Binding 1 = directional
-// cascaded shadow-map depth atlas. Bindings 2-3 = local spot-light 2D depth
+// cascaded shadow-map depth atlas (directional slot 0; slot 1 is binding 22),
+// a SEPARATE image read through the shared samplers at 12/13 — see
+// directionalShadowTexel. Bindings 2-3 = local spot-light 2D depth
 // maps; bindings 4-5 = omni point-light cubemap depth maps. All shadow maps
 // are sampled through a NEAREST clamp sampler with manual depth comparison.
 layout(set = 3, binding = 0) uniform sampler2D envAtlas;
-layout(set = 3, binding = 1) uniform sampler2D shadowMap;
+layout(set = 3, binding = 1) uniform texture2D shadowMapImage;
 layout(set = 3, binding = 2) uniform sampler2D localShadowMap0;
 layout(set = 3, binding = 3) uniform sampler2D localShadowMap1;
 layout(set = 3, binding = 4) uniform samplerCube omniShadowCube0;
@@ -194,6 +205,8 @@ layout(set = 3, binding = 20) uniform textureCube cookieImageCube1;
 // same per-stage sampler-slot reason as the block above; the white fallback is
 // the identity, so a frame with no SSAO pass reads unoccluded.
 layout(set = 3, binding = 21) uniform texture2D ssaoImage;
+// Binding 22: directional shadow slot 1's map, a separate image like binding 1.
+layout(set = 3, binding = 22) uniform texture2D shadowMapImage1;
 
 #define skyboxCube        samplerCube(skyboxCubeImage, linearClampSampler)
 #define reflectionProbeCube samplerCube(reflectionProbeCubeImage, linearClampSampler)

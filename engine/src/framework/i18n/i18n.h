@@ -18,6 +18,6 @@ namespace visutwin::canvas
     class I18n
     {
     public:
-        I18n(const std::shared_ptr<Engine>& engine) {}
+        I18n(const std::shared_ptr<Engine>& /*engine*/) {}
     };
 }

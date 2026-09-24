@@ -28,8 +28,8 @@ namespace visutwin::canvas
     {
     }
 
-    Light::Light(GraphicsDevice* graphicsDevice, bool clusteredLighting)
-        : _device(graphicsDevice), _clusteredLighting(clusteredLighting)
+    Light::Light(GraphicsDevice* graphicsDevice)
+        : _device(graphicsDevice)
     {
 
     }

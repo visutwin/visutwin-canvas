@@ -91,6 +91,12 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   texture2d<float> refractionMap [[texture(33)]],
                                   // Opacity map (upstream opacityMap), flags bit 19. Metal only.
                                   texture2d<float> opacityMap [[texture(34)]],
+                                  // Second directional shadow slot's map; the type follows slot 0's.
+#if VT_FEATURE_VSM_SHADOWS
+                                  texture2d<float> shadowTexture1 [[texture(35)]],
+#else
+                                  depth2d<float> shadowTexture1 [[texture(35)]],
+#endif
                                   sampler defaultSampler [[sampler(0)]],
                                   bool isFrontFace [[front_facing]])
 {

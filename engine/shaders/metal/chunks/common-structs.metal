@@ -257,4 +257,13 @@ struct LightingData {
     float4 reflectionProbeParams;
     // Camera clip planes for SSR depth linearization: x=near, y=far, zw=pad.
     float4 cameraNearFar;
+    // Second directional shadow slot (UniformBinder::LightingUniforms::shadow1*):
+    // the slot-0 fields for the light whose shadow index is 1; its map is texture 35.
+    float4 shadow1BiasNormalStrength;
+    float4x4 shadow1MatrixPalette[4];
+    float4 shadow1CascadeDistances;
+    float4 shadow1CascadeParams;
+    float4 shadow1PcssParams;
+    float4 shadow1PcssCascadeRadii;
+    float4 shadow1PcssCascadeDepthRanges;
 };

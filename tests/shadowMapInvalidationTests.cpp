@@ -56,7 +56,7 @@ namespace
 
     bool checkResolution()
     {
-        Light light(nullptr, false);
+        Light light(nullptr);
         light.setShadowResolution(2048);
         giveShadowMap(light);
 
@@ -78,7 +78,7 @@ namespace
 
     bool checkShadowType()
     {
-        Light light(nullptr, false);
+        Light light(nullptr);
         light.setShadowType(SHADOW_PCF3_32F);
         giveShadowMap(light);
 
@@ -95,7 +95,7 @@ namespace
 
     bool checkNumCascades()
     {
-        Light light(nullptr, false);
+        Light light(nullptr);
         light.setNumCascades(1);
         giveShadowMap(light);
 
@@ -110,7 +110,7 @@ namespace
 
     bool checkCastShadows()
     {
-        Light light(nullptr, false);
+        Light light(nullptr);
         // castShadows() folds the mask in, and a bare Light defaults to MASK_NONE,
         // which would make the getter false whatever setCastShadows said. A
         // LightComponent pushes its own mask (MASK_AFFECT_DYNAMIC) every frame, so
@@ -164,7 +164,7 @@ namespace
     // the replacement map, leaving it blank for as long as the light lives.
     bool checkUpdateModeRearmed()
     {
-        Light light(nullptr, false);
+        Light light(nullptr);
         light.setShadowResolution(2048);
         giveShadowMap(light);
         light.setShadowUpdateMode(ShadowUpdateType::SHADOWUPDATE_NONE);

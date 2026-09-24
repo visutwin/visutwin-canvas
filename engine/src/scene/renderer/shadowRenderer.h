@@ -18,7 +18,7 @@ namespace visutwin::canvas
     class ShadowRenderer
     {
     public:
-        ShadowRenderer(Renderer* renderer, LightTextureAtlas* lightTextureAtlas) : _renderer(renderer), _lightTextureAtlas(lightTextureAtlas) {}
+        ShadowRenderer() = default;
 
         /// Whether this light's shadow map should be re-rendered this frame. PURE —
         /// call it as often as you like. A SHADOWUPDATE_THISFRAME request is consumed
@@ -35,7 +35,5 @@ namespace visutwin::canvas
         static std::unique_ptr<Camera> createShadowCamera(ShadowType shadowType, LightType type, int face);
 
     private:
-        Renderer* _renderer;
-        LightTextureAtlas* _lightTextureAtlas;
     };
 }

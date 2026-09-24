@@ -55,7 +55,7 @@ namespace
     struct TestLight
     {
         GraphNode node;
-        Light light{nullptr, false};
+        Light light{nullptr};
 
         TestLight(const LightType type, const Vector3& position, const float pitchDegrees,
             const float range, const float outerConeAngle)

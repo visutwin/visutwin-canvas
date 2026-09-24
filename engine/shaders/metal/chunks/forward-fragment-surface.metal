@@ -356,7 +356,6 @@
     // direct specular highlights pop more — particularly at grazing angles
     // (e.g. sunlight glinting off a curved metallic wing). Matching it here.
     const float alpha4 = alpha2 * alpha2;
-    bool shadowApplied = false;
 #if VT_FEATURE_SHADOW_CATCHER
     // shadow catcher accumulates shadow factors multiplicatively.
     // 1.0 = fully lit (no shadow), 0.0 = fully shadowed.

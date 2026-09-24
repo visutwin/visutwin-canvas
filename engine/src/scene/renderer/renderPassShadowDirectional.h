@@ -21,18 +21,15 @@ namespace visutwin::canvas
     {
     public:
         RenderPassShadowDirectional(const std::shared_ptr<GraphicsDevice>& device,
-            ShadowRenderer* shadowRenderer, Light* light, Camera* camera, Camera* shadowCamera, int face, bool allCascadesRendering);
+            Light* light, Camera* camera, int face);
 
         void execute() override;
         void after() override;
 
     private:
-        ShadowRenderer* _shadowRenderer = nullptr;
         Light* _light = nullptr;
         Camera* _camera = nullptr;
-        Camera* _shadowCamera = nullptr;
         std::shared_ptr<GraphicsDevice> _graphicsDevice;
         int _face = 0;
-        bool _allCascadesRendering = true;
     };
 }

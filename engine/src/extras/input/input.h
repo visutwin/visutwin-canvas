@@ -21,6 +21,6 @@ namespace visutwin::canvas
     class InputController : public InputConsumer
     {
     public:
-        virtual void attach(Pose* pose, bool smooth = true) {}
+        virtual void attach(Pose* /*pose*/, bool /*smooth*/ = true) {}
     };
 }

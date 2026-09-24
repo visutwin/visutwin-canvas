@@ -97,7 +97,7 @@ namespace
     bool checkVsmFallback()
     {
         StubDevice noHalfFloat(16384, 16384, false);
-        Light light(&noHalfFloat, false);
+        Light light(&noHalfFloat);
 
         light.setShadowType(SHADOW_VSM_16F);
         if (light.shadowType() != SHADOW_PCF3_32F) {
@@ -123,7 +123,7 @@ namespace
 
         // A device that CAN render the moments keeps the type it was given.
         StubDevice capable(16384, 16384, true);
-        Light capableLight(&capable, false);
+        Light capableLight(&capable);
         capableLight.setShadowType(SHADOW_VSM_16F);
         if (capableLight.shadowType() != SHADOW_VSM_16F) {
             std::cerr << "VSM_16F fell back on a device that supports it\n";
@@ -138,7 +138,7 @@ namespace
         // and are not always equal, so an omni is clamped against its own.
         StubDevice device(8192, 2048, true);
 
-        Light spot(&device, false);
+        Light spot(&device);
         spot.setType(LightType::LIGHTTYPE_SPOT);
         spot.setShadowResolution(16384);
         if (spot.shadowResolution() != 8192) {
@@ -147,7 +147,7 @@ namespace
             return false;
         }
 
-        Light omni(&device, false);
+        Light omni(&device);
         omni.setType(LightType::LIGHTTYPE_OMNI);
         omni.setShadowResolution(4096);
         if (omni.shadowResolution() != 2048) {

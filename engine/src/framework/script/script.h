@@ -53,17 +53,17 @@ namespace visutwin::canvas
          * Called at a fixed interval for deterministic simulation (physics, etc.).
          * The fixedDt is constant across calls (default 1/60s).
          */
-        virtual void fixedUpdate(float fixedDt) {}
+        virtual void fixedUpdate(float /*fixedDt*/) {}
 
         /*
          * Called for enabled (running state) scripts on each tick
          */
-        virtual void update(float dt) {}
+        virtual void update(float /*dt*/) {}
 
         /*
          * Called after all scripts update on each tick.
          */
-        virtual void postUpdate(float dt) {}
+        virtual void postUpdate(float /*dt*/) {}
 
         bool enabled() const;
 

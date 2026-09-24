@@ -89,7 +89,6 @@ namespace visutwin::canvas
         void setCapturingEnabled(bool enabled);
 
         Engine* _engine = nullptr;
-        int _faceSize = 128;
 
         std::shared_ptr<Texture> _cube;
         std::vector<std::shared_ptr<RenderTarget>> _faceTargets;

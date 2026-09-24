@@ -33,7 +33,7 @@ namespace visutwin::canvas
     }
 
     ReflectionProbe::ReflectionProbe(Engine* engine, const int faceSize)
-        : _engine(engine), _faceSize(faceSize)
+        : _engine(engine)
     {
         auto device = _engine->graphicsDevice();
 

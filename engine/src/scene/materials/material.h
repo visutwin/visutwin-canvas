@@ -288,7 +288,7 @@ namespace visutwin::canvas
          * @param outSize  Set to the size of the returned data in bytes.
          * @return Pointer to uniform data, or nullptr to use updateUniforms() path.
          */
-        virtual const void* customUniformData(size_t& outSize) const { return nullptr; }
+        virtual const void* customUniformData(size_t& /*outSize*/) const { return nullptr; }
 
         /**
          * Populates the list of textures this material wants bound to fragment shader slots.

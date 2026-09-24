@@ -18,6 +18,6 @@ namespace visutwin::canvas
     class SceneRegistry
     {
     public:
-        SceneRegistry(const std::shared_ptr<Engine>& engine) {}
+        SceneRegistry(const std::shared_ptr<Engine>& /*engine*/) {}
     };
 }

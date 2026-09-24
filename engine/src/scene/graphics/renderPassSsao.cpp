@@ -49,7 +49,7 @@ namespace visutwin::canvas
     RenderPassSsao::RenderPassSsao(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture,
         CameraComponent* cameraComponent, const bool blurEnabled)
         : RenderPassShaderQuad(device), _sourceTexture(sourceTexture),
-          _cameraComponent(cameraComponent), _blurEnabled(blurEnabled)
+          _cameraComponent(cameraComponent)
     {
         // Create main SSAO render target (R8 format, single-channel occlusion).
         // The texture must be kept alive by the member _ssaoTexture (RenderTarget stores raw pointer).

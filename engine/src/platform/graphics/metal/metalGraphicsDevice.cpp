@@ -1221,6 +1221,10 @@ namespace visutwin::canvas
                 reflectionMap(), reflectionDepthMap(), ssaoForwardTexture(),
                 _areaLightLut1, _areaLightLut2, sceneColorMap(),
                 _uniformBinder.reflectionProbeCubeTexture(), sceneDepthGrabMap());
+            // The second directional shadow slot's map. The shader gates on the
+            // slot's flag, not on the texture: an unbound Metal texture still reports
+            // a width and samples zero.
+            _textureBinder.bindCached(passEncoder, 35, _uniformBinder.shadowTexture1());
             _textureBinder.bindLocalShadowTextures(passEncoder,
                 _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
             _textureBinder.bindOmniShadowTextures(passEncoder,

@@ -865,31 +865,6 @@ namespace visutwin::canvas
             return cached->second;
         }
 
-        auto warnFeature = [&](const char* featureName, const bool enabled) {
-            if (!enabled) {
-                return;
-            }
-            if (_warnedFeatureFlags.insert(featureName).second) {
-                spdlog::warn("Shader variant feature '{}' enabled but only chunk scaffolding is present. Full shader chunk port is pending.",
-                    featureName);
-            }
-        };
-
-        // parallax: fully implemented — no warning needed.
-        // clearcoat: fully implemented — no warning needed.
-        // anisotropy: fully implemented — no warning needed.
-        // sheen: fully implemented — no warning needed.
-        // iridescence: fully implemented — no warning needed.
-        // transmission: fully implemented — no warning needed.
-        // lightClustering: fully implemented — no warning needed.
-        // ssao: fully implemented — no warning needed.
-        // lightProbes: fully implemented — no warning needed.
-        // vertexColors: fully implemented — no warning needed.
-        // skinning: fully implemented — no warning needed.
-        // morphing: fully implemented — no warning needed.
-        // specGloss/orenNayar/detailNormals/displacement: fully implemented.
-        // atmosphere: fully implemented — no warning needed.
-
         const uint64_t variantId = key.hash();
         auto shader = buildForwardShaderVariant(programName, options, variantId, material);
         if (!shader) {

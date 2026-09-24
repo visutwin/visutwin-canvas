@@ -198,38 +198,48 @@ namespace visutwin::canvas
 
     struct ShadowParams
     {
+        // True when at least one directional shadow slot is filled.
         bool enabled = false;
-        // True when the directional light uses SHADOW_VSM_16F: the shadow map
-        // holds EVSM moments (RGBA16F) and `bias` is the vsmBias (minVariance
-        // floor) instead of a depth offset. Metal selects the VSM sampling via
-        // a shader variant; the Vulkan backend branches on this at runtime.
+        // The FILTER is per shader variant, so it is one value for every slot: a
+        // directional light whose shadow type differs from the first one's is left
+        // unshadowed (Renderer says so once).
+        // vsm: SHADOW_VSM_16F — the map holds EVSM moments (RGBA16F) and a slot's
+        // `bias` is its vsmBias (minVariance floor) instead of a depth offset.
         bool vsm = false;
-        // True when the directional light uses SHADOW_PCSS_32F (contact-hardening
-        // soft shadows). The shadow map stays the standard depth texture; the
-        // shader samples it raw (non-comparison) with a Vogel-disk blocker search.
+        // pcss: SHADOW_PCSS_32F (contact-hardening soft shadows). The map stays the
+        // standard depth texture, sampled raw with a Vogel-disk blocker search.
         bool pcss = false;
-        float penumbraSize = 1.0f;
-        float penumbraFalloff = 1.0f;
         int pcssSamples = 16;
         int pcssBlockerSamples = 16;
-        // Per-cascade ortho half-extent (world units) and caster depth range
-        // (far - near) of the directional shadow cameras — the world-space PCSS
-        // penumbra math needs both.
-        float pcssCascadeRadii[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-        float pcssCascadeDepthRanges[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-        float bias = 0.001f;
-        float normalBias = 0.0f;
-        float strength = 1.0f;
-        Texture* shadowMap = nullptr;
 
-        // Single VP matrix for backward compat (cascade 0).
-        Matrix4 viewProjection = Matrix4::identity();
-
-        // CSM data (_shadowMatrixPalette, _shadowCascadeDistances).
-        int numCascades = 1;
-        float cascadeBlend = 0.0f;
-        float shadowMatrixPalette[64] = {};      // 4 cascade VP matrices (viewport-scaled)
-        float shadowCascadeDistances[4] = {};    // per-cascade split distances
+        // One directional shadow-casting light: its map, its cascade fit and its
+        // bias. DEVIATION: two slots, where upstream samples every directional
+        // caster's map; the forward shaders carry one uniform block and one texture
+        // per slot, and a third directional caster is left unshadowed.
+        struct DirectionalShadow
+        {
+            Texture* shadowMap = nullptr;
+            float bias = 0.001f;
+            float normalBias = 0.0f;
+            float strength = 1.0f;
+            // Cascade 0's VP matrix, for passes that need a single one (volumetric fog).
+            Matrix4 viewProjection = Matrix4::identity();
+            // CSM data (_shadowMatrixPalette, _shadowCascadeDistances).
+            int numCascades = 1;
+            float cascadeBlend = 0.0f;
+            float shadowMatrixPalette[64] = {};      // 4 cascade VP matrices (viewport-scaled)
+            float shadowCascadeDistances[4] = {};    // per-cascade split distances
+            // PCSS: penumbra shape, and per-cascade ortho half-extent (world units)
+            // and caster depth range (far - near) of the shadow cameras — the
+            // world-space penumbra math needs both.
+            float penumbraSize = 1.0f;
+            float penumbraFalloff = 1.0f;
+            float pcssCascadeRadii[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+            float pcssCascadeDepthRanges[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        };
+        static constexpr int kMaxDirectionalShadows = 2;
+        int directionalCount = 0;
+        DirectionalShadow directional[kMaxDirectionalShadows];
 
         // Local light shadows (up to 2 simultaneous shadow-casting local lights).
         static constexpr int kMaxLocalShadows = 2;
@@ -888,8 +898,8 @@ namespace visutwin::canvas
         /// The nativeBuffer pointer is backend-specific (MTL::Buffer*, VkBuffer, etc.).
         /// Used for GPU compute output paths where the buffer is already filled.
         virtual std::shared_ptr<VertexBuffer> createVertexBufferFromNativeBuffer(
-            const std::shared_ptr<VertexFormat>& format,
-            int numVertices, void* nativeBuffer) { (void)nativeBuffer; return nullptr; }
+            const std::shared_ptr<VertexFormat>& /*format*/,
+            int /*numVertices*/, void* nativeBuffer) { (void)nativeBuffer; return nullptr; }
 
         /// True when the backend supports dual-source blending — the BLENDMODE_SRC1_* factors,
         /// which read a second color output written by the fragment shader. Check this before

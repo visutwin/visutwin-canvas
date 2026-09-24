@@ -196,9 +196,11 @@ namespace visutwin::canvas
 
     void RenderTarget::validateMrt()
     {
+        // Assertions only: a release build checks nothing here.
+#ifndef NDEBUG
         if (!_colorBuffers.empty()) {
-            int width = _colorBuffers[0]->width();
-            int height = _colorBuffers[0]->height();
+            const uint32_t width = _colorBuffers[0]->width();
+            const uint32_t height = _colorBuffers[0]->height();
             bool cubemap = _colorBuffers[0]->isCubemap();
             bool volume = _colorBuffers[0]->isVolume();
 
@@ -213,5 +215,6 @@ namespace visutwin::canvas
                     "All render target color buffers must have the same volume setting");
             }
         }
+#endif
     }
 }

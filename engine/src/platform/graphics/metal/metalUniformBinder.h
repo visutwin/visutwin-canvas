@@ -15,12 +15,12 @@
 
 namespace visutwin::canvas
 {
-    class Color;
+    struct Color;
     class Material;
-    class Matrix4;
+    struct Matrix4;
     class MetalUniformRingBuffer;
     class Texture;
-    class Vector3;
+    struct Vector3;
     struct FogParams;
     struct GpuLightData;
     struct MaterialUniforms;
@@ -159,6 +159,7 @@ namespace visutwin::canvas
         [[nodiscard]] Texture* skyboxCubeMapTexture() const override { return _skyboxCubeMapTexture; }
         [[nodiscard]] Texture* reflectionProbeCubeTexture() const override { return _reflectionProbeCubeTexture; }
         [[nodiscard]] Texture* shadowTexture() const override { return _shadowTexture; }
+        [[nodiscard]] Texture* shadowTexture1() const { return _shadowTexture1; }
         [[nodiscard]] Texture* localShadowTexture0() const override { return _localShadowTexture0; }
         [[nodiscard]] Texture* localShadowTexture1() const override { return _localShadowTexture1; }
         [[nodiscard]] Texture* cookieTexture2D0() const override { return _cookieTexture2D0; }
@@ -175,6 +176,7 @@ namespace visutwin::canvas
         Texture* _skyboxCubeMapTexture = nullptr;
         Texture* _reflectionProbeCubeTexture = nullptr;
         Texture* _shadowTexture = nullptr;
+        Texture* _shadowTexture1 = nullptr;
         Texture* _localShadowTexture0 = nullptr;
         Texture* _localShadowTexture1 = nullptr;
         Texture* _cookieTexture2D0 = nullptr;

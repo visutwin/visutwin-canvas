@@ -151,7 +151,7 @@ namespace visutwin::canvas::metal
             return _bindGroupLayouts[index];
         }
 
-        void setDebugLabel(int layoutIt, const std::string& label) {}
+        void setDebugLabel(int /*layoutIt*/, const std::string& /*label*/) {}
     private:
         std::vector<BindGroupLayout*> _bindGroupLayouts;
     };

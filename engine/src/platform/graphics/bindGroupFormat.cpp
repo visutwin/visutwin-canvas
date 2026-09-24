@@ -9,8 +9,8 @@ namespace visutwin::canvas
 {
     static uint32_t idCounter = 0;
 
-    BindGroupFormat::BindGroupFormat(GraphicsDevice* graphicsDevice, const std::vector<BindBaseFormat*>& formats)
-        : _device(graphicsDevice), _id(idCounter++) {
+    BindGroupFormat::BindGroupFormat(GraphicsDevice* /*graphicsDevice*/, const std::vector<BindBaseFormat*>& /*formats*/)
+        : _id(idCounter++) {
 
     }
 }

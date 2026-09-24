@@ -9,7 +9,7 @@
 
 namespace visutwin::canvas
 {
-    Component::Component(IComponentSystem* system, Entity* entity) : _system(system), _entity(entity)
+    Component::Component(IComponentSystem* system, Entity* entity) : _entity(entity), _system(system)
     {
     }
 

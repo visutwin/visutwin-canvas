@@ -35,9 +35,8 @@ docs/
 tools/build-docs.sh
 tools/deploy-docs.sh
 
-# Claude Code
+# Claude Code (CLAUDE.md is tracked: it is the stub that imports AGENTS.md)
 .claude/
-CLAUDE.md
 
 # Local working record: postmortems, verification numbers and dead ends for work
 # already finished. Deliberately untracked — AGENTS.md holds every rule that still

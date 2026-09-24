@@ -25,6 +25,20 @@ if(VISUTWIN_SANITIZE)
     message(STATUS "VisuTwin: building with sanitizers ${_visutwin_sanitizers}")
 endif()
 
+# Warnings for this project's own targets (vcpkg's dependencies are prebuilt, and
+# their headers arrive as system includes). -Wmissing-field-initializers is off
+# because partial aggregate initialisation (`AnimStateDesc{name}`) is an idiom here,
+# not an omission. Turning these on found a virtual-less RenderPass base, a dead
+# Metal vertex-layout stub and a dozen settings stored and never read.
+option(VISUTWIN_WARNINGS "Build with -Wall -Wextra" ON)
+option(VISUTWIN_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+if(VISUTWIN_WARNINGS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-Wall;-Wextra;-Wno-missing-field-initializers>")
+    if(VISUTWIN_WARNINGS_AS_ERRORS)
+        add_compile_options("$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-Werror>")
+    endif()
+endif()
+
 add_subdirectory(engine)
 if(VISUTWIN_BUILD_EXAMPLES)
     add_subdirectory(examples)

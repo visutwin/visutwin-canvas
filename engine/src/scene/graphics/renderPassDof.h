@@ -48,9 +48,6 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> createRenderTarget(const std::string& name, PixelFormat format,
             std::shared_ptr<Texture>& outColorTexture) const;
 
-        CameraComponent* _cameraComponent = nullptr;
-        Texture* _sceneTexture = nullptr;
-        Texture* _sceneTextureHalf = nullptr;
 
         float _focusDistance = 100.0f;
         float _focusRange = 10.0f;

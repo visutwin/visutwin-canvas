@@ -12,8 +12,8 @@
 
 namespace visutwin::canvas
 {
-    RenderPassPostprocessing::RenderPassPostprocessing(const std::shared_ptr<GraphicsDevice>& device, Renderer* renderer,
-        RenderAction* renderAction): RenderPass(device), _renderer(renderer), _renderAction(renderAction)
+    RenderPassPostprocessing::RenderPassPostprocessing(const std::shared_ptr<GraphicsDevice>& device,
+        RenderAction* renderAction): RenderPass(device), _renderAction(renderAction)
     {
         init(nullptr);
 

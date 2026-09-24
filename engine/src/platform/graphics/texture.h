@@ -58,7 +58,8 @@ namespace visutwin::canvas
     public:
         explicit Texture(GraphicsDevice* graphicsDevice, const TextureOptions& options = TextureOptions{});
 
-        ~Texture();
+        // Virtual because the class has a virtual member (propertyChanged).
+        virtual ~Texture();
 
         uint32_t width() const { return _width; }
 

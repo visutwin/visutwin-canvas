@@ -10,11 +10,12 @@
         vec3 cookieMask = vec3(1.0);
         if (type == 0u) {
             L = normalize(-light.directionType.xyz);
-            // The CSM shadow belongs to ONE directional light, the one the
-            // renderer marked with shadow slot 0 in coneParams.w; every other
-            // directional light carries -1 and stays unshadowed.
+            // A shadowed directional light carries its shadow slot (0 or 1) in
+            // coneParams.w; every other directional light carries -1 and stays
+            // unshadowed.
             if (light.coneParams.w >= 0.0) {
-                atten = sampleDirectionalShadow(fragWorldPos, fragViewDepth, N, L);
+                atten = sampleDirectionalShadow(int(light.coneParams.w + 0.5), fragWorldPos,
+                    fragViewDepth, N, L);
             }
             // Parallax self-shadowing: the height field casts onto itself, which
             // the cascade map cannot see because it only knows the flat polygon.

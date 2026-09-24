@@ -569,7 +569,7 @@ namespace visutwin::canvas
         stats.lightClustersTime = _renderer->_lightClustersTime;
         stats.otherPrimitives = 0;
 
-        for (int i = 0; i < prims.size(); i++) {
+        for (int i = 0; i < static_cast<int>(prims.size()); i++) {
             if (i < PRIMITIVE_TRIANGLES) {
                 stats.otherPrimitives += prims[i];
             }
@@ -635,7 +635,7 @@ namespace visutwin::canvas
         }
     }
 
-    void Engine::inputUpdate(float dt)
+    void Engine::inputUpdate(float /*dt*/)
     {
         if (_controller) {
             _controller->update();

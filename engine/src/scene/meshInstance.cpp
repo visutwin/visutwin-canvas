@@ -26,8 +26,8 @@ namespace visutwin::canvas
     }
 
     MeshInstance::MeshInstance(std::shared_ptr<Mesh> mesh, std::shared_ptr<Material> material, GraphNode* node)
-        : _material(material.get()), _mesh(mesh.get()), _node(node),
-          _meshOwned(std::move(mesh)), _materialOwned(std::move(material))
+        : _material(material.get()), _mesh(mesh.get()),
+          _meshOwned(std::move(mesh)), _materialOwned(std::move(material)), _node(node)
     {
     }
 

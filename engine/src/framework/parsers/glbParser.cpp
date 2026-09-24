@@ -438,11 +438,6 @@ namespace visutwin::canvas
             return true;
         }
 
-        bool readFloatScalar(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, float& out)
-        {
-            return readElement(model, accessor, index, TINYGLTF_TYPE_SCALAR, &out, 1);
-        }
-
         // Apply glTF sparse-accessor overrides (indices + values bufferViews) on top
         // of `out`, which already holds the base data (zeros when the accessor has no
         // base bufferView, as is typical for sparse morph-target deltas).
@@ -981,16 +976,6 @@ namespace visutwin::canvas
         }
 
         // Overload: output animation tracks to a container (existing behavior).
-        void parseAnimations(const tinygltf::Model& model, GlbContainerResource* container)
-        {
-            if (!container) return;
-            std::unordered_map<std::string, std::shared_ptr<AnimTrack>> tracks;
-            parseAnimations(model, tracks);
-            for (auto& [name, track] : tracks) {
-                container->addAnimTrack(name, track);
-            }
-        }
-
         bool readIndices(const tinygltf::Model& model, const tinygltf::Accessor& accessor, std::vector<uint32_t>& out)
         {
             if (accessor.type != TINYGLTF_TYPE_SCALAR) {
@@ -1331,35 +1316,6 @@ namespace visutwin::canvas
 
         /// Create a block-compressed Texture from raw KTX2 bytes (KHR_texture_basisu).
         /// Returns nullptr on transcode failure. The caller applies sampler state + upload().
-        std::shared_ptr<Texture> createTextureFromKtx2(const std::vector<uint8_t>& ktx2Bytes,
-            const std::string& name, const std::shared_ptr<GraphicsDevice>& device)
-        {
-            auto transcoded = Ktx2Transcoder::transcode(ktx2Bytes.data(), ktx2Bytes.size(), name,
-                device->preferredCompressedRgbaFormat());
-            if (!transcoded.valid) {
-                return nullptr;
-            }
-
-            TextureOptions options;
-            options.profilerHint = TexHint::TEXHINT_ASSET;
-            options.width = transcoded.width;
-            options.height = transcoded.height;
-            options.format = transcoded.format;
-            options.mipmaps = transcoded.levels.size() > 1;
-            options.numLevels = static_cast<uint32_t>(transcoded.levels.size());
-            options.minFilter = options.mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR
-                                                : FilterMode::FILTER_LINEAR;
-            options.magFilter = FilterMode::FILTER_LINEAR;
-            options.name = name;
-
-            auto texture = std::make_shared<Texture>(device.get(), options);
-            for (size_t level = 0; level < transcoded.levels.size(); ++level) {
-                texture->setLevelData(static_cast<uint32_t>(level),
-                    transcoded.levels[level].data(), transcoded.levels[level].size());
-            }
-            return texture;
-        }
-
         void decomposeNodeMatrix(const std::vector<double>& matrix, Vector3& outT, Quaternion& outR, Vector3& outS)
         {
             if (matrix.size() != 16) {
@@ -2014,6 +1970,439 @@ namespace visutwin::canvas
         return material;
     }
 
+    // ── Shared building blocks of the one load pipeline ──────────────────
+    //
+    // Every load path ends in prepareFromModel() + createFromPrepared(): parse() and
+    // parseFromMemory() load a model and call createFromModel(), which runs both
+    // halves on the calling thread, and the asset loader runs the first half on a
+    // worker. The three paths used to carry their own copies of texture creation,
+    // vertex extraction and node building; the async copies had drifted (no point
+    // clouds, no material features, fewer warnings), which nothing noticed because
+    // no example loads asynchronously.
+
+    namespace
+    {
+        const tinygltf::Accessor* primitiveAttribute(const tinygltf::Model& model,
+            const tinygltf::Primitive& primitive, const char* name)
+        {
+            const auto it = primitive.attributes.find(name);
+            return it != primitive.attributes.end() ? getAccessor(model, it->second) : nullptr;
+        }
+
+        // A quantised POSITION is still a POSITION: the readers de-quantise every
+        // component type glTF allows, so only an unreadable one is grounds for
+        // dropping the primitive. Requiring float here dropped each one whole and
+        // silently.
+        const tinygltf::Accessor* readablePositions(const tinygltf::Model& model, const tinygltf::Primitive& primitive)
+        {
+            const auto* positions = primitiveAttribute(model, primitive, "POSITION");
+            if (!positions || positions->count <= 0 || positions->type != TINYGLTF_TYPE_VEC3 ||
+                componentBytes(positions->componentType) <= 0) {
+                return nullptr;
+            }
+            return positions;
+        }
+
+        // The image a texture samples: its `source`, or the `source` of one of the
+        // extensions that store it there instead.
+        int textureImageSource(const tinygltf::Texture& texture)
+        {
+            if (texture.source >= 0) {
+                return texture.source;
+            }
+            static const char* textureExtensions[] = {
+                "KHR_texture_basisu", "EXT_texture_webp", "EXT_texture_avif", "MSFT_texture_dds"
+            };
+            for (const auto* extName : textureExtensions) {
+                const auto it = texture.extensions.find(extName);
+                if (it != texture.extensions.end() && it->second.IsObject()) {
+                    const auto sourceVal = it->second.Get("source");
+                    if (sourceVal.IsInt()) {
+                        return sourceVal.GetNumberAsInt();
+                    }
+                }
+            }
+            return -1;
+        }
+
+        void applyGltfSampler(Texture& texture, const tinygltf::Model& model, const tinygltf::Texture& srcTexture)
+        {
+            if (srcTexture.sampler < 0 || srcTexture.sampler >= static_cast<int>(model.samplers.size())) {
+                return;
+            }
+            const auto& sampler = model.samplers[static_cast<size_t>(srcTexture.sampler)];
+            if (sampler.minFilter != -1) {
+                auto minFilter = mapMinFilter(sampler.minFilter);
+                if (minFilter == FilterMode::FILTER_NEAREST_MIPMAP_NEAREST ||
+                    minFilter == FilterMode::FILTER_LINEAR_MIPMAP_NEAREST ||
+                    minFilter == FilterMode::FILTER_NEAREST_MIPMAP_LINEAR ||
+                    minFilter == FilterMode::FILTER_LINEAR_MIPMAP_LINEAR) {
+                    minFilter = FilterMode::FILTER_LINEAR;
+                }
+                texture.setMinFilter(minFilter);
+            }
+            if (sampler.magFilter != -1) {
+                texture.setMagFilter(mapMagFilter(sampler.magFilter));
+            }
+            texture.setAddressU(mapWrapMode(sampler.wrapS));
+            texture.setAddressV(mapWrapMode(sampler.wrapT));
+        }
+
+        std::shared_ptr<Texture> createPreparedTexture(const PreparedGlbData::ImageData& image,
+            const std::string& name, const std::shared_ptr<GraphicsDevice>& device)
+        {
+            TextureOptions options;
+            options.profilerHint = TexHint::TEXHINT_ASSET;
+            options.width = static_cast<uint32_t>(image.width);
+            options.height = static_cast<uint32_t>(image.height);
+            if (image.isCompressed) {
+                // KHR_texture_basisu: pre-transcoded block-compressed levels.
+                options.format = static_cast<PixelFormat>(image.compressedFormat);
+                options.mipmaps = image.compressedLevels.size() > 1;
+                options.numLevels = static_cast<uint32_t>(image.compressedLevels.size());
+                options.minFilter = options.mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR
+                                                    : FilterMode::FILTER_LINEAR;
+            } else {
+                options.format = PixelFormat::PIXELFORMAT_RGBA8;
+                // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
+                // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
+                // sampling can't minify ground/wall textures at glancing angles and we get radial
+                // streak aliasing from the viewer's nadir point.
+                options.mipmaps = true;
+                options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
+                options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
+            }
+            options.magFilter = FilterMode::FILTER_LINEAR;
+            options.name = name;
+
+            auto texture = std::make_shared<Texture>(device.get(), options);
+            if (image.isCompressed) {
+                for (size_t level = 0; level < image.compressedLevels.size(); ++level) {
+                    texture->setLevelData(static_cast<uint32_t>(level),
+                        image.compressedLevels[level].data(), image.compressedLevels[level].size());
+                }
+            } else {
+                texture->setLevelData(0, image.rgbaPixels.data(), image.rgbaPixels.size());
+            }
+            return texture;
+        }
+
+        // World matrix of every node, for baking a static point cloud into world space.
+        std::vector<Matrix4> computeNodeWorldMatrices(const tinygltf::Model& model)
+        {
+            std::vector<Matrix4> world(model.nodes.size(), Matrix4::identity());
+
+            // 1) Each node's local matrix from TRS (or its direct matrix).
+            for (size_t i = 0; i < model.nodes.size(); ++i) {
+                const auto& node = model.nodes[i];
+                if (node.matrix.size() == 16) {
+                    // glTF stores matrices in column-major order, as Matrix4 does, so the
+                    // sixteen values are the four columns in sequence. This used to go through
+                    // setElement with (row, col) swapped, which wrote the matrix TRANSPOSED;
+                    // parseSkins builds the inverse bind matrices this same way.
+                    const auto& m = node.matrix;
+                    world[i] = Matrix4(
+                        Vector4(static_cast<float>(m[0]), static_cast<float>(m[1]), static_cast<float>(m[2]), static_cast<float>(m[3])),
+                        Vector4(static_cast<float>(m[4]), static_cast<float>(m[5]), static_cast<float>(m[6]), static_cast<float>(m[7])),
+                        Vector4(static_cast<float>(m[8]), static_cast<float>(m[9]), static_cast<float>(m[10]), static_cast<float>(m[11])),
+                        Vector4(static_cast<float>(m[12]), static_cast<float>(m[13]), static_cast<float>(m[14]), static_cast<float>(m[15])));
+                    continue;
+                }
+                Vector3 t(0.0f, 0.0f, 0.0f);
+                Quaternion q(0.0f, 0.0f, 0.0f, 1.0f);
+                Vector3 s(1.0f, 1.0f, 1.0f);
+                if (node.translation.size() == 3) {
+                    t = Vector3(static_cast<float>(node.translation[0]), static_cast<float>(node.translation[1]),
+                        static_cast<float>(node.translation[2]));
+                }
+                if (node.rotation.size() == 4) {
+                    q = Quaternion(static_cast<float>(node.rotation[0]), static_cast<float>(node.rotation[1]),
+                        static_cast<float>(node.rotation[2]), static_cast<float>(node.rotation[3])).normalized();
+                }
+                if (node.scale.size() == 3) {
+                    s = Vector3(static_cast<float>(node.scale[0]), static_cast<float>(node.scale[1]),
+                        static_cast<float>(node.scale[2]));
+                }
+                world[i] = Matrix4::trs(t, q, s);
+            }
+
+            // 2) Propagate world = parent_world * local, breadth first from the nodes
+            //    that are nobody's child.
+            std::vector<bool> isChild(model.nodes.size(), false);
+            for (const auto& node : model.nodes) {
+                for (const int childIdx : node.children) {
+                    if (childIdx >= 0 && childIdx < static_cast<int>(model.nodes.size())) {
+                        isChild[static_cast<size_t>(childIdx)] = true;
+                    }
+                }
+            }
+            std::queue<size_t> bfs;
+            for (size_t i = 0; i < model.nodes.size(); ++i) {
+                if (!isChild[i]) bfs.push(i);
+            }
+            while (!bfs.empty()) {
+                const size_t idx = bfs.front();
+                bfs.pop();
+                for (const int childIdx : model.nodes[idx].children) {
+                    if (childIdx >= 0 && childIdx < static_cast<int>(model.nodes.size())) {
+                        const auto ci = static_cast<size_t>(childIdx);
+                        world[ci] = world[idx] * world[ci];
+                        bfs.push(ci);
+                    }
+                }
+            }
+            return world;
+        }
+
+        // Positions and COLOR_0 of a POINTS primitive, transformed by `transform` when
+        // one is given (the static merge bakes world space; an animated model keeps
+        // local space so the node's animation still moves the cloud).
+        void appendPointVertices(const tinygltf::Model& model, const tinygltf::Accessor& positions,
+            const tinygltf::Accessor* colors, const Matrix4* transform,
+            std::vector<PackedPointVertex>& out, Vector3& boundsMin, Vector3& boundsMax)
+        {
+            const size_t base = out.size();
+            const auto count = static_cast<size_t>(positions.count);
+            out.resize(base + count);
+            for (size_t i = 0; i < count; ++i) {
+                Vector3 pos;
+                if (!readFloatVec3(model, positions, i, pos)) {
+                    continue;
+                }
+                if (transform) {
+                    pos = transform->transformPoint(pos);
+                }
+                float cr = 1.0f, cg = 1.0f, cb = 1.0f, ca = 1.0f;
+                if (colors) {
+                    if (colors->type == TINYGLTF_TYPE_VEC4) {
+                        Vector4 color;
+                        if (readFloatVec4(model, *colors, i, color)) {
+                            cr = color.getX(); cg = color.getY(); cb = color.getZ(); ca = color.getW();
+                        }
+                    } else if (colors->type == TINYGLTF_TYPE_VEC3) {
+                        Vector3 color;
+                        if (readFloatVec3(model, *colors, i, color)) {
+                            cr = color.getX(); cg = color.getY(); cb = color.getZ();
+                        }
+                    }
+                }
+                out[base + i] = PackedPointVertex{pos.getX(), pos.getY(), pos.getZ(), cr, cg, cb, ca};
+                boundsMin = Vector3::min(boundsMin, pos);
+                boundsMax = Vector3::max(boundsMax, pos);
+            }
+        }
+
+        PreparedGlbData::PrimitiveData pointCloudData(std::vector<PackedPointVertex>&& vertices,
+            const Vector3& boundsMin, const Vector3& boundsMax, const int materialIndex)
+        {
+            PreparedGlbData::PrimitiveData pd;
+            pd.pointCloud = true;
+            pd.mode = TINYGLTF_MODE_POINTS;
+            pd.materialIndex = materialIndex;
+            pd.vertexCount = static_cast<int>(vertices.size());
+            pd.drawCount = pd.vertexCount;
+            pd.vertexBytes.resize(vertices.size() * sizeof(PackedPointVertex));
+            std::memcpy(pd.vertexBytes.data(), vertices.data(), pd.vertexBytes.size());
+            pd.boundsMin = boundsMin;
+            pd.boundsMax = boundsMax;
+            return pd;
+        }
+
+        // Vertices, indices, skin attributes and morph targets of one non-POINTS
+        // primitive. False when the primitive has nothing drawable.
+        bool extractTrianglePrimitive(const tinygltf::Model& model, const tinygltf::Mesh& mesh,
+            const tinygltf::Primitive& primitive, const size_t meshIndex, PreparedGlbData& counters,
+            PreparedGlbData::PrimitiveData& pd)
+        {
+            pd.mode = primitive.mode;
+            pd.materialIndex = primitive.material;
+
+            std::vector<PackedVertex> vertices;
+            std::vector<uint32_t> parsedIndices;
+            Vector3 minPos(std::numeric_limits<float>::max());
+            Vector3 maxPos(std::numeric_limits<float>::lowest());
+
+            bool decodedDraco = false;
+            if (primitiveUsesDraco(primitive)) {
+                counters.dracoPrimitiveCount++;
+                decodedDraco = decodeDracoPrimitive(model, primitive, vertices, parsedIndices, minPos, maxPos);
+                if (!decodedDraco) {
+                    counters.dracoDecodeFailureCount++;
+                    spdlog::warn("Skipping glTF primitive due to Draco decode failure (mesh={})", meshIndex);
+                    return false;
+                }
+                counters.dracoDecodeSuccessCount++;
+            }
+
+            if (!decodedDraco) {
+                const auto* positions = readablePositions(model, primitive);
+                if (!positions) {
+                    return false;
+                }
+                const auto* normals = primitiveAttribute(model, primitive, "NORMAL");
+                const auto* uvs = primitiveAttribute(model, primitive, "TEXCOORD_0");
+                const auto* uvs1 = primitiveAttribute(model, primitive, "TEXCOORD_1");
+                const auto* tangents = primitiveAttribute(model, primitive, "TANGENT");
+
+                const auto vertexCount = static_cast<size_t>(positions->count);
+                vertices.resize(vertexCount);
+                for (size_t i = 0; i < vertexCount; ++i) {
+                    Vector3 pos;
+                    if (!readFloatVec3(model, *positions, i, pos)) {
+                        continue;
+                    }
+                    Vector3 normal(0.0f, 1.0f, 0.0f);
+                    if (normals) {
+                        Vector3 n;
+                        if (readFloatVec3(model, *normals, i, n)) normal = n;
+                    }
+                    // glTF UVs are authored for GL-style sampling conventions. Texture
+                    // sampling here uses a top-left origin, so V is flipped.
+                    float u = 0.0f, v = 0.0f;
+                    if (uvs) {
+                        readFloatVec2(model, *uvs, i, u, v);
+                        v = 1.0f - v;
+                    }
+                    float u1 = u, v1 = v;
+                    if (uvs1) {
+                        readFloatVec2(model, *uvs1, i, u1, v1);
+                        v1 = 1.0f - v1;
+                    }
+                    // Leave the tangent zero when the file carries none; triangle
+                    // primitives get one generated below (generateTangents), and the
+                    // shaders skip normal mapping on a degenerate tangent rather than
+                    // building a bogus fixed basis. There is no derivative-based TBN
+                    // fallback in this port.
+                    Vector4 tangent(0.0f, 0.0f, 0.0f, 1.0f);
+                    if (tangents) {
+                        Vector4 t;
+                        if (readFloatVec4(model, *tangents, i, t)) {
+                            // V is flipped above, so an imported tangent flips handedness.
+                            tangent = Vector4(t.getX(), t.getY(), t.getZ(), -t.getW());
+                        }
+                    }
+                    vertices[i] = PackedVertex{
+                        pos.getX(), pos.getY(), pos.getZ(),
+                        normal.getX(), normal.getY(), normal.getZ(),
+                        u, v,
+                        tangent.getX(), tangent.getY(), tangent.getZ(), tangent.getW(),
+                        u1, v1
+                    };
+                    minPos = Vector3::min(minPos, pos);
+                    maxPos = Vector3::max(maxPos, pos);
+                }
+
+                if (!tangents && primitive.mode == TINYGLTF_MODE_TRIANGLES) {
+                    if (primitive.indices >= 0) {
+                        if (const auto* indexAccessor = getAccessor(model, primitive.indices)) {
+                            readIndices(model, *indexAccessor, parsedIndices);
+                        }
+                    }
+                    generateTangents(vertices, parsedIndices.empty() ? nullptr : &parsedIndices);
+                }
+            }
+
+            if (vertices.empty()) {
+                return false;
+            }
+            if (!decodedDraco && primitive.indices >= 0 && parsedIndices.empty()) {
+                if (const auto* indexAccessor = getAccessor(model, primitive.indices)) {
+                    readIndices(model, *indexAccessor, parsedIndices);
+                }
+            }
+
+            // GPU skinning: JOINTS_0/WEIGHTS_0 present → the 88-byte skinned layout
+            // (the Draco path never carries skin attributes here).
+            pd.vertexCount = static_cast<int>(vertices.size());
+            const auto skinAttributes = decodedDraco
+                ? SkinAttributes{} : readSkinAttributes(model, primitive, vertices.size());
+            if (skinAttributes.valid) {
+                pd.skinned = true;
+                pd.vertexBytes = packSkinnedVertices(vertices, skinAttributes);
+            } else {
+                pd.vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
+                std::memcpy(pd.vertexBytes.data(), vertices.data(), pd.vertexBytes.size());
+            }
+
+            // Morph targets (skipped for Draco primitives — vertex order differs).
+            if (!decodedDraco && !primitive.targets.empty()) {
+                pd.morphTargets = readMorphTargets(model, primitive, vertices.size());
+                pd.morphInitialWeights.assign(mesh.weights.begin(), mesh.weights.end());
+            }
+
+            pd.drawCount = static_cast<int>(vertices.size());
+            if (!parsedIndices.empty()) {
+                pd.indexBytes.resize(parsedIndices.size() * sizeof(uint32_t));
+                std::memcpy(pd.indexBytes.data(), parsedIndices.data(), pd.indexBytes.size());
+                pd.drawCount = static_cast<int>(parsedIndices.size());
+                pd.indexed = true;
+            }
+            pd.boundsMin = minPos;
+            pd.boundsMax = maxPos;
+            return true;
+        }
+
+        std::shared_ptr<Mesh> createPreparedMesh(PreparedGlbData::PrimitiveData& pd,
+            const std::shared_ptr<GraphicsDevice>& device, const std::shared_ptr<VertexFormat>& format)
+        {
+            VertexBufferOptions vbOptions;
+            vbOptions.data = std::move(pd.vertexBytes);
+            auto vertexBuffer = device->createVertexBuffer(format, pd.vertexCount, vbOptions);
+            if (!vertexBuffer) {
+                return nullptr;
+            }
+
+            std::shared_ptr<IndexBuffer> indexBuffer;
+            if (pd.indexed && !pd.indexBytes.empty()) {
+                const int indexCount = static_cast<int>(pd.indexBytes.size() / sizeof(uint32_t));
+                indexBuffer = device->createIndexBuffer(INDEXFORMAT_UINT32, indexCount, pd.indexBytes);
+            }
+
+            auto mesh = std::make_shared<Mesh>();
+            mesh->setVertexBuffer(vertexBuffer);
+            mesh->setIndexBuffer(indexBuffer, 0);
+
+            Primitive drawPrimitive;
+            drawPrimitive.type = pd.pointCloud ? PRIMITIVE_POINTS : mapPrimitiveType(pd.mode);
+            drawPrimitive.base = 0;
+            drawPrimitive.baseVertex = 0;
+            drawPrimitive.count = pd.drawCount;
+            drawPrimitive.indexed = pd.indexed && indexBuffer;
+            mesh->setPrimitive(drawPrimitive, 0);
+
+            BoundingBox bounds;
+            bounds.setCenter((pd.boundsMin + pd.boundsMax) * 0.5f);
+            bounds.setHalfExtents((pd.boundsMax - pd.boundsMin) * 0.5f);
+            mesh->setAabb(bounds);
+            return mesh;
+        }
+
+        // A point cloud draws unlit with its vertex colours, from a COPY of its glTF
+        // material so the point bits cannot leak onto triangle meshes sharing it. An
+        // animated model's clouds glow additively without writing depth; the merged
+        // static cloud stays opaque.
+        std::shared_ptr<Material> pointCloudMaterial(const std::vector<std::shared_ptr<Material>>& materials,
+            const int materialIndex, const bool animated)
+        {
+            const auto& base = (materialIndex >= 0 && materialIndex < static_cast<int>(materials.size()))
+                ? materials[static_cast<size_t>(materialIndex)] : materials.front();
+            auto material = std::make_shared<StandardMaterial>(*std::static_pointer_cast<StandardMaterial>(base));
+            uint64_t variant = material->shaderVariantKey();
+            variant |= (1ull << 21);  // VT_FEATURE_VERTEX_COLORS
+            variant |= (1ull << 31);  // VT_FEATURE_POINT_SIZE
+            if (animated) {
+                variant |= (1ull << 32);  // VT_FEATURE_UNLIT
+            }
+            material->setShaderVariantKey(variant);
+            if (animated) {
+                material->setTransparent(true);
+                material->setBlendState(std::make_shared<BlendState>(BlendState::additiveBlend()));
+                material->setDepthState(std::make_shared<DepthState>(DepthState::noWrite()));
+            }
+            return material;
+        }
+    }
+
     std::unique_ptr<GlbContainerResource> GlbParser::parse(const std::string& path,
         const std::shared_ptr<GraphicsDevice>& device)
     {
@@ -2045,798 +2434,7 @@ namespace visutwin::canvas
             spdlog::error("GLB parse failed [{}]: {}", path, err);
             return nullptr;
         }
-        warnUnsupportedRequiredExtensions(model, path);
-
-        auto container = std::make_unique<GlbContainerResource>();
-        auto vertexFormat = std::make_shared<VertexFormat>(
-            sizeof(PackedVertex), VertexFormat::standardElements(), true, false);
-        auto skinnedVertexFormat = std::make_shared<VertexFormat>(
-            static_cast<int>(SKINNED_VERTEX_STRIDE), VertexFormat::skinnedElements(), true, false);
-        size_t dracoPrimitiveCount = 0;
-        size_t dracoDecodeSuccessCount = 0;
-        size_t dracoDecodeFailureCount = 0;
-
-        std::vector<std::shared_ptr<Material>> gltfMaterials;
-        gltfMaterials.reserve(std::max<size_t>(1, model.materials.size()));
-        std::vector<std::shared_ptr<Texture>> gltfTextures(model.textures.size());
-
-        auto getOrCreateTexture = [&](const int textureIndex) -> std::shared_ptr<Texture> {
-            if (textureIndex < 0 || textureIndex >= static_cast<int>(model.textures.size())) {
-                return nullptr;
-            }
-
-            auto& cached = gltfTextures[static_cast<size_t>(textureIndex)];
-            if (cached) {
-                return cached;
-            }
-
-            const auto& srcTexture = model.textures[static_cast<size_t>(textureIndex)];
-
-            // Resolve image source index — check texture extensions first,
-            // then fall back to the standard source field
-            int imageSource = srcTexture.source;
-            if (imageSource < 0) {
-                static const char* textureExtensions[] = {
-                    "KHR_texture_basisu", "EXT_texture_webp",
-                    "EXT_texture_avif", "MSFT_texture_dds"
-                };
-                for (const auto* extName : textureExtensions) {
-                    auto it = srcTexture.extensions.find(extName);
-                    if (it != srcTexture.extensions.end() && it->second.IsObject()) {
-                        auto sourceVal = it->second.Get("source");
-                        if (sourceVal.IsInt()) {
-                            imageSource = sourceVal.GetNumberAsInt();
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (imageSource < 0 || imageSource >= static_cast<int>(model.images.size())) {
-                spdlog::warn("glTF texture {} has no valid image source (source={}, no basisu fallback)",
-                    textureIndex, srcTexture.source);
-                return nullptr;
-            }
-
-            const auto& srcImage = model.images[static_cast<size_t>(imageSource)];
-            const std::string textureName = srcImage.name.empty() ? srcTexture.name : srcImage.name;
-
-            std::shared_ptr<Texture> texture;
-            if (imageHoldsKtx2(srcImage)) {
-                // KHR_texture_basisu: transcode KTX2 to a GPU compressed format.
-                texture = createTextureFromKtx2(srcImage.image, textureName, device);
-                if (!texture) {
-                    return nullptr;
-                }
-            } else {
-                std::vector<uint8_t> rgbaPixels;
-                if (!buildRgba8Image(srcImage, rgbaPixels)) {
-                    spdlog::warn("glTF image '{}' unsupported format (bits={}, components={}, pixelType={})",
-                        srcImage.name, srcImage.bits, srcImage.component, srcImage.pixel_type);
-                    return nullptr;
-                }
-
-                TextureOptions options;
-                options.profilerHint = TexHint::TEXHINT_ASSET;
-                options.width = static_cast<uint32_t>(srcImage.width);
-                options.height = static_cast<uint32_t>(srcImage.height);
-                options.format = PixelFormat::PIXELFORMAT_RGBA8;
-                // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
-                // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
-                // sampling can't minify ground/wall textures at glancing angles and we get radial
-                // streak aliasing from the viewer's nadir point.
-                options.mipmaps = true;
-                options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
-                options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
-                options.magFilter = FilterMode::FILTER_LINEAR;
-                options.name = textureName;
-
-                texture = std::make_shared<Texture>(device.get(), options);
-                texture->setLevelData(0, rgbaPixels.data(), rgbaPixels.size());
-            }
-
-            if (srcTexture.sampler >= 0 && srcTexture.sampler < static_cast<int>(model.samplers.size())) {
-                const auto& sampler = model.samplers[static_cast<size_t>(srcTexture.sampler)];
-                if (sampler.minFilter != -1) {
-                    auto minFilter = mapMinFilter(sampler.minFilter);
-                    if (minFilter == FilterMode::FILTER_NEAREST_MIPMAP_NEAREST ||
-                        minFilter == FilterMode::FILTER_LINEAR_MIPMAP_NEAREST ||
-                        minFilter == FilterMode::FILTER_NEAREST_MIPMAP_LINEAR ||
-                        minFilter == FilterMode::FILTER_LINEAR_MIPMAP_LINEAR) {
-                        minFilter = FilterMode::FILTER_LINEAR;
-                    }
-                    texture->setMinFilter(minFilter);
-                }
-                if (sampler.magFilter != -1) {
-                    texture->setMagFilter(mapMagFilter(sampler.magFilter));
-                }
-                texture->setAddressU(mapWrapMode(sampler.wrapS));
-                texture->setAddressV(mapWrapMode(sampler.wrapT));
-            }
-
-            texture->upload();
-            container->addOwnedTexture(texture);
-            cached = texture;
-            return cached;
-        };
-
-        if (model.materials.empty()) {
-            gltfMaterials.push_back(createDefaultGltfMaterial());
-        } else {
-            for (size_t materialIndex = 0; materialIndex < model.materials.size(); ++materialIndex) {
-                gltfMaterials.push_back(createGltfMaterial(model.materials[materialIndex], getOrCreateTexture));
-            }
-        }
-
-        // ---------------------------------------------------------------
-        // Pre-compute per-node world matrices so POINTS vertices can be
-        // baked into world space when merging into a single draw call.
-        // ---------------------------------------------------------------
-        std::vector<Matrix4> nodeWorldMatrices(model.nodes.size(), Matrix4::identity());
-
-        // 1) Build each node's local matrix from TRS (or direct matrix).
-        for (size_t i = 0; i < model.nodes.size(); ++i) {
-            const auto& node = model.nodes[i];
-            if (!node.matrix.empty() && node.matrix.size() == 16) {
-                // glTF stores matrices in column-major order, as Matrix4 does, so the
-                // sixteen values are the four columns in sequence. This used to go through
-                // setElement with (row, col) swapped, which wrote the matrix TRANSPOSED;
-                // parseSkins builds the inverse bind matrices this same way.
-                const auto& m = node.matrix;
-                nodeWorldMatrices[i] = Matrix4(
-                    Vector4(static_cast<float>(m[0]), static_cast<float>(m[1]), static_cast<float>(m[2]), static_cast<float>(m[3])),
-                    Vector4(static_cast<float>(m[4]), static_cast<float>(m[5]), static_cast<float>(m[6]), static_cast<float>(m[7])),
-                    Vector4(static_cast<float>(m[8]), static_cast<float>(m[9]), static_cast<float>(m[10]), static_cast<float>(m[11])),
-                    Vector4(static_cast<float>(m[12]), static_cast<float>(m[13]), static_cast<float>(m[14]), static_cast<float>(m[15])));
-            } else {
-                Vector3 t(0.0f, 0.0f, 0.0f);
-                Quaternion q(0.0f, 0.0f, 0.0f, 1.0f);
-                Vector3 s(1.0f, 1.0f, 1.0f);
-                if (node.translation.size() == 3) {
-                    t = Vector3(static_cast<float>(node.translation[0]),
-                                static_cast<float>(node.translation[1]),
-                                static_cast<float>(node.translation[2]));
-                }
-                if (node.rotation.size() == 4) {
-                    q = Quaternion(static_cast<float>(node.rotation[0]),
-                                  static_cast<float>(node.rotation[1]),
-                                  static_cast<float>(node.rotation[2]),
-                                  static_cast<float>(node.rotation[3])).normalized();
-                }
-                if (node.scale.size() == 3) {
-                    s = Vector3(static_cast<float>(node.scale[0]),
-                                static_cast<float>(node.scale[1]),
-                                static_cast<float>(node.scale[2]));
-                }
-                // T * R * S: column c of R scaled by s_c, translation in column 3.
-                nodeWorldMatrices[i] = Matrix4::trs(t, q, s);
-            }
-        }
-
-        // 2) Propagate: world = parent_world * local.
-        //    BFS from root nodes (nodes that are not children of any other node).
-        {
-            std::vector<bool> isChild(model.nodes.size(), false);
-            for (const auto& node : model.nodes) {
-                for (int childIdx : node.children) {
-                    if (childIdx >= 0 && childIdx < static_cast<int>(model.nodes.size())) {
-                        isChild[static_cast<size_t>(childIdx)] = true;
-                    }
-                }
-            }
-            std::queue<size_t> bfs;
-            for (size_t i = 0; i < model.nodes.size(); ++i) {
-                if (!isChild[i]) bfs.push(i);
-            }
-            while (!bfs.empty()) {
-                const size_t idx = bfs.front();
-                bfs.pop();
-                for (int childIdx : model.nodes[idx].children) {
-                    if (childIdx >= 0 && childIdx < static_cast<int>(model.nodes.size())) {
-                        const auto ci = static_cast<size_t>(childIdx);
-                        nodeWorldMatrices[ci] = nodeWorldMatrices[idx] * nodeWorldMatrices[ci];
-                        bfs.push(ci);
-                    }
-                }
-            }
-        }
-
-        // 3) Build mesh→node map (last node referencing the mesh wins).
-        std::vector<int> meshToNodeIndex(model.meshes.size(), -1);
-        for (size_t i = 0; i < model.nodes.size(); ++i) {
-            const int meshRef = model.nodes[i].mesh;
-            if (meshRef >= 0 && meshRef < static_cast<int>(model.meshes.size())) {
-                meshToNodeIndex[static_cast<size_t>(meshRef)] = static_cast<int>(i);
-            }
-        }
-
-        // When the GLB contains animations, skip the POINTS merge optimisation.
-        // The merge bakes vertex positions into world space and marks leaf nodes
-        // as skip, which prevents per-node animation (e.g. scale) from working.
-        const bool hasAnimations = !model.animations.empty();
-
-        // Accumulators for merging all POINTS primitives into a single draw call.
-        // Individual point meshes are appended here; a single merged mesh payload
-        // is created after the mesh loop to avoid per-mesh draw call overhead.
-        // Only used when !hasAnimations.
-        std::vector<PackedPointVertex> mergedPointVertices;
-        Vector3 mergedPtMin(std::numeric_limits<float>::max());
-        Vector3 mergedPtMax(std::numeric_limits<float>::lowest());
-        int mergedPointMaterialIndex = -1;
-        size_t mergedPointPayloadIndex = SIZE_MAX;
-
-        std::vector<std::vector<size_t>> meshToPayloadIndices(model.meshes.size());
-        size_t nextPayloadIndex = 0;
-        for (size_t meshIndex = 0; meshIndex < model.meshes.size(); ++meshIndex) {
-            const auto& mesh = model.meshes[meshIndex];
-            for (const auto& primitive : mesh.primitives) {
-                // ---------------------------------------------------------------
-                // POINTS primitive handling.
-                // When no animations: accumulate vertices for merged draw call
-                // (transforms baked to world space, single draw call).
-                // When animations present: create individual per-node point
-                // meshes in local space so scale/transform animation works.
-                // ---------------------------------------------------------------
-                if (primitive.mode == TINYGLTF_MODE_POINTS) {
-                    if (!primitive.attributes.contains("POSITION")) {
-                        continue;
-                    }
-                    const auto* positionAccessor = getAccessor(model, primitive.attributes.at("POSITION"));
-                    if (!positionAccessor || positionAccessor->count <= 0) {
-                        continue;
-                    }
-                    // A quantised POSITION is still a POSITION: the readers de-quantise
-                    // every component type glTF allows, so only an unreadable one is
-                    // grounds for dropping the primitive. Requiring float here dropped
-                    // each one whole and silently.
-                    if (positionAccessor->type != TINYGLTF_TYPE_VEC3 ||
-                        componentBytes(positionAccessor->componentType) <= 0) {
-                        continue;
-                    }
-
-                    const auto* colorAccessor = primitive.attributes.contains("COLOR_0")
-                        ? getAccessor(model, primitive.attributes.at("COLOR_0")) : nullptr;
-
-                    const auto pointVertexCount = static_cast<size_t>(positionAccessor->count);
-
-                    if (hasAnimations) {
-                        // -------------------------------------------------------
-                        // ANIMATED path: individual per-node point mesh (local space).
-                        // No transform baking — the Entity hierarchy handles it.
-                        // -------------------------------------------------------
-                        std::vector<PackedPointVertex> pointVertices(pointVertexCount);
-                        Vector3 ptMin(std::numeric_limits<float>::max());
-                        Vector3 ptMax(std::numeric_limits<float>::lowest());
-
-                        for (size_t i = 0; i < pointVertexCount; ++i) {
-                            Vector3 pos;
-                            if (!readFloatVec3(model, *positionAccessor, i, pos)) {
-                                continue;
-                            }
-                            // NO transform baking — keep local-space positions.
-
-                            float cr = 1.0f, cg = 1.0f, cb = 1.0f, ca = 1.0f;
-                            if (colorAccessor) {
-                                if (colorAccessor->type == TINYGLTF_TYPE_VEC4) {
-                                    Vector4 color;
-                                    if (readFloatVec4(model, *colorAccessor, i, color)) {
-                                        cr = color.getX(); cg = color.getY();
-                                        cb = color.getZ(); ca = color.getW();
-                                    }
-                                } else if (colorAccessor->type == TINYGLTF_TYPE_VEC3) {
-                                    Vector3 color;
-                                    if (readFloatVec3(model, *colorAccessor, i, color)) {
-                                        cr = color.getX(); cg = color.getY();
-                                        cb = color.getZ(); ca = 1.0f;
-                                    }
-                                }
-                            }
-
-                            pointVertices[i] = PackedPointVertex{
-                                pos.getX(), pos.getY(), pos.getZ(),
-                                cr, cg, cb, ca
-                            };
-
-                            ptMin = Vector3::min(ptMin, pos);
-                            ptMax = Vector3::max(ptMax, pos);
-                        }
-
-                        auto pointVertexFormat = std::make_shared<VertexFormat>(
-                            static_cast<int>(sizeof(PackedPointVertex)),
-                            VertexFormat::pointElements(), true, false);
-
-                        std::vector<uint8_t> pointVertexBytes(pointVertices.size() * sizeof(PackedPointVertex));
-                        std::memcpy(pointVertexBytes.data(), pointVertices.data(), pointVertexBytes.size());
-
-                        VertexBufferOptions vbOpts;
-                        vbOpts.data = std::move(pointVertexBytes);
-                        auto pointVB = device->createVertexBuffer(
-                            pointVertexFormat,
-                            static_cast<int>(pointVertices.size()),
-                            vbOpts);
-
-                        if (pointVB) {
-                            auto meshResource = std::make_shared<Mesh>();
-                            meshResource->setVertexBuffer(pointVB);
-
-                            Primitive drawPrimitive;
-                            drawPrimitive.type = PRIMITIVE_POINTS;
-                            drawPrimitive.base = 0;
-                            drawPrimitive.baseVertex = 0;
-                            drawPrimitive.count = static_cast<int>(pointVertices.size());
-                            drawPrimitive.indexed = false;
-                            meshResource->setPrimitive(drawPrimitive, 0);
-
-                            BoundingBox bounds;
-                            bounds.setCenter((ptMin + ptMax) * 0.5f);
-                            bounds.setHalfExtents((ptMax - ptMin) * 0.5f);
-                            meshResource->setAabb(bounds);
-
-                            // Clone material with point-specific variant bits.
-                            std::shared_ptr<Material> pointMaterial;
-                            const int matIdx = primitive.material >= 0 ? primitive.material : 0;
-                            if (matIdx < static_cast<int>(gltfMaterials.size())) {
-                                pointMaterial = std::make_shared<StandardMaterial>(
-                                    *std::static_pointer_cast<StandardMaterial>(
-                                        gltfMaterials[static_cast<size_t>(matIdx)]));
-                            } else {
-                                pointMaterial = std::make_shared<StandardMaterial>(
-                                    *std::static_pointer_cast<StandardMaterial>(gltfMaterials.front()));
-                            }
-                            uint64_t ptVariant = pointMaterial->shaderVariantKey();
-                            ptVariant |= (1ull << 21);  // VT_FEATURE_VERTEX_COLORS
-                            ptVariant |= (1ull << 31);  // VT_FEATURE_POINT_SIZE
-                            ptVariant |= (1ull << 32);  // VT_FEATURE_UNLIT
-                            pointMaterial->setShaderVariantKey(ptVariant);
-
-                            // Additive blending for animated point clouds — particles glow and
-                            // accumulate light. Disable depth write so particles don't z-fight.
-                            pointMaterial->setTransparent(true);
-                            pointMaterial->setBlendState(std::make_shared<BlendState>(BlendState::additiveBlend()));
-                            pointMaterial->setDepthState(std::make_shared<DepthState>(DepthState::noWrite()));
-
-                            GlbMeshPayload payload;
-                            payload.mesh = meshResource;
-                            payload.material = pointMaterial;
-                            payload.castShadow = false;
-                            container->addMeshPayload(payload);
-                            meshToPayloadIndices[meshIndex].push_back(nextPayloadIndex++);
-                        }
-                    } else {
-                        // -------------------------------------------------------
-                        // STATIC path: accumulate into merged buffer (world space).
-                        // -------------------------------------------------------
-                        if (mergedPointMaterialIndex < 0) {
-                            mergedPointMaterialIndex = primitive.material >= 0 ? primitive.material : 0;
-                        }
-
-                        // Look up the world matrix for this mesh's node to bake transforms.
-                        const Matrix4 meshWorldMatrix =
-                            (meshToNodeIndex[meshIndex] >= 0)
-                                ? nodeWorldMatrices[static_cast<size_t>(meshToNodeIndex[meshIndex])]
-                                : Matrix4::identity();
-
-                        const size_t baseIndex = mergedPointVertices.size();
-                        mergedPointVertices.resize(baseIndex + pointVertexCount);
-
-                        for (size_t i = 0; i < pointVertexCount; ++i) {
-                            Vector3 pos;
-                            if (!readFloatVec3(model, *positionAccessor, i, pos)) {
-                                continue;
-                            }
-                            // Bake node transform into vertex position (world space).
-                            pos = meshWorldMatrix.transformPoint(pos);
-
-                            float cr = 1.0f, cg = 1.0f, cb = 1.0f, ca = 1.0f;
-                            if (colorAccessor) {
-                                if (colorAccessor->type == TINYGLTF_TYPE_VEC4) {
-                                    Vector4 color;
-                                    if (readFloatVec4(model, *colorAccessor, i, color)) {
-                                        cr = color.getX(); cg = color.getY();
-                                        cb = color.getZ(); ca = color.getW();
-                                    }
-                                } else if (colorAccessor->type == TINYGLTF_TYPE_VEC3) {
-                                    Vector3 color;
-                                    if (readFloatVec3(model, *colorAccessor, i, color)) {
-                                        cr = color.getX(); cg = color.getY();
-                                        cb = color.getZ(); ca = 1.0f;
-                                    }
-                                }
-                            }
-
-                            mergedPointVertices[baseIndex + i] = PackedPointVertex{
-                                pos.getX(), pos.getY(), pos.getZ(),
-                                cr, cg, cb, ca
-                            };
-
-                            mergedPtMin = Vector3::min(mergedPtMin, pos);
-                            mergedPtMax = Vector3::max(mergedPtMax, pos);
-                        }
-                    }
-                    continue;
-                }
-
-                // ---------------------------------------------------------------
-                // Non-POINTS primitives: triangles, lines, etc.
-                // ---------------------------------------------------------------
-                std::vector<PackedVertex> vertices;
-                std::vector<uint32_t> parsedIndices;
-                Vector3 minPos(std::numeric_limits<float>::max());
-                Vector3 maxPos(std::numeric_limits<float>::lowest());
-
-                bool decodedDraco = false;
-                if (primitiveUsesDraco(primitive)) {
-                    dracoPrimitiveCount++;
-                    decodedDraco = decodeDracoPrimitive(model, primitive, vertices, parsedIndices, minPos, maxPos);
-                    if (!decodedDraco) {
-                        dracoDecodeFailureCount++;
-                        spdlog::warn("Skipping glTF primitive due to Draco decode failure (mesh={})", meshIndex);
-                        continue;
-                    }
-                    dracoDecodeSuccessCount++;
-                }
-
-                if (!decodedDraco) {
-                    if (!primitive.attributes.contains("POSITION")) {
-                        continue;
-                    }
-
-                    const auto* positionAccessor = getAccessor(model, primitive.attributes.at("POSITION"));
-                    if (!positionAccessor || positionAccessor->count <= 0) {
-                        continue;
-                    }
-                    // A quantised POSITION is still a POSITION: the readers de-quantise
-                    // every component type glTF allows, so only an unreadable one is
-                    // grounds for dropping the primitive. Requiring float here dropped
-                    // each one whole and silently.
-                    if (positionAccessor->type != TINYGLTF_TYPE_VEC3 ||
-                        componentBytes(positionAccessor->componentType) <= 0) {
-                        continue;
-                    }
-
-                    const auto* normalAccessor = primitive.attributes.contains("NORMAL")
-                        ? getAccessor(model, primitive.attributes.at("NORMAL")) : nullptr;
-                    const auto* uvAccessor = primitive.attributes.contains("TEXCOORD_0")
-                        ? getAccessor(model, primitive.attributes.at("TEXCOORD_0")) : nullptr;
-                    const auto* uv1Accessor = primitive.attributes.contains("TEXCOORD_1")
-                        ? getAccessor(model, primitive.attributes.at("TEXCOORD_1")) : nullptr;
-                    const auto* tangentAccessor = primitive.attributes.contains("TANGENT")
-                        ? getAccessor(model, primitive.attributes.at("TANGENT")) : nullptr;
-
-                    const auto vertexCount = static_cast<size_t>(positionAccessor->count);
-                    vertices.resize(vertexCount);
-                    for (size_t i = 0; i < vertexCount; ++i) {
-                        Vector3 pos;
-                        if (!readFloatVec3(model, *positionAccessor, i, pos)) {
-                            continue;
-                        }
-
-                        Vector3 normal(0.0f, 1.0f, 0.0f);
-                        if (normalAccessor) {
-                            Vector3 n;
-                            if (readFloatVec3(model, *normalAccessor, i, n)) {
-                                normal = n;
-                            }
-                        }
-
-                        float u = 0.0f;
-                        float v = 0.0f;
-                        if (uvAccessor) {
-                            readFloatVec2(model, *uvAccessor, i, u, v);
-                            // glTF UVs are authored for GL-style sampling conventions.
-                            // Metal texture sampling uses top-left origin, so flip V here.
-                            v = 1.0f - v;
-                        }
-                        float u1 = u;
-                        float v1 = v;
-                        if (uv1Accessor) {
-                            readFloatVec2(model, *uv1Accessor, i, u1, v1);
-                            v1 = 1.0f - v1;
-                        }
-
-                        // Leave the tangent zero when the file carries none; triangle
-                        // primitives get one generated below (generateTangents), and the
-                        // shaders skip normal mapping on a degenerate tangent rather than
-                        // building a bogus fixed basis. There is no derivative-based TBN
-                        // fallback in this port.
-                        Vector4 tangent(0.0f, 0.0f, 0.0f, 1.0f);
-                        if (tangentAccessor) {
-                            Vector4 t;
-                            if (readFloatVec4(model, *tangentAccessor, i, t)) {
-                                // We flip V to match the runtime texture sampling convention.
-                                // For imported glTF tangents this requires flipping handedness.
-                                t = Vector4(t.getX(), t.getY(), t.getZ(), -t.getW());
-                                tangent = t;
-                            }
-                        }
-
-                        vertices[i] = PackedVertex{
-                            pos.getX(), pos.getY(), pos.getZ(),
-                            normal.getX(), normal.getY(), normal.getZ(),
-                            u, v,
-                            tangent.getX(), tangent.getY(), tangent.getZ(), tangent.getW(),
-                            u1, v1
-                        };
-
-                        minPos = Vector3::min(minPos, pos);
-                        maxPos = Vector3::max(maxPos, pos);
-                    }
-
-                    if (!tangentAccessor && primitive.mode == TINYGLTF_MODE_TRIANGLES) {
-                        if (primitive.indices >= 0) {
-                            if (const auto* indexAccessor = getAccessor(model, primitive.indices)) {
-                                readIndices(model, *indexAccessor, parsedIndices);
-                            }
-                        }
-                        generateTangents(vertices, parsedIndices.empty() ? nullptr : &parsedIndices);
-                    }
-                }
-
-                const auto vertexCount = vertices.size();
-                if (vertexCount == 0) {
-                    continue;
-                }
-
-                if (!decodedDraco && primitive.indices >= 0 && parsedIndices.empty()) {
-                    if (primitive.indices >= 0) {
-                        if (const auto* indexAccessor = getAccessor(model, primitive.indices)) {
-                            readIndices(model, *indexAccessor, parsedIndices);
-                        }
-                    }
-                }
-
-                // GPU skinning: JOINTS_0/WEIGHTS_0 present → interleave the 88-byte
-                // skinned layout (the Draco path never carries skin attributes here).
-                const auto skinAttributes = decodedDraco
-                    ? SkinAttributes{} : readSkinAttributes(model, primitive, vertexCount);
-                std::vector<uint8_t> vertexBytes;
-                if (skinAttributes.valid) {
-                    vertexBytes = packSkinnedVertices(vertices, skinAttributes);
-                } else {
-                    vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
-                    std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
-                }
-                VertexBufferOptions vbOptions;
-                vbOptions.data = std::move(vertexBytes);
-                auto vertexBuffer = device->createVertexBuffer(
-                    skinAttributes.valid ? skinnedVertexFormat : vertexFormat,
-                    static_cast<int>(vertexCount), vbOptions);
-                if (!vertexBuffer) {
-                    spdlog::warn("GLB parse: vertex buffer creation failed mesh={} primitive", meshIndex);
-                    continue;
-                }
-
-                std::shared_ptr<IndexBuffer> indexBuffer;
-                int drawCount = static_cast<int>(vertexCount);
-                bool indexed = false;
-                if (primitive.indices >= 0) {
-                    if (parsedIndices.empty()) {
-                        const auto* indexAccessor = getAccessor(model, primitive.indices);
-                        if (indexAccessor) {
-                            readIndices(model, *indexAccessor, parsedIndices);
-                        }
-                    }
-                    if (!parsedIndices.empty()) {
-                        std::vector<uint8_t> indexBytes(parsedIndices.size() * sizeof(uint32_t));
-                        std::memcpy(indexBytes.data(), parsedIndices.data(), indexBytes.size());
-                        indexBuffer = device->createIndexBuffer(INDEXFORMAT_UINT32, static_cast<int>(parsedIndices.size()), indexBytes);
-                        drawCount = static_cast<int>(parsedIndices.size());
-                        indexed = true;
-                    }
-                }
-
-                auto meshResource = std::make_shared<Mesh>();
-                meshResource->setVertexBuffer(vertexBuffer);
-                meshResource->setIndexBuffer(indexBuffer, 0);
-
-                Primitive drawPrimitive;
-                drawPrimitive.type = mapPrimitiveType(primitive.mode);
-                drawPrimitive.base = 0;
-                drawPrimitive.baseVertex = 0;
-                drawPrimitive.count = drawCount;
-                drawPrimitive.indexed = indexed;
-                meshResource->setPrimitive(drawPrimitive, 0);
-
-                BoundingBox bounds;
-                bounds.setCenter((minPos + maxPos) * 0.5f);
-                bounds.setHalfExtents((maxPos - minPos) * 0.5f);
-                meshResource->setAabb(bounds);
-
-                GlbMeshPayload payload;
-                payload.mesh = meshResource;
-                if (primitive.material >= 0 && primitive.material < static_cast<int>(gltfMaterials.size())) {
-                    payload.material = gltfMaterials[static_cast<size_t>(primitive.material)];
-                } else {
-                    payload.material = gltfMaterials.front();
-                }
-                // Morph targets (skipped for Draco primitives — vertex order differs).
-                if (!decodedDraco && !primitive.targets.empty()) {
-                    auto morphTargets = readMorphTargets(model, primitive, vertexCount);
-                    if (!morphTargets.empty()) {
-                        payload.morph = std::make_shared<Morph>(std::move(morphTargets),
-                            static_cast<int>(vertexCount), device.get());
-                        payload.morphInitialWeights.assign(mesh.weights.begin(), mesh.weights.end());
-                    }
-                }
-                container->addMeshPayload(payload);
-                meshToPayloadIndices[meshIndex].push_back(nextPayloadIndex++);
-            }
-        }
-
-        // ---------------------------------------------------------------
-        // Post-loop: create a single merged draw call for all POINTS primitives.
-        // Only when the model has no animations (static merge path).
-        // ---------------------------------------------------------------
-        if (!hasAnimations && !mergedPointVertices.empty()) {
-            auto pointVertexFormat = std::make_shared<VertexFormat>(
-                static_cast<int>(sizeof(PackedPointVertex)),
-                VertexFormat::pointElements(), true, false);
-
-            std::vector<uint8_t> pointVertexBytes(mergedPointVertices.size() * sizeof(PackedPointVertex));
-            std::memcpy(pointVertexBytes.data(), mergedPointVertices.data(), pointVertexBytes.size());
-
-            VertexBufferOptions vbOptions;
-            vbOptions.data = std::move(pointVertexBytes);
-            auto pointVB = device->createVertexBuffer(
-                pointVertexFormat,
-                static_cast<int>(mergedPointVertices.size()),
-                vbOptions);
-
-            if (pointVB) {
-                auto meshResource = std::make_shared<Mesh>();
-                meshResource->setVertexBuffer(pointVB);
-
-                Primitive drawPrimitive;
-                drawPrimitive.type = PRIMITIVE_POINTS;
-                drawPrimitive.base = 0;
-                drawPrimitive.baseVertex = 0;
-                drawPrimitive.count = static_cast<int>(mergedPointVertices.size());
-                drawPrimitive.indexed = false;
-                meshResource->setPrimitive(drawPrimitive, 0);
-
-                BoundingBox bounds;
-                bounds.setCenter((mergedPtMin + mergedPtMax) * 0.5f);
-                bounds.setHalfExtents((mergedPtMax - mergedPtMin) * 0.5f);
-                meshResource->setAabb(bounds);
-
-                // Clone the material so point-specific bits don't leak to triangle meshes.
-                std::shared_ptr<Material> pointMaterial;
-                if (mergedPointMaterialIndex >= 0 &&
-                    mergedPointMaterialIndex < static_cast<int>(gltfMaterials.size())) {
-                    pointMaterial = std::make_shared<StandardMaterial>(
-                        *std::static_pointer_cast<StandardMaterial>(
-                            gltfMaterials[static_cast<size_t>(mergedPointMaterialIndex)]));
-                } else {
-                    pointMaterial = std::make_shared<StandardMaterial>(
-                        *std::static_pointer_cast<StandardMaterial>(gltfMaterials.front()));
-                }
-
-                // Add vertexColors (bit 21) + pointSize (bit 31) to variant key.
-                uint64_t ptVariant = pointMaterial->shaderVariantKey();
-                ptVariant |= (1ull << 21);  // VT_FEATURE_VERTEX_COLORS
-                ptVariant |= (1ull << 31);  // VT_FEATURE_POINT_SIZE
-                pointMaterial->setShaderVariantKey(ptVariant);
-
-                GlbMeshPayload payload;
-                payload.mesh = meshResource;
-                payload.material = pointMaterial;
-                payload.castShadow = false;  // Points don't cast meaningful shadows.
-                container->addMeshPayload(payload);
-                // Remember the payload index for the synthetic node created after glTF nodes.
-                mergedPointPayloadIndex = nextPayloadIndex++;
-
-                spdlog::info("GLB merged {} point vertices into 1 draw call (AABB {:.2f}–{:.2f})",
-                    mergedPointVertices.size(),
-                    mergedPtMin.getX(), mergedPtMax.getX());
-            }
-        }
-
-        // Identify which meshes are fully consumed by the POINTS merge (all primitives are POINTS).
-        // Only relevant when not animated — animated models keep individual entities.
-        std::vector<bool> meshFullyConsumed(model.meshes.size(), false);
-        if (!hasAnimations) {
-            for (size_t mi = 0; mi < model.meshes.size(); ++mi) {
-                const auto& m = model.meshes[mi];
-                bool allPoints = !m.primitives.empty();
-                for (const auto& prim : m.primitives) {
-                    if (prim.mode != TINYGLTF_MODE_POINTS) {
-                        allPoints = false;
-                        break;
-                    }
-                }
-                meshFullyConsumed[mi] = allPoints;
-            }
-        }
-
-        // Build node payloads preserving glTF hierarchy / local transforms.
-        for (size_t nodeIndex = 0; nodeIndex < model.nodes.size(); ++nodeIndex) {
-            const auto& node = model.nodes[nodeIndex];
-            GlbNodePayload nodePayload;
-            // Never empty: an unnamed node is `node_<index>`, the name its
-            // animation channels and skin entries carry too (glbNodeName).
-            nodePayload.name = glbNodeName(model, static_cast<int>(nodeIndex));
-
-            if (!node.matrix.empty()) {
-                decomposeNodeMatrix(node.matrix, nodePayload.translation, nodePayload.rotation, nodePayload.scale);
-            }
-            if (node.translation.size() == 3) {
-                nodePayload.translation = Vector3(
-                    static_cast<float>(node.translation[0]),
-                    static_cast<float>(node.translation[1]),
-                    static_cast<float>(node.translation[2])
-                );
-            }
-            if (node.rotation.size() == 4) {
-                nodePayload.rotation = Quaternion(
-                    static_cast<float>(node.rotation[0]),
-                    static_cast<float>(node.rotation[1]),
-                    static_cast<float>(node.rotation[2]),
-                    static_cast<float>(node.rotation[3])
-                ).normalized();
-            }
-            if (node.scale.size() == 3) {
-                nodePayload.scale = Vector3(
-                    static_cast<float>(node.scale[0]),
-                    static_cast<float>(node.scale[1]),
-                    static_cast<float>(node.scale[2])
-                );
-            }
-
-            if (node.mesh >= 0 && node.mesh < static_cast<int>(meshToPayloadIndices.size())) {
-                const auto& mapped = meshToPayloadIndices[static_cast<size_t>(node.mesh)];
-                nodePayload.meshPayloadIndices.insert(nodePayload.meshPayloadIndices.end(), mapped.begin(), mapped.end());
-            }
-            nodePayload.skinIndex = node.skin;
-
-            // Skip leaf nodes whose mesh was fully consumed by the POINTS merge.
-            // Transforms are already baked into the merged vertex buffer, so these
-            // nodes serve no purpose and only add scene graph overhead.
-            if (node.children.empty() && node.mesh >= 0 &&
-                node.mesh < static_cast<int>(meshFullyConsumed.size()) &&
-                meshFullyConsumed[static_cast<size_t>(node.mesh)]) {
-                nodePayload.skip = true;
-            }
-
-            nodePayload.children = node.children;
-            container->addNodePayload(nodePayload);
-        }
-
-        // Append synthetic node for the merged point cloud (identity transform).
-        if (mergedPointPayloadIndex != SIZE_MAX) {
-            GlbNodePayload pointNode;
-            pointNode.name = "__merged_point_cloud";
-            pointNode.meshPayloadIndices.push_back(mergedPointPayloadIndex);
-            container->addNodePayload(pointNode);
-            // Add as root so instantiateRenderEntity() picks it up.
-            container->addRootNodeIndex(static_cast<int>(model.nodes.size()));
-        }
-
-        int sceneIndex = model.defaultScene;
-        if (sceneIndex < 0 && !model.scenes.empty()) {
-            sceneIndex = 0;
-        }
-        if (sceneIndex >= 0 && sceneIndex < static_cast<int>(model.scenes.size())) {
-            const auto& scene = model.scenes[static_cast<size_t>(sceneIndex)];
-            for (const auto nodeIndex : scene.nodes) {
-                container->addRootNodeIndex(nodeIndex);
-            }
-        }
-
-        if (dracoPrimitiveCount > 0) {
-            spdlog::info(
-                "GLB Draco summary [{}]: primitives={}, decoded={}, failed={}",
-                path,
-                dracoPrimitiveCount,
-                dracoDecodeSuccessCount,
-                dracoDecodeFailureCount
-            );
-        }
-
-        // Parse glTF skins + animations.
-        parseSkins(model, container.get());
-        parseAnimations(model, container.get());
-
-        return container;
+        return createFromModel(model, device, path);
     }
 
     std::unique_ptr<GlbContainerResource> GlbParser::parseFromMemory(
@@ -2872,8 +2470,6 @@ namespace visutwin::canvas
         return createFromModel(model, device, debugName);
     }
 
-    // ── createFromModel: GPU resource creation from pre-parsed model ────
-
     std::unique_ptr<GlbContainerResource> GlbParser::createFromModel(
         tinygltf::Model& model,
         const std::shared_ptr<GraphicsDevice>& device,
@@ -2883,293 +2479,26 @@ namespace visutwin::canvas
             spdlog::error("GLB createFromModel failed: graphics device is null");
             return nullptr;
         }
-        warnUnsupportedRequiredExtensions(model, debugName);
-
-        auto container = std::make_unique<GlbContainerResource>();
-        auto vertexFormat = std::make_shared<VertexFormat>(
-            sizeof(PackedVertex), VertexFormat::standardElements(), true, false);
-        auto skinnedVertexFormat = std::make_shared<VertexFormat>(
-            static_cast<int>(SKINNED_VERTEX_STRIDE), VertexFormat::skinnedElements(), true, false);
-        size_t dracoPrimitiveCount = 0;
-        size_t dracoDecodeSuccessCount = 0;
-        size_t dracoDecodeFailureCount = 0;
-
-        std::vector<std::shared_ptr<Material>> gltfMaterials;
-        gltfMaterials.reserve(std::max<size_t>(1, model.materials.size()));
-        std::vector<std::shared_ptr<Texture>> gltfTextures(model.textures.size());
-
-        auto getOrCreateTexture = [&](const int textureIndex) -> std::shared_ptr<Texture> {
-            if (textureIndex < 0 || textureIndex >= static_cast<int>(model.textures.size())) {
-                return nullptr;
-            }
-            auto& cached = gltfTextures[static_cast<size_t>(textureIndex)];
-            if (cached) return cached;
-
-            const auto& srcTexture = model.textures[static_cast<size_t>(textureIndex)];
-            int imageSource = srcTexture.source;
-            if (imageSource < 0) {
-                static const char* textureExtensions[] = {
-                    "KHR_texture_basisu", "EXT_texture_webp",
-                    "EXT_texture_avif", "MSFT_texture_dds"
-                };
-                for (const auto* extName : textureExtensions) {
-                    auto it = srcTexture.extensions.find(extName);
-                    if (it != srcTexture.extensions.end() && it->second.IsObject()) {
-                        auto sourceVal = it->second.Get("source");
-                        if (sourceVal.IsInt()) {
-                            imageSource = sourceVal.GetNumberAsInt();
-                            break;
-                        }
-                    }
-                }
-            }
-            if (imageSource < 0 || imageSource >= static_cast<int>(model.images.size())) return nullptr;
-
-            const auto& srcImage = model.images[static_cast<size_t>(imageSource)];
-            const std::string textureName = srcImage.name.empty() ? srcTexture.name : srcImage.name;
-
-            std::shared_ptr<Texture> texture;
-            if (imageHoldsKtx2(srcImage)) {
-                // KHR_texture_basisu: transcode KTX2 to a GPU compressed format.
-                texture = createTextureFromKtx2(srcImage.image, textureName, device);
-                if (!texture) return nullptr;
-            } else {
-                std::vector<uint8_t> rgbaPixels;
-                if (!buildRgba8Image(srcImage, rgbaPixels)) return nullptr;
-
-                TextureOptions options;
-                options.profilerHint = TexHint::TEXHINT_ASSET;
-                options.width = static_cast<uint32_t>(srcImage.width);
-                options.height = static_cast<uint32_t>(srcImage.height);
-                options.format = PixelFormat::PIXELFORMAT_RGBA8;
-                // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
-                // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
-                // sampling can't minify ground/wall textures at glancing angles and we get radial
-                // streak aliasing from the viewer's nadir point.
-                options.mipmaps = true;
-                options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
-                options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
-                options.magFilter = FilterMode::FILTER_LINEAR;
-                options.name = textureName;
-
-                texture = std::make_shared<Texture>(device.get(), options);
-                texture->setLevelData(0, rgbaPixels.data(), rgbaPixels.size());
-            }
-
-            if (srcTexture.sampler >= 0 && srcTexture.sampler < static_cast<int>(model.samplers.size())) {
-                const auto& sampler = model.samplers[static_cast<size_t>(srcTexture.sampler)];
-                if (sampler.minFilter != -1) {
-                    auto minFilter = mapMinFilter(sampler.minFilter);
-                    if (minFilter == FilterMode::FILTER_NEAREST_MIPMAP_NEAREST ||
-                        minFilter == FilterMode::FILTER_LINEAR_MIPMAP_NEAREST ||
-                        minFilter == FilterMode::FILTER_NEAREST_MIPMAP_LINEAR ||
-                        minFilter == FilterMode::FILTER_LINEAR_MIPMAP_LINEAR) {
-                        minFilter = FilterMode::FILTER_LINEAR;
-                    }
-                    texture->setMinFilter(minFilter);
-                }
-                if (sampler.magFilter != -1) texture->setMagFilter(mapMagFilter(sampler.magFilter));
-                texture->setAddressU(mapWrapMode(sampler.wrapS));
-                texture->setAddressV(mapWrapMode(sampler.wrapT));
-            }
-
-            texture->upload();
-            container->addOwnedTexture(texture);
-            cached = texture;
-            return cached;
-        };
-
-        if (model.materials.empty()) {
-            gltfMaterials.push_back(createDefaultGltfMaterial());
-        } else {
-            for (size_t materialIndex = 0; materialIndex < model.materials.size(); ++materialIndex) {
-                gltfMaterials.push_back(createGltfMaterial(model.materials[materialIndex], getOrCreateTexture));
-            }
-        }
-
-        std::vector<std::vector<size_t>> meshToPayloadIndices(model.meshes.size());
-        size_t nextPayloadIndex = 0;
-        for (size_t meshIndex = 0; meshIndex < model.meshes.size(); ++meshIndex) {
-            const auto& mesh = model.meshes[meshIndex];
-            for (const auto& primitive : mesh.primitives) {
-                std::vector<PackedVertex> vertices;
-                std::vector<uint32_t> parsedIndices;
-                Vector3 minPos(std::numeric_limits<float>::max());
-                Vector3 maxPos(std::numeric_limits<float>::lowest());
-
-                bool decodedDraco = false;
-                if (primitiveUsesDraco(primitive)) {
-                    dracoPrimitiveCount++;
-                    decodedDraco = decodeDracoPrimitive(model, primitive, vertices, parsedIndices, minPos, maxPos);
-                    if (!decodedDraco) { dracoDecodeFailureCount++; continue; }
-                    dracoDecodeSuccessCount++;
-                }
-
-                if (!decodedDraco) {
-                    if (!primitive.attributes.contains("POSITION")) continue;
-                    const auto* posAcc = getAccessor(model, primitive.attributes.at("POSITION"));
-                    if (!posAcc || posAcc->count <= 0) continue;
-                    // See the note on the same guard in parse(): quantised positions read fine.
-                    if (posAcc->type != TINYGLTF_TYPE_VEC3 || componentBytes(posAcc->componentType) <= 0) continue;
-
-                    const auto* normalAcc = primitive.attributes.contains("NORMAL") ? getAccessor(model, primitive.attributes.at("NORMAL")) : nullptr;
-                    const auto* uvAcc = primitive.attributes.contains("TEXCOORD_0") ? getAccessor(model, primitive.attributes.at("TEXCOORD_0")) : nullptr;
-                    const auto* uv1Acc = primitive.attributes.contains("TEXCOORD_1") ? getAccessor(model, primitive.attributes.at("TEXCOORD_1")) : nullptr;
-                    const auto* tanAcc = primitive.attributes.contains("TANGENT") ? getAccessor(model, primitive.attributes.at("TANGENT")) : nullptr;
-
-                    const auto vCount = static_cast<size_t>(posAcc->count);
-                    vertices.resize(vCount);
-                    for (size_t i = 0; i < vCount; ++i) {
-                        Vector3 pos;
-                        if (!readFloatVec3(model, *posAcc, i, pos)) continue;
-                        Vector3 normal(0.0f, 1.0f, 0.0f);
-                        if (normalAcc) { Vector3 n; if (readFloatVec3(model, *normalAcc, i, n)) normal = n; }
-                        float u = 0.0f, v = 0.0f;
-                        if (uvAcc) { readFloatVec2(model, *uvAcc, i, u, v); v = 1.0f - v; }
-                        float u1 = u, v1 = v;
-                        if (uv1Acc) { readFloatVec2(model, *uv1Acc, i, u1, v1); v1 = 1.0f - v1; }
-                        Vector4 tangent(0.0f, 0.0f, 0.0f, 1.0f);
-                        if (tanAcc) { Vector4 t; if (readFloatVec4(model, *tanAcc, i, t)) { tangent = Vector4(t.getX(), t.getY(), t.getZ(), -t.getW()); } }
-
-                        vertices[i] = PackedVertex{
-                            pos.getX(), pos.getY(), pos.getZ(),
-                            normal.getX(), normal.getY(), normal.getZ(),
-                            u, v, tangent.getX(), tangent.getY(), tangent.getZ(), tangent.getW(),
-                            u1, v1
-                        };
-                        minPos = Vector3::min(minPos, pos);
-                        maxPos = Vector3::max(maxPos, pos);
-                    }
-                    if (!tanAcc && primitive.mode == TINYGLTF_MODE_TRIANGLES) {
-                        if (primitive.indices >= 0) { if (const auto* ia = getAccessor(model, primitive.indices)) readIndices(model, *ia, parsedIndices); }
-                        generateTangents(vertices, parsedIndices.empty() ? nullptr : &parsedIndices);
-                    }
-                }
-
-                if (vertices.empty()) continue;
-
-                if (!decodedDraco && primitive.indices >= 0 && parsedIndices.empty()) {
-                    if (const auto* ia = getAccessor(model, primitive.indices)) readIndices(model, *ia, parsedIndices);
-                }
-
-                // GPU skinning: JOINTS_0/WEIGHTS_0 → 88-byte skinned layout.
-                const auto skinAttributes = decodedDraco
-                    ? SkinAttributes{} : readSkinAttributes(model, primitive, vertices.size());
-                std::vector<uint8_t> vertexBytes;
-                if (skinAttributes.valid) {
-                    vertexBytes = packSkinnedVertices(vertices, skinAttributes);
-                } else {
-                    vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
-                    std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
-                }
-                VertexBufferOptions vbOptions;
-                vbOptions.data = std::move(vertexBytes);
-                auto vb = device->createVertexBuffer(
-                    skinAttributes.valid ? skinnedVertexFormat : vertexFormat,
-                    static_cast<int>(vertices.size()), vbOptions);
-                if (!vb) continue;
-
-                std::shared_ptr<IndexBuffer> ib;
-                int drawCount = static_cast<int>(vertices.size());
-                bool indexed = false;
-                if (!parsedIndices.empty()) {
-                    std::vector<uint8_t> indexBytes(parsedIndices.size() * sizeof(uint32_t));
-                    std::memcpy(indexBytes.data(), parsedIndices.data(), indexBytes.size());
-                    ib = device->createIndexBuffer(INDEXFORMAT_UINT32, static_cast<int>(parsedIndices.size()), indexBytes);
-                    drawCount = static_cast<int>(parsedIndices.size());
-                    indexed = true;
-                }
-
-                auto meshResource = std::make_shared<Mesh>();
-                meshResource->setVertexBuffer(vb);
-                meshResource->setIndexBuffer(ib, 0);
-                Primitive drawPrimitive;
-                drawPrimitive.type = mapPrimitiveType(primitive.mode);
-                drawPrimitive.base = 0;
-                drawPrimitive.baseVertex = 0;
-                drawPrimitive.count = drawCount;
-                drawPrimitive.indexed = indexed;
-                meshResource->setPrimitive(drawPrimitive, 0);
-
-                BoundingBox bounds;
-                bounds.setCenter((minPos + maxPos) * 0.5f);
-                bounds.setHalfExtents((maxPos - minPos) * 0.5f);
-                meshResource->setAabb(bounds);
-
-                GlbMeshPayload payload;
-                payload.mesh = meshResource;
-                payload.material = (primitive.material >= 0 && primitive.material < static_cast<int>(gltfMaterials.size()))
-                    ? gltfMaterials[static_cast<size_t>(primitive.material)] : gltfMaterials.front();
-                // Morph targets (skipped for Draco primitives — vertex order differs).
-                if (!decodedDraco && !primitive.targets.empty()) {
-                    auto morphTargets = readMorphTargets(model, primitive, vertices.size());
-                    if (!morphTargets.empty()) {
-                        payload.morph = std::make_shared<Morph>(std::move(morphTargets),
-                            static_cast<int>(vertices.size()), device.get());
-                        payload.morphInitialWeights.assign(mesh.weights.begin(), mesh.weights.end());
-                    }
-                }
-                container->addMeshPayload(payload);
-                meshToPayloadIndices[meshIndex].push_back(nextPayloadIndex++);
-            }
-        }
-
-        for (size_t nodeIndex = 0; nodeIndex < model.nodes.size(); ++nodeIndex) {
-            const auto& node = model.nodes[nodeIndex];
-            GlbNodePayload nodePayload;
-            // Never empty: an unnamed node is `node_<index>`, the name its
-            // animation channels and skin entries carry too (glbNodeName).
-            nodePayload.name = glbNodeName(model, static_cast<int>(nodeIndex));
-            if (!node.matrix.empty()) decomposeNodeMatrix(node.matrix, nodePayload.translation, nodePayload.rotation, nodePayload.scale);
-            if (node.translation.size() == 3) nodePayload.translation = Vector3(static_cast<float>(node.translation[0]), static_cast<float>(node.translation[1]), static_cast<float>(node.translation[2]));
-            if (node.rotation.size() == 4) nodePayload.rotation = Quaternion(static_cast<float>(node.rotation[0]), static_cast<float>(node.rotation[1]), static_cast<float>(node.rotation[2]), static_cast<float>(node.rotation[3])).normalized();
-            if (node.scale.size() == 3) nodePayload.scale = Vector3(static_cast<float>(node.scale[0]), static_cast<float>(node.scale[1]), static_cast<float>(node.scale[2]));
-            if (node.mesh >= 0 && node.mesh < static_cast<int>(meshToPayloadIndices.size())) {
-                const auto& mapped = meshToPayloadIndices[static_cast<size_t>(node.mesh)];
-                nodePayload.meshPayloadIndices.insert(nodePayload.meshPayloadIndices.end(), mapped.begin(), mapped.end());
-            }
-            nodePayload.skinIndex = node.skin;
-            nodePayload.children = node.children;
-            container->addNodePayload(nodePayload);
-        }
-
-        int sceneIndex = model.defaultScene;
-        if (sceneIndex < 0 && !model.scenes.empty()) sceneIndex = 0;
-        if (sceneIndex >= 0 && sceneIndex < static_cast<int>(model.scenes.size())) {
-            for (const auto nodeIndex : model.scenes[static_cast<size_t>(sceneIndex)].nodes)
-                container->addRootNodeIndex(nodeIndex);
-        }
-
-        if (dracoPrimitiveCount > 0) {
-            spdlog::info("GLB Draco summary [{}]: primitives={}, decoded={}, failed={}",
-                debugName, dracoPrimitiveCount, dracoDecodeSuccessCount, dracoDecodeFailureCount);
-        }
-
-        // Parse glTF skins + animations.
-        parseSkins(model, container.get());
-        parseAnimations(model, container.get());
-
-        return container;
+        return createFromPrepared(model,
+            prepareFromModel(model, device->preferredCompressedRgbaFormat(), debugName), device, debugName);
     }
 
-    // ── prepareFromModel: CPU-heavy work on background thread ────────
+    // ── prepareFromModel: the CPU-heavy half, safe on a worker thread ────
 
     PreparedGlbData GlbParser::prepareFromModel(tinygltf::Model& model,
         const PixelFormat ktx2TargetFormat, const std::string& debugName)
     {
-        // The async path never reaches createFromModel — its main-thread half is
-        // createFromPrepared — so it is checked here, once, on the worker.
         warnUnsupportedRequiredExtensions(model, debugName.empty() ? "glTF" : debugName);
 
         PreparedGlbData result;
 
-        // ── Pre-convert all images to RGBA8 ──────────────────────────
+        // ── Images: RGBA8, or transcoded KTX2 ────────────────────────
         result.images.resize(model.images.size());
         for (size_t i = 0; i < model.images.size(); ++i) {
             auto& img = result.images[i];
             const auto& srcImage = model.images[i];
             if (imageHoldsKtx2(srcImage)) {
-                // KHR_texture_basisu: transcode on this background thread.
+                // KHR_texture_basisu: transcode here, off the main thread.
                 auto transcoded = Ktx2Transcoder::transcode(srcImage.image.data(),
                     srcImage.image.size(), srcImage.name.empty() ? "ktx2" : srcImage.name,
                     ktx2TargetFormat);
@@ -3187,123 +2516,81 @@ namespace visutwin::canvas
             if (img.valid) {
                 img.width  = srcImage.width;
                 img.height = srcImage.height;
+            } else {
+                spdlog::warn("glTF image '{}' unsupported format (bits={}, components={}, pixelType={})",
+                    srcImage.name, srcImage.bits, srcImage.component, srcImage.pixel_type);
             }
         }
 
-        // ── Pre-extract mesh primitive vertices/indices ──────────────
+        // ── Primitives ───────────────────────────────────────────────
+        // With animations, POINTS stay per node in local space so animating the node
+        // moves the cloud; without, they merge into one world-space draw call.
+        result.pointCloudsMerged = model.animations.empty();
+        std::vector<Matrix4> nodeWorld;
+        std::vector<int> meshToNodeIndex;
+        std::vector<PackedPointVertex> mergedPoints;
+        Vector3 mergedMin(std::numeric_limits<float>::max());
+        Vector3 mergedMax(std::numeric_limits<float>::lowest());
+        int mergedMaterialIndex = -1;
+
         result.meshPrimitives.resize(model.meshes.size());
         for (size_t meshIndex = 0; meshIndex < model.meshes.size(); ++meshIndex) {
             const auto& mesh = model.meshes[meshIndex];
             auto& primResults = result.meshPrimitives[meshIndex];
 
             for (const auto& primitive : mesh.primitives) {
-                PreparedGlbData::PrimitiveData pd;
-                pd.mode = primitive.mode;
-                pd.materialIndex = primitive.material;
-
-                std::vector<PackedVertex> vertices;
-                std::vector<uint32_t> parsedIndices;
-                Vector3 minPos(std::numeric_limits<float>::max());
-                Vector3 maxPos(std::numeric_limits<float>::lowest());
-
-                bool decodedDraco = false;
-                if (primitiveUsesDraco(primitive)) {
-                    result.dracoPrimitiveCount++;
-                    decodedDraco = decodeDracoPrimitive(model, primitive, vertices, parsedIndices, minPos, maxPos);
-                    if (!decodedDraco) {
-                        result.dracoDecodeFailureCount++;
+                if (primitive.mode == TINYGLTF_MODE_POINTS) {
+                    const auto* positions = readablePositions(model, primitive);
+                    if (!positions) {
                         continue;
                     }
-                    result.dracoDecodeSuccessCount++;
-                }
-
-                if (!decodedDraco) {
-                    if (!primitive.attributes.contains("POSITION")) continue;
-                    const auto* posAcc = getAccessor(model, primitive.attributes.at("POSITION"));
-                    if (!posAcc || posAcc->count <= 0) continue;
-                    // See the note on the same guard in parse(): quantised positions read fine.
-                    if (posAcc->type != TINYGLTF_TYPE_VEC3 || componentBytes(posAcc->componentType) <= 0) continue;
-
-                    const auto* normalAcc = primitive.attributes.contains("NORMAL") ? getAccessor(model, primitive.attributes.at("NORMAL")) : nullptr;
-                    const auto* uvAcc = primitive.attributes.contains("TEXCOORD_0") ? getAccessor(model, primitive.attributes.at("TEXCOORD_0")) : nullptr;
-                    const auto* uv1Acc = primitive.attributes.contains("TEXCOORD_1") ? getAccessor(model, primitive.attributes.at("TEXCOORD_1")) : nullptr;
-                    const auto* tanAcc = primitive.attributes.contains("TANGENT") ? getAccessor(model, primitive.attributes.at("TANGENT")) : nullptr;
-
-                    const auto vCount = static_cast<size_t>(posAcc->count);
-                    vertices.resize(vCount);
-                    for (size_t i = 0; i < vCount; ++i) {
-                        Vector3 pos;
-                        if (!readFloatVec3(model, *posAcc, i, pos)) continue;
-                        Vector3 normal(0.0f, 1.0f, 0.0f);
-                        if (normalAcc) { Vector3 n; if (readFloatVec3(model, *normalAcc, i, n)) normal = n; }
-                        float u = 0.0f, v = 0.0f;
-                        if (uvAcc) { readFloatVec2(model, *uvAcc, i, u, v); v = 1.0f - v; }
-                        float u1 = u, v1 = v;
-                        if (uv1Acc) { readFloatVec2(model, *uv1Acc, i, u1, v1); v1 = 1.0f - v1; }
-                        Vector4 tangent(0.0f, 0.0f, 0.0f, 1.0f);
-                        if (tanAcc) { Vector4 t; if (readFloatVec4(model, *tanAcc, i, t)) { tangent = Vector4(t.getX(), t.getY(), t.getZ(), -t.getW()); } }
-
-                        vertices[i] = PackedVertex{
-                            pos.getX(), pos.getY(), pos.getZ(),
-                            normal.getX(), normal.getY(), normal.getZ(),
-                            u, v, tangent.getX(), tangent.getY(), tangent.getZ(), tangent.getW(),
-                            u1, v1
-                        };
-                        minPos = Vector3::min(minPos, pos);
-                        maxPos = Vector3::max(maxPos, pos);
+                    const auto* colors = primitiveAttribute(model, primitive, "COLOR_0");
+                    if (!result.pointCloudsMerged) {
+                        std::vector<PackedPointVertex> points;
+                        Vector3 pointsMin(std::numeric_limits<float>::max());
+                        Vector3 pointsMax(std::numeric_limits<float>::lowest());
+                        appendPointVertices(model, *positions, colors, nullptr, points, pointsMin, pointsMax);
+                        primResults.push_back(pointCloudData(std::move(points), pointsMin, pointsMax,
+                            primitive.material >= 0 ? primitive.material : 0));
+                        continue;
                     }
-                    if (!tanAcc && primitive.mode == TINYGLTF_MODE_TRIANGLES) {
-                        if (primitive.indices >= 0) { if (const auto* ia = getAccessor(model, primitive.indices)) readIndices(model, *ia, parsedIndices); }
-                        generateTangents(vertices, parsedIndices.empty() ? nullptr : &parsedIndices);
+                    if (nodeWorld.empty()) {
+                        nodeWorld = computeNodeWorldMatrices(model);
+                        // The last node referencing a mesh places it.
+                        meshToNodeIndex.assign(model.meshes.size(), -1);
+                        for (size_t i = 0; i < model.nodes.size(); ++i) {
+                            const int meshRef = model.nodes[i].mesh;
+                            if (meshRef >= 0 && meshRef < static_cast<int>(model.meshes.size())) {
+                                meshToNodeIndex[static_cast<size_t>(meshRef)] = static_cast<int>(i);
+                            }
+                        }
                     }
+                    if (mergedMaterialIndex < 0) {
+                        mergedMaterialIndex = primitive.material >= 0 ? primitive.material : 0;
+                    }
+                    const int nodeIndex = meshToNodeIndex[meshIndex];
+                    const Matrix4 world = nodeIndex >= 0 ? nodeWorld[static_cast<size_t>(nodeIndex)] : Matrix4::identity();
+                    appendPointVertices(model, *positions, colors, &world, mergedPoints, mergedMin, mergedMax);
+                    continue;
                 }
 
-                if (vertices.empty()) continue;
-
-                if (!decodedDraco && primitive.indices >= 0 && parsedIndices.empty()) {
-                    if (const auto* ia = getAccessor(model, primitive.indices)) readIndices(model, *ia, parsedIndices);
+                PreparedGlbData::PrimitiveData pd;
+                if (extractTrianglePrimitive(model, mesh, primitive, meshIndex, result, pd)) {
+                    primResults.push_back(std::move(pd));
                 }
-
-                // Pack into byte arrays (88-byte skinned layout when skin attributes exist).
-                pd.vertexCount = static_cast<int>(vertices.size());
-                const auto skinAttributes = decodedDraco
-                    ? SkinAttributes{} : readSkinAttributes(model, primitive, vertices.size());
-                if (skinAttributes.valid) {
-                    pd.skinned = true;
-                    pd.vertexBytes = packSkinnedVertices(vertices, skinAttributes);
-                } else {
-                    pd.vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
-                    std::memcpy(pd.vertexBytes.data(), vertices.data(), pd.vertexBytes.size());
-                }
-
-                // Morph targets (skipped for Draco primitives — vertex order differs).
-                if (!decodedDraco && !primitive.targets.empty()) {
-                    pd.morphTargets = readMorphTargets(model, primitive, vertices.size());
-                    pd.morphInitialWeights.assign(mesh.weights.begin(), mesh.weights.end());
-                }
-
-                pd.drawCount = static_cast<int>(vertices.size());
-                pd.indexed = false;
-                if (!parsedIndices.empty()) {
-                    pd.indexBytes.resize(parsedIndices.size() * sizeof(uint32_t));
-                    std::memcpy(pd.indexBytes.data(), parsedIndices.data(), pd.indexBytes.size());
-                    pd.drawCount = static_cast<int>(parsedIndices.size());
-                    pd.indexed = true;
-                }
-
-                pd.boundsMin = minPos;
-                pd.boundsMax = maxPos;
-                primResults.push_back(std::move(pd));
             }
         }
+        if (!mergedPoints.empty()) {
+            result.mergedPoints = pointCloudData(std::move(mergedPoints), mergedMin, mergedMax, mergedMaterialIndex);
+        }
 
-        // ── Parse animations ─────────────────────────────────────────
+        // ── Animations ───────────────────────────────────────────────
         parseAnimations(model, result.animTracks);
 
         return result;
     }
 
-    // ── createFromPrepared: fast GPU resource creation on main thread ─
+    // ── createFromPrepared: GPU resource creation on the main thread ─────
 
     std::unique_ptr<GlbContainerResource> GlbParser::createFromPrepared(
         tinygltf::Model& model,
@@ -3317,179 +2604,90 @@ namespace visutwin::canvas
         }
 
         auto container = std::make_unique<GlbContainerResource>();
-        auto vertexFormat = std::make_shared<VertexFormat>(
+        const auto vertexFormat = std::make_shared<VertexFormat>(
             sizeof(PackedVertex), VertexFormat::standardElements(), true, false);
-        auto skinnedVertexFormat = std::make_shared<VertexFormat>(
+        const auto skinnedVertexFormat = std::make_shared<VertexFormat>(
             static_cast<int>(SKINNED_VERTEX_STRIDE), VertexFormat::skinnedElements(), true, false);
+        const auto pointVertexFormat = std::make_shared<VertexFormat>(
+            static_cast<int>(sizeof(PackedPointVertex)), VertexFormat::pointElements(), true, false);
 
-        std::vector<std::shared_ptr<Material>> gltfMaterials;
-        gltfMaterials.reserve(std::max<size_t>(1, model.materials.size()));
+        // ── Textures, created on first reference by a material ───────
         std::vector<std::shared_ptr<Texture>> gltfTextures(model.textures.size());
-
-        // ── Create GPU textures from pre-converted RGBA data ─────────
         auto getOrCreateTexture = [&](const int textureIndex) -> std::shared_ptr<Texture> {
-            if (textureIndex < 0 || textureIndex >= static_cast<int>(model.textures.size())) return nullptr;
+            if (textureIndex < 0 || textureIndex >= static_cast<int>(model.textures.size())) {
+                return nullptr;
+            }
             auto& cached = gltfTextures[static_cast<size_t>(textureIndex)];
-            if (cached) return cached;
+            if (cached) {
+                return cached;
+            }
 
             const auto& srcTexture = model.textures[static_cast<size_t>(textureIndex)];
-            int imageSource = srcTexture.source;
-            if (imageSource < 0) {
-                // Try texture extensions that store the image index in a "source" field
-                static const char* textureExtensions[] = {
-                    "KHR_texture_basisu",
-                    "EXT_texture_webp",
-                    "EXT_texture_avif",
-                    "MSFT_texture_dds"
-                };
-                for (const auto* extName : textureExtensions) {
-                    auto it = srcTexture.extensions.find(extName);
-                    if (it != srcTexture.extensions.end() && it->second.IsObject()) {
-                        auto sourceVal = it->second.Get("source");
-                        if (sourceVal.IsInt()) {
-                            imageSource = sourceVal.GetNumberAsInt();
-                            break;
-                        }
-                    }
-                }
-            }
+            const int imageSource = textureImageSource(srcTexture);
             if (imageSource < 0 || imageSource >= static_cast<int>(prepared.images.size())) {
-                spdlog::warn("    getOrCreateTexture({}): invalid imageSource={} (extensions: {})",
-                    textureIndex, imageSource,
-                    [&]() {
-                        std::string exts;
-                        for (const auto& [k, v] : srcTexture.extensions) {
-                            if (!exts.empty()) exts += ", ";
-                            exts += k;
-                        }
-                        return exts.empty() ? "none" : exts;
-                    }());
+                std::string extensions;
+                for (const auto& [name, value] : srcTexture.extensions) {
+                    extensions += (extensions.empty() ? "" : ", ") + name;
+                }
+                spdlog::warn("glTF texture {} has no valid image source (source={}, extensions: {})",
+                    textureIndex, srcTexture.source, extensions.empty() ? "none" : extensions);
                 return nullptr;
             }
-
-            const auto& prepImg = prepared.images[static_cast<size_t>(imageSource)];
-            if (!prepImg.valid || (prepImg.rgbaPixels.empty() && !prepImg.isCompressed)) {
-                spdlog::warn("    getOrCreateTexture({}): image {} not valid (valid={}, pixels={})",
-                    textureIndex, imageSource, prepImg.valid, prepImg.rgbaPixels.size());
-                return nullptr;
+            const auto& image = prepared.images[static_cast<size_t>(imageSource)];
+            if (!image.valid || (image.rgbaPixels.empty() && !image.isCompressed)) {
+                return nullptr;   // the prepare half already said why
             }
 
             const auto& srcImage = model.images[static_cast<size_t>(imageSource)];
-
-            TextureOptions options;
-            options.profilerHint = TexHint::TEXHINT_ASSET;
-            options.width  = static_cast<uint32_t>(prepImg.width);
-            options.height = static_cast<uint32_t>(prepImg.height);
-            if (prepImg.isCompressed) {
-                // KHR_texture_basisu: pre-transcoded block-compressed levels.
-                options.format = static_cast<PixelFormat>(prepImg.compressedFormat);
-                options.mipmaps = prepImg.compressedLevels.size() > 1;
-                options.numLevels = static_cast<uint32_t>(prepImg.compressedLevels.size());
-                options.minFilter = options.mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR
-                                                    : FilterMode::FILTER_LINEAR;
-            } else {
-                options.format = PixelFormat::PIXELFORMAT_RGBA8;
-                // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
-                // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
-                // sampling can't minify ground/wall textures at glancing angles and we get radial
-                // streak aliasing from the viewer's nadir point.
-                options.mipmaps = true;
-                options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
-                options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
-            }
-            options.magFilter = FilterMode::FILTER_LINEAR;
-            options.name = srcImage.name.empty() ? srcTexture.name : srcImage.name;
-
-            auto texture = std::make_shared<Texture>(device.get(), options);
-            if (prepImg.isCompressed) {
-                for (size_t level = 0; level < prepImg.compressedLevels.size(); ++level) {
-                    texture->setLevelData(static_cast<uint32_t>(level),
-                        prepImg.compressedLevels[level].data(),
-                        prepImg.compressedLevels[level].size());
-                }
-            } else {
-                texture->setLevelData(0, prepImg.rgbaPixels.data(), prepImg.rgbaPixels.size());
-            }
-
-            if (srcTexture.sampler >= 0 && srcTexture.sampler < static_cast<int>(model.samplers.size())) {
-                const auto& sampler = model.samplers[static_cast<size_t>(srcTexture.sampler)];
-                if (sampler.minFilter != -1) {
-                    auto minFilter = mapMinFilter(sampler.minFilter);
-                    if (minFilter == FilterMode::FILTER_NEAREST_MIPMAP_NEAREST ||
-                        minFilter == FilterMode::FILTER_LINEAR_MIPMAP_NEAREST ||
-                        minFilter == FilterMode::FILTER_NEAREST_MIPMAP_LINEAR ||
-                        minFilter == FilterMode::FILTER_LINEAR_MIPMAP_LINEAR) {
-                        minFilter = FilterMode::FILTER_LINEAR;
-                    }
-                    texture->setMinFilter(minFilter);
-                }
-                if (sampler.magFilter != -1) texture->setMagFilter(mapMagFilter(sampler.magFilter));
-                texture->setAddressU(mapWrapMode(sampler.wrapS));
-                texture->setAddressV(mapWrapMode(sampler.wrapT));
-            }
-
+            auto texture = createPreparedTexture(image, srcImage.name.empty() ? srcTexture.name : srcImage.name,
+                device);
+            applyGltfSampler(*texture, model, srcTexture);
             texture->upload();
             container->addOwnedTexture(texture);
             cached = texture;
             return cached;
         };
 
-        // ── Create materials ─────────────────────────────────────────
+        // ── Materials ────────────────────────────────────────────────
+        std::vector<std::shared_ptr<Material>> gltfMaterials;
+        gltfMaterials.reserve(std::max<size_t>(1, model.materials.size()));
         size_t actualTextureCount = 0;
         if (model.materials.empty()) {
             gltfMaterials.push_back(createDefaultGltfMaterial());
         } else {
-            for (size_t materialIndex = 0; materialIndex < model.materials.size(); ++materialIndex) {
-                gltfMaterials.push_back(createGltfMaterial(model.materials[materialIndex], getOrCreateTexture, &actualTextureCount));
+            for (const auto& srcMaterial : model.materials) {
+                gltfMaterials.push_back(createGltfMaterial(srcMaterial, getOrCreateTexture, &actualTextureCount));
             }
         }
 
-        // ── Create GPU mesh resources from pre-extracted byte data ────
+        // ── Meshes ───────────────────────────────────────────────────
         std::vector<std::vector<size_t>> meshToPayloadIndices(model.meshes.size());
         size_t nextPayloadIndex = 0;
-
         for (size_t meshIndex = 0; meshIndex < prepared.meshPrimitives.size(); ++meshIndex) {
             for (auto& pd : prepared.meshPrimitives[meshIndex]) {
-                if (pd.vertexBytes.empty()) continue;
-
-                VertexBufferOptions vbOptions;
-                vbOptions.data = std::move(pd.vertexBytes);
-                auto vb = device->createVertexBuffer(
-                    pd.skinned ? skinnedVertexFormat : vertexFormat, pd.vertexCount, vbOptions);
-                if (!vb) continue;
-
-                std::shared_ptr<IndexBuffer> ib;
-                if (pd.indexed && !pd.indexBytes.empty()) {
-                    const int indexCount = static_cast<int>(pd.indexBytes.size() / sizeof(uint32_t));
-                    ib = device->createIndexBuffer(INDEXFORMAT_UINT32, indexCount, pd.indexBytes);
+                if (pd.vertexBytes.empty()) {
+                    continue;
+                }
+                const auto& format = pd.pointCloud ? pointVertexFormat
+                    : pd.skinned ? skinnedVertexFormat : vertexFormat;
+                auto mesh = createPreparedMesh(pd, device, format);
+                if (!mesh) {
+                    spdlog::warn("GLB [{}]: vertex buffer creation failed (mesh {})", debugName, meshIndex);
+                    continue;
                 }
 
-                auto meshResource = std::make_shared<Mesh>();
-                meshResource->setVertexBuffer(vb);
-                meshResource->setIndexBuffer(ib, 0);
-
-                Primitive drawPrimitive;
-                drawPrimitive.type = mapPrimitiveType(pd.mode);
-                drawPrimitive.base = 0;
-                drawPrimitive.baseVertex = 0;
-                drawPrimitive.count = pd.drawCount;
-                drawPrimitive.indexed = pd.indexed;
-                meshResource->setPrimitive(drawPrimitive, 0);
-
-                BoundingBox bounds;
-                bounds.setCenter((pd.boundsMin + pd.boundsMax) * 0.5f);
-                bounds.setHalfExtents((pd.boundsMax - pd.boundsMin) * 0.5f);
-                meshResource->setAabb(bounds);
-
                 GlbMeshPayload payload;
-                payload.mesh = meshResource;
-                payload.material = (pd.materialIndex >= 0 && pd.materialIndex < static_cast<int>(gltfMaterials.size()))
-                    ? gltfMaterials[static_cast<size_t>(pd.materialIndex)] : gltfMaterials.front();
-                // Morph targets: deltas were extracted on the background thread;
-                // build the GPU buffer here on the main thread.
+                payload.mesh = mesh;
+                if (pd.pointCloud) {
+                    payload.material = pointCloudMaterial(gltfMaterials, pd.materialIndex, true);
+                    payload.castShadow = false;
+                } else {
+                    payload.material = (pd.materialIndex >= 0 && pd.materialIndex < static_cast<int>(gltfMaterials.size()))
+                        ? gltfMaterials[static_cast<size_t>(pd.materialIndex)] : gltfMaterials.front();
+                }
+                // Morph deltas were extracted by the prepare half; the GPU buffer is built here.
                 if (!pd.morphTargets.empty()) {
-                    payload.morph = std::make_shared<Morph>(std::move(pd.morphTargets),
-                        pd.vertexCount, device.get());
+                    payload.morph = std::make_shared<Morph>(std::move(pd.morphTargets), pd.vertexCount, device.get());
                     payload.morphInitialWeights = std::move(pd.morphInitialWeights);
                 }
                 container->addMeshPayload(payload);
@@ -3497,48 +2695,96 @@ namespace visutwin::canvas
             }
         }
 
-        // ── Create node payloads ─────────────────────────────────────
+        size_t mergedPointPayloadIndex = SIZE_MAX;
+        if (prepared.pointCloudsMerged && prepared.mergedPoints.vertexCount > 0) {
+            const int mergedVertexCount = prepared.mergedPoints.vertexCount;
+            if (auto mesh = createPreparedMesh(prepared.mergedPoints, device, pointVertexFormat)) {
+                GlbMeshPayload payload;
+                payload.mesh = mesh;
+                payload.material = pointCloudMaterial(gltfMaterials, prepared.mergedPoints.materialIndex, false);
+                payload.castShadow = false;  // Points don't cast meaningful shadows.
+                container->addMeshPayload(payload);
+                mergedPointPayloadIndex = nextPayloadIndex++;
+                spdlog::info("GLB merged {} point vertices into 1 draw call (AABB {:.2f}–{:.2f})",
+                    mergedVertexCount, prepared.mergedPoints.boundsMin.getX(), prepared.mergedPoints.boundsMax.getX());
+            }
+        }
+
+        // A leaf node whose mesh was ALL points is fully consumed by the merge: its
+        // transform is baked into the merged vertices, so it serves no purpose.
+        std::vector<bool> meshFullyConsumed(model.meshes.size(), false);
+        if (prepared.pointCloudsMerged) {
+            for (size_t mi = 0; mi < model.meshes.size(); ++mi) {
+                const auto& primitives = model.meshes[mi].primitives;
+                meshFullyConsumed[mi] = !primitives.empty() && std::all_of(primitives.begin(), primitives.end(),
+                    [](const tinygltf::Primitive& p) { return p.mode == TINYGLTF_MODE_POINTS; });
+            }
+        }
+
+        // ── Nodes: the glTF hierarchy and local transforms ───────────
         for (size_t nodeIndex = 0; nodeIndex < model.nodes.size(); ++nodeIndex) {
             const auto& node = model.nodes[nodeIndex];
             GlbNodePayload nodePayload;
             // Never empty: an unnamed node is `node_<index>`, the name its
             // animation channels and skin entries carry too (glbNodeName).
             nodePayload.name = glbNodeName(model, static_cast<int>(nodeIndex));
-            if (!node.matrix.empty()) decomposeNodeMatrix(node.matrix, nodePayload.translation, nodePayload.rotation, nodePayload.scale);
-            if (node.translation.size() == 3) nodePayload.translation = Vector3(static_cast<float>(node.translation[0]), static_cast<float>(node.translation[1]), static_cast<float>(node.translation[2]));
-            if (node.rotation.size() == 4) nodePayload.rotation = Quaternion(static_cast<float>(node.rotation[0]), static_cast<float>(node.rotation[1]), static_cast<float>(node.rotation[2]), static_cast<float>(node.rotation[3])).normalized();
-            if (node.scale.size() == 3) nodePayload.scale = Vector3(static_cast<float>(node.scale[0]), static_cast<float>(node.scale[1]), static_cast<float>(node.scale[2]));
+            if (!node.matrix.empty()) {
+                decomposeNodeMatrix(node.matrix, nodePayload.translation, nodePayload.rotation, nodePayload.scale);
+            }
+            if (node.translation.size() == 3) {
+                nodePayload.translation = Vector3(static_cast<float>(node.translation[0]),
+                    static_cast<float>(node.translation[1]), static_cast<float>(node.translation[2]));
+            }
+            if (node.rotation.size() == 4) {
+                nodePayload.rotation = Quaternion(static_cast<float>(node.rotation[0]),
+                    static_cast<float>(node.rotation[1]), static_cast<float>(node.rotation[2]),
+                    static_cast<float>(node.rotation[3])).normalized();
+            }
+            if (node.scale.size() == 3) {
+                nodePayload.scale = Vector3(static_cast<float>(node.scale[0]),
+                    static_cast<float>(node.scale[1]), static_cast<float>(node.scale[2]));
+            }
             if (node.mesh >= 0 && node.mesh < static_cast<int>(meshToPayloadIndices.size())) {
                 const auto& mapped = meshToPayloadIndices[static_cast<size_t>(node.mesh)];
                 nodePayload.meshPayloadIndices.insert(nodePayload.meshPayloadIndices.end(), mapped.begin(), mapped.end());
+                nodePayload.skip = node.children.empty() && meshFullyConsumed[static_cast<size_t>(node.mesh)];
             }
             nodePayload.skinIndex = node.skin;
             nodePayload.children = node.children;
             container->addNodePayload(nodePayload);
         }
 
-        // ── Parse skins (cheap accessor reads — safe on the main thread) ─
-        parseSkins(model, container.get());
-
-        // ── Root scene nodes ─────────────────────────────────────────
-        int sceneIndex = model.defaultScene;
-        if (sceneIndex < 0 && !model.scenes.empty()) sceneIndex = 0;
-        if (sceneIndex >= 0 && sceneIndex < static_cast<int>(model.scenes.size())) {
-            for (const auto nodeIndex : model.scenes[static_cast<size_t>(sceneIndex)].nodes)
-                container->addRootNodeIndex(nodeIndex);
+        // The merged cloud hangs off a synthetic root node with an identity transform.
+        if (mergedPointPayloadIndex != SIZE_MAX) {
+            GlbNodePayload pointNode;
+            pointNode.name = "__merged_point_cloud";
+            pointNode.meshPayloadIndices.push_back(mergedPointPayloadIndex);
+            container->addNodePayload(pointNode);
+            container->addRootNodeIndex(static_cast<int>(model.nodes.size()));
         }
 
-        // ── Attach pre-parsed animation tracks ───────────────────────
+        int sceneIndex = model.defaultScene;
+        if (sceneIndex < 0 && !model.scenes.empty()) {
+            sceneIndex = 0;
+        }
+        if (sceneIndex >= 0 && sceneIndex < static_cast<int>(model.scenes.size())) {
+            for (const auto nodeIndex : model.scenes[static_cast<size_t>(sceneIndex)].nodes) {
+                container->addRootNodeIndex(nodeIndex);
+            }
+        }
+
+        // ── Skins and animations ─────────────────────────────────────
+        parseSkins(model, container.get());
         for (auto& [name, track] : prepared.animTracks) {
             container->addAnimTrack(name, track);
         }
 
         if (prepared.dracoPrimitiveCount > 0) {
             spdlog::info("GLB Draco summary [{}]: primitives={}, decoded={}, failed={}",
-                debugName, prepared.dracoPrimitiveCount, prepared.dracoDecodeSuccessCount, prepared.dracoDecodeFailureCount);
+                debugName, prepared.dracoPrimitiveCount, prepared.dracoDecodeSuccessCount,
+                prepared.dracoDecodeFailureCount);
         }
-
-        spdlog::info("GLB createFromPrepared [{}]: GPU resources created (texSlots={}, texActual={}, meshes={}, nodes={})",
+        spdlog::debug("GLB [{}]: textures={} (bound {}), meshes={}, nodes={}",
             debugName, gltfTextures.size(), actualTextureCount, nextPayloadIndex, model.nodes.size());
 
         return container;

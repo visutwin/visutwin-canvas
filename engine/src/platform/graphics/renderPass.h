@@ -64,6 +64,9 @@ namespace visutwin::canvas
     {
     public:
         RenderPass(const std::shared_ptr<GraphicsDevice>& device) : _device(device) {};
+        // Passes are held and released through base pointers (the frame graph, a
+        // parent's before/after lists), so the destructor must dispatch.
+        virtual ~RenderPass() = default;
 
         virtual void init(const std::shared_ptr<RenderTarget>& renderTarget = nullptr,
             const std::shared_ptr<RenderPassOptions>& options = nullptr);

@@ -17,7 +17,7 @@ namespace visutwin::canvas
     class ShadowRendererLocal
     {
     public:
-        ShadowRendererLocal(Renderer* renderer, ShadowRenderer* shadowRenderer) : _renderer(renderer), _shadowRenderer(shadowRenderer) {}
+        explicit ShadowRendererLocal(ShadowRenderer* shadowRenderer) : _shadowRenderer(shadowRenderer) {}
 
         Camera* prepareLights(std::vector<Light*>& shadowLights, const std::vector<Light*>& lights);
 
@@ -33,7 +33,6 @@ namespace visutwin::canvas
             const std::shared_ptr<GraphicsDevice>& device);
 
     private:
-        Renderer* _renderer;
         ShadowRenderer* _shadowRenderer;
 
         std::shared_ptr<GraphicsDevice> _device;

@@ -316,100 +316,26 @@
 #endif
 
 #if VT_FEATURE_SHADOWS
-        if (!shadowApplied && lightType == 0u && lightCastsShadows && lighting.shadowBiasNormalStrength.w > 0.5 &&
-            shadowTexture.get_width() > 0 && shadowTexture.get_height() > 0) {
-            // CSM: determine cascade from fragment's linear view-space depth.
+        // Directional shadow: the light's shadow index picks its slot (0 or 1).
+        // Gated on the slot's flag, never on the texture — an unbound Metal
+        // texture still reports a width and samples zero.
+        if (lightType == 0u && lightCastsShadows) {
+            // CSM: the cascade comes from the fragment's linear view-space depth.
             // rd.position.w = 1/clip.w; clip.w = view-space Z for perspective projection.
             const float linearDepth = 1.0 / rd.position.w;
-            const int cascadeCount = max(int(lighting.shadowCascadeParams.x), 1);
-            // Beyond the shadow distance the fragment is lit, and nothing is
-            // sampled (upstream a59f9ef29).
-            const float shadowDistance = lighting.shadowCascadeDistances[cascadeCount - 1];
-            if (linearDepth <= shadowDistance) {
-                // cascadeBlend is a FRACTION (upstream): it dithers the cascade pick
-                // across the end of each cascade and fades the shadow out toward the
-                // shadow distance, and 0 turns both off.
-                const float cascadeBlend = lighting.shadowCascadeParams.y;
-                int cascadeIndex = getShadowCascadeIndex(
-                    lighting.shadowCascadeDistances, cascadeCount, linearDepth);
-                if (cascadeBlend > 0.0) {
-                    cascadeIndex = ditherShadowCascadeIndex(cascadeIndex,
-                        lighting.shadowCascadeDistances, cascadeCount, cascadeBlend,
-                        linearDepth, rd.position.xy);
+            if (light.typeCastShadows.w == 0u) {
+                if (lighting.shadowBiasNormalStrength.w > 0.5) {
+                    shadowFactor = evaluateDirectionalShadow(shadowTexture, lighting.shadowMatrixPalette,
+                        lighting.shadowCascadeDistances, lighting.shadowCascadeParams,
+                        lighting.shadowBiasNormalStrength, lighting.pcssParams, lighting.pcssCascadeRadii,
+                        lighting.pcssCascadeDepthRanges, rd.worldPos, N, L, linearDepth, rd.position.xy);
                 }
-
-                // Apply normal bias in world space, scaled by sin(angle) between
-                // normal and light direction so grazing surfaces get more offset
-                // while directly-lit faces get almost none — prevents light leaking
-                // at triangle edges on curved geometry.
-                const float csmNdotL = saturate(dot(N, L));
-                const float csmSinAngle = sqrt(1.0 - csmNdotL * csmNdotL);
-                const float3 worldPosBiased = rd.worldPos + N * (lighting.shadowBiasNormalStrength.y * csmSinAngle);
-
-                // Transform world position via the cascade's viewport-scaled shadow matrix.
-                // The matrix already bakes in projection, view, NDC-to-atlas-UV, Metal Y-flip,
-                // and Z [0,1] mapping — no manual coordinate conversion needed.
-                const float4 shadowClip = lighting.shadowMatrixPalette[cascadeIndex] * float4(worldPosBiased, 1.0);
-                const float shadowW = max(shadowClip.w, 1e-6);
-                const float3 shadowCoord = shadowClip.xyz / shadowW;
-
-                const float2 shadowUv = shadowCoord.xy;
-                // The receiver's depth is SATURATED, not range-tested (upstream's
-                // getShadowSampleCoord for an ortho light). The shadow camera's near
-                // and far are fitted to the CASTERS each frame, so a receiver that is
-                // not itself a caster — a ground plane, or any surface further along
-                // the light than the last caster — projects to z > 1. Rejecting it
-                // left every such receiver unshadowed, and where the fit ended INSIDE
-                // a shadow the shadow was cut off along a straight line that moved
-                // with the casters' bounds: a fly's body shadow ended in a hard edge
-                // that flickered with every wing beat. Clamped to 1 it compares
-                // against the cleared map (1.0) as lit and against any caster in
-                // front as shadowed, which is the right answer for both. A receiver
-                // in front of the near plane clamps to 0 and is lit, since nothing
-                // casts from in front of the nearest caster. The UV test stays: a
-                // point outside the cascade's footprint has no map to read.
-                const float shadowDepth = saturate(shadowCoord.z);
-
-                const float resolution = float(shadowTexture.get_width());
-                const bool insideShadow = shadowUv.x >= 0.0 && shadowUv.x <= 1.0 &&
-                    shadowUv.y >= 0.0 && shadowUv.y <= 1.0;
-                if (insideShadow) {
-#if VT_FEATURE_VSM_SHADOWS
-                    // EVSM_16F — sample exponentially-warped moments and reconstruct
-                    // visibility via Chebyshev's inequality. No depth-bias subtraction —
-                    // VSM uses a separate vsmBias inside calculateEVSM.
-                    const float vsmBias = max(lighting.shadowBiasNormalStrength.x, 1e-4);
-                    const float visible = getShadowVSM16(shadowTexture, shadowUv, shadowDepth, vsmBias);
-#elif VT_FEATURE_PCSS_SHADOWS
-                    // PCSS — contact-hardening soft shadows: Vogel-disk blocker search
-                    // sets a world-space penumbra per fragment.
-                    const float pcssDepth = shadowDepth - lighting.shadowBiasNormalStrength.x;
-                    const float visible = getShadowPCSSDirectional(shadowTexture,
-                        float3(shadowUv, pcssDepth),
-                        lighting.pcssCascadeRadii[cascadeIndex],
-                        lighting.pcssCascadeDepthRanges[cascadeIndex],
-                        lighting.pcssParams, rd.position.xy);
-#else
-                    // PCF3_32F — optimized bilinear 3×3 PCF.
-                    const float receiverDepth = shadowDepth - lighting.shadowBiasNormalStrength.x;
-                    const float visible = getShadowPCF3x3(shadowTexture, shadowUv, receiverDepth, resolution);
-#endif
-                    shadowFactor = mix(1.0 - clamp(lighting.shadowBiasNormalStrength.z, 0.0, 1.0), 1.0, visible);
-                }
-
-                // Fade to fully lit at the shadow distance without sampling another
-                // cascade (upstream 0b30839ea). The shadow intensity is already folded
-                // into shadowFactor, which commutes with this mix.
-                // NOTE: this is upstream's CODE, which starts the fade at cascadeBlend x
-                // the distance, so 0.1 fades over the last 90%; upstream's JSDoc says
-                // "the last 10%". The shader is what upstream renders.
-                if (cascadeBlend > 0.0) {
-                    shadowFactor = mix(shadowFactor, 1.0,
-                        smoothstep(cascadeBlend * shadowDistance, shadowDistance, linearDepth));
-                }
+            } else if (lighting.shadow1BiasNormalStrength.w > 0.5) {
+                shadowFactor = evaluateDirectionalShadow(shadowTexture1, lighting.shadow1MatrixPalette,
+                    lighting.shadow1CascadeDistances, lighting.shadow1CascadeParams,
+                    lighting.shadow1BiasNormalStrength, lighting.shadow1PcssParams, lighting.shadow1PcssCascadeRadii,
+                    lighting.shadow1PcssCascadeDepthRanges, rd.worldPos, N, L, linearDepth, rd.position.xy);
             }
-
-            shadowApplied = true;
         }
 #endif
 

@@ -37,7 +37,7 @@ namespace visutwin::canvas
             static_assert(kForwardSkyVertPushConstantSize == 128);
             static_assert(kForwardColorVertPushConstantSize == 128);
             static_assert(kForwardPointVertPushConstantSize == 128);
-            static_assert(sizeof(VulkanLightingUBO) == 2448);
+            static_assert(sizeof(VulkanLightingUBO) == 2800);
             static_assert(
                 offsetof(MaterialUniforms, emissiveTransform1) +
                     sizeof(float) * 4 ==
@@ -71,9 +71,16 @@ namespace visutwin::canvas
                 const bool validMaterialTexture =
                     reflected.set == 1 && reflected.binding < 26 &&
                     (sampler || separateImage || separateSampler);
+                // A scene binding must be declared with the type the layout gives
+                // it: a shader declaring binding 1 as a combined sampler against a
+                // layout that says separate image is a descriptor mismatch that
+                // validation only reports at draw time.
+                const VkDescriptorType sceneType = vulkanSceneDescriptorType(reflected.binding);
                 const bool validSceneTexture =
-                    reflected.set == 3 && reflected.binding < 22 &&
-                    (sampler || separateImage || separateSampler);
+                    reflected.set == 3 && reflected.binding < kSceneTextureBindingCount &&
+                    ((sampler && sceneType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) ||
+                     (separateImage && sceneType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) ||
+                     (separateSampler && sceneType == VK_DESCRIPTOR_TYPE_SAMPLER));
                 const bool validGeometry =
                     reflected.set == 4 &&
                     ((reflected.binding < 2 &&
@@ -381,7 +388,7 @@ namespace visutwin::canvas
         // so those keep their existing bindings. Bindings 17-20 are the light
         // cookies (two spot 2D, two omni cubemap), separate images for the same
         // reason.
-        std::array<VkDescriptorSetLayoutBinding, 22> sceneBindings{};
+        std::array<VkDescriptorSetLayoutBinding, kSceneTextureBindingCount> sceneBindings{};
         for (uint32_t i = 0; i < sceneBindings.size(); ++i) {
             sceneBindings[i].binding = i;
             sceneBindings[i].descriptorType = vulkanSceneDescriptorType(i);

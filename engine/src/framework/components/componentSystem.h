@@ -23,7 +23,7 @@ namespace visutwin::canvas
     {
     public:
         virtual ~IComponentSystem() = default;
-        IComponentSystem(Engine* engine, const std::string& id) : _engine(engine), _id(id) {}
+        IComponentSystem(Engine* engine, const std::string& id) : _id(id), _engine(engine) {}
 
         virtual std::unique_ptr<Component> addComponent(Entity* entity) = 0;
 

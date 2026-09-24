@@ -180,7 +180,7 @@ namespace visutwin::canvas
         _renderTargetMap.clear();
     }
 
-    void FrameGraph::render(GraphicsDevice* device) {
+    void FrameGraph::render(GraphicsDevice* /*device*/) {
         compile();
 
         for (auto pass : _renderPasses) {

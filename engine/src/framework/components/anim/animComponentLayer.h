@@ -85,7 +85,6 @@ namespace visutwin::canvas
     private:
         std::string _name;
         size_t _index = 0;
-        AnimComponent* _component;
         float _weight;
         AnimLayerBlendType _blendType = AnimLayerBlendType::OVERWRITE;
         std::unordered_set<std::string> _mask;

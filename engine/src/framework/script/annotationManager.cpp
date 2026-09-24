@@ -174,7 +174,7 @@ namespace visutwin::canvas
         _camera = search(root);
     }
 
-    void AnnotationManager::update(float dt)
+    void AnnotationManager::update(float /*dt*/)
     {
         // Lazily find camera if not yet available
         if (!_camera) {

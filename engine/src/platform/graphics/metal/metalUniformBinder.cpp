@@ -200,35 +200,40 @@ namespace visutwin::canvas
             ? static_cast<float>(fogParams.type) : 0.0f;   // 0 = off, else FogType
         _lightingUniforms.fogStartEndType[3] = 0.0f;
 
-        _lightingUniforms.shadowBiasNormalStrength[0] = shadowParams.bias;
-        _lightingUniforms.shadowBiasNormalStrength[1] = shadowParams.normalBias;
-        _lightingUniforms.shadowBiasNormalStrength[2] = shadowParams.strength;
-        _lightingUniforms.shadowBiasNormalStrength[3] = shadowParams.enabled ? 1.0f : 0.0f;
+        // Directional shadow slots. The PCSS sample counts belong to the variant,
+        // so they ride slot 0's pcssParams for both slots.
+        const auto packDirectional = [&](const ShadowParams::DirectionalShadow& dir, const bool active,
+            PackedVector4f& biasNormalStrength, float* palette, PackedVector4f& distances,
+            PackedVector4f& cascadeParams, PackedVector4f& pcssParams, PackedVector4f& pcssRadii,
+            PackedVector4f& pcssDepthRanges) {
+            biasNormalStrength[0] = dir.bias;
+            biasNormalStrength[1] = dir.normalBias;
+            biasNormalStrength[2] = dir.strength;
+            biasNormalStrength[3] = active ? 1.0f : 0.0f;
+            pcssParams[0] = static_cast<float>(shadowParams.pcssSamples);
+            pcssParams[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
+            pcssParams[2] = dir.penumbraSize;
+            pcssParams[3] = dir.penumbraFalloff;
+            std::memcpy(&pcssRadii, dir.pcssCascadeRadii, sizeof(pcssRadii));
+            std::memcpy(&pcssDepthRanges, dir.pcssCascadeDepthRanges, sizeof(pcssDepthRanges));
+            std::memcpy(palette, dir.shadowMatrixPalette, sizeof(dir.shadowMatrixPalette));
+            std::memcpy(&distances, dir.shadowCascadeDistances, sizeof(distances));
+            cascadeParams[0] = static_cast<float>(dir.numCascades);
+            cascadeParams[1] = dir.cascadeBlend;
+            cascadeParams[2] = 0.0f;
+            cascadeParams[3] = 0.0f;
+        };
+        auto& lu = _lightingUniforms;
+        packDirectional(shadowParams.directional[0], shadowParams.directionalCount > 0,
+            lu.shadowBiasNormalStrength, lu.shadowMatrixPalette, lu.shadowCascadeDistances,
+            lu.shadowCascadeParams, lu.pcssParams, lu.pcssCascadeRadii, lu.pcssCascadeDepthRanges);
+        packDirectional(shadowParams.directional[1], shadowParams.directionalCount > 1,
+            lu.shadow1BiasNormalStrength, lu.shadow1MatrixPalette, lu.shadow1CascadeDistances,
+            lu.shadow1CascadeParams, lu.shadow1PcssParams, lu.shadow1PcssCascadeRadii,
+            lu.shadow1PcssCascadeDepthRanges);
 
-        // PCSS directional shadow parameters (used when VT_FEATURE_PCSS_SHADOWS).
-        _lightingUniforms.pcssParams[0] = static_cast<float>(shadowParams.pcssSamples);
-        _lightingUniforms.pcssParams[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
-        _lightingUniforms.pcssParams[2] = shadowParams.penumbraSize;
-        _lightingUniforms.pcssParams[3] = shadowParams.penumbraFalloff;
-        std::memcpy(&_lightingUniforms.pcssCascadeRadii, shadowParams.pcssCascadeRadii,
-                    sizeof(_lightingUniforms.pcssCascadeRadii));
-        std::memcpy(&_lightingUniforms.pcssCascadeDepthRanges, shadowParams.pcssCascadeDepthRanges,
-                    sizeof(_lightingUniforms.pcssCascadeDepthRanges));
-
-        // CSM: pack cascade matrix palette, distances, and params.
-        //lines 279-282.
-        std::memcpy(_lightingUniforms.shadowMatrixPalette,
-                    shadowParams.shadowMatrixPalette,
-                    sizeof(_lightingUniforms.shadowMatrixPalette));
-        std::memcpy(&_lightingUniforms.shadowCascadeDistances,
-                    shadowParams.shadowCascadeDistances,
-                    sizeof(_lightingUniforms.shadowCascadeDistances));
-        _lightingUniforms.shadowCascadeParams[0] = static_cast<float>(shadowParams.numCascades);
-        _lightingUniforms.shadowCascadeParams[1] = shadowParams.cascadeBlend;
-        _lightingUniforms.shadowCascadeParams[2] = 0.0f;
-        _lightingUniforms.shadowCascadeParams[3] = 0.0f;
-
-        _shadowTexture = shadowParams.shadowMap;
+        _shadowTexture = shadowParams.directionalCount > 0 ? shadowParams.directional[0].shadowMap : nullptr;
+        _shadowTexture1 = shadowParams.directionalCount > 1 ? shadowParams.directional[1].shadowMap : nullptr;
 
         // Local light shadows (spot/point): pack VP matrices and per-light params.
         // Omni lights use cubemap shadow textures (bound separately); spot lights use 2D.

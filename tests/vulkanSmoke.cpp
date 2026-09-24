@@ -2312,20 +2312,23 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 lights[0].color = Color(1.0f, 1.0f, 1.0f, 1.0f);
                 lights[0].intensity = 1.0f;
                 lights[0].castShadows = true;
+                // The renderer gives a shadowed directional light its slot; a light
+                // still at -1 is unshadowed by design.
+                lights[0].shadowMapIndex = 0;
 
                 ShadowParams shadowParams;
                 shadowParams.enabled = shadowsOn;
-                shadowParams.shadowMap = &catcherShadowMap;
-                shadowParams.numCascades = 1;
-                shadowParams.bias = 0.0005f;
-                shadowParams.normalBias = 0.0f;
-                shadowParams.strength = kShadowStrength;
-                for (int col = 0; col < 4; ++col) {
-                    for (int row = 0; row < 4; ++row) {
-                        shadowParams.shadowMatrixPalette[col * 4 + row] =
-                            shadowMatrix.getElement(col, row);
-                    }
-                }
+                shadowParams.directionalCount = shadowsOn ? 1 : 0;
+                auto& dir = shadowParams.directional[0];
+                dir.shadowMap = &catcherShadowMap;
+                dir.numCascades = 1;
+                dir.bias = 0.0005f;
+                dir.normalBias = 0.0f;
+                dir.strength = kShadowStrength;
+                shadowMatrix.store(dir.shadowMatrixPalette);
+                // Beyond the last cascade distance a fragment is lit without
+                // sampling (upstream a59f9ef29), so the one cascade must reach it.
+                dir.shadowCascadeDistances[0] = 1000.0f;
 
                 device->frameStart();
                 device->startRenderPass(&pass);
@@ -2557,9 +2560,6 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 return rgb;
             };
 
-            const auto gamma = [](const float linear) {
-                return std::pow(std::max(linear, 0.0f) + 0.0000001f, 1.0f / 2.2f);
-            };
             // setDiffuse stores its colour RAW (see the EMISSION note below), so the
             // shader decodes it to linear before lighting — on both backends.
             const auto linearize = [](const float authored) {

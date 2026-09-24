@@ -37,8 +37,7 @@ namespace visutwin::canvas
             // and ShadowMap::create applies the same clamp at allocation time.
             const Entity* owner = entity();
             const Engine* engine = owner ? owner->engine() : nullptr;
-            _light = std::make_unique<Light>(
-                engine ? engine->graphicsDevice().get() : nullptr, false);
+            _light = std::make_unique<Light>(engine ? engine->graphicsDevice().get() : nullptr);
         }
         syncToLight();
         return _light.get();

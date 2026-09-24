@@ -21,8 +21,9 @@
 
 namespace visutwin::canvas
 {
-    Picker::Picker(Engine* app, const int width, const int height, const bool depth)
-        : _app(app), _depth(depth)
+    // `app` mirrors upstream's constructor; this CPU picker needs nothing from it.
+    Picker::Picker(Engine* /*app*/, const int width, const int height, const bool depth)
+        : _depth(depth)
     {
         resize(width, height);
     }

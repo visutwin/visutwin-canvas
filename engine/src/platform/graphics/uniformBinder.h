@@ -127,6 +127,18 @@ namespace visutwin::canvas
             PackedVector4f reflectionProbeParams = {1.0f, 1.0f, 6.0f, 0.0f};
             // Camera clip planes for SSR depth linearization: x=near, y=far.
             PackedVector4f cameraNearFar = {0.1f, 1000.0f, 0.0f, 0.0f};
+
+            // Second directional shadow slot: the slot-0 fields above, for the light
+            // whose shadowMapIndex is 1. Its map is texture slot 35. Same meaning
+            // lane for lane (the PCSS sample counts, being the variant's, are the
+            // same in both slots).
+            PackedVector4f shadow1BiasNormalStrength = {0.001f, 0.0f, 1.0f, 0.0f};
+            float shadow1MatrixPalette[64] = {};
+            PackedVector4f shadow1CascadeDistances = {0.0f, 0.0f, 0.0f, 0.0f};
+            PackedVector4f shadow1CascadeParams = {1.0f, 0.0f, 0.0f, 0.0f};
+            PackedVector4f shadow1PcssParams = {16.0f, 16.0f, 1.0f, 1.0f};
+            PackedVector4f shadow1PcssCascadeRadii = {1.0f, 1.0f, 1.0f, 1.0f};
+            PackedVector4f shadow1PcssCascadeDepthRanges = {1.0f, 1.0f, 1.0f, 1.0f};
         };
 
         // ---------------------------------------------------------------
@@ -193,6 +205,8 @@ namespace visutwin::canvas
     static_assert(offsetof(UniformBinder::LightingUniforms, lights) == 80);
     static_assert(offsetof(UniformBinder::LightingUniforms, viewProjection) ==
         offsetof(UniformBinder::LightingUniforms, ambientSH) + 9 * 16);
+    static_assert(offsetof(UniformBinder::LightingUniforms, shadow1MatrixPalette) ==
+        offsetof(UniformBinder::LightingUniforms, cameraNearFar) + 2 * 16);
     static_assert(std::is_trivially_copyable_v<UniformBinder::AtmosphereUniforms>);
     static_assert(sizeof(UniformBinder::AtmosphereUniforms) == 96);
 }

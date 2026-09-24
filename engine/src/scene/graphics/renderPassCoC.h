@@ -28,6 +28,5 @@ namespace visutwin::canvas
         float _focusDistance = 100.0f;
         float _focusRange = 10.0f;
         float _params[3] = {100.001f, 10.0f, 0.1f};
-        float _cameraParams[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     };
 }

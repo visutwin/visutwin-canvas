@@ -812,12 +812,12 @@ namespace visutwin::canvas
             // During a shadow render the shadow map is the attachment being
             // written, so bind white fallbacks instead of creating feedback.
             bool shadowIsActiveAttachment = false;
-            if (_activeOffscreenTarget && _shadowMapTexture &&
-                !_activeOffscreenTarget->colorAttachments().empty()) {
-                shadowIsActiveAttachment =
-                    _activeOffscreenTarget->colorAttachments()[0].texture ==
-                    static_cast<gpu::VulkanTexture*>(
-                        _shadowMapTexture->impl());
+            if (_activeOffscreenTarget && !_activeOffscreenTarget->colorAttachments().empty()) {
+                const auto* attachment = _activeOffscreenTarget->colorAttachments()[0].texture;
+                for (Texture* shadowMap : {_shadowMapTexture, _shadowMapTexture1}) {
+                    shadowIsActiveAttachment = shadowIsActiveAttachment || (shadowMap &&
+                        attachment == static_cast<gpu::VulkanTexture*>(shadowMap->impl()));
+                }
             }
             const bool hideShadowMaps =
                 _depthOnlyPass || shadowIsActiveAttachment;
@@ -850,22 +850,17 @@ namespace visutwin::canvas
             };
 
 
-            std::array<VkDescriptorImageInfo, 22> sceneInfos{};
+            std::array<VkDescriptorImageInfo, kSceneTextureBindingCount> sceneInfos{};
             sceneInfos[0].sampler = _envSampler;
             sceneInfos[0].imageView = resolveView(_envAtlasTexture);
 
-            sceneInfos[1].sampler = _shadowSampler;
-            if (!hideShadowMaps && _shadowMapTexture) {
-                if (auto* vkShadowTex =
-                        static_cast<gpu::VulkanTexture*>(
-                            _shadowMapTexture->impl());
-                    vkShadowTex &&
-                    vkShadowTex->sampler() != VK_NULL_HANDLE) {
-                    sceneInfos[1].sampler = vkShadowTex->sampler();
-                }
-            }
+            // Bindings 1 and 22: the two directional shadow maps, SEPARATE images
+            // read through the shared samplers at 12 (linear, for EVSM moments) and
+            // 13 (nearest, for depth) — the filter each map's own sampler had.
             sceneInfos[1].imageView = hideShadowMaps
                 ? _whiteImageView : resolveView(_shadowMapTexture);
+            sceneInfos[22].imageView = hideShadowMaps
+                ? _whiteImageView : resolveView(_shadowMapTexture1);
             sceneInfos[2].sampler = _shadowSampler;
             sceneInfos[2].imageView = _depthOnlyPass
                 ? _whiteImageView : resolveView(_localShadowTexture0);
@@ -1374,39 +1369,44 @@ namespace visutwin::canvas
                 reflectionDepthMap() ? 1.0f : 0.0f;
         }
 
-        // Directional cascaded shadows.  The cascade matrices, split distances,
-        // and parameters all come straight from the renderer's ShadowParams;
-        // the shadow map texture is bound at set 3 in draw().  Only directional
-        // (CSM) shadows are wired here — local light shadows come later.
-        const bool shadowsOn = shadowParams.enabled && shadowParams.shadowMap != nullptr;
-        _shadowMapTexture = shadowsOn ? shadowParams.shadowMap : nullptr;
-        if (shadowsOn) {
-            std::memcpy(_lightingUbo.shadowMatrices, shadowParams.shadowMatrixPalette,
-                sizeof(_lightingUbo.shadowMatrices));
-            std::memcpy(_lightingUbo.shadowCascadeDistances, shadowParams.shadowCascadeDistances,
-                sizeof(_lightingUbo.shadowCascadeDistances));
-        }
-        // 0 = off, 1 = PCF depth compare, 2 = EVSM moments (Chebyshev).
-        _lightingUbo.shadowParams[0]  = shadowsOn ? (shadowParams.vsm ? 2.0f : 1.0f) : 0.0f;
-        _lightingUbo.shadowParams[1]  = static_cast<float>(shadowParams.numCascades);
-        _lightingUbo.shadowParams[2]  = shadowParams.bias;
-        _lightingUbo.shadowParams[3]  = shadowParams.strength;
-        _lightingUbo.shadowParams2[0] = shadowParams.normalBias;
-        _lightingUbo.shadowParams2[1] = shadowParams.cascadeBlend;
-        _lightingUbo.shadowParams2[2] = static_cast<float>(toneMapping);
-        _lightingUbo.shadowParams2[3] = enableNormalMaps ? 1.0f : 0.0f;
-
-        // Directional PCSS.  The shader reads these only when specialized with
-        // VT_FEATURE_PCSS_SHADOWS, which the renderer enables from the same
-        // shadow type — mirrors MetalUniformBinder.
-        _lightingUbo.pcssParams[0] = static_cast<float>(shadowParams.pcssSamples);
-        _lightingUbo.pcssParams[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
-        _lightingUbo.pcssParams[2] = shadowParams.penumbraSize;
-        _lightingUbo.pcssParams[3] = shadowParams.penumbraFalloff;
-        std::memcpy(_lightingUbo.pcssCascadeRadii, shadowParams.pcssCascadeRadii,
-            sizeof(_lightingUbo.pcssCascadeRadii));
-        std::memcpy(_lightingUbo.pcssCascadeDepthRanges, shadowParams.pcssCascadeDepthRanges,
-            sizeof(_lightingUbo.pcssCascadeDepthRanges));
+        // Directional cascaded shadows, one block per slot (see ShadowParams). The
+        // cascade matrices, split distances and parameters come straight from the
+        // renderer; the maps are bound at set 3 bindings 1 and 22 in draw(). The
+        // PCSS lanes are read only when specialized with VT_FEATURE_PCSS_SHADOWS,
+        // which the renderer enables from the same shadow type — mirrors
+        // MetalUniformBinder.
+        const auto packDirectional = [&](const int slot, float* matrices, float* distances,
+            float* params, float* params2, float* pcss, float* pcssRadii, float* pcssDepthRanges) -> Texture* {
+            const auto& dir = shadowParams.directional[slot];
+            const bool on = slot < shadowParams.directionalCount && dir.shadowMap != nullptr;
+            if (on) {
+                std::memcpy(matrices, dir.shadowMatrixPalette, sizeof(dir.shadowMatrixPalette));
+                std::memcpy(distances, dir.shadowCascadeDistances, sizeof(dir.shadowCascadeDistances));
+            }
+            // 0 = off, 1 = PCF depth compare, 2 = EVSM moments (Chebyshev).
+            params[0] = on ? (shadowParams.vsm ? 2.0f : 1.0f) : 0.0f;
+            params[1] = static_cast<float>(dir.numCascades);
+            params[2] = dir.bias;
+            params[3] = dir.strength;
+            params2[0] = dir.normalBias;
+            params2[1] = dir.cascadeBlend;
+            pcss[0] = static_cast<float>(shadowParams.pcssSamples);
+            pcss[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
+            pcss[2] = dir.penumbraSize;
+            pcss[3] = dir.penumbraFalloff;
+            std::memcpy(pcssRadii, dir.pcssCascadeRadii, sizeof(dir.pcssCascadeRadii));
+            std::memcpy(pcssDepthRanges, dir.pcssCascadeDepthRanges, sizeof(dir.pcssCascadeDepthRanges));
+            return on ? dir.shadowMap : nullptr;
+        };
+        auto& ubo = _lightingUbo;
+        _shadowMapTexture = packDirectional(0, ubo.shadowMatrices, ubo.shadowCascadeDistances,
+            ubo.shadowParams, ubo.shadowParams2, ubo.pcssParams, ubo.pcssCascadeRadii, ubo.pcssCascadeDepthRanges);
+        _shadowMapTexture1 = packDirectional(1, ubo.dirShadow1Matrices, ubo.dirShadow1CascadeDistances,
+            ubo.dirShadow1Params, ubo.dirShadow1Params2, ubo.dirShadow1PcssParams, ubo.dirShadow1PcssCascadeRadii,
+            ubo.dirShadow1PcssCascadeDepthRanges);
+        // shadowParams2's other half carries two unrelated values.
+        ubo.shadowParams2[2] = static_cast<float>(toneMapping);
+        ubo.shadowParams2[3] = enableNormalMaps ? 1.0f : 0.0f;
 
         // Local light shadows (spot 2D + omni cubemap), up to 2 casters.  Each
         // light's coneParams[3] carries its slot index (set in the light loop

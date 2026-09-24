@@ -168,23 +168,64 @@ namespace visutwin::canvas
             }
         }
 
+        // VISUTWIN_SHADOW_TYPE=n sets ShadowType n (the enum value) on every directional
+        // light that casts shadows. The PCSS and VSM directional paths are otherwise
+        // reached only through a key press in shadow-cascades, which a screenshot run
+        // cannot make; this is how a change to them is compared before and after.
+        if (const char* type = std::getenv("VISUTWIN_SHADOW_TYPE"); type && *type) {
+            int value = -1;
+            if (std::sscanf(type, "%d", &value) == 1 && value >= 0) {
+                int lights = 0;
+                for (auto* light : LightComponent::instances()) {
+                    if (light && light->type() == LightType::LIGHTTYPE_DIRECTIONAL && light->castShadows()) {
+                        light->setShadowType(static_cast<ShadowType>(value));
+                        ++lights;
+                    }
+                }
+                spdlog::info("Shadow type {} on {} directional light(s) from VISUTWIN_SHADOW_TYPE", value, lights);
+            } else {
+                spdlog::warn("VISUTWIN_SHADOW_TYPE='{}' is not a ShadowType value; ignored", type);
+            }
+        }
+
         // VISUTWIN_FILL_LIGHT=pitch,yaw,intensity[,shadows] adds a second, white
-        // directional light aimed by those Euler angles (degrees). Only one directional
-        // shadow exists per layer, so this light must come out UNSHADOWED however the
-        // key light is set up — with shadows=1 too, since it is created after the
-        // example's own light and so loses the one slot. Aim it like the key light and
-        // the difference from a run without it is the fill alone, which must be as
-        // bright inside the key light's shadow as outside it. No example has two
-        // directional lights; this is how Vulkan was found shadowing a shadowless fill
-        // with the key light's map (2026-09-23).
+        // directional light aimed by those Euler angles (degrees). Aim it like the key
+        // light and the difference from a run without it is the fill alone:
+        //   - shadows=0: it must be as bright inside the key light's shadow as outside
+        //     it (this found Vulkan shadowing a shadowless fill with the key light's
+        //     map, 2026-09-23);
+        //   - shadows=1: it takes the second directional shadow slot and casts its
+        //     OWN shadow. It copies the shadow settings of the scene's shadowed
+        //     directional light (distance, resolution, type, cascades, biases): the
+        //     default 40-unit shadow distance would leave it unshadowed past 40 units,
+        //     and a different shadow type is refused by design.
+        // No example has two directional lights.
         if (const char* fill = std::getenv("VISUTWIN_FILL_LIGHT"); fill && *fill) {
             float pitch = 0.0f, yaw = 0.0f, intensity = 1.0f;
             int shadows = 0;
             if (std::sscanf(fill, "%f,%f,%f,%d", &pitch, &yaw, &intensity, &shadows) >= 3) {
-                createDirectionalLight(Vector3(pitch, yaw, 0.0f), Color(1.0f, 1.0f, 1.0f),
+                const LightComponent* key = nullptr;
+                for (const auto* light : LightComponent::instances()) {
+                    if (light && light->type() == LightType::LIGHTTYPE_DIRECTIONAL && light->castShadows()) {
+                        key = light;
+                        break;
+                    }
+                }
+                Entity* fillEntity = createDirectionalLight(Vector3(pitch, yaw, 0.0f), Color(1.0f, 1.0f, 1.0f),
                     intensity, shadows != 0);
-                spdlog::info("Fill light: euler ({}, {}) intensity {} shadows {} from VISUTWIN_FILL_LIGHT",
-                    pitch, yaw, intensity, shadows);
+                auto* fillLight = fillEntity ? fillEntity->findComponent<LightComponent>() : nullptr;
+                if (fillLight && shadows != 0 && key) {
+                    fillLight->setShadowDistance(key->shadowDistance());
+                    fillLight->setShadowResolution(key->shadowResolution());
+                    fillLight->setShadowType(key->shadowType());
+                    fillLight->setNumCascades(key->numCascades());
+                    fillLight->setCascadeDistribution(key->cascadeDistribution());
+                    fillLight->setShadowBias(key->shadowBias());
+                    fillLight->setShadowNormalBias(key->shadowNormalBias());
+                }
+                spdlog::info("Fill light: euler ({}, {}) intensity {} shadows {}{} from VISUTWIN_FILL_LIGHT",
+                    pitch, yaw, intensity, shadows,
+                    (shadows != 0 && key) ? " (shadow settings copied from the key light)" : "");
             } else {
                 spdlog::warn("VISUTWIN_FILL_LIGHT='{}' is not pitch,yaw,intensity[,shadows]; ignored", fill);
             }

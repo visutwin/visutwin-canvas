@@ -44,6 +44,11 @@ namespace visutwin::canvas
     inline constexpr std::array<uint32_t, 14> kMaterialTextureBindings =
         {0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25, 7, 13, 14};
 
+    /// Set 3 (per-pass scene textures) binding count. The layout, the descriptor
+    /// writes and the reflection check all size from this; the descriptor type of
+    /// each binding is vulkanSceneDescriptorType.
+    inline constexpr uint32_t kSceneTextureBindingCount = 23;
+
     /// The shared sampler every separate material image reads through.
     inline constexpr uint32_t kMaterialExtraSamplerBinding = 24;
 
@@ -187,6 +192,18 @@ namespace visutwin::canvas
         // here). [1] carries the DebugShaderPass mode as a plain value — one
         // compiled variant serves every mode, so switching needs no recompile.
         uint32_t flagsAndPad[4] = {};
+
+        // Second directional shadow slot: the fields above for the light whose
+        // shadow index (coneParams.w) is 1. Its map is scene-set binding 22.
+        // Same meaning lane for lane: params = enabled, numCascades, depthBias,
+        // strength; params2 = normalBias, cascadeBlend.
+        float dirShadow1Matrices[64]              = {};
+        float dirShadow1CascadeDistances[4]       = {0.0f, 0.0f, 0.0f, 0.0f};
+        float dirShadow1Params[4]                 = {0.0f, 1.0f, 0.0001f, 1.0f};
+        float dirShadow1Params2[4]                = {0.0f, 0.0f, 0.0f, 0.0f};
+        float dirShadow1PcssParams[4]             = {16.0f, 16.0f, 1.0f, 1.0f};
+        float dirShadow1PcssCascadeRadii[4]       = {1.0f, 1.0f, 1.0f, 1.0f};
+        float dirShadow1PcssCascadeDepthRanges[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

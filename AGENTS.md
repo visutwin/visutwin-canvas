@@ -34,15 +34,15 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (278 .h + 220 .cpp = 498 files)
+  engine/          # Core 3D engine (300 .h + 226 .cpp = 526 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/metal/chunks/   # 25 composable Metal shader micro-chunks (ShaderChunks registry)
-    shaders/vulkan/chunks/  # 18 GLSL fragment chunks, same names (forward.frag #includes them)
+    shaders/vulkan/chunks/  # 20 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
-    shaders/vulkan/         # GLSL sources compiled to SPIR-V at build time (27 files)
+    shaders/vulkan/         # GLSL stages + shared includes compiled to SPIR-V at build time (20 files)
   examples/        # 47 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
@@ -93,6 +93,17 @@ ctest --preset default
   those were written to check the contract instead — so the sanitizer build is what
   catches the rest. Its first run found one: a test whose locals were declared after
   the object whose destructor wrote them.
+- **The tree builds with ZERO warnings under `-Wall -Wextra`** (`VISUTWIN_WARNINGS`, on
+  by default; `-Wmissing-field-initializers` is off because `Desc{name}` partial
+  aggregate init is an idiom here). The macOS CI jobs add
+  `-DVISUTWIN_WARNINGS_AS_ERRORS=ON`, so a new warning fails the build; the Linux GCC
+  job does not yet, because GCC's extra checks have not been cleared there. Keep a
+  parameter a virtual default ignores by commenting its NAME out, not by `(void)`; a
+  variable only an `assert` reads needs `[[maybe_unused]]` or an `#ifndef NDEBUG`,
+  because Release drops the assert and a Release build warns where Debug does not.
+  The first pass found `RenderPass` and `Texture` with virtual methods and no virtual
+  destructor, a dead Metal vertex-layout stub, and a dozen settings stored and never
+  read.
 - **Golden images are LOCAL ONLY** (`tools/golden_images.py`, `ctest --preset golden`
   on the `examples` build for Metal; the script with `--backend vulkan` on a Release
   Vulkan examples build — a Debug one crashes in the validation layer). Eight
@@ -243,8 +254,9 @@ than folded into one integer, so no two variants can alias.
 ### Adding a texture slot
 
 Bump `MetalTextureBinder::kMaxTextureSlots` AND add the slot to the
-`materialSlots` clear list in `bindMaterialTextures`. Slots 0-34 are taken today
-(34 is the opacity map, Metal only).
+`materialSlots` clear list in `bindMaterialTextures`. Slots 0-35 are taken today
+(34 is the opacity map, Metal only; 35 is the second directional shadow map, a
+scene slot, not a material one).
 On Vulkan, MoltenVK inherits a 16-SAMPLER-per-stage limit across all sets and the
 fragment stage is at it, so a new material texture is a SEPARATE image
 (`texture2D`) read through the shared sampler at set-1 binding 24, the treatment
@@ -261,6 +273,13 @@ a quad pass's texture slot i is the i-th entry, so an insertion moves every quad
 input after it. The list used to be duplicated across layout creation, the
 binding loop and the descriptor writes, and adding a slot to two of the three
 wrote every binding to the wrong index.
+
+Set 3 (per-pass scene textures) is sized by `kSceneTextureBindingCount` and typed by
+`vulkanSceneDescriptorType`: the layout, the descriptor writes and the pipeline's
+reflection check all read those two, and the reflection check now compares each
+scene binding's KIND, not just its number — it used to accept any kind below a
+hand-written bound. The bundle validator's table in
+`generate_vulkan_shader_bundle.py` is the one other place to update.
 
 ### Metal buffer slots
 
@@ -443,8 +462,8 @@ order with `#define VT_FEATURE_*` guards. Overridable globally via
 default. Both override sets' FNV content hashes fold into the variant cache key.
 Metal chunks hot-reload from the source dir per launch.
 
-**Both backends.** `engine/shaders/vulkan/chunks/` holds 18 GLSL **fragment**
-chunks under the same names, and `forward.frag` is a 26-line file that `#include`s
+**Both backends.** `engine/shaders/vulkan/chunks/` holds 20 GLSL **fragment**
+chunks under the same names, and `forward.frag` is a 28-line file that `#include`s
 them, so the build-time bundle and the runtime composition share one source.
 
 - `ProgramLibrary` registers a separate GLSL chunk order that **must stay in step
@@ -541,7 +560,15 @@ makes reusing the frame-scoped uniform ring and descriptor pools safe. A bake mu
 also set its own blend, depth and cull state — nothing outside the frame graph
 has — and `beginOfflineWork` flushes pending uploads first, because a texture
 created without host data marks its tracker SHADER_READ_ONLY while the actual
-transition is still sitting in the deferred upload queue.
+transition is still sitting in the deferred upload queue. `endOfflineWork` flushes
+AGAIN before submitting, as the frame path does before its own submit: building
+the first `RenderTarget` over such a texture RECREATES its image
+(`Texture::setRenderTargetUse`), which for a bake happens inside the scope, and the
+new image's queued transition must land ahead of the barriers recorded against its
+tracker. Until 2026-09-24 it landed after them, so every env bake rendered, mipped
+and sampled a cube the GPU still had UNDEFINED (the smoke test's 10
+VUID-vkCmdDraw-None-09600 errors). Any new one-shot or offline submit owes the
+same flush immediately before `vkQueueSubmit`.
 
 ## Examples
 
@@ -1175,16 +1202,18 @@ present, but the rule below never depends on reading it.
   so `setBaseColorTransform` from the parser was overwritten before it ever reached
   the GPU — the same trap as `setDiffuse` versus `setBaseColorFactor`, one field
   further out. The parser writes `setDiffuseMapTiling` and its four siblings.
-- **A glTF material is built in ONE place, `createGltfMaterial` in `glbParser.cpp`,
-  for all three load paths** — the synchronous `parse()`, `createFromModel` and
-  `prepareFromModel` + `createFromPrepared` (the last two are what `loadAsync` uses).
-  Each used to carry its own copy, and the two async copies had drifted: no occlusion
-  texture, no emissive texture, no metallic-roughness UV set and no
-  `KHR_materials_unlit`, so a model loaded asynchronously lost its baked AO and its glow
-  and an unlit model came out lit. No example loads asynchronously, which is how it
-  lived; `tests/glbMaterialPathsTests.cpp` builds a model using all four in memory and
-  checks both async paths. A new material feature goes into that function and nowhere
-  else.
+- **A glTF file loads through ONE pipeline, whatever the entry point.** `parse()` and
+  `parseFromMemory()` load the model and call `createFromModel()`, which is
+  `prepareFromModel()` + `createFromPrepared()` on the calling thread; `loadAsync` runs
+  the same two halves with the first on a worker. Materials come from
+  `createGltfMaterial`, textures from `createPreparedTexture`, vertices from
+  `extractTrianglePrimitive`, point clouds from `appendPointVertices`. Until 2026-09-24
+  the three paths each carried their own copy, and the async copies had drifted: no
+  occlusion or emissive texture, no metallic-roughness UV set, no `KHR_materials_unlit`,
+  and POINTS primitives drawn as triangles with no colours or merge. No example loads
+  asynchronously, which is how it lived. `tests/glbMaterialPathsTests.cpp` and
+  `tests/glbPointCloudTests.cpp` build models in memory and check both halves. A new
+  glTF feature goes into the shared step, never into one entry point.
 - **`extensionsRequired` is consulted, and the list of what the parser supports
   lives in `warnUnsupportedRequiredExtensions`.** Add an extension there when you
   implement it, or a file that needs it keeps warning; leave it out when you only
@@ -1632,18 +1661,34 @@ present, but the rule below never depends on reading it.
   frame 2 (`setShadowUpdateMode(THISFRAME)`) and compare; and read the shadow map
   back (`Texture::read` on the atlas) rather than the lit frame, converting the
   crushed perspective depth to distance before looking at it.
-- **There is ONE directional shadow per layer, and only the light that owns it may
-  be shadowed.** DEVIATION: upstream samples every directional caster's map; here
-  the lighting block has one cascade palette and one directional shadow slot. The
-  renderer gives it to the first directional caster, marks that light with
-  `shadowMapIndex = 0` (Vulkan reads it from `coneParams.w`), and clears
-  `castShadows` on every other directional light with a one-time warning. Until
-  2026-09-23 Vulkan ran the cascade lookup for EVERY directional light, so a
-  shadowless fill light was darkened by the key light's shadow: measured on
-  `ambient-occlusion` with `VISUTWIN_FILL_LIGHT=35,30,1`, the fill's contribution
-  inside the key shadow was 0.01 counts on Vulkan against 37.85 on Metal, and is
-  37.87 now. A second directional shadow needs a second palette and texture slot on
-  both backends, and the Vulkan fragment stage is at MoltenVK's sampler limit.
+- **Two directional lights per layer can be shadowed, and a light may only be
+  shadowed through its OWN slot.** DEVIATION: upstream samples every directional
+  caster's map; here `ShadowParams::directional[kMaxDirectionalShadows = 2]` holds
+  each shadowed light's map, cascade palette, distances and biases, the renderer
+  gives the first two directional casters slots 0 and 1 (`shadowMapIndex`, which
+  Vulkan reads from `coneParams.w` and Metal from `typeCastShadows.w`), and clears
+  `castShadows` on any further one with a one-time warning. The FILTER is chosen
+  per shader variant (`VT_FEATURE_VSM_SHADOWS` / `PCSS_SHADOWS`), so a light whose
+  shadow type differs from slot 0's is refused the same way. Slot 0 keeps its old
+  uniforms; slot 1 is an appended block of the same layout (`shadow1*` on Metal,
+  `dirShadow1*` on Vulkan) and one shared function per language evaluates either
+  (`evaluateDirectionalShadow` in `common-shadow-pcss.metal`,
+  `sampleDirectionalShadow(slot, ...)` in `common-shadow-vsm.glsl`). Metal binds
+  slot 1's map at texture 35; on Vulkan BOTH maps are separate images (scene set
+  bindings 1 and 22) read through the shared samplers at 12 (linear, for EVSM) and
+  13 (nearest, for depth), which freed a combined sampler rather than adding one.
+  Before 2026-09-24 there was one slot, the Metal chunk latched it with a
+  frame-wide `shadowApplied` flag, and until 2026-09-23 Vulkan applied that one
+  map to every directional light. Verified with `VISUTWIN_FILL_LIGHT=35,30,1.5,1`
+  on `ambient-occlusion`: the fill's own shadow term is -2.478 counts mean on Metal
+  and -2.480 on Vulkan, with the building's shadow the same shape on both (PCSS in
+  slot 1: -4.308 on both). Single-light scenes are bit-identical on Metal; on Vulkan
+  PCF and VSM are too (to 1 count), while PCSS on `shadow-cascades` moves 47 isolated
+  pixels of 3.3M by up to 48 counts — a blocker-search threshold flipped by the
+  SPIR-V compiling differently, NOT the sampler (anisotropy and LOD clamp were both
+  ruled out by experiment). `vulkanSmoke`'s shadow-catcher step had been failing
+  since 2026-09-23 for test reasons only (a light with shadowMapIndex -1 and cascade
+  distances of 0); it sets both now.
 - **The default is ONE shadow cascade, as upstream.** It was 4, and a one-shot
   directional shadow is unusable with more than one: the receiver picks its cascade
   by VIEW depth, so moving the camera carries the scene into cascades whose maps were
@@ -1729,7 +1774,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 8. `VISUTWIN_FILL_LIGHT=pitch,yaw,intensity[,shadows]` adds a second, white
    directional light to any example. Aimed like the key light, the frame minus a run
    without it is the fill alone, and it must be as bright inside the key light's
-   shadow as outside it.
+   shadow as outside it. With `shadows` = 1 it takes the second directional shadow
+   slot and copies the key light's shadow settings — without the key's distance the
+   default 40 units leaves a large scene entirely past it, and unshadowed.
 9. `VISUTWIN_FIXED_DT=seconds` replaces the measured frame time, so an animated
    example reaches the same state at the same frame in every run. With it, two runs
    of one binary are bit-identical and two builds CAN be screenshot-diffed.
@@ -1739,6 +1786,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 
 11. `VISUTWIN_BLOOM_THRESHOLD=t` sets the bloom threshold on every camera. No upstream
     example sets one; t=0 must reproduce the unset frame exactly.
+12. `VISUTWIN_SHADOW_TYPE=n` sets `ShadowType` n on every shadow-casting directional
+    light (0 PCF3, 2 VSM, 5 PCF1, 6 PCSS). `shadow-cascades` otherwise reaches VSM and
+    PCSS only through a key press.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.

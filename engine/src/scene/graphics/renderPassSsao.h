@@ -60,7 +60,6 @@ namespace visutwin::canvas
 
         Texture* _sourceTexture = nullptr;
         CameraComponent* _cameraComponent = nullptr;
-        bool _blurEnabled = true;
         float _scale = 1.0f;
 
         float _radius = 30.0f;

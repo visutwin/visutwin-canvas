@@ -50,7 +50,7 @@ class RectOutline
 {
 public:
     RectOutline(Engine* engine, Entity* cameraEntity, CameraComponent* cameraComponent)
-        : _cameraEntity(cameraEntity), _cameraComponent(cameraComponent)
+        : _cameraComponent(cameraComponent)
     {
         _material = std::make_shared<StandardMaterial>();
         _material->setUseLighting(false);
@@ -106,7 +106,6 @@ public:
     }
 
 private:
-    Entity* _cameraEntity = nullptr;
     CameraComponent* _cameraComponent = nullptr;
     std::shared_ptr<StandardMaterial> _material;
     std::array<Entity*, 4> _rods{};

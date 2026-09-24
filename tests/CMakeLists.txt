@@ -361,6 +361,15 @@ target_link_libraries(visutwin-glb-material-paths-tests PRIVATE visutwin-canvas)
 
 add_test(NAME glb-material-paths COMMAND visutwin-glb-material-paths-tests)
 
+add_executable(visutwin-glb-point-cloud-tests
+    glbPointCloudTests.cpp
+)
+
+target_include_directories(visutwin-glb-point-cloud-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+target_link_libraries(visutwin-glb-point-cloud-tests PRIVATE visutwin-canvas)
+
+add_test(NAME glb-point-cloud COMMAND visutwin-glb-point-cloud-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

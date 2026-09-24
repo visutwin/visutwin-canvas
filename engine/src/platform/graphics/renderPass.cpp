@@ -218,7 +218,6 @@ namespace visutwin::canvas
     void RenderPass::log(std::shared_ptr<GraphicsDevice> device, int index) const
     {
         const auto& rt = _renderTarget == nullptr ? nullptr : device->backBuffer();
-        bool isBackBuffer = false; // Simplified check
         int numColor = 0;
         bool hasDepth = false;
         bool hasStencil = false;

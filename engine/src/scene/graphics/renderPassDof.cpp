@@ -10,8 +10,7 @@ namespace visutwin::canvas
 {
     RenderPassDof::RenderPassDof(const std::shared_ptr<GraphicsDevice>& device, CameraComponent* cameraComponent,
         Texture* sceneTexture, Texture* sceneTextureHalf, const bool highQuality, const bool nearBlur)
-        : RenderPass(device), _cameraComponent(cameraComponent), _sceneTexture(sceneTexture), _sceneTextureHalf(sceneTextureHalf),
-          _highQuality(highQuality), _nearBlur(nearBlur)
+        : RenderPass(device), _highQuality(highQuality), _nearBlur(nearBlur)
     {
         const PixelFormat sourceFormat = sceneTexture ? sceneTexture->format() : PixelFormat::PIXELFORMAT_RGBA8;
         Texture* halfSource = sceneTextureHalf ? sceneTextureHalf : sceneTexture;

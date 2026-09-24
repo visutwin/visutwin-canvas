@@ -23,15 +23,14 @@ namespace visutwin::canvas
     class ShadowRendererDirectional
     {
     public:
-        ShadowRendererDirectional(const std::shared_ptr<GraphicsDevice>& device, Renderer* renderer, ShadowRenderer* shadowRenderer);
+        ShadowRendererDirectional(const std::shared_ptr<GraphicsDevice>& device, ShadowRenderer* shadowRenderer);
 
         // Sets up the shadow camera for a directional light: positions it to cover the scene
         // camera's frustum, sets orthographic projection, and snaps to texel grid for stability.
         // lines 72-201.
         void cull(Light* light, Camera* camera);
 
-        std::shared_ptr<RenderPass> getLightRenderPass(Light* light, Camera* camera, int face, bool clearRenderTarget,
-            bool allCascadesRendering);
+        std::shared_ptr<RenderPass> getLightRenderPass(Light* light, Camera* camera, int face, bool clearRenderTarget);
 
         void buildNonClusteredRenderPasses(FrameGraph* frameGraph,
             const std::unordered_map<Camera*, std::vector<Light*>>& cameraDirShadowLights);
@@ -41,7 +40,6 @@ namespace visutwin::canvas
         static void generateSplitDistances(Light* light, float nearDist, float farDist);
 
     private:
-        Renderer* _renderer = nullptr;
         ShadowRenderer* _shadowRenderer = nullptr;
         std::shared_ptr<GraphicsDevice> _device;
     };

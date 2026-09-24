@@ -65,7 +65,7 @@ namespace visutwin::canvas
     class Light
     {
     public:
-        Light(GraphicsDevice* graphicsDevice, bool clusteredLighting);
+        explicit Light(GraphicsDevice* graphicsDevice);
 
         bool atlasViewportAllocated() const { return _atlasViewportAllocated; }
         void setAtlasViewportAllocated(bool value) { _atlasViewportAllocated = value; }
@@ -262,7 +262,6 @@ namespace visutwin::canvas
 
         GraphicsDevice* _device;
 
-        bool _clusteredLighting;
 
         bool _atlasViewportAllocated = false;
 

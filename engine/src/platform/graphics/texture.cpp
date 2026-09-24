@@ -17,10 +17,11 @@ namespace visutwin::canvas
     uint32_t Texture::_nextId = 0;
 
     Texture::Texture(GraphicsDevice* graphicsDevice, const TextureOptions& options) :
-        _device(graphicsDevice), _width(options.width), _height(options.height), _depth(options.depth),
-        _format(options.format), _id(_nextId++), _minFilter(options.minFilter), _magFilter(options.magFilter),
-        _cubemap(options.cubemap), _volume(options.volume), _arrayLength(options.arrayLength), _numLevelsRequested(options.numLevels),
-        _mipmaps(options.mipmaps), _storage(options.storage), _name(options.name), _profilerHint(options.profilerHint)
+        _name(options.name), _device(graphicsDevice), _width(options.width), _height(options.height),
+        _depth(options.depth), _arrayLength(options.arrayLength), _format(options.format), _id(_nextId++),
+        _minFilter(options.minFilter), _magFilter(options.magFilter), _cubemap(options.cubemap), _volume(options.volume),
+        _mipmaps(options.mipmaps), _storage(options.storage), _numLevelsRequested(options.numLevels),
+        _profilerHint(options.profilerHint)
     {
         assert(options.width > 0 && "Texture width must be greater than 0");
         assert(options.height > 0 && "Texture height must be greater than 0");

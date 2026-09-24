@@ -22,7 +22,7 @@ namespace visutwin::canvas
     class Layer
     {
     public:
-        Layer(const std::string& name, int id): _name(name), _id(id) {}
+        Layer(const std::string& name, int id): _id(id), _name(name) {}
 
         int id() const { return _id; }
 

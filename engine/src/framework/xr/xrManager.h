@@ -22,11 +22,11 @@ namespace visutwin::canvas
         bool active() const { return _session != nullptr; }
 
         // Attempts to end the XR session and optionally fires callback when the session is ended or failed to end
-        void end(XrErrorCallback callback = nullptr) {}
+        void end(XrErrorCallback /*callback*/ = nullptr) {}
 
         bool update(void* frame) { return _session != nullptr && frame != nullptr; }
 
-        void* requestAnimationFrame(const MakeTickCallback& callback) { return nullptr; }
+        void* requestAnimationFrame(const MakeTickCallback& /*callback*/) { return nullptr; }
 
     private:
         void* _session = nullptr;

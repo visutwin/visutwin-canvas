@@ -175,6 +175,12 @@ namespace visutwin::canvas
 
     VkDescriptorType vulkanSceneDescriptorType(const uint32_t binding)
     {
+        // Binding 1 and 22 are the two directional shadow maps, SEPARATE images read
+        // through the shared samplers at 12/13 (the fragment stage is at MoltenVK's
+        // 16-sampler limit, so a second combined sampler did not fit).
+        if (binding == 1 || binding == 22) {
+            return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        }
         if (binding < 6) {
             return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         }

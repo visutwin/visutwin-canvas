@@ -11,9 +11,9 @@ float chebyshevUpperBound(vec2 moments, float mean, float minVariance) {
     return (mean <= moments.x) ? 1.0 : pMax;
 }
 
-float sampleShadowVSM16(vec2 uv, float receiverZ, float vsmBias) {
+float sampleShadowVSM16(int slot, vec2 uv, float receiverZ, float vsmBias) {
     const float VSM_EXPONENT = 5.54;
-    vec3 moments = textureLod(shadowMap, uv, 0.0).xyz;
+    vec3 moments = directionalShadowTexel(slot, uv).xyz;
     float warped = exp(VSM_EXPONENT * (2.0 * receiverZ - 1.0));
     vec2 stored = moments.xy + vec2(warped, warped * warped) * (1.0 - moments.z);
     float depthScale = vsmBias * VSM_EXPONENT * warped;
@@ -27,17 +27,18 @@ float sampleShadowVSM16(vec2 uv, float receiverZ, float vsmBias) {
 // One cascade's visibility tap. Factored out of sampleDirectionalShadow so the
 // cross-cascade blend below samples the neighbouring cascade through exactly the
 // same filter — VSM, PCSS or PCF — rather than a second spelling of it.
-float sampleCascadeVisibility(vec3 coord, int cascade) {
-    if (lighting.shadowParams.x > 1.5) {
-        return sampleShadowVSM16(coord.xy, coord.z, max(lighting.shadowParams.z, 1e-4));
+float sampleCascadeVisibility(int slot, vec3 coord, int cascade) {
+    vec4 params = directionalShadowParams(slot);
+    if (params.x > 1.5) {
+        return sampleShadowVSM16(slot, coord.xy, coord.z, max(params.z, 1e-4));
     }
     if (vtFeatureEnabled(VT_FEATURE_PCSS_SHADOWS_BIT)) {
-        return getShadowPCSSDirectional(coord.xy,
-            coord.z - lighting.shadowParams.z,
-            lighting.pcssCascadeRadii[cascade],
-            lighting.pcssCascadeDepthRanges[cascade]);
+        return getShadowPCSSDirectional(slot, coord.xy,
+            coord.z - params.z,
+            directionalShadowPcssRadii(slot)[cascade],
+            directionalShadowPcssDepthRanges(slot)[cascade]);
     }
-    return pcf3x3(shadowMap, coord.xy, coord.z - lighting.shadowParams.z);
+    return pcf3x3Directional(slot, coord.xy, coord.z - params.z);
 }
 
 // Upstream ditherShadowCascadeIndex (shadowCascades.js): over the stretch of a
@@ -45,9 +46,9 @@ float sampleCascadeVisibility(vec3 coord, int cascade) {
 // pseudo-randomly dithered share of the fragments to the NEXT cascade, so the
 // seam between two shadow resolutions dissolves instead of drawing a line.
 // Twin of common-falloff.metal; the hash is upstream's.
-int ditherShadowCascadeIndex(int cascadeIndex, int cascadeCount, float blendFactor, float depth) {
+int ditherShadowCascadeIndex(vec4 distances, int cascadeIndex, int cascadeCount, float blendFactor, float depth) {
     if (cascadeIndex < cascadeCount - 1) {
-        float currentRangeEnd = lighting.shadowCascadeDistances[cascadeIndex];
+        float currentRangeEnd = distances[cascadeIndex];
         float transitionStart = blendFactor * currentRangeEnd;
         if (depth > transitionStart) {
             float transitionFactor = smoothstep(transitionStart, currentRangeEnd, depth);
@@ -60,15 +61,19 @@ int ditherShadowCascadeIndex(int cascadeIndex, int cascadeCount, float blendFact
     return cascadeIndex;
 }
 
-float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
-    if (lighting.shadowParams.x < 0.5) {
+// `slot` is the light's directional shadow slot (coneParams.w).
+float sampleDirectionalShadow(int slot, vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
+    vec4 params = directionalShadowParams(slot);
+    if (params.x < 0.5) {
         return 1.0;
     }
-    int cascadeCount = max(int(lighting.shadowParams.y), 1);
+    int cascadeCount = max(int(params.y), 1);
+    vec4 distances = directionalShadowDistances(slot);
+    vec2 params2 = directionalShadowParams2(slot);
 
     // Beyond the shadow distance the fragment is lit, and nothing is sampled
     // (upstream a59f9ef29).
-    float shadowDistance = lighting.shadowCascadeDistances[cascadeCount - 1];
+    float shadowDistance = distances[cascadeCount - 1];
     if (viewDepth > shadowDistance) {
         return 1.0;
     }
@@ -76,27 +81,27 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
     // Cascade = number of split distances the fragment is beyond.
     int cascade = 0;
     for (int i = 0; i < cascadeCount - 1; ++i) {
-        if (viewDepth > lighting.shadowCascadeDistances[i]) {
+        if (viewDepth > distances[i]) {
             cascade = i + 1;
         }
     }
     // cascadeBlend is a FRACTION (upstream): it dithers the cascade pick across
     // the end of each cascade and fades the shadow out toward the shadow
     // distance, and 0 turns both off. Twin of forward-fragment-lights.metal.
-    float cascadeBlend = lighting.shadowParams2.y;
+    float cascadeBlend = params2.y;
     if (cascadeBlend > 0.0) {
-        cascade = ditherShadowCascadeIndex(cascade, cascadeCount, cascadeBlend, viewDepth);
+        cascade = ditherShadowCascadeIndex(distances, cascade, cascadeCount, cascadeBlend, viewDepth);
     }
 
     // World-space normal bias, scaled by grazing angle to curb peter-panning
     // on directly-lit faces while offsetting shadow-acne on grazing ones.
     float ndl = clamp(dot(N, L), 0.0, 1.0);
     float sinAngle = sqrt(max(1.0 - ndl * ndl, 0.0));
-    vec3 biased = worldPos + N * (lighting.shadowParams2.x * sinAngle);
+    vec3 biased = worldPos + N * (params2.x * sinAngle);
 
     // Project into the cascade's atlas: the matrix bakes projection, view,
     // NDC→UV, and Z[0,1]; a perspective divide yields UV + depth directly.
-    vec4 sc = lighting.shadowMatrices[cascade] * vec4(biased, 1.0);
+    vec4 sc = directionalShadowMatrix(slot, cascade) * vec4(biased, 1.0);
     if (sc.w <= 0.0) {
         return 1.0;
     }
@@ -126,8 +131,8 @@ float sampleDirectionalShadow(vec3 worldPos, float viewDepth, vec3 N, vec3 L) {
     // PCSS replaces the PCF tap when the shader is specialized for it — a light
     // has exactly one shadow type, so VSM and PCSS are mutually exclusive and
     // the ordering here matches the Metal chunk's #if/#elif chain.
-    float visible = sampleCascadeVisibility(coord, cascade);
-    float shadowFactor = mix(1.0, visible, lighting.shadowParams.w);
+    float visible = sampleCascadeVisibility(slot, coord, cascade);
+    float shadowFactor = mix(1.0, visible, params.w);
 
     // Fade to fully lit at the shadow distance without sampling another cascade
     // (upstream 0b30839ea); the intensity mix above commutes with it. NOTE: this

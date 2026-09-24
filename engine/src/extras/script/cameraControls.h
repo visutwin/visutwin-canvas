@@ -96,7 +96,6 @@ namespace visutwin::canvas
 
         Mode _mode = Mode::ORBIT; // Current mode
 
-        bool _enableOrbit = true;
         bool _enableFly = false;
         bool _inputBlocked = false;
 
@@ -105,8 +104,6 @@ namespace visutwin::canvas
         Vector2 _zoomRange = Vector2(0.0f, 0.0f);
 
         CameraComponent* _camera = nullptr;
-
-        InputController* _controller = nullptr;
 
         float _startZoomDist = 0.0f;
 

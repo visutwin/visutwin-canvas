@@ -61,7 +61,6 @@ namespace visutwin::canvas
     MetalRenderPipeline::MetalRenderPipeline(const MetalGraphicsDevice* device): MetalPipeline(device)
     {
         _lookupHashes.resize(15, 0);
-        _vertexBufferLayout = std::make_unique<MetalVertexBufferLayout>();
         _pipeline = nullptr;
     }
 
@@ -159,9 +158,12 @@ namespace visutwin::canvas
             const std::shared_ptr<VertexFormat>& vertexFormat1, int ibFormat, const std::shared_ptr<Shader>& shader,
             const std::shared_ptr<RenderTarget>& renderTarget,
             const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats,
-            const std::shared_ptr<BlendState>& blendState, const std::shared_ptr<DepthState>& depthState,
-            CullMode cullMode, bool stencilEnabled,
-            const std::shared_ptr<StencilParameters>& stencilFront, const std::shared_ptr<StencilParameters>& stencilBack,
+            const std::shared_ptr<BlendState>& blendState, [[maybe_unused]] const std::shared_ptr<DepthState>& depthState,
+            // Cull and stencil live on the encoder and the depth-stencil state, not in the
+            // Metal pipeline, so they are not part of this key.
+            CullMode /*cullMode*/, bool /*stencilEnabled*/,
+            const std::shared_ptr<StencilParameters>& /*stencilFront*/,
+            const std::shared_ptr<StencilParameters>& /*stencilBack*/,
             const std::shared_ptr<VertexFormat>& instancingFormat,
             const uint32_t renderTargetFormatKey) {
         assert(bindGroupFormats.size() <= 3);
@@ -219,9 +221,6 @@ namespace visutwin::canvas
         }
 
         // No match or hash collision, create a new pipeline
-        // Vertex buffer layout
-        auto vbLayout = _vertexBufferLayout->get(vertexFormat0, vertexFormat1);
-
         // Derive vertex stride from format (defaults to 56 for standard 14-float layout)
         const int vbStride = vertexFormat0 ? vertexFormat0->size() : 14 * static_cast<int>(sizeof(float));
 
@@ -233,7 +232,7 @@ namespace visutwin::canvas
         auto cacheEntry = std::make_shared<CacheEntry>();
         cacheEntry->hashes = _lookupHashes;
         cacheEntry->pipeline = create(
-            shader, renderTarget, blendState, vbLayout, vbStride, instStride
+            shader, renderTarget, blendState, vbStride, instStride
         );
         if (!cacheEntry->pipeline) {
             spdlog::error("Render pipeline creation returned null");
@@ -253,7 +252,6 @@ namespace visutwin::canvas
     MTL::RenderPipelineState* MetalRenderPipeline::create(
             const std::shared_ptr<Shader>& shader, const std::shared_ptr<RenderTarget>& renderTarget,
             const std::shared_ptr<BlendState>& blendState,
-            const std::vector<void*>& vertexBufferLayout,
             int vertexStride,
             int instancingStride
         )
@@ -311,7 +309,7 @@ namespace visutwin::canvas
             if (blendState->blueWrite())  writeMask |= MTL::ColorWriteMaskBlue;
             if (blendState->alphaWrite()) writeMask |= MTL::ColorWriteMaskAlpha;
 
-            for (auto i = 0; i < colorAttachments.size(); ++i)
+            for (size_t i = 0; i < colorAttachments.size(); ++i)
             {
                 auto* colorAttachment = pipelineDescriptor->colorAttachments()->object(i);
                 colorAttachment->setPixelFormat(colorAttachments[i]->pixelFormat);

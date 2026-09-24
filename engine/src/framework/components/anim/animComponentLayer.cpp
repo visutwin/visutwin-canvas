@@ -17,7 +17,7 @@ namespace visutwin::canvas
         const std::vector<AnimStateDesc>& states, const std::vector<AnimTransitionDesc>& transitions,
         const float weight, const AnimLayerBlendType blendType, std::unordered_set<std::string> mask,
         const bool activate)
-        : _name(std::move(name)), _index(index), _component(component), _weight(weight),
+        : _name(std::move(name)), _index(index), _weight(weight),
           _blendType(blendType), _mask(std::move(mask))
     {
         // Ensure the control states exist — the controller starts in START and the

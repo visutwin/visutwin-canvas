@@ -124,7 +124,6 @@ namespace visutwin::canvas
         [[nodiscard]] bool hasNewFrame() const { return _hasPublished; }
 
     private:
-        MTL::Device* _device;
         Descriptor _desc;
 
         std::array<MTL::Texture*, kNumSlots> _textures{};

@@ -28,8 +28,8 @@
 namespace visutwin::canvas
 {
     ShadowRendererDirectional::ShadowRendererDirectional(const std::shared_ptr<GraphicsDevice>& device,
-        Renderer* renderer, ShadowRenderer* shadowRenderer)
-        : _renderer(renderer), _shadowRenderer(shadowRenderer), _device(device)
+        ShadowRenderer* shadowRenderer)
+        : _shadowRenderer(shadowRenderer), _device(device)
     {
     }
 
@@ -334,7 +334,7 @@ namespace visutwin::canvas
     }
 
     std::shared_ptr<RenderPass> ShadowRendererDirectional::getLightRenderPass(Light* light, Camera* camera,
-        const int face, const bool clearRenderTarget, const bool allCascadesRendering)
+        const int face, const bool clearRenderTarget)
     {
         if (!_shadowRenderer || !_device || !light || !camera || light->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
             return nullptr;
@@ -350,8 +350,7 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        auto renderPass = std::make_shared<RenderPassShadowDirectional>(_device, _shadowRenderer, light, camera, shadowCamera, face,
-            allCascadesRendering);
+        auto renderPass = std::make_shared<RenderPassShadowDirectional>(_device, light, camera, face);
         _shadowRenderer->setupRenderPass(renderPass.get(), shadowCamera, clearRenderTarget);
         return renderPass;
     }
@@ -377,7 +376,7 @@ namespace visutwin::canvas
 
                 // Single render pass per light — the pass internally loops over all cascades
                 // with per-cascade viewport/scissor.
-                auto renderPass = getLightRenderPass(light, camera, 0, true, true);
+                auto renderPass = getLightRenderPass(light, camera, 0, true);
                 if (renderPass) {
                     frameGraph->addRenderPass(renderPass);
                 }

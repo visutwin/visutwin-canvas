@@ -21,12 +21,11 @@ namespace visutwin::canvas
     class RenderPassPostprocessing : public RenderPass
     {
     public:
-        RenderPassPostprocessing(const std::shared_ptr<GraphicsDevice>& device, Renderer* renderer, RenderAction* renderAction);
+        RenderPassPostprocessing(const std::shared_ptr<GraphicsDevice>& device, RenderAction* renderAction);
 
         void execute() override;
 
     private:
-        Renderer* _renderer = nullptr;
         RenderAction* _renderAction = nullptr;
         std::shared_ptr<RenderPassDof> _dofPass;
         std::shared_ptr<RenderPassSsao> _ssaoPass;

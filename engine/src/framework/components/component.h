@@ -85,7 +85,7 @@ namespace visutwin::canvas
          *— each system copies its properties.
          * Subclasses override to copy their specific properties.
          */
-        virtual void cloneFrom(const Component* source) {}
+        virtual void cloneFrom(const Component* /*source*/) {}
 
     protected:
         // Called internally when the enabled setter changes the value.

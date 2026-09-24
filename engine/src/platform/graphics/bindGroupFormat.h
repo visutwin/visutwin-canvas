@@ -40,6 +40,5 @@ namespace visutwin::canvas
     private:
         uint32_t _id;
 
-        GraphicsDevice* _device;
     };
 }

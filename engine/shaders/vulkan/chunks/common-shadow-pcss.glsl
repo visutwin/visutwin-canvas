@@ -1,3 +1,69 @@
+// ── Directional shadow slots ──
+// Two directional lights can be shadowed (ShadowParams::kMaxDirectionalShadows);
+// the light's coneParams.w picks the slot. These accessors return a slot's
+// uniforms, and directionalShadowTexel reads its map. The maps are SEPARATE
+// images, and a sampler built over one may only appear where it is used — never
+// as a call argument — so the slot is chosen at each tap. Each map reads through
+// the filter its own sampler has (ShadowMap::create): EVSM moments linear,
+// depth nearest. The shadow type is scene-wide, so slot 0's mode decides.
+
+mat4 directionalShadowMatrix(int slot, int cascade) {
+    return slot == 0 ? lighting.shadowMatrices[cascade] : lighting.dirShadow1Matrices[cascade];
+}
+vec4 directionalShadowDistances(int slot) {
+    return slot == 0 ? lighting.shadowCascadeDistances : lighting.dirShadow1CascadeDistances;
+}
+// enabled, numCascades, depthBias, strength
+vec4 directionalShadowParams(int slot) {
+    return slot == 0 ? lighting.shadowParams : lighting.dirShadow1Params;
+}
+// normalBias, cascadeBlend (slot 0's zw carry unrelated values)
+vec2 directionalShadowParams2(int slot) {
+    return slot == 0 ? lighting.shadowParams2.xy : lighting.dirShadow1Params2.xy;
+}
+vec4 directionalShadowPcss(int slot) {
+    return slot == 0 ? lighting.pcssParams : lighting.dirShadow1PcssParams;
+}
+vec4 directionalShadowPcssRadii(int slot) {
+    return slot == 0 ? lighting.pcssCascadeRadii : lighting.dirShadow1PcssCascadeRadii;
+}
+vec4 directionalShadowPcssDepthRanges(int slot) {
+    return slot == 0 ? lighting.pcssCascadeDepthRanges : lighting.dirShadow1PcssCascadeDepthRanges;
+}
+
+vec4 directionalShadowTexel(int slot, vec2 uv) {
+    if (lighting.shadowParams.x > 1.5) {
+        return slot == 0 ? textureLod(sampler2D(shadowMapImage, linearClampSampler), uv, 0.0)
+                         : textureLod(sampler2D(shadowMapImage1, linearClampSampler), uv, 0.0);
+    }
+    return slot == 0 ? textureLod(sampler2D(shadowMapImage, nearestClampSampler), uv, 0.0)
+                     : textureLod(sampler2D(shadowMapImage1, nearestClampSampler), uv, 0.0);
+}
+
+// A depth map's texel (PCF, PCSS): always the nearest sampler.
+float directionalShadowDepth(int slot, vec2 uv) {
+    return slot == 0 ? textureLod(sampler2D(shadowMapImage, nearestClampSampler), uv, 0.0).r
+                     : textureLod(sampler2D(shadowMapImage1, nearestClampSampler), uv, 0.0).r;
+}
+
+vec2 directionalShadowSize(int slot) {
+    return slot == 0 ? vec2(textureSize(sampler2D(shadowMapImage, nearestClampSampler), 0))
+                     : vec2(textureSize(sampler2D(shadowMapImage1, nearestClampSampler), 0));
+}
+
+// pcf3x3 over a directional slot's map.
+float pcf3x3Directional(int slot, vec2 uv, float receiver) {
+    vec2 texel = 1.0 / directionalShadowSize(slot);
+    float sum = 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            float occluder = directionalShadowDepth(slot, uv + vec2(x, y) * texel);
+            sum += (receiver <= occluder) ? 1.0 : 0.0;
+        }
+    }
+    return sum / 9.0;
+}
+
 // ── PCSS: contact-hardening soft shadows (parity with common-shadow-pcss.metal) ──
 // Vogel-disk blocker search sizes a per-fragment penumbra, then a second disk
 // pass filters at that radius.  Every shadow map here is already bound through
@@ -25,7 +91,7 @@ vec2 pcssDiskSample(float id, float invCount, float initialAngle) {
 
 // Directional PCSS.  `orthoRadius` / `depthRange` are the cascade's shadow-camera
 // world half-extent and caster depth span; `receiverDepth` arrives biased.
-float getShadowPCSSDirectional(vec2 uv, float receiverDepth,
+float getShadowPCSSDirectional(int slot, vec2 uv, float receiverDepth,
                                float orthoRadius, float depthRange) {
     // Clamp so cleared texels (depth 1) are not treated as blockers when the
     // receiver sits outside the tightened cascade depth range.
@@ -34,10 +100,11 @@ float getShadowPCSSDirectional(vec2 uv, float receiverDepth,
 
     // A zero filter count would divide the accumulated visibility by zero and
     // poison the frame with NaN; the renderer always sends 16.
-    int shadowSamples = max(int(lighting.pcssParams.x), 1);
-    int blockerSamples = int(lighting.pcssParams.y);
-    float penumbraSize = lighting.pcssParams.z;
-    float penumbraFalloff = lighting.pcssParams.w;
+    vec4 pcssParams = directionalShadowPcss(slot);
+    int shadowSamples = max(int(pcssParams.x), 1);
+    int blockerSamples = int(pcssParams.y);
+    float penumbraSize = pcssParams.z;
+    float penumbraFalloff = pcssParams.w;
 
     float worldPerUv = 2.0 * orthoRadius;
 
@@ -51,7 +118,7 @@ float getShadowPCSSDirectional(vec2 uv, float receiverDepth,
         for (int i = 0; i < blockerSamples; ++i) {
             vec2 sampleUv = uv +
                 pcssDiskSample(float(i), invBlockers, initialAngle) * searchWidthUv;
-            float occluder = textureLod(shadowMap, sampleUv, 0.0).r;
+            float occluder = directionalShadowDepth(slot, sampleUv);
             if (occluder < receiverDepthClamped) {
                 blockerSum += occluder;
                 numBlockers++;
@@ -78,7 +145,7 @@ float getShadowPCSSDirectional(vec2 uv, float receiverDepth,
     for (int i = 0; i < shadowSamples; ++i) {
         vec2 sampleUv = uv +
             pcssDiskSample(float(i), invSamples, initialAngle) * filterRadius;
-        sum += step(receiverDepthClamped, textureLod(shadowMap, sampleUv, 0.0).r);
+        sum += step(receiverDepthClamped, directionalShadowDepth(slot, sampleUv));
     }
     return sum * invSamples;
 }

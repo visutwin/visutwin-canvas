@@ -101,7 +101,7 @@ jobs:
       # The examples are OFF in the default preset to keep local builds lean; CI
       # builds all of them so nothing leaves an example uncompiled.
       - name: Configure
-        run: cmake --preset default -DVISUTWIN_BUILD_EXAMPLES=ON
+        run: cmake --preset default -DVISUTWIN_BUILD_EXAMPLES=ON -DVISUTWIN_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build --preset default
       - name: Unit tests
@@ -144,7 +144,7 @@ jobs:
           key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
       - name: Configure
-        run: cmake --preset sanitize
+        run: cmake --preset sanitize -DVISUTWIN_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build --preset sanitize
       - name: Unit tests under the sanitizers
@@ -195,6 +195,10 @@ jobs:
           path: ${{ github.workspace }}/vcpkg-binary-cache
           key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+      # Warnings are on but NOT errors here: GCC warns about things clang does not
+      # (-Wmaybe-uninitialized, -Wclass-memaccess), and the tree has been brought to
+      # zero warnings under Apple clang only. Clear this job's log first, then add
+      # -DVISUTWIN_WARNINGS_AS_ERRORS=ON.
       - name: Configure
         run: cmake --preset vulkan
       - name: Build

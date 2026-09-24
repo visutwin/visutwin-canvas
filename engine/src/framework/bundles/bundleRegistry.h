@@ -17,6 +17,6 @@ namespace visutwin::canvas
     class BundleRegistry
     {
     public:
-        BundleRegistry(const std::shared_ptr<AssetRegistry>& assetRegistry) {}
+        BundleRegistry(const std::shared_ptr<AssetRegistry>& /*assetRegistry*/) {}
     };
 }

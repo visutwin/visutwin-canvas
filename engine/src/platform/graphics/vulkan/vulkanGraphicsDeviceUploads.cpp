@@ -283,6 +283,16 @@ namespace visutwin::canvas
             return;
         }
 
+        // Uploads queued DURING the scope go first too, as the frame path does
+        // before its own submit. The case that needs it: a render-target texture
+        // created without host data is recreated when its first RenderTarget is
+        // built (Texture::setRenderTargetUse), which for a bake is inside this
+        // scope — the fresh image queues its UNDEFINED -> SHADER_READ_ONLY
+        // transition here and its tracker already says SHADER_READ_ONLY, so every
+        // barrier this buffer recorded for it assumed a layout that only this flush
+        // establishes. Submitted after the buffer, the env-bake cube was rendered,
+        // mip-mapped and sampled while the GPU still had it UNDEFINED.
+        flushUploads();
         submitAndWait(commandBuffer);
     }
 }

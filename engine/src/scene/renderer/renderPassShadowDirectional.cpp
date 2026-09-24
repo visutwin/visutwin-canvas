@@ -28,9 +28,8 @@
 namespace visutwin::canvas
 {
     RenderPassShadowDirectional::RenderPassShadowDirectional(const std::shared_ptr<GraphicsDevice>& device,
-        ShadowRenderer* shadowRenderer, Light* light, Camera* camera, Camera* shadowCamera, const int face, const bool allCascadesRendering)
-        : RenderPass(device), _shadowRenderer(shadowRenderer), _light(light), _camera(camera),
-          _shadowCamera(shadowCamera), _graphicsDevice(device), _face(face), _allCascadesRendering(allCascadesRendering)
+        Light* light, Camera* camera, const int face)
+        : RenderPass(device), _light(light), _camera(camera), _graphicsDevice(device), _face(face)
     {
         _requiresCubemaps = false;
         _name = "RenderPassShadowDirectional";

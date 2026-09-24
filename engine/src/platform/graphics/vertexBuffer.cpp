@@ -68,7 +68,7 @@ namespace visutwin::canvas
 
     bool VertexBuffer::setData(const std::vector<uint8_t>& data)
     {
-        if (data.size() != _numBytes) {
+        if (data.size() != static_cast<size_t>(_numBytes)) {
             spdlog::error("VertexBuffer: wrong initial data size: expected " +
                 std::to_string(_numBytes) + ", got " + std::to_string(data.size()));
             return false;

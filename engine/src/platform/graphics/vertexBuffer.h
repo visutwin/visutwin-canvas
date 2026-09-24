@@ -45,6 +45,7 @@ namespace visutwin::canvas
         virtual void unlock() = 0;
 
         int numVertices() const { return _numVertices; }
+        BufferUsage usage() const { return _usage; }
 
         virtual void* nativeBuffer() const { return nullptr; }
 

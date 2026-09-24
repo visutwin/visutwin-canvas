@@ -226,7 +226,7 @@ int main()
     {
         tinygltf::Model model = buildModel();
         auto container = GlbParser::createFromModel(model, device, "glbMaterialPathsTests");
-        const size_t before = device->vram().tex;
+        const auto before = device->vram().tex;
         std::shared_ptr<Material> material =
             container && !container->meshPayloads().empty() ? container->meshPayloads()[0].material : nullptr;
         check(material != nullptr && before > 0, "the parsed textures are counted in VRAM");

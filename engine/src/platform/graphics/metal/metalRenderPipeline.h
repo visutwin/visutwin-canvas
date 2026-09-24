@@ -8,7 +8,6 @@
 #include "Metal/Metal.hpp"
 #include "metalGraphicsDevice.h"
 #include "metalPipeline.h"
-#include "metalVertexBufferLayout.h"
 #include "platform/graphics/bindGroupFormat.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
@@ -63,7 +62,6 @@ namespace visutwin::canvas
             const std::shared_ptr<Shader>& shader,
             const std::shared_ptr<RenderTarget>& renderTarget,
             const std::shared_ptr<BlendState>& blendState,
-            const std::vector<void*>& vertexBufferLayout,
             int vertexStride = 56,
             int instancingStride = 0
         );
@@ -80,7 +78,6 @@ namespace visutwin::canvas
         std::unordered_map<uint32_t, std::vector<std::shared_ptr<CacheEntry>>> _cache;
 
         // The cache of vertex buffer layouts
-        std::unique_ptr<MetalVertexBufferLayout> _vertexBufferLayout;
 
         // Mapping tables
         static const MTL::PrimitiveType primitiveTopology[5];

@@ -59,7 +59,6 @@ namespace visutwin::canvas
         Rect sanitizeRect(int x, int y, int width, int height) const;
         bool isLayerAllowed(const std::vector<int>& objectLayers) const;
 
-        Engine* _app = nullptr;
         CameraComponent* _camera = nullptr;
         Scene* _scene = nullptr;
         bool _depth = false;

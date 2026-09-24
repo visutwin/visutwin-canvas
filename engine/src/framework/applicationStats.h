@@ -86,7 +86,7 @@ namespace visutwin::canvas
     class ApplicationStats
     {
     public:
-        ApplicationStats(std::shared_ptr<GraphicsDevice> _graphicsDevice) {}
+        ApplicationStats(std::shared_ptr<GraphicsDevice> /*_graphicsDevice*/) {}
 
         DrawCallStats& drawCalls() { return _drawCalls; }
 

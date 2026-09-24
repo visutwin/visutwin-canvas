@@ -62,6 +62,9 @@ namespace visutwin::canvas
             int materialIndex = -1;
             std::vector<MorphTarget> morphTargets;      ///< CPU morph deltas (GPU buffer built on main thread).
             std::vector<float> morphInitialWeights;     ///< glTF mesh.weights.
+            /// A POINTS primitive: vertexBytes hold the 28-byte position + colour
+            /// layout, drawn unlit with vertex colours rather than lit as triangles.
+            bool pointCloud = false;
         };
 
         /// Pre-converted images indexed by tinygltf image index.
@@ -69,6 +72,14 @@ namespace visutwin::canvas
 
         /// Per-mesh primitives: meshPrimitives[meshIndex][primIndex].
         std::vector<std::vector<PrimitiveData>> meshPrimitives;
+
+        /// POINTS primitives of a model WITHOUT animations are merged into this one
+        /// world-space cloud (one draw call) instead of appearing in meshPrimitives,
+        /// and the leaf nodes that held nothing else are skipped. A model with
+        /// animations keeps each cloud in its node's local space, so animating the
+        /// node still moves it.
+        bool pointCloudsMerged = false;
+        PrimitiveData mergedPoints;   ///< Valid when pointCloudsMerged and vertexCount > 0.
 
         /// Fully parsed animation tracks (keyed by animation name).
         std::unordered_map<std::string, std::shared_ptr<AnimTrack>> animTracks;
@@ -94,14 +105,11 @@ namespace visutwin::canvas
             const std::string& debugName = "memory");
 
         /**
-         * Create GPU resources from a pre-parsed tinygltf model.
-         *
-         * Call this on the **main thread** after the background thread has
-         * completed tinygltf parsing (the heavy CPU work: JSON parse + image
-         * decode + Draco decompress).  This method still performs Draco decode,
-         * vertex extraction, tangent generation, and pixel conversion on the
-         * main thread.  Prefer prepareFromModel() + createFromPrepared() for
-         * the fully offloaded path.
+         * Create GPU resources from a pre-parsed tinygltf model: prepareFromModel()
+         * followed by createFromPrepared(), both on the calling thread. parse() and
+         * parseFromMemory() end here too, so every load path builds its container
+         * with the same code. Prefer calling the two halves yourself to put the
+         * CPU-heavy half on a worker.
          *
          * @param model      Pre-parsed tinygltf model (moved in — consumed).
          * @param device     Graphics device for GPU resource creation.

@@ -177,10 +177,10 @@ namespace visutwin::canvas
 
         _lightTextureAtlas = std::make_unique<LightTextureAtlas>(device);
 
-        _shadowRenderer = std::make_unique<ShadowRenderer>(this, _lightTextureAtlas.get());
+        _shadowRenderer = std::make_unique<ShadowRenderer>();
 
-        _shadowRendererLocal = std::make_unique<ShadowRendererLocal>(this, _shadowRenderer.get());
-        _shadowRendererDirectional = std::make_unique<ShadowRendererDirectional>(device, this, _shadowRenderer.get());
+        _shadowRendererLocal = std::make_unique<ShadowRendererLocal>(_shadowRenderer.get());
+        _shadowRendererDirectional = std::make_unique<ShadowRendererDirectional>(device, _shadowRenderer.get());
 
         // Always construct the clustered update pass so clustered lighting can be
         // toggled on the scene at any time (it is only added to the frame graph by
@@ -1115,94 +1115,87 @@ namespace visutwin::canvas
                 continue;
             }
 
-            // DEVIATION: ONE directional shadow per layer, where upstream samples
-            // every directional caster's map. The lighting block has a single
-            // cascade palette and a single directional shadow texture slot, so the
-            // first directional caster owns it, and every other directional light
-            // must be told it casts nothing: the shaders gate the cascade lookup on
-            // the light's own flag, and a light that kept it would be darkened by
-            // the OWNER's shadow — a shadowless fill light carrying the key light's
-            // shadows, which is what Vulkan did until 2026-09-23.
-            if (lightData.castShadows && shadowParams.enabled &&
-                lightData.type == GpuLightType::Directional) {
-                lightData.castShadows = false;
-                static bool warned = false;
-                if (!warned) {
-                    warned = true;
-                    spdlog::warn("Renderer: more than one directional light casts shadows on one layer; "
-                                 "only the first is shadowed");
-                }
-            }
-            if (lightData.castShadows && !shadowParams.enabled &&
-                lightData.type == GpuLightType::Directional) {
-                // Slot 0 marks this light as the owner of the directional shadow;
-                // the Vulkan chunk reads it from the same component the local
-                // shadows use, so a directional light without it stays unshadowed.
-                lightData.shadowMapIndex = 0;
-                shadowParams.enabled = true;
-                shadowParams.normalBias = lightComponent->shadowNormalBias();
-                shadowParams.strength = lightComponent->shadowStrength();
-
-                // Wire actual shadow map and cascade data from scene Light object.
+            // DEVIATION: up to kMaxDirectionalShadows directional shadows per layer,
+            // where upstream samples every directional caster's map. Each shadowed
+            // light takes a slot (its uniform block and texture) and carries the slot
+            // index as its shadowMapIndex; the shaders gate the cascade lookup on the
+            // light's own flag and index, so a light without a slot must be told it
+            // casts nothing or it would be darkened by ANOTHER light's shadow — a
+            // shadowless fill light carrying the key light's shadows, which is what
+            // Vulkan did until 2026-09-23. The filter (PCF, PCSS, VSM) is chosen per
+            // shader variant, so every slot must share the first slot's shadow type.
+            if (lightData.castShadows && lightData.type == GpuLightType::Directional) {
                 Light* sceneLight = lightComponent->light();
-                if (sceneLight && sceneLight->shadowMap()) {
-                    shadowParams.shadowMap = sceneLight->shadowMap()->shadowTexture();
+                const bool vsm = sceneLight && sceneLight->shadowType() == SHADOW_VSM_16F;
+                const bool pcss = sceneLight && sceneLight->shadowType() == SHADOW_PCSS_32F;
+                const int slot = shadowParams.directionalCount;
+                const char* refusal = nullptr;
+                if (!sceneLight || !sceneLight->shadowMap()) {
+                    refusal = "";   // no map yet (first frame): unshadowed, silently
+                } else if (slot >= ShadowParams::kMaxDirectionalShadows) {
+                    refusal = "more directional lights cast shadows on one layer than there are "
+                              "directional shadow slots; the extra ones are unshadowed";
+                } else if (slot > 0 && (vsm != shadowParams.vsm || pcss != shadowParams.pcss)) {
+                    refusal = "a directional light's shadow type differs from the first shadowed "
+                              "directional light's on the same layer; it is unshadowed";
+                }
+                if (refusal) {
+                    lightData.castShadows = false;
+                    static bool warned = false;
+                    if (*refusal && !warned) {
+                        warned = true;
+                        spdlog::warn("Renderer: {}", refusal);
+                    }
+                } else {
+                    lightData.shadowMapIndex = slot;
+                    shadowParams.directionalCount = slot + 1;
+                    shadowParams.enabled = true;
+                    shadowParams.vsm = vsm;
+                    shadowParams.pcss = pcss;
+                    auto& dir = shadowParams.directional[slot];
+                    dir.shadowMap = sceneLight->shadowMap()->shadowTexture();
+                    dir.normalBias = lightComponent->shadowNormalBias();
+                    dir.strength = lightComponent->shadowStrength();
 
                     // CSM: copy the full matrix palette and cascade distances.
-                    shadowParams.numCascades = sceneLight->numCascades();
-                    shadowParams.cascadeBlend = sceneLight->cascadeBlend();
-                    std::memcpy(shadowParams.shadowMatrixPalette,
-                                sceneLight->shadowMatrixPalette().data(),
-                                sizeof(shadowParams.shadowMatrixPalette));
-                    std::memcpy(shadowParams.shadowCascadeDistances,
-                                sceneLight->shadowCascadeDistances().data(),
-                                sizeof(shadowParams.shadowCascadeDistances));
+                    dir.numCascades = sceneLight->numCascades();
+                    dir.cascadeBlend = sceneLight->cascadeBlend();
+                    std::memcpy(dir.shadowMatrixPalette, sceneLight->shadowMatrixPalette().data(),
+                                sizeof(dir.shadowMatrixPalette));
+                    std::memcpy(dir.shadowCascadeDistances, sceneLight->shadowCascadeDistances().data(),
+                                sizeof(dir.shadowCascadeDistances));
 
-                    // Keep single VP matrix for cascade 0 (backward compat).
-                    // Cascades are fit for a single designated camera per
-                    // frame (see ForwardRenderer::buildFrameGraph) — use its
-                    // render data regardless of which camera's pass is being
-                    // encoded, so the matrix always matches the atlas.
+                    // For PCF: a fixed small shader-side depth bias; the real bias work
+                    // is hardware polygon offset (depthBias) in the shadow pass, which is
+                    // slope-aware. For VSM_16F the slot carries the vsmBias instead: it
+                    // sets the minVariance floor in chebyshevUpperBound, which decides how
+                    // aggressively low-variance (noisy) samples are clamped to lit. Too
+                    // small flickers; too large detaches contact shadows. Upstream's
+                    // default is 0.0025.
+                    dir.bias = vsm ? sceneLight->vsmBias() : 0.0001f;
+                    dir.penumbraSize = sceneLight->penumbraSize();
+                    dir.penumbraFalloff = sceneLight->penumbraFalloff();
+
+                    // Cascades are fit for a single designated camera per frame (see
+                    // ForwardRenderer::buildFrameGraph) — use its render data whichever
+                    // camera's pass is being encoded, so the matrices match the map.
                     Camera* fitCamera = camera;
                     if (!_cameraDirShadowLights.contains(fitCamera) && !_cameraDirShadowLights.empty()) {
                         fitCamera = _cameraDirShadowLights.begin()->first;
                     }
                     LightRenderData* rd = sceneLight->getRenderData(fitCamera, 0);
                     if (rd && rd->shadowCamera && rd->shadowCamera->node()) {
-                        shadowParams.viewProjection = rd->shadowCamera->projectionMatrix()
+                        dir.viewProjection = rd->shadowCamera->projectionMatrix()
                             * rd->shadowCamera->node()->worldTransform().inverse();
-
-                        // For PCF: fixed small shader-side depth bias. The real
-                        // bias work is done by hardware polygon offset
-                        // (depthBias) during the shadow render pass, which is
-                        // slope-aware.
-                        //
-                        // For VSM_16F: use the dedicated vsmBias instead. It
-                        // controls the minVariance floor in chebyshevUpperBound,
-                        // which determines how aggressively low-variance
-                        // (high-noise) samples are clamped to "lit". Too small
-                        // → noisy / flicker; too large → soft / detached
-                        // contact shadows. Upstream default is 0.0025.
-                        shadowParams.vsm = (sceneLight->shadowType() == SHADOW_VSM_16F);
-                        shadowParams.bias = shadowParams.vsm
-                            ? sceneLight->vsmBias()
-                            : 0.0001f;
-
-                        // PCSS: penumbra parameters + per-cascade shadow-camera
-                        // extents (the world-space penumbra math needs the ortho
-                        // radius and caster depth range of each cascade).
-                        shadowParams.pcss = (sceneLight->shadowType() == SHADOW_PCSS_32F);
-                        if (shadowParams.pcss) {
-                            shadowParams.penumbraSize = sceneLight->penumbraSize();
-                            shadowParams.penumbraFalloff = sceneLight->penumbraFalloff();
-                            for (int cascade = 0; cascade < shadowParams.numCascades && cascade < 4; ++cascade) {
-                                LightRenderData* cascadeData = sceneLight->getRenderData(fitCamera, cascade);
-                                if (cascadeData && cascadeData->shadowCamera) {
-                                    shadowParams.pcssCascadeRadii[cascade] =
-                                        std::max(cascadeData->shadowCamera->orthoHeight(), 1e-4f);
-                                    shadowParams.pcssCascadeDepthRanges[cascade] = std::max(
-                                        cascadeData->shadowCamera->farClip() - cascadeData->shadowCamera->nearClip(), 1e-4f);
-                                }
+                    }
+                    if (pcss) {
+                        for (int cascade = 0; cascade < dir.numCascades && cascade < 4; ++cascade) {
+                            LightRenderData* cascadeData = sceneLight->getRenderData(fitCamera, cascade);
+                            if (cascadeData && cascadeData->shadowCamera) {
+                                dir.pcssCascadeRadii[cascade] =
+                                    std::max(cascadeData->shadowCamera->orthoHeight(), 1e-4f);
+                                dir.pcssCascadeDepthRanges[cascade] = std::max(
+                                    cascadeData->shadowCamera->farClip() - cascadeData->shadowCamera->nearClip(), 1e-4f);
                             }
                         }
                     }
