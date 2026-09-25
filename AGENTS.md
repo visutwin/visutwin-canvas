@@ -901,6 +901,9 @@ present, but the rule below never depends on reading it.
   lights never reached the branch that zeroes the params and stayed lit by the
   previous layer's buffers. Both `clustered-lighting` and `clustered-spot-shadows`
   have exactly that shape: two distinct sets per frame, one of them empty.
+  `Renderer::lightSetHash` is the key and `bindLayerClusters` the per-layer bind;
+  `tests/clusterGridSharingTests.cpp` holds sharing, the pool and the zeroing, and fails
+  six checks with the grid shared frame-wide.
 - **The cluster grid is sized from the LIGHTS alone, and a spot is bounded by its
   CONE.** `WorldClusters::update` takes no camera: the bounds are the union of the
   light AABBs, as upstream's `evaluateBounds` does. They used to start from the camera
@@ -1347,6 +1350,30 @@ present, but the rule below never depends on reading it.
   degrades. The target is chosen on the MAIN thread and passed to the worker
   (`asset.cpp` — the path examples use, `resourceLoader.cpp`, and two in
   `glbParser.cpp` for `KHR_texture_basisu`). Changing one changes nothing.
+  `tests/ktx2TargetTests.cpp` drives each site with a device that can create exactly
+  one format and checks the texture comes out in it; a hard-coded ASTC fails it.
+- **Frame statistics are counted into `GraphicsDevice::frameCounters()`, and
+  `Engine::render()` zeroes them as it starts.** The writers are whoever does the work
+  — the forward pass (draws, material switches, sort and forward time), the culler
+  (cameras, cull time), the three shadow passes and `drawDepthOnly` (shadow draws and
+  time, skin and morph time wherever the palette is actually updated), the cluster pool
+  — and every one of them already holds the device. Each backend's `draw()` calls
+  `recordDraw(primitive, instances)`, which is what `stats.triangles` and
+  `otherPrimitives` come from, and `setShader` counts a switch when the shader
+  changes. Until 2026-09-25 fifteen of these had no write site and read zero; the
+  fills also reset them, so `start()`'s tick followed by the examples' manual
+  update/render counted two renders into the first frame. A new counter needs a writer
+  AND a line in `tests/frameStatsTests.cpp`, which renders a known scene through the
+  real engine on a stub device — nothing on screen reads these, so nothing else will
+  notice a dead one.
+- **A normal the OBJ or STL parser DERIVES follows the winding it emits.** With
+  `flipWinding`, a normal computed from the file's winding is turned with the
+  triangles; a file's own OBJ normals are left as the file says. Smoothing weights each
+  face by its CORNER ANGLE, so a quad smooths the same whichever diagonal it was split
+  on. And an OBJ corner's dedup key carries the generated normal: without it a flat
+  (`s off`) cube with no normals welded to 8 vertices and lit two faces of every corner
+  with the third's normal. Nothing in the examples loads OBJ or STL, so
+  `tests/objStlRoundTripTests.cpp` is the only thing that sees these.
 - **`pixelFormatInfo` is a map the `PixelFormat` enum does not enforce.** An
   enumerator with no entry makes `pixelFormatBytesPerPixel()` return 0, which
   the Vulkan upload path uses to size its staging copy.
@@ -1410,6 +1437,10 @@ present, but the rule below never depends on reading it.
   component was inactive; that logic used to live in its `setEnabled` override,
   which saw only the component's own flag, so a script created on an entity that
   was enabled LATER never initialized at all.
+
+  PARTICLE SYSTEMS were the last loop found with it (2026-09-25): their update
+  tested the component's and its own entity's `enabled()`, so an emitter under a
+  disabled PARENT kept simulating.
 - **A script may create a sibling or destroy its own entity from inside its own
   method, and the component's loops are built for it.** `ScriptComponent::forEachScript`
   walks by INDEX, so a script created mid-pass (appended, possibly reallocating the
@@ -1794,7 +1825,8 @@ present, but the rule below never depends on reading it.
   a disabled Skybox layer (usual for an env-atlas-only scene) matched nothing, the
   pass took every action, and the grab ran AFTER the transparent layers, so the
   surface refracted itself from last frame. It now places the stop by composition
-  position, as upstream's `addCameraLayers` does. (3) The refraction was tinted by
+  position, as upstream's `addCameraLayers` does (`RenderPassCameraFrame::findActionIndex`,
+  held by `tests/cameraFrameStopTests.cpp`). (3) The refraction was tinted by
   `baseColor^(thickness + 1)`; upstream applies the diffuse albedo ONCE (the
   refraction mixes into `dDiffuseLight`, which `combineColor` multiplies by albedo).
   Bug (1) hid bug (2) completely: fixing the order alone moved nothing. Probe it

@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <limits>
@@ -55,10 +56,16 @@ namespace visutwin::canvas
         struct VertexKey
         {
             int vi, ni, ti;  // position, normal, texcoord indices
+            // Which GENERATED normal the corner carries, 0 when the file supplies one:
+            // 1 + the quantized normal when flat, -smoothing group when smoothed. Without it every
+            // corner of a vertex shared the first face's generated normal, so a flat
+            // ("s off") cube with no normals came out with 8 vertices and two of the three
+            // faces at every corner lit by the third's normal.
+            int64_t gn = 0;
 
             bool operator==(const VertexKey& o) const
             {
-                return vi == o.vi && ni == o.ni && ti == o.ti;
+                return vi == o.vi && ni == o.ni && ti == o.ti && gn == o.gn;
             }
         };
 
@@ -69,6 +76,7 @@ namespace visutwin::canvas
                 size_t h = std::hash<int>()(k.vi);
                 h ^= std::hash<int>()(k.ni) + 0x9e3779b9 + (h << 6) + (h >> 2);
                 h ^= std::hash<int>()(k.ti) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<int64_t>()(k.gn) + 0x9e3779b9 + (h << 6) + (h >> 2);
                 return h;
             }
         };
@@ -230,11 +238,29 @@ namespace visutwin::canvas
                         faceNormal.store(&outNormals[(base + j) * 3]);
                     }
                 } else {
-                    // Smooth shading: accumulate for later normalization
+                    // Smooth shading: accumulate the unit face normal weighted by the
+                    // corner's ANGLE, so the result does not depend on how a polygon was
+                    // triangulated. Area weighting counted a quad once per triangle a
+                    // corner sat in, so which diagonal the reader picked tilted the normal.
+                    const float len = faceNormal.length();
+                    if (len <= 1e-12f) {
+                        continue;
+                    }
+                    const Vector3 unitNormal = faceNormal * (1.0f / len);
                     for (unsigned int j = 0; j < fv; ++j) {
+                        const auto corner = [&](const unsigned int k) {
+                            const int v = mesh.indices[base + (k % fv)].vertex_index;
+                            return Vector3::load(&attrib.vertices[3 * v]);
+                        };
+                        const Vector3 p = corner(j);
+                        const Vector3 toNext = corner(j + 1) - p;
+                        const Vector3 toPrev = corner(j + fv - 1) - p;
+                        const float denom = toNext.length() * toPrev.length();
+                        const float angle = denom > 1e-20f
+                            ? std::acos(std::clamp(toNext.dot(toPrev) / denom, -1.0f, 1.0f)) : 0.0f;
                         int vi = mesh.indices[base + j].vertex_index;
                         SmoothKey key{vi, sg};
-                        accum[key] += faceNormal;
+                        accum[key] += unitNormal * angle;
                     }
                 }
             }
@@ -608,6 +634,12 @@ namespace visutwin::canvas
                             if (config.flipYZ) {
                                 n = Vector3(n.getX(), n.getZ(), -n.getY());
                             }
+                            // Derived from the FILE's winding, which flipWinding reverses:
+                            // the normal follows the triangles it now belongs to. (A file's
+                            // own normals are left as the file says.)
+                            if (config.flipWinding) {
+                                n = n * -1.0f;
+                            }
                         }
 
                         // Texcoord
@@ -621,6 +653,21 @@ namespace visutwin::canvas
 
                         // Vertex deduplication
                         VertexKey key{objIdx.vertex_index, objIdx.normal_index, objIdx.texcoord_index};
+                        if (!(hasNormals && objIdx.normal_index >= 0) && !generatedNormals.empty()) {
+                            const unsigned int sg = fi < mesh.smoothing_group_ids.size()
+                                ? mesh.smoothing_group_ids[fi] : 0;
+                            if (sg == 0) {
+                                // Flat: keyed on the normal itself, quantized, so the
+                                // triangles of one planar polygon still share corners.
+                                const auto q = [](const float c) {
+                                    return static_cast<int64_t>(std::lround(std::clamp(c, -1.0f, 1.0f) * 32767.0f)) + 32768;
+                                };
+                                const float* g = &generatedNormals[idx * 3];
+                                key.gn = 1 + ((q(g[0]) << 32) | (q(g[1]) << 16) | q(g[2]));
+                            } else {
+                                key.gn = -static_cast<int64_t>(sg);
+                            }
+                        }
                         auto it = vertexMap.find(key);
                         if (it != vertexMap.end()) {
                             indices.push_back(it->second);

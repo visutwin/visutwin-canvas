@@ -95,12 +95,13 @@ namespace visutwin::canvas
         }
     }
 
-    void ParticleSystemComponent::update(const float dt)
+    bool ParticleSystemComponent::update(const float dt)
     {
         if (!_emitter || !_emitter->playing() || !_entity) {
-            return;
+            return false;
         }
         _emitter->update(dt, _entity->worldTransform());
+        return true;
     }
 
     void ParticleSystemComponent::cloneFrom(const Component* source)

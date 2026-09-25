@@ -3,6 +3,7 @@
 //
 #include "depthOnlyDraw.h"
 
+#include "core/scopedTimer.h"
 #include "framework/batching/skinBatchInstance.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexBuffer.h"
@@ -18,11 +19,11 @@
 
 namespace visutwin::canvas
 {
-    void drawDepthOnly(GraphicsDevice* device, ProgramLibrary* programLibrary,
+    bool drawDepthOnly(GraphicsDevice* device, ProgramLibrary* programLibrary,
         MeshInstance* meshInstance, const Matrix4& viewProjection, DepthOnlyShaders& shaders)
     {
         if (!device || !programLibrary || !meshInstance || !meshInstance->mesh()) {
-            return;
+            return false;
         }
 
         meshInstance->setVisibleThisFrame(true);
@@ -94,14 +95,23 @@ namespace visutwin::canvas
             }
             if (skinned) {
                 auto* si = meshInstance->skinInstance();
-                si->updateMatrixPalette(meshInstance->node());
+                {
+                    // A shadow pass often reaches a skin before the forward pass does,
+                    // so the palette update is timed wherever it actually happens.
+                    const ScopedMilliseconds skinTimer(device->frameCounters().skinTime);
+                    si->updateMatrixPalette(meshInstance->node());
+                }
                 device->setDynamicBatchPalette(si->paletteData(), si->paletteSizeBytes());
             }
             if (morphed) {
                 auto* mi = meshInstance->morphInstance();
                 if (mi->morph() && mi->morph()->deltaBuffer()) {
-                    const auto& params = mi->gpuParams();
-                    device->setMorphState(mi->morph()->deltaBuffer(), &params, sizeof(params));
+                    const MorphInstance::GpuMorphParams* params = nullptr;
+                    {
+                        const ScopedMilliseconds morphTimer(device->frameCounters().morphTime);
+                        params = &mi->gpuParams();
+                    }
+                    device->setMorphState(mi->morph()->deltaBuffer(), params, sizeof(*params));
                 }
             }
             const auto modelMatrix = meshInstance->node()
@@ -126,5 +136,6 @@ namespace visutwin::canvas
                 device->setShader(shaders.plain);
             }
         }
+        return true;
     }
 }

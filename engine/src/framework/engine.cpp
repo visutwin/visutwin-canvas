@@ -371,6 +371,15 @@ namespace visutwin::canvas
         assert(_graphicsDevice && "Engine::render requires a valid graphics device");
         const auto renderStart = std::chrono::high_resolution_clock::now();
         _graphicsDevice->resetDisplayWaitMilliseconds();
+        // Each render counts only itself. The tick path fills the stats BEFORE its
+        // render (upstream's order, reading the previous frame) and the manual
+        // update()/render() path the examples use fills them AFTER; resetting in the
+        // fill left a tick followed by a manual frame — start() then the examples' loop
+        // — counting two renders into one frame. Zeroed here, both paths read one.
+        _graphicsDevice->resetDrawCallsPerFrame();
+        _graphicsDevice->frameCounters() = FrameCounters{};
+        _graphicsDevice->_primsPerFrame.fill(0);
+        _graphicsDevice->_shaderSwitchesPerFrame = 0;
         _frameStartCalled = false;
         _renderCompositionCalled = false;
         _frameEndCalled = false;
@@ -478,9 +487,8 @@ namespace visutwin::canvas
             }
 
             _stats->drawCalls().total = _graphicsDevice->drawCallsPerFrame();
-            _graphicsDevice->resetDrawCallsPerFrame();
 
-            stats.gsplats = _renderer->_gsplatCount;
+            stats.gsplats = _graphicsDevice->frameCounters().gsplats;
         }
     }
 
@@ -544,68 +552,42 @@ namespace visutwin::canvas
     {
         auto& stats = _stats->frame();
 
-        // Render stats
-        stats.cameras = _renderer->_camerasRendered;
-        stats.materials = _renderer->_materialSwitches;
+        // Render stats: what the last render() counted into the device (see
+        // frameCounters.h for who writes each; render() zeroes them as it starts).
+        FrameCounters& counters = _graphicsDevice->frameCounters();
+        stats.cameras = counters.camerasRendered;
+        stats.materials = counters.materialSwitches;
         stats.shaders = _graphicsDevice->_shaderSwitchesPerFrame;
-        stats.shadowMapUpdates = _renderer->_shadowMapUpdates;
-        stats.shadowMapTime = _renderer->_shadowMapTime;
-        stats.depthMapTime = _renderer->_depthMapTime;
-        stats.forwardTime = _renderer->_forwardTime;
+        stats.shadowMapUpdates = counters.shadowMapUpdates;
+        stats.shadowMapTime = counters.shadowMapTime;
+        stats.depthMapTime = 0.0;   // deprecated upstream, never measured
+        stats.forwardTime = counters.forwardTime;
+        stats.cullTime = counters.cullTime;
+        stats.sortTime = counters.sortTime;
+        stats.skinTime = counters.skinTime;
+        stats.morphTime = counters.morphTime;
+        stats.lightClusters = counters.lightClusters;
+        stats.lightClustersTime = counters.lightClustersTime;
 
         auto& prims = _graphicsDevice->_primsPerFrame;
-        if (prims.size() <= static_cast<size_t>(PRIMITIVE_TRIFAN)) {
-            prims.resize(static_cast<size_t>(PRIMITIVE_TRIFAN) + 1, 0);
-        }
         stats.triangles = prims[PRIMITIVE_TRIANGLES] / 3 +
             std::max(prims[PRIMITIVE_TRISTRIP] - 2, 0) +
             std::max(prims[PRIMITIVE_TRIFAN] - 2, 0);
-
-        stats.cullTime = _renderer->_cullTime;
-        stats.sortTime = _renderer->_sortTime;
-        stats.skinTime = _renderer->_skinTime;
-        stats.morphTime = _renderer->_morphTime;
-        stats.lightClusters = _renderer->_lightClusters;
-        stats.lightClustersTime = _renderer->_lightClustersTime;
         stats.otherPrimitives = 0;
-
-        for (int i = 0; i < static_cast<int>(prims.size()); i++) {
-            if (i < PRIMITIVE_TRIANGLES) {
-                stats.otherPrimitives += prims[i];
-            }
-            prims[i] = 0;
+        for (int i = 0; i < PRIMITIVE_TRIANGLES; i++) {
+            stats.otherPrimitives += prims[i];
         }
-
-        _renderer->_camerasRendered = 0;
-        _renderer->_materialSwitches = 0;
-        _renderer->_shadowMapUpdates = 0;
-        _graphicsDevice->_shaderSwitchesPerFrame = 0;
-        _renderer->_cullTime = 0;
-        _renderer->_layerCompositionUpdateTime = 0;
-        _renderer->_lightClustersTime = 0;
-        _renderer->_sortTime = 0;
-        _renderer->_skinTime = 0;
-        _renderer->_morphTime = 0;
-        _renderer->_shadowMapTime = 0;
-        _renderer->_depthMapTime = 0;
-        _renderer->_forwardTime = 0;
 
         // Draw call stats
         auto& drawCallstats = _stats->drawCalls();
-        drawCallstats.forward = _renderer->_forwardDrawCalls;
+        drawCallstats.forward = counters.forwardDrawCalls;
         drawCallstats.depth = 0;
-        drawCallstats.shadow = _renderer->_shadowDrawCalls;
-        drawCallstats.skinned = _renderer->_skinDrawCalls;
+        drawCallstats.shadow = counters.shadowDrawCalls;
+        drawCallstats.skinned = counters.skinDrawCalls;
         drawCallstats.immediate = 0;
         drawCallstats.instanced = 0;
         drawCallstats.removedByInstancing = 0;
         drawCallstats.misc = drawCallstats.total - (drawCallstats.forward + drawCallstats.shadow);
-
-        _renderer->_shadowDrawCalls = 0;
-        _renderer->_forwardDrawCalls = 0;
-        _renderer->_numDrawCallsCulled = 0;
-        _renderer->_skinDrawCalls = 0;
-        _renderer->_instancedDrawCalls = 0;
 
         _stats->misc().renderTargetCreationTime = _graphicsDevice->_renderTargetCreationTime;
 

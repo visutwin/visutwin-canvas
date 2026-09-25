@@ -22,6 +22,7 @@
 #include "vulkanUtils.h"
 #include "vulkanVertexBuffer.h"
 
+#include "core/scopedTimer.h"
 #include "core/math/color.h"
 #include "core/math/vector3.h"
 #include "platform/graphics/compute.h"
@@ -1083,6 +1084,7 @@ namespace visutwin::canvas
     std::shared_ptr<RenderTarget> VulkanGraphicsDevice::createRenderTarget(
         const RenderTargetOptions& options)
     {
+        const ScopedMilliseconds timer(renderTargetCreationTimeTotal());   // stats.misc
         // Caller may pass colorBuffer/depthBuffer textures that have not yet
         // had their device assigned; ensure we backfill it before
         // RenderTarget's constructor runs (it asserts on a non-null device).

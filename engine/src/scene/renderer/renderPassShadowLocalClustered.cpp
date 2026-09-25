@@ -8,6 +8,7 @@
 #include "depthOnlyDraw.h"
 #include "localShadowFace.h"
 #include "shadowMap.h"
+#include "core/scopedTimer.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/texture.h"
 #include "scene/camera.h"
@@ -39,6 +40,7 @@ namespace visutwin::canvas
         if (!_graphicsDevice || !_shadowRendererLocal) {
             return;
         }
+        const ScopedMilliseconds shadowTimer(_graphicsDevice->frameCounters().shadowMapTime);
         auto programLibrary = getProgramLibrary(_graphicsDevice);
         if (!programLibrary) {
             return;

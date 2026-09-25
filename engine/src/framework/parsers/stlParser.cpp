@@ -262,8 +262,13 @@ namespace visutwin::canvas
                     transformPosition(tri.v2x, tri.v2y, tri.v2z, config)
                 };
 
-                // Recompute face normal from geometry (don't trust stored normal)
+                // Recompute face normal from geometry (don't trust stored normal), and
+                // turn it with the winding: a normal derived from the file's winding has
+                // to face the side the EMITTED triangle calls its front.
                 Vector3 faceN = computeFaceNormal(positions[0], positions[1], positions[2]);
+                if (config.flipWinding) {
+                    faceN = faceN * -1.0f;
+                }
 
                 float fnx = faceN.getX();
                 float fny = faceN.getY();
@@ -395,6 +400,15 @@ namespace visutwin::canvas
             // Indexed as [triIdx * 3 + corner]
             std::vector<Vector3> cornerNormals(triCount * 3, Vector3(0.0f, 1.0f, 0.0f));
 
+            auto cornerAngle = [&](const size_t ti, const int ci) {
+                const Vector3& p = tris[ti].pos[ci];
+                const Vector3 toNext = tris[ti].pos[(ci + 1) % 3] - p;
+                const Vector3 toPrev = tris[ti].pos[(ci + 2) % 3] - p;
+                const float denom = toNext.length() * toPrev.length();
+                return denom > 1e-20f
+                    ? std::acos(std::clamp(toNext.dot(toPrev) / denom, -1.0f, 1.0f)) : 0.0f;
+            };
+
             for (auto& wv : welded) {
                 if (wv.incidents.empty()) continue;
 
@@ -421,10 +435,10 @@ namespace visutwin::canvas
                         Vector3 groupDir = group.accumulated.normalized();
                         float dot = groupDir.dot(fn);
                         if (dot >= cosCrease) {
-                            // Area-weighted accumulation (face normal is already unit,
-                            // but we keep the magnitude proportional to triangle area
-                            // by using the cross product magnitude implicitly)
-                            group.accumulated += fn;
+                            // Weighted by the corner ANGLE, so a flat region contributes
+                            // the same however it was split into triangles (a quad face
+                            // used to count once per triangle the corner sat in).
+                            group.accumulated += fn * cornerAngle(ti, ci);
                             group.members.emplace_back(ti, ci);
                             assigned = true;
                             break;
@@ -433,7 +447,7 @@ namespace visutwin::canvas
 
                     if (!assigned) {
                         SmoothGroup newGroup;
-                        newGroup.accumulated = fn;
+                        newGroup.accumulated = fn * cornerAngle(ti, ci);
                         newGroup.members.emplace_back(ti, ci);
                         groups.push_back(std::move(newGroup));
                     }
@@ -490,7 +504,9 @@ namespace visutwin::canvas
                 for (int j = 0; j < 3; ++j) {
                     int c = order[j];
                     uint32_t wIdx = triWeldedIdx[i][c];
-                    const Vector3& n = cornerNormals[i * 3 + c];
+                    // Derived from the file's winding: turn it with the winding.
+                    const Vector3 n = config.flipWinding ? cornerNormals[i * 3 + c] * -1.0f
+                                                         : cornerNormals[i * 3 + c];
 
                     VertexKey key{wIdx,
                         quantizeNormal(n.getX()),

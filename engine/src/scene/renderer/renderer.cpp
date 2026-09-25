@@ -15,6 +15,7 @@
 #include <cstring>
 #include <numbers>
 
+#include "core/scopedTimer.h"
 #include "core/objectPool.h"
 #include "lightCamera.h"
 #include "core/math/color.h"
@@ -207,6 +208,7 @@ namespace visutwin::canvas
 
     void Renderer::cullLights(Camera* camera)
     {
+        const ScopedMilliseconds cullTimer(_device->frameCounters().cullTime);
         GraphNode* cameraNode = camera ? camera->node() : nullptr;
         if (!camera || !cameraNode) {
             return;
@@ -297,9 +299,67 @@ namespace visutwin::canvas
             _clusterPool.push_back(std::make_unique<WorldClusters>(_clusterConfig));
         }
         WorldClusters* clusters = _clusterPool[_clustersUsedThisFrame++].get();
-        clusters->update(lights);
+        {
+            FrameCounters& counters = _device->frameCounters();
+            const ScopedMilliseconds clusterTimer(counters.lightClustersTime);
+            clusters->update(lights);
+            counters.lightClusters = static_cast<int>(_clustersUsedThisFrame);
+        }
         _clustersByLightSet[lightSetHash] = clusters;
         return clusters;
+    }
+
+    uint64_t Renderer::lightSetHash(std::vector<const void*> members)
+    {
+        // Order-independent hash of the member set: sort, then fold. XOR alone
+        // would be order-independent too and would collide on any pair repeated.
+        std::sort(members.begin(), members.end());
+        uint64_t hash = 1469598103934665603ull;   // FNV-1a offset basis
+        for (const void* member : members) {
+            uint64_t value = reinterpret_cast<uintptr_t>(member);
+            for (int byte = 0; byte < 8; ++byte) {
+                hash ^= (value & 0xFFull);
+                hash *= 1099511628211ull;
+                value >>= 8;
+            }
+        }
+        return hash;
+    }
+
+    void Renderer::bindLayerClusters(const WorldClusters* clusters)
+    {
+        // Bind cluster GPU buffers. EVERY layer binds, because every layer may be
+        // on a different grid — the old code bound only on the frame's first
+        // layer and left the rest reading whatever was still bound.
+        if (clusters->lightCount() > 0) {
+            _device->setClusterBuffers(
+                clusters->lightData(), clusters->lightDataSize(),
+                clusters->cellData(), clusters->cellDataSize());
+
+            // Pack cluster grid params into LightingUniforms.
+            const auto& bMin = clusters->boundsMin();
+            const auto bRange = clusters->boundsRange();
+            const auto cellsBySize = clusters->cellsCountByBoundsSize();
+            const auto& cfg = clusters->config();
+
+            float boundsMinArr[3];
+            float boundsRangeArr[3];
+            float cellsBySizeArr[3];
+            bMin.store(boundsMinArr);
+            bRange.store(boundsRangeArr);
+            cellsBySize.store(cellsBySizeArr);
+
+            _device->setClusterGridParams(boundsMinArr, boundsRangeArr, cellsBySizeArr,
+                cfg.cellsX, cfg.cellsY, cfg.cellsZ, cfg.maxLightsPerCell,
+                clusters->lightCount());
+        } else {
+            // No clustered lights for THIS layer: zero the grid params so the
+            // shader's cell bounds check rejects every fragment. Otherwise
+            // the previously bound cluster buffers stay live and deleted
+            // lights keep illuminating the scene.
+            const float zero3[3] = {0.0f, 0.0f, 0.0f};
+            _device->setClusterGridParams(zero3, zero3, zero3, 0, 0, 0, 0, 0);
+        }
     }
 
     void Renderer::resetCulledInstances()
@@ -328,6 +388,7 @@ namespace visutwin::canvas
 
     void Renderer::executeMeshInstanceCull()
     {
+        _device->frameCounters().camerasRendered += static_cast<int>(_cullCameras.size());
         for (Camera* camera : _cullCameras) {
             // Before the frustum is built, so a listener may still move the camera.
             // Upstream passes the owning camera COMPONENT, or nothing for an internal
@@ -375,6 +436,7 @@ namespace visutwin::canvas
     void Renderer::cullMeshInstancesInto(Camera* camera, GraphNode* cameraNode, Layer* layer,
         CulledInstances& out)
     {
+        const ScopedMilliseconds cullTimer(_device->frameCounters().cullTime);
         out.opaque.clear();
         out.transparent.clear();
         if (!layer) {
@@ -412,7 +474,6 @@ namespace visutwin::canvas
             // is never culled — the same exception the per-draw path used to make.
             if (!material->isSkybox() && hasCameraFrustum && meshInstance->cull() &&
                 !isVisibleInFrustum(cameraFrustum, meshInstance->aabb())) {
-                _numDrawCallsCulled++;
                 return;
             }
 
@@ -449,7 +510,7 @@ namespace visutwin::canvas
             if (!light || !_shadowRenderer || !_shadowRenderer->needsShadowRendering(light)) {
                 return;
             }
-            _shadowMapUpdates += light->numShadowFaces();
+            _device->frameCounters().shadowMapUpdates += light->numShadowFaces();
             if (light->shadowUpdateMode() == ShadowUpdateType::SHADOWUPDATE_THISFRAME) {
                 light->setShadowUpdateMode(ShadowUpdateType::SHADOWUPDATE_NONE);
             }
@@ -666,7 +727,8 @@ namespace visutwin::canvas
             return;
         }
 
-        const auto sortStart = std::chrono::high_resolution_clock::now();
+        FrameCounters& counters = _device->frameCounters();
+        const ScopedMilliseconds forwardTimer(counters.forwardTime);
 
         auto programLibrary = getProgramLibrary(_device);
         if (!programLibrary) {
@@ -999,6 +1061,7 @@ namespace visutwin::canvas
         // wants the fewest state changes, the transparent pass has to composite
         // back-to-front whatever that costs. The defaults reproduce exactly what this
         // renderer did before the modes existed.
+        const auto sortStart = std::chrono::steady_clock::now();
         const SortMode sortMode = transparent
             ? layer->transparentSortMode() : layer->opaqueSortMode();
 
@@ -1070,8 +1133,8 @@ namespace visutwin::canvas
             break;
         }
 
-        const auto sortEnd = std::chrono::high_resolution_clock::now();
-        _sortTime += static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(sortEnd - sortStart).count());
+        const auto sortEnd = std::chrono::steady_clock::now();
+        counters.sortTime += std::chrono::duration<double, std::milli>(sortEnd - sortStart).count();
 
         // Intentional temporary deviation from JS:
         // this path now binds core material uniforms/textures (including Material::setParameter overrides)
@@ -1520,61 +1583,19 @@ namespace visutwin::canvas
                 lightSetMembers.push_back(dispatchEntry.sceneLight);
             }
 
-            // Order-independent hash of the member set: sort, then fold. XOR alone
-            // would be order-independent too and would collide on any pair repeated.
-            std::sort(lightSetMembers.begin(), lightSetMembers.end());
-            uint64_t lightSetHash = 1469598103934665603ull;   // FNV-1a offset basis
-            for (const void* member : lightSetMembers) {
-                uint64_t value = reinterpret_cast<uintptr_t>(member);
-                for (int byte = 0; byte < 8; ++byte) {
-                    lightSetHash ^= (value & 0xFFull);
-                    lightSetHash *= 1099511628211ull;
-                    value >>= 8;
-                }
-            }
+            const uint64_t setHash = lightSetHash(lightSetMembers);
 
             // The grid for this set: built once per frame per distinct set, and
             // sized from the lights alone (it used to be unioned with the camera
             // padded by 50 units, a 100-unit cube however small the lit region was).
-            WorldClusters* clusters = clustersForLightSet(lightSetHash, clusterLocalLights);
+            WorldClusters* clusters = clustersForLightSet(setHash, clusterLocalLights);
 
             // Bind the clustered shadow atlas for this frame.
             if (_lightTextureAtlas) {
                 _device->setClusterShadowAtlas(_lightTextureAtlas->shadowAtlasTexture());
             }
 
-            // Bind cluster GPU buffers. EVERY layer binds, because every layer may be
-            // on a different grid — the old code bound only on the frame's first
-            // layer and left the rest reading whatever was still bound.
-            if (clusters->lightCount() > 0) {
-                _device->setClusterBuffers(
-                    clusters->lightData(), clusters->lightDataSize(),
-                    clusters->cellData(), clusters->cellDataSize());
-
-                // Pack cluster grid params into LightingUniforms.
-                const auto& bMin = clusters->boundsMin();
-                const auto bRange = clusters->boundsRange();
-                const auto cellsBySize = clusters->cellsCountByBoundsSize();
-                const auto& cfg = clusters->config();
-
-                float boundsMinArr[3];
-                float boundsRangeArr[3];
-                float cellsBySizeArr[3];
-                bMin.store(boundsMinArr);
-                bRange.store(boundsRangeArr);
-                cellsBySize.store(cellsBySizeArr);
-
-                _device->setClusterGridParams(boundsMinArr, boundsRangeArr, cellsBySizeArr,
-                    cfg.cellsX, cfg.cellsY, cfg.cellsZ, cfg.maxLightsPerCell,
-                    clusters->lightCount());
-            } else {
-                // No clustered lights for THIS layer: zero the grid params so the
-                // shader's cell bounds check rejects every fragment. Otherwise
-                // the previously bound cluster buffers stay live and deleted
-                // lights keep illuminating the scene.
-                const float zero3[3] = {0.0f, 0.0f, 0.0f};
-                _device->setClusterGridParams(zero3, zero3, zero3, 0, 0, 0, 0, 0);
-            }
+            bindLayerClusters(clusters);
         }
 
         // --- Phase 4: pre-compute filtered light list for the common mask ---
@@ -1726,6 +1747,7 @@ namespace visutwin::canvas
             // Phase 4: cache material's base cull mode (skip parameter map lookups),
             // then apply node-scale flip per draw (trivial float check).
             if (boundMaterial != lastCullMaterial) {
+                counters.materialSwitches++;   // stats.frame.materials, upstream's prevMaterial test
                 cachedCullMode = resolveMaterialCullMode(boundMaterial);
                 lastCullMaterial = boundMaterial;
             }
@@ -1828,6 +1850,7 @@ namespace visutwin::canvas
                 gsplat->update(cameraPosition, cameraForward, modelMatrix, viewMatrix, projMatrix,
                     static_cast<float>(viewportW), static_cast<float>(viewportH));
                 if (gsplat->visibleCount() > 0) {
+                    counters.gsplats += static_cast<int>(gsplat->visibleCount());
                     // The output stage: a splat carries a GAMMA-space colour, so it owes
                     // the target the fog, exposure, tone mapping and encode the forward
                     // tail applies to lit colour (upstream gsplatOutput). Until 2026-09-24
@@ -1875,23 +1898,30 @@ namespace visutwin::canvas
                 // matrix stays the node's world transform (they cancel in the shader).
                 if (isSkinned) {
                     auto* si = entry->meshInstance->skinInstance();
-                    si->updateMatrixPalette(entry->meshInstance->node());
+                    {
+                        const ScopedMilliseconds skinTimer(counters.skinTime);
+                        si->updateMatrixPalette(entry->meshInstance->node());
+                    }
                     _device->setDynamicBatchPalette(si->paletteData(), si->paletteSizeBytes());
-                    _skinDrawCalls++;
+                    counters.skinDrawCalls++;
                 }
                 // Morph targets: bind the shared delta buffer + current weights.
                 if (isMorphed) {
                     auto* mi = entry->meshInstance->morphInstance();
                     if (mi->morph() && mi->morph()->deltaBuffer()) {
-                        const auto& params = mi->gpuParams();
-                        _device->setMorphState(mi->morph()->deltaBuffer(), &params, sizeof(params));
+                        const MorphInstance::GpuMorphParams* params = nullptr;
+                        {
+                            const ScopedMilliseconds morphTimer(counters.morphTime);
+                            params = &mi->gpuParams();
+                        }
+                        _device->setMorphState(mi->morph()->deltaBuffer(), params, sizeof(*params));
                     }
                 }
 
                 _device->setTransformUniforms(viewProjection, modelMatrix);
                 _device->draw(entry->primitive, entry->indexBuffer, 1, -1, true, true);
             }
-            _forwardDrawCalls++;
+            counters.forwardDrawCalls++;
         }
         // No other pass may inherit the last draw's lightmap.
         _device->setInstanceLightMap(nullptr);

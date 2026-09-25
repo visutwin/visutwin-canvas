@@ -1140,7 +1140,7 @@ namespace visutwin::canvas
             }
         }
 
-        recordDrawCall();
+        recordDraw(primitive, numInstances);
 
         if (last) {
             clearVertexBuffer();

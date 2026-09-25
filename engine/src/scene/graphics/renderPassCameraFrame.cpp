@@ -351,8 +351,14 @@ namespace visutwin::canvas
 
     int RenderPassCameraFrame::findActionIndex(const int targetLayerId, const bool targetTransparent, const int fromIndex) const
     {
-        for (int i = std::max(fromIndex, 0); i < static_cast<int>(_sourceActions.size()); ++i) {
-            const auto* action = _sourceActions[i];
+        return findActionIndex(_sourceActions, _layerComposition, targetLayerId, targetTransparent, fromIndex);
+    }
+
+    int RenderPassCameraFrame::findActionIndex(const std::vector<RenderAction*>& actions,
+        LayerComposition* composition, const int targetLayerId, const bool targetTransparent, const int fromIndex)
+    {
+        for (int i = std::max(fromIndex, 0); i < static_cast<int>(actions.size()); ++i) {
+            const auto* action = actions[i];
             if (!action || !action->layer || action->layer->id() == LAYERID_DEPTH) {
                 continue;
             }
@@ -370,26 +376,26 @@ namespace visutwin::canvas
         // grab, so a refractive surface sampled itself from the previous frame and the
         // feedback converged to a dark, nearly opaque silhouette. So place the stop by
         // its position in the composition instead: the last action at or before it.
-        if (!_layerComposition) {
+        if (!composition) {
             return kStopLayerNotInComposition;
         }
-        const auto targetLayer = _layerComposition->getLayerById(targetLayerId);
+        const auto targetLayer = composition->getLayerById(targetLayerId);
         const int targetSlot = !targetLayer ? -1
-            : (targetTransparent ? _layerComposition->getTransparentIndex(targetLayer)
-                                 : _layerComposition->getOpaqueIndex(targetLayer));
+            : (targetTransparent ? composition->getTransparentIndex(targetLayer)
+                                 : composition->getOpaqueIndex(targetLayer));
         if (targetSlot < 0) {
             return kStopLayerNotInComposition;
         }
         int lastBeforeStop = std::max(fromIndex, 0) - 1;
-        for (int i = std::max(fromIndex, 0); i < static_cast<int>(_sourceActions.size()); ++i) {
-            const auto* action = _sourceActions[i];
+        for (int i = std::max(fromIndex, 0); i < static_cast<int>(actions.size()); ++i) {
+            const auto* action = actions[i];
             if (!action || !action->layer) {
                 continue;
             }
-            const auto layer = _layerComposition->getLayerById(action->layer->id());
+            const auto layer = composition->getLayerById(action->layer->id());
             const int slot = !layer ? -1
-                : (action->transparent ? _layerComposition->getTransparentIndex(layer)
-                                       : _layerComposition->getOpaqueIndex(layer));
+                : (action->transparent ? composition->getTransparentIndex(layer)
+                                       : composition->getOpaqueIndex(layer));
             if (slot > targetSlot) {
                 break;
             }

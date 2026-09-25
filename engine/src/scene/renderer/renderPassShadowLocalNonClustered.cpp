@@ -9,6 +9,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "core/scopedTimer.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/batching/batchManager.h"
 #include "framework/batching/skinBatchInstance.h"
@@ -55,6 +56,7 @@ namespace visutwin::canvas
         if (!_graphicsDevice || !_shadowCamera || !_shadowCamera->node()) {
             return;
         }
+        const ScopedMilliseconds shadowTimer(_graphicsDevice->frameCounters().shadowMapTime);
         auto programLibrary = getProgramLibrary(_graphicsDevice);
         if (!programLibrary) {
             return;

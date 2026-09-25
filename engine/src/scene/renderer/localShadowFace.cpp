@@ -183,7 +183,9 @@ void main() {}
                 !shouldRenderShadowMeshInstance(meshInstance, shadowCamera, shadowFrustum)) {
                 continue;
             }
-            drawDepthOnly(device, programLibrary, meshInstance, viewProjection, shaders);
+            if (drawDepthOnly(device, programLibrary, meshInstance, viewProjection, shaders)) {
+                device->frameCounters().shadowDrawCalls++;
+            }
         }
     }
 

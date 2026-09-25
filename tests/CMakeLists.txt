@@ -437,6 +437,48 @@ target_link_libraries(visutwin-shader-composition-tests PRIVATE visutwin-canvas)
 
 add_test(NAME shader-composition COMMAND visutwin-shader-composition-tests)
 
+add_executable(visutwin-camera-frame-stop-tests
+    cameraFrameStopTests.cpp
+)
+
+target_link_libraries(visutwin-camera-frame-stop-tests PRIVATE visutwin-canvas)
+
+add_test(NAME camera-frame-stop COMMAND visutwin-camera-frame-stop-tests)
+
+add_executable(visutwin-cluster-grid-sharing-tests
+    clusterGridSharingTests.cpp
+)
+
+target_link_libraries(visutwin-cluster-grid-sharing-tests PRIVATE visutwin-canvas)
+
+add_test(NAME cluster-grid-sharing COMMAND visutwin-cluster-grid-sharing-tests)
+
+add_executable(visutwin-ktx2-target-tests
+    ktx2TargetTests.cpp
+)
+
+target_include_directories(visutwin-ktx2-target-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+target_compile_definitions(visutwin-ktx2-target-tests PRIVATE VISUTWIN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(visutwin-ktx2-target-tests PRIVATE visutwin-canvas)
+
+add_test(NAME ktx2-target COMMAND visutwin-ktx2-target-tests)
+
+add_executable(visutwin-obj-stl-round-trip-tests
+    objStlRoundTripTests.cpp
+)
+
+target_link_libraries(visutwin-obj-stl-round-trip-tests PRIVATE visutwin-canvas)
+
+add_test(NAME obj-stl-round-trip COMMAND visutwin-obj-stl-round-trip-tests)
+
+add_executable(visutwin-frame-stats-tests
+    frameStatsTests.cpp
+)
+
+target_link_libraries(visutwin-frame-stats-tests PRIVATE visutwin-canvas)
+
+add_test(NAME frame-stats COMMAND visutwin-frame-stats-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

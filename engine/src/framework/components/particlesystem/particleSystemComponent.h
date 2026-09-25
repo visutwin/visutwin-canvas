@@ -51,8 +51,9 @@ namespace visutwin::canvas
         [[nodiscard]] bool playing() const { return _emitter && _emitter->playing(); }
         [[nodiscard]] const std::shared_ptr<ParticleEmitter>& emitter() const { return _emitter; }
 
-        /// Advance the GPU simulation (called by ParticleSystemComponentSystem).
-        void update(float dt);
+        /// Advance the GPU simulation (called by ParticleSystemComponentSystem); false
+        /// when there was nothing to simulate, which stats.particles does not count.
+        bool update(float dt);
 
     private:
         inline static std::vector<ParticleSystemComponent*> _instances;

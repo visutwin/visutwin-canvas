@@ -188,6 +188,7 @@ namespace visutwin::canvas
     private:
         friend class Engine;
         friend class ShadowRenderer;
+        friend struct RendererTestAccess;
 
         std::unique_ptr<ShadowRenderer> _shadowRenderer;
         std::unique_ptr<ShadowRendererDirectional> _shadowRendererDirectional;
@@ -220,24 +221,17 @@ namespace visutwin::canvas
         WorldClusters* clustersForLightSet(uint64_t lightSetHash,
             const std::vector<ClusterLightData>& lights);
 
-        int _forwardDrawCalls = 0;
-        int _materialSwitches = 0;
-        int _depthMapTime = 0;
-        int _forwardTime = 0;
-        int _sortTime = 0;
+        /// The key clustersForLightSet shares grids on: independent of the order the
+        /// lights were gathered in, so two layers that see the same lights agree.
+        static uint64_t lightSetHash(std::vector<const void*> members);
 
-        // timing
-        int _skinTime = 0;
-        int _morphTime = 0;
-        int _cullTime = 0;
-        int _shadowMapTime = 0;
-        int _lightClustersTime = 0;
-        int _layerCompositionUpdateTime = 0;
+        /// Binds this layer's grid, or ZEROES the grid params when it has no lights —
+        /// every layer, since each may be on a different grid.
+        void bindLayerClusters(const WorldClusters* clusters);
 
-        int _shadowMapUpdates = 0;
-        int _shadowDrawCalls = 0;
-        int _skinDrawCalls = 0;
-        int _instancedDrawCalls = 0;
+        // Frame statistics are counted into GraphicsDevice::frameCounters(), which the
+        // shadow passes and depth-only draws reach too; see frameCounters.h.
+
         // Per-frame mesh-instance cull cache, keyed by (camera, layer). Cleared by
         // resetCulledInstances at the top of each frame; a camera or layer destroyed
         // mid-frame cannot outlive it, which is why raw pointers are safe as keys.
@@ -249,12 +243,5 @@ namespace visutwin::canvas
 
         void cullMeshInstancesInto(Camera* camera, GraphNode* cameraNode, Layer* layer,
             CulledInstances& out);
-
-        int _numDrawCallsCulled = 0;
-        int _camerasRendered = 0;
-        int _lightClusters = 0;
-        int _gsplatCount = 0;
-
-        std::array<int, PRIMITIVE_TRIFAN - PRIMITIVE_POINTS + 1> _primsPerFrame;
      };
 }

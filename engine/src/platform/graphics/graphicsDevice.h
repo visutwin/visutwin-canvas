@@ -18,6 +18,7 @@
 
 #include "blendState.h"
 #include "depthState.h"
+#include "frameCounters.h"
 #include "gpuProfiler.h"
 #include "indexBuffer.h"
 #include "renderPass.h"
@@ -442,7 +443,14 @@ namespace visutwin::canvas
         virtual std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
             const std::string& sourceCode = "");
 
-        void setShader(const std::shared_ptr<Shader>& shader) { _shader = shader; }
+        void setShader(const std::shared_ptr<Shader>& shader)
+        {
+            // stats.frame.shaders: a bound shader that differs from the last one.
+            if (shader != _shader) {
+                ++_shaderSwitchesPerFrame;
+            }
+            _shader = shader;
+        }
 
         void setVertexBuffer(const std::shared_ptr<VertexBuffer>& vertexBuffer, const size_t slot = 0)
         {
@@ -690,6 +698,8 @@ namespace visutwin::canvas
 
         int drawCallsPerFrame() const { return _drawCallsPerFrame; }
         void resetDrawCallsPerFrame() { _drawCallsPerFrame = 0; }
+        /// This frame's rendering statistics; Engine::fillFrameStats reads and resets them.
+        FrameCounters& frameCounters() { return _frameCounters; }
 
         /// CPU milliseconds spent since the last reset blocked on the DISPLAY rather than
         /// working: Metal's nextDrawable(); Vulkan's in-flight fence wait, swapchain
@@ -1003,6 +1013,20 @@ namespace visutwin::canvas
         void setTextureHalfFloatRenderable(const bool value) { _textureHalfFloatRenderable = value; }
         void setTextureFloatRenderable(const bool value) { _textureFloatRenderable = value; }
         void recordDrawCall(int count = 1) { _drawCallsPerFrame += count; }
+        /// Where a backend's createRenderTarget accumulates its time (stats.misc, a running
+        /// total as upstream's, never reset).
+        double& renderTargetCreationTimeTotal() { return _renderTargetCreationTime; }
+        /// One draw of `primitive`, counted into the draw calls AND the primitives the
+        /// frame statistics turn into stats.frame.triangles / otherPrimitives (upstream's
+        /// _primsPerFrame, which counts every instance). Each backend's draw() calls it.
+        void recordDraw(const Primitive& primitive, const int numInstances)
+        {
+            ++_drawCallsPerFrame;
+            const auto type = static_cast<size_t>(primitive.type);
+            if (type < _primsPerFrame.size()) {
+                _primsPerFrame[type] += primitive.count * (numInstances > 1 ? numInstances : 1);
+            }
+        }
         void recordDisplayWait(const double milliseconds) { _displayWaitMs += milliseconds; }
 
         void clearVertexBuffer();
@@ -1096,9 +1120,10 @@ namespace visutwin::canvas
 
         int _shaderSwitchesPerFrame = 0;
         int _drawCallsPerFrame = 0;
+        FrameCounters _frameCounters;
         double _displayWaitMs = 0.0;
 
-        int _renderTargetCreationTime = 0;
+        double _renderTargetCreationTime = 0.0;
 
         bool _contextLost = false;
 
@@ -1108,7 +1133,7 @@ namespace visutwin::canvas
 
         std::vector<VertexBuffer*> _buffers;
 
-        std::vector<int> _primsPerFrame;
+        std::array<int, PRIMITIVE_TRIFAN + 1> _primsPerFrame{};
 
         int _maxSamples = 1;
 

@@ -5,7 +5,10 @@
 //
 #pragma once
 
+#include <chrono>
+
 #include "particleSystemComponent.h"
+#include "framework/applicationStats.h"
 #include "framework/components/componentSystem.h"
 #include "framework/engine.h"
 
@@ -24,12 +27,20 @@ namespace visutwin::canvas
             : ComponentSystem(engine, "particlesystem")
         {
             if (engine && engine->systems()) {
-                engine->systems()->on("update", [](const float dt) {
+                engine->systems()->on("update", [engine](const float dt) {
+                    // stats.particles, as upstream: emitters simulated this frame and
+                    // the time it took.
+                    ParticleStats* stats = engine->stats() ? &engine->stats()->particles() : nullptr;
+                    const auto start = std::chrono::steady_clock::now();
                     for (auto* component : ParticleSystemComponent::instances()) {
-                        if (component && component->enabled() &&
-                            component->entity() && component->entity()->enabled()) {
-                            component->update(dt);
+                        // active(): a system under a disabled PARENT entity stops too.
+                        if (component && component->active() && component->update(dt) && stats) {
+                            stats->_updatesPerFrame++;
                         }
+                    }
+                    if (stats) {
+                        stats->_frameTime +=
+                            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
                     }
                 }, this);
             }

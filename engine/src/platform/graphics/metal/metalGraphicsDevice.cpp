@@ -13,6 +13,7 @@
 #include "metalComposePass.h"
 #include "metalInstanceCullPass.h"
 #include "metalTexture.h"
+#include "core/scopedTimer.h"
 #include "platform/graphics/screenshot.h"
 #include "metalComputePipeline.h"
 #include "metalIndexBuffer.h"
@@ -702,6 +703,7 @@ namespace visutwin::canvas
 
     std::shared_ptr<RenderTarget> MetalGraphicsDevice::createRenderTarget(const RenderTargetOptions& options)
     {
+        const ScopedMilliseconds timer(renderTargetCreationTimeTotal());   // stats.misc
         return std::make_shared<MetalRenderTarget>(options);
     }
 
@@ -1379,7 +1381,7 @@ namespace visutwin::canvas
             }
         }
 
-        recordDrawCall();
+        recordDraw(primitive, numInstances);
 
         if (last) {
             // Clear vertex buffer array

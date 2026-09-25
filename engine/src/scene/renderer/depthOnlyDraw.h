@@ -52,6 +52,8 @@ namespace visutwin::canvas
      * instances reach here at all — a shadow pass and a prepass disagree about that
      * (castShadow versus depth write), which is why it is not folded in.
      */
-    void drawDepthOnly(GraphicsDevice* device, ProgramLibrary* programLibrary,
+    /// Returns whether it drew (false only for a missing device, library or mesh), so a
+    /// shadow pass can count its caster draws into FrameCounters::shadowDrawCalls.
+    bool drawDepthOnly(GraphicsDevice* device, ProgramLibrary* programLibrary,
         MeshInstance* meshInstance, const Matrix4& viewProjection, DepthOnlyShaders& shaders);
 }

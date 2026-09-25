@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "core/scopedTimer.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/batching/skinBatchInstance.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -44,6 +45,7 @@ namespace visutwin::canvas
         if (!_graphicsDevice || !_light) {
             return;
         }
+        const ScopedMilliseconds shadowTimer(_graphicsDevice->frameCounters().shadowMapTime);
 
         auto programLibrary = getProgramLibrary(_graphicsDevice);
         if (!programLibrary) {
@@ -152,8 +154,10 @@ namespace visutwin::canvas
                         continue;
                     }
 
-                    drawDepthOnly(_graphicsDevice.get(), programLibrary.get(), meshInstance,
-                        viewProjection, shaders);
+                    if (drawDepthOnly(_graphicsDevice.get(), programLibrary.get(), meshInstance,
+                            viewProjection, shaders)) {
+                        _graphicsDevice->frameCounters().shadowDrawCalls++;
+                    }
                 }
             }
         }
