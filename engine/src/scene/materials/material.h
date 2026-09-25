@@ -256,7 +256,16 @@ namespace visutwin::canvas
         const MaterialUniforms& packedUniforms() const;
 
         /// Invalidate the packed uniform cache. Called by every mutator.
-        void markUniformsDirty() { _uniformsDirty = true; }
+        void markUniformsDirty()
+        {
+            _uniformsDirty = true;
+            _uniformsVersion = nextUniformsVersion();
+        }
+        /// Changes every time the packed block may have changed, and is unique across
+        /// ALL materials (a process-wide counter), so (material, version) names one
+        /// pack even if a freed material's address is reused. A backend that uploads the
+        /// block per draw keys a reuse on it.
+        uint64_t uniformsVersion() const { return _uniformsVersion; }
         const ParameterValue* parameter(const std::string& name) const;
 
         /**
@@ -402,6 +411,8 @@ namespace visutwin::canvas
         // const_cast, which is why the dirty flag is cleared AFTER packing.
         mutable MaterialUniforms _cachedUniforms{};
         mutable bool _uniformsDirty = true;
+        uint64_t _uniformsVersion = nextUniformsVersion();
+        static uint64_t nextUniformsVersion();
     };
 
     // Assigns the default material to device cache

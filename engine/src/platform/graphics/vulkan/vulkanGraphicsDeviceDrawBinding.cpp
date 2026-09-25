@@ -634,6 +634,7 @@ namespace visutwin::canvas
         {
             MaterialUniforms materialUniforms;
             const void* uniformData = &materialUniforms;
+            const Material* reusableMaterial = nullptr;
             size_t uniformSize = sizeof(MaterialUniforms);
             // A quad pass has no material, so its own uniform block takes this slot.
             if (quadRenderActive() && !quadUniformData().empty()) {
@@ -649,16 +650,38 @@ namespace visutwin::canvas
                     // The material's cached pack, as Metal uses it: it re-packs only
                     // after a setter dirtied it, instead of once per draw.
                     uniformData = &_material->packedUniforms();
+                    reusableMaterial = _material;
                 }
             }
-            // The descriptor's range is kPerDrawUniformCapacity, so the allocation
-            // must be that large whatever the payload is — otherwise the descriptor
-            // would read past the bytes actually written.
-            std::array<uint8_t, kPerDrawUniformCapacity> perDrawBlock{};
-            std::memcpy(perDrawBlock.data(), uniformData,
-                std::min(uniformSize, perDrawBlock.size()));
-            const auto matOffset =
-                allocateUniform(perDrawBlock.data(), perDrawBlock.size());
+            // Every draw of a material whose pack has not changed this frame shares one
+            // ring slot (Metal's binder reuses the slot for consecutive draws). The version is read
+            // AFTER packedUniforms(), and is unique across materials, so a dirtied or a
+            // different material at a reused address never matches. Quad and custom
+            // blocks are never reused: nothing versions them.
+            // A draw with NO material and no quad block (every opaque shadow and prepass
+            // caster) uploads the default block, which never changes: it takes one slot
+            // a frame too, under a key no material can have.
+            static const char kDefaultBlockKey = 0;
+            const bool defaultBlock = !_material && uniformData == &materialUniforms;
+            const void* reuseKey = reusableMaterial ? static_cast<const void*>(reusableMaterial)
+                : (defaultBlock ? static_cast<const void*>(&kDefaultBlockKey) : nullptr);
+            const uint64_t reuseVersion = reusableMaterial ? reusableMaterial->uniformsVersion() : 0;
+            std::optional<uint32_t> matOffset;
+            const auto reuse = reuseKey ? _materialUniformSlots.find(reuseKey) : _materialUniformSlots.end();
+            if (reuse != _materialUniformSlots.end() && reuse->second.version == reuseVersion) {
+                matOffset = reuse->second.offset;
+            } else {
+                // The descriptor's range is kPerDrawUniformCapacity, so the allocation
+                // must be that large whatever the payload is — otherwise the descriptor
+                // would read past the bytes actually written.
+                std::array<uint8_t, kPerDrawUniformCapacity> perDrawBlock{};
+                std::memcpy(perDrawBlock.data(), uniformData,
+                    std::min(uniformSize, perDrawBlock.size()));
+                matOffset = allocateUniform(perDrawBlock.data(), perDrawBlock.size());
+                if (matOffset && reuseKey) {
+                    _materialUniformSlots[reuseKey] = {reuseVersion, *matOffset};
+                }
+            }
             if (!matOffset) {
                 return;
             }
@@ -689,7 +712,9 @@ namespace visutwin::canvas
             }
 
             if (_material) {
-                std::vector<TextureSlot> texSlots;
+                // Reused, not reallocated per draw: getTextureSlots appends.
+                thread_local std::vector<TextureSlot> texSlots;
+                texSlots.clear();
                 _material->getTextureSlots(texSlots);
                 // The mesh instance's own lightmap goes over the material's.
                 applyInstanceLightMap(texSlots, instanceLightMap());
@@ -993,32 +1018,45 @@ namespace visutwin::canvas
             // Specialization constants do not remove statically-declared
             // descriptors from SPIR-V, so set 5 must be valid for every
             // forward draw. Non-clustered draws bind tiny zero sentinels.
-            std::array<uint8_t, 144> emptyLight{};
-            const uint32_t emptyCell = 0;
-            const auto lightOffset = _clusterLightOffset
-                ? _clusterLightOffset : allocateUniform(emptyLight.data(), emptyLight.size());
-            const auto cellOffset = _clusterCellOffset
-                ? _clusterCellOffset : allocateUniform(&emptyCell, sizeof(emptyCell));
-            if (!lightOffset || !cellOffset) return;
-            const VkDescriptorSet clusterSet = allocateFrameDescriptorSet(
-                _renderPipeline->clusterSetLayout());
-            if (clusterSet == VK_NULL_HANDLE) return;
-            std::array<VkDescriptorBufferInfo, 2> infos{{
-                {_uniformRing->buffer(), *lightOffset,
-                    _clusterLightOffset ? _clusterLightSize : emptyLight.size()},
-                {_uniformRing->buffer(), *cellOffset,
-                    _clusterCellOffset ? _clusterCellSize : sizeof(emptyCell)},
-            }};
-            std::array<VkWriteDescriptorSet, 2> writes{};
-            for (uint32_t i = 0; i < writes.size(); ++i) {
-                writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                writes[i].dstSet = clusterSet;
-                writes[i].dstBinding = i;
-                writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                writes[i].descriptorCount = 1;
-                writes[i].pBufferInfo = &infos[i];
+            if (_clusterSentinelFrame != _frameSerial) {
+                // Once a frame, not once per draw: the zero blocks never change.
+                std::array<uint8_t, 144> emptyLight{};
+                const uint32_t emptyCell = 0;
+                _clusterSentinelLightOffset = allocateUniform(emptyLight.data(), emptyLight.size());
+                _clusterSentinelCellOffset = allocateUniform(&emptyCell, sizeof(emptyCell));
+                _clusterSentinelFrame = _frameSerial;
             }
-            vkUpdateDescriptorSets(_device, writes.size(), writes.data(), 0, nullptr);
+            const auto lightOffset = _clusterLightOffset ? _clusterLightOffset : _clusterSentinelLightOffset;
+            const auto cellOffset = _clusterCellOffset ? _clusterCellOffset : _clusterSentinelCellOffset;
+            if (!lightOffset || !cellOffset) return;
+            const VkDeviceSize lightSize = _clusterLightOffset ? _clusterLightSize : 144;
+            const VkDeviceSize cellSize = _clusterCellOffset ? _clusterCellSize : sizeof(uint32_t);
+            // One set per distinct cluster binding per frame: the layer's cluster
+            // buffers stay put for all its draws.
+            VkDescriptorSet clusterSet = VK_NULL_HANDLE;
+            if (_clusterSetReuse.frame == _frameSerial && _clusterSetReuse.lightOffset == *lightOffset &&
+                _clusterSetReuse.cellOffset == *cellOffset && _clusterSetReuse.lightSize == lightSize &&
+                _clusterSetReuse.cellSize == cellSize) {
+                clusterSet = _clusterSetReuse.set;
+            } else {
+                clusterSet = allocateFrameDescriptorSet(_renderPipeline->clusterSetLayout());
+                if (clusterSet == VK_NULL_HANDLE) return;
+                std::array<VkDescriptorBufferInfo, 2> infos{{
+                    {_uniformRing->buffer(), *lightOffset, lightSize},
+                    {_uniformRing->buffer(), *cellOffset, cellSize},
+                }};
+                std::array<VkWriteDescriptorSet, 2> writes{};
+                for (uint32_t i = 0; i < writes.size(); ++i) {
+                    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    writes[i].dstSet = clusterSet;
+                    writes[i].dstBinding = i;
+                    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    writes[i].descriptorCount = 1;
+                    writes[i].pBufferInfo = &infos[i];
+                }
+                vkUpdateDescriptorSets(_device, writes.size(), writes.data(), 0, nullptr);
+                _clusterSetReuse = {*lightOffset, *cellOffset, lightSize, cellSize, _frameSerial, clusterSet};
+            }
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 _renderPipeline->pipelineLayout(), 5, 1, &clusterSet, 0, nullptr);
         }

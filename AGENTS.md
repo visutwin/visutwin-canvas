@@ -1660,6 +1660,19 @@ present, but the rule below never depends on reading it.
   the first reads the first one's value. It used to be set for every draw: Metal
   repacked ~2.8 KB and Vulkan allocated and uploaded a fresh UBO each time (60-95
   calls a frame on the shipped scenes, now 2-3; frames bit-identical).
+- **Vulkan reuses per-draw uploads WITHIN A FRAME, keyed on what they came from.** Every
+  draw of a material whose pack is unchanged shares one ring slot
+  (`_materialUniformSlots`, keyed on the material and `Material::uniformsVersion()` — a
+  process-wide counter bumped by `markUniformsDirty`, so a freed material's reused address
+  can never match); material-less draws (every opaque shadow and prepass caster) share
+  the constant default block; draws with the same cluster buffers share one set 5, and the
+  zero cluster sentinels are allocated once a frame. `_frameSerial`, bumped in
+  `onFrameStart` where the ring and the pools are rewound, invalidates all of it. Quad and
+  custom uniform blocks are never reused — nothing versions them. So a MUTATOR THAT SKIPS
+  `markUniformsDirty()` now leaves Vulkan drawing the old block for the rest of the frame
+  as well as the cache (Debug builds' re-pack comparison reports it). Measured 2026-09-25:
+  ring allocations per frame 231 -> 23 (`clustered-spot-shadows`), descriptor-set
+  allocations 228 -> 6 and writes 224 -> 2, CPU time in `draw()` -15%.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
@@ -2150,9 +2163,8 @@ What stays HERE is only what bites during UNRELATED work.
   per-texture sampler would filter it — check anisotropy, not just filter and
   wrap — or every oblique surface diverges by backend.
 - **Queued after the 2026-09-25 triage — verified still true that day, none a correctness
-  bug:** Vulkan does per-draw work Metal does not (a full 512-byte material ring slot per
-  draw with no same-material reuse, a heap `std::vector<TextureSlot>` per draw, cluster
-  set 5 allocated and written per draw, set 4 per skinned draw); the lighting block's
+  bug:** Vulkan allocates and writes set 4 per skinned or morphed draw (its palette
+  offset differs per draw, so removing it needs dynamic offsets); the lighting block's
   semantic derivation is written twice (`MetalUniformBinder::setLightingUniforms` and
   Vulkan's `setLightingUniforms` — the LAYOUTS differ, the derivation need not);
   `cullMeshInstancesInto` sweeps every RenderComponent per (camera, layer) and

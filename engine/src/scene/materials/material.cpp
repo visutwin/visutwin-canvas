@@ -9,6 +9,8 @@
 
 #include "material.h"
 
+#include <atomic>
+
 #include "scene/shader-lib/shaderChunks.h"
 
 #include <algorithm>
@@ -160,6 +162,12 @@ namespace visutwin::canvas
         row1[1] = cr * t.tiling.y;
         row1[2] = 1.0f - t.tiling.y - t.offset.y;
         row1[3] = 0.0f;
+    }
+
+    uint64_t Material::nextUniformsVersion()
+    {
+        static std::atomic<uint64_t> counter{0};
+        return ++counter;
     }
 
     Material::Material()

@@ -413,6 +413,10 @@ namespace visutwin::canvas
         frame.imageDescriptorCache.clear();
         _descriptorAllocationErrorWarned = false;
         _uniformOverflowReportedThisFrame = false;
+        // Every per-draw reuse is keyed on this, so none survives into the new frame's
+        // ring region and descriptor pools.
+        ++_frameSerial;
+        _materialUniformSlots.clear();
     }
 
     void VulkanGraphicsDevice::recordScreenshotCopy(VkCommandBuffer cmd,

@@ -641,6 +641,34 @@ namespace visutwin::canvas
         bool _descriptorAllocationErrorWarned = false;
         bool _uniformOverflowReportedThisFrame = false;
 
+        // Per-draw reuse within ONE frame (the ring and the descriptor pools are frame-
+        // scoped, so nothing below may outlive it; `_frameSerial` moves on at every frame
+        // start and invalidates all of it). Consecutive draws of one material with an
+        // unchanged pack share its ring slot, as Metal's binder does; draws with the same
+        // cluster buffers share one set 5; the zero sentinels a non-clustered draw binds
+        // are allocated once a frame. Each used to be allocated per draw.
+        uint64_t _frameSerial = 0;
+        struct MaterialUniformSlot
+        {
+            uint64_t version = 0;
+            uint32_t offset = 0;
+        };
+        // Every material packed this frame, not just the last one: a frame interleaves
+        // materials across shadow faces, prepass and forward pass. Cleared at frame start.
+        std::unordered_map<const void*, MaterialUniformSlot> _materialUniformSlots;
+        struct ClusterSetReuse
+        {
+            uint32_t lightOffset = 0;
+            uint32_t cellOffset = 0;
+            VkDeviceSize lightSize = 0;
+            VkDeviceSize cellSize = 0;
+            uint64_t frame = ~0ull;
+            VkDescriptorSet set = VK_NULL_HANDLE;
+        } _clusterSetReuse;
+        uint64_t _clusterSentinelFrame = ~0ull;
+        std::optional<uint32_t> _clusterSentinelLightOffset;
+        std::optional<uint32_t> _clusterSentinelCellOffset;
+
         // Anisotropic filtering has to be enabled as a device FEATURE before any
         // sampler may ask for it; the ratio itself is published by the base class
         // as maxAnisotropy(), which both backends' samplers read.
