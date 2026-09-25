@@ -421,6 +421,22 @@ target_link_libraries(visutwin-triage-contracts-tests PRIVATE visutwin-canvas)
 
 add_test(NAME triage-contracts COMMAND visutwin-triage-contracts-tests)
 
+add_executable(visutwin-frame-graph-tests
+    frameGraphTests.cpp
+)
+
+target_link_libraries(visutwin-frame-graph-tests PRIVATE visutwin-canvas)
+
+add_test(NAME frame-graph COMMAND visutwin-frame-graph-tests)
+
+add_executable(visutwin-shader-composition-tests
+    shaderCompositionTests.cpp
+)
+
+target_link_libraries(visutwin-shader-composition-tests PRIVATE visutwin-canvas)
+
+add_test(NAME shader-composition COMMAND visutwin-shader-composition-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

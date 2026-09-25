@@ -41,9 +41,12 @@ namespace visutwin::canvas
         // Reset merge flags from previous compiles: passes are persistent objects
         // reused across frames, and stale skipStart/skipEnd from a frame with
         // different pass adjacency would skip render-target begin/end incorrectly.
+        // The same for the stores and mipmap generation this graph changes below: they
+        // are undone first and derived afresh from THIS frame's adjacency.
         for (auto renderPass : _renderPasses) {
             renderPass->setSkipStart(false);
             renderPass->setSkipEnd(false);
+            renderPass->undoGraphAttachmentEdits();
         }
 
         // The map tracks the most recent pass per target WITHIN THIS FRAME. Passes are
@@ -79,16 +82,16 @@ namespace visutwin::canvas
                 for (size_t j = 0; j < count; j++) {
                     const auto colorOps = colorArrayOps[j];
                     if (!colorOps->clear) {
-                        prevColorOps[j]->store = true;
+                        prevPass->setAttachmentFlagByGraph(prevColorOps[j], prevColorOps[j]->store, true);
                     }
                 }
 
-                if (depthStencilOps && prevPass->depthStencilOps()) {
+                if (const auto prevDepth = prevPass->depthStencilOps(); depthStencilOps && prevDepth) {
                     if (!depthStencilOps->clearDepth) {
-                        prevPass->depthStencilOps()->storeDepth = true;
+                        prevPass->setAttachmentFlagByGraph(prevDepth, prevDepth->storeDepth, true);
                     }
                     if (!depthStencilOps->clearStencil) {
-                        prevPass->depthStencilOps()->storeStencil = true;
+                        prevPass->setAttachmentFlagByGraph(prevDepth, prevDepth->storeStencil, true);
                     }
                 }
             }
@@ -164,7 +167,8 @@ namespace visutwin::canvas
                     auto& lastColorArrayOps = lastCubeRenderPass->colorArrayOps();
                     size_t count = lastColorArrayOps.size();
                     for (size_t j = 0; j < count; j++) {
-                        lastColorArrayOps[j]->genMipmaps = false;
+                        lastCubeRenderPass->setAttachmentFlagByGraph(lastColorArrayOps[j],
+                            lastColorArrayOps[j]->genMipmaps, false);
                     }
                 }
 

@@ -449,7 +449,17 @@ ComposePassParams.
 whenever a later pass reads a target WITHOUT clearing it, marks the earlier pass
 on that target as having to STORE. The back buffer is included (`nullptr` render
 target), and `_renderTargetMap` is per-frame state. Grab passes carry no color ops
-of their own and must not displace the real draw pass in that map.
+of their own and must not displace the real draw pass in that map. **The graph's edits
+to a pass last ONE frame**: passes persist while the graph is rebuilt every frame, so
+`compile()` records each store it raises and each cubemap mip generation it drops
+(`RenderPass::setAttachmentFlagByGraph`) and undoes them at the next compile before
+deriving them afresh, restoring only a flag that still holds the graph's value. They
+used to be one-way, so one frame's adjacency stuck to a pass for good. A pass that must
+keep its target for a LATER frame (history, persistent accumulation) sets its own store:
+the graph only sees one frame. `tests/frameGraphTests.cpp` holds propagation, merging,
+before-pass order and the undo; `tests/shaderCompositionTests.cpp` holds `forward.frag`'s
+include order against ProgramLibrary's registered GLSL order, override precedence and
+variant keys.
 
 **Tone mapping.** 6 modes dispatched in `common.metal :: toneMap`: LINEAR (0),
 FILMIC (1), ACES (3), ACES2 (4, Stephen Hill RRT+ODT fit), NEUTRAL (5), NONE (6).
@@ -2147,9 +2157,7 @@ What stays HERE is only what bites during UNRELATED work.
   Vulkan's `setLightingUniforms` — the LAYOUTS differ, the derivation need not);
   `cullMeshInstancesInto` sweeps every RenderComponent per (camera, layer) and
   `renderForwardLayer` recomputes frame-global state per sublayer; per-frame heap churn
-  in the graph build; the frame graph only ever RAISES a persistent pass's store flags
-  (bandwidth only — fix by undoing the graph's own edits at `compile()`, not by a
-  snapshot, and land it with goldens at 2x); component `_instances` lists are
+  in the graph build; component `_instances` lists are
   process-global (two engines in one process see each other's components); three
   `generateTangents` copies in the parsers (same sign rule, opposite to
   `calculateTangents`); glTF animation tracks keyed by name lose clip order; the binding

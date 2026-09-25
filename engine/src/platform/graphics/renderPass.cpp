@@ -96,6 +96,26 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPass::setAttachmentFlagByGraph(const std::shared_ptr<void>& owner, bool& flag, const bool value)
+    {
+        if (flag == value) {
+            return;
+        }
+        _graphEdits.push_back({owner, &flag, flag, value});
+        flag = value;
+    }
+
+    void RenderPass::undoGraphAttachmentEdits()
+    {
+        // Newest first, so a flag the graph wrote twice lands on its original value.
+        for (auto it = _graphEdits.rbegin(); it != _graphEdits.rend(); ++it) {
+            if (*it->flag == it->written) {
+                *it->flag = it->previous;
+            }
+        }
+        _graphEdits.clear();
+    }
+
     void RenderPass::init(const std::shared_ptr<RenderTarget>& renderTarget, const std::shared_ptr<RenderPassOptions>& options)
     {
         setOptions(options);

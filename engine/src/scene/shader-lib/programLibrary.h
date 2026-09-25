@@ -23,6 +23,8 @@ namespace visutwin::canvas
      * The second level processes this generated shader using processing options - in most cases
      * modifies it to support uniform buffers.
      */
+    struct ProgramLibraryTestAccess;   // defined by tests/shaderCompositionTests.cpp
+
     class ProgramLibrary
     {
     public:
@@ -283,6 +285,10 @@ namespace visutwin::canvas
         bool hasChunkOverrides(const Material* material) const;
         /// Warn (once per name) about overrides Vulkan cannot apply.
         void warnUnsupportedGlslOverrides() const;
+
+        // The composition and variant-key internals, reached by the composition test
+        // alone; nothing else in the engine uses this.
+        friend struct ProgramLibraryTestAccess;
 
         std::shared_ptr<GraphicsDevice> _device;
         std::unordered_map<VariantKey, std::shared_ptr<Shader>, VariantKeyHash> _forwardShaderCache;

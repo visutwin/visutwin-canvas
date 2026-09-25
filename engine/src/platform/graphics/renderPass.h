@@ -112,6 +112,19 @@ namespace visutwin::canvas
 
         void setSkipStart(const bool value) { _skipStart = value; }
         void setSkipEnd(const bool value) { _skipEnd = value; }
+        bool skipStart() const { return _skipStart; }
+        bool skipEnd() const { return _skipEnd; }
+
+        /// FrameGraph::compile's edits to this pass's attachment flags (a store it
+        /// raised because a later pass loads the target, a mipmap generation it dropped
+        /// for a cubemap face). Passes persist across frames while the graph is rebuilt
+        /// every frame, so each edit is recorded — the flag, the value it replaced and
+        /// the value written — and undone at the next compile before the graph derives
+        /// them afresh. Only a flag still holding the graph's value is put back: a pass
+        /// that changed its own flag since keeps its change. Until 2026-09-25 the edits
+        /// were one-way, so one frame's adjacency stuck to a pass for good.
+        void setAttachmentFlagByGraph(const std::shared_ptr<void>& owner, bool& flag, bool value);
+        void undoGraphAttachmentEdits();
 
         bool requiresCubemaps() const { return _requiresCubemaps; }
         void setRequiresCubemaps(bool value) { _requiresCubemaps = value; }
@@ -177,6 +190,15 @@ namespace visutwin::canvas
 
         bool _skipStart = false;
         bool _skipEnd = false;
+
+        struct GraphEdit
+        {
+            std::shared_ptr<void> owner;   // keeps the ops object the flag lives in alive
+            bool* flag = nullptr;
+            bool previous = false;
+            bool written = false;
+        };
+        std::vector<GraphEdit> _graphEdits;
 
         std::vector<std::shared_ptr<ColorAttachmentOps>> _colorArrayOps;
         std::shared_ptr<DepthStencilAttachmentOps> _depthStencilOps;
