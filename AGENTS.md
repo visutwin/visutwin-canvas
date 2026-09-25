@@ -934,6 +934,13 @@ present, but the rule below never depends on reading it.
   the receiver distance applied BEFORE the perspective projection. Cubemap shadow
   depth is crushed against 1.0, so a fixed post-projection offset erases omni
   shadows entirely at ordinary light ranges.
+- **A StandardMaterial MAP setter writes through to the base slot, and its getter falls
+  back to the base texture** — `setDiffuseMap`, `setNormalMap`, `setMetalnessMap`,
+  `setEmissiveMap` and `setAoMap`. A glTF material binds the BASE slots, so a setter that
+  only stored its own pointer made `setDiffuseMap(nullptr)` on a loaded material clear
+  nothing. Packing never writes back to the material either: StandardMaterial's UV
+  transforms go straight into the block (`Material::packTextureTransform`), and both
+  backends draw from the cached `Material::packedUniforms()` (Vulkan re-packed per draw).
 - **`StandardMaterial` overwrites the base-Material factors, ALWAYS.** Set surface
   properties with `setDiffuse` / `setOpacity` / `setMetalness` / `setGloss`
   (+ `setGlossInvert`) / `setBumpiness`; `setBaseColorFactor` / `setMetallicFactor`
@@ -1104,7 +1111,9 @@ present, but the rule below never depends on reading it.
   `scene/gsplat/gsplatSortKeys` (splat depth and sort key) and
   `framework/lightmapper/lightmapperBvh` (4-box slab test). Each exposes the scalar
   form publicly, its test compares the two exactly, the kernel file is built with
-  `-ffp-contract=off` where a multiply-add could fuse (`engine/CMakeLists.txt`), and
+  `-ffp-contract=off` where a multiply-add could fuse (`engine/CMakeLists.txt`: only
+  `gsplatSortKeys.cpp` — the slab test is `(box - origin) * inv`, a subtract then a
+  multiply, which cannot contract into an FMA), and
   `VISUTWIN_KERNELS_FORCE_SCALAR` builds the scalar path for measurement. These
   kernels gate on `__SSE2__` and `__ARM_NEON && __aarch64__` DIRECTLY, not on
   `USE_SIMD_*`, so on Apple silicon the maths classes use the Apple backend while
@@ -1602,6 +1611,37 @@ present, but the rule below never depends on reading it.
   at creation, and `gsplat.vert` includes `chunks/common-tonemap.glsl` under
   `VT_TONEMAP_OPERATORS_ONLY` and calls `toneMapByMode`. Growing `GpuGSplatParams` means
   the bundle validator's expected size and both backends' staging arrays too.
+- **`RenderAction::firstCameraUse` / `lastCameraUse` describe the camera's WHOLE FRAME and
+  nothing rewrites them.** The composition sets them; `prerender` / `postrender` fire from
+  them and the directional-shadow block split reads them, as upstream. The camera frame's
+  clones get them re-marked across its scene, transparent and after passes
+  (`RenderPassCameraFrame::updateCameraUseFlags`, upstream's), and
+  `RenderPassForward::validateRenderActionOrder` works out block-local spans itself. Until
+  2026-09-25 both `addMainRenderPass` and every forward pass rewrote them per block: a
+  camera frame fired both events twice a frame, and a grab-pass split fed on the rewritten
+  flag the next frame (`refraction`: twice in 241 of 583 frames).
+- **GPU instance culling has ONE output per mesh instance and runs once a frame, before
+  anything draws.** With exactly one camera drawing, it culls to that camera's frustum;
+  with more, it keeps every instance so each view is complete. It used to cull per
+  camera, so every view drew the LAST camera's set. A per-camera output is the open item
+  if multi-camera scenes need the saving.
+- **An `ASPECT_AUTO` camera's aspect is resolved BEFORE culling**
+  (`Renderer::resolveAutoAspectRatio` at the top of the graph build); the draw-time
+  assignment from the actual target stays and the cull cache's frustum compare still
+  catches a disagreement. It changes FIRST-FRAME work only, which a one-shot shadow keeps:
+  `ambient-occlusion`'s directional shadow used to be fitted on frame one with the default
+  16:9 aspect instead of the window's, and now is fitted to the real frustum (15k pixels at
+  1x, all on shadow edges); `taa`'s first history frame moves by 1-4 counts. The
+  `ambient-occlusion` golden reference predates this and must be re-captured
+  (`--update`) after checking its failure image shows only shadow-edge differences.
+- **A raw `Entity*` an object keeps must follow the entity's `destroy` event**: subscribe
+  when set, clear the pointer in the handler, and `off()` the handle in the owner's
+  destructor (a handler that outlives its owner is a use-after-free the sanitizer build
+  catches). Joint ends, the transform gizmo's target, a button's image entity and the
+  outline renderer's records do; `tests/triageContractsTests.cpp` holds the button.
+- **`ResourceLoader::shutdown` delivers every undelivered completion as an ERROR, and a
+  `load()` after it fails at once** — otherwise an `Asset` stays `_loading` forever and a
+  later `loadAsync` coalesces onto a load that will never finish.
 - **The lighting block is set once per LAYER, not per draw.** `renderForwardLayer`
   calls `setLightingUniforms` on a layer's first draw and again only when a draw's
   light mask or `receiveShadow` differs from the previous draw's — the only two
@@ -2099,6 +2139,21 @@ What stays HERE is only what bites during UNRELATED work.
   A SEPARATE image read through a shared sampler must be filtered EXACTLY as the
   per-texture sampler would filter it — check anisotropy, not just filter and
   wrap — or every oblique surface diverges by backend.
+- **Queued after the 2026-09-25 triage — verified still true that day, none a correctness
+  bug:** Vulkan does per-draw work Metal does not (a full 512-byte material ring slot per
+  draw with no same-material reuse, a heap `std::vector<TextureSlot>` per draw, cluster
+  set 5 allocated and written per draw, set 4 per skinned draw); the lighting block's
+  semantic derivation is written twice (`MetalUniformBinder::setLightingUniforms` and
+  Vulkan's `setLightingUniforms` — the LAYOUTS differ, the derivation need not);
+  `cullMeshInstancesInto` sweeps every RenderComponent per (camera, layer) and
+  `renderForwardLayer` recomputes frame-global state per sublayer; per-frame heap churn
+  in the graph build; the frame graph only ever RAISES a persistent pass's store flags
+  (bandwidth only — fix by undoing the graph's own edits at `compile()`, not by a
+  snapshot, and land it with goldens at 2x); component `_instances` lists are
+  process-global (two engines in one process see each other's components); three
+  `generateTangents` copies in the parsers (same sign rule, opposite to
+  `calculateTangents`); glTF animation tracks keyed by name lose clip order; the binding
+  footprint exceeds WebGPU's defaults (Metal 36 texture slots, Vulkan 7 sets).
 - **The ambient diffuse is scaled by `(1 - specularity)` on both backends**, right
   where upstream's `litForwardBackend` does it after `addAmbient`: per channel, F0 in
   either workflow, only when the material renders specular, and only on the ambient

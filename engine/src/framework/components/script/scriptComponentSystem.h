@@ -31,8 +31,11 @@ namespace visutwin::canvas
         {
             auto component = std::make_unique<ScriptComponent>(this, entity);
             component->initializeComponentData();
-            component->setExecutionOrder(_executionCounter++);
-            _components.append(component.get());
+            // Rising creation order, set directly (the setter re-sorts), and INSERTED by
+            // it: usually at the end, but after setExecutionOrder has moved another
+            // component past the counter an append would leave the list unsorted.
+            component->_executionOrder = _executionCounter++;
+            _components.insert(component.get());
             return component;
         }
 
@@ -44,6 +47,10 @@ namespace visutwin::canvas
         {
             _components.remove(component);
         }
+
+        /// Re-sort the update list after a component's execution order changed. The
+        /// list keeps its running loop index pointing at the same component.
+        void sortComponents() { _components.sort(); }
 
         /// Application-wide initialize phase, fired once from Engine::start(). Every
         /// script initializes before any script post-initializes, which is the

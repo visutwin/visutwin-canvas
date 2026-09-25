@@ -11,6 +11,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <cstring>
 #include <numbers>
 
@@ -220,8 +221,8 @@ namespace visutwin::canvas
                 continue;
             }
             Light* sceneLight = lightComponent->light();
-            if (!sceneLight || sceneLight->visibleThisFrame()) {
-                continue;   // another camera already reached it
+            if (!sceneLight) {
+                continue;
             }
 
             // A directional light has no position and no range, so there is nothing
@@ -231,6 +232,9 @@ namespace visutwin::canvas
                 continue;
             }
 
+            // A light an earlier camera already reached is still TESTED: its screen size
+            // is the maximum over every camera (upstream's culler updates it per camera),
+            // and skipping it let only the first camera rank it for an atlas slot.
             const BoundingSphere bounds = sceneLight->boundingSphere();
             if (frustum.checkSphere(bounds.center(), bounds.radius())) {
                 sceneLight->setVisibleThisFrame(true);
@@ -238,6 +242,9 @@ namespace visutwin::canvas
                 // which ranks it for an atlas slot (upstream maxScreenSize).
                 sceneLight->setMaxScreenSize(std::max(sceneLight->maxScreenSize(), camera->screenSize(bounds)));
                 continue;
+            }
+            if (sceneLight->visibleThisFrame()) {
+                continue;   // another camera reached it; this one does not see it
             }
 
             // Upstream's one exception, and it is about allocation rather than
@@ -534,20 +541,49 @@ namespace visutwin::canvas
         }
     }
 
+    void Renderer::resolveAutoAspectRatio(Camera* camera) const
+    {
+        if (!camera || camera->aspectRatioMode() != AspectRatioMode::ASPECT_AUTO || !_device) {
+            return;
+        }
+        const auto* target = camera->renderTarget().get();
+        const int targetWidth = std::max(target ? target->width() : _device->size().first, 1);
+        const int targetHeight = std::max(target ? target->height() : _device->size().second, 1);
+        const auto clamp01 = [](const float v) { return std::clamp(v, 0.0f, 1.0f); };
+        const Vector4 rect = camera->rect();
+        const float rectTopNorm = clamp01(clamp01(rect.getY()) + clamp01(rect.getW()));
+        const int viewportX = std::clamp(static_cast<int>(clamp01(rect.getX()) * static_cast<float>(targetWidth)),
+            0, std::max(targetWidth - 1, 0));
+        const int viewportY = std::clamp(targetHeight - static_cast<int>(rectTopNorm * static_cast<float>(targetHeight)),
+            0, std::max(targetHeight - 1, 0));
+        const int viewportW = std::clamp(std::max(1, static_cast<int>(clamp01(rect.getZ()) * static_cast<float>(targetWidth))),
+            1, targetWidth - viewportX);
+        const int viewportH = std::clamp(std::max(1, static_cast<int>(clamp01(rect.getW()) * static_cast<float>(targetHeight))),
+            1, targetHeight - viewportY);
+        camera->setAspectRatio(static_cast<float>(viewportW) / static_cast<float>(viewportH));
+    }
+
     void Renderer::dispatchGpuInstanceCulling(Camera* camera)
     {
-        if (!camera || !camera->node() || !_device) {
+        if (!_device || (camera && !camera->node())) {
             return;
         }
 
         // Compute view-projection: view = inverse(camera world), proj = camera proj.
         // The frustum plane extraction expects a column-major float[16] layout,
         // which matches Matrix4's in-memory representation (64 bytes, SIMD-safe).
-        const Matrix4 view = camera->node()->worldTransform().inverse();
-        const Matrix4 vp = camera->projectionMatrix() * view;
-
+        // Without a camera every plane is (0, 0, 0, +big): every instance is inside.
         float planes[6][4];
-        InstanceCuller::extractFrustumPlanes(reinterpret_cast<const float*>(&vp), planes);
+        if (camera) {
+            const Matrix4 view = camera->node()->worldTransform().inverse();
+            const Matrix4 vp = camera->projectionMatrix() * view;
+            InstanceCuller::extractFrustumPlanes(reinterpret_cast<const float*>(&vp), planes);
+        } else {
+            for (auto& plane : planes) {
+                plane[0] = plane[1] = plane[2] = 0.0f;
+                plane[3] = std::numeric_limits<float>::max();
+            }
+        }
 
         // Batch all cull dispatches into one backend command buffer with a
         // single sync at the end — begun lazily so frames with no GPU-culled
@@ -555,7 +591,9 @@ namespace visutwin::canvas
         bool cullBatchStarted = false;
 
         for (auto* rc : RenderComponent::instances()) {
-            if (!rc) {
+            // active(): a disabled entity's instances are not drawn, so culling them
+            // is wasted GPU work.
+            if (!rc || !rc->active()) {
                 continue;
             }
             for (auto* mi : rc->meshInstances()) {

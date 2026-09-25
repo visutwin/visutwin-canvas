@@ -88,6 +88,9 @@ namespace visutwin::canvas
         Engine* _engine = nullptr;
         CameraComponent* _camera = nullptr;
         Entity* _target = nullptr;
+        // The target's `destroy` event lets the gizmo drop it before it is freed; the
+        // pointer used to dangle, and the next update or drag read a destroyed entity.
+        EventHandlePtr _targetDestroyed;
 
         Entity* _root = nullptr;
         Handle _handleX;

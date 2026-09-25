@@ -136,8 +136,6 @@ namespace visutwin::canvas
 
         virtual void postInit() {}
 
-        void log(std::shared_ptr<GraphicsDevice> device, int index = 0) const;
-
         std::shared_ptr<ColorAttachmentOps> colorOps() const;
 
     protected:

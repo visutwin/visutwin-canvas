@@ -131,6 +131,10 @@ namespace visutwin::canvas
         _shaftX = {};
         _shaftY = {};
         _shaftZ = {};
+        if (_targetDestroyed) {
+            _targetDestroyed->off();
+            _targetDestroyed.reset();
+        }
         _target = nullptr;
         _camera = nullptr;
         _engine = nullptr;
@@ -174,7 +178,20 @@ namespace visutwin::canvas
 
     void TransformGizmo::attach(Entity* target)
     {
+        if (_targetDestroyed) {
+            _targetDestroyed->off();
+            _targetDestroyed.reset();
+        }
         _target = target;
+        if (_target) {
+            _targetDestroyed = _target->on("destroy", [this](const EventArgs&) {
+                _target = nullptr;
+                _dragging = false;
+                _activeAxis = Axis::None;
+                _hoveredAxis = Axis::None;
+                _targetDestroyed.reset();
+            });
+        }
         _hoveredAxis = Axis::None;
         _activeAxis = Axis::None;
         _dragging = false;

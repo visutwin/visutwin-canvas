@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "core/eventHandler.h"
 #include "core/math/color.h"
 
 namespace visutwin::canvas
@@ -63,7 +64,7 @@ namespace visutwin::canvas
 
     private:
         void setPassesRegistered(bool value);
-        void collectClones(Entity* entity, const Color& color, bool recursive,
+        void collectClones(Entity* entity, const Color& color, bool recursive, std::vector<Entity*>& sources,
             std::vector<std::unique_ptr<MeshInstance>>& clones,
             std::vector<std::shared_ptr<StandardMaterial>>& materials);
         void resizeTargets(uint32_t width, uint32_t height);
@@ -88,6 +89,9 @@ namespace visutwin::canvas
             Entity* entity = nullptr;
             std::vector<std::unique_ptr<MeshInstance>> clones;
             std::vector<std::shared_ptr<StandardMaterial>> materials;
+            // One `destroy` subscription per entity a clone came from: a clone shares
+            // its source's node, so the record goes the moment any of them is destroyed.
+            std::vector<EventHandlePtr> destroyHandles;
         };
         std::vector<OutlinedEntity> _outlined;
         bool _passesRegistered = false;

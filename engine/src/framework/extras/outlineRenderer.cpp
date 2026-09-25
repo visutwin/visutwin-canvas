@@ -5,6 +5,8 @@
 //
 #include "outlineRenderer.h"
 
+#include <algorithm>
+
 #include "framework/engine.h"
 #include "scene/renderer/forwardRenderer.h"
 #include "framework/entity.h"
@@ -307,7 +309,7 @@ void main() {
     }
 
     void OutlineRenderer::collectClones(Entity* entity, const Color& color, const bool recursive,
-        std::vector<std::unique_ptr<MeshInstance>>& clones,
+        std::vector<Entity*>& sources, std::vector<std::unique_ptr<MeshInstance>>& clones,
         std::vector<std::shared_ptr<StandardMaterial>>& materials)
     {
         if (!entity) {
@@ -326,6 +328,7 @@ void main() {
             material->setUseLighting(false);
             material->setDiffuse(color);
             materials.push_back(material);
+            sources.push_back(entity);
 
             for (auto* meshInstance : render->meshInstances()) {
                 if (!meshInstance || !meshInstance->mesh()) {
@@ -342,7 +345,11 @@ void main() {
 
         if (recursive) {
             for (const auto& child : entity->children()) {
-                collectClones(static_cast<Entity*>(child.get()), color, recursive, clones, materials);
+                // dynamic_cast: a plain GraphNode child is not an Entity (the static_cast
+                // this replaced was undefined for one).
+                if (auto* childEntity = dynamic_cast<Entity*>(child.get())) {
+                    collectClones(childEntity, color, recursive, sources, clones, materials);
+                }
             }
         }
     }
@@ -373,7 +380,19 @@ void main() {
 
         OutlinedEntity record;
         record.entity = entity;
-        collectClones(entity, color, recursive, record.clones, record.materials);
+        std::vector<Entity*> sources;
+        collectClones(entity, color, recursive, sources, record.clones, record.materials);
+        // The clones point at these entities' nodes: destroying any of them drops the
+        // whole record before the node is freed (the pointers used to dangle). The root
+        // is watched even when it contributed no clone of its own.
+        if (std::find(sources.begin(), sources.end(), entity) == sources.end()) {
+            sources.push_back(entity);
+        }
+        for (auto* source : sources) {
+            record.destroyHandles.push_back(source->on("destroy", [this, entity](const EventArgs&) {
+                removeEntity(entity);
+            }));
+        }
 
         std::vector<MeshInstance*> instances;
         instances.reserve(record.clones.size());
@@ -395,6 +414,9 @@ void main() {
                     instances.push_back(clone.get());
                 }
                 _layer->removeMeshInstances(instances);
+                for (const auto& handle : it->destroyHandles) {
+                    handle->off();
+                }
                 it = _outlined.erase(it);
             } else {
                 ++it;
@@ -412,6 +434,9 @@ void main() {
                 instances.push_back(clone.get());
             }
             _layer->removeMeshInstances(instances);
+            for (const auto& handle : record.destroyHandles) {
+                handle->off();
+            }
         }
         _outlined.clear();
         setPassesRegistered(false);

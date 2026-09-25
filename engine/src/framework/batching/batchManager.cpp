@@ -6,6 +6,7 @@
 //
 //
 #include "batchManager.h"
+#include "framework/parsers/packedVertex.h"
 #include "batchSplit.h"
 #include "skinBatchInstance.h"
 
@@ -29,16 +30,7 @@ namespace visutwin::canvas
      * Consistent vertex layout used by all parsers (GLB, Assimp, OBJ, STL).
      * 56 bytes = 14 floats: position[3] + normal[3] + uv0[2] + tangent[4] + uv1[2].
      */
-    struct PackedVertex
-    {
-        float px, py, pz;       // position
-        float nx, ny, nz;       // normal
-        float u, v;             // uv0
-        float tx, ty, tz, tw;   // tangent + handedness
-        float u1, v1;           // uv1
-    };
 
-    static_assert(sizeof(PackedVertex) == 56, "PackedVertex must be 56 bytes (14 floats)");
 
     /**
      * Extended vertex layout for dynamic batching.

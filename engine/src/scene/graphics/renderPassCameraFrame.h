@@ -138,6 +138,7 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> createRenderTarget(const std::string& name, bool depth, bool stencil, int samples) const;
         void setupRenderPasses(const CameraFrameOptions& options);
         void createPasses(const CameraFrameOptions& options);
+        void updateCameraUseFlags();
         void setupScenePrepass(const CameraFrameOptions& options);
         void createPrepassRenderTarget() const;
         struct ScenePassesInfo

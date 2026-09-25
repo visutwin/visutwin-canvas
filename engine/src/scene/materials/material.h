@@ -265,6 +265,11 @@ namespace visutwin::canvas
          */
         virtual void updateUniforms(MaterialUniforms& uniforms) const;
 
+        /// A per-map UV transform as the two rows the shaders read (upstream
+        /// texture_*MapTransform0/1). A subclass packs its own transforms with it rather
+        /// than writing them into the base fields from a const method.
+        static void packTextureTransform(const TextureTransform& t, float row0[4], float row1[4]);
+
         /**
          * Re-applies scalar/color setParameter() overrides (material_baseColor,
          * material_metallic, material_roughness, material_normalScale,

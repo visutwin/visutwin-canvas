@@ -24,10 +24,12 @@ namespace visutwin::canvas
         static const std::vector<ButtonComponent*>& instances() { return _instances; }
 
         Entity* imageEntity() const { return _imageEntity; }
-        void setImageEntity(Entity* entity) { _imageEntity = entity; }
+        /// The image entity is dropped (reads null) when it is destroyed.
+        void setImageEntity(Entity* entity);
 
     private:
         inline static std::vector<ButtonComponent*> _instances;
         Entity* _imageEntity = nullptr;
+        EventHandlePtr _imageEntityDestroyed;
     };
 }

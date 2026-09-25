@@ -9,6 +9,7 @@
 #include <tiny_gltf.h>
 
 #include "glbParser.h"
+#include "framework/parsers/packedVertex.h"
 
 #include "framework/components/light/lightComponent.h"
 
@@ -47,14 +48,6 @@ namespace visutwin::canvas
 {
     namespace
     {
-        struct PackedVertex
-        {
-            float px, py, pz;
-            float nx, ny, nz;
-            float u, v;
-            float tx, ty, tz, tw;
-            float u1, v1;
-        };
 
         struct PackedPointVertex
         {
@@ -969,6 +962,18 @@ namespace visutwin::canvas
                     track->addCurve(curve);
                 }
 
+                // Two animations may share a name (nothing in glTF forbids it), and the
+                // tracks are keyed by name: the later one used to overwrite the earlier
+                // in silence. Keep both, the later under a suffixed name, and say so.
+                if (outTracks.contains(trackName)) {
+                    std::string unique;
+                    for (int n = 1; unique.empty() || outTracks.contains(unique); ++n) {
+                        unique = trackName + "_" + std::to_string(n);
+                    }
+                    spdlog::warn("GLB: two animations are named '{}'; the later one is kept as '{}'",
+                        trackName, unique);
+                    trackName = unique;
+                }
                 track->setName(trackName);
                 track->setDuration(duration);
 

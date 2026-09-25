@@ -143,23 +143,23 @@ namespace visutwin::canvas
             return false;
         }
 
-        // pre-compute 3×2 affine matrix from tiling, offset, rotation.
-        // Matches upstream defineUniform() for texture_*MapTransform0/1.
-        constexpr float DEG_TO_RAD = 3.14159265358979323846f / 180.0f;
+    }
 
-        void packTransform(const TextureTransform& t, float row0[4], float row1[4])
-        {
-            const float cr = std::cos(t.rotation * DEG_TO_RAD);
-            const float sr = std::sin(t.rotation * DEG_TO_RAD);
-            row0[0] = cr * t.tiling.x;
-            row0[1] = -sr * t.tiling.y;
-            row0[2] = t.offset.x;
-            row0[3] = 0.0f;
-            row1[0] = sr * t.tiling.x;
-            row1[1] = cr * t.tiling.y;
-            row1[2] = 1.0f - t.tiling.y - t.offset.y;
-            row1[3] = 0.0f;
-        }
+    // Pre-computes the 3x2 affine matrix from tiling, offset and rotation, as upstream's
+    // defineUniform() does for texture_*MapTransform0/1.
+    void Material::packTextureTransform(const TextureTransform& t, float row0[4], float row1[4])
+    {
+        constexpr float degToRad = 3.14159265358979323846f / 180.0f;
+        const float cr = std::cos(t.rotation * degToRad);
+        const float sr = std::sin(t.rotation * degToRad);
+        row0[0] = cr * t.tiling.x;
+        row0[1] = -sr * t.tiling.y;
+        row0[2] = t.offset.x;
+        row0[3] = 0.0f;
+        row1[0] = sr * t.tiling.x;
+        row1[1] = cr * t.tiling.y;
+        row1[2] = 1.0f - t.tiling.y - t.offset.y;
+        row1[3] = 0.0f;
     }
 
     Material::Material()
@@ -219,8 +219,9 @@ namespace visutwin::canvas
     {
         if (_uniformsDirty) {
             updateUniforms(_cachedUniforms);
-            // AFTER, not before: updateUniforms writes back to the material through a
-            // const_cast (the per-map transform fields), which sets the flag again.
+            // Cleared after packing, so a pack that somehow dirtied the material would
+            // leave it dirty. No packer writes to its material any more (StandardMaterial
+            // used to push its UV transforms back through a const_cast).
             _uniformsDirty = false;
         }
 
@@ -397,11 +398,11 @@ namespace visutwin::canvas
         }
 
         // Pack per-texture UV transforms into 3×2 affine matrices.
-        packTransform(_baseColorTransform, uniforms.baseColorTransform0, uniforms.baseColorTransform1);
-        packTransform(_normalTransform, uniforms.normalTransform0, uniforms.normalTransform1);
-        packTransform(_metalRoughTransform, uniforms.metalRoughTransform0, uniforms.metalRoughTransform1);
-        packTransform(_occlusionTransform, uniforms.occlusionTransform0, uniforms.occlusionTransform1);
-        packTransform(_emissiveTransform, uniforms.emissiveTransform0, uniforms.emissiveTransform1);
+        packTextureTransform(_baseColorTransform, uniforms.baseColorTransform0, uniforms.baseColorTransform1);
+        packTextureTransform(_normalTransform, uniforms.normalTransform0, uniforms.normalTransform1);
+        packTextureTransform(_metalRoughTransform, uniforms.metalRoughTransform0, uniforms.metalRoughTransform1);
+        packTextureTransform(_occlusionTransform, uniforms.occlusionTransform0, uniforms.occlusionTransform1);
+        packTextureTransform(_emissiveTransform, uniforms.emissiveTransform0, uniforms.emissiveTransform1);
     }
 
     void Material::getTextureSlots(std::vector<TextureSlot>& slots) const

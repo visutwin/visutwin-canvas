@@ -18,6 +18,7 @@
 // Custom loader (not derived from upstream).
 //
 #include "objParser.h"
+#include "framework/parsers/packedVertex.h"
 
 #include <tiny_obj_loader.h>
 
@@ -47,16 +48,7 @@ namespace visutwin::canvas
     {
         // ── Vertex layout (must match GlbParser::PackedVertex) ──────────
 
-        struct PackedVertex
-        {
-            float px, py, pz;       // position
-            float nx, ny, nz;       // normal
-            float u, v;             // uv0
-            float tx, ty, tz, tw;   // tangent + handedness
-            float u1, v1;           // uv1
-        };
 
-        static_assert(sizeof(PackedVertex) == 56, "PackedVertex must be 56 bytes (14 floats)");
 
         // ── Vertex deduplication key ────────────────────────────────────
 

@@ -4,6 +4,8 @@
 //
 #include "renderPassCameraFrame.h"
 
+#include <unordered_map>
+
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -611,6 +613,41 @@ namespace visutwin::canvas
         setupDofPass(options, _sceneTexture.get(), _sceneTextureHalf.get());
         setupComposePass(options);
         setupAfterPass(options, scenePassesInfo);
+        updateCameraUseFlags();
+    }
+
+    void RenderPassCameraFrame::updateCameraUseFlags()
+    {
+        // Upstream FramePassCameraFrame.updateCameraUseFlags: the camera's actions are
+        // split over the scene, transparent and after passes (the depth layer's is not
+        // cloned at all), so the first and last action PER CAMERA across those passes,
+        // in the order they run, carry the flags — prerender and postrender then fire
+        // once per camera. Each pass used to rewrite them for its own block, which fired
+        // both events up to three times. The clones are this frame's own.
+        std::unordered_map<const CameraComponent*, RenderAction*> first;
+        std::unordered_map<const CameraComponent*, RenderAction*> last;
+        for (const auto* pass : {_scenePass.get(), _scenePassTransparent.get(), _afterPass.get()}) {
+            if (!pass) {
+                continue;
+            }
+            for (auto* action : pass->renderActions()) {
+                if (!action) {
+                    continue;
+                }
+                action->firstCameraUse = false;
+                action->lastCameraUse = false;
+                if (action->camera) {
+                    first.try_emplace(action->camera, action);
+                    last[action->camera] = action;
+                }
+            }
+        }
+        for (auto& [camera, action] : first) {
+            action->firstCameraUse = true;
+        }
+        for (auto& [camera, action] : last) {
+            action->lastCameraUse = true;
+        }
     }
 
     void RenderPassCameraFrame::setupScenePrepass(const CameraFrameOptions& options)

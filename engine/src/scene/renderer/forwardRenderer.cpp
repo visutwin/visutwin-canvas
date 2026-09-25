@@ -11,7 +11,6 @@
 #include "scene/graphics/renderPassCameraFrame.h"
 #include "scene/light.h"
 #include "renderPassForward.h"
-#include "renderPassPostprocessing.h"
 #include "scene/constants.h"
 #include "scene/skinInstance.h"
 
@@ -38,6 +37,19 @@ namespace visutwin::canvas
         // postcull events upstream's contract, once per camera rather than once per
         // layer.
         {
+            // ASPECT_AUTO before anything reads a camera's projection: the cull below,
+            // and the shadow fit after it. It used to be resolved only at DRAW time, so
+            // the cull saw last frame's aspect (the frustum-compare re-cull in the cull
+            // cache caught the first frame); renderForwardLayer still sets it from the
+            // target it actually draws to, which normally agrees.
+            for (const auto* action : layerComposition->renderActions()) {
+                if (action && action->camera) {
+                    if (Camera* cam = action->camera->camera()) {
+                        resolveAutoAspectRatio(cam);
+                    }
+                }
+            }
+
             resetCulledInstances();
             for (const auto* action : layerComposition->renderActions()) {
                 if (action && action->camera && action->layer) {
@@ -206,6 +218,7 @@ namespace visutwin::canvas
             }
 
             std::unordered_set<Camera*> culledCameras;
+            Camera* onlyCamera = nullptr;
             for (const auto* action : actions) {
                 if (action && action->camera) {
                     Camera* cam = action->camera->camera();
@@ -213,9 +226,16 @@ namespace visutwin::canvas
                         if (cam == shadowFitCamera) {
                             cullShadowmaps(cam);
                         }
-                        dispatchGpuInstanceCulling(cam);
+                        onlyCamera = cam;
                     }
                 }
+            }
+            // GPU instance culling has one output per mesh, filled before any pass
+            // draws: cull to the frustum only when one camera draws this frame. It used
+            // to run per camera, so with two or more every view drew the LAST camera's
+            // set and instances vanished from the others.
+            if (!culledCameras.empty()) {
+                dispatchGpuInstanceCulling(culledCameras.size() == 1 ? onlyCamera : nullptr);
             }
         }
 
@@ -339,13 +359,6 @@ namespace visutwin::canvas
                         }
                     }
 
-                    // postprocessing
-                    if (!useCameraFrame && renderAction->triggerPostprocess && renderAction->camera &&
-                        renderAction->camera->onPostprocessing()) {
-                        auto renderPass = std::make_shared<RenderPassPostprocessing>(_device, renderAction);
-                        frameGraph->addRenderPass(renderPass);
-                    }
-
                     newStart = true;
                 }
             }
@@ -393,30 +406,17 @@ namespace visutwin::canvas
         );
         mainPass->init(passTarget);
 
+        // The actions keep the COMPOSITION's firstCameraUse / lastCameraUse: whether
+        // this is the camera's first / last action of the whole frame, which is what
+        // prerender / postrender and the directional-shadow split mean (upstream copies
+        // them into a render step and never mutates the action). They used to be
+        // rewritten here per block, so a camera split into blocks fired its events once
+        // per block and the next frame's split read the rewritten flag.
         for (int i = startIndex; i <= endIndex; ++i) {
             auto* ra = renderActions[i];
             if (!ra) {
                 continue;
             }
-            const auto* cameraForAction = ra->camera;
-            bool hasPreviousForCamera = false;
-            bool hasNextForCamera = false;
-
-            for (int j = startIndex; j < i; ++j) {
-                if (renderActions[j] && renderActions[j]->camera == cameraForAction) {
-                    hasPreviousForCamera = true;
-                    break;
-                }
-            }
-            for (int j = i + 1; j <= endIndex; ++j) {
-                if (renderActions[j] && renderActions[j]->camera == cameraForAction) {
-                    hasNextForCamera = true;
-                    break;
-                }
-            }
-
-            ra->firstCameraUse = !hasPreviousForCamera;
-            ra->lastCameraUse = !hasNextForCamera;
             mainPass->addRenderAction(ra);
         }
 

@@ -412,6 +412,15 @@ target_link_libraries(visutwin-glb-extensions-tests PRIVATE visutwin-canvas)
 
 add_test(NAME glb-extensions COMMAND visutwin-glb-extensions-tests)
 
+add_executable(visutwin-triage-contracts-tests
+    triageContractsTests.cpp
+)
+
+target_include_directories(visutwin-triage-contracts-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+target_link_libraries(visutwin-triage-contracts-tests PRIVATE visutwin-canvas)
+
+add_test(NAME triage-contracts COMMAND visutwin-triage-contracts-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

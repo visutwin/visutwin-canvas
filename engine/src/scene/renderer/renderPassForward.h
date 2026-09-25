@@ -25,6 +25,7 @@ namespace visutwin::canvas
             LayerComposition* layerComposition, Scene* scene, Renderer* renderer);
 
         void addRenderAction(RenderAction* renderAction);
+        const std::vector<RenderAction*>& renderActions() const { return _renderActions; }
 
         // when true, the ProgramLibrary will generate forward shaders
         // that output linear HDR (no tonemapping, no gamma correction).
@@ -37,7 +38,6 @@ namespace visutwin::canvas
 
     private:
         void updateClears();
-        void refreshCameraUseFlags();
         bool validateRenderActionOrder() const;
         void renderRenderAction(RenderAction* renderAction, bool firstRenderAction);
 

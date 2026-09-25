@@ -571,10 +571,10 @@ already rendered in front of it.
 
 ### Render pass types
 
-**22 `RenderPass` subclasses.** The scene-level ones: `RenderPassForward` (main PBR
+**21 `RenderPass` subclasses.** The scene-level ones: `RenderPassForward` (main PBR
 geometry, multi-light, multi-layer), `RenderPassShadowDirectional` (cascades, PCF +
 EVSM_16F), `RenderPassVsmBlur`, `RenderPassShadowLocalClustered` / `NonClustered`,
-`RenderPassUpdateClustered`, `RenderPassPostprocessing`, `RenderPassCookieRenderer`,
+`RenderPassUpdateClustered`, `RenderPassCookieRenderer`,
 and the colour and depth grabs. The camera frame's sub-passes: prepass, SSAO, TAA,
 downsample/upsample, bloom, the DOF trio (CoC, far downsample, bokeh blur under a
 targetless `RenderPassDof` orchestrator), volumetric fog and its combine, compose,

@@ -118,6 +118,17 @@ namespace visutwin::canvas
         }
     }
 
+    void ScriptComponent::setExecutionOrder(const int value)
+    {
+        if (_executionOrder == value) {
+            return;
+        }
+        _executionOrder = value;
+        if (auto* scripts = dynamic_cast<ScriptComponentSystem*>(system())) {
+            scripts->sortComponents();
+        }
+    }
+
     void ScriptComponent::onEnable()
     {
         // A script created while this component was inactive — disabled, or on a

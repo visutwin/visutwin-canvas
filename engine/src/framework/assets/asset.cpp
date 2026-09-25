@@ -5,6 +5,10 @@
 //
 #include "asset.h"
 
+#include <cctype>
+
+#include <algorithm>
+
 #include <fstream>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -27,6 +31,28 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // Which parser a container file goes to, by its extension compared CASE-
+        // INSENSITIVELY — one routine for the sync and async paths, which used to
+        // spell the list out twice and matched only all-lower or all-upper (".Obj",
+        // ".3DS" fell through to the glTF parser). ContainerResourceHandler lower-cases
+        // the same way, so every path routes a file identically.
+        enum class ContainerFormat { Gltf, Obj, Stl, Assimp };
+
+        ContainerFormat containerFormat(const std::string& path)
+        {
+            const auto dot = path.find_last_of('.');
+            std::string ext = dot == std::string::npos ? std::string() : path.substr(dot);
+            std::transform(ext.begin(), ext.end(), ext.begin(),
+                [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (ext == ".obj") return ContainerFormat::Obj;
+            if (ext == ".stl") return ContainerFormat::Stl;
+            if (ext == ".dae" || ext == ".fbx" || ext == ".3ds" || ext == ".ply") return ContainerFormat::Assimp;
+            return ContainerFormat::Gltf;
+        }
+    }
+
     std::weak_ptr<GraphicsDevice> Asset::_defaultGraphicsDevice;
 
     Asset::Asset(const std::string& name, const std::string& type, const std::string& file,
@@ -71,8 +97,10 @@ namespace visutwin::canvas
     }
 
     std::optional<Resource> Asset::resource() {
-        spdlog::info("Asset::resource loading '{}' type '{}'", _name, _type);
         if (_resources.empty()) {
+            // Once per load, not on every call: resource() is also the cheap accessor
+            // callers poll for the cached result.
+            spdlog::info("Asset::resource loading '{}' type '{}'", _name, _type);
             if (_type == AssetType::CONTAINER) {
                 auto graphicsDevice = _defaultGraphicsDevice.lock();
                 if (!graphicsDevice) {
@@ -80,30 +108,14 @@ namespace visutwin::canvas
                     return std::nullopt;
                 }
 
-                // Route by file extension: .obj → ObjParser, .stl → StlParser, else → GlbParser
-                const bool isObj = _file.size() >= 4 &&
-                    (_file.compare(_file.size() - 4, 4, ".obj") == 0 ||
-                     _file.compare(_file.size() - 4, 4, ".OBJ") == 0);
-
-                const bool isStl = _file.size() >= 4 &&
-                    (_file.compare(_file.size() - 4, 4, ".stl") == 0 ||
-                     _file.compare(_file.size() - 4, 4, ".STL") == 0);
-
-                const bool isAssimp = _file.size() >= 4 &&
-                    (_file.compare(_file.size() - 4, 4, ".dae") == 0 ||
-                     _file.compare(_file.size() - 4, 4, ".DAE") == 0 ||
-                     _file.compare(_file.size() - 4, 4, ".fbx") == 0 ||
-                     _file.compare(_file.size() - 4, 4, ".FBX") == 0 ||
-                     _file.compare(_file.size() - 4, 4, ".3ds") == 0 ||
-                     _file.compare(_file.size() - 4, 4, ".ply") == 0 ||
-                     _file.compare(_file.size() - 4, 4, ".PLY") == 0);
+                const ContainerFormat format = containerFormat(_file);
 
                 std::unique_ptr<GlbContainerResource> container;
-                if (isObj) {
+                if (format == ContainerFormat::Obj) {
                     container = ObjParser::parse(_file, graphicsDevice);
-                } else if (isStl) {
+                } else if (format == ContainerFormat::Stl) {
                     container = StlParser::parse(_file, graphicsDevice);
-                } else if (isAssimp) {
+                } else if (format == ContainerFormat::Assimp) {
                     container = AssimpParser::parse(_file, graphicsDevice);
                 } else {
                     container = GlbParser::parse(_file, graphicsDevice);
@@ -263,6 +275,8 @@ namespace visutwin::canvas
                     return std::nullopt;
                 }
                 _resources.emplace_back(std::unique_ptr<FontResource>(*font));
+            } else {
+                spdlog::warn("Asset::resource: '{}' has type '{}', which this loader does not handle", _name, _type);
             }
         }
 
@@ -410,43 +424,20 @@ namespace visutwin::canvas
                     } else {
                         // Slow fallback: pre-parse wasn't done (non-GLB format,
                         // or bg parse failed).
-                        const bool isGlb = file.size() >= 4 &&
-                            (file.compare(file.size() - 4, 4, ".glb") == 0 ||
-                             file.compare(file.size() - 4, 4, ".GLB") == 0);
+                        const ContainerFormat format = containerFormat(file);
 
-                        const bool isGltf = file.size() >= 5 &&
-                            (file.compare(file.size() - 5, 5, ".gltf") == 0 ||
-                             file.compare(file.size() - 5, 5, ".GLTF") == 0);
-
-                        if ((isGlb || isGltf) && !loaded->bytes.empty()) {
+                        if (format == ContainerFormat::Gltf && !loaded->bytes.empty()) {
                             container = GlbParser::parseFromMemory(
                                 loaded->bytes.data(), loaded->bytes.size(), device, name);
                         } else {
                             // OBJ / STL / Assimp — these parsers need file
                             // paths (their libraries read from disk directly).
                             // The bg thread pre-read the bytes to warm cache.
-                            const bool isObj = file.size() >= 4 &&
-                                (file.compare(file.size() - 4, 4, ".obj") == 0 ||
-                                 file.compare(file.size() - 4, 4, ".OBJ") == 0);
-
-                            const bool isStl = file.size() >= 4 &&
-                                (file.compare(file.size() - 4, 4, ".stl") == 0 ||
-                                 file.compare(file.size() - 4, 4, ".STL") == 0);
-
-                            const bool isAssimp = file.size() >= 4 &&
-                                (file.compare(file.size() - 4, 4, ".dae") == 0 ||
-                                 file.compare(file.size() - 4, 4, ".DAE") == 0 ||
-                                 file.compare(file.size() - 4, 4, ".fbx") == 0 ||
-                                 file.compare(file.size() - 4, 4, ".FBX") == 0 ||
-                                 file.compare(file.size() - 4, 4, ".3ds") == 0 ||
-                                 file.compare(file.size() - 4, 4, ".ply") == 0 ||
-                                 file.compare(file.size() - 4, 4, ".PLY") == 0);
-
-                            if (isObj) {
+                            if (format == ContainerFormat::Obj) {
                                 container = ObjParser::parse(file, device);
-                            } else if (isStl) {
+                            } else if (format == ContainerFormat::Stl) {
                                 container = StlParser::parse(file, device);
-                            } else if (isAssimp) {
+                            } else if (format == ContainerFormat::Assimp) {
                                 container = AssimpParser::parse(file, device);
                             } else {
                                 // Fallback: try GlbParser from memory.

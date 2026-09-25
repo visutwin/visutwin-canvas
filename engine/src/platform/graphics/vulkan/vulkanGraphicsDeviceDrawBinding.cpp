@@ -646,7 +646,9 @@ namespace visutwin::canvas
                     uniformData = customData;
                     uniformSize = customSize;
                 } else {
-                    _material->updateUniforms(materialUniforms);
+                    // The material's cached pack, as Metal uses it: it re-packs only
+                    // after a setter dirtied it, instead of once per draw.
+                    uniformData = &_material->packedUniforms();
                 }
             }
             // The descriptor's range is kPerDrawUniformCapacity, so the allocation

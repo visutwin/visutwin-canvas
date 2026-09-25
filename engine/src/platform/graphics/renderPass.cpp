@@ -53,8 +53,6 @@ namespace visutwin::canvas
                 return;
             }
 
-            log(_device, _device->_renderPassIndex);
-
             _executeSkipped = !_executeEnabled;
 
             before();
@@ -213,53 +211,6 @@ namespace visutwin::canvas
             _depthStencilOps->clearStencilValue = *stencilValue;
         }
         _depthStencilOps->clearStencil = stencilValue != nullptr;
-    }
-
-    void RenderPass::log(std::shared_ptr<GraphicsDevice> device, int index) const
-    {
-        const auto& rt = _renderTarget == nullptr ? nullptr : device->backBuffer();
-        int numColor = 0;
-        bool hasDepth = false;
-        bool hasStencil = false;
-        int mipLevel = 0;
-
-        if (rt) {
-            numColor = rt->colorBufferCount();
-            hasDepth = rt->hasDepthBuffer();
-            hasStencil = rt->hasStencil();
-            mipLevel = rt->mipLevel();
-        }
-
-        // This is a simplified version of the debug output
-        // In a real implementation, you'd use a proper logging system
-        std::string rtInfo;
-        if (rt) {
-            rtInfo = " RT: " + rt->name();
-            if (numColor > 0) {
-                rtInfo += " [Color";
-                if (numColor > 1) {
-                    rtInfo += " x " + std::to_string(numColor);
-                }
-                rtInfo += "]";
-            }
-            if (hasDepth)
-            {
-                rtInfo += "[Depth]";
-            }
-            if (hasStencil)
-            {
-                rtInfo += "[Stencil]";
-            }
-            rtInfo += " " + std::to_string(rt->width()) + " x " + std::to_string(rt->height());
-            if (_samples > 0) {
-                rtInfo += " samples: " + std::to_string(_samples);
-            }
-            if (mipLevel > 0) {
-                rtInfo += " mipLevel: " + std::to_string(mipLevel);
-            }
-        }
-
-        std::string indexString = _skipStart ? "++" : std::to_string(index);
     }
 
     std::shared_ptr<ColorAttachmentOps> RenderPass::colorOps() const

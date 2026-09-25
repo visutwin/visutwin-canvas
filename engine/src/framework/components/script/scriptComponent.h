@@ -70,9 +70,14 @@ namespace visutwin::canvas
         void postUpdateScripts(float dt);
 
         int executionOrder() const { return _executionOrder; }
-        void setExecutionOrder(const int value) { _executionOrder = value; }
+        /// Moves the component in its system's update order. The order is read when the
+        /// component is inserted, so the setter asks the system to re-sort; it used to
+        /// store the value and change nothing.
+        void setExecutionOrder(int value);
 
     private:
+        friend class ScriptComponentSystem;   // sets the creation-order default
+
         void initializeScriptInstance(Script* script);
 
         // Calls `call` on each script in order, safely against what a script may do

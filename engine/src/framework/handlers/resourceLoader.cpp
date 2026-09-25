@@ -51,6 +51,17 @@ namespace visutwin::canvas
     void ResourceLoader::load(const std::string& url, const std::string& type,
                               LoadSuccessCallback onSuccess, LoadErrorCallback onError)
     {
+        // After shutdown no worker will ever take the request: fail it now rather than
+        // leave the caller waiting on a load that cannot finish.
+        if (!_running.load()) {
+            const std::string error = "ResourceLoader is shut down; '" + url + "' was not loaded";
+            if (onError) {
+                onError(error);
+            } else {
+                spdlog::error("ResourceLoader: {}", error);
+            }
+            return;
+        }
         _pendingCount.fetch_add(1, std::memory_order_relaxed);
         {
             std::lock_guard lock(_requestMutex);
@@ -104,6 +115,23 @@ namespace visutwin::canvas
         _requestCV.notify_all();
         if (_worker.joinable()) {
             _worker.join();
+        }
+
+        // The worker drains the request queue before it exits, but the completions it
+        // produced wait for a processCompletions() that will never come — and an Asset
+        // stays `_loading` for good, so a later loadAsync coalesces onto it. Hand every
+        // one back as an ERROR: nothing parses a result while the engine goes down, and
+        // each caller learns its load ended. The callbacks guard their own lifetime.
+        std::deque<Completion> leftover;
+        {
+            std::lock_guard lock(_completionMutex);
+            leftover.swap(_completions);
+        }
+        for (auto& c : leftover) {
+            if (c.onError) {
+                c.onError("ResourceLoader shut down before the load was delivered");
+            }
+            _pendingCount.fetch_sub(1, std::memory_order_relaxed);
         }
         spdlog::info("ResourceLoader: background I/O thread stopped");
     }

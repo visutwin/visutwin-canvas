@@ -17,19 +17,39 @@ namespace visutwin::canvas
     ButtonComponent::~ButtonComponent()
     {
         std::erase(_instances, this);
+        // The image entity may outlive the button; its destroy event must not call
+        // back into a freed component.
+        if (_imageEntityDestroyed) {
+            _imageEntityDestroyed->off();
+        }
     }
 
     void ButtonComponent::cloneFrom(const Component* source)
     {
         if (const auto* src = dynamic_cast<const ButtonComponent*>(source)) {
-            _imageEntity = src->_imageEntity;
+            setImageEntity(src->_imageEntity);
         }
     }
 
     void ButtonComponent::resolveClonedReferences(const Component* source, const CloneNodeMap& map)
     {
         if (const auto* src = dynamic_cast<const ButtonComponent*>(source)) {
-            _imageEntity = remapCloned(src->_imageEntity, map);
+            setImageEntity(remapCloned(src->_imageEntity, map));
+        }
+    }
+
+    void ButtonComponent::setImageEntity(Entity* entity)
+    {
+        if (_imageEntityDestroyed) {
+            _imageEntityDestroyed->off();
+            _imageEntityDestroyed.reset();
+        }
+        _imageEntity = entity;
+        if (_imageEntity) {
+            _imageEntityDestroyed = _imageEntity->on("destroy", [this](const EventArgs&) {
+                _imageEntity = nullptr;
+                _imageEntityDestroyed.reset();
+            });
         }
     }
 }

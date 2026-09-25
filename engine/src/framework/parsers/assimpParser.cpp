@@ -18,6 +18,7 @@
 // Custom loader (not derived from upstream).
 //
 #include "assimpParser.h"
+#include "framework/parsers/packedVertex.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -53,16 +54,7 @@ namespace visutwin::canvas
     {
         // ── Vertex layout (must match GlbParser / ObjParser PackedVertex) ──
 
-        struct PackedVertex
-        {
-            float px, py, pz;       // position
-            float nx, ny, nz;       // normal
-            float u, v;             // uv0
-            float tx, ty, tz, tw;   // tangent + handedness
-            float u1, v1;           // uv1
-        };
 
-        static_assert(sizeof(PackedVertex) == 56, "PackedVertex must be 56 bytes (14 floats)");
 
         // ── Tangent generation (same Lengyel algorithm as ObjParser) ───────
 

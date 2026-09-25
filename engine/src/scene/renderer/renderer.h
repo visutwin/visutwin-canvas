@@ -148,9 +148,17 @@ namespace visutwin::canvas
         // MeshInstance that has called enableGpuInstanceCulling(), extract
         // frustum planes from `camera` and run the Metal compute cull pass.
         // Overwrites each culler's compacted buffer and indirect args buffer
-        // in-place; the renderer's indirect draw path then consumes them.
-        // Must be called once per frame per camera before buildFrameGraph().
+        // in-place; the renderer's indirect draw path then consumes them. ONE output
+        // per culler, filled before any pass draws, so it is called once per frame:
+        // with `camera` the instances are culled to its frustum, with null none are
+        // culled — what a frame with several cameras needs, since each view would
+        // otherwise draw the set culled for whichever camera came last.
         void dispatchGpuInstanceCulling(Camera* camera);
+
+        /// Sets an ASPECT_AUTO camera's aspect ratio from the viewport it will draw to:
+        /// its own render target, or the back buffer, times its rect — the arithmetic
+        /// renderForwardLayer uses at draw time.
+        void resolveAutoAspectRatio(Camera* camera) const;
 
     protected:
         std::vector<std::shared_ptr<RenderPass>> _appendPasses;
@@ -168,8 +176,6 @@ namespace visutwin::canvas
         // A list of all unique lights in the layer composition
         std::vector<Light*> _lights;
 
-        // A list of all unique local lights (spot & omni) in the layer composition
-        std::vector<Light*> _localLights;
 
         // A list of unique directional shadow casting lights for each enabled camera.
         // Generated each frame during light culling.

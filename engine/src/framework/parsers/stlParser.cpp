@@ -19,6 +19,7 @@
 // Custom loader (not derived from upstream).
 //
 #include "stlParser.h"
+#include "framework/parsers/packedVertex.h"
 
 #include <algorithm>
 #include <cmath>
@@ -44,16 +45,7 @@ namespace visutwin::canvas
     {
         // ── Vertex layout (must match GlbParser::PackedVertex and ObjParser) ──
 
-        struct PackedVertex
-        {
-            float px, py, pz;       // position
-            float nx, ny, nz;       // normal
-            float u, v;             // uv0
-            float tx, ty, tz, tw;   // tangent + handedness
-            float u1, v1;           // uv1
-        };
 
-        static_assert(sizeof(PackedVertex) == 56, "PackedVertex must be 56 bytes (14 floats)");
 
         // ── Raw triangle as read from binary STL ──────────────────────────
 

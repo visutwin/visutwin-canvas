@@ -5,6 +5,8 @@
 //
 #include "renderPassForward.h"
 
+#include <algorithm>
+
 #include <cassert>
 #include <unordered_map>
 
@@ -86,8 +88,6 @@ namespace visutwin::canvas
         if (_hdrPass) {
             device()->setHdrPass(true);
         }
-
-        refreshCameraUseFlags();
 
         if (!validateRenderActionOrder()) {
             spdlog::error("RenderPassForward parity violation: invalid render action ordering");
@@ -175,61 +175,39 @@ namespace visutwin::canvas
         _executeCalled = false;
     }
 
-    void RenderPassForward::refreshCameraUseFlags()
-    {
-        for (size_t i = 0; i < _renderActions.size(); ++i) {
-            auto* ra = _renderActions[i];
-            if (!ra || !ra->camera) {
-                continue;
-            }
-
-            const auto* camera = ra->camera;
-            bool hasPreviousForCamera = false;
-            bool hasNextForCamera = false;
-
-            for (size_t j = 0; j < i; ++j) {
-                if (_renderActions[j] && _renderActions[j]->camera == camera) {
-                    hasPreviousForCamera = true;
-                    break;
-                }
-            }
-
-            for (size_t j = i + 1; j < _renderActions.size(); ++j) {
-                if (_renderActions[j] && _renderActions[j]->camera == camera) {
-                    hasNextForCamera = true;
-                    break;
-                }
-            }
-
-            ra->firstCameraUse = !hasPreviousForCamera;
-            ra->lastCameraUse = !hasNextForCamera;
-        }
-    }
-
     bool RenderPassForward::validateRenderActionOrder() const
     {
+        // Each camera's actions must be CONTIGUOUS within this pass. The span is judged
+        // from the pass's own actions — first and last WITHIN THE BLOCK — not from the
+        // actions' firstCameraUse / lastCameraUse, which describe the whole frame and are
+        // not this pass's to rewrite.
         std::unordered_map<const CameraComponent*, bool> activeCameraSpan;
 
-        for (const auto* ra : _renderActions) {
+        for (size_t i = 0; i < _renderActions.size(); ++i) {
+            const auto* ra = _renderActions[i];
             if (!ra || !ra->camera || !ra->layer) {
                 return false;
             }
 
             const auto* camera = ra->camera;
+            const bool firstInBlock = std::none_of(_renderActions.begin(), _renderActions.begin() + static_cast<std::ptrdiff_t>(i),
+                [camera](const RenderAction* other) { return other && other->camera == camera; });
+            const bool lastInBlock = std::none_of(_renderActions.begin() + static_cast<std::ptrdiff_t>(i) + 1, _renderActions.end(),
+                [camera](const RenderAction* other) { return other && other->camera == camera; });
             const bool isActive = activeCameraSpan.contains(camera) && activeCameraSpan.at(camera);
 
-            if (ra->firstCameraUse && isActive) {
+            if (firstInBlock && isActive) {
                 return false;
             }
-            if (!ra->firstCameraUse && !isActive) {
+            if (!firstInBlock && !isActive) {
                 return false;
             }
 
-            if (ra->firstCameraUse) {
+            if (firstInBlock) {
                 activeCameraSpan[camera] = true;
             }
 
-            if (ra->lastCameraUse) {
+            if (lastInBlock) {
                 if (!activeCameraSpan.contains(camera) || !activeCameraSpan[camera]) {
                     return false;
                 }

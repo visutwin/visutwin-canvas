@@ -37,8 +37,17 @@ namespace visutwin::canvas
         // --- Diffuse ---
         const Color& diffuse() const { return _diffuse; }
         void setDiffuse(const Color& value) { _diffuse = value; markUniformsDirty(); }
-        Texture* diffuseMap() const { return _diffuseMap; }
-        void setDiffuseMap(Texture* texture) { _diffuseMap = texture; markUniformsDirty(); }
+        // Writes through to the base Material's slot, as setAoMap does: a glTF
+        // material binds the BASE slot, so a StandardMaterial-only store made
+        // `setDiffuseMap(nullptr)` clear nothing on a loaded material.
+        Texture* diffuseMap() const { return _diffuseMap ? _diffuseMap : baseColorTexture(); }
+        void setDiffuseMap(Texture* texture)
+        {
+            _diffuseMap = texture;
+            setBaseColorTexture(texture);
+            setHasBaseColorTexture(texture != nullptr);
+            markUniformsDirty();
+        }
         // --- Specular ---
         /// Specular colour of the SPECULAR workflow (useMetalness false), authored in
         /// sRGB like `diffuse` and uploaded linear. Black, the default, means no
@@ -77,8 +86,17 @@ namespace visutwin::canvas
             return _useMetalness || _specGlossMap != nullptr || _clearCoat > 0.0f ||
                 _specular.r > 0.0f || _specular.g > 0.0f || _specular.b > 0.0f;
         }
-        Texture* metalnessMap() const { return _metalnessMap; }
-        void setMetalnessMap(Texture* texture) { _metalnessMap = texture; markUniformsDirty(); }
+        // Writes through to the base Material's slot, as setAoMap does: a glTF
+        // material binds the BASE slot, so a StandardMaterial-only store made
+        // `setMetalnessMap(nullptr)` clear nothing on a loaded material.
+        Texture* metalnessMap() const { return _metalnessMap ? _metalnessMap : metallicRoughnessTexture(); }
+        void setMetalnessMap(Texture* texture)
+        {
+            _metalnessMap = texture;
+            setMetallicRoughnessTexture(texture);
+            setHasMetallicRoughnessTexture(texture != nullptr);
+            markUniformsDirty();
+        }
         // --- Gloss / Roughness ---
         float gloss() const { return _gloss; }
         void setGloss(const float value) { _gloss = value; markUniformsDirty(); }
@@ -166,8 +184,17 @@ namespace visutwin::canvas
         void setEmissive(const Color& value) { _emissive = value; markUniformsDirty(); }
         float emissiveIntensity() const { return _emissiveIntensity; }
         void setEmissiveIntensity(const float value) { _emissiveIntensity = value; markUniformsDirty(); }
-        Texture* emissiveMap() const { return _emissiveMap; }
-        void setEmissiveMap(Texture* texture) { _emissiveMap = texture; markUniformsDirty(); }
+        // Writes through to the base Material's slot, as setAoMap does: a glTF
+        // material binds the BASE slot, so a StandardMaterial-only store made
+        // `setEmissiveMap(nullptr)` clear nothing on a loaded material.
+        Texture* emissiveMap() const { return _emissiveMap ? _emissiveMap : emissiveTexture(); }
+        void setEmissiveMap(Texture* texture)
+        {
+            _emissiveMap = texture;
+            setEmissiveTexture(texture);
+            setHasEmissiveTexture(texture != nullptr);
+            markUniformsDirty();
+        }
         // --- Vertex color routing (upstream diffuseVertexColor / emissiveVertexColor) ---
         // A mesh's vertex colors modulate the diffuse lane by default, which is how
         // every vertex-colored material in this engine behaved before these existed.
@@ -178,8 +205,17 @@ namespace visutwin::canvas
         bool emissiveVertexColor() const { return _emissiveVertexColor; }
         void setEmissiveVertexColor(const bool value) { _emissiveVertexColor = value; markUniformsDirty(); }
         // --- Normal ---
-        Texture* normalMap() const { return _normalMap; }
-        void setNormalMap(Texture* texture) { _normalMap = texture; markUniformsDirty(); }
+        // Writes through to the base Material's slot, as setAoMap does: a glTF
+        // material binds the BASE slot, so a StandardMaterial-only store made
+        // `setNormalMap(nullptr)` clear nothing on a loaded material.
+        Texture* normalMap() const { return _normalMap ? _normalMap : normalTexture(); }
+        void setNormalMap(Texture* texture)
+        {
+            _normalMap = texture;
+            setNormalTexture(texture);
+            setHasNormalTexture(texture != nullptr);
+            markUniformsDirty();
+        }
         float bumpiness() const { return _bumpiness; }
         void setBumpiness(const float value) { _bumpiness = value; markUniformsDirty(); }
         // --- Opacity ---

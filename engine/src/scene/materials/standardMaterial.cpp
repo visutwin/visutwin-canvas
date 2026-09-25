@@ -13,24 +13,6 @@
 
 namespace visutwin::canvas
 {
-    namespace
-    {
-        constexpr float DEG_TO_RAD_SM = 3.14159265358979323846f / 180.0f;
-
-        void packTransformSM(const TextureTransform& t, float row0[4], float row1[4])
-        {
-            const float cr = std::cos(t.rotation * DEG_TO_RAD_SM);
-            const float sr = std::sin(t.rotation * DEG_TO_RAD_SM);
-            row0[0] = cr * t.tiling.x;
-            row0[1] = -sr * t.tiling.y;
-            row0[2] = t.offset.x;
-            row0[3] = 0.0f;
-            row1[0] = sr * t.tiling.x;
-            row1[1] = cr * t.tiling.y;
-            row1[2] = 1.0f - t.tiling.y - t.offset.y;
-            row1[3] = 0.0f;
-        }
-    }
     StandardMaterial::StandardMaterial()
     {
         reset();
@@ -125,19 +107,24 @@ namespace visutwin::canvas
 
     void StandardMaterial::updateUniforms(MaterialUniforms& uniforms) const
     {
-        // Push StandardMaterial per-map transforms into base Material transform fields
-        // so that Material::updateUniforms() packs them into the GPU struct.
-        auto* self = const_cast<StandardMaterial*>(this);
-        self->setBaseColorTransform({_diffuseMapTiling, _diffuseMapOffset, _diffuseMapRotation});
-        self->setNormalTransform({_normalMapTiling, _normalMapOffset, _normalMapRotation});
-        self->setMetalRoughTransform({_metalnessMapTiling, _metalnessMapOffset, _metalnessMapRotation});
-        self->setOcclusionTransform({_aoMapTiling, _aoMapOffset, _aoMapRotation});
-        self->setEmissiveTransform({_emissiveMapTiling, _emissiveMapOffset, _emissiveMapRotation});
-
         // Start with base Material implementation which reads typed properties + parameter overrides.
         // This handles the case where the GLB parser (or other code) sets properties on the base
         // Material rather than on StandardMaterial-specific members.
         Material::updateUniforms(uniforms);
+
+        // StandardMaterial's per-map UV transforms replace the base ones in the packed
+        // block. They used to be WRITTEN into the base fields through a const_cast on
+        // every pack, which re-dirtied the material from inside its own packer.
+        packTextureTransform({_diffuseMapTiling, _diffuseMapOffset, _diffuseMapRotation},
+            uniforms.baseColorTransform0, uniforms.baseColorTransform1);
+        packTextureTransform({_normalMapTiling, _normalMapOffset, _normalMapRotation},
+            uniforms.normalTransform0, uniforms.normalTransform1);
+        packTextureTransform({_metalnessMapTiling, _metalnessMapOffset, _metalnessMapRotation},
+            uniforms.metalRoughTransform0, uniforms.metalRoughTransform1);
+        packTextureTransform({_aoMapTiling, _aoMapOffset, _aoMapRotation},
+            uniforms.occlusionTransform0, uniforms.occlusionTransform1);
+        packTextureTransform({_emissiveMapTiling, _emissiveMapOffset, _emissiveMapRotation},
+            uniforms.emissiveTransform0, uniforms.emissiveTransform1);
 
         // StandardMaterial's own scalars ALWAYS win. This used to apply only when a
         // diffuse map was set or no base-colour texture was, so a GLB material — the
@@ -315,7 +302,7 @@ namespace visutwin::canvas
         uniforms.detailDisplacementParams[3] = 0.0f;
         if (_detailNormalMap) {
             uniforms.flags |= (1u << 22);  // bit 22: hasDetailNormalMap
-            packTransformSM(_detailNormalTransform, uniforms.detailNormalTransform0, uniforms.detailNormalTransform1);
+            packTextureTransform(_detailNormalTransform, uniforms.detailNormalTransform0, uniforms.detailNormalTransform1);
         }
         if (_displacementMap)  uniforms.flags |= (1u << 24);  // bit 24: hasDisplacementMap
 
