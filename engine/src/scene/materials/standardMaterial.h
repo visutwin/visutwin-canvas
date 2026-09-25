@@ -45,6 +45,15 @@ namespace visutwin::canvas
         /// specular at all — see rendersSpecular().
         const Color& specular() const { return _specular; }
         void setSpecular(const Color& value) { _specular = value; markUniformsDirty(); }
+        /// Upstream `useMetalnessSpecularColor`: in the METALNESS workflow, tint the
+        /// non-metal F0 by `specular` (KHR_materials_specular's specularColorFactor).
+        /// Off by default, when the non-metal F0 is untinted.
+        bool useMetalnessSpecularColor() const { return _useMetalnessSpecularColor; }
+        void setUseMetalnessSpecularColor(const bool value) { _useMetalnessSpecularColor = value; markUniformsDirty(); }
+        /// Upstream `specularityFactor` (KHR_materials_specular's specularFactor): scales
+        /// the non-metal F0 in the metalness workflow. Default 1.
+        float specularityFactor() const { return _specularityFactor; }
+        void setSpecularityFactor(const float value) { _specularityFactor = value; markUniformsDirty(); }
         // --- Metalness ---
         float metalness() const { return _metalness; }
         void setMetalness(const float value) { _metalness = value; markUniformsDirty(); }
@@ -204,6 +213,11 @@ namespace visutwin::canvas
         // --- Anisotropy ---
         float anisotropy() const { return _anisotropy; }
         void setAnisotropy(const float value) { _anisotropy = value; markUniformsDirty(); }
+        /// Upstream `anisotropyRotation`, in DEGREES: turns the anisotropy direction from
+        /// the tangent toward the bitangent. A negative `anisotropy` (upstream's
+        /// deprecated setter) adds 90 on top, as it always did.
+        float anisotropyRotation() const { return _anisotropyRotation; }
+        void setAnisotropyRotation(const float degrees) { _anisotropyRotation = degrees; markUniformsDirty(); }
         // --- Transmission / Refraction ---
         float transmissionFactor() const { return _transmissionFactor; }
         void setTransmissionFactor(const float value) { _transmissionFactor = value; markUniformsDirty(); }
@@ -394,6 +408,9 @@ namespace visutwin::canvas
         float _heightMapShadow = 0.0f;
 
         float _anisotropy = 0.0f;
+        float _anisotropyRotation = 0.0f;
+        bool _useMetalnessSpecularColor = false;
+        float _specularityFactor = 1.0f;
 
         float _transmissionFactor = 0.0f;
         float _refractionIndex = 1.5f;

@@ -16,6 +16,7 @@
 #include <framework/handlers/containerResource.h>
 #include "framework/anim/evaluator/animTrack.h"
 #include "scene/materials/material.h"
+#include "platform/graphics/vertexBuffer.h"
 #include "scene/mesh.h"
 #include "scene/morph.h"
 #include "scene/camera.h"
@@ -25,6 +26,9 @@
 
 namespace visutwin::canvas
 {
+    class Entity;
+    class GSplatResource;
+    class MeshInstance;
     class Texture;
 
     struct GlbMeshPayload
@@ -34,6 +38,9 @@ namespace visutwin::canvas
         std::shared_ptr<Morph> morph;              // Morph targets (nullptr when none).
         std::vector<float> morphInitialWeights;    // glTF mesh.weights (may be empty).
         bool castShadow = true;  // Set false for point cloud meshes.
+        // KHR_materials_variants: the material each variant index gives this primitive.
+        // A variant this primitive does not map leaves its material alone.
+        std::unordered_map<int, std::shared_ptr<Material>> variantMaterials;
     };
 
     struct GlbSkinPayload
@@ -79,6 +86,13 @@ namespace visutwin::canvas
         bool skip = false;  // When true, no Entity is created (e.g., consumed POINTS leaf).
         std::optional<GlbCameraPayload> camera;
         std::optional<GlbLightPayload> light;
+        // EXT_mesh_gpu_instancing: one 64-byte matrix per instance (node-local TRS),
+        // shared by every mesh instance of the node and every instantiation.
+        std::shared_ptr<VertexBuffer> instanceBuffer;
+        int instanceCount = 0;
+        // KHR_gaussian_splatting: the splat sets of the node's mesh. The first goes on
+        // the node's entity, each further one on a child entity (upstream's layout).
+        std::vector<std::shared_ptr<GSplatResource>> splats;
     };
 
     /**
@@ -97,8 +111,27 @@ namespace visutwin::canvas
             if (payload.material) {
                 payload.material->retainResource(_ownedTextures);
             }
+            for (const auto& [variant, material] : payload.variantMaterials) {
+                if (material) {
+                    material->retainResource(_ownedTextures);
+                }
+            }
             _meshPayloads.push_back(payload);
         }
+
+        /// KHR_materials_variants, upstream's container API. The variant names, in the
+        /// file's order.
+        const std::vector<std::string>& getMaterialVariants() const { return _variantNames; }
+        void setMaterialVariants(std::vector<std::string> names) { _variantNames = std::move(names); }
+
+        /// Give every mesh instance under `entity` (render components of the entity and
+        /// its descendants) the material variant `name` maps its primitive to; a
+        /// primitive the variant does not map keeps its material. An EMPTY name puts
+        /// each primitive's own default material back. False, with a warning, when no
+        /// variant of that name exists.
+        bool applyMaterialVariant(Entity* entity, const std::string& name) const;
+        /// The same for a list of mesh instances built from this container.
+        bool applyMaterialVariantInstances(const std::vector<MeshInstance*>& instances, const std::string& name) const;
         void addNodePayload(const GlbNodePayload& payload) { _nodePayloads.push_back(payload); }
         void addSkinPayload(const GlbSkinPayload& payload) { _skinPayloads.push_back(payload); }
         size_t skinPayloadCount() const { return _skinPayloads.size(); }
@@ -122,6 +155,7 @@ namespace visutwin::canvas
         std::vector<GlbNodePayload> _nodePayloads;
         std::vector<GlbSkinPayload> _skinPayloads;
         std::vector<int> _rootNodeIndices;
+        std::vector<std::string> _variantNames;
         // Shared, so the materials handed out can keep it alive past this container.
         std::shared_ptr<std::vector<std::shared_ptr<Texture>>> _ownedTextures =
             std::make_shared<std::vector<std::shared_ptr<Texture>>>();

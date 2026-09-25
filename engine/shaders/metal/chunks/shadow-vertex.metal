@@ -9,9 +9,9 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
                                       constant MaterialData &material [[buffer(3)]])
 {
     (void)material;
-    (void)model;
     RasterizerData rd;
-    const float4x4 instanceModelMatrix = float4x4(v.instance_line1, v.instance_line2,
+    // The instance in its node's space, as the forward stage (matrix_model * instance).
+    const float4x4 instanceModelMatrix = model.modelMatrix * float4x4(v.instance_line1, v.instance_line2,
                                                     v.instance_line3, v.instance_line4);
     const float4 world = instanceModelMatrix * float4(v.position, 1.0);
     float4 clip = scene.projViewMatrix * world;

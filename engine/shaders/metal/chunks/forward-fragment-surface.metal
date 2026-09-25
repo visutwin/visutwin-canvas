@@ -264,7 +264,10 @@
 #endif
 
     const float3 diffuseColor = baseLinear * (1.0 - metallic);
-    const float3 F0 = mix(float3(0.04), baseLinear, metallic);
+    // The non-metal F0 is upstream's getSpecularModulate, computed on the CPU:
+    // f0(IOR) x the metalness specular colour x the specularity factor
+    // (KHR_materials_specular); 0.04 for the defaults.
+    const float3 F0 = mix(material.metalnessSpecular.rgb, baseLinear, metallic);
 #endif
 
     // Gloss map (upstream getGlossiness): one channel scales the gloss FACTOR, and
@@ -364,13 +367,13 @@
 
 #if VT_FEATURE_ANISOTROPY
     // Anisotropic GGX frame (upstream anisotropy.js + lightSpecularAnisoGGX.js). The
-    // signed engine value is upstream's deprecated `anisotropy` setter: intensity is
-    // its magnitude, and a negative value is rotation 90, which puts the anisotropy
-    // tangent on the vertex BITANGENT. B is cross(geometric normal, T), as upstream
-    // builds it from the TBN's own normal rather than the normal-mapped one. The math
-    // is in common-brdf and is the twin of the GLSL; this frame is mirrored in
-    // forward-fragment-surface.glsl.
-    const float anisoIntensity = saturate(abs(material.anisotropy));
+    // direction is upstream's material_anisotropyRotation: (cos, sin) turning the
+    // vertex tangent toward the vertex BITANGENT, `tbn * vec3(direction, 0)`; the
+    // CPU folds the deprecated negative strength in as rotation + 90 and uploads the
+    // magnitude. B is cross(geometric normal, T), as upstream builds it from the
+    // TBN's own normal rather than the normal-mapped one. The math is in common-brdf
+    // and is the twin of the GLSL; this frame is mirrored in forward-fragment-surface.glsl.
+    const float anisoIntensity = saturate(material.anisotropy);
     const float2 anisoAlpha = getAnisotropicAlpha(gloss, anisoIntensity);
     float3 anisoT;
     float3 anisoB;
@@ -385,7 +388,7 @@
         if (length_squared(Tv) >= 1e-6) {
             Tv = normalize(Tv);
             const float3 Bv = normalize(cross(Ng, Tv)) * rd.worldTangent.w;
-            anisoT = material.anisotropy >= 0.0 ? Tv : Bv;
+            anisoT = material.anisotropyParams.x * Tv + material.anisotropyParams.y * Bv;
         } else {
             // No tangent stream. Upstream derives one from screen-space
             // derivatives; this port has no such fallback, so take any tangent.

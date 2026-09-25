@@ -103,6 +103,15 @@ namespace visutwin::canvas
             _materialOwned.reset();
         }
 
+        /// Replaces the material and CO-OWNS it, as the shared-ownership constructor
+        /// does: what a container's material variant uses, so the swapped-in material
+        /// outlives the container too.
+        void setMaterial(std::shared_ptr<Material> material)
+        {
+            _material = material.get();
+            _materialOwned = std::move(material);
+        }
+
         GraphNode* node() const { return _node; }
 
         bool castShadow() const { return _castShadow; }
@@ -344,6 +353,9 @@ namespace visutwin::canvas
         bool _updateAabb = true;
         std::function<BoundingBox&(BoundingBox&)> _updateAabbFunc = nullptr;
         BoundingBox* _customAabb = nullptr;
+        // The union of the instances' bounds in the NODE's space, which _customAabb
+        // points at while instancing sets the bounds (aabb() carries it to world).
+        BoundingBox _instancingLocalAabb;
         SortDistanceCallback _calculateSortDistance;
         int _aabbVer = -1;
         int _aabbMeshVer = -1;

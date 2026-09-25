@@ -575,9 +575,32 @@ namespace visutwin::canvas
                     continue;
                 }
 
+                // The instances are in the NODE's space (the vertex stage composes the
+                // node's world matrix), so the world planes are carried into it: for
+                // p_world = M p_local a plane (n, d) becomes M^T (n, d), whose value at a
+                // local point is still the WORLD signed distance — the kernel's test is
+                // unchanged — and the local sphere radius is scaled to world by M's
+                // largest axis. An identity node leaves both exactly as they were.
                 InstanceCullParams params{};
-                std::memcpy(params.frustumPlanes, planes, sizeof(planes));
-                params.boundingSphereRadius = mi->instanceCullRadius();
+                float m[16];
+                (mi->node() ? mi->node()->worldTransform() : Matrix4::identity()).store(m);   // column-major
+                static constexpr float kIdentity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+                if (std::equal(std::begin(m), std::end(m), std::begin(kIdentity))) {
+                    std::memcpy(params.frustumPlanes, planes, sizeof(planes));
+                    params.boundingSphereRadius = mi->instanceCullRadius();
+                } else {
+                    for (int p = 0; p < 6; ++p) {
+                        for (int c = 0; c < 4; ++c) {
+                            params.frustumPlanes[p][c] = m[4 * c] * planes[p][0] + m[4 * c + 1] * planes[p][1] +
+                                m[4 * c + 2] * planes[p][2] + m[4 * c + 3] * planes[p][3];
+                        }
+                    }
+                    const float maxScale = std::sqrt(std::max({
+                        m[0] * m[0] + m[1] * m[1] + m[2] * m[2],
+                        m[4] * m[4] + m[5] * m[5] + m[6] * m[6],
+                        m[8] * m[8] + m[9] * m[9] + m[10] * m[10]}));
+                    params.boundingSphereRadius = mi->instanceCullRadius() * maxScale;
+                }
                 params.instanceCount = static_cast<uint32_t>(srcData.count);
 
                 const auto prim = srcMesh->getPrimitive();
@@ -1699,8 +1722,11 @@ namespace visutwin::canvas
                 // Instance count comes from the GPU via indirect draw arguments.
                 _device->setVertexBuffer(instData.compactedVertexBuffer, 5);
                 _device->setIndirectDrawBuffer(instData.indirectArgsBuffer);
-                // Identity model matrix — each instance carries its own transform via stage_in.
-                _device->setTransformUniforms(viewProjection, Matrix4::identity());
+                // Each instance is placed in its NODE's space (upstream
+                // transformInstancing: matrix_model * instance), so the node's world
+                // matrix goes up as the model matrix and the shaders compose the two.
+                _device->setTransformUniforms(viewProjection, entry->meshInstance && entry->meshInstance->node()
+                    ? entry->meshInstance->node()->worldTransform() : Matrix4::identity());
                 _device->draw(entry->primitive, entry->indexBuffer, 0, instData.indirectSlot, true, true);
             } else if (instData.vertexBuffer && instData.count > 0) {
                 // Direct instancing (Phase 2): all instances drawn, CPU-provided count.
@@ -1716,7 +1742,9 @@ namespace visutwin::canvas
                         modelMatrix = Matrix4::translation(cameraPosition);
                     }
                 } else {
-                    modelMatrix = Matrix4::identity();
+                    // The node's world matrix: instances live in its space (see above).
+                    modelMatrix = entry->meshInstance && entry->meshInstance->node()
+                        ? entry->meshInstance->node()->worldTransform() : Matrix4::identity();
                 }
                 _device->setTransformUniforms(viewProjection, modelMatrix);
                 _device->draw(entry->primitive, entry->indexBuffer, instData.count, -1, true, true);

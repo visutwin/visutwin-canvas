@@ -6,6 +6,8 @@
 
 #include "standardMaterial.h"
 
+#include <numbers>
+
 #include <algorithm>
 #include <cmath>
 
@@ -59,6 +61,9 @@ namespace visutwin::canvas
         _heightMapBase = 0.5f;
         _heightMapShadow = 0.0f;
         _anisotropy = 0.0f;
+        _anisotropyRotation = 0.0f;
+        _useMetalnessSpecularColor = false;
+        _specularityFactor = 1.0f;
         _transmissionFactor = 0.0f;
         _refractionIndex = 1.5f;
         _thickness = 0.0f;
@@ -202,8 +207,53 @@ namespace visutwin::canvas
         // map bits, which neither backend ever read, were removed.
         if (_opacityMap)    uniforms.flags |= (1u << 19);
 
-        // anisotropic specular.
-        uniforms.anisotropy = _anisotropy;
+        // anisotropic specular. The strength goes up as a MAGNITUDE and the direction as
+        // (cos, sin) of the rotation; the deprecated negative strength is rotation + 90.
+        // Quarter turns are written exactly, so a material that only ever used the old
+        // sign picks the tangent or bitangent bit for bit as the shader did before.
+        uniforms.anisotropy = std::abs(_anisotropy);
+        {
+            double degrees = std::fmod(static_cast<double>(_anisotropyRotation) + (_anisotropy < 0.0f ? 90.0 : 0.0), 360.0);
+            if (degrees < 0.0) {
+                degrees += 360.0;
+            }
+            float c = 0.0f;
+            float s = 0.0f;
+            if (degrees == 0.0) {
+                c = 1.0f;
+            } else if (degrees == 90.0) {
+                s = 1.0f;
+            } else if (degrees == 180.0) {
+                c = -1.0f;
+            } else if (degrees == 270.0) {
+                s = -1.0f;
+            } else {
+                const double radians = degrees * std::numbers::pi / 180.0;
+                c = static_cast<float>(std::cos(radians));
+                s = static_cast<float>(std::sin(radians));
+            }
+            uniforms.anisotropyParams[0] = c;
+            uniforms.anisotropyParams[1] = s;
+        }
+
+        // Metalness workflow: the non-metal F0 (upstream getSpecularModulate), from the
+        // IOR, tinted by the specular colour when asked and scaled by the specularity
+        // factor. In DOUBLE so the default IOR of 1.5 lands on exactly 0.04f, the
+        // constant both shaders used before this field existed.
+        {
+            const double ior = static_cast<double>(_refractionIndex);
+            double f0 = (ior - 1.0) / (ior + 1.0);
+            f0 *= f0;
+            const auto linear = [](const float c) { return std::pow(std::max(static_cast<double>(c), 0.0), 2.2); };
+            const double factor = static_cast<double>(_specularityFactor);
+            const double r = _useMetalnessSpecularColor ? linear(_specular.r) : 1.0;
+            const double g = _useMetalnessSpecularColor ? linear(_specular.g) : 1.0;
+            const double b = _useMetalnessSpecularColor ? linear(_specular.b) : 1.0;
+            uniforms.metalnessSpecular[0] = static_cast<float>(f0 * r * factor);
+            uniforms.metalnessSpecular[1] = static_cast<float>(f0 * g * factor);
+            uniforms.metalnessSpecular[2] = static_cast<float>(f0 * b * factor);
+            uniforms.metalnessSpecular[3] = _specularityFactor;
+        }
 
         // transmission / refraction.
         uniforms.transmissionFactor = _transmissionFactor;

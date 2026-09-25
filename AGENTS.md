@@ -1257,6 +1257,50 @@ present, but the rule below never depends on reading it.
   through `LightComponent::renderIntensity(physicalUnits)`, not `intensity()`.
   Until 2026-09-24 the parser read neither, and `glb-loader` parsed the JSON itself.
   `tests/glbCameraLightTests.cpp` checks both load paths.
+- **The four remaining glTF extensions are FACTORS-ONLY where they touch materials.**
+  `KHR_materials_sheen`, `_specular`, `_iridescence` and `_anisotropy` apply their
+  factors (`applySheen` and siblings in `glbParser.cpp`, beside `applyClearcoat`) and
+  IGNORE their textures with one warning per extension — there are no sheen,
+  iridescence, specular or anisotropy maps (the Vulkan fragment stage is at MoltenVK's
+  sampler limit). DEVIATION: an absent `sheenColorFactor` is the spec's black, where
+  upstream substitutes white. `EXT_mesh_gpu_instancing` builds one 64-byte TRS matrix
+  per instance in the node's space and shares the buffer across instantiations.
+  `KHR_materials_variants` is upstream's container API (`getMaterialVariants`,
+  `applyMaterialVariant(entity, name)`, `applyMaterialVariantInstances`); the swapped-in
+  material is CO-OWNED (`MeshInstance::setMaterial(shared_ptr)`), an unmapped primitive
+  keeps its material, and an empty name puts each primitive's OWN material back
+  (DEVIATION: upstream assigns the engine default). `KHR_gaussian_splatting` primitives
+  never reach the point-cloud path: their ACTIVATED values (linear scale, post-sigmoid
+  opacity, xyzw rotation) go through `GSplatData::fromActivated`, which shares the PLY
+  loader's packing and extent-carrying bounds, and the node gets a `GSplatComponent`
+  (further splat sets on children named `<node>_gsplat_<n>`). `tests/glbExtensionsTests.cpp`
+  checks all of it through both load paths.
+- **An instance matrix places the instance in its NODE's space, as upstream
+  (`matrix_model * instance`).** The renderer uploads the node's world matrix for every
+  instanced draw — forward, GPU-culled and depth-only — and both vertex stages compose
+  it; until 2026-09-25 it uploaded identity, so instances were WORLD transforms and an
+  instanced mesh ignored its entity (every shipped example keeps it at the origin, which
+  is why nothing showed). Two things follow the same rule: the instancing bounds are a
+  LOCAL union (`_instancingLocalAabb` behind `_customAabb`) that `aabb()` carries through
+  the node each time, and the GPU culler gets the frustum planes carried INTO the node's
+  space (`M^T * plane`, which keeps world distances, with the sphere radius scaled by
+  the node's largest axis), so its kernel is unchanged.
+- **The metalness workflow's non-metal F0 is `f0(IOR) x specular colour x specularity
+  factor`** (upstream `getSpecularModulate`), packed on the CPU into
+  `MaterialUniforms::metalnessSpecular` and read by both surface chunks where a
+  literal 0.04 used to be. It is computed in DOUBLE so the default IOR of 1.5 lands on
+  exactly 0.04f and every frame without the new inputs stays bit-identical. The
+  colour applies only under `setUseMetalnessSpecularColor(true)`
+  (KHR_materials_specular sets it). Expect a frame to move wherever a metallic-rough
+  material carries `KHR_materials_ior` or a black specular colour: `procedural-sky`'s
+  sand (`specularColorFactor [0,0,0]` — no specular at all, as upstream) moved 4.8
+  counts on average, `refraction` (IOR 1.33) and `post-processing`'s amber (1.55) less.
+- **Anisotropy has a DIRECTION** (`StandardMaterial::setAnisotropyRotation`, degrees,
+  upstream `material_anisotropyRotation`): `T' = cos r * T + sin r * B` in both
+  chunks, packed as `anisotropyParams`. The strength goes up as a magnitude; the
+  deprecated negative strength is folded in as rotation + 90, with quarter turns
+  written exactly, so a material that only ever used the sign picks the tangent or
+  bitangent bit for bit as before (`anisotropy` came back identical).
 - **`extensionsRequired` is consulted, and the list of what the parser supports
   lives in `warnUnsupportedRequiredExtensions`.** Add an extension there when you
   implement it, or a file that needs it keeps warning; leave it out when you only
@@ -2021,8 +2065,10 @@ What stays HERE is only what bites during UNRELATED work.
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles
   diffuse, normal and AO detail maps and only NORMAL exists here), fog of any
-  type, sheen, or iridescence. The last three mean a change to those paths has to
-  be driven deliberately to be seen at all.
+  type, or sheen. The last two mean a change to those paths has to be driven
+  deliberately to be seen at all. Iridescence is driven since 2026-09-25:
+  `reflection-planar-blurred`'s lenses (`SunglassesKhronos.glb`) carry it, and match
+  upstream's thumbnail.
 - **The cluster loop owes every material term the main light loop has.** With clustered
   lighting the default, every spot and omni light is shaded in
   `forward-fragment-clustered.*`, not the main loop. The Vulkan cluster loop had GGX and

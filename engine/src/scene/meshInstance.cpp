@@ -71,7 +71,7 @@ namespace visutwin::canvas
             return;
         }
         // Respect an AABB the app supplied itself (setCustomAabb / setUpdateAabbFunc).
-        if (!_updateAabb || _updateAabbFunc || _customAabb) {
+        if (!_updateAabb || _updateAabbFunc || (_customAabb && _customAabb != &_instancingLocalAabb)) {
             return;
         }
 
@@ -91,9 +91,11 @@ namespace visutwin::canvas
             return;
         }
 
-        // Instance matrices are world-space transforms — the instanced vertex stage
-        // ignores the node transform — so the union is already in world space.
-        BoundingBox worldAabb;
+        // Instance matrices place each instance in the NODE's space (upstream
+        // matrix_model * instance, which both vertex stages apply), so the union is a
+        // LOCAL bound: aabb() carries it to world through the node every time, and it
+        // follows the node when the node moves.
+        BoundingBox localAabb;
         for (size_t i = 0; i < count; ++i) {
             Matrix4 instanceMatrix;
             std::memcpy(&instanceMatrix, storage.data() + i * stride, sizeof(Matrix4));
@@ -101,13 +103,15 @@ namespace visutwin::canvas
             BoundingBox instanceAabb;
             instanceAabb.setFromTransformedAabb(_mesh->aabb(), instanceMatrix);
             if (i == 0) {
-                worldAabb = instanceAabb;
+                localAabb = instanceAabb;
             } else {
-                worldAabb.add(instanceAabb);
+                localAabb.add(instanceAabb);
             }
         }
 
-        setCustomAabb(worldAabb);
+        _instancingLocalAabb = localAabb;
+        _customAabb = &_instancingLocalAabb;
+        _aabbVer = -1;
     }
 
     void MeshInstance::enableGpuInstanceCulling(GraphicsDevice* device, float boundingSphereRadius)

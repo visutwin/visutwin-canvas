@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <numbers>
+#include <mutex>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -36,6 +37,7 @@
 #include "platform/graphics/texture.h"
 #include "platform/graphics/vertexFormat.h"
 #include "framework/parsers/texture/ktx2Transcoder.h"
+#include "scene/gsplat/gsplatResource.h"
 #include "scene/materials/standardMaterial.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
@@ -1454,6 +1456,59 @@ namespace visutwin::canvas
      * usual case is one cosmetic extension on an otherwise usable file, and the
      * name in the log is what turns an hour of bisecting into a one-line answer.
      */
+    // EXT_mesh_gpu_instancing (upstream createInstancing): the node's TRANSLATION,
+    // ROTATION and SCALE accessors become one column-major TRS matrix per instance, in
+    // the node's local space, packed as the 64-byte default instancing format. The
+    // count is the first attribute's; an attribute that is absent is identity. Every
+    // component type the spec allows (normalized rotations included) goes through
+    // readElement's de-quantisation. Empty when the node has no usable extension.
+    static std::vector<float> gltfInstanceMatrices(const tinygltf::Model& model, const tinygltf::Node& node)
+    {
+        const auto ext = node.extensions.find("EXT_mesh_gpu_instancing");
+        if (ext == node.extensions.end() || !ext->second.IsObject() || !ext->second.Has("attributes")) {
+            return {};
+        }
+        const auto& attributes = ext->second.Get("attributes");
+        const auto accessorFor = [&](const char* name, const int type) -> const tinygltf::Accessor* {
+            if (!attributes.Has(name) || !attributes.Get(name).IsInt()) {
+                return nullptr;
+            }
+            const int index = attributes.Get(name).GetNumberAsInt();
+            if (index < 0 || index >= static_cast<int>(model.accessors.size()) ||
+                model.accessors[static_cast<size_t>(index)].type != type) {
+                return nullptr;
+            }
+            return &model.accessors[static_cast<size_t>(index)];
+        };
+        const auto* translations = accessorFor("TRANSLATION", TINYGLTF_TYPE_VEC3);
+        const auto* rotations = accessorFor("ROTATION", TINYGLTF_TYPE_VEC4);
+        const auto* scales = accessorFor("SCALE", TINYGLTF_TYPE_VEC3);
+        const size_t count = translations ? translations->count : rotations ? rotations->count : scales ? scales->count : 0;
+        if (count == 0) {
+            return {};
+        }
+
+        std::vector<float> matrices(count * 16);
+        for (size_t i = 0; i < count; ++i) {
+            float t[3] = {0.0f, 0.0f, 0.0f};
+            float r[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            float sc[3] = {1.0f, 1.0f, 1.0f};
+            if (translations) {
+                readElement(model, *translations, i, TINYGLTF_TYPE_VEC3, t, 3);
+            }
+            if (rotations) {
+                readElement(model, *rotations, i, TINYGLTF_TYPE_VEC4, r, 4);
+            }
+            if (scales) {
+                readElement(model, *scales, i, TINYGLTF_TYPE_VEC3, sc, 3);
+            }
+            const Matrix4 matrix = Matrix4::trs(Vector3(t[0], t[1], t[2]),
+                Quaternion(r[0], r[1], r[2], r[3]).normalized(), Vector3(sc[0], sc[1], sc[2]));
+            matrix.store(matrices.data() + i * 16);
+        }
+        return matrices;
+    }
+
     // A glTF camera as upstream's createCamera reads it: perspective yfov in radians
     // to degrees, orthographic ymag as the half height, a manual aspect only where
     // the file gives one (perspective aspectRatio, orthographic xmag / ymag), and the
@@ -1530,15 +1585,22 @@ namespace visutwin::canvas
         // the image PAYLOAD decodes is a separate question the image loader
         // answers with its own per-image warning.
         static const std::set<std::string> supported = {
+            "EXT_mesh_gpu_instancing",
             "KHR_draco_mesh_compression",
+            "KHR_gaussian_splatting",
             "KHR_lights_punctual",
+            "KHR_materials_anisotropy",
             "KHR_materials_clearcoat",
             "KHR_materials_dispersion",
             "KHR_materials_emissive_strength",
             "KHR_materials_ior",
+            "KHR_materials_iridescence",
             "KHR_materials_pbrSpecularGlossiness",
+            "KHR_materials_sheen",
+            "KHR_materials_specular",
             "KHR_materials_transmission",
             "KHR_materials_unlit",
+            "KHR_materials_variants",
             "KHR_materials_volume",
             "KHR_mesh_quantization",
             "KHR_texture_basisu",
@@ -1741,6 +1803,131 @@ namespace visutwin::canvas
         if (const int idx = textureIndex("clearcoatNormalTexture"); idx >= 0) {
             if (const auto tex = getOrCreateTexture(idx)) material->setClearCoatNormalMap(tex.get());
         }
+    }
+
+    // Readers for a material extension object. A missing or mistyped key answers
+    // the fallback, which is the extension's spec default at every call site.
+    static float extensionNumber(const tinygltf::Value& ext, const char* key, const float fallback)
+    {
+        if (ext.Has(key)) {
+            if (const auto& v = ext.Get(key); v.IsNumber()) {
+                return static_cast<float>(v.GetNumberAsDouble());
+            }
+        }
+        return fallback;
+    }
+
+    static Color extensionColor(const tinygltf::Value& ext, const char* key, const Color& fallback)
+    {
+        if (ext.Has(key)) {
+            const auto& v = ext.Get(key);
+            if (v.IsArray() && v.ArrayLen() >= 3 && v.Get(0).IsNumber() && v.Get(1).IsNumber() && v.Get(2).IsNumber()) {
+                return Color(static_cast<float>(v.Get(0).GetNumberAsDouble()),
+                    static_cast<float>(v.Get(1).GetNumberAsDouble()),
+                    static_cast<float>(v.Get(2).GetNumberAsDouble()), 1.0f);
+            }
+        }
+        return fallback;
+    }
+
+    // DEVIATION: the sheen, specular, iridescence and anisotropy extensions all allow
+    // TEXTURES, and this engine's material has none of those maps (the fragment stage
+    // is at MoltenVK's sampler limit, and the sheen/iridescence map bits were removed
+    // because no shader read them). The factors are applied; a texture is ignored with
+    // one warning per extension and process, so the file still loads.
+    static void warnIgnoredExtensionTextures(const tinygltf::Value& ext, const char* extension,
+        std::initializer_list<const char*> textureKeys)
+    {
+        static std::mutex mutex;
+        static std::set<std::string> warned;
+        for (const char* key : textureKeys) {
+            if (!ext.Has(key)) {
+                continue;
+            }
+            const std::lock_guard lock(mutex);
+            if (warned.insert(extension).second) {
+                spdlog::warn("GLB: {} textures are not supported; '{}' and its siblings are ignored, "
+                    "the extension's factors still apply", extension, key);
+            }
+            return;
+        }
+    }
+
+    static const tinygltf::Value* materialExtension(const tinygltf::Material& srcMaterial, const char* name)
+    {
+        const auto it = srcMaterial.extensions.find(name);
+        return it != srcMaterial.extensions.end() && it->second.IsObject() ? &it->second : nullptr;
+    }
+
+    /**
+     * KHR_materials_sheen, as upstream's extension reads it: the colour factor is
+     * linear in the file and stored gamma-encoded (both shaders decode it), the
+     * roughness factor is the sheen roughness. DEVIATION: an absent colour factor is
+     * the spec's default of BLACK — no sheen — where upstream substitutes white.
+     */
+    static void applySheen(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    {
+        const auto* ext = materialExtension(srcMaterial, "KHR_materials_sheen");
+        if (!ext) {
+            return;
+        }
+        Color color = extensionColor(*ext, "sheenColorFactor", Color(0.0f, 0.0f, 0.0f, 1.0f));
+        color.gamma();
+        material->setSheenColor(color);
+        material->setSheenRoughness(extensionNumber(*ext, "sheenRoughnessFactor", 0.0f));
+        warnIgnoredExtensionTextures(*ext, "KHR_materials_sheen", {"sheenColorTexture", "sheenRoughnessTexture"});
+    }
+
+    /**
+     * KHR_materials_specular, as upstream's extension reads it, for a metallic-rough
+     * material: the colour factor tints the non-metal F0 (stored gamma-encoded, as
+     * upstream's `specular.gamma()`), the factor scales it; metals are untouched.
+     */
+    static void applySpecularExtension(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    {
+        const auto* ext = materialExtension(srcMaterial, "KHR_materials_specular");
+        if (!ext || !material->useMetalness()) {
+            return;
+        }
+        Color color = extensionColor(*ext, "specularColorFactor", Color(1.0f, 1.0f, 1.0f, 1.0f));
+        color.gamma();
+        material->setSpecular(color);
+        material->setUseMetalnessSpecularColor(true);
+        material->setSpecularityFactor(extensionNumber(*ext, "specularFactor", 1.0f));
+        warnIgnoredExtensionTextures(*ext, "KHR_materials_specular", {"specularTexture", "specularColorTexture"});
+    }
+
+    /**
+     * KHR_materials_iridescence: the factor, the thin film's IOR (stored as an IOR
+     * here, see StandardMaterial) and its thickness. Without a thickness texture the
+     * spec's film is the MAXIMUM thickness; the minimum only matters to the texture.
+     */
+    static void applyIridescence(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    {
+        const auto* ext = materialExtension(srcMaterial, "KHR_materials_iridescence");
+        if (!ext) {
+            return;
+        }
+        material->setIridescenceIntensity(extensionNumber(*ext, "iridescenceFactor", 0.0f));
+        material->setIridescenceIOR(extensionNumber(*ext, "iridescenceIor", 1.3f));
+        material->setIridescenceThicknessMax(extensionNumber(*ext, "iridescenceThicknessMaximum", 400.0f));
+        warnIgnoredExtensionTextures(*ext, "KHR_materials_iridescence", {"iridescenceTexture", "iridescenceThicknessTexture"});
+    }
+
+    /**
+     * KHR_materials_anisotropy: the strength and the rotation (radians in the file,
+     * degrees on the material, from the tangent toward the bitangent), as upstream.
+     */
+    static void applyAnisotropyExtension(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    {
+        const auto* ext = materialExtension(srcMaterial, "KHR_materials_anisotropy");
+        if (!ext) {
+            return;
+        }
+        material->setAnisotropy(extensionNumber(*ext, "anisotropyStrength", 0.0f));
+        material->setAnisotropyRotation(static_cast<float>(
+            extensionNumber(*ext, "anisotropyRotation", 0.0f) * 180.0 / std::numbers::pi));
+        warnIgnoredExtensionTextures(*ext, "KHR_materials_anisotropy", {"anisotropyTexture"});
     }
 
     /**
@@ -1958,6 +2145,10 @@ namespace visutwin::canvas
         applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
         applyVolumeExtensions(srcMaterial, material.get(), getOrCreateTexture);
         applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
+        applySheen(srcMaterial, material.get());
+        applySpecularExtension(srcMaterial, material.get());
+        applyIridescence(srcMaterial, material.get());
+        applyAnisotropyExtension(srcMaterial, material.get());
         applyEmissiveStrength(srcMaterial, material.get());
         applyTextureTransforms(srcMaterial, material.get());
 
@@ -2060,6 +2251,109 @@ namespace visutwin::canvas
         {
             const auto it = primitive.attributes.find(name);
             return it != primitive.attributes.end() ? getAccessor(model, it->second) : nullptr;
+        }
+
+        bool isGaussianSplatPrimitive(const tinygltf::Primitive& primitive)
+        {
+            return primitive.extensions.contains("KHR_gaussian_splatting");
+        }
+
+        // KHR_gaussian_splatting (upstream createGSplatData): the splat attributes of a
+        // POINTS primitive, read through readElement so every component type the file
+        // may use is de-quantised. The values are ACTIVATED — linear scale, post-sigmoid
+        // opacity. Null, with an error, when a required attribute is missing or its
+        // count does not match POSITION's. SH bands count only while complete, as
+        // upstream counts them. The extension's sortingMethod and projection are
+        // ignored, as upstream ignores them; an unsupported kernel or a linear colour
+        // space is warned about and rendered as the default.
+        std::unique_ptr<GSplatData> gaussianSplatData(const tinygltf::Model& model,
+            const tinygltf::Primitive& primitive, const std::string& source)
+        {
+            static constexpr const char* kExt = "KHR_gaussian_splatting";
+            const auto& ext = primitive.extensions.at(kExt);
+            if (ext.IsObject() && ext.Has("kernel") && ext.Get("kernel").IsString() &&
+                ext.Get("kernel").Get<std::string>() != "ellipse") {
+                spdlog::warn("GLB [{}]: {} kernel '{}' is not supported, rendering as 'ellipse'", source, kExt,
+                    ext.Get("kernel").Get<std::string>());
+            }
+            if (ext.IsObject() && ext.Has("colorSpace") && ext.Get("colorSpace").IsString() &&
+                ext.Get("colorSpace").Get<std::string>() == "lin_rec709_display") {
+                spdlog::warn("GLB [{}]: {} colour space 'lin_rec709_display' is not supported, "
+                    "treated as srgb_rec709_display", source, kExt);
+            }
+
+            const auto* positions = primitiveAttribute(model, primitive, "POSITION");
+            const size_t count = positions ? positions->count : 0;
+            const auto read = [&](const std::string& name, const int type, const int components,
+                                  std::vector<float>& out) -> bool {
+                const auto* accessor = primitiveAttribute(model, primitive, name.c_str());
+                if (!accessor || accessor->count != count || accessor->type != type) {
+                    return false;
+                }
+                out.resize(count * static_cast<size_t>(components));
+                for (size_t i = 0; i < count; ++i) {
+                    if (!readElement(model, *accessor, i, type, out.data() + i * static_cast<size_t>(components), components)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+
+            GSplatData::ActivatedSplats splats;
+            splats.count = count;
+            const std::string prefix = std::string(kExt) + ":";
+            if (count == 0 || !read("POSITION", TINYGLTF_TYPE_VEC3, 3, splats.positions) ||
+                !read(prefix + "ROTATION", TINYGLTF_TYPE_VEC4, 4, splats.rotations) ||
+                !read(prefix + "SCALE", TINYGLTF_TYPE_VEC3, 3, splats.scales) ||
+                !read(prefix + "OPACITY", TINYGLTF_TYPE_SCALAR, 1, splats.opacities) ||
+                !read(prefix + "SH_DEGREE_0_COEF_0", TINYGLTF_TYPE_VEC3, 3, splats.sh0)) {
+                spdlog::error("GLB [{}]: a {} primitive is missing required attributes or their data is invalid; "
+                    "the primitive is skipped", source, kExt);
+                return nullptr;
+            }
+
+            // Higher bands: degree d has 2d + 1 coefficients, each an RGB attribute.
+            // Gathered coefficient-major, the layout the splat data keeps.
+            static constexpr int kDegreeCoeffs[] = {3, 5, 7};
+            int bands = 0;
+            for (int d = 1; d <= 3; ++d) {
+                bool complete = true;
+                for (int c = 0; c < kDegreeCoeffs[d - 1]; ++c) {
+                    if (!primitive.attributes.contains(prefix + "SH_DEGREE_" + std::to_string(d) + "_COEF_" + std::to_string(c))) {
+                        complete = false;
+                        break;
+                    }
+                }
+                if (!complete) {
+                    break;
+                }
+                bands = d;
+            }
+            if (bands > 0) {
+                static constexpr int kBandCoeffs[] = {0, 3, 8, 15};
+                const int coeffs = kBandCoeffs[bands];
+                splats.shRest.assign(count * static_cast<size_t>(coeffs) * 3, 0.0f);
+                int k = 0;
+                std::vector<float> coefficient;
+                for (int d = 1; d <= bands; ++d) {
+                    for (int c = 0; c < kDegreeCoeffs[d - 1]; ++c, ++k) {
+                        const std::string name = prefix + "SH_DEGREE_" + std::to_string(d) + "_COEF_" + std::to_string(c);
+                        if (!read(name, TINYGLTF_TYPE_VEC3, 3, coefficient)) {
+                            spdlog::error("GLB [{}]: a {} primitive has an invalid {} attribute; the primitive is skipped",
+                                source, kExt, name);
+                            return nullptr;
+                        }
+                        for (size_t i = 0; i < count; ++i) {
+                            float* dst = splats.shRest.data() + (i * static_cast<size_t>(coeffs) + static_cast<size_t>(k)) * 3;
+                            dst[0] = coefficient[i * 3];
+                            dst[1] = coefficient[i * 3 + 1];
+                            dst[2] = coefficient[i * 3 + 2];
+                        }
+                    }
+                }
+                splats.shBands = bands;
+            }
+            return GSplatData::fromActivated(splats, source);
         }
 
         // A quantised POSITION is still a POSITION: the readers de-quantise every
@@ -2281,6 +2575,30 @@ namespace visutwin::canvas
             return pd;
         }
 
+        // KHR_materials_variants on a primitive (upstream registerMeshVariants): each
+        // mapping gives one material to a list of variant indices.
+        std::vector<std::pair<int, int>> primitiveVariantMaterials(const tinygltf::Primitive& primitive)
+        {
+            std::vector<std::pair<int, int>> result;
+            const auto ext = primitive.extensions.find("KHR_materials_variants");
+            if (ext == primitive.extensions.end() || !ext->second.IsObject() || !ext->second.Has("mappings")) {
+                return result;
+            }
+            const auto& mappings = ext->second.Get("mappings");
+            for (size_t m = 0; mappings.IsArray() && m < mappings.ArrayLen(); ++m) {
+                const auto& mapping = mappings.Get(static_cast<int>(m));
+                if (!mapping.IsObject() || !mapping.Has("material") || !mapping.Has("variants")) {
+                    continue;
+                }
+                const int material = mapping.Get("material").GetNumberAsInt();
+                const auto& variants = mapping.Get("variants");
+                for (size_t v = 0; variants.IsArray() && v < variants.ArrayLen(); ++v) {
+                    result.emplace_back(variants.Get(static_cast<int>(v)).GetNumberAsInt(), material);
+                }
+            }
+            return result;
+        }
+
         // Vertices, indices, skin attributes and morph targets of one non-POINTS
         // primitive. False when the primitive has nothing drawable.
         bool extractTrianglePrimitive(const tinygltf::Model& model, const tinygltf::Mesh& mesh,
@@ -2289,6 +2607,7 @@ namespace visutwin::canvas
         {
             pd.mode = primitive.mode;
             pd.materialIndex = primitive.material;
+            pd.variantMaterials = primitiveVariantMaterials(primitive);
 
             std::vector<PackedVertex> vertices;
             std::vector<uint32_t> parsedIndices;
@@ -2607,11 +2926,20 @@ namespace visutwin::canvas
         int mergedMaterialIndex = -1;
 
         result.meshPrimitives.resize(model.meshes.size());
+        result.meshSplats.resize(model.meshes.size());
         for (size_t meshIndex = 0; meshIndex < model.meshes.size(); ++meshIndex) {
             const auto& mesh = model.meshes[meshIndex];
             auto& primResults = result.meshPrimitives[meshIndex];
 
             for (const auto& primitive : mesh.primitives) {
+                // A splat primitive is POINTS too, but it is a gaussian splat set, not a
+                // point cloud: it never reaches the point path or the merge.
+                if (isGaussianSplatPrimitive(primitive)) {
+                    if (auto splats = gaussianSplatData(model, primitive, debugName)) {
+                        result.meshSplats[meshIndex].push_back(std::move(splats));
+                    }
+                    continue;
+                }
                 if (primitive.mode == TINYGLTF_MODE_POINTS) {
                     const auto* positions = readablePositions(model, primitive);
                     if (!positions) {
@@ -2758,6 +3086,11 @@ namespace visutwin::canvas
                     payload.material = (pd.materialIndex >= 0 && pd.materialIndex < static_cast<int>(gltfMaterials.size()))
                         ? gltfMaterials[static_cast<size_t>(pd.materialIndex)] : gltfMaterials.front();
                 }
+                for (const auto& [variant, materialIndex] : pd.variantMaterials) {
+                    if (materialIndex >= 0 && materialIndex < static_cast<int>(gltfMaterials.size())) {
+                        payload.variantMaterials[variant] = gltfMaterials[static_cast<size_t>(materialIndex)];
+                    }
+                }
                 // Morph deltas were extracted by the prepare half; the GPU buffer is built here.
                 if (!pd.morphTargets.empty()) {
                     payload.morph = std::make_shared<Morph>(std::move(pd.morphTargets), pd.vertexCount, device.get());
@@ -2790,8 +3123,34 @@ namespace visutwin::canvas
             for (size_t mi = 0; mi < model.meshes.size(); ++mi) {
                 const auto& primitives = model.meshes[mi].primitives;
                 meshFullyConsumed[mi] = !primitives.empty() && std::all_of(primitives.begin(), primitives.end(),
-                    [](const tinygltf::Primitive& p) { return p.mode == TINYGLTF_MODE_POINTS; });
+                    [](const tinygltf::Primitive& p) {
+                        return p.mode == TINYGLTF_MODE_POINTS && !isGaussianSplatPrimitive(p);
+                    });
             }
+        }
+
+        // KHR_gaussian_splatting: the decoded splat sets become GPU resources here, one
+        // per primitive, shared by every node that uses the mesh.
+        std::vector<std::vector<std::shared_ptr<GSplatResource>>> meshSplatResources(model.meshes.size());
+        for (size_t meshIndex = 0; meshIndex < prepared.meshSplats.size() && meshIndex < model.meshes.size(); ++meshIndex) {
+            for (auto& data : prepared.meshSplats[meshIndex]) {
+                if (data && device) {
+                    meshSplatResources[meshIndex].push_back(std::make_shared<GSplatResource>(std::move(data), device));
+                }
+            }
+        }
+
+        // KHR_materials_variants: the variant names, by index (upstream createVariants).
+        if (const auto ext = model.extensions.find("KHR_materials_variants");
+            ext != model.extensions.end() && ext->second.IsObject() && ext->second.Has("variants")) {
+            std::vector<std::string> names;
+            const auto& variants = ext->second.Get("variants");
+            for (size_t v = 0; variants.IsArray() && v < variants.ArrayLen(); ++v) {
+                const auto& variant = variants.Get(static_cast<int>(v));
+                names.push_back(variant.IsObject() && variant.Has("name") && variant.Get("name").IsString()
+                    ? variant.Get("name").Get<std::string>() : "variant_" + std::to_string(v));
+            }
+            container->setMaterialVariants(std::move(names));
         }
 
         // ── Nodes: the glTF hierarchy and local transforms ───────────
@@ -2824,11 +3183,23 @@ namespace visutwin::canvas
             }
             nodePayload.skinIndex = node.skin;
             nodePayload.children = node.children;
+            if (node.mesh >= 0 && node.mesh < static_cast<int>(meshSplatResources.size())) {
+                nodePayload.splats = meshSplatResources[static_cast<size_t>(node.mesh)];
+            }
             if (node.camera >= 0 && node.camera < static_cast<int>(model.cameras.size())) {
                 nodePayload.camera = gltfCameraPayload(model.cameras[static_cast<size_t>(node.camera)]);
             }
             if (node.light >= 0 && node.light < static_cast<int>(model.lights.size())) {
                 nodePayload.light = gltfLightPayload(model.lights[static_cast<size_t>(node.light)]);
+            }
+            if (const auto matrices = gltfInstanceMatrices(model, node); !matrices.empty() && device &&
+                !nodePayload.meshPayloadIndices.empty()) {
+                const int count = static_cast<int>(matrices.size() / 16);
+                VertexBufferOptions options;
+                options.data.resize(matrices.size() * sizeof(float));
+                std::memcpy(options.data.data(), matrices.data(), options.data.size());
+                nodePayload.instanceBuffer = device->createVertexBuffer(VertexFormat::defaultInstancingFormat(), count, options);
+                nodePayload.instanceCount = nodePayload.instanceBuffer ? count : 0;
             }
             // A node that carries a camera or a light is not a disposable points leaf.
             if (nodePayload.camera || nodePayload.light) {

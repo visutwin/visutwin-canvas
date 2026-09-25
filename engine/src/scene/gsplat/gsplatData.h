@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -53,6 +54,24 @@ namespace visutwin::canvas
     public:
         static std::unique_ptr<GSplatData> loadPly(const std::string& path);
 
+        /// Splats whose values are already ACTIVATED — linear scale, post-sigmoid
+        /// opacity — as KHR_gaussian_splatting stores them (upstream marks its
+        /// GSplatData `activated`). Per splat: position xyz, rotation xyzw, scale xyz,
+        /// opacity, SH degree-0 rgb, and for `shBands` 1-3 the higher coefficients
+        /// coefficient-major interleaved ([c0.r, c0.g, c0.b, c1.r, ...], 3/8/15 of them).
+        struct ActivatedSplats
+        {
+            size_t count = 0;
+            std::vector<float> positions;
+            std::vector<float> rotations;
+            std::vector<float> scales;
+            std::vector<float> opacities;
+            std::vector<float> sh0;
+            int shBands = 0;
+            std::vector<float> shRest;
+        };
+        static std::unique_ptr<GSplatData> fromActivated(const ActivatedSplats& splats, const std::string& source);
+
         int numSplats() const { return static_cast<int>(_splats.size()); }
         const std::vector<GpuSplat>& splats() const { return _splats; }
         const std::vector<float>& centers() const { return _centers; }  // xyz per splat
@@ -63,6 +82,15 @@ namespace visutwin::canvas
         const std::vector<float>& shCoeffs() const { return _shCoeffs; }
 
     private:
+        struct BoundsAccumulator
+        {
+            Vector3 min = Vector3(std::numeric_limits<float>::max());
+            Vector3 max = Vector3(std::numeric_limits<float>::lowest());
+            bool set = false;
+        };
+        void appendSplat(const GpuSplat& splat, BoundsAccumulator& bounds);
+        void finishBounds(const BoundsAccumulator& bounds, const std::string& source);
+
         std::vector<GpuSplat> _splats;
         std::vector<float> _centers;
         std::vector<float> _shCoeffs;

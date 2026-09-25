@@ -5,10 +5,13 @@
 //
 #include "glbContainerResource.h"
 
+#include <algorithm>
+
 #include <spdlog/spdlog.h>
 
 #include "framework/components/animation/animationComponent.h"
 #include "framework/components/camera/cameraComponent.h"
+#include "framework/components/gsplat/gsplatComponent.h"
 #include "framework/components/light/lightComponent.h"
 #include "framework/components/render/renderComponent.h"
 #include "scene/morphInstance.h"
@@ -84,6 +87,12 @@ namespace visutwin::canvas
                         meshInstance->setMorphInstance(morphInstance);
                     }
 
+                    // EXT_mesh_gpu_instancing: every primitive of the node draws once per
+                    // instance matrix, each composed with the node's own transform.
+                    if (nodePayload.instanceBuffer && nodePayload.instanceCount > 0) {
+                        meshInstance->setInstancing(nodePayload.instanceBuffer, nodePayload.instanceCount);
+                    }
+
                     nodeMeshInstances[i].push_back(meshInstance.get());
                     renderComponentRaw->addMeshInstance(std::move(meshInstance));
                 }
@@ -133,6 +142,21 @@ namespace visutwin::canvas
                 lightComponent->setEnabled(false);
                 lightEntity->addComponentInstance(std::move(lightComponent), componentTypeID<LightComponent>());
                 nodeEntity->addChild(lightEntity);
+            }
+
+            // KHR_gaussian_splatting: the first splat set on the node's entity, each
+            // further one on a child named after it (upstream's layout).
+            for (size_t splat = 0; splat < nodePayload.splats.size(); ++splat) {
+                Entity* target = nodeEntity;
+                if (splat > 0) {
+                    target = new Entity();
+                    target->setName(nodeEntity->name() + "_gsplat_" + std::to_string(splat));
+                    nodeEntity->addChild(target);
+                }
+                auto gsplat = std::make_unique<GSplatComponent>(nullptr, target);
+                auto* gsplatRaw = static_cast<GSplatComponent*>(
+                    target->addComponentInstance(std::move(gsplat), componentTypeID<GSplatComponent>()));
+                gsplatRaw->setResource(nodePayload.splats[splat]);
             }
 
             nodeEntities[i] = nodeEntity;
@@ -242,5 +266,51 @@ namespace visutwin::canvas
         }
 
         return root;
+    }
+
+    bool GlbContainerResource::applyMaterialVariantInstances(const std::vector<MeshInstance*>& instances,
+        const std::string& name) const
+    {
+        int variant = -1;
+        if (!name.empty()) {
+            const auto it = std::find(_variantNames.begin(), _variantNames.end(), name);
+            if (it == _variantNames.end()) {
+                spdlog::warn("GlbContainerResource: no material variant named '{}'", name);
+                return false;
+            }
+            variant = static_cast<int>(it - _variantNames.begin());
+        }
+        for (auto* instance : instances) {
+            if (!instance || !instance->mesh()) {
+                continue;
+            }
+            const auto payload = std::find_if(_meshPayloads.begin(), _meshPayloads.end(),
+                [instance](const GlbMeshPayload& p) { return p.mesh.get() == instance->mesh(); });
+            if (payload == _meshPayloads.end()) {
+                continue;   // not built from this container
+            }
+            if (variant < 0) {
+                // DEVIATION: upstream's reset (a null variant) assigns the engine's
+                // default material; this puts the primitive's OWN material back.
+                instance->setMaterial(payload->material);
+            } else if (const auto mapped = payload->variantMaterials.find(variant);
+                       mapped != payload->variantMaterials.end() && mapped->second) {
+                instance->setMaterial(mapped->second);
+            }
+        }
+        return true;
+    }
+
+    bool GlbContainerResource::applyMaterialVariant(Entity* entity, const std::string& name) const
+    {
+        if (!entity) {
+            return false;
+        }
+        std::vector<MeshInstance*> instances;
+        for (auto* render : entity->findComponents<RenderComponent>()) {
+            const auto& list = render->meshInstances();
+            instances.insert(instances.end(), list.begin(), list.end());
+        }
+        return applyMaterialVariantInstances(instances, name);
     }
 }

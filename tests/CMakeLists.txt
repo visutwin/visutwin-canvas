@@ -403,6 +403,15 @@ target_link_libraries(visutwin-glb-camera-light-tests PRIVATE visutwin-canvas)
 
 add_test(NAME glb-camera-light COMMAND visutwin-glb-camera-light-tests)
 
+add_executable(visutwin-glb-extensions-tests
+    glbExtensionsTests.cpp
+)
+
+target_include_directories(visutwin-glb-extensions-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+target_link_libraries(visutwin-glb-extensions-tests PRIVATE visutwin-canvas)
+
+add_test(NAME glb-extensions COMMAND visutwin-glb-extensions-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

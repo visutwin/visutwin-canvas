@@ -164,55 +164,8 @@ namespace visutwin::canvas
         const bool compressed = (elements.front().name == "chunk");
 
         auto data = std::make_unique<GSplatData>();
-        Vector3 minPos(std::numeric_limits<float>::max());
-        Vector3 maxPos(std::numeric_limits<float>::lowest());
-        bool boundsSet = false;
-        const auto accumulate = [&](const GpuSplat& s) {
-            data->_centers.push_back(s.center[0]);
-            data->_centers.push_back(s.center[1]);
-            data->_centers.push_back(s.center[2]);
-            data->_splats.push_back(s);
-
-            // The bounds have to carry each splat's EXTENT, not just its centre. A
-            // splat is an ellipsoid, so the cloud reaches visibly past the hull of
-            // its centres — by the size of the largest splat on the rim, which in a
-            // capture is usually one of the big background ones. Bounding the centres
-            // alone culls the whole cloud a moment early as the camera turns away, and
-            // the entire thing blinks out while part of it is still on screen.
-            //
-            // DEVIATION from upstream in the tighter direction, because this port
-            // stores something upstream does not. `calcAabb` pads isotropically by
-            // twice the LARGEST of the three scales and `calcAabbExact` takes the box
-            // of the rotated 2-sigma box; both are bounds of the ellipsoid rather than
-            // the ellipsoid's own. This parser discards rotation and scale at load and
-            // keeps the composed covariance Sigma = R S^2 R^T, whose DIAGONAL is the
-            // variance along each model axis — so sqrt of it is exactly the standard
-            // deviation along that axis and 2 sigma is the tightest axis-aligned bound
-            // there is. Same 2-sigma convention as upstream, so the two agree on a
-            // sphere and this one is smaller on anything elongated or rotated.
-            //
-            // max(., 0) because a variance is non-negative by construction but a
-            // near-degenerate splat can land a tiny negative there through rounding,
-            // and sqrt of that is a NaN which would swallow the whole bound.
-            const float extentX = 2.0f * std::sqrt(std::max(s.covA[0], 0.0f));
-            const float extentY = 2.0f * std::sqrt(std::max(s.covB[0], 0.0f));
-            const float extentZ = 2.0f * std::sqrt(std::max(s.covB[2], 0.0f));
-
-            // Skip a non-finite splat rather than let it poison the bounds, as upstream
-            // does. The splat itself is kept — it is the renderer's business, and one
-            // bad record should not move the box every other splat is culled by.
-            if (!std::isfinite(s.center[0]) || !std::isfinite(s.center[1]) ||
-                !std::isfinite(s.center[2]) || !std::isfinite(extentX) ||
-                !std::isfinite(extentY) || !std::isfinite(extentZ)) {
-                return;
-            }
-
-            const Vector3 center = Vector3::load(s.center);
-            const Vector3 extent(extentX, extentY, extentZ);
-            minPos = Vector3::min(minPos, center - extent);
-            maxPos = Vector3::max(maxPos, center + extent);
-            boundsSet = true;
-        };
+        BoundsAccumulator bounds;
+        const auto accumulate = [&](const GpuSplat& splat) { data->appendSplat(splat, bounds); };
 
         // Read a whole element's binary block into a byte buffer.
         const auto readBlock = [&](const PlyElement& e, std::vector<uint8_t>& out) -> bool {
@@ -428,20 +381,126 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        if (boundsSet) {
-            data->_aabb.setCenter((minPos + maxPos) * 0.5f);
-            data->_aabb.setHalfExtents((maxPos - minPos) * 0.5f);
+        data->finishBounds(bounds, path);
+
+        spdlog::info("GSplatData: loaded '{}' — {} splats ({}, SH bands {})",
+            path, data->_splats.size(), compressed ? "compressed" : "uncompressed", data->_shBands);
+        return data;
+    }
+
+    void GSplatData::appendSplat(const GpuSplat& s, BoundsAccumulator& bounds)
+    {
+        _centers.push_back(s.center[0]);
+        _centers.push_back(s.center[1]);
+        _centers.push_back(s.center[2]);
+        _splats.push_back(s);
+
+        // The bounds have to carry each splat's EXTENT, not just its centre. A
+        // splat is an ellipsoid, so the cloud reaches visibly past the hull of
+        // its centres — by the size of the largest splat on the rim, which in a
+        // capture is usually one of the big background ones. Bounding the centres
+        // alone culls the whole cloud a moment early as the camera turns away, and
+        // the entire thing blinks out while part of it is still on screen.
+        //
+        // DEVIATION from upstream in the tighter direction, because this port
+        // stores something upstream does not. `calcAabb` pads isotropically by
+        // twice the LARGEST of the three scales and `calcAabbExact` takes the box
+        // of the rotated 2-sigma box; both are bounds of the ellipsoid rather than
+        // the ellipsoid's own. This parser discards rotation and scale at load and
+        // keeps the composed covariance Sigma = R S^2 R^T, whose DIAGONAL is the
+        // variance along each model axis — so sqrt of it is exactly the standard
+        // deviation along that axis and 2 sigma is the tightest axis-aligned bound
+        // there is. Same 2-sigma convention as upstream, so the two agree on a
+        // sphere and this one is smaller on anything elongated or rotated.
+        //
+        // max(., 0) because a variance is non-negative by construction but a
+        // near-degenerate splat can land a tiny negative there through rounding,
+        // and sqrt of that is a NaN which would swallow the whole bound.
+        const float extentX = 2.0f * std::sqrt(std::max(s.covA[0], 0.0f));
+        const float extentY = 2.0f * std::sqrt(std::max(s.covB[0], 0.0f));
+        const float extentZ = 2.0f * std::sqrt(std::max(s.covB[2], 0.0f));
+
+        // Skip a non-finite splat rather than let it poison the bounds, as upstream
+        // does. The splat itself is kept — it is the renderer's business, and one
+        // bad record should not move the box every other splat is culled by.
+        if (!std::isfinite(s.center[0]) || !std::isfinite(s.center[1]) ||
+            !std::isfinite(s.center[2]) || !std::isfinite(extentX) ||
+            !std::isfinite(extentY) || !std::isfinite(extentZ)) {
+            return;
+        }
+
+        const Vector3 center = Vector3::load(s.center);
+        const Vector3 extent(extentX, extentY, extentZ);
+        bounds.min = Vector3::min(bounds.min, center - extent);
+        bounds.max = Vector3::max(bounds.max, center + extent);
+        bounds.set = true;
+    }
+
+    void GSplatData::finishBounds(const BoundsAccumulator& bounds, const std::string& source)
+    {
+        if (bounds.set) {
+            _aabb.setCenter((bounds.min + bounds.max) * 0.5f);
+            _aabb.setHalfExtents((bounds.max - bounds.min) * 0.5f);
         } else {
             // Every splat was non-finite. The sentinels would make a box with a
             // negative size that culls unpredictably, so say so and leave the
             // degenerate box the default gives.
-            spdlog::warn("GSplatData: '{}' has no finite splat bounds", path);
-            data->_aabb.setCenter(Vector3(0.0f));
-            data->_aabb.setHalfExtents(Vector3(0.0f));
+            spdlog::warn("GSplatData: '{}' has no finite splat bounds", source);
+            _aabb.setCenter(Vector3(0.0f));
+            _aabb.setHalfExtents(Vector3(0.0f));
+        }
+    }
+
+    std::unique_ptr<GSplatData> GSplatData::fromActivated(const ActivatedSplats& in, const std::string& source)
+    {
+        const size_t count = in.count;
+        if (count == 0 || in.positions.size() < count * 3 || in.rotations.size() < count * 4 ||
+            in.scales.size() < count * 3 || in.opacities.size() < count || in.sh0.size() < count * 3) {
+            spdlog::error("GSplatData: '{}' splat attributes are missing or short", source);
+            return nullptr;
+        }
+        const int bands = std::clamp(in.shBands, 0, 3);
+        static constexpr int kCoeffsForBands[] = {0, 3, 8, 15};
+        const int coeffs = kCoeffsForBands[bands];
+        if (bands > 0 && in.shRest.size() < count * static_cast<size_t>(coeffs) * 3) {
+            spdlog::error("GSplatData: '{}' SH coefficients are short", source);
+            return nullptr;
         }
 
-        spdlog::info("GSplatData: loaded '{}' — {} splats ({}, SH bands {})",
-            path, data->_splats.size(), compressed ? "compressed" : "uncompressed", data->_shBands);
+        auto data = std::make_unique<GSplatData>();
+        data->_shBands = bands;
+        data->_splats.reserve(count);
+        data->_centers.reserve(count * 3);
+        if (bands > 0) {
+            data->_shCoeffs.reserve(count * 45);
+        }
+        BoundsAccumulator bounds;
+        for (size_t i = 0; i < count; ++i) {
+            const float* pos = in.positions.data() + i * 3;
+            if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2])) {
+                continue;
+            }
+            // The same packing as the PLY path, but the values arrive ACTIVATED: the
+            // scale is linear (no exp) and the opacity already went through the
+            // sigmoid. The colour is the SH degree-0 coefficient, decoded as the PLY's
+            // f_dc is. glTF quaternions are xyzw.
+            const float* dc = in.sh0.data() + i * 3;
+            const float colorRGB[3] = {0.5f + dc[0] * SH_C0, 0.5f + dc[1] * SH_C0, 0.5f + dc[2] * SH_C0};
+            const float* q = in.rotations.data() + i * 4;
+            data->appendSplat(buildSplat(pos, q[3], q[0], q[1], q[2], in.scales.data() + i * 3, colorRGB,
+                in.opacities[i]), bounds);
+            if (bands > 0) {
+                // Already coefficient-major interleaved; pad to the 15 the shader reads.
+                std::array<float, 45> sh{};
+                std::copy_n(in.shRest.data() + i * static_cast<size_t>(coeffs) * 3, coeffs * 3, sh.begin());
+                data->_shCoeffs.insert(data->_shCoeffs.end(), sh.begin(), sh.end());
+            }
+        }
+        if (data->_splats.empty()) {
+            spdlog::error("GSplatData: '{}' contains no valid splats", source);
+            return nullptr;
+        }
+        data->finishBounds(bounds, source);
         return data;
     }
 }

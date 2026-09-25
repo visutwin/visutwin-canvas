@@ -215,16 +215,17 @@ void main() {
     roughness = clamp(roughness, 0.04, 1.0);
     // Anisotropic GGX frame (upstream anisotropy.js + lightSpecularAnisoGGX.js),
     // mirrored from forward-fragment-surface.metal; the math is in common-brdf. The
-    // signed engine value is upstream's deprecated `anisotropy` setter: intensity is
-    // its magnitude, and a negative value is rotation 90, which puts the anisotropy
-    // tangent on the vertex BITANGENT. B is cross(geometric normal, T), as upstream
-    // builds it from the TBN's own normal rather than the normal-mapped one.
+    // direction is upstream's material_anisotropyRotation: (cos, sin) turning the
+    // vertex tangent toward the vertex BITANGENT; the CPU folds the deprecated
+    // negative strength in as rotation + 90 and uploads the magnitude. B is
+    // cross(geometric normal, T), as upstream builds it from the TBN's own normal
+    // rather than the normal-mapped one.
     float anisoIntensity = 0.0;
     vec2 anisoAlpha = vec2(1.0);
     vec3 anisoT = vec3(1.0, 0.0, 0.0);
     vec3 anisoB = vec3(0.0, 0.0, 1.0);
     if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
-        anisoIntensity = clamp(abs(material.anisotropy), 0.0, 1.0);
+        anisoIntensity = clamp(material.anisotropy, 0.0, 1.0);
         anisoAlpha = getAnisotropicAlpha(1.0 - roughness, anisoIntensity);
         vec3 Ng = normalize(fragWorldNormal);
         if (vtFeatureEnabled(VT_FEATURE_DOUBLE_SIDED_BIT) && !gl_FrontFacing) {
@@ -234,7 +235,7 @@ void main() {
         if (dot(Tv, Tv) >= 1e-6) {
             Tv = normalize(Tv);
             vec3 Bv = normalize(cross(Ng, Tv)) * fragWorldTangent.w;
-            anisoT = material.anisotropy >= 0.0 ? Tv : Bv;
+            anisoT = material.anisotropyParams.x * Tv + material.anisotropyParams.y * Bv;
         } else {
             // No tangent stream. Upstream derives one from screen-space
             // derivatives; this port has no such fallback, so take any tangent.
@@ -336,8 +337,11 @@ void main() {
     vec3 V = normalize(lighting.cameraPosExposure.xyz - fragWorldPos);
     float NdotV = max(dot(N, V), 1e-4);
 
+    // The non-metal F0 in the metalness workflow is upstream's getSpecularModulate,
+    // computed on the CPU: f0(IOR) x the metalness specular colour x the specularity
+    // factor (KHR_materials_specular); 0.04 for the defaults.
     vec3 dielectricF0 = vtFeatureEnabled(VT_FEATURE_SPEC_GLOSS_BIT)
-        ? material.specGlossParams.rgb : vec3(0.04);
+        ? material.specGlossParams.rgb : material.metalnessSpecular.rgb;
     vec3 F0 = mix(dielectricF0, albedo.rgb, metallic);
     // Upstream's useSpecular false (VT_FEATURE_NO_SPECULAR): the material renders no
     // specular at all. A black F0 is not enough — the gloss-aware Fresnel still

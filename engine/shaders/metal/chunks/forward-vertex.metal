@@ -11,11 +11,12 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
                                       constant ModelData &model [[buffer(2)]],
                                       constant MaterialData &material [[buffer(3)]])
 {
-    (void)model;   // per-draw ModelData unused — instance attributes provide per-instance transform
     RasterizerData rd;
 
-    // Reconstruct per-instance model matrix from 4 column vectors (Upstream: instance_line1..4).
-    const float4x4 instanceModelMatrix = float4x4(v.instance_line1, v.instance_line2,
+    // Each instance is placed in its NODE's space: upstream transformInstancing's
+    // matrix_model * mat4(instance_line1..4). The renderer uploads the node's world
+    // matrix as the model matrix; the Vulkan stage composes the same way.
+    const float4x4 instanceModelMatrix = model.modelMatrix * float4x4(v.instance_line1, v.instance_line2,
                                                     v.instance_line3, v.instance_line4);
     float4 world = instanceModelMatrix * float4(v.position, 1.0);
     float4 clip = scene.projViewMatrix * world;

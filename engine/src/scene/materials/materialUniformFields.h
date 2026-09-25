@@ -106,7 +106,14 @@
     /* default, pivots the relief around mid-grey as upstream does. */ \
     /* y = self-shadow strength (0 = off); the directional light marches the height */ \
     /* field and darkens texels its ray passes over. zw = pad. */ \
-    X(vec4, heightMapParams, {0.0f, 0.0f, 0.0f, 0.0f})
+    X(vec4, heightMapParams, {0.0f, 0.0f, 0.0f, 0.0f}) \
+    /* --- Metalness workflow dielectric F0 (upstream getSpecularModulate) --- */ \
+    /* rgb = f0(IOR) x metalness specular colour (linear) x specularity factor, the */ \
+    /* F0 of the NON-metal part; w = the specularity factor. 0.04 is IOR 1.5, white, 1. */ \
+    X(vec4, metalnessSpecular, {0.04f, 0.04f, 0.04f, 1.0f}) \
+    /* --- Anisotropy direction (upstream material_anisotropyRotation) --- */ \
+    /* xy = (cos, sin) of the rotation from the tangent toward the bitangent; zw = pad. */ \
+    X(vec4, anisotropyParams, {1.0f, 0.0f, 0.0f, 0.0f})
 
 namespace visutwin::canvas
 {

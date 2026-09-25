@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include "scene/gsplat/gsplatData.h"
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -65,6 +67,8 @@ namespace visutwin::canvas
             /// A POINTS primitive: vertexBytes hold the 28-byte position + colour
             /// layout, drawn unlit with vertex colours rather than lit as triangles.
             bool pointCloud = false;
+            /// KHR_materials_variants: (variant index, material index) pairs.
+            std::vector<std::pair<int, int>> variantMaterials;
         };
 
         /// Pre-converted images indexed by tinygltf image index.
@@ -72,6 +76,12 @@ namespace visutwin::canvas
 
         /// Per-mesh primitives: meshPrimitives[meshIndex][primIndex].
         std::vector<std::vector<PrimitiveData>> meshPrimitives;
+
+        /// KHR_gaussian_splatting: per mesh, the splat sets its POINTS primitives
+        /// carry, decoded here (the CPU-heavy half) and turned into GPU resources on
+        /// the main thread. Splat primitives appear in neither meshPrimitives nor the
+        /// point-cloud merge.
+        std::vector<std::vector<std::unique_ptr<GSplatData>>> meshSplats;
 
         /// POINTS primitives of a model WITHOUT animations are merged into this one
         /// world-space cloud (one draw call) instead of appearing in meshPrimitives,
