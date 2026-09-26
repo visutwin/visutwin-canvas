@@ -27,7 +27,10 @@ namespace visutwin::canvas
         float viewport[4];      // width, height, 1/width, 1/height
         uint32_t splatCount;
         uint32_t shBands;       // 0 = SH0 only; 1-3 evaluate view-dependent color
-        uint32_t pad[2];
+        // 1 for an orthographic camera: its view rays all run along the camera forward,
+        // so SH is evaluated along that, not from the camera position (upstream #9531).
+        uint32_t cameraOrtho;
+        uint32_t pad;
         // Output stage (upstream gsplatOutput's prepareOutputFromGamma). A splat's
         // colour is GAMMA space; these say what the target wants done to it. Filled
         // by the renderer per draw from the same scene state the forward pass reads.

@@ -146,7 +146,10 @@
     // scaled by (1 - specularity) per channel when the material renders specular
     // (twin of the block in forward-fragment-ambient.metal, which explains it).
     ambientIrradiance *= mix(vec3(1.0), vec3(1.0) - F0, specularOn);
-    vec3 indirectDiffuse = ambientIrradiance * diffuseAlbedo;
+    // The material's ambient tint (upstream material_ambient / litArgs_ambient): the
+    // bake accumulator above it keeps the untinted ambient, and a lightmap below
+    // replaces the tinted term. Twin of the block in forward-fragment-ambient.metal.
+    vec3 indirectDiffuse = ambientIrradiance * material.ambientTint.rgb * diffuseAlbedo;
     bakeDiffuseLight += ambientIrradiance;
     // Sheen image-based lighting: sample the atlas along the reflection at the
     // sheen roughness, scaled by the analytical directional albedo instead of the

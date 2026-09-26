@@ -14,7 +14,8 @@ struct GSplatParams {
     float4 viewport;        // width, height, 1/width, 1/height
     uint splatCount;
     uint shBands;           // 0 = SH0 only; 1-3 = view-dependent SH color
-    uint pad1; uint pad2;
+    uint cameraOrtho;       // 1: SH along the camera forward (upstream #9531)
+    uint pad2;
     float4 fogColor;        // linear rgb
     float4 fogParams;       // start, end, density, type (0 = none, 1 linear, 2 exp, 3 exp2)
     float4 output;          // exposure, tone mapping mode, linear HDR target, unused
@@ -226,7 +227,9 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
     // View-dependent spherical harmonics (added in display/gamma space before the
     // sRGB→linear decode, matching upstream). dir = model-space view direction.
     if (params.shBands > 0u) {
-        const float3 viewPos = view.xyz;
+        // An orthographic camera's view rays all run along its forward, (0, 0, -1) in
+        // view space, rather than from its position to the splat (upstream #9531).
+        const float3 viewPos = params.cameraOrtho != 0u ? float3(0.0, 0.0, -1.0) : view.xyz;
         const float3x3 mv3 = float3x3(params.modelView[0].xyz,
                                       params.modelView[1].xyz,
                                       params.modelView[2].xyz);

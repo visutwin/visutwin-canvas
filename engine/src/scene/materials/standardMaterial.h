@@ -180,6 +180,12 @@ namespace visutwin::canvas
         // StandardMaterial.emissive semantics and deliberately ignores authoring artifacts like
         // specular-glossiness exporters writing emissiveFactor=(1,1,1) with no emissive texture
         // (which would otherwise produce fully-white glowing walls).
+        /// Tint of the AMBIENT diffuse (upstream `ambient`), authored in sRGB like
+        /// `diffuse` and uploaded linear; white (the default) changes nothing. It does
+        /// not touch a lightmap, which replaces the ambient, nor direct light.
+        const Color& ambient() const { return _ambient; }
+        void setAmbient(const Color& value) { _ambient = value; markUniformsDirty(); }
+
         const Color& emissive() const { return _emissive; }
         void setEmissive(const Color& value) { _emissive = value; markUniformsDirty(); }
         float emissiveIntensity() const { return _emissiveIntensity; }
@@ -424,6 +430,8 @@ namespace visutwin::canvas
         MapChannel _thicknessMapChannel = MapChannel::MAP_CHANNEL_G;
         Texture* _refractionMap = nullptr;
         MapChannel _refractionMapChannel = MapChannel::MAP_CHANNEL_G;
+
+        Color _ambient = Color(1.0f, 1.0f, 1.0f, 1.0f);
 
         Color _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);
         float _emissiveIntensity = 1.0f;

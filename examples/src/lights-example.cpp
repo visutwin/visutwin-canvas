@@ -178,6 +178,7 @@ protected:
         _groundMaterial = std::make_shared<StandardMaterial>();
         _groundMaterial->setName("ground");
         _groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
+        _groundMaterial->setAmbient(Color(0.5f, 0.5f, 0.5f, 1.0f));   // upstream Color.GRAY
         _groundMaterial->setUseMetalness(true);
         _groundMaterial->setMetalness(0.5f);
         _groundMaterial->setGloss(0.5f);

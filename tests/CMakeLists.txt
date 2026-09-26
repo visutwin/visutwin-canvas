@@ -479,6 +479,14 @@ target_link_libraries(visutwin-frame-stats-tests PRIVATE visutwin-canvas)
 
 add_test(NAME frame-stats COMMAND visutwin-frame-stats-tests)
 
+add_executable(visutwin-curve-tests
+    curveTests.cpp
+)
+
+target_link_libraries(visutwin-curve-tests PRIVATE visutwin-canvas)
+
+add_test(NAME curve COMMAND visutwin-curve-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

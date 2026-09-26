@@ -153,6 +153,20 @@ int main()
         check(near(u.normalScale, 0.4f), "setBumpiness applies with a base-colour texture bound");
     }
 
+    // The ambient tint (upstream material_ambient, #9538): white by default, so every
+    // material that never sets it packs exactly 1 and renders as before; authored sRGB,
+    // uploaded linear, as emissive is.
+    {
+        StandardMaterial material;
+        const MaterialUniforms& u = material.packedUniforms();
+        check(u.ambientTint[0] == 1.0f && u.ambientTint[1] == 1.0f && u.ambientTint[2] == 1.0f,
+            "the ambient tint defaults to exactly white");
+        material.setAmbient(Color(0.5f, 0.25f, 1.0f, 1.0f));
+        const MaterialUniforms& t = material.packedUniforms();
+        check(near(t.ambientTint[0], std::pow(0.5f, 2.2f)) && near(t.ambientTint[1], std::pow(0.25f, 2.2f)) &&
+              near(t.ambientTint[2], 1.0f), "setAmbient packs the colour linearised");
+    }
+
     // useSkybox and the opacity map: the flag bits the shaders gate on, and slot 34.
     {
         StandardMaterial material;

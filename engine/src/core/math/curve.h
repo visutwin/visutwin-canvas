@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -13,12 +14,14 @@ namespace visutwin::canvas
 {
     class CurveEvaluator;
 
+    // Upstream's numbers, so curve data authored against upstream reads the same here.
+    // 2 and 3 were upstream's CATMULL and CARDINAL, since removed; they stay unused.
     enum CurveType : uint8_t
     {
         CURVE_LINEAR = 0,
         CURVE_SMOOTHSTEP = 1,
-        CURVE_SPLINE = 2,
-        CURVE_STEP = 3
+        CURVE_SPLINE = 4,
+        CURVE_STEP = 5
     };
 
     class Curve
@@ -46,7 +49,9 @@ namespace visutwin::canvas
 
         [[nodiscard]] float value(float time);
 
-        [[nodiscard]] std::pair<float, float> closest(float time) const;
+        /// The key closest to `time`, the later one when two are equally close; a time
+        /// before or after the curve gets the key at that end. Nothing for an empty curve.
+        [[nodiscard]] std::optional<std::pair<float, float>> closest(float time) const;
 
         [[nodiscard]] Curve clone() const;
 

@@ -334,6 +334,14 @@
     indirectDiffuse *= float3(1.0) - F0;
 #endif
 
+#if !VT_FEATURE_LIGHTMAP_BAKE
+    // The material's ambient tint (upstream material_ambient, applied through
+    // litArgs_ambient since #9538): right after the ambient is added and scaled,
+    // before occlusion, and never on a lightmap, which replaces this term in the
+    // tail. A bake keeps its ambient untinted, as the Vulkan bake accumulator does.
+    indirectDiffuse *= material.ambientTint.xyz;
+#endif
+
     // Diffuse occlusion. Upstream (litForwardBackend.js) runs occludeDiffuse on the
     // AMBIENT term unconditionally — before addLightMap and before the light loop —
     // and only under occludeDirect (flag bit 13) runs it again after the loop, over

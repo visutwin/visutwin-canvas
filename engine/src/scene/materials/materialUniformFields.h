@@ -113,7 +113,11 @@
     X(vec4, metalnessSpecular, {0.04f, 0.04f, 0.04f, 1.0f}) \
     /* --- Anisotropy direction (upstream material_anisotropyRotation) --- */ \
     /* xy = (cos, sin) of the rotation from the tangent toward the bitangent; zw = pad. */ \
-    X(vec4, anisotropyParams, {1.0f, 0.0f, 0.0f, 0.0f})
+    X(vec4, anisotropyParams, {1.0f, 0.0f, 0.0f, 0.0f}) \
+    /* --- Ambient tint (upstream material_ambient, the litArgs_ambient of #9538) --- */ \
+    /* rgb = StandardMaterial::ambient, linear; multiplies the AMBIENT diffuse only */ \
+    /* (not a lightmap, not direct light). White leaves every frame as it was. w = pad. */ \
+    X(vec4, ambientTint, {1.0f, 1.0f, 1.0f, 1.0f})
 
 namespace visutwin::canvas
 {

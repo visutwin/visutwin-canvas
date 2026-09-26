@@ -4,7 +4,7 @@ layout(set=6,binding=1,std430) readonly buffer Order { uint values[]; } orderBuf
 layout(set=6,binding=2,std430) readonly buffer SH { float values[]; } sh;
 layout(set=6,binding=3,std140) uniform Params {
     mat4 modelView; mat4 projection; vec4 viewport;
-    uint splatCount; uint shBands; uvec2 padding;
+    uint splatCount; uint shBands; uint cameraOrtho; uint padding;
     vec4 fogColor;   // linear rgb
     vec4 fogParams;  // start, end, density, type (0 = none, 1 linear, 2 exp, 3 exp2)
     vec4 outputParams; // exposure, tone mapping mode, linear HDR target, unused
@@ -120,7 +120,11 @@ void main() {
     clip.z=clamp(0.5*(clip.z+clip.w), 0.0, clip.w); gl_Position=clip; outUv=uv;
     vec4 color=unpackColor(splats.words[base+3u]); vec3 displayColor=color.rgb;
     if(params.shBands>0u) {
-        vec3 direction=normalize(transpose(mat3(params.modelView))*view.xyz);
+        // Model-space view direction. An orthographic camera's rays all run along its
+        // forward, (0, 0, -1) in view space, not from its position to the splat (upstream
+        // #9531); twin of the block in gsplat-render.metal.
+        vec3 viewDir=params.cameraOrtho!=0u ? vec3(0.0,0.0,-1.0) : view.xyz;
+        vec3 direction=normalize(transpose(mat3(params.modelView))*viewDir);
         displayColor+=evaluateSH(index*45u,params.shBands,direction);
     }
     // Gamma-space colour -> what the target wants (clip.w is the view depth).

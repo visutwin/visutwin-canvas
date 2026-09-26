@@ -174,6 +174,12 @@ namespace visutwin::canvas
         uniforms.emissiveColor[2] = std::pow(std::max(_emissive.b, 0.0f), 2.2f) * _emissiveIntensity;
         uniforms.emissiveColor[3] = 1.0f;
 
+        // Ambient tint, linearised as emissive is (upstream convertColorToLinear).
+        uniforms.ambientTint[0] = std::pow(std::max(_ambient.r, 0.0f), 2.2f);
+        uniforms.ambientTint[1] = std::pow(std::max(_ambient.g, 0.0f), 2.2f);
+        uniforms.ambientTint[2] = std::pow(std::max(_ambient.b, 0.0f), 2.2f);
+        uniforms.ambientTint[3] = 1.0f;
+
         // StandardMaterial adds twoSidedLighting support to the doubleSided flag.
         if (_twoSidedLighting) {
             uniforms.flags |= (1u << 3);    // bit 3: doubleSided

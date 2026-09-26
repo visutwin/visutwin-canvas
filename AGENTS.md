@@ -156,6 +156,16 @@ ctest --preset default
   on macOS and fails on Linux. The first Linux build found eight such headers, and
   one of them cascaded into fifty failed files. Include what you use; the Linux CI
   job is what catches it now.
+- **The Metal compiler's path changes when the system remounts its toolchain.** It lives
+  under `/var/run/com.apple.security.cryptexd/mnt/...MetalToolchain-<ver>.<random>/`, and
+  the random suffix changed on 2026-09-26 with the version unchanged; every configured
+  tree then failed to regenerate ("not a full path to an existing compiler tool"), because
+  `enable_language(Metal)` records the compiler once in
+  `CMakeFiles/<cmake version>/CMakeMetalCompiler.cmake`. `engine/CMakeLists.txt` now deletes
+  that record when the path it names is gone, so detection runs again. A worktree checked
+  out at an older commit lacks the guard: delete the file by hand. The same morning the
+  default build's cache came back without the vcpkg toolchain's variables (spdlog "not
+  found" with the package installed); `cmake --preset default --fresh` rebuilt it.
 - `vcpkg.json` qualifies ImGui's `metal-binding` feature to `osx`. The port
   declares it macOS-only, and an unqualified feature makes the whole manifest
   unresolvable on Linux.
@@ -1002,6 +1012,14 @@ present, but the rule below never depends on reading it.
   property and `setAoMap` writes through to it. Clearing only one of them used
   to clear nothing, which is how the ambient-occlusion example rendered with
   its "disabled" baked AO for as long as it existed.
+- **`StandardMaterial::ambient` tints the AMBIENT diffuse and nothing else** (upstream
+  `material_ambient`, which #9538 routes through `litArgs_ambient`): authored sRGB, packed
+  linear into `MaterialUniforms::ambientTint`, multiplied right after the ambient is added
+  and scaled by `(1 - specularity)` and before occlusion, on both backends. A lightmap
+  replaces the tinted term, and a lightmap BAKE keeps its ambient untinted. White, the
+  default, packs exactly 1, so a material that never sets it renders bit-identically.
+  Until 2026-09-26 the port had no such property, and `lights`' ground (upstream
+  `Color.GRAY`) took its full ambient.
 - **SH light probes replace the ambient DIFFUSE only; the environment atlas
   still supplies the SPECULAR.** That is upstream's split (ambient and reflections
   are separate decisions) and the Metal chunk's; the Vulkan chunk put probes and
@@ -1622,7 +1640,11 @@ present, but the rule below never depends on reading it.
   2026-09-24). One focal from the width for both axes squashed every splat whenever the
   viewport's pixel aspect differed from the projection's (a manual camera aspect, a
   side-by-side stereo target); with square pixels the two agree, and the golden
-  `gsplat` case did not move.
+  `gsplat` case did not move. Under an ORTHOGRAPHIC camera the spherical harmonics are
+  evaluated along the camera forward, not from the camera position to the splat
+  (`GpuGSplatParams::cameraOrtho`, upstream #9531): ortho rays all run parallel, and the
+  old direction changed a splat's colour as the camera panned while the image stayed put.
+  No shipped asset has SH bands, so no render shows it.
 - **A splat's clip z is CLAMPED to the depth range, and that only works because
   its screen-space kernel is clamped too.** A gaussian splat is a quad built around
   ONE projected centre, so the whole quad carries that centre's depth: an unclamped
@@ -2156,6 +2178,9 @@ What stays HERE is only what bites during UNRELATED work.
   copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
+- **UI element LAYOUT is not ported.** `ElementComponent` holds pivot, anchor and margins,
+  but nothing reads them to place an entity, so upstream's layout fixes (#9525 keeping an
+  element's position under a screen, the drag helper of #9551) have nothing to land on.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles

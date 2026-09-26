@@ -94,19 +94,26 @@ namespace visutwin::canvas
         return _eval->evaluate(time, true);
     }
 
-    std::pair<float, float> Curve::closest(const float time) const
+    std::optional<std::pair<float, float>> Curve::closest(const float time) const
     {
         const size_t len = keys.size();
         if (!len) {
-            return {0.0f, 0.0f};
+            return std::nullopt;
         }
 
-        float min = 2.0f;
-        std::pair<float, float> result = keys.front();
+        // A time before or after the curve is closest to the key at that end. Clamp it
+        // first: far enough out, and always at infinity, every key is the same distance
+        // away and the tie-break would pick the last one (upstream #9544). The search has
+        // no distance limit — it used to start at 2, so a curve whose first key sat more
+        // than 2 from the time answered with that first key whatever the others were
+        // (upstream #9543).
+        const float t = std::min(std::max(time, keys.front().first), keys.back().first);
 
+        float min = std::numeric_limits<float>::infinity();
+        std::pair<float, float> result = keys.front();
         for (size_t i = 0; i < len; i++) {
-            const float diff = std::abs(time - keys[i].first);
-            if (min >= diff) {
+            const float diff = std::abs(t - keys[i].first);
+            if (min >= diff) {   // >=: a tie goes to the later key
                 min = diff;
                 result = keys[i];
             } else {

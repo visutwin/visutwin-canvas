@@ -14,6 +14,7 @@
 #include <limits>
 #include <cstring>
 #include <numbers>
+#include <set>
 
 #include "core/scopedTimer.h"
 #include "core/objectPool.h"
@@ -1851,6 +1852,19 @@ namespace visutwin::canvas
                     static_cast<float>(viewportW), static_cast<float>(viewportH));
                 if (gsplat->visibleCount() > 0) {
                     counters.gsplats += static_cast<int>(gsplat->visibleCount());
+#ifndef NDEBUG
+                    // Splats blend into EVERY sample of a multisampled target, which makes
+                    // them several times more expensive (upstream #9532, also Debug only).
+                    if (activeTarget && activeTarget->samples() > 1) {
+                        static std::set<std::string> warnedLayers;
+                        if (warnedLayers.insert(layer->name()).second) {
+                            spdlog::warn("Gaussian splats on layer '{}' are rendered into a multisampled "
+                                "target ({} samples), which makes them several times more expensive to "
+                                "render. Render them into a single-sampled target: set the camera's "
+                                "RenderingSettings::samples to 1.", layer->name(), activeTarget->samples());
+                        }
+                    }
+#endif
                     // The output stage: a splat carries a GAMMA-space colour, so it owes
                     // the target the fog, exposure, tone mapping and encode the forward
                     // tail applies to lit colour (upstream gsplatOutput). Until 2026-09-24
@@ -1858,6 +1872,7 @@ namespace visutwin::canvas
                     // under a camera frame: on a gamma target the splats were written
                     // linear, untonemapped and unfogged beside tonemapped meshes.
                     GpuGSplatParams splatParams = gsplat->gpuParams();
+                    splatParams.cameraOrtho = camera->projection() == ProjectionType::Orthographic ? 1u : 0u;
                     Color fogLinear;
                     fogLinear.linear(&fogParams.color);
                     splatParams.fogColor[0] = fogLinear.r;

@@ -122,6 +122,28 @@ if(VISUTWIN_BACKEND_METAL)
     find_library(QUARTZCORE_LIBRARY QuartzCore REQUIRED)
 
     include(MetalShaderSupport)
+
+    # The Metal compiler lives in a toolchain the system MOUNTS, under a path with a random
+    # suffix (/var/run/com.apple.security.cryptexd/mnt/...MetalToolchain-<ver>.<random>/),
+    # and the suffix changes when the toolchain is remounted. enable_language records the
+    # compiler once, in CMakeFiles/<cmake version>/CMakeMetalCompiler.cmake, and never looks
+    # again, so every configured tree then fails to regenerate with "The CMAKE_Metal_COMPILER
+    # ... is not a full path to an existing compiler tool". Forget a recorded compiler that
+    # no longer exists so detection runs again.
+    set(_vt_metal_compiler_file "${CMAKE_PLATFORM_INFO_DIR}/CMakeMetalCompiler.cmake")
+    if(EXISTS "${_vt_metal_compiler_file}")
+        file(STRINGS "${_vt_metal_compiler_file}" _vt_metal_compiler_line
+            REGEX "^set\\(CMAKE_Metal_COMPILER \"")
+        string(REGEX REPLACE "^set\\(CMAKE_Metal_COMPILER \"([^\"]*)\".*" "\\1"
+            _vt_metal_compiler "${_vt_metal_compiler_line}")
+        if(_vt_metal_compiler AND NOT EXISTS "${_vt_metal_compiler}")
+            message(STATUS "Metal compiler ${_vt_metal_compiler} is gone (toolchain remounted); detecting it again")
+            file(REMOVE "${_vt_metal_compiler_file}")
+            unset(CMAKE_Metal_COMPILER CACHE)
+            unset(CMAKE_Metal_COMPILER)
+        endif()
+    endif()
+
     enable_language(Metal)
 endif()
 
