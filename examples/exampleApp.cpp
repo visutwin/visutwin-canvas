@@ -24,9 +24,11 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <string_view>
+#include <vector>
 
 #include "extras/script/cameraControls.h"
 #include "framework/constants.h"
@@ -297,6 +299,22 @@ namespace visutwin::canvas
             spdlog::info("Fixed frame time {} s from VISUTWIN_FIXED_DT", fixedDt);
         }
 
+        // VISUTWIN_CPU_STATS=first,last collects the CPU side of frames [first, last] and
+        // prints the MEDIAN of each phase when the window closes: the engine's update, its
+        // render (less the display wait), and the per-phase frame statistics the renderer
+        // counts (cull, sort, forward, shadow, skin, cluster). Medians, not means: a window
+        // always holds a few frames the OS descheduled. Run with vsync off
+        // (VISUTWIN_NO_VSYNC=1) so the render time is not the pacing wait.
+        int cpuStatsFirst = -1;
+        int cpuStatsLast = -1;
+        if (const char* value = std::getenv("VISUTWIN_CPU_STATS"); value && *value) {
+            if (std::sscanf(value, "%d,%d", &cpuStatsFirst, &cpuStatsLast) != 2 || cpuStatsLast < cpuStatsFirst) {
+                cpuStatsFirst = cpuStatsLast = -1;
+            }
+        }
+        std::vector<std::array<double, 10>> cpuSamples;
+        int frameIndex = 0;
+
         while (_running) {
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
@@ -321,10 +339,37 @@ namespace visutwin::canvas
             }
 
             update(dt);
+            const auto updateStart = std::chrono::steady_clock::now();
             _engine->update(dt);
+            const double updateMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - updateStart).count();
             preRender();
             _engine->render();
             postRender();
+
+            if (cpuStatsFirst >= 0 && frameIndex >= cpuStatsFirst && frameIndex <= cpuStatsLast) {
+                const auto& stats = _engine->stats();
+                const auto& f = stats->frame();
+                cpuSamples.push_back({updateMs, f.renderTime, f.cullTime, f.sortTime, f.forwardTime,
+                    f.shadowMapTime, f.skinTime + f.morphTime, f.lightClustersTime,
+                    static_cast<double>(stats->drawCalls().total), static_cast<double>(f.shaders)});
+                if (frameIndex == cpuStatsLast) {
+                    std::array<double, 10> median{};
+                    for (size_t k = 0; k < median.size(); ++k) {
+                        std::vector<double> column;
+                        for (const auto& sample : cpuSamples) {
+                            column.push_back(sample[k]);
+                        }
+                        std::nth_element(column.begin(), column.begin() + column.size() / 2, column.end());
+                        median[k] = column[column.size() / 2];
+                    }
+                    spdlog::warn("CPU_STATS frames {}-{} median ms: update {:.3f} render {:.3f} | cull {:.3f} "
+                        "sort {:.3f} forward {:.3f} shadow {:.3f} skin+morph {:.3f} clusters {:.3f} | draws {:.0f} "
+                        "shaders {:.0f}", cpuStatsFirst, cpuStatsLast, median[0], median[1], median[2], median[3],
+                        median[4], median[5], median[6], median[7], median[8], median[9]);
+                }
+            }
+            ++frameIndex;
         }
 
         // While the engine and device are still alive — a derived destructor
@@ -385,7 +430,12 @@ namespace visutwin::canvas
             // SDL hands back the layer as void*, which is what the device takes —
             // no metal-cpp type is needed at the call site.
             deviceOptions.swapChain = SDL_GetRenderMetalLayer(_renderer);
-            if (std::getenv("VT_NOVSYNC")) deviceOptions.vsync = false;   // PROBE temporary
+            // VISUTWIN_NO_VSYNC=1 (Metal; Vulkan always presents FIFO): render as fast as the
+            // frames complete, for CPU timing
+            // (VISUTWIN_CPU_STATS).
+            if (const char* noVsync = std::getenv("VISUTWIN_NO_VSYNC"); noVsync && *noVsync == '1') {
+                deviceOptions.vsync = false;
+            }
             if (!deviceOptions.swapChain) {
                 spdlog::error("SDL_GetRenderMetalLayer returned no layer — is the SDL metal renderer active?");
                 return false;

@@ -472,19 +472,20 @@ namespace visutwin::canvas
             _lightingUniforms.flagsAndPad[0] &= ~(1u << 5);
         }
 
-        // LightingUniforms at slot 4 — hash-based deduplication to skip ring
-        // allocation when lighting data hasn't changed. 95%+ of draws within a
-        // layer have identical lighting because all mesh instances default to
-        // MASK_AFFECT_DYNAMIC = 1 and all lights use the same default mask.
-        const uint32_t lightingHash = hash32Fnv1a(
-            reinterpret_cast<const uint32_t*>(&_lightingUniforms),
-            sizeof(LightingUniforms) / sizeof(uint32_t));
+        // LightingUniforms at slot 4: reuse the previous upload when the block is
+        // unchanged, which is nearly every draw — the renderer sets it once per layer.
+        // Compared with memcmp against a copy of what was uploaded, not by hashing it:
+        // FNV-1a over the ~2.8 KB block is a serial 700-step multiply chain, about a
+        // microsecond per draw, and on a 2,000-draw frame (`taa`) it was the single
+        // largest CPU cost in the engine, 2 ms; memcmp is vectorised and exact, where a
+        // hash could also collide and reuse the wrong lighting.
         size_t lightingOffset;
-        if (_lightingBoundThisPass && lightingHash == _lastLightingHash) {
+        if (_lightingBoundThisPass &&
+            std::memcmp(&_lightingUniforms, &_lastLightingUniforms, sizeof(LightingUniforms)) == 0) {
             lightingOffset = _lastLightingOffset;
         } else {
             lightingOffset = uniformRing->allocate(&_lightingUniforms, sizeof(LightingUniforms));
-            _lastLightingHash = lightingHash;
+            std::memcpy(&_lastLightingUniforms, &_lightingUniforms, sizeof(LightingUniforms));
             _lastLightingOffset = lightingOffset;
             _lightingBoundThisPass = true;
         }

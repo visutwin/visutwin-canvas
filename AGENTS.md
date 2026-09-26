@@ -1726,6 +1726,15 @@ present, but the rule below never depends on reading it.
   as well as the cache (Debug builds' re-pack comparison reports it). Measured 2026-09-25:
   ring allocations per frame 231 -> 23 (`clustered-spot-shadows`), descriptor-set
   allocations 228 -> 6 and writes 224 -> 2, CPU time in `draw()` -15%.
+- **A per-draw deduplication must not HASH the block it deduplicates.** Metal's binder
+  hashed the whole ~2.8 KB lighting block with FNV-1a on every draw to find it unchanged:
+  a serial 700-step multiply chain, about a microsecond a draw, and on a 2,000-draw frame
+  the largest CPU cost in the engine. It keeps a copy of the last upload and `memcmp`s
+  against it now: vectorised, and exact where a hash can collide and reuse the wrong
+  block. Vulkan's image descriptor sets likewise remember the last set handed out per
+  layout, with the exact image infos (`LastImageDescriptorSet`, tied to `_frameSerial`),
+  before falling back to the hashed per-frame cache. Measured 2026-09-26 on `taa`, frame
+  CPU -20% on Metal and -28% on Vulkan; bit-identical frames.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
@@ -2069,6 +2078,19 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     vanishes frozen is TIMING (something from another frame), not shading, and a large
     step (2.0) magnifies it until the wrong backend is obvious.
 
+14. `VISUTWIN_CPU_STATS=first,last` prints, when frame `last` is reached, the MEDIAN over
+    frames [first, last] of the engine's update, its render (less the display wait), and
+    the renderer's per-phase frame statistics (cull, sort, forward, shadow, skin and morph,
+    clusters). `VISUTWIN_NO_VSYNC=1` turns off Metal's display sync for such a run; Vulkan
+    always presents FIFO. Turn the HUD off (`VISUTWIN_MINISTATS=0`): it costs more than
+    the renderer in small scenes. A CPU claim needs the before and after binaries run
+    ALTERNATELY, three times each, as a GPU claim does, and a profile before a change: on
+    2026-09-26 the queued "hot" items (the culling sweep, graph-build churn) measured
+    under 0.1 ms, while `sample <pid> 5` found the real costs in one minute. Sort its
+    output by inclusive samples per engine function; a function that owns most of the
+    main thread but sits in `nextDrawable` (Metal) or `onFrameEnd` (Vulkan) is waiting
+    on the GPU, not working.
+
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.
 
@@ -2220,17 +2242,19 @@ What stays HERE is only what bites during UNRELATED work.
   per-texture sampler would filter it — check anisotropy, not just filter and
   wrap — or every oblique surface diverges by backend.
 - **Queued after the 2026-09-25 triage — verified still true that day, none a correctness
-  bug:** Vulkan allocates and writes set 4 per skinned or morphed draw (its palette
-  offset differs per draw, so removing it needs dynamic offsets); the lighting block's
-  semantic derivation is written twice (`MetalUniformBinder::setLightingUniforms` and
-  Vulkan's `setLightingUniforms` — the LAYOUTS differ, the derivation need not);
-  `cullMeshInstancesInto` sweeps every RenderComponent per (camera, layer) and
-  `renderForwardLayer` recomputes frame-global state per sublayer; per-frame heap churn
-  in the graph build; component `_instances` lists are
+  bug:** the lighting block's semantic derivation is written twice
+  (`MetalUniformBinder::setLightingUniforms` and Vulkan's `setLightingUniforms` — the
+  LAYOUTS differ, the derivation need not); component `_instances` lists are
   process-global (two engines in one process see each other's components); three
   `generateTangents` copies in the parsers (same sign rule, opposite to
   `calculateTangents`); glTF animation tracks keyed by name lose clip order; the binding
-  footprint exceeds WebGPU's defaults (Metal 36 texture slots, Vulkan 7 sets).
+  footprint exceeds WebGPU's defaults (Metal 36 texture slots, Vulkan 7 sets). MEASURED
+  and dropped on 2026-09-26 (`VISUTWIN_CPU_STATS` plus `sample`): the per-(camera, layer)
+  culling sweep is at most 0.1 ms a frame even at 2,173 draws; `renderForwardLayer`'s own
+  per-sublayer work is under 2% of the main thread; the graph build and its allocations
+  do not register; Vulkan's set 4 per skinned draw and a variant-sorted caster list
+  have nothing to act on in any shipped scene. Revisit them only with a scene that shows
+  them in a profile.
 - **The ambient diffuse is scaled by `(1 - specularity)` on both backends**, right
   where upstream's `litForwardBackend` does it after `addAmbient`: per channel, F0 in
   either workflow, only when the material renders specular, and only on the ambient

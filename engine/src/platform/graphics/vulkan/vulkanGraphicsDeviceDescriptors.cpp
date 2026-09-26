@@ -146,6 +146,33 @@ namespace visutwin::canvas
             return VK_NULL_HANDLE;
         }
 
+        // The memo: one slot per layout (a draw asks for the material set and the
+        // scene set), the least recently used one replaced.
+        LastImageDescriptorSet* memo = nullptr;
+        for (auto& last : _lastImageDescriptorSets) {
+            if (last.layout == layout && last.serial == _frameSerial) {
+                memo = &last;
+                break;
+            }
+        }
+        if (memo && memo->count == imageInfos.size() && memo->set != VK_NULL_HANDLE &&
+            std::memcmp(memo->infos.data(), imageInfos.data(),
+                imageInfos.size() * sizeof(VkDescriptorImageInfo)) == 0) {
+            return memo->set;
+        }
+        if (!memo) {
+            memo = &_lastImageDescriptorSets[_lastImageDescriptorSetVictim];
+            _lastImageDescriptorSetVictim = (_lastImageDescriptorSetVictim + 1) % _lastImageDescriptorSets.size();
+        }
+        const auto remember = [&](const VkDescriptorSet set) {
+            memo->layout = layout;
+            memo->serial = _frameSerial;
+            memo->count = static_cast<uint32_t>(imageInfos.size());
+            std::memcpy(memo->infos.data(), imageInfos.data(), imageInfos.size() * sizeof(VkDescriptorImageInfo));
+            memo->set = set;
+            return set;
+        };
+
         ImageDescriptorKey key{};
         key.layout = layout;
         key.count = static_cast<uint32_t>(imageInfos.size());
@@ -156,7 +183,7 @@ namespace visutwin::canvas
 
         auto& cache = _frames[_frameIndex].imageDescriptorCache;
         if (const auto found = cache.find(key); found != cache.end()) {
-            return found->second;
+            return remember(found->second);
         }
 
         const VkDescriptorSet set = allocateFrameDescriptorSet(layout);
@@ -194,7 +221,7 @@ namespace visutwin::canvas
         }
         vkUpdateDescriptorSets(_device, key.count, writes.data(), 0, nullptr);
         cache.emplace(key, set);
-        return set;
+        return remember(set);
     }
 
     void VulkanGraphicsDevice::writeUniformRingDescriptors()

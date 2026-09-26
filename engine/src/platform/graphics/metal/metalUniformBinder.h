@@ -192,7 +192,9 @@ namespace visutwin::canvas
 
         // Lighting dedup: FNV-1a hash of LightingUniforms.
         bool _lightingBoundThisPass = false;
-        uint32_t _lastLightingHash = 0;
+        // The block last uploaded this pass, compared EXACTLY against the current one
+        // (see submitPerDrawUniforms).
+        LightingUniforms _lastLightingUniforms{};
         size_t _lastLightingOffset = 0;
 
         // Material dedup: pointer comparison.

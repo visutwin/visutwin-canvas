@@ -452,6 +452,22 @@ namespace visutwin::canvas
             size_t operator()(const ImageDescriptorKey& key) const;
         };
 
+        // The last set handed out per layout, and the exact image infos it was asked
+        // for. Consecutive draws nearly always ask for the same set — the scene set is
+        // constant within a pass and draws are sorted by material — so this answers
+        // most calls with one memcmp instead of building, hashing and comparing a
+        // 400-byte key. `serial` ties it to _frameSerial, bumped where the per-frame
+        // descriptor pools are rewound.
+        struct LastImageDescriptorSet {
+            VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+            uint64_t serial = 0;
+            uint32_t count = 0;
+            std::array<VkDescriptorImageInfo, kMaxCachedImageBindings> infos{};
+            VkDescriptorSet set = VK_NULL_HANDLE;
+        };
+        std::array<LastImageDescriptorSet, 2> _lastImageDescriptorSets{};
+        size_t _lastImageDescriptorSetVictim = 0;
+
         struct FrameDescriptorPool {
             VkDescriptorPool handle = VK_NULL_HANDLE;
             uint32_t maxSets = 0;
