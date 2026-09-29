@@ -554,8 +554,19 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   the screen depth-first from 1 (priority << 24 on top), queued by binding, unbinding and
   `setPriority` and resolved by the screen system's update; the UI layer's transparent
   sublayer is SORTMODE_MANUAL on it.
-- **Not ported:** MSDF text (multi-page fonts, outline, shadow, markup, auto size),
-  layout groups, masks, scroll views, tiled sprites, the drag helper.
+- **Text.** Fonts are upstream's JSON format with one image per page (`<name>.png`,
+  `<name>1.png`, ...). A font whose glyphs carry `range` is MSDF: pages are kept raw and
+  bilinear, `pxRange` is scale x range and `intensity` comes from the file. The visual
+  builds one mesh per page and a material with `setMsdfMap(page)` +
+  `setMsdfFont(pxRange, intensity)`; the shader derives the transition width from
+  `fwidth(uv)` and the page size in `MaterialUniforms::msdfParams` (floored at 2.5 screen
+  pixels, as upstream). `setOutlineColor` / `setOutlineThickness` (0..1) and
+  `setShadowColor` / `setShadowOffset` are upstream's element properties and scaling.
+  The fill is tone mapped (unless a camera frame owes it that) before the outline and
+  shadow, which are not — upstream applies MSDF after its tone mapping. A font without
+  `range` is a bitmap font: coverage in alpha, nearest filtering, as before.
+- **Not ported:** text markup and auto size, layout groups, masks, scroll views, tiled
+  sprites, the drag helper.
 
 ## Graphics abstraction
 

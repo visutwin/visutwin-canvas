@@ -120,7 +120,8 @@ void main() {
         }
     }
 
-    vec4 baseSample = vtFeatureEnabled(VT_FEATURE_BASE_COLOR_MAP_BIT)
+    // Under MSDF the base slot holds a distance field, read by the unlit path below.
+    vec4 baseSample = (vtFeatureEnabled(VT_FEATURE_BASE_COLOR_MAP_BIT) && !vtFeatureEnabled(VT_FEATURE_MSDF_BIT))
         ? texture(baseColorMap, uvBase) : vec4(1.0);
     // fragColor is vec4(1) except for the vertex-color / point-cloud vertex
     // variants, which feed the mesh's per-vertex color through.
@@ -200,7 +201,39 @@ void main() {
         }
         // Under the camera frame (bit 5) compose owes exposure, tonemap and gamma, as
         // on the tail and the sky paths; applying them here too clipped an HDR emissive.
-        if ((lighting.flagsAndPad[0] & (1u << 5)) != 0u) {
+        bool linearHdrTarget = (lighting.flagsAndPad[0] & (1u << 5)) != 0u;
+        if (vtFeatureEnabled(VT_FEATURE_MSDF_BIT)) {
+            // Upstream applyMsdf, as the Metal chunk: fill, outline and shadow composited
+            // premultiplied in linear, the straight colour encoded at the end. The fill
+            // is tone mapped unless compose owes it that; outline and shadow are not.
+            vec3 unlitColor = max(albedo.rgb + unlitEmissive, vec3(0.0));
+            vec3 fill = linearHdrTarget ? unlitColor : applyToneMap(unlitColor);
+            vec4 color = vec4(fill * albedo.a, albedo.a);
+            vec2 uvShadow = uvBase - material.msdfOutlineShadow.yz;
+            vec3 tsample = texture(baseColorMap, uvBase).rgb;
+            vec3 ssample = texture(baseColorMap, uvShadow).rgb;
+            float sigDist = max(min(tsample.r, tsample.g), min(max(tsample.r, tsample.g), tsample.b));
+            float sigDistShdw = max(min(ssample.r, ssample.g), min(max(ssample.r, ssample.g), ssample.b));
+            float edge = 0.5 - 0.5 * material.msdfParams.y;
+            // The page size comes in the block: textureSize() on a combined sampler does
+            // not survive MoltenVK's translation.
+            vec2 unitRange = vec2(material.msdfParams.x) / max(material.msdfParams.zw, vec2(1.0));
+            float screenPxRange = max(0.5 * dot(unitRange, 1.0 / max(fwidth(uvBase), vec2(1e-6))), 2.5);
+            float thickness = material.msdfOutlineShadow.x;
+            float inside = clamp(screenPxRange * (sigDist - edge) + 0.5, 0.0, 1.0);
+            float outline = clamp(screenPxRange * (sigDist + thickness - edge) + 0.5, 0.0, 1.0);
+            float shadow = clamp(screenPxRange * (sigDistShdw + thickness - edge) + 0.5, 0.0, 1.0);
+            vec4 oc = material.msdfOutlineColor;
+            vec4 sc = material.msdfShadowColor;
+            vec4 tcolor = (outline > inside) ? outline * vec4(oc.a * oc.rgb, oc.a) : vec4(0.0);
+            tcolor = mix(tcolor, color, inside);
+            vec4 scolor = (shadow > outline) ? shadow * vec4(sc.a * sc.rgb, sc.a) : tcolor;
+            tcolor = mix(scolor, tcolor, outline);
+            vec3 straight = tcolor.rgb / max(tcolor.a, 0.0001);
+            outColor = vec4(linearHdrTarget ? straight : pow(max(straight, vec3(0.0)), vec3(1.0 / 2.2)), tcolor.a);
+            return;
+        }
+        if (linearHdrTarget) {
             outColor = vec4(max(albedo.rgb + unlitEmissive, vec3(0.0)), albedo.a);
             return;
         }

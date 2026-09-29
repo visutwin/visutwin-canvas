@@ -44,6 +44,7 @@ namespace visutwin::canvas
         void setDiffuseMap(Texture* texture)
         {
             _diffuseMap = texture;
+            _msdfMap = nullptr;   // one base slot: the last of the two setters wins
             setBaseColorTexture(texture);
             setHasBaseColorTexture(texture != nullptr);
             markUniformsDirty();
@@ -185,6 +186,46 @@ namespace visutwin::canvas
         /// not touch a lightmap, which replaces the ambient, nor direct light.
         const Color& ambient() const { return _ambient; }
         void setAmbient(const Color& value) { _ambient = value; markUniformsDirty(); }
+
+        // --- MSDF text (upstream msdfMap and the text element's font uniforms) ---
+        /// A multi-channel signed distance field atlas page. It takes the BASE COLOUR
+        /// slot — a text material has no diffuse map — and compiles VT_FEATURE_MSDF, under
+        /// which the unlit path reads the slot as distances rather than colour: coverage
+        /// from the median of RGB, then outline and shadow composited in linear, as
+        /// upstream's applyMsdf. Setting it replaces any diffuse map, and vice versa.
+        Texture* msdfMap() const { return _msdfMap; }
+        void setMsdfMap(Texture* texture)
+        {
+            _msdfMap = texture;
+            _diffuseMap = nullptr;
+            setBaseColorTexture(texture);
+            setHasBaseColorTexture(texture != nullptr);
+            markUniformsDirty();
+        }
+        /// Texels of distance spread in the atlas (upstream font_pxrange) and the
+        /// intensity that fattens the glyph (font_sdfIntensity).
+        void setMsdfFont(const float pxRange, const float intensity)
+        {
+            _msdfPxRange = pxRange;
+            _msdfIntensity = intensity;
+            markUniformsDirty();
+        }
+        /// Outline colour (sRGB, alpha straight) and SHADER thickness (upstream's
+        /// outlineThickness x 0.2).
+        void setMsdfOutline(const Color& color, const float thickness)
+        {
+            _msdfOutlineColor = color;
+            _msdfOutlineThickness = thickness;
+            markUniformsDirty();
+        }
+        /// Shadow colour (sRGB, alpha straight) and offset in atlas UV (this engine's
+        /// v-down UVs; the text element converts upstream's shadowOffset).
+        void setMsdfShadow(const Color& color, const Vector2& uvOffset)
+        {
+            _msdfShadowColor = color;
+            _msdfShadowOffset = uvOffset;
+            markUniformsDirty();
+        }
 
         const Color& emissive() const { return _emissive; }
         void setEmissive(const Color& value) { _emissive = value; markUniformsDirty(); }
@@ -432,6 +473,13 @@ namespace visutwin::canvas
         MapChannel _refractionMapChannel = MapChannel::MAP_CHANNEL_G;
 
         Color _ambient = Color(1.0f, 1.0f, 1.0f, 1.0f);
+        Texture* _msdfMap = nullptr;
+        float _msdfPxRange = 2.0f;
+        float _msdfIntensity = 0.0f;
+        Color _msdfOutlineColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
+        float _msdfOutlineThickness = 0.0f;
+        Color _msdfShadowColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
+        Vector2 _msdfShadowOffset = Vector2(0.0f, 0.0f);
 
         Color _emissive = Color(0.0f, 0.0f, 0.0f, 1.0f);
         float _emissiveIntensity = 1.0f;

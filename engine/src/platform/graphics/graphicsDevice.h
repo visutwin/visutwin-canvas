@@ -42,9 +42,10 @@ namespace visutwin::canvas
      * MaterialUniforms: quad effects ride the same slot and some carry more —
      * volumetric fog's block is 512 bytes. On Vulkan this is the dynamic
      * descriptor's range, and the allocation behind it is padded to match, so a
-     * shader can never read past its own allocation.
+     * shader can never read past its own allocation. 640 since 2026-09-29, when the
+     * MSDF text fields took MaterialUniforms to 528 bytes.
      */
-    inline constexpr size_t kPerDrawUniformCapacity = 512;
+    inline constexpr size_t kPerDrawUniformCapacity = 640;
 
     class Compute;
     class Texture;

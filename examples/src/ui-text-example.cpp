@@ -4,21 +4,18 @@
 // Port of upstream user-interface/text.
 //
 // A screen-space Screen (reference resolution 1280x720) over a dark grey clear
-// holds four Text elements in the courier bitmap font, centred horizontally
+// holds four Text elements in the courier MSDF font, centred horizontally
 // and placed relative to the screen centre: "Basic Text" (42 px, 200 up), a
 // wrapped rainbow sentence in a 500x100 box (32 px, 50 up), "Outline" (62 px,
-// 100 down) and "Drop Shadow" (62 px, 200 down).
+// 100 down, black with a white 0.75 outline) and "Drop Shadow" (62 px, 200 down,
+// with a red shadow offset (0.25, -0.25)).
 //
 // This is upstream's example BEFORE its rebuild into a game-over screen (#9566);
-// re-port that one once text outline, shadow and markup exist.
+// re-port that one once text markup exists.
 //
 // DEVIATIONS:
 // - no text markup: the rainbow sentence is the same text with its [color] tags
 //   removed, so every word is white.
-// - no outline: "Outline" is black with a white 0.75 outline upstream, which
-//   without the outline is invisible on the dark clear, so it is drawn in the
-//   outline colour (white) instead.
-// - no drop shadow: "Drop Shadow" is drawn without its red (0.25, -0.25) shadow.
 //
 #include <memory>
 #include <string>
@@ -92,12 +89,16 @@ protected:
             32, 500.0f, 100.0f, true, Color(1.0f, 1.0f, 1.0f, 1.0f), 50.0f);
 
         // Text with outline
-        createText(screenEntity, font, "Outline", 62, 400.0f, 62.0f, false,
-            Color(1.0f, 1.0f, 1.0f, 1.0f), -100.0f);
+        auto* outline = createText(screenEntity, font, "Outline", 62, 400.0f, 62.0f, false,
+            Color(0.0f, 0.0f, 0.0f, 1.0f), -100.0f);
+        outline->setOutlineColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
+        outline->setOutlineThickness(0.75f);
 
         // Text with drop shadow
-        createText(screenEntity, font, "Drop Shadow", 62, 600.0f, 62.0f, false,
+        auto* dropShadow = createText(screenEntity, font, "Drop Shadow", 62, 600.0f, 62.0f, false,
             Color(1.0f, 1.0f, 1.0f, 1.0f), -200.0f);
+        dropShadow->setShadowColor(Color(1.0f, 0.0f, 0.0f, 1.0f));
+        dropShadow->setShadowOffset(Vector2(0.25f, -0.25f));
 
         return true;
     }

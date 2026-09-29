@@ -138,9 +138,65 @@ namespace visutwin::canvas
             }
         }
 
-        float median3(const float a, const float b, const float c)
+        /// One atlas page. An MSDF page keeps its distance field untouched and is sampled
+        /// BILINEARLY — the field is what makes an edge sharp at any scale. A bitmap page
+        /// gets its coverage in alpha (lifted from RGB when the alpha is flat) and keeps
+        /// nearest filtering.
+        Texture* loadFontPage(const std::string& path, const bool msdf, const std::shared_ptr<GraphicsDevice>& device)
         {
-            return std::max(std::min(a, b), std::min(std::max(a, b), c));
+            int w = 0;
+            int h = 0;
+            int channels = 0;
+            // Glyph rects are top-left origin, so the atlas must NOT be flipped. Clearing
+            // only stb's global flag here was overridden by the GLB parser's thread-local
+            // one, and a font loaded after any GLB drew every glyph upside down.
+            stbi_uc* pixels = nullptr;
+            {
+                const StbVerticalFlipScope flipScope(false);
+                pixels = stbi_load(path.c_str(), &w, &h, &channels, STBI_rgb_alpha);
+            }
+            if (!pixels || w <= 0 || h <= 0) {
+                if (pixels) {
+                    stbi_image_free(pixels);
+                }
+                return nullptr;
+            }
+            const size_t pixelCount = static_cast<size_t>(w) * static_cast<size_t>(h);
+            if (!msdf) {
+                uint8_t minA = 255;
+                uint8_t maxA = 0;
+                for (size_t i = 0; i < pixelCount; ++i) {
+                    minA = std::min(minA, pixels[i * 4u + 3u]);
+                    maxA = std::max(maxA, pixels[i * 4u + 3u]);
+                }
+                if (minA == maxA) {
+                    for (size_t i = 0; i < pixelCount; ++i) {
+                        const uint8_t cov = std::max(pixels[i * 4u + 0u], std::max(pixels[i * 4u + 1u], pixels[i * 4u + 2u]));
+                        pixels[i * 4u + 0u] = 255;
+                        pixels[i * 4u + 1u] = 255;
+                        pixels[i * 4u + 2u] = 255;
+                        pixels[i * 4u + 3u] = cov;
+                    }
+                }
+            }
+
+            TextureOptions options;
+            options.width = static_cast<uint32_t>(w);
+            options.height = static_cast<uint32_t>(h);
+            options.format = PixelFormat::PIXELFORMAT_RGBA8;
+            options.mipmaps = false;
+            options.minFilter = msdf ? FilterMode::FILTER_LINEAR : FilterMode::FILTER_NEAREST;
+            options.magFilter = msdf ? FilterMode::FILTER_LINEAR : FilterMode::FILTER_NEAREST;
+            options.numLevels = 1;
+            options.name = "font-atlas";
+            options.profilerHint = TexHint::TEXHINT_ASSET;
+            auto* texture = new Texture(device.get(), options);
+            // Distance values, not colour: never sRGB-decoded.
+            texture->setEncoding(TextureEncoding::Default);
+            texture->setLevelData(0, reinterpret_cast<const uint8_t*>(pixels), pixelCount * 4u);
+            texture->upload();
+            stbi_image_free(pixels);
+            return texture;
         }
     }
 
@@ -160,19 +216,38 @@ namespace visutwin::canvas
 
         auto* font = new FontResource();
 
+        // info.maps: one { width, height } per atlas page.
+        std::vector<std::pair<int, int>> pageSizes;
         {
-            const std::string mapMarker = "\"maps\":[{";
-            const size_t mapPos = text.find(mapMarker);
-            if (mapPos != std::string::npos) {
-                const size_t mapStart = text.find('{', mapPos);
-                const size_t mapEnd = text.find('}', mapStart);
-                if (mapStart != std::string::npos && mapEnd != std::string::npos && mapEnd > mapStart) {
+            const std::string mapsMarker = "\"maps\":[";
+            const size_t mapsPos = text.find(mapsMarker);
+            if (mapsPos != std::string::npos) {
+                const size_t listEnd = text.find(']', mapsPos);
+                size_t p = mapsPos + mapsMarker.size();
+                while (listEnd != std::string::npos && p < listEnd) {
+                    const size_t mapStart = text.find('{', p);
+                    if (mapStart == std::string::npos || mapStart > listEnd) {
+                        break;
+                    }
+                    const size_t mapEnd = text.find('}', mapStart);
+                    if (mapEnd == std::string::npos) {
+                        break;
+                    }
                     const std::string mapBlock = text.substr(mapStart, mapEnd - mapStart + 1);
-                    parseIntField(mapBlock, "width", font->atlasWidth);
-                    parseIntField(mapBlock, "height", font->atlasHeight);
+                    int width = 0;
+                    int height = 0;
+                    parseIntField(mapBlock, "width", width);
+                    parseIntField(mapBlock, "height", height);
+                    pageSizes.emplace_back(width, height);
+                    p = mapEnd + 1;
                 }
             }
         }
+        if (!pageSizes.empty()) {
+            font->atlasWidth = pageSizes[0].first;
+            font->atlasHeight = pageSizes[0].second;
+        }
+        parseNumberField(text, "intensity", font->intensity);
 
         {
             const std::string charsMarker = "\"chars\":{";
@@ -212,6 +287,14 @@ namespace visutwin::canvas
                     parseNumberField(block, "xadvance", glyph.xadvance);
                     parseNumberField(block, "xoffset", glyph.xoffset);
                     parseNumberField(block, "yoffset", glyph.yoffset);
+                    parseIntField(block, "map", glyph.page);
+                    // Upstream _getPxRange: scale x range of the first glyph that has one.
+                    if (float range = 0.0f; !font->msdf && parseNumberField(block, "range", range) && range > 0.0f) {
+                        float scale = 1.0f;
+                        parseNumberField(block, "scale", scale);
+                        font->pxRange = (scale > 0.0f ? scale : 1.0f) * range;
+                        font->msdf = true;
+                    }
                     font->glyphs[glyph.id] = glyph;
 
                     font->lineHeight = std::max(font->lineHeight, glyph.height);
@@ -286,125 +369,28 @@ namespace visutwin::canvas
                 }
             }
 
-        const std::string atlasPath = replaceExtensionWithPng(jsonPath);
-        int w = 0;
-        int h = 0;
-        int channels = 0;
-        // Glyph rects are top-left origin, so the atlas must NOT be flipped. Clearing
-        // only stb's global flag here was overridden by the GLB parser's thread-local
-        // one, and a font loaded after any GLB drew every glyph upside down.
-        stbi_uc* pixels = nullptr;
-        {
-            const StbVerticalFlipScope flipScope(false);
-            pixels = stbi_load(atlasPath.c_str(), &w, &h, &channels, STBI_rgb_alpha);
-        }
-        if (!pixels || w <= 0 || h <= 0) {
-            delete font;
-            if (pixels) {
-                stbi_image_free(pixels);
+        // One image per page: <name>.png, <name>1.png, <name>2.png, ... (upstream's font
+        // handler names them the same way).
+        const std::string basePath = replaceExtensionWithPng(jsonPath);
+        const std::string stem = basePath.substr(0, basePath.size() - 4);
+        const size_t pageCount = std::max<size_t>(pageSizes.size(), 1);
+        for (size_t page = 0; page < pageCount; ++page) {
+            const std::string pagePath = page == 0 ? basePath : stem + std::to_string(page) + ".png";
+            Texture* texture = loadFontPage(pagePath, font->msdf, graphicsDevice);
+            if (!texture) {
+                spdlog::error("Font '{}': atlas page {} ('{}') failed to load", jsonPath, page, pagePath);
+                delete font;
+                return std::nullopt;
             }
-            return std::nullopt;
+            font->pages.push_back(texture);
         }
-
-        const size_t pixelCount = static_cast<size_t>(w) * static_cast<size_t>(h);
-        const bool likelySdfMsdf = text.find("\"range\":") != std::string::npos;
-
-        // Current renderer path is bitmap-style. If the font looks like SDF/MSDF
-        // (upstream courier does), pre-bake distance field into alpha coverage.
-        if (likelySdfMsdf) {
-            size_t midCountPos = 0;
-            size_t midCountNeg = 0;
-            std::vector<uint8_t> alphaPos(pixelCount);
-            std::vector<uint8_t> alphaNeg(pixelCount);
-            for (size_t i = 0; i < pixelCount; ++i) {
-                const float r = static_cast<float>(pixels[i * 4u + 0u]) / 255.0f;
-                const float g = static_cast<float>(pixels[i * 4u + 1u]) / 255.0f;
-                const float b = static_cast<float>(pixels[i * 4u + 2u]) / 255.0f;
-                const float sd = median3(r, g, b) - 0.5f;
-                const float covPos = std::clamp(sd * 8.0f + 0.5f, 0.0f, 1.0f);
-                const float covNeg = std::clamp((-sd) * 8.0f + 0.5f, 0.0f, 1.0f);
-                const uint8_t aPos = static_cast<uint8_t>(std::lround(covPos * 255.0f));
-                const uint8_t aNeg = static_cast<uint8_t>(std::lround(covNeg * 255.0f));
-                alphaPos[i] = aPos;
-                alphaNeg[i] = aNeg;
-                if (aPos > 10 && aPos < 245) {
-                    midCountPos++;
-                }
-                if (aNeg > 10 && aNeg < 245) {
-                    midCountNeg++;
-                }
-            }
-            const bool useNeg = midCountNeg > midCountPos;
-            for (size_t i = 0; i < pixelCount; ++i) {
-                pixels[i * 4u + 0u] = 255;
-                pixels[i * 4u + 1u] = 255;
-                pixels[i * 4u + 2u] = 255;
-                pixels[i * 4u + 3u] = useNeg ? alphaNeg[i] : alphaPos[i];
-            }
-            spdlog::info(
-                "Font atlas '{}' detected as SDF/MSDF; baked {} signed-distance coverage to alpha (mid-pos={}, mid-neg={}).",
-                atlasPath,
-                useNeg ? "negative" : "positive",
-                midCountPos,
-                midCountNeg
-            );
-        }
-
-        // Fallback: some atlases still have flat alpha; lift coverage from RGB.
-        uint8_t minA = 255;
-        uint8_t maxA = 0;
-        for (size_t i = 0; i < pixelCount; ++i) {
-            const uint8_t a = pixels[i * 4u + 3u];
-            minA = std::min(minA, a);
-            maxA = std::max(maxA, a);
-        }
-        if (minA == maxA) {
-            for (size_t i = 0; i < pixelCount; ++i) {
-                const uint8_t r = pixels[i * 4u + 0u];
-                const uint8_t g = pixels[i * 4u + 1u];
-                const uint8_t b = pixels[i * 4u + 2u];
-                const uint8_t cov = std::max(r, std::max(g, b));
-                pixels[i * 4u + 0u] = 255;
-                pixels[i * 4u + 1u] = 255;
-                pixels[i * 4u + 2u] = 255;
-                pixels[i * 4u + 3u] = cov;
-            }
-            spdlog::info("Font atlas '{}' had flat alpha; applied RGB->alpha bitmap fallback.", atlasPath);
-        }
-
-        uint8_t outMinA = 255;
-        uint8_t outMaxA = 0;
-        for (size_t i = 0; i < pixelCount; ++i) {
-            const uint8_t a = pixels[i * 4u + 3u];
-            outMinA = std::min(outMinA, a);
-            outMaxA = std::max(outMaxA, a);
-        }
-        spdlog::info("Font atlas '{}' output alpha range: {}..{}", atlasPath, outMinA, outMaxA);
-
-        TextureOptions options;
-        options.width = static_cast<uint32_t>(w);
-        options.height = static_cast<uint32_t>(h);
-        options.format = PixelFormat::PIXELFORMAT_RGBA8;
-        options.mipmaps = false;
-        options.minFilter = FilterMode::FILTER_NEAREST;
-        options.magFilter = FilterMode::FILTER_NEAREST;
-        options.numLevels = 1;
-        options.name = "font-atlas";
-        options.profilerHint = TexHint::TEXHINT_ASSET;
-
-        auto* texture = new Texture(graphicsDevice.get(), options);
-        texture->setEncoding(TextureEncoding::Default);
-        const size_t dataSize = pixelCount * 4u;
-        texture->setLevelData(0, reinterpret_cast<const uint8_t*>(pixels), dataSize);
-        texture->upload();
-        stbi_image_free(pixels);
-
-        font->texture = texture;
-        if (font->atlasWidth <= 0) font->atlasWidth = w;
-        if (font->atlasHeight <= 0) font->atlasHeight = h;
+        font->texture = font->pages[0];
+        if (font->atlasWidth <= 0) font->atlasWidth = static_cast<int>(font->texture->width());
+        if (font->atlasHeight <= 0) font->atlasHeight = static_cast<int>(font->texture->height());
         if (font->lineHeight <= 0.0f) font->lineHeight = 64.0f;
-        spdlog::info("Loaded bitmap font '{}': atlas={}x{}, glyphs={}, kerning={}",
-            jsonPath, font->atlasWidth, font->atlasHeight, font->glyphs.size(), font->kerning.size());
+        spdlog::info("Loaded {} font '{}': {} page(s), {}x{}, glyphs={}, kerning={}, pxrange={}",
+            font->msdf ? "MSDF" : "bitmap", jsonPath, font->pages.size(), font->atlasWidth, font->atlasHeight,
+            font->glyphs.size(), font->kerning.size(), font->pxRange);
         return font;
     }
 }

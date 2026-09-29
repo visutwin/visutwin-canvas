@@ -10,11 +10,13 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include <SDL3/SDL.h>
+#include <spdlog/spdlog.h>
 
 #include "framework/components/button/buttonComponent.h"
 #include "framework/components/componentSystem.h"
@@ -168,10 +170,13 @@ namespace visutwin::canvas
             return mesh;
         }
 
-        std::shared_ptr<Mesh> buildTextMesh(const std::shared_ptr<GraphicsDevice>& gd, const ElementComponent* element)
+        /// One mesh per atlas page the text touches, keyed by page (upstream builds a mesh
+        /// instance per `meshInfo` the same way: each page is its own texture).
+        std::vector<std::pair<int, std::shared_ptr<Mesh>>> buildTextMeshes(const std::shared_ptr<GraphicsDevice>& gd,
+                                                                           const ElementComponent* element)
         {
             if (!gd || !element || !element->fontResource() || element->text().empty()) {
-                return nullptr;
+                return {};
             }
 
             const FontResource* font = element->fontResource();
@@ -189,10 +194,13 @@ namespace visutwin::canvas
                 lines = std::move(wrapped);
             }
 
-            std::vector<float> vertices;
-            std::vector<uint32_t> indices;
-            vertices.reserve(lines.size() * 64u * 14u);
-            indices.reserve(lines.size() * 64u * 6u);
+            struct PageBuffers
+            {
+                std::vector<float> vertices;
+                std::vector<uint32_t> indices;
+                uint32_t base = 0;
+            };
+            std::map<int, PageBuffers> pages;
 
             const float boxW = element->calculatedWidth();
             const float boxH = element->calculatedHeight();
@@ -204,7 +212,6 @@ namespace visutwin::canvas
             // split axis whose margins cross), which the same formula handles.
             const float blockH = lineStep * static_cast<float>(lines.size());
             float yTop = (1.0f - pivot.y) * boxH - (1.0f - element->verticalAlign()) * (boxH - blockH);
-            uint32_t vbase = 0;
 
             for (size_t li = 0; li < lines.size(); ++li) {
                 const std::string& line = lines[li];
@@ -267,8 +274,13 @@ namespace visutwin::canvas
                     const float gyBot = penY - g.yoffset * scale;
                     const float gyTop = gyBot + quadSize;
 
-                    const float atlasW = static_cast<float>(std::max(font->atlasWidth, 1));
-                    const float atlasH = static_cast<float>(std::max(font->atlasHeight, 1));
+                    // UVs are fractions of the glyph's OWN page.
+                    const int page = (g.page >= 0 && g.page < static_cast<int>(font->pages.size())) ? g.page : 0;
+                    const Texture* pageTexture = font->pages.empty() ? font->texture : font->pages[static_cast<size_t>(page)];
+                    const float atlasW = static_cast<float>(std::max(pageTexture ? static_cast<int>(pageTexture->width())
+                                                                                  : font->atlasWidth, 1));
+                    const float atlasH = static_cast<float>(std::max(pageTexture ? static_cast<int>(pageTexture->height())
+                                                                                  : font->atlasHeight, 1));
                     const float u0 = g.x / atlasW;
                     const float u1 = (g.x + g.width) / atlasW;
                     // Use native texture-space orientation for this backend.
@@ -282,24 +294,29 @@ namespace visutwin::canvas
                         gx1, gyBot, 0.0f,   0.0f, 0.0f, 1.0f,   u1, v1,   1.0f,0.0f,0.0f,1.0f,   u1, v1,
                         gx0, gyBot, 0.0f,   0.0f, 0.0f, 1.0f,   u0, v1,   1.0f,0.0f,0.0f,1.0f,   u0, v1
                     };
-                    vertices.insert(vertices.end(), quadVerts.begin(), quadVerts.end());
+                    PageBuffers& buffers = pages[page];
+                    buffers.vertices.insert(buffers.vertices.end(), quadVerts.begin(), quadVerts.end());
+                    const uint32_t vbase = buffers.base;
                     // Use front-facing winding for UI camera (+Z looking toward origin).
-                    indices.insert(indices.end(), {vbase + 0u, vbase + 2u, vbase + 1u, vbase + 0u, vbase + 3u, vbase + 2u});
-                    vbase += 4u;
+                    buffers.indices.insert(buffers.indices.end(),
+                        {vbase + 0u, vbase + 2u, vbase + 1u, vbase + 0u, vbase + 3u, vbase + 2u});
+                    buffers.base += 4u;
 
                     x += (g.xadvance + kerning) * scale;
                     prev = code;
                 }
             }
 
-            if (vertices.empty() || indices.empty()) {
-                return nullptr;
-            }
-
             BoundingBox bounds;
             bounds.setCenter(Vector3(0.0f, 0.0f, 0.0f));
             bounds.setHalfExtents(Vector3(std::max(boxW * 0.5f, 1.0f), std::max(boxH * 0.5f, 1.0f), 1.0f));
-            return makeUiMesh(gd, vertices, indices, bounds);
+            std::vector<std::pair<int, std::shared_ptr<Mesh>>> meshes;
+            for (const auto& [page, buffers] : pages) {
+                if (auto mesh = makeUiMesh(gd, buffers.vertices, buffers.indices, bounds)) {
+                    meshes.emplace_back(page, std::move(mesh));
+                }
+            }
+            return meshes;
         }
 
         std::shared_ptr<Mesh> buildImageMesh(const std::shared_ptr<GraphicsDevice>& gd, const ElementComponent* element,
@@ -370,7 +387,7 @@ namespace visutwin::canvas
         }
         visual.entity = nullptr;
         visual.render = nullptr;
-        visual.meshInstance = nullptr;
+        visual.parts.clear();
     }
 
     void ElementInput::detach()
@@ -442,6 +459,45 @@ namespace visutwin::canvas
         return false;
     }
 
+    namespace
+    {
+        /// Upstream's element materials are EMISSIVE-only: black diffuse, the element
+        /// colour as the emissive (times an image's texture), alpha from the texture or,
+        /// for MSDF text, from the distance field. DEVIATION: a bitmap font's or an
+        /// image's alpha comes through the diffuse map, where upstream reads an opacity
+        /// map, which is Metal-only here; setting the same texture as the opacity map as
+        /// well would multiply it in twice on Metal.
+        std::shared_ptr<StandardMaterial> makeElementMaterial(const bool worldSpace)
+        {
+            auto material = std::make_shared<StandardMaterial>();
+            material->setUseLighting(false);
+            material->setUseSkybox(false);
+            material->setTransparent(true);
+            material->setCullMode(CullMode::CULLFACE_NONE);
+            material->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
+            material->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
+            material->setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
+            auto depth = std::make_shared<DepthState>(DepthState::noWrite());
+            // A screen-space element is an overlay and must never be occluded; a
+            // world-space one is part of the scene, so geometry in front of it hides it.
+            // Depth WRITES stay off either way: it is transparent and must not punch holes
+            // in the depth buffer.
+            depth->setDepthTest(worldSpace);
+            material->setDepthState(depth);
+            return material;
+        }
+
+        /// Upstream text-element's shadow_offset: 0.005 of the page per unit, the y term
+        /// scaled by the page's aspect. Upstream's glyph UVs run v UP and this engine's run
+        /// v DOWN, so the y term changes sign to put the shadow in the same place on screen.
+        Vector2 msdfShadowUvOffset(const Vector2& offset, const Texture* page)
+        {
+            const float aspect = page && page->height() > 0
+                ? static_cast<float>(page->width()) / static_cast<float>(page->height()) : 1.0f;
+            return Vector2(0.005f * offset.x, aspect * 0.005f * offset.y);
+        }
+    }
+
     ElementInput::ElementVisual& ElementInput::visualFor(ElementComponent* element)
     {
         auto& visual = _visuals[element];
@@ -468,32 +524,17 @@ namespace visutwin::canvas
         visual.destroyHandle = visual.entity->on("destroy", [&visual]() {
             visual.entity = nullptr;
             visual.render = nullptr;
-            visual.meshInstance = nullptr;
+            for (auto& part : visual.parts) {
+                part.meshInstance = nullptr;
+            }
         });
         visual.render = static_cast<RenderComponent*>(visual.entity->addComponent<RenderComponent>());
-
-        // Upstream's element materials are EMISSIVE-only: black diffuse, the element colour
-        // as the emissive (times the image's texture), alpha from the texture. The diffuse
-        // map stays bound for its alpha — the glyph coverage of a font atlas, whose RGB is
-        // not white, or an image's own alpha. DEVIATION: upstream reads that alpha through
-        // an opacity map, which is Metal-only here; setting the same texture as the opacity
-        // map as well would multiply it in twice on Metal.
-        visual.material = std::make_shared<StandardMaterial>();
-        visual.material->setUseLighting(false);
-        visual.material->setUseSkybox(false);
-        visual.material->setTransparent(true);
-        visual.material->setCullMode(CullMode::CULLFACE_NONE);
-        visual.material->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
-        visual.material->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
-        visual.material->setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
-        auto depth = std::make_shared<DepthState>(DepthState::noWrite());
-        // A screen-space element is an overlay and must never be occluded; a world-space
-        // one is part of the scene, so geometry in front of it hides it. Depth WRITES stay
-        // off either way: it is transparent and must not punch holes in the depth buffer.
-        depth->setDepthTest(visual.worldSpace);
-        visual.material->setDepthState(depth);
-        if (visual.render) {
-            visual.render->setMaterial(visual.material.get());
+        if (!visual.render) {
+            static bool warned = false;
+            if (!warned) {
+                spdlog::warn("ElementInput: no RenderComponentSystem is registered, so UI elements cannot be drawn");
+                warned = true;
+            }
         }
         // A child of its element with an identity transform: the element's transform — the
         // layout's, for an element on a screen — places it.
@@ -544,8 +585,7 @@ namespace visutwin::canvas
                 std::abs(visual.cachedWidth - element->calculatedWidth()) > 1e-4f ||
                 std::abs(visual.cachedHeight - element->calculatedHeight()) > 1e-4f;
 
-            bool rebuild = sizeChanged || !visual.meshInstance;
-            Texture* texture = nullptr;
+            bool rebuild = sizeChanged || visual.parts.empty();
             if (isText) {
                 rebuild = rebuild || element->textDirty() ||
                     visual.cachedText != element->text() ||
@@ -554,7 +594,6 @@ namespace visutwin::canvas
                     visual.cachedWrap != element->wrapLines() ||
                     visual.cachedVerticalAlign != element->verticalAlign() ||
                     visual.cachedFont != element->fontResource();
-                texture = element->fontResource()->texture;
             } else {
                 const Sprite* sprite = element->sprite().get();
                 const uint64_t atlasVersion = sprite && sprite->atlas() ? sprite->atlas()->version() : 0;
@@ -562,12 +601,29 @@ namespace visutwin::canvas
                     visual.cachedSprite != sprite ||
                     visual.cachedSpriteVersion != (sprite ? sprite->version() : 0) ||
                     visual.cachedAtlasVersion != atlasVersion;
-                texture = visual.boundTexture;   // replaced below if the mesh is rebuilt
             }
 
             if (rebuild) {
+                if (visual.render) {
+                    visual.render->clearMeshInstances();
+                }
+                visual.parts.clear();
                 if (isText) {
-                    visual.mesh = buildTextMesh(_engine->graphicsDevice(), element);
+                    const FontResource* font = element->fontResource();
+                    for (auto& [page, mesh] : buildTextMeshes(_engine->graphicsDevice(), element)) {
+                        VisualPart part;
+                        part.mesh = std::move(mesh);
+                        part.texture = page < static_cast<int>(font->pages.size())
+                            ? font->pages[static_cast<size_t>(page)] : font->texture;
+                        part.material = makeElementMaterial(visual.worldSpace);
+                        if (font->msdf) {
+                            part.material->setMsdfMap(part.texture);
+                            part.material->setMsdfFont(font->pxRange, font->intensity);
+                        } else {
+                            part.material->setDiffuseMap(part.texture);   // coverage in alpha
+                        }
+                        visual.parts.push_back(std::move(part));
+                    }
                     visual.cachedText = element->text();
                     visual.cachedFontSize = element->fontSize();
                     visual.cachedAlign = element->horizontalAlign();
@@ -576,7 +632,15 @@ namespace visutwin::canvas
                     visual.cachedFont = element->fontResource();
                     element->clearTextDirty();
                 } else {
-                    visual.mesh = buildImageMesh(_engine->graphicsDevice(), element, texture);
+                    VisualPart part;
+                    part.mesh = buildImageMesh(_engine->graphicsDevice(), element, part.texture);
+                    part.material = makeElementMaterial(visual.worldSpace);
+                    // An image multiplies its texture into the colour and takes its alpha.
+                    part.material->setDiffuseMap(part.texture);
+                    part.material->setEmissiveMap(part.texture);
+                    if (part.mesh) {
+                        visual.parts.push_back(std::move(part));
+                    }
                     const Sprite* sprite = element->sprite().get();
                     visual.cachedImageVersion = element->imageVersion();
                     visual.cachedSprite = sprite;
@@ -588,29 +652,41 @@ namespace visutwin::canvas
                 visual.cachedPivot = element->pivot();
 
                 if (visual.render) {
-                    visual.render->clearMeshInstances();
-                    visual.meshInstance = nullptr;
-                    if (visual.mesh) {
-                        auto meshInstance = std::make_unique<MeshInstance>(visual.mesh.get(), visual.material.get(), visual.entity);
+                    for (auto& part : visual.parts) {
+                        auto meshInstance = std::make_unique<MeshInstance>(part.mesh.get(), part.material.get(), visual.entity);
                         meshInstance->setScreenSpace(!visual.worldSpace);
-                        visual.meshInstance = meshInstance.get();
+                        part.meshInstance = meshInstance.get();
                         visual.render->addMeshInstance(std::move(meshInstance));
                     }
                 }
             }
 
-            if (texture != visual.boundTexture) {
-                visual.material->setDiffuseMap(texture);
-                // Text takes its colour from the emissive alone (the glyph atlas's RGB is
-                // not white); an image multiplies its texture in.
-                visual.material->setEmissiveMap(isImage ? texture : nullptr);
-                visual.boundTexture = texture;
-            }
-
-            visual.material->setEmissive(element->color());
-            visual.material->setOpacity(element->opacity());
-            if (visual.meshInstance) {
-                visual.meshInstance->setDrawOrder(element->drawOrder());
+            for (auto& part : visual.parts) {
+                const bool msdf = isText && element->fontResource()->msdf;
+                if (!part.styled || !(part.color == element->color()) || part.opacity != element->opacity()) {
+                    part.material->setEmissive(element->color());
+                    part.material->setOpacity(element->opacity());
+                    part.color = element->color();
+                    part.opacity = element->opacity();
+                }
+                if (msdf && (!part.styled || !(part.outlineColor == element->outlineColor()) ||
+                             part.outlineThickness != element->outlineThickness() ||
+                             !(part.shadowColor == element->shadowColor()) ||
+                             part.shadowOffset.x != element->shadowOffset().x ||
+                             part.shadowOffset.y != element->shadowOffset().y)) {
+                    // Upstream's editor units: thickness x 0.2, offset x 0.005 of the page.
+                    part.material->setMsdfOutline(element->outlineColor(), 0.2f * element->outlineThickness());
+                    part.material->setMsdfShadow(element->shadowColor(),
+                                                 msdfShadowUvOffset(element->shadowOffset(), part.texture));
+                    part.outlineColor = element->outlineColor();
+                    part.outlineThickness = element->outlineThickness();
+                    part.shadowColor = element->shadowColor();
+                    part.shadowOffset = element->shadowOffset();
+                }
+                part.styled = true;
+                if (part.meshInstance) {
+                    part.meshInstance->setDrawOrder(element->drawOrder());
+                }
             }
             visual.entity->setEnabled(element->enabled() && element->entity()->enabled());
         }

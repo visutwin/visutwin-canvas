@@ -45,13 +45,29 @@ namespace visutwin::canvas
         void syncElements();
 
     private:
+        /// One mesh instance of a visual: an image has one, text one per atlas page it
+        /// uses (each page is its own texture, so its own material).
+        struct VisualPart
+        {
+            std::shared_ptr<Mesh> mesh;
+            std::shared_ptr<StandardMaterial> material;
+            MeshInstance* meshInstance = nullptr;
+            Texture* texture = nullptr;
+            // What the material was last given, so an unchanged element repacks nothing.
+            bool styled = false;
+            Color color;
+            float opacity = 1.0f;
+            Color outlineColor;
+            float outlineThickness = 0.0f;
+            Color shadowColor;
+            Vector2 shadowOffset;
+        };
+
         struct ElementVisual
         {
             Entity* entity = nullptr;
             RenderComponent* render = nullptr;
-            MeshInstance* meshInstance = nullptr;
-            std::shared_ptr<Mesh> mesh;
-            std::shared_ptr<StandardMaterial> material;
+            std::vector<VisualPart> parts;
             ElementType type = ElementType::Group;
             bool activeFrame = false;
             // Decided once, when the visual is created: an element on a screen-space
@@ -77,8 +93,6 @@ namespace visutwin::canvas
             const Sprite* cachedSprite = nullptr;
             uint64_t cachedSpriteVersion = 0;
             uint64_t cachedAtlasVersion = 0;
-            // The texture the material currently samples.
-            Texture* boundTexture = nullptr;
         };
 
         bool computeElementRect(const ElementComponent* element, SDL_FRect& outRect) const;

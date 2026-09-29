@@ -503,6 +503,14 @@ target_link_libraries(visutwin-image-element-geometry-tests PRIVATE visutwin-can
 
 add_test(NAME image-element-geometry COMMAND visutwin-image-element-geometry-tests)
 
+add_executable(visutwin-msdf-text-tests
+    msdfTextTests.cpp
+)
+
+target_link_libraries(visutwin-msdf-text-tests PRIVATE visutwin-canvas)
+
+add_test(NAME msdf-text COMMAND visutwin-msdf-text-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

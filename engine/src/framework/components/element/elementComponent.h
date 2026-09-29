@@ -176,6 +176,17 @@ namespace visutwin::canvas
         /// (0.5); every port so far was laid out against the top.
         float verticalAlign() const { return _verticalAlign; }
         void setVerticalAlign(const float value) { _verticalAlign = std::clamp(value, 0.0f, 1.0f); _textDirty = true; }
+        /// Text outline (upstream `outlineColor`, `outlineThickness` 0..1). MSDF fonts only.
+        const Color& outlineColor() const { return _outlineColor; }
+        void setOutlineColor(const Color& value) { _outlineColor = value; }
+        float outlineThickness() const { return _outlineThickness; }
+        void setOutlineThickness(const float value) { _outlineThickness = value; }
+        /// Text drop shadow (upstream `shadowColor`, `shadowOffset` in its editor units:
+        /// a shift of 0.005 of the atlas width per unit). MSDF fonts only.
+        const Color& shadowColor() const { return _shadowColor; }
+        void setShadowColor(const Color& value) { _shadowColor = value; }
+        const Vector2& shadowOffset() const { return _shadowOffset; }
+        void setShadowOffset(const Vector2& value) { _shadowOffset = value; }
         bool wrapLines() const { return _wrapLines; }
         void setWrapLines(const bool value) { _wrapLines = value; _textDirty = true; }
         /// The layers the element's visual is drawn on (upstream `layers`). Empty, the
@@ -288,6 +299,10 @@ namespace visutwin::canvas
         ElementHorizontalAlign _horizontalAlign = ElementHorizontalAlign::Center;
         bool _wrapLines = false;
         float _verticalAlign = 1.0f;
+        Color _outlineColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
+        float _outlineThickness = 0.0f;
+        Color _shadowColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
+        Vector2 _shadowOffset = Vector2(0.0f, 0.0f);
         bool _textDirty = true;
         bool _useInput = false;
         std::vector<int> _layers;

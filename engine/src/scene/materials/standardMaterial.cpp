@@ -180,6 +180,27 @@ namespace visutwin::canvas
         uniforms.ambientTint[2] = std::pow(std::max(_ambient.b, 0.0f), 2.2f);
         uniforms.ambientTint[3] = 1.0f;
 
+        // MSDF text: colours linear as upstream uploads them (Color.linear), alpha straight.
+        if (_msdfMap) {
+            uniforms.msdfParams[0] = _msdfPxRange;
+            uniforms.msdfParams[1] = _msdfIntensity;
+            uniforms.msdfParams[2] = static_cast<float>(std::max(_msdfMap->width(), 1u));
+            uniforms.msdfParams[3] = static_cast<float>(std::max(_msdfMap->height(), 1u));
+            const auto linear = [](const float c) { return std::pow(std::max(c, 0.0f), 2.2f); };
+            uniforms.msdfOutlineColor[0] = linear(_msdfOutlineColor.r);
+            uniforms.msdfOutlineColor[1] = linear(_msdfOutlineColor.g);
+            uniforms.msdfOutlineColor[2] = linear(_msdfOutlineColor.b);
+            uniforms.msdfOutlineColor[3] = _msdfOutlineColor.a;
+            uniforms.msdfShadowColor[0] = linear(_msdfShadowColor.r);
+            uniforms.msdfShadowColor[1] = linear(_msdfShadowColor.g);
+            uniforms.msdfShadowColor[2] = linear(_msdfShadowColor.b);
+            uniforms.msdfShadowColor[3] = _msdfShadowColor.a;
+            uniforms.msdfOutlineShadow[0] = _msdfOutlineThickness;
+            uniforms.msdfOutlineShadow[1] = _msdfShadowOffset.x;
+            uniforms.msdfOutlineShadow[2] = _msdfShadowOffset.y;
+            uniforms.msdfOutlineShadow[3] = 0.0f;
+        }
+
         // StandardMaterial adds twoSidedLighting support to the doubleSided flag.
         if (_twoSidedLighting) {
             uniforms.flags |= (1u << 3);    // bit 3: doubleSided

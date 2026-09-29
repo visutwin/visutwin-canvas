@@ -570,7 +570,7 @@ them, so the build-time bundle and the runtime composition share one source.
 device virtuals: a shader, up to 8 input textures on fragment slots 0-7, and one
 uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(512) sizes that slot, the Vulkan material descriptor's range, and the padded
+(640; `MaterialUniforms` itself is 528 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and bind `_postSampler` (linear, clamp, no mip), not the scene
@@ -1778,6 +1778,17 @@ present, but the rule below never depends on reading it.
   Atlas frame rects are measured from the image BOTTOM; with v = 0 at the top row a
   frame's bottom samples v = 1 - y / height (upstream's fragment stage flips its sliced v
   to the same result).
+  Every shipped font is MSDF (a glyph `range`), and `StandardMaterial::setMsdfMap` puts
+  the atlas page in the BASE COLOUR slot under `VT_FEATURE_MSDF`: the base-colour multiply
+  skips it and the unlit path reads it as distances (median of RGB, upstream's
+  `applyMsdf`, outline and shadow composited in linear). Using that slot is deliberate —
+  Vulkan's fragment stage is at MoltenVK's sampler limit. A font's pages are separate
+  textures, so text is one mesh instance and material PER PAGE. The loader used to bake
+  the field into alpha at a fixed ramp with nearest filtering, which blurred text up close
+  and aliased it small; a page is now kept raw and sampled bilinearly.
+  `tests/msdfTextTests.cpp` holds the pages, the per-page split and upstream's outline
+  (x 0.2) and shadow (x 0.005, y by page aspect, sign flipped for this engine's v-down
+  glyph UVs) scaling.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
@@ -2247,13 +2258,11 @@ What stays HERE is only what bites during UNRELATED work.
   copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
-- **UI beyond layout and images is not ported**: MSDF text (and with it multi-page fonts,
-  outline, shadow and markup), layout groups, masks, scroll views, tiled sprites, and
-  upstream's element drag helper (#9551). Text reads glyph coverage from the atlas ALPHA;
-  upstream's current fonts (`roboto-*`) are MSDF with a constant 255 alpha and two pages,
-  so they would draw as solid squares here. Upstream rebuilt `text`, `world-to-screen`
-  and its layout examples (#9566, #9569) on that font; ours port the versions before the
-  rebuild and say so in their headers.
+- **UI not ported yet**: text markup, auto-sized text, layout groups, masks, scroll views,
+  tiled sprites, and upstream's element drag helper (#9551). Upstream rebuilt `text`,
+  `world-to-screen` and its layout examples (#9566, #9569); ours port the versions before
+  the rebuild and say so in their headers. MSDF text, the rebuilt examples' other
+  prerequisite, landed 2026-09-29.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles

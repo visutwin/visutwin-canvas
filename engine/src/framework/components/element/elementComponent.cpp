@@ -765,6 +765,10 @@ namespace visutwin::canvas
         _horizontalAlign = src->_horizontalAlign;
         _wrapLines = src->_wrapLines;
         _verticalAlign = src->_verticalAlign;
+        _outlineColor = src->_outlineColor;
+        _outlineThickness = src->_outlineThickness;
+        _shadowColor = src->_shadowColor;
+        _shadowOffset = src->_shadowOffset;
         _layers = src->_layers;
         _texture = src->_texture;
         _sprite = src->_sprite;   // shared, as upstream's clone shares the sprite asset

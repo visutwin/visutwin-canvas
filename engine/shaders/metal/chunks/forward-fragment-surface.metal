@@ -72,7 +72,8 @@
     float3 baseLinear = srgbToLinear(material.baseColor.rgb);
 #endif
 
-#if VT_FEATURE_BASE_COLOR_MAP
+#if VT_FEATURE_BASE_COLOR_MAP && !VT_FEATURE_MSDF
+    // Under MSDF the base slot holds a distance field, read by the unlit path below.
     if (baseColorTexture.get_width() > 0 && baseColorTexture.get_height() > 0) {
         const float4 baseSample = baseColorTexture.sample(defaultSampler, uvBase);
         baseLinear *= srgbToLinear(baseSample.rgb);
@@ -167,11 +168,49 @@
         }
 #endif
         const float3 unlitColor = baseLinear + unlitEmissive;
-        if ((lighting.flagsAndPad.x & (1u << 5)) != 0u) {
-            return float4(max(unlitColor, float3(0.0)), alpha);
-        }
+        const bool linearHdrTarget = (lighting.flagsAndPad.x & (1u << 5)) != 0u;
         const float exposure = max(lighting.skyboxMipAndPad.y, 0.0);
         const float tonemapMode = lighting.skyboxMipAndPad.z;
+#if VT_FEATURE_MSDF
+        {
+            // Upstream applyMsdf (common/frag/msdf.js), which runs on the tone-mapped
+            // output: fill, outline and shadow are composited PREMULTIPLIED in linear,
+            // then the straight colour is encoded. The fill is this path's colour, tone
+            // mapped unless compose owes it that; outline and shadow colours arrive
+            // linear and are not tone mapped, as upstream's are not.
+            const float3 fill = linearHdrTarget ? max(unlitColor, float3(0.0))
+                                                : toneMap(max(unlitColor, float3(0.0)), exposure, tonemapMode);
+            const float4 color = float4(fill * alpha, alpha);
+            const float2 uv = uvBase;
+            const float2 uvShadow = uv - material.msdfOutlineShadow.yz;
+            const float3 tsample = baseColorTexture.sample(defaultSampler, uv).rgb;
+            const float3 ssample = baseColorTexture.sample(defaultSampler, uvShadow).rgb;
+            const float sigDist = max(min(tsample.r, tsample.g), min(max(tsample.r, tsample.g), tsample.b));
+            const float sigDistShdw = max(min(ssample.r, ssample.g), min(max(ssample.r, ssample.g), ssample.b));
+            const float edge = 0.5 - 0.5 * material.msdfParams.y;
+            // The transition width in screen pixels from the UV magnification and the
+            // atlas spread, floored at 2.5 as upstream (a lower floor hazes small text).
+            const float2 unitRange = float2(material.msdfParams.x) / max(material.msdfParams.zw, float2(1.0));
+            const float screenPxRange = max(0.5 * dot(unitRange, 1.0 / max(fwidth(uv), float2(1e-6))), 2.5);
+            const float thickness = material.msdfOutlineShadow.x;
+            const float inside = saturate(screenPxRange * (sigDist - edge) + 0.5);
+            const float outline = saturate(screenPxRange * (sigDist + thickness - edge) + 0.5);
+            const float shadow = saturate(screenPxRange * (sigDistShdw + thickness - edge) + 0.5);
+            const float4 oc = material.msdfOutlineColor;
+            const float4 sc = material.msdfShadowColor;
+            float4 tcolor = (outline > inside) ? outline * float4(oc.a * oc.rgb, oc.a) : float4(0.0);
+            tcolor = mix(tcolor, color, inside);
+            const float4 scolor = (shadow > outline) ? shadow * float4(sc.a * sc.rgb, sc.a) : tcolor;
+            tcolor = mix(scolor, tcolor, outline);
+            // Straight colour out: the blend state is straight alpha (upstream encodes
+            // the straight colour and re-premultiplies for its premultiplied blend).
+            const float3 straight = tcolor.rgb / max(tcolor.a, 0.0001);
+            return float4(linearHdrTarget ? straight : linearToSrgb(straight), tcolor.a);
+        }
+#endif
+        if (linearHdrTarget) {
+            return float4(max(unlitColor, float3(0.0)), alpha);
+        }
         return float4(linearToSrgb(toneMap(max(unlitColor, float3(0.0)), exposure, tonemapMode)), alpha);
     }
 #endif

@@ -78,7 +78,8 @@
     X(CookieCube,                "VT_FEATURE_COOKIE_CUBE") \
     X(Skybox,                    "VT_FEATURE_SKYBOX") \
     X(TransparentPass,           "VT_FEATURE_TRANSPARENT_PASS") \
-    X(ScreenSpace,               "VT_FEATURE_SCREEN_SPACE")
+    X(ScreenSpace,               "VT_FEATURE_SCREEN_SPACE") \
+    X(Msdf,                      "VT_FEATURE_MSDF")
 
 namespace visutwin::canvas
 {

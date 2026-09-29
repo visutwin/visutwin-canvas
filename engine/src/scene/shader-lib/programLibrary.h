@@ -222,6 +222,7 @@ namespace visutwin::canvas
             bool pointSize = false;         // Point primitive rendering — [[point_size]] in vertex output
             bool areaLights = false;        // Area rectangular lights — MRP evaluation in main loop
             bool unlit = false;             // KHR_materials_unlit — skip PBR lighting
+            bool msdf = false;              // StandardMaterial::msdfMap: the base slot is a distance field
         };
 
         /// Exact identity of a compiled variant. Compared in full by the cache,

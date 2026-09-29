@@ -451,6 +451,7 @@ namespace visutwin::canvas
         // a StandardMaterial with lighting disabled (decals, debug visualizers, holograms).
         options.unlit = (variantBits & (1ull << 32)) != 0ull ||
                         (stdMat && !stdMat->useLighting());
+        options.msdf = stdMat && stdMat->msdfMap() != nullptr;
 
         // shadow catcher flag from StandardMaterial
         if (stdMat) {
@@ -564,6 +565,7 @@ namespace visutwin::canvas
         set(ShaderFeature::PlanarReflectionDepthPass,
             options.planarReflectionDepthPass);
         set(ShaderFeature::ScreenSpace, options.screenSpace);
+        set(ShaderFeature::Msdf, options.msdf);
         set(ShaderFeature::LightmapBake, options.lightmapBake);
         set(ShaderFeature::LightmapBakeAccum, options.lightmapBakeAccum);
         set(ShaderFeature::DebugPass, options.debugPass);

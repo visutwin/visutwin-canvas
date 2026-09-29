@@ -117,7 +117,18 @@
     /* --- Ambient tint (upstream material_ambient, the litArgs_ambient of #9538) --- */ \
     /* rgb = StandardMaterial::ambient, linear; multiplies the AMBIENT diffuse only */ \
     /* (not a lightmap, not direct light). White leaves every frame as it was. w = pad. */ \
-    X(vec4, ambientTint, {1.0f, 1.0f, 1.0f, 1.0f})
+    X(vec4, ambientTint, {1.0f, 1.0f, 1.0f, 1.0f}) \
+    /* --- MSDF text (upstream msdf.js), read only under VT_FEATURE_MSDF --- */ \
+    /* x = font_pxrange, y = font_sdfIntensity, zw = the atlas page's size in texels */ \
+    /* (textureSize() on a combined sampler does not survive MoltenVK, so it comes in here). */ \
+    X(vec4, msdfParams, {2.0f, 0.0f, 1.0f, 1.0f}) \
+    /* outline colour, LINEAR, alpha straight (upstream outline_color) */ \
+    X(vec4, msdfOutlineColor, {0.0f, 0.0f, 0.0f, 1.0f}) \
+    /* shadow colour, LINEAR, alpha straight (upstream shadow_color) */ \
+    X(vec4, msdfShadowColor, {0.0f, 0.0f, 0.0f, 1.0f}) \
+    /* x = outline thickness (upstream outline_thickness, already x 0.2), yz = shadow */ \
+    /* offset in UV (upstream shadow_offset, in THIS engine's v-down UVs), w = pad */ \
+    X(vec4, msdfOutlineShadow, {0.0f, 0.0f, 0.0f, 0.0f})
 
 namespace visutwin::canvas
 {
