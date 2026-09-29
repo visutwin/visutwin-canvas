@@ -185,6 +185,29 @@ namespace visutwin::canvas
         return it != _layerTransparentIndexMap.end() ? it->second : -1;
     }
 
+    int LayerComposition::sortTransparentLayers(const std::vector<int>& layersA, const std::vector<int>& layersB) const
+    {
+        const auto top = [this](const std::vector<int>& layers) {
+            int result = -1;
+            for (const int id : layers) {
+                if (const auto it = _transparentOrder.find(id); it != _transparentOrder.end()) {
+                    result = std::max(result, it->second);
+                }
+            }
+            return result;
+        };
+        const int topA = top(layersA);
+        const int topB = top(layersB);
+        if (topA == -1 && topB != -1) {
+            return 1;
+        }
+        if (topB == -1 && topA != -1) {
+            return -1;
+        }
+        // Descending: the higher order goes first.
+        return topB - topA;
+    }
+
     bool LayerComposition::isEnabled(const Layer* layer, const bool transparent) const
     {
         if (!layer || !layer->enabled()) {

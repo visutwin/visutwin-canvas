@@ -1753,8 +1753,8 @@ present, but the rule below never depends on reading it.
   `addComponent('element', data)` order, #9525 included — a position set BEFORE setup
   survives it). On a SPLIT axis (two anchors differ) the anchors and margins set the
   size and the authored width or height is ignored; the default margins can make such a
-  box INVERTED, which upstream's text alignment handles and ours now does too
-  (`setVerticalAlign`, default 1 = top, a DEVIATION from upstream's 0.5).
+  box INVERTED, which upstream's text alignment handles and ours does too
+  (`setVerticalAlign`, default 0.5 as upstream).
   A screen-space element's world transform is CLIP SPACE: its visuals set
   `MeshInstance::setScreenSpace`, which compiles `VT_FEATURE_SCREEN_SPACE` (vertex clip =
   world xy, z 0.5), skips culling, shadows and depth-only passes, and lets ANY camera draw
@@ -1763,6 +1763,14 @@ present, but the rule below never depends on reading it.
   `Engine::canvasSize()`, window POINTS (the space mouse events arrive in), polled by the
   screen system each update since nothing fires upstream's `resizecanvas`.
   `tests/elementLayoutTests.cpp` ports upstream's element tests.
+  UI INPUT is engine-driven: `Engine::handleInputEvent` passes every SDL event to
+  `ElementInput`, which delivers upstream's element events as `ElementInputEvent*` (a
+  POINTER, so `stopPropagation` is shared along the bubble — a handler typed on a base or
+  a value is skipped silently by `EventHandler`), in canvas POINTS; an example forwards
+  nothing itself. An element needs `useInput` AND a camera drawing its layer to be hit.
+  A component's `onEnable` does NOT run when it is added to a live entity here, only on a
+  later enable — a component that must subscribe at once does it in
+  `initializeComponentData` (ButtonComponent does). `tests/elementInputTests.cpp`.
   Text and image elements are DRAWN by `ElementInput::syncElements`, which
   `Engine::render` calls before the frame (no example calls it). The visual's material is
   upstream's: EMISSIVE-only, colour times the image texture, alpha from the texture, black
@@ -2279,9 +2287,10 @@ What stays HERE is only what bites during UNRELATED work.
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
 - **UI not ported yet**: max lines, auto-fit font size, right-to-left text, layout groups,
-  masks, scroll views, tiled sprites, and upstream's element drag helper (#9551). The three
-  UI examples (`ui-text`, `ui-text-markup`, `world-to-screen`) port upstream's CURRENT
-  versions (#9566, #9569).
+  masks, scroll views, tiled sprites, XR select events, and upstream's element drag helper
+  (#9551). The four UI examples (`ui-text`, `ui-text-markup`, `world-to-screen`,
+  `ui-buttons`) port upstream's CURRENT versions (#9565, #9566, #9569). Annotations
+  (`annotationManager`) still draw through ImGui; with input on elements they could move.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles

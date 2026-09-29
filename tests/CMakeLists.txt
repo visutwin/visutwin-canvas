@@ -495,6 +495,14 @@ target_link_libraries(visutwin-element-layout-tests PRIVATE visutwin-canvas)
 
 add_test(NAME element-layout COMMAND visutwin-element-layout-tests)
 
+add_executable(visutwin-element-input-tests
+    elementInputTests.cpp
+)
+
+target_link_libraries(visutwin-element-input-tests PRIVATE visutwin-canvas)
+
+add_test(NAME element-input COMMAND visutwin-element-input-tests)
+
 add_executable(visutwin-image-element-geometry-tests
     imageElementGeometryTests.cpp
 )

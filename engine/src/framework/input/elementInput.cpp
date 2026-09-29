@@ -19,10 +19,8 @@
 #include <string>
 #include <vector>
 
-#include <SDL3/SDL.h>
 #include <spdlog/spdlog.h>
 
-#include "framework/components/button/buttonComponent.h"
 #include "framework/components/componentSystem.h"
 #include "framework/components/element/elementComponent.h"
 #include "framework/components/element/textLayout.h"
@@ -318,67 +316,16 @@ namespace visutwin::canvas
             releaseVisual(visual);
         }
         _visuals.clear();
+        for (auto& [_, handle] : _watched) {
+            handle->off();
+        }
+        _watched.clear();
+        _hoveredElement = nullptr;
+        _pressedElement = nullptr;
+        _touchedElements.clear();
+        _touchLeaveFired.clear();
+        _clickedElements.clear();
         _engine.reset();
-    }
-
-    bool ElementInput::computeElementRect(const ElementComponent* element, SDL_FRect& outRect) const
-    {
-        if (!element || !element->entity() || !element->enabled() || !element->entity()->enabled()) {
-            return false;
-        }
-
-        // Upstream ElementInput hit-tests a screen-space element by its CANVAS corners,
-        // which are in window points with y down — the space mouse coordinates are in.
-        // An element on no screen, or a world-space one, is not hit-testable here.
-        const ScreenComponent* screen = element->screenComponent();
-        if (!screen || !screen->screenSpace()) {
-            return false;
-        }
-        const auto& corners = const_cast<ElementComponent*>(element)->canvasCorners();
-        float minX = corners[0].x;
-        float maxX = corners[0].x;
-        float minY = corners[0].y;
-        float maxY = corners[0].y;
-        for (const auto& c : corners) {
-            minX = std::min(minX, c.x);
-            maxX = std::max(maxX, c.x);
-            minY = std::min(minY, c.y);
-            maxY = std::max(maxY, c.y);
-        }
-        outRect.x = minX;
-        outRect.y = minY;
-        outRect.w = maxX - minX;
-        outRect.h = maxY - minY;
-        return outRect.w > 0.0f && outRect.h > 0.0f;
-    }
-
-    bool ElementInput::handleMouseButtonDown(const float x, const float y)
-    {
-        // Front-most element wins.
-        const auto& elements = ElementComponent::instances();
-        for (auto it = elements.rbegin(); it != elements.rend(); ++it) {
-            auto* element = *it;
-            if (!element || !element->useInput() || !element->entity()) {
-                continue;
-            }
-
-            SDL_FRect rect{};
-            if (!computeElementRect(element, rect)) {
-                continue;
-            }
-
-            if (x < rect.x || y < rect.y || x > rect.x + rect.w || y > rect.y + rect.h) {
-                continue;
-            }
-
-            // element receives click first, then button behavior.
-            element->fire("click", x, y);
-            if (auto* button = element->entity()->findComponent<ButtonComponent>()) {
-                button->fire("click", x, y);
-            }
-            return true;
-        }
-        return false;
     }
 
     namespace

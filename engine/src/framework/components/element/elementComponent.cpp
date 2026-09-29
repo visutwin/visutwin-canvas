@@ -775,17 +775,46 @@ namespace visutwin::canvas
 
     void ElementComponent::setSprite(std::shared_ptr<Sprite> value)
     {
+        const bool changed = value != _sprite;
         _sprite = std::move(value);
         if (_sprite) {
             _texture = nullptr;   // and a sprite clears the texture
         }
         ++_imageVersion;
+        if (changed) {
+            fire("set:sprite");
+        }
     }
 
     void ElementComponent::setSpriteFrame(const int value)
     {
-        _spriteFrame = std::max(value, 0);
+        const int frame = std::max(value, 0);
+        if (frame == _spriteFrame) {
+            return;
+        }
+        _spriteFrame = frame;
         ++_imageVersion;
+        fire("set:spriteFrame");
+    }
+
+    void ElementComponent::setOpacity(const float value)
+    {
+        const float opacity = std::clamp(value, 0.0f, 1.0f);
+        if (opacity == _opacity) {
+            return;
+        }
+        _opacity = opacity;
+        fire("set:opacity");
+    }
+
+    void ElementComponent::setColor(const Color& value)
+    {
+        if (value == _color) {
+            return;
+        }
+        _color = value;
+        styleChanged();
+        fire("set:color");
     }
 
     void ElementComponent::setDrawOrder(int value)

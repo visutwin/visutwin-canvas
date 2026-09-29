@@ -165,10 +165,14 @@ namespace visutwin::canvas
 
         // ---- appearance, read by ElementInput ------------------------------------------
 
+        // The colour, opacity, sprite and sprite frame setters fire `set:color`,
+        // `set:opacity`, `set:sprite` and `set:spriteFrame` when the value changes (upstream's
+        // image element fires the first two and `set:spriteAsset`); a button keeps its
+        // image's default look through them.
         float opacity() const { return _opacity; }
-        void setOpacity(const float value) { _opacity = std::clamp(value, 0.0f, 1.0f); }
+        void setOpacity(float value);
         const Color& color() const { return _color; }
-        void setColor(const Color& value) { _color = value; styleChanged(); }
+        void setColor(const Color& value);
         int fontSize() const { return _fontSize; }
         void setFontSize(const int value) { _fontSize = std::max(value, 1); textChanged(); }
         const std::string& text() const { return _text; }

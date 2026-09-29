@@ -25,7 +25,6 @@
 #include "framework/components/screen/screenComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
-#include "framework/input/elementInput.h"
 #include "platform/graphics/graphicsDevice.h"
 
 using namespace visutwin::canvas;
@@ -365,26 +364,6 @@ int main()
         check(panelElement->drawOrder() == p + 1 && barElement->drawOrder() == p + 2 &&
               siblingElement->drawOrder() == p + 3 && labelElement->drawOrder() == p + 4,
               "after moving the label to the end: panel, bar, sibling, label");
-    }
-
-    std::cout << "\nclicks (ElementInput hit test)\n";
-    {
-        // A GROUP element with useInput takes a click at its canvas rectangle, as the
-        // world-to-screen tags do; the canvas is the stub's 300x150, y down.
-        Entity* clickScreen = screenSpaceScreen();
-        Entity* tagEntity = addTo(clickScreen, newEntity("tag"));
-        ElementComponent* tag = addElement(tagEntity, {.type = ElementType::Group,
-            .anchor = Vector4(0, 0, 0, 0), .pivot = Vector2(0.5f, 0.0f), .width = 40, .height = 20, .useInput = true});
-        tagEntity->setLocalPosition(100.0f, 30.0f, 0.0f);   // 30 up from the bottom: rows 100..120 from the top
-        int clicks = 0;
-        tag->on("click", [&clicks]() { ++clicks; });
-        ElementInput input;
-        input.setEngine(engine);
-        check(input.handleMouseButtonDown(100.0f, 110.0f) && clicks == 1, "a click inside the tag reaches it");
-        check(!input.handleMouseButtonDown(100.0f, 60.0f) && clicks == 1, "a click above it does not (y is down)");
-        tagEntity->setEnabled(false);
-        check(!input.handleMouseButtonDown(100.0f, 110.0f) && clicks == 1, "a hidden tag takes no click");
-        input.detach();
     }
 
     std::cout << (failures == 0 ? "\nAll element layout tests passed\n" : "\nElement layout tests FAILED\n");

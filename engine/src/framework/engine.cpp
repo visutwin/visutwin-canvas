@@ -637,6 +637,11 @@ namespace visutwin::canvas
         if (_gamepads) {
             _gamepads->handleEvent(event);
         }
+        // After the devices, so an element's handler reads the mouse and keyboard as they
+        // are with this event applied.
+        if (_elementInput) {
+            _elementInput->handleEvent(event);
+        }
     }
 
     void Engine::inputUpdate(float /*dt*/)

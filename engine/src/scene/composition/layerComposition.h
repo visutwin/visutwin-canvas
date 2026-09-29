@@ -52,6 +52,10 @@ namespace visutwin::canvas
         std::shared_ptr<Layer> getLayerById(int layerId) const;
         std::shared_ptr<Layer> getLayerByName(const std::string& name) const;
         bool isEnabled(const Layer* layer, bool transparent) const;
+        /// Upstream `sortTransparentLayers`: negative when a transparent sublayer of
+        /// `layersA` draws after (on top of) every one of `layersB`, positive for the
+        /// reverse, 0 when they tie. Layer ids the composition lacks count for nothing.
+        int sortTransparentLayers(const std::vector<int>& layersA, const std::vector<int>& layersB) const;
         void markDirty() { _dirty = true; }
 
     private:

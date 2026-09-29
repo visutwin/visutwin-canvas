@@ -5,8 +5,10 @@
 //
 #pragma once
 
-#include <SDL3/SDL_rect.h>
+#include <SDL3/SDL_events.h>
 
+#include <array>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -15,10 +17,13 @@
 
 #include "core/math/color.h"
 #include "core/math/vector2.h"
+#include "core/math/vector3.h"
 #include "framework/components/element/elementComponent.h"
+#include "platform/input/inputConstants.h"
 
 namespace visutwin::canvas
 {
+    class CameraComponent;
     class Engine;
     class ElementComponent;
     class Entity;
@@ -30,10 +35,61 @@ namespace visutwin::canvas
     class Texture;
 
     /**
-     * Draws UI elements and hit-tests them for mouse input. Each text or image element gets
-     * a visual: a child entity with a render component, rebuilt when what it depends on
-     * changes. Engine::render syncs the visuals before drawing (upstream's element system
-     * keeps its meshes current on its own), so an application does not call it.
+     * An input event delivered to an element (upstream ElementInputEvent, with the fields of
+     * ElementMouseEvent and ElementTouchEvent in one struct). It is fired as a POINTER,
+     * `ElementInputEvent*`, so every handler on the way up the hierarchy sees the same event
+     * and `stopPropagation()` from one of them stops the bubbling:
+     *
+     *     element->on("click", [](ElementInputEvent* event) { event->stopPropagation(); });
+     *
+     * A handler that takes no arguments works too. The pointer is valid only during the call.
+     */
+    struct ElementInputEvent
+    {
+        /// The element the event is for; it bubbles to the elements of the parent entities.
+        ElementComponent* element = nullptr;
+        /// The camera the element was hit through.
+        CameraComponent* camera = nullptr;
+        /// Canvas position in points, y down from the top (the space SDL's mouse uses).
+        float x = 0.0f;
+        float y = 0.0f;
+        /// Mouse movement since the previous mouse event.
+        float dx = 0.0f;
+        float dy = 0.0f;
+        MouseButton button = MouseButton::None;
+        /// The wheel's direction only, -1 or 1 (upstream snaps it the same way).
+        int wheelDelta = 0;
+        KeyModifiers modifiers;
+        /// A touch event, and the finger it is for.
+        bool touch = false;
+        int64_t touchId = 0;
+
+        /// Upstream `wheel`: the delta as its old scale, -2 per notch away from the user.
+        float wheel() const { return static_cast<float>(wheelDelta) * -2.0f; }
+        void stopPropagation() { _stopPropagation = true; }
+        bool propagationStopped() const { return _stopPropagation; }
+
+    private:
+        bool _stopPropagation = false;
+    };
+
+    /**
+     * Draws UI elements and delivers input to them (upstream ElementInput plus the element
+     * system's drawing). Each text or image element gets a visual: a child entity with a
+     * render component, rebuilt when what it depends on changes. Engine::render syncs the
+     * visuals before drawing (upstream's element system keeps its meshes current on its own),
+     * so an application does not call it.
+     *
+     * Input: Engine::handleInputEvent passes every SDL event to `handleEvent`, which turns
+     * mouse and touch events into the calls below; a platform without SDL calls them
+     * directly. Elements with `useInput` receive `mousedown`, `mouseup`, `mousemove`,
+     * `mousewheel`, `mouseenter`, `mouseleave`, `click`, `touchstart`, `touchmove`,
+     * `touchend`, `touchleave` and `touchcancel`, each bubbling to the parent entities'
+     * elements. The element hit is the front one under the pointer, as upstream picks it:
+     * cameras from the last drawn back, and per camera the elements on layers it draws,
+     * front layer first, screen-space before world-space, higher draw order first. A
+     * screen-space element is hit through its screen corners, any other by a ray from the
+     * camera through its world corners; a button's hit padding grows either.
      */
     class ElementInput
     {
@@ -48,10 +104,49 @@ namespace visutwin::canvas
             Vector2 shadowOffset;
         };
 
+        ElementInput() = default;
+        ~ElementInput();
+        ElementInput(const ElementInput&) = delete;
+        ElementInput& operator=(const ElementInput&) = delete;
+
         void setEngine(const std::shared_ptr<Engine>& engine) { _engine = engine; }
 
         void detach();
-        bool handleMouseButtonDown(float x, float y);
+
+        /// Upstream `enabled`: while false, no input event is delivered.
+        bool enabled() const { return _enabled; }
+        void setEnabled(const bool value) { _enabled = value; }
+
+        /// Translate an SDL mouse or finger event. Touch comes only from DIRECT touch
+        /// devices (a trackpad's fingers are not touches on the canvas), and the mouse
+        /// events SDL synthesizes from touches are dropped, as a browser's are by a
+        /// button's `preventDefault`.
+        void handleEvent(const SDL_Event& event);
+
+        // Platform-neutral input, in canvas points (y down).
+        void onMouseDown(float x, float y, MouseButton button, const KeyModifiers& modifiers = {});
+        void onMouseUp(float x, float y, MouseButton button, const KeyModifiers& modifiers = {});
+        void onMouseMove(float x, float y, const KeyModifiers& modifiers = {});
+        /// `deltaY` > 0 is away from the user.
+        void onMouseWheel(float x, float y, float deltaY, const KeyModifiers& modifiers = {});
+        void onTouchStart(int64_t id, float x, float y);
+        void onTouchMove(int64_t id, float x, float y);
+        void onTouchEnd(int64_t id, float x, float y);
+        void onTouchCancel(int64_t id, float x, float y);
+
+        /// The element under the pointer, and the one a mouse button went down on.
+        ElementComponent* hoveredElement() const { return _hoveredElement; }
+        ElementComponent* pressedElement() const { return _pressedElement; }
+
+        /// The front input element at canvas point (x, y) seen through `camera`, or null
+        /// (upstream `_getTargetElementByCoords`).
+        ElementComponent* elementAt(CameraComponent* camera, float x, float y);
+
+        /// The corners an element is hit through: `corners` (screen or world) grown by its
+        /// button's hit padding, scaled by `scale`, and reordered for negative scales
+        /// (upstream `ElementInput.buildHitCorners`).
+        static std::array<Vector3, 4> buildHitCorners(ElementComponent* element, const std::array<Vector3, 4>& corners,
+                                                      const Vector3& scale);
         /// Create, update and retire the visuals of every text and image element.
         void syncElements();
 
@@ -106,11 +201,44 @@ namespace visutwin::canvas
             uint64_t cachedAtlasVersion = 0;
         };
 
-        bool computeElementRect(const ElementComponent* element, SDL_FRect& outRect) const;
+        struct TouchInfo
+        {
+            ElementComponent* element = nullptr;
+            CameraComponent* camera = nullptr;
+            float x = 0.0f;
+            float y = 0.0f;
+        };
+
         ElementVisual& visualFor(ElementComponent* element);
         void releaseVisual(ElementVisual& visual);
 
+        void onElementMouseEvent(const char* eventType, float x, float y, MouseButton button, int wheelDelta,
+                                 const KeyModifiers& modifiers);
+        /// The element under (x, y) through the cameras from the last drawn back, and the
+        /// camera it was hit through.
+        std::pair<ElementComponent*, CameraComponent*> targetAt(float x, float y);
+        std::vector<CameraComponent*> sortedCameras() const;
+        /// Fire `name` at the event's element and on up the parent entities' elements.
+        static void fireEvent(const char* name, ElementInputEvent& event);
+        /// Forget an element that is going away, so no event is sent to it later.
+        void forgetElement(ElementComponent* element);
+        void watchElement(ElementComponent* element);
+
         std::shared_ptr<Engine> _engine;
         std::unordered_map<ElementComponent*, ElementVisual> _visuals;
+
+        bool _enabled = true;
+        float _lastX = 0.0f;
+        float _lastY = 0.0f;
+        ElementComponent* _hoveredElement = nullptr;
+        ElementComponent* _pressedElement = nullptr;
+        std::unordered_map<int64_t, TouchInfo> _touchedElements;
+        std::unordered_map<int64_t, bool> _touchLeaveFired;
+        /// Upstream `_clickedEntities`: when a touch last clicked an element, so the mouse
+        /// click a platform synthesizes from it is not delivered a second time.
+        std::unordered_map<const ElementComponent*, std::chrono::steady_clock::time_point> _clickedElements;
+        /// A `destroy` subscription per element the input remembers (hovered, pressed,
+        /// touched), so a destroyed element is forgotten rather than dangling.
+        std::unordered_map<ElementComponent*, EventHandlePtr> _watched;
     };
 }

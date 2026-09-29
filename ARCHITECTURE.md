@@ -529,8 +529,44 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   (`scene/graphNodeTransformHook.h`): while it has a screen its entity's world
   transform is `screenMatrix * parentModel * anchorTransform * local`, and
   `setPosition` / `setLocalPosition` re-derive the margins. Corners come three
-  ways: `screenCorners` (screen units, y up), `canvasCorners` (y down — the space
-  ElementInput hit-tests mouse events in) and `worldCorners`.
+  ways: `screenCorners` (screen units, y up — for a screen-space screen, canvas points,
+  the space ElementInput hit-tests in), `canvasCorners` (the same, y down) and
+  `worldCorners`.
+- **Input** (`framework/input/elementInput.h`, `elementInputEvents.cpp`; upstream
+  element-input.js, ported 2026-09-29). `Engine::handleInputEvent` hands every SDL event
+  to `ElementInput::handleEvent`, which calls the platform-neutral `onMouseDown/Up/Move`,
+  `onMouseWheel` and `onTouchStart/Move/End/Cancel` in canvas points. Elements with
+  `useInput` that are `active()` receive `mousedown`, `mouseup`, `mousemove`,
+  `mousewheel`, `mouseenter`, `mouseleave`, `click` and the touch events as an
+  `ElementInputEvent*`, bubbling to parent elements until `stopPropagation()`. Upstream's
+  rules: the element under a mouse-down is PRESSED and takes every move and the release;
+  `click` fires on release over the pressed element; a touch that ends over its element
+  clicks, one that leaves fires `touchleave` once, and a mouse click within 300 ms of a
+  touch click on the same element is dropped (the platform's echo). Targeting walks the
+  cameras from the last drawn back and, per camera, the elements on layers it draws,
+  sorted by transparent layer order, then screen-space before world-space, then draw
+  order; a screen-space element is hit by a ray into its screen corners, any other by a
+  near-to-far ray through its world corners (the nearest wins, one on a world-space screen
+  at once). A button's `hitPadding` grows the corners along the entity's own right and up,
+  scaled by the screen and local scales (`ElementInput::buildHitCorners`). SDL's mouse
+  events synthesized from touches are dropped and only DIRECT touch devices count (a
+  trackpad's fingers are not touches). DEVIATION: `touchcancel` never clicks (upstream runs
+  it through its touchend handler).
+- **Buttons** (`framework/components/button`, upstream button/component.js). A button
+  follows its entity's element and shows DEFAULT / HOVER / PRESSED / INACTIVE on the IMAGE
+  element of its `imageEntity`: `ButtonTransitionMode::Tint` replaces the image's colour and
+  opacity with `hoverTint` etc. (faded over `fadeDuration` MILLISECONDS, advanced by the
+  engine's frame time — DEVIATION: upstream uses the wall clock), `SpriteChange` shows
+  `hoverSprite` / `hoverSpriteFrame` etc. (a null sprite keeps the image's — DEVIATION, as
+  the state sprites are Sprites, not assets). The image's own look is the default: the
+  element fires `set:color`, `set:opacity`, `set:sprite` and `set:spriteFrame` on a change,
+  and the button stores what the APPLICATION sets. An active button re-fires its element's
+  events and fires `hoverstart/end` and `pressedstart/end`; `setActive(false)` shows the
+  inactive state and silences it (the getter is `isActive()`, since `active()` is
+  Component's). Adding a component does not call `onEnable` here, so the button binds in
+  `initializeComponentData` and the button system re-checks both elements every update
+  (upstream listens for `element:add`). `tests/elementInputTests.cpp` holds the input and
+  ports upstream's button tests; `ui-buttons` is upstream's rebuilt buttons example.
 - **Drawing.** `ElementInput::syncElements` (called by `Engine::render`) keeps one
   visual per text or image element: a child entity with an identity transform, on
   `ElementComponent::layers()` (empty = LAYERID_UI on a screen-space screen, WORLD

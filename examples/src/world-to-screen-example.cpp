@@ -187,14 +187,6 @@ protected:
         return true;
     }
 
-    bool onEvent(const SDL_Event& event) override
-    {
-        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
-            return _elementInput->handleMouseButtonDown(event.button.x, event.button.y);
-        }
-        return false;
-    }
-
     // One update walks the fighters and places their tags.
     void update(const float dt) override
     {
