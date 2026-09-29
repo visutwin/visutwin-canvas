@@ -509,6 +509,38 @@ already rendered in front of it.
   component whose system nobody registered still constructs — it just never gets
   its per-frame update, so it looks implemented and inert at the same time.
 
+## UI screens and elements
+
+Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
+(`framework/components/screen`, `framework/components/element`).
+
+- **Screen.** `setScreenSpace(true)` makes the resolution the canvas size
+  (`Engine::canvasSize()`, window points), refreshed by the screen system on
+  `update`. `setReferenceResolution` + `setScaleMode(ScreenScaleMode::Blend)` +
+  `setScaleBlend` give upstream's log-space blend of the two axis ratios; with
+  `None` (the default, and forced for world-space screens) the scale is 1. The
+  screen matrix is `ortho(0, w, -h, 0)` over `resolution / scale` — model space
+  has its origin at the screen's top-left with y up — and a world-space screen
+  additionally scales it by (w/2, h/2) and composes the screen entity's world
+  transform, so its elements are ordinary world geometry in screen units.
+- **Element.** Anchors are fractions of the parent element's rectangle (or the
+  screen's), pivot is the point the position names, margins are left, bottom,
+  right, top from the anchors. `ElementComponent` is a `GraphNodeTransformHook`
+  (`scene/graphNodeTransformHook.h`): while it has a screen its entity's world
+  transform is `screenMatrix * parentModel * anchorTransform * local`, and
+  `setPosition` / `setLocalPosition` re-derive the margins. Corners come three
+  ways: `screenCorners` (screen units, y up), `canvasCorners` (y down — the space
+  ElementInput hit-tests mouse events in) and `worldCorners`.
+- **Drawing.** Only text is drawn, by `ElementInput::syncTextElements`: a visual
+  child of the element with an identity transform, on `ElementComponent::layers()`
+  (empty = LAYERID_UI on a screen-space screen, WORLD otherwise — DEVIATION,
+  upstream's default is UI for both). On a screen-space screen the mesh instance
+  is `setScreenSpace`, so the vertex stage writes world xy straight to clip, with
+  no depth test. An example that wants an image element draws its own
+  screen-space plane under the element (`world-to-screen` does).
+- **Not ported:** layout groups, masks, scroll views, fit modes, sprites and image
+  rendering, text markup, outline, shadow and auto size, draw order.
+
 ## Graphics abstraction
 
 - `GraphicsDevice` (abstract) -> `MetalGraphicsDevice` / `VulkanGraphicsDevice`

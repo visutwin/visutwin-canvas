@@ -16,6 +16,8 @@
 
 namespace visutwin::canvas
 {
+    class GraphNodeTransformHook;
+
     /**
      * @brief Hierarchical scene graph node with local/world transforms and parent-child relationships.
      * @ingroup group_scene_renderer
@@ -153,6 +155,14 @@ namespace visutwin::canvas
          */
         void setEnabledInHierarchy(bool value) { _enabledInHierarchy = value; }
 
+        /**
+         * Hands this node's transform to `hook` (see graphNodeTransformHook.h): its sync,
+         * setPosition and setLocalPosition go through the hook until it is removed with
+         * nullptr. A UI element installs one for the life of the component.
+         */
+        void setTransformHook(GraphNodeTransformHook* hook);
+        GraphNodeTransformHook* transformHook() const { return _transformHook; }
+
         int aabbVer() const { return _aabbVer;}
         int graphDepth() const { return _graphDepth; }
         float worldScaleSign();
@@ -163,6 +173,12 @@ namespace visutwin::canvas
         void notifyHierarchyStateChanged(GraphNode* node, bool enabled);
 
     private:
+        friend class GraphNodeTransformHook;
+
+        void defaultSync();
+        void defaultSetPosition(const Vector3& position);
+        void defaultSetLocalPosition(const Vector3& position);
+
         void dirtifyLocal();
 
         void dirtifyWorld();
@@ -220,5 +236,7 @@ namespace visutwin::canvas
 
         bool _enabled = true;
         bool _enabledInHierarchy = false;
+
+        GraphNodeTransformHook* _transformHook = nullptr;
     };
 }

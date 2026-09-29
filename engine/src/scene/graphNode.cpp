@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 07.10.2025.
 //
 #include "graphNode.h"
+#include "graphNodeTransformHook.h"
 
 #include <algorithm>
 #include <cmath>
@@ -172,7 +173,22 @@ namespace visutwin::canvas
         return static_cast<float>(_worldScaleSign);
     }
 
+    void GraphNode::setTransformHook(GraphNodeTransformHook* hook)
+    {
+        _transformHook = hook;
+        dirtifyLocal();
+    }
+
     void GraphNode::sync()
+    {
+        if (_transformHook) {
+            _transformHook->syncTransform(*this);
+            return;
+        }
+        defaultSync();
+    }
+
+    void GraphNode::defaultSync()
     {
         if (_dirtyLocal) {
             _localTransform = Matrix4::trs(_localPosition, _localRotation, _localScale);
@@ -448,6 +464,15 @@ namespace visutwin::canvas
 
     void GraphNode::setLocalPosition(const Vector3& position)
     {
+        if (_transformHook) {
+            _transformHook->setNodeLocalPosition(*this, position);
+            return;
+        }
+        defaultSetLocalPosition(position);
+    }
+
+    void GraphNode::defaultSetLocalPosition(const Vector3& position)
+    {
         _localPosition = position;
 
         if (!_dirtyLocal) {
@@ -481,6 +506,15 @@ namespace visutwin::canvas
     }
 
     void GraphNode::setPosition(const Vector3& position)
+    {
+        if (_transformHook) {
+            _transformHook->setNodePosition(*this, position);
+            return;
+        }
+        defaultSetPosition(position);
+    }
+
+    void GraphNode::defaultSetPosition(const Vector3& position)
     {
         if (_parent == nullptr) {
             _localPosition = position;

@@ -65,6 +65,13 @@ void main() {
         gl_Position = vec4(inUV1.x * 2.0 - 1.0, 1.0 - inUV1.y * 2.0, 0.0, 1.0);
     }
 
+    if (vtFeatureEnabled(VT_FEATURE_SCREEN_SPACE_BIT)) {
+        // Screen-space UI (upstream SCREENSPACE): the world position IS the clip position,
+        // carried there by the element's screen projection; depth 0.5, upstream's z = 0.
+        // Twin of the block in forward-vertex.metal.
+        gl_Position = vec4(worldPos.x, worldPos.y, 0.5, 1.0);
+    }
+
     // clip.w == view-space Z for a standard perspective projection — used for
     // cascaded-shadow cascade selection in the fragment stage.
     fragViewDepth = gl_Position.w;

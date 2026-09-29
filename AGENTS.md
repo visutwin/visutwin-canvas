@@ -489,7 +489,10 @@ compose pass already had it right in both languages.
 **Under CameraFrame the forward pass must output LINEAR HDR** and leave exposure,
 tonemap and gamma to compose. The gate is bit 5 of `LightingData::flagsAndPad[0]`,
 kept in step with `hdrPass()`. Every shader path that returns early — the tail,
-and all three sky paths — has to check it, or compose applies gamma a second time.
+all three sky paths and the unlit path — has to check it, or compose applies gamma a
+second time. Vulkan's UNLIT return missed it until 2026-09-29, invisible until
+`post-processing`'s World-layer label (an unlit HDR emissive) went through the camera
+frame: it rendered grey and did not bloom on Vulkan alone.
 
 ## Shader System
 
@@ -1733,8 +1736,30 @@ present, but the rule below never depends on reading it.
   against it now: vectorised, and exact where a hash can collide and reuse the wrong
   block. Vulkan's image descriptor sets likewise remember the last set handed out per
   layout, with the exact image infos (`LastImageDescriptorSet`, tied to `_frameSerial`),
-  before falling back to the hashed per-frame cache. Measured 2026-09-26 on `taa`, frame
-  CPU -20% on Metal and -28% on Vulkan; bit-identical frames.
+  before falling back to the hashed per-frame cache. Measured 2026-09-26 on `taa` by the
+  phase timers: Metal forward 0.84 -> 0.38 ms and shadow 0.88 -> 0.71 ms; Vulkan forward
+  0.40 -> 0.28 ms and shadow 0.39 -> 0.27 ms (Vulkan's whole render, stable run to run
+  there, 1.41 -> 1.02 ms). Bit-identical frames.
+- **A UI element on a screen OWNS its entity's transform** (upstream's patched `_sync`,
+  here `GraphNodeTransformHook`, which `ElementComponent` installs on its entity):
+  `GraphNode::sync`, `setPosition` and `setLocalPosition` go through the hook, the world
+  transform is built from the anchors, the parent element's model transform and the
+  screen matrix, and setting the position RE-DERIVES THE MARGINS. So an element's
+  position is a function of its anchors, pivot, margins and screen: set them with the
+  setters (upstream semantics) or once with `setup(ElementDesc)` (upstream's
+  `addComponent('element', data)` order, #9525 included — a position set BEFORE setup
+  survives it). On a SPLIT axis (two anchors differ) the anchors and margins set the
+  size and the authored width or height is ignored; the default margins can make such a
+  box INVERTED, which upstream's text alignment handles and ours now does too
+  (`setVerticalAlign`, default 1 = top, a DEVIATION from upstream's 0.5).
+  A screen-space element's world transform is CLIP SPACE: its visuals set
+  `MeshInstance::setScreenSpace`, which compiles `VT_FEATURE_SCREEN_SPACE` (vertex clip =
+  world xy, z 0.5), skips culling, shadows and depth-only passes, and lets ANY camera draw
+  it on whatever layer the element names — no separate orthographic UI camera, which
+  every UI example used to need. A screen-space screen's resolution is
+  `Engine::canvasSize()`, window POINTS (the space mouse events arrive in), polled by the
+  screen system each update since nothing fires upstream's `resizecanvas`.
+  `tests/elementLayoutTests.cpp` ports upstream's element tests.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
@@ -2082,8 +2107,12 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     frames [first, last] of the engine's update, its render (less the display wait), and
     the renderer's per-phase frame statistics (cull, sort, forward, shadow, skin and morph,
     clusters). `VISUTWIN_NO_VSYNC=1` turns off Metal's display sync for such a run; Vulkan
-    always presents FIFO. Turn the HUD off (`VISUTWIN_MINISTATS=0`): it costs more than
-    the renderer in small scenes. A CPU claim needs the before and after binaries run
+    always presents FIFO. The HUD costs 0.03-0.06 ms a frame (`MiniStats::draw`, timed
+    directly); the "1.6 ms" recorded on 2026-09-26 came from ONE HUD-on and ONE HUD-off
+    run and was retracted on 2026-09-29. Trust the PHASE timers over the whole-render
+    figure: a GPU-bound frame's render time swings 1.0-3.2 ms between identical runs
+    (back-pressure outside the recorded display wait), while forward and shadow hold to a
+    few hundredths. A CPU claim needs the before and after binaries run
     ALTERNATELY, three times each, as a GPU claim does, and a profile before a change: on
     2026-09-26 the queued "hot" items (the culling sweep, graph-build churn) measured
     under 0.1 ms, while `sample <pid> 5` found the real costs in one minute. Sort its
@@ -2200,9 +2229,11 @@ What stays HERE is only what bites during UNRELATED work.
   copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
-- **UI element LAYOUT is not ported.** `ElementComponent` holds pivot, anchor and margins,
-  but nothing reads them to place an entity, so upstream's layout fixes (#9525 keeping an
-  element's position under a screen, the drag helper of #9551) have nothing to land on.
+- **UI beyond element layout is not ported**: layout groups, masks, scroll views, image
+  and sprite rendering, text markup, outline and shadow, and upstream's element drag
+  helper (#9551). Upstream rebuilt `text`, `world-to-screen` and its layout examples
+  (#9566, #9569) around those; ours are ports of the versions before the rebuild, and say
+  so in their headers.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles

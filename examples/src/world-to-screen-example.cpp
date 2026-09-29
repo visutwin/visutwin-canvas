@@ -11,12 +11,14 @@
 // Clicking a name recolours it and its player with a random colour.
 //
 // DEVIATIONS:
+// This is upstream's example BEFORE its rebuild into four fighters with sprite
+// health bars (#9569); re-port that one once image elements and sprites render.
+//
 // - image elements are not rendered by the element system, so the panel backing
-//   and the health bar are unlit boxes on LAYERID_UI with the elements' colour,
-//   opacity and rectangle. UI is drawn by a separate orthographic camera.
-// - the element system has no anchors or margins; the name and health bar are
-//   placed in UI pixels (top-left origin) inside the panel rectangle that
-//   upstream's anchors describe.
+//   and the health bar are unlit planes on LAYERID_UI, children of their elements
+//   drawn in screen space, sized to the elements' calculated rectangles.
+// - text has no vertical alignment: the name starts at the top of its region
+//   (the top 60% of the panel) where upstream centres it.
 // - there is no CameraComponent::worldToScreen; the projection is done here.
 // - each player has its own white StandardMaterial and a click sets its diffuse,
 //   where upstream overrides material_diffuse on the mesh instance of a shared
@@ -42,6 +44,7 @@
 #include "framework/components/screen/screenComponentSystem.h"
 #include "framework/input/elementInput.h"
 #include "platform/graphics/blendState.h"
+#include "platform/graphics/depthState.h"
 #include "scene/materials/standardMaterial.h"
 
 using namespace visutwin::canvas;
@@ -66,8 +69,6 @@ namespace
         ElementComponent* name = nullptr;
         ButtonComponent* button = nullptr;
 
-        Entity* panelVisual = nullptr;
-        Entity* healthVisual = nullptr;
         std::shared_ptr<StandardMaterial> panelMaterial;
         std::shared_ptr<StandardMaterial> healthMaterial;
     };
@@ -83,11 +84,15 @@ namespace
         material->setTransparent(true);
         material->setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
         material->setCullMode(CullMode::CULLFACE_NONE);
+        // A screen-space element draws over the world, as upstream's UI materials do.
+        material->setDepthState(std::make_shared<DepthState>(DepthState::noWrite()));
+        material->depthState()->setDepthTest(false);
         return material;
     }
 
-    /// Converts a coordinate in world space into the screen's space, in UI pixels
-    /// with a top-left origin. z is the depth; <= 0 means behind the camera.
+    /// Converts a coordinate in world space into the screen's space: screen units from
+    /// its BOTTOM-left corner, as a bottom-left anchor places an element. z is the
+    /// depth; <= 0 means behind the camera.
     Vector3 worldToScreenSpace(const Vector3& worldPosition, CameraComponent* camera, ScreenComponent* screen)
     {
         const Matrix4 view = camera->entity()->worldTransform().inverse();
@@ -100,7 +105,7 @@ namespace
 
         const Vector2 resolution = screen->resolution();
         const float x = (clip.getX() / clip.getW() * 0.5f + 0.5f) * resolution.x;
-        const float y = (0.5f - clip.getY() / clip.getW() * 0.5f) * resolution.y;
+        const float y = (clip.getY() / clip.getW() * 0.5f + 0.5f) * resolution.y;
         const float scale = std::max(screen->scale(), 1e-6f);
         return Vector3(x / scale, y / scale, -viewPos.getZ() / scale);
     }
@@ -146,17 +151,6 @@ protected:
         _camera = createCamera(Vector3(0.0f, -7.0f * std::sin(pitch), 7.0f * std::cos(pitch)),
             Vector3(-30.0f, 0.0f, 0.0f))->findComponent<CameraComponent>();
         _camera->camera()->setClearColor(Color(30.0f / 255.0f, 30.0f / 255.0f, 30.0f / 255.0f, 1.0f));
-        _camera->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX});
-
-        // Orthographic camera for the UI layer, drawn over the main camera.
-        auto* uiCameraEntity = createCamera(Vector3(0.0f, 0.0f, 10.0f));
-        _uiCamera = uiCameraEntity->findComponent<CameraComponent>();
-        _uiCamera->camera()->setProjection(ProjectionType::Orthographic);
-        _uiCamera->camera()->setOrthoHeight(static_cast<float>(WINDOW_HEIGHT) * 0.5f);
-        _uiCamera->camera()->setClearColorBuffer(false);
-        _uiCamera->camera()->setClearDepthBuffer(true);
-        _uiCamera->camera()->setClearStencilBuffer(true);
-        _uiCamera->setLayers({LAYERID_UI});
 
         // Create an Entity for the ground
         _groundMaterial = std::make_shared<StandardMaterial>();
@@ -201,15 +195,6 @@ protected:
 
     void update(const float dt) override
     {
-        int windowW = 1;
-        int windowH = 1;
-        SDL_GetWindowSize(window(), &windowW, &windowH);
-        _screen->updateScaleFromWindow(windowW, windowH);
-        const float scale = std::max(_screen->scale(), 1e-6f);
-        _uiWidth = _screen->resolution().x / scale;
-        _uiHeight = _screen->resolution().y / scale;
-        _uiCamera->camera()->setOrthoHeight(_uiHeight * 0.5f);
-
         // Update the player position every frame with some mock logic
         for (auto& player : _players) {
             player.angle += dt * player.speed;
@@ -236,22 +221,9 @@ protected:
             const bool inFront = screenPosition.getZ() > 0.0f;
 
             player.playerInfo->setEnabled(inFront);
-            player.panelVisual->setEnabled(inFront);
-            player.healthVisual->setEnabled(inFront);
-            if (!inFront) {
-                continue;
+            if (inFront) {
+                player.playerInfo->setLocalPosition(screenPosition.getX(), screenPosition.getY(), 0.0f);
             }
-
-            // The panel's pivot is its bottom centre, at the projected point.
-            const float sx = screenPosition.getX();
-            const float sy = screenPosition.getY();
-            player.playerInfo->setLocalPosition(sx, sy, 0.0f);
-
-            // UI pixels (y down) to the ortho UI camera's centred, y-up space.
-            const float cx = sx - _uiWidth * 0.5f;
-            const float bottom = _uiHeight * 0.5f - sy;
-            player.panelVisual->setLocalPosition(cx, bottom + PANEL_HEIGHT * 0.5f, 0.0f);
-            player.healthVisual->setLocalPosition(cx, bottom + PANEL_HEIGHT * 0.2f, 1.0f);
         }
 
         _elementInput->syncTextElements();
@@ -271,61 +243,50 @@ private:
         player.entity = createPrimitive("capsule", player.material.get(),
             Vector3(0.0f, 0.5f, 0.0f), Vector3(0.5f, 0.5f, 0.5f));
 
-        // The panel that hovers over the player's head: pivot (0.5, 0), 150x50.
+        // Create a text element that will hover the player's head
         player.playerInfo = new Entity();
         player.playerInfo->setEngine(engine());
-        if (auto* info = static_cast<ElementComponent*>(player.playerInfo->addComponent<ElementComponent>())) {
-            info->setType(ElementType::Image);
-            info->setPivot(Vector2(0.5f, 0.0f));
-            info->setAnchor(Vector4(0.0f, 0.0f, 0.0f, 0.0f));
-            info->setWidth(PANEL_WIDTH);
-            info->setHeight(PANEL_HEIGHT);
-            info->setOpacity(0.05f);
-        }
+        auto* info = static_cast<ElementComponent*>(player.playerInfo->addComponent<ElementComponent>());
+        info->setup({.type = ElementType::Image,
+            .anchor = Vector4(0.0f, 0.0f, 0.0f, 0.0f),
+            .pivot = Vector2(0.5f, 0.0f),
+            .width = PANEL_WIDTH,
+            .height = PANEL_HEIGHT});
+        info->setOpacity(0.05f);
         screenEntity->addChild(player.playerInfo);
 
-        // Name: anchor (0, 0.4, 1, 1), so the top 60% of the panel, centred in it.
-        // The text mesh starts its first line at the TOP of the element box (there is
-        // no vertical alignment), so the box is one line high, centred in that region.
-        constexpr int nameFontSize = 20;
-        const float nameRegionHeight = PANEL_HEIGHT * 0.6f;
         auto* nameEntity = new Entity();
         nameEntity->setEngine(engine());
-        nameEntity->setLocalPosition(0.0f, -(PANEL_HEIGHT - nameRegionHeight * 0.5f), 0.0f);
         player.name = static_cast<ElementComponent*>(nameEntity->addComponent<ElementComponent>());
-        player.name->setType(ElementType::Text);
-        player.name->setPivot(Vector2(0.5f, 0.5f));
-        player.name->setWidth(PANEL_WIDTH);
-        player.name->setHeight(static_cast<float>(nameFontSize));
+        player.name->setup({.type = ElementType::Text,
+            .anchor = Vector4(0.0f, 0.4f, 1.0f, 1.0f),
+            .pivot = Vector2(0.5f, 0.5f),
+            .margin = Vector4(0.0f, 0.0f, 0.0f, 0.0f),
+            .useInput = true});
         player.name->setFontResource(font);
-        player.name->setFontSize(nameFontSize);
+        player.name->setFontSize(20);
         player.name->setText("Player " + std::to_string(id));
         player.name->setHorizontalAlign(ElementHorizontalAlign::Center);
-        player.name->setUseInput(true);
         player.button = static_cast<ButtonComponent*>(nameEntity->addComponent<ButtonComponent>());
         player.button->setImageEntity(nameEntity);
         player.playerInfo->addChild(nameEntity);
 
-        // Health bar: anchor (0, 0, 1, 0.4), so the bottom 40% of the panel.
         auto* healthBar = new Entity();
         healthBar->setEngine(engine());
-        if (auto* health = static_cast<ElementComponent*>(healthBar->addComponent<ElementComponent>())) {
-            health->setType(ElementType::Image);
-            health->setPivot(Vector2(0.5f, 0.0f));
-            health->setWidth(PANEL_WIDTH);
-            health->setHeight(PANEL_HEIGHT * 0.4f);
-            health->setColor(Color(0.2f, 0.6f, 0.2f, 1.0f));
-            health->setOpacity(1.0f);
-        }
+        auto* health = static_cast<ElementComponent*>(healthBar->addComponent<ElementComponent>());
+        health->setup({.type = ElementType::Image,
+            .anchor = Vector4(0.0f, 0.0f, 1.0f, 0.4f),
+            .pivot = Vector2(0.5f, 0.0f),
+            .margin = Vector4(0.0f, 0.0f, 0.0f, 0.0f)});
+        health->setColor(Color(0.2f, 0.6f, 0.2f, 1.0f));
+        health->setOpacity(1.0f);
         player.playerInfo->addChild(healthBar);
 
-        // The two image elements, drawn as boxes on the UI layer.
+        // The two image elements, drawn as planes on the UI layer.
         player.panelMaterial = makeUiMaterial(Color(1.0f, 1.0f, 1.0f, 1.0f), 0.05f);
-        player.panelVisual = createPrimitive("box", player.panelMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
-            Vector3(PANEL_WIDTH, PANEL_HEIGHT, 0.2f), {LAYERID_UI});
+        addImageVisual(info, player.panelMaterial.get());
         player.healthMaterial = makeUiMaterial(Color(0.2f, 0.6f, 0.2f, 1.0f), 1.0f);
-        player.healthVisual = createPrimitive("box", player.healthMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
-            Vector3(PANEL_WIDTH, PANEL_HEIGHT * 0.4f, 0.2f), {LAYERID_UI});
+        addImageVisual(health, player.healthMaterial.get());
 
         player.button->on("click", [this, name = player.name, material = player.material]() {
             std::uniform_real_distribution<float> unit(0.0f, 1.0f);
@@ -335,6 +296,25 @@ private:
         });
     }
 
+    /// A unit plane filling `element`'s rectangle, drawn in screen space as its child.
+    /// Its origin is the element's pivot; the rectangle is fixed at creation.
+    void addImageVisual(ElementComponent* element, Material* material)
+    {
+        const float w = element->calculatedWidth();
+        const float h = element->calculatedHeight();
+        const Vector2 pivot = element->pivot();
+        auto* visual = createPrimitive("plane", material, Vector3(0.0f, 0.0f, 0.0f), Vector3(w, 1.0f, h),
+            {LAYERID_UI});
+        element->entity()->addChild(root()->removeChild(visual));
+        visual->setLocalPosition((0.5f - pivot.x) * w, (0.5f - pivot.y) * h, 0.0f);
+        visual->setLocalEulerAngles(90.0f, 0.0f, 0.0f);
+        if (auto* render = visual->findComponent<RenderComponent>()) {
+            for (auto* meshInstance : render->meshInstances()) {
+                meshInstance->setScreenSpace(true);
+            }
+        }
+    }
+
     std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _checkboard;
     std::unique_ptr<Asset> _font;
@@ -342,12 +322,9 @@ private:
 
     std::vector<Player> _players;
     CameraComponent* _camera = nullptr;
-    CameraComponent* _uiCamera = nullptr;
     ScreenComponent* _screen = nullptr;
 
     std::mt19937 _rng{std::random_device{}()};
-    float _uiWidth = static_cast<float>(WINDOW_WIDTH);
-    float _uiHeight = static_cast<float>(WINDOW_HEIGHT);
 };
 
 VISUTWIN_EXAMPLE_MAIN(WorldToScreenExample)

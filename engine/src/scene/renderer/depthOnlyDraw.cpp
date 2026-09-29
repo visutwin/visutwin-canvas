@@ -25,6 +25,11 @@ namespace visutwin::canvas
         if (!device || !programLibrary || !meshInstance || !meshInstance->mesh()) {
             return false;
         }
+        // A screen-space instance's vertices are already in clip space; no depth-only
+        // view of it means anything (see MeshInstance::setScreenSpace).
+        if (meshInstance->screenSpace()) {
+            return false;
+        }
 
         meshInstance->setVisibleThisFrame(true);
         // The caster's own cull mode, as upstream's shadow pass (`setCullMode(true,

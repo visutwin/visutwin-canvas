@@ -273,10 +273,11 @@ namespace visutwin::canvas
 
     ProgramLibrary::ShaderVariantOptions ProgramLibrary::buildForwardVariantOptions(const Material* material,
         const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor, const bool instanceLightmap) const
+        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace) const
     {
         ShaderVariantOptions options{};
         options.transparentPass = transparentPass;
+        options.screenSpace = screenSpace;
         options.skybox = material && material->isSkybox();
         options.alphaTest = material && material->alphaMode() == AlphaMode::MASK;
 
@@ -562,6 +563,7 @@ namespace visutwin::canvas
         set(ShaderFeature::PlanarReflection, options.planarReflection);
         set(ShaderFeature::PlanarReflectionDepthPass,
             options.planarReflectionDepthPass);
+        set(ShaderFeature::ScreenSpace, options.screenSpace);
         set(ShaderFeature::LightmapBake, options.lightmapBake);
         set(ShaderFeature::LightmapBakeAccum, options.lightmapBakeAccum);
         set(ShaderFeature::DebugPass, options.debugPass);
@@ -838,14 +840,14 @@ namespace visutwin::canvas
 
     std::shared_ptr<Shader> ProgramLibrary::getForwardShader(const Material* material, const bool transparentPass,
         const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor, const bool instanceLightmap)
+        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace)
     {
         if (!_device) {
             return nullptr;
         }
 
         const ShaderVariantOptions options = buildForwardVariantOptions(material, transparentPass, dynamicBatch,
-            skinning, morphing, instancing, instancingColor, instanceLightmap);
+            skinning, morphing, instancing, instancingColor, instanceLightmap, screenSpace);
         const std::string programName = resolveProgramName(options);
         if (!hasProgram(programName)) {
             spdlog::error("ProgramLibrary has no registered program '{}'.", programName);
@@ -957,7 +959,7 @@ namespace visutwin::canvas
 
     void ProgramLibrary::bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material,
         const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor, const bool instanceLightmap)
+        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace)
     {
         if (!device) {
             return;
@@ -966,7 +968,7 @@ namespace visutwin::canvas
         auto shader = material ? material->shaderOverride() : nullptr;
         if (!shader) {
             shader = getForwardShader(material, transparentPass, dynamicBatch, skinning, morphing,
-                instancing, instancingColor, instanceLightmap);
+                instancing, instancingColor, instanceLightmap, screenSpace);
         }
 
         auto blendState = material ? material->blendState() : nullptr;

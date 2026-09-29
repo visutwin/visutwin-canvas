@@ -196,6 +196,12 @@ void main() {
         if ((material.flags & (1u << 23)) != 0u) {
             unlitEmissive *= clamp(fragColor.rgb, 0.0, 1.0);
         }
+        // Under the camera frame (bit 5) compose owes exposure, tonemap and gamma, as
+        // on the tail and the sky paths; applying them here too clipped an HDR emissive.
+        if ((lighting.flagsAndPad[0] & (1u << 5)) != 0u) {
+            outColor = vec4(max(albedo.rgb + unlitEmissive, vec3(0.0)), albedo.a);
+            return;
+        }
         vec3 unlit = applyToneMap(albedo.rgb + unlitEmissive);   // exposure + tonemap
         outColor = vec4(pow(max(unlit, vec3(0.0)), vec3(1.0 / 2.2)), albedo.a);
         return;

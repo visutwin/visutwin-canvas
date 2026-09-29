@@ -203,6 +203,14 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     clip = float4(v.uv1.x * 2.0 - 1.0, 1.0 - v.uv1.y * 2.0, 0.0, 1.0);
 #endif
 
+#if VT_FEATURE_SCREEN_SPACE
+    // Screen-space UI (upstream SCREENSPACE): the element's world transform already
+    // carries it into clip space through its screen's projection, so the camera's
+    // view-projection is skipped. Upstream writes z = 0, w = 1 in GL clip space; that is
+    // depth 0.5 in this engine's [0, 1] convention.
+    clip = float4(world.x, world.y, 0.5, 1.0);
+#endif
+
     rd.position = clip;
     rd.worldPos = world.xyz;
 

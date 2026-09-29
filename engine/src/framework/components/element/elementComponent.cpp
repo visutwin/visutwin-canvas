@@ -1,21 +1,705 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Upstream element/component.js and the layout half of element/system.js. Method names
+// follow upstream's (`_calculateSize` is calculateSize, `_sync` is syncTransform) so the two
+// can be read side by side; the arithmetic and its ORDER are upstream's, because several
+// setters feed each other through the entity's position.
+//
 #include "elementComponent.h"
 
 #include <algorithm>
+#include <cmath>
+
+#include "core/math/quaternion.h"
+#include "framework/components/screen/screenComponent.h"
+#include "framework/entity.h"
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        Matrix4 translate(const float x, const float y, const float z)
+        {
+            return Matrix4::translation(x, y, z);
+        }
+    }
+
     ElementComponent::ElementComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
         _instances.push_back(this);
+        if (_entity) {
+            // Upstream constructor: `entity.on('insert', ...)` and `_patch()`.
+            _onInsertHandle = _entity->on("insert", [this](GraphNode* /*parent*/) { onInsert(); });
+            _entity->setTransformHook(this);
+        }
     }
 
     ElementComponent::~ElementComponent()
     {
         std::erase(_instances, this);
+        if (_onInsertHandle) {
+            _onInsertHandle->off();
+        }
+        if (_entity && _entity->transformHook() == this) {
+            _entity->setTransformHook(nullptr);   // upstream `_unpatch`
+        }
+        if (auto* screen = screenComponent()) {
+            screen->unbindElement(this);
+        }
     }
+
+    void ElementComponent::initializeComponentData()
+    {
+        setup(ElementDesc{});
+    }
+
+    void ElementComponent::setup(const ElementDesc& desc)
+    {
+        // Upstream ElementComponentSystem.initializeComponentData, layout part.
+        if (desc.anchor) {
+            _anchor = *desc.anchor;
+        }
+        if (desc.pivot) {
+            _pivot = *desc.pivot;
+        }
+
+        const bool splitHorAnchors = hasSplitAnchorsX();
+        const bool splitVerAnchors = hasSplitAnchorsY();
+
+        // On an axis where the anchor is a point, the entity's position places the element,
+        // so unless margins are given for that axis, derive them from the position, as
+        // setting a new size does. Do it FIRST (upstream #9525): applying the margins given
+        // for the other axis, or binding to a screen, places the element on both axes and
+        // would move an entity already under a screen to wherever the default margins put it.
+        const Vector3 position = _entity ? _entity->localPosition() : Vector3(0.0f, 0.0f, 0.0f);
+        const bool noMargin = !desc.margin;
+        float mx = _margin.getX();
+        float my = _margin.getY();
+        float mz = _margin.getZ();
+        float mw = _margin.getW();
+        if (!splitHorAnchors && noMargin && !desc.left && !desc.right) {
+            mx = position.getX() - _calculatedWidth * _pivot.x;
+            mz = -_calculatedWidth - mx;
+        }
+        if (!splitVerAnchors && noMargin && !desc.bottom && !desc.top) {
+            my = position.getY() - _calculatedHeight * _pivot.y;
+            mw = -_calculatedHeight - my;
+        }
+        _margin = Vector4(mx, my, mz, mw);
+
+        bool marginChange = false;
+        if (desc.margin) {
+            _margin = *desc.margin;
+            marginChange = true;
+        }
+        mx = _margin.getX();
+        my = _margin.getY();
+        mz = _margin.getZ();
+        mw = _margin.getW();
+        if (desc.left) { mx = *desc.left; marginChange = true; }
+        if (desc.bottom) { my = *desc.bottom; marginChange = true; }
+        if (desc.right) { mz = *desc.right; marginChange = true; }
+        if (desc.top) { mw = *desc.top; marginChange = true; }
+        _margin = Vector4(mx, my, mz, mw);
+        if (marginChange) {
+            setMargin(_margin);   // force update
+        }
+
+        bool shouldForceSetAnchor = false;
+        if (desc.width && !splitHorAnchors) {
+            setWidth(*desc.width);
+        } else if (splitHorAnchors) {
+            shouldForceSetAnchor = true;
+        }
+        if (desc.height && !splitVerAnchors) {
+            setHeight(*desc.height);
+        } else if (splitVerAnchors) {
+            shouldForceSetAnchor = true;
+        }
+        if (shouldForceSetAnchor) {
+            setAnchor(_anchor);   // force update
+        }
+
+        if (desc.useInput) {
+            _useInput = *desc.useInput;
+        }
+        if (desc.type) {
+            setType(*desc.type);
+        }
+
+        // Find the screen here, not in the constructor, once the component is on the entity.
+        if (Entity* screen = parseUpToScreen()) {
+            updateScreen(screen);
+        }
+    }
+
+    ScreenComponent* ElementComponent::screenComponent() const
+    {
+        return _screen ? _screen->findComponent<ScreenComponent>() : nullptr;
+    }
+
+    bool ElementComponent::hasSplitAnchorsX() const
+    {
+        return std::abs(_anchor.getX() - _anchor.getZ()) > 0.001f;
+    }
+
+    bool ElementComponent::hasSplitAnchorsY() const
+    {
+        return std::abs(_anchor.getY() - _anchor.getW()) > 0.001f;
+    }
+
+    ElementComponent* ElementComponent::parentElement() const
+    {
+        auto* parent = _entity ? dynamic_cast<Entity*>(_entity->parent()) : nullptr;
+        return parent ? parent->findComponent<ElementComponent>() : nullptr;
+    }
+
+    void ElementComponent::dirtifyLocal()
+    {
+        if (_entity) {
+            GraphNodeTransformHook::dirtifyLocal(*_entity);
+        }
+    }
+
+    // ---- property setters ------------------------------------------------------------
+
+    void ElementComponent::setAnchor(const Vector4& value)
+    {
+        _anchor = value;
+        if ((!_entity || !_entity->parent()) && !_screen) {
+            calculateLocalAnchors();
+        } else {
+            calculateSize(hasSplitAnchorsX(), hasSplitAnchorsY());
+        }
+        _anchorDirty = true;
+        dirtifyLocal();
+        fire("set:anchor", _anchor);
+    }
+
+    void ElementComponent::setPivot(const Vector2& value)
+    {
+        const float prevX = _pivot.x;
+        const float prevY = _pivot.y;
+        _pivot = value;
+
+        // Keep the element where it is: move the margins by the pivot's travel.
+        const float mxSum = _margin.getX() + _margin.getZ();
+        const float dx = _pivot.x - prevX;
+        const float mySum = _margin.getY() + _margin.getW();
+        const float dy = _pivot.y - prevY;
+        _margin = Vector4(_margin.getX() + mxSum * dx, _margin.getY() + mySum * dy,
+            _margin.getZ() - mxSum * dx, _margin.getW() - mySum * dy);
+
+        _anchorDirty = true;
+        dirtifyAllCorners();
+        calculateSize(false, false);
+        flagChildrenAsDirty();
+        fire("set:pivot", _pivot);
+    }
+
+    void ElementComponent::setMargin(const Vector4& value)
+    {
+        _margin = value;
+        calculateSize(true, true);
+        fire("set:margin", _margin);
+    }
+
+    void ElementComponent::setLeft(const float value)
+    {
+        _margin = Vector4(value, _margin.getY(), _margin.getZ(), _margin.getW());
+        Vector3 p = _entity ? _entity->localPosition() : Vector3(0.0f, 0.0f, 0.0f);
+        const float wr = absRight();
+        const float wl = _localAnchor.getX() + value;
+        setWidthInternal(wr - wl);
+        p = Vector3(value + _calculatedWidth * _pivot.x, p.getY(), p.getZ());
+        if (_entity) {
+            _entity->setLocalPosition(p);
+        }
+    }
+
+    void ElementComponent::setRight(const float value)
+    {
+        _margin = Vector4(_margin.getX(), _margin.getY(), value, _margin.getW());
+        Vector3 p = _entity ? _entity->localPosition() : Vector3(0.0f, 0.0f, 0.0f);
+        const float wl = absLeft();
+        const float wr = _localAnchor.getZ() - value;
+        setWidthInternal(wr - wl);
+        p = Vector3(_localAnchor.getZ() - _localAnchor.getX() - value - _calculatedWidth * (1.0f - _pivot.x),
+            p.getY(), p.getZ());
+        if (_entity) {
+            _entity->setLocalPosition(p);
+        }
+    }
+
+    void ElementComponent::setBottom(const float value)
+    {
+        _margin = Vector4(_margin.getX(), value, _margin.getZ(), _margin.getW());
+        Vector3 p = _entity ? _entity->localPosition() : Vector3(0.0f, 0.0f, 0.0f);
+        const float wt = absTop();
+        const float wb = _localAnchor.getY() + value;
+        setHeightInternal(wt - wb);
+        p = Vector3(p.getX(), value + _calculatedHeight * _pivot.y, p.getZ());
+        if (_entity) {
+            _entity->setLocalPosition(p);
+        }
+    }
+
+    void ElementComponent::setTop(const float value)
+    {
+        _margin = Vector4(_margin.getX(), _margin.getY(), _margin.getZ(), value);
+        Vector3 p = _entity ? _entity->localPosition() : Vector3(0.0f, 0.0f, 0.0f);
+        const float wb = absBottom();
+        const float wt = _localAnchor.getW() - value;
+        setHeightInternal(wt - wb);
+        p = Vector3(p.getX(),
+            _localAnchor.getW() - _localAnchor.getY() - value - _calculatedHeight * (1.0f - _pivot.y), p.getZ());
+        if (_entity) {
+            _entity->setLocalPosition(p);
+        }
+    }
+
+    void ElementComponent::setWidth(const float value)
+    {
+        _width = value;
+        if (!hasSplitAnchorsX()) {
+            setCalculatedWidthInternal(value, true);
+        }
+        fire("set:width", _width);
+        _textDirty = true;
+    }
+
+    void ElementComponent::setHeight(const float value)
+    {
+        _height = value;
+        if (!hasSplitAnchorsY()) {
+            setCalculatedHeightInternal(value, true);
+        }
+        fire("set:height", _height);
+        _textDirty = true;
+    }
+
+    // ---- size ------------------------------------------------------------------------
+
+    void ElementComponent::calculateLocalAnchors()
+    {
+        // Pixel positions of the anchors in the current parent rectangle.
+        float resx = 1000.0f;
+        float resy = 1000.0f;
+        if (auto* parent = parentElement()) {
+            resx = parent->_calculatedWidth;
+            resy = parent->_calculatedHeight;
+        } else if (auto* screen = screenComponent()) {
+            resx = screen->resolution().x / screen->scale();
+            resy = screen->resolution().y / screen->scale();
+        }
+        _localAnchor = Vector4(_anchor.getX() * resx, _anchor.getY() * resy,
+            _anchor.getZ() * resx, _anchor.getW() * resy);
+    }
+
+    void ElementComponent::calculateSize(const bool propagateCalculatedWidth, const bool propagateCalculatedHeight)
+    {
+        // Cannot calculate while the local anchors are meaningless.
+        if ((!_entity || !_entity->parent()) && !_screen) {
+            return;
+        }
+
+        calculateLocalAnchors();
+
+        const float newWidth = absRight() - absLeft();
+        const float newHeight = absTop() - absBottom();
+
+        if (propagateCalculatedWidth) {
+            setWidthInternal(newWidth);
+        } else {
+            setCalculatedWidthInternal(newWidth, false);
+        }
+        if (propagateCalculatedHeight) {
+            setHeightInternal(newHeight);
+        } else {
+            setCalculatedHeightInternal(newHeight, false);
+        }
+
+        const Vector3 p = _entity->localPosition();
+        _entity->setLocalPosition(Vector3(_margin.getX() + _calculatedWidth * _pivot.x,
+            _margin.getY() + _calculatedHeight * _pivot.y, p.getZ()));
+
+        _sizeDirty = false;
+    }
+
+    void ElementComponent::setWidthInternal(const float w)
+    {
+        _width = w;
+        setCalculatedWidthInternal(w, false);
+        fire("set:width", _width);
+        _textDirty = true;
+    }
+
+    void ElementComponent::setHeightInternal(const float h)
+    {
+        _height = h;
+        setCalculatedHeightInternal(h, false);
+        fire("set:height", _height);
+        _textDirty = true;
+    }
+
+    void ElementComponent::setCalculatedWidthInternal(const float value, const bool updateMargins)
+    {
+        if (std::abs(value - _calculatedWidth) <= 1e-4f) {
+            return;
+        }
+        _calculatedWidth = value;
+        dirtifyLocal();
+        if (updateMargins && _entity) {
+            const float px = _entity->localPosition().getX();
+            const float mx = px - _calculatedWidth * _pivot.x;
+            const float mz = _localAnchor.getZ() - _localAnchor.getX() - _calculatedWidth - mx;
+            _margin = Vector4(mx, _margin.getY(), mz, _margin.getW());
+        }
+        flagChildrenAsDirty();
+        fire("set:calculatedWidth", _calculatedWidth);
+        fire("resize", _calculatedWidth, _calculatedHeight);
+    }
+
+    void ElementComponent::setCalculatedHeightInternal(const float value, const bool updateMargins)
+    {
+        if (std::abs(value - _calculatedHeight) <= 1e-4f) {
+            return;
+        }
+        _calculatedHeight = value;
+        dirtifyLocal();
+        if (updateMargins && _entity) {
+            const float py = _entity->localPosition().getY();
+            const float my = py - _calculatedHeight * _pivot.y;
+            const float mw = _localAnchor.getW() - _localAnchor.getY() - _calculatedHeight - my;
+            _margin = Vector4(_margin.getX(), my, _margin.getZ(), mw);
+        }
+        flagChildrenAsDirty();
+        fire("set:calculatedHeight", _calculatedHeight);
+        fire("resize", _calculatedWidth, _calculatedHeight);
+    }
+
+    void ElementComponent::updateMarginsFromPosition()
+    {
+        const Vector3& p = _entity->localPosition();
+        const float mx = p.getX() - _calculatedWidth * _pivot.x;
+        const float mz = _localAnchor.getZ() - _localAnchor.getX() - _calculatedWidth - mx;
+        const float my = p.getY() - _calculatedHeight * _pivot.y;
+        const float mw = _localAnchor.getW() - _localAnchor.getY() - _calculatedHeight - my;
+        _margin = Vector4(mx, my, mz, mw);
+    }
+
+    void ElementComponent::flagChildrenAsDirty()
+    {
+        if (!_entity) {
+            return;
+        }
+        for (const auto& child : _entity->children()) {
+            auto* entity = dynamic_cast<Entity*>(child.get());
+            if (auto* element = entity ? entity->findComponent<ElementComponent>() : nullptr) {
+                element->_anchorDirty = true;
+                element->_sizeDirty = true;
+            }
+        }
+    }
+
+    void ElementComponent::dirtifyAllCorners()
+    {
+        _cornersDirty = true;
+        _canvasCornersDirty = true;
+        _worldCornersDirty = true;
+    }
+
+    // ---- screen ----------------------------------------------------------------------
+
+    Entity* ElementComponent::parseUpToScreen() const
+    {
+        GraphNode* parent = _entity ? _entity->parent() : nullptr;
+        while (parent) {
+            auto* entity = dynamic_cast<Entity*>(parent);
+            if (entity && entity->findComponent<ScreenComponent>()) {
+                return entity;
+            }
+            parent = parent->parent();
+        }
+        return nullptr;
+    }
+
+    void ElementComponent::onInsert()
+    {
+        // Reparented: find a possible new screen.
+        if (_entity) {
+            GraphNodeTransformHook::dirtifyWorld(*_entity);
+        }
+        updateScreen(parseUpToScreen());
+    }
+
+    void ElementComponent::updateScreen(Entity* screen)
+    {
+        if (_screen && _screen != screen) {
+            if (auto* old = screenComponent()) {
+                old->unbindElement(this);
+            }
+        }
+
+        _screen = screen;
+        if (auto* current = screenComponent()) {
+            current->bindElement(this);
+        }
+
+        calculateSize(hasSplitAnchorsX(), hasSplitAnchorsY());
+        fire("set:screen", _screen);
+        _anchorDirty = true;
+
+        // Update every child element's screen.
+        if (_entity) {
+            for (const auto& child : _entity->children()) {
+                auto* entity = dynamic_cast<Entity*>(child.get());
+                if (auto* element = entity ? entity->findComponent<ElementComponent>() : nullptr) {
+                    element->updateScreen(screen);
+                }
+            }
+        }
+    }
+
+    void ElementComponent::onScreenResize(const Vector2& resolution)
+    {
+        _anchorDirty = true;
+        _cornersDirty = true;
+        _worldCornersDirty = true;
+        calculateSize(hasSplitAnchorsX(), hasSplitAnchorsY());
+        fire("screen:set:resolution", resolution);
+    }
+
+    void ElementComponent::onScreenRemove(ScreenComponent* screen)
+    {
+        // The screen component is going away: a stale pointer must not survive it
+        // (upstream #1151). Its entity may be going too, so nothing is recomputed against it.
+        // Compared by ENTITY: by the time a screen's destructor runs, its entity no longer
+        // returns it from findComponent, so screenComponent() cannot recognise it.
+        if (_screen && screen && _screen == screen->entity()) {
+            _screen = nullptr;
+            _anchorDirty = true;
+            dirtifyLocal();
+        }
+    }
+
+    // ---- transform hook (upstream _sync / _setPosition / _setLocalPosition) --------------
+
+    void ElementComponent::setNodePosition(GraphNode& node, const Vector3& position)
+    {
+        if (!_screen) {
+            defaultSetPosition(node, position);
+            return;
+        }
+        node.worldTransform();   // ensure the hierarchy is up to date
+        localPositionStorage(node) = _screenToWorld.inverse().transformPoint(position);
+        if (!dirtyLocal(node)) {
+            GraphNodeTransformHook::dirtifyLocal(node);
+        }
+    }
+
+    void ElementComponent::setNodeLocalPosition(GraphNode& node, const Vector3& position)
+    {
+        localPositionStorage(node) = position;
+        updateMarginsFromPosition();
+        if (!dirtyLocal(node)) {
+            GraphNodeTransformHook::dirtifyLocal(node);
+        }
+    }
+
+    void ElementComponent::syncTransform(GraphNode& node)
+    {
+        ScreenComponent* screen = screenComponent();
+        ElementComponent* parent = parentElement();
+
+        if (screen) {
+            if (_anchorDirty) {
+                float resx = 0.0f;
+                float resy = 0.0f;
+                float px = 0.0f;
+                float py = 1.0f;
+                if (parent) {
+                    // The parent element's rectangle.
+                    resx = parent->_calculatedWidth;
+                    resy = parent->_calculatedHeight;
+                    px = parent->_pivot.x;
+                    py = parent->_pivot.y;
+                } else {
+                    // The screen's.
+                    resx = screen->resolution().x / screen->scale();
+                    resy = screen->resolution().y / screen->scale();
+                }
+                _anchorTransform = translate(resx * (_anchor.getX() - px), -(resy * (py - _anchor.getY())), 0.0f);
+                _anchorDirty = false;
+                calculateLocalAnchors();
+            }
+
+            // Order matters: calculateSize dirtifies the local transform, so it runs
+            // before that is cleared below.
+            if (_sizeDirty) {
+                calculateSize(false, false);
+            }
+        }
+
+        if (dirtyLocal(node)) {
+            localTransform(node) = Matrix4::trs(node.localPosition(), node.localRotation(), node.localScale());
+            updateMarginsFromPosition();
+            dirtyLocal(node) = false;
+        }
+
+        if (!screen) {
+            if (dirtyWorld(node)) {
+                dirtifyAllCorners();
+            }
+            defaultSync(node);
+            return;
+        }
+
+        if (!dirtyWorld(node)) {
+            return;
+        }
+
+        if (node.parent() == nullptr) {
+            worldTransformStorage(node) = localTransform(node);
+        } else {
+            // The element hierarchy.
+            _screenToWorld = parent ? parent->_modelTransform * _anchorTransform : _anchorTransform;
+            _modelTransform = _screenToWorld * localTransform(node);
+
+            _screenToWorld = screen->screenMatrix() * _screenToWorld;
+            if (!screen->screenSpace()) {
+                _screenToWorld = _screen->worldTransform() * _screenToWorld;
+            }
+            worldTransformStorage(node) = _screenToWorld * localTransform(node);
+
+            // The parent's world transform, as the corners need it.
+            _parentWorldTransform = Matrix4::identity();
+            auto* parentEntity = dynamic_cast<Entity*>(node.parent());
+            if (parent && parentEntity != _screen) {
+                const Matrix4 parentRotScale = Matrix4::trs(Vector3(0.0f, 0.0f, 0.0f),
+                    parentEntity->localRotation(), parentEntity->localScale());
+                _parentWorldTransform = parent->_parentWorldTransform * parentRotScale;
+            }
+
+            // Rotate and scale around the pivot.
+            const Vector3 depthOffset(0.0f, 0.0f, node.localPosition().getZ());
+            const Vector3 pivotOffset(absLeft() + _pivot.x * _calculatedWidth,
+                absBottom() + _pivot.y * _calculatedHeight, 0.0f);
+            const Matrix4 toPivot = translate(-pivotOffset.getX(), -pivotOffset.getY(), -pivotOffset.getZ());
+            const Matrix4 rotScale = Matrix4::trs(depthOffset, node.localRotation(), node.localScale());
+            const Matrix4 fromPivot = translate(pivotOffset.getX(), pivotOffset.getY(), pivotOffset.getZ());
+            _screenTransform = _parentWorldTransform * fromPivot * rotScale * toPivot;
+
+            dirtifyAllCorners();
+        }
+
+        dirtyWorld(node) = false;
+    }
+
+    // ---- corners ---------------------------------------------------------------------
+
+    const std::array<Vector3, 4>& ElementComponent::screenCorners()
+    {
+        ScreenComponent* screen = screenComponent();
+        if (!_cornersDirty || !screen) {
+            return _screenCorners;
+        }
+
+        if (_entity) {
+            _entity->worldTransform();   // brings _screenTransform up to date
+        }
+
+        const ElementComponent* parent = parentElement();
+        const std::optional<Vector3> parentBottomLeft = parent
+            ? std::optional<Vector3>(const_cast<ElementComponent*>(parent)->screenCorners()[0]) : std::nullopt;
+
+        const float left = absLeft();
+        const float bottom = absBottom();
+        const float right = absRight();
+        const float top = absTop();
+        _screenCorners[0] = Vector3(left, bottom, 0.0f);
+        _screenCorners[1] = Vector3(right, bottom, 0.0f);
+        _screenCorners[2] = Vector3(right, top, 0.0f);
+        _screenCorners[3] = Vector3(left, top, 0.0f);
+
+        const bool screenSpace = screen->screenSpace();
+        for (auto& corner : _screenCorners) {
+            corner = _screenTransform.transformPoint(corner);
+            if (screenSpace) {
+                corner = corner * screen->scale();
+            }
+            if (parentBottomLeft) {
+                corner = corner + *parentBottomLeft;
+            }
+        }
+
+        _cornersDirty = false;
+        _canvasCornersDirty = true;
+        _worldCornersDirty = true;
+        return _screenCorners;
+    }
+
+    const std::array<Vector2, 4>& ElementComponent::canvasCorners()
+    {
+        ScreenComponent* screen = screenComponent();
+        if (!_canvasCornersDirty || !screen || !screen->screenSpace()) {
+            return _canvasCorners;
+        }
+        // The screen's resolution IS the canvas size in points for a screen-space screen, so
+        // upstream's clientWidth / width ratio is 1 here; only y turns over.
+        const auto& corners = screenCorners();
+        const float height = screen->resolution().y;
+        for (size_t i = 0; i < 4; ++i) {
+            _canvasCorners[i] = Vector2(corners[i].getX(), height - corners[i].getY());
+        }
+        _canvasCornersDirty = false;
+        return _canvasCorners;
+    }
+
+    const std::array<Vector3, 4>& ElementComponent::worldCorners()
+    {
+        if (!_worldCornersDirty) {
+            return _worldCorners;
+        }
+
+        if (ScreenComponent* screen = screenComponent()) {
+            const auto& corners = screenCorners();
+            if (!screen->screenSpace()) {
+                // The screen matrix flipped along the horizontal axis, into world space.
+                Matrix4 m = screen->screenMatrix();
+                m.setElement(3, 1, -m.getElement(3, 1));
+                m = _screen->worldTransform() * m;
+                for (size_t i = 0; i < 4; ++i) {
+                    _worldCorners[i] = m.transformPoint(corners[i]);
+                }
+            }
+        } else if (_entity) {
+            const Vector3 localPos = _entity->localPosition();
+            const Matrix4 toPos = translate(-localPos.getX(), -localPos.getY(), -localPos.getZ());
+            const Matrix4 rotScale = Matrix4::trs(Vector3(0.0f, 0.0f, 0.0f), _entity->localRotation(), _entity->localScale());
+            const Matrix4 fromPos = translate(localPos.getX(), localPos.getY(), localPos.getZ());
+            // The parent's world transform, or this entity's when it has none.
+            GraphNode* basis = _entity->parent() ? _entity->parent() : _entity;
+            const Matrix4 m = basis->worldTransform() * fromPos * rotScale * toPos;
+
+            const float w = _calculatedWidth;
+            const float h = _calculatedHeight;
+            const float x = localPos.getX();
+            const float y = localPos.getY();
+            const float z = localPos.getZ();
+            _worldCorners[0] = m.transformPoint(Vector3(x - _pivot.x * w, y - _pivot.y * h, z));
+            _worldCorners[1] = m.transformPoint(Vector3(x + (1.0f - _pivot.x) * w, y - _pivot.y * h, z));
+            _worldCorners[2] = m.transformPoint(Vector3(x + (1.0f - _pivot.x) * w, y + (1.0f - _pivot.y) * h, z));
+            _worldCorners[3] = m.transformPoint(Vector3(x - _pivot.x * w, y + (1.0f - _pivot.y) * h, z));
+        }
+
+        _worldCornersDirty = false;
+        return _worldCorners;
+    }
+
+    // ---- clone -----------------------------------------------------------------------
 
     void ElementComponent::cloneFrom(const Component* source)
     {
@@ -23,12 +707,18 @@ namespace visutwin::canvas
         if (!src) {
             return;
         }
-        _type = src->_type;
-        _pivot = src->_pivot;
-        _anchor = src->_anchor;
-        _margin = src->_margin;
-        _width = src->_width;
-        _height = src->_height;
+        // Upstream cloneComponent passes width, height, anchor, pivot and margin through
+        // initializeComponentData.
+        ElementDesc desc;
+        desc.type = src->_type;
+        desc.width = src->_width;
+        desc.height = src->_height;
+        desc.anchor = src->_anchor;
+        desc.pivot = src->_pivot;
+        desc.margin = src->_margin;
+        desc.useInput = src->_useInput;
+        setup(desc);
+
         _opacity = src->_opacity;
         _color = src->_color;
         _fontSize = src->_fontSize;
@@ -36,7 +726,8 @@ namespace visutwin::canvas
         _fontResource = src->_fontResource;
         _horizontalAlign = src->_horizontalAlign;
         _wrapLines = src->_wrapLines;
-        _useInput = src->_useInput;
+        _verticalAlign = src->_verticalAlign;
+        _layers = src->_layers;
         _textDirty = true;   // the clone has no text mesh of its own yet
     }
 }

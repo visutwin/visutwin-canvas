@@ -37,13 +37,6 @@
 //    switches every compose setting off (scale 1, no bloom, no TAA) so the
 //    camera falls back to the plain forward path, which is what upstream's
 //    disabled CameraFrame renders.
-//  - Screen-space text is always drawn by a separate orthographic overlay camera
-//    on the UI layer; a Screen child cannot be placed on the World layer. So the
-//    "World layer" label is ALSO drawn after post-processing and does not bloom.
-//    The screen has no scaleMode/scaleBlend, and element anchors are not laid out
-//    by the element system, so the labels are positioned from upstream's anchors
-//    by hand every frame, with the left edge on the anchor as upstream's
-//    thumbnail shows.
 //  - Upstream's orbit camera script is CameraControls in orbit mode, aimed at the
 //    mosquito's bounds centre (what upstream's script does on initialize), with
 //    the zoom range capped at upstream's distanceMax of 190.
@@ -228,7 +221,6 @@ protected:
         }
         _cameraComp->camera()->setFarClip(500.0f);
         _cameraComp->camera()->setFov(80.0f);
-        _cameraComp->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX, LAYERID_IMMEDIATE});
         cameraEntity->lookAt(0.0f, 0.0f, 100.0f);
 
         const Vector3 focusPoint = entityBounds(_mosquitoEntity).center();
@@ -313,7 +305,6 @@ protected:
         // Rotate the mosquito
         _mosquitoEntity->setLocalEulerAngles(0.0f, _angle * 30.0f, 0.0f);
 
-        layoutUi();
     }
 
     void preRender() override
@@ -346,86 +337,50 @@ private:
             spdlog::warn("label font failed to load — labels will be missing");
         }
 
-        // Orthographic overlay camera for the UI layer, after the main camera.
-        auto* uiCameraEntity = createCamera(Vector3(0.0f, 0.0f, 10.0f));
-        _uiCamera = uiCameraEntity->findComponent<CameraComponent>();
-        if (_uiCamera && _uiCamera->camera()) {
-            _uiCamera->camera()->setProjection(ProjectionType::Orthographic);
-            _uiCamera->camera()->setOrthoHeight(static_cast<float>(windowHeight()) * 0.5f);
-            _uiCamera->camera()->setClearColorBuffer(false);
-            _uiCamera->camera()->setClearDepthBuffer(true);
-            _uiCamera->camera()->setClearStencilBuffer(true);
-            _uiCamera->setLayers({LAYERID_UI});
-            _uiCamera->setPriority(1);
-        }
-
         // A 2D screen to place UI on
         auto* screenEntity = new Entity();
         screenEntity->setEngine(engine());
         _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
         if (_screen) {
             _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
+            _screen->setScaleBlend(0.5f);
             _screen->setScreenSpace(true);
+            _screen->setScaleMode(ScreenScaleMode::Blend);
         }
         root()->addChild(screenEntity);
 
-        const auto addLabel = [&](const std::string& text, const float x, const float y) {
+        const auto addLabel = [&](const std::string& name, const std::string& text, const float x,
+                                  const float y, const int layer) {
             auto* label = new Entity();
-            label->setName(text);
+            label->setName(name);
             label->setEngine(engine());
             auto* element = static_cast<ElementComponent*>(label->addComponent<ElementComponent>());
             if (element) {
-                element->setType(ElementType::Text);
+                element->setup({.type = ElementType::Text,
+                    .anchor = Vector4(x, y, 0.5f, 0.5f),
+                    .pivot = Vector2(0.5f, 0.1f)});
                 element->setText(text);
                 // Very bright colour to affect the bloom (upstream's comment: not correct,
                 // as sRGB is valid only in 0..1, but UI exposes no emissive intensity)
                 element->setColor(Color(18.0f, 15.0f, 5.0f, 1.0f));
-                element->setAnchor(Vector4(x, y, 0.5f, 0.5f));
                 element->setFontSize(28);
-                element->setHeight(28.0f);
-                element->setWidth(900.0f);
-                element->setPivot(Vector2(0.5f, 0.1f));
+                // Upstream alignment Vec2.ZERO: the line at the box's bottom left.
                 element->setHorizontalAlign(ElementHorizontalAlign::Left);
+                element->setVerticalAlign(0.0f);
                 element->setWrapLines(false);
+                element->setLayers({layer});
                 if (font) {
                     element->setFontResource(font);
                 }
             }
             screenEntity->addChild(label);
-            _labels.push_back({element, x, y});
         };
 
-        addLabel("Text on the World layer affected by post-processing", 0.1f, 0.9f);
-        addLabel("Text on theUI layer after the post-processing", 0.1f, 0.1f);
-    }
+        // Add a label on the world layer, which will be affected by post-processing
+        addLabel("WorldUI", "Text on the World layer affected by post-processing", 0.1f, 0.9f, LAYERID_WORLD);
 
-    // Upstream anchors are fractions with y UP; the element system positions UI text
-    // in pixels from the TOP-left, so the anchor is converted here.
-    void layoutUi()
-    {
-        int windowW = 1;
-        int windowH = 1;
-        SDL_GetWindowSize(window(), &windowW, &windowH);
-        float uiWidth = static_cast<float>(windowW);
-        float uiHeight = static_cast<float>(windowH);
-        if (_screen) {
-            _screen->updateScaleFromWindow(windowW, windowH);
-            const float scale = std::max(_screen->scale(), 1e-6f);
-            uiWidth = _screen->resolution().x / scale;
-            uiHeight = _screen->resolution().y / scale;
-        }
-        if (_uiCamera && _uiCamera->camera()) {
-            _uiCamera->camera()->setOrthoHeight(uiHeight * 0.5f);
-        }
-        // The glyph layout starts a left-aligned line at -pivot.x * width, so the
-        // entity is offset by that much to put the line's left edge on the anchor,
-        // which is where upstream's thumbnail shows it.
-        for (const auto& label : _labels) {
-            if (label.element && label.element->entity()) {
-                const float x = label.anchorX * uiWidth + label.element->pivot().x * label.element->width();
-                label.element->entity()->setLocalPosition(x, (1.0f - label.anchorY) * uiHeight, 0.0f);
-            }
-        }
+        // Add a label on the UI layer, which will be rendered after the post-processing
+        addLabel("TopUI", "Text on the UI layer after the post-processing", 0.1f, 0.1f, LAYERID_UI);
     }
 
     void applySettings()
@@ -496,13 +451,6 @@ private:
             s.colorEnhanceEnabled, s.vignetteEnabled, s.fringingEnabled, s.taaEnabled);
     }
 
-    struct Label
-    {
-        ElementComponent* element = nullptr;
-        float anchorX = 0.0f;
-        float anchorY = 0.0f;
-    };
-
     Settings _settings;
     const Color _lightColor{1.0f, 0.7f, 0.1f, 1.0f};
 
@@ -515,11 +463,9 @@ private:
     std::vector<std::shared_ptr<StandardMaterial>> _materials;
     std::vector<StandardMaterial*> _emissiveMaterials;
     std::vector<Entity*> _boxes;
-    std::vector<Label> _labels;
 
     Entity* _mosquitoEntity = nullptr;
     CameraComponent* _cameraComp = nullptr;
-    CameraComponent* _uiCamera = nullptr;
     LightComponent* _light = nullptr;
     ScreenComponent* _screen = nullptr;
     CameraControls* _controls = nullptr;

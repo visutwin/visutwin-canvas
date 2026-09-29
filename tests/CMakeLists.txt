@@ -487,6 +487,14 @@ target_link_libraries(visutwin-curve-tests PRIVATE visutwin-canvas)
 
 add_test(NAME curve COMMAND visutwin-curve-tests)
 
+add_executable(visutwin-element-layout-tests
+    elementLayoutTests.cpp
+)
+
+target_link_libraries(visutwin-element-layout-tests PRIVATE visutwin-canvas)
+
+add_test(NAME element-layout COMMAND visutwin-element-layout-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

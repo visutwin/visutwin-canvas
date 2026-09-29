@@ -134,6 +134,24 @@ namespace visutwin::canvas
         bool cull() const { return _cull; }
         void setCull(const bool value) { _cull = value; }
 
+        /**
+         * Upstream `MeshInstance.screenSpace`: the node's world transform already carries
+         * the vertices into CLIP space (a screen-space UI element, through its screen's
+         * projection), so the vertex stage skips the camera's view-projection
+         * (VT_FEATURE_SCREEN_SPACE) and ANY camera that renders the layer draws it where
+         * the screen put it. Such an instance has no world-space bounds to cull and casts
+         * no shadow, so setting it turns both off; depth-only passes skip it.
+         */
+        bool screenSpace() const { return _screenSpace; }
+        void setScreenSpace(const bool value)
+        {
+            _screenSpace = value;
+            if (value) {
+                _cull = false;
+                _castShadow = false;
+            }
+        }
+
         bool visibleThisFrame() const { return _visibleThisFrame; }
         void setVisibleThisFrame(const bool value) { _visibleThisFrame = value; }
 
@@ -383,6 +401,7 @@ namespace visutwin::canvas
         bool _receiveShadow = true;
         std::shared_ptr<Texture> _lightMap;
         bool _cull = true;
+        bool _screenSpace = false;
         bool _visibleThisFrame = false;
         int _drawOrder = 0;
         uint8_t _drawBucket = 0;

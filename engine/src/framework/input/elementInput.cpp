@@ -148,7 +148,7 @@ namespace visutwin::canvas
                 std::vector<std::string> wrapped;
                 wrapped.reserve(lines.size());
                 for (const auto& l : lines) {
-                    auto sub = wrapLine(l, font, scale, element->width());
+                    auto sub = wrapLine(l, font, scale, element->calculatedWidth());
                     wrapped.insert(wrapped.end(), sub.begin(), sub.end());
                 }
                 lines = std::move(wrapped);
@@ -159,12 +159,16 @@ namespace visutwin::canvas
             vertices.reserve(lines.size() * 64u * 14u);
             indices.reserve(lines.size() * 64u * 6u);
 
-            const float boxW = element->width();
-            const float boxH = element->height();
+            const float boxW = element->calculatedWidth();
+            const float boxH = element->calculatedHeight();
             const Vector2 pivot = element->pivot();
             const float lineStep = lineHeight * scale;
 
-            float yTop = (1.0f - pivot.y) * boxH;
+            // The block of lines is placed by the vertical alignment: its top at the box's
+            // top for 1, its bottom at the box's bottom for 0. The box may be INVERTED (a
+            // split axis whose margins cross), which the same formula handles.
+            const float blockH = lineStep * static_cast<float>(lines.size());
+            float yTop = (1.0f - pivot.y) * boxH - (1.0f - element->verticalAlign()) * (boxH - blockH);
             uint32_t vbase = 0;
 
             for (size_t li = 0; li < lines.size(); ++li) {
@@ -291,6 +295,9 @@ namespace visutwin::canvas
     void ElementInput::detach()
     {
         for (auto& [_, visual] : _textVisuals) {
+            if (visual.destroyHandle) {
+                visual.destroyHandle->off();
+            }
             if (visual.entity) {
                 auto removed = visual.entity->remove();
                 removed.reset();
@@ -309,15 +316,28 @@ namespace visutwin::canvas
             return false;
         }
 
-        const Vector3 pos = element->entity()->position();
-        const float width = std::max(element->width(), 0.0f);
-        const float height = std::max(element->height(), 0.0f);
-        const Vector2 pivot = element->pivot();
-
-        outRect.x = pos.getX() - pivot.x * width;
-        outRect.y = pos.getY() - pivot.y * height;
-        outRect.w = width;
-        outRect.h = height;
+        // Upstream ElementInput hit-tests a screen-space element by its CANVAS corners,
+        // which are in window points with y down — the space mouse coordinates are in.
+        // An element on no screen, or a world-space one, is not hit-testable here.
+        const ScreenComponent* screen = element->screenComponent();
+        if (!screen || !screen->screenSpace()) {
+            return false;
+        }
+        const auto& corners = const_cast<ElementComponent*>(element)->canvasCorners();
+        float minX = corners[0].x;
+        float maxX = corners[0].x;
+        float minY = corners[0].y;
+        float maxY = corners[0].y;
+        for (const auto& c : corners) {
+            minX = std::min(minX, c.x);
+            maxX = std::max(maxX, c.x);
+            minY = std::min(minY, c.y);
+            maxY = std::max(maxY, c.y);
+        }
+        outRect.x = minX;
+        outRect.y = minY;
+        outRect.w = maxX - minX;
+        outRect.h = maxY - minY;
         return outRect.w > 0.0f && outRect.h > 0.0f;
     }
 
@@ -356,18 +376,6 @@ namespace visutwin::canvas
             return;
         }
 
-        int windowW = 1;
-        int windowH = 1;
-        if (_engine && _engine->sdlWindow()) {
-            SDL_GetWindowSize(_engine->sdlWindow(), &windowW, &windowH);
-        }
-
-        for (auto* screen : ScreenComponent::instances()) {
-            if (screen && screen->enabled()) {
-                screen->updateScaleFromWindow(windowW, windowH);
-            }
-        }
-
         SDL_SetRenderDrawBlendMode(_sdlRenderer, SDL_BLENDMODE_BLEND);
 
         for (auto* element : ElementComponent::instances()) {
@@ -400,36 +408,6 @@ namespace visutwin::canvas
             return;
         }
 
-        int windowW = 1;
-        int windowH = 1;
-        if (_engine->sdlWindow()) {
-            SDL_GetWindowSize(_engine->sdlWindow(), &windowW, &windowH);
-        }
-        float uiWidth = static_cast<float>(std::max(windowW, 1));
-        float uiHeight = static_cast<float>(std::max(windowH, 1));
-        for (auto* screen : ScreenComponent::instances()) {
-            if (!screen || !screen->enabled() || !screen->screenSpace()) {
-                continue;
-            }
-            const float scale = std::max(screen->scale(), 1e-6f);
-            uiWidth = screen->resolution().x / scale;
-            uiHeight = screen->resolution().y / scale;
-            break;
-        }
-
-        // A text element is UI when it has a ScreenComponent ancestor. Without
-        // one it is a world-space label — which is how upstream
-        // examples annotate a 3D scene (text entities added straight to the root).
-        const auto hasScreenAncestor = [](const Entity* entity) {
-            for (const GraphNode* node = entity; node; node = node->parent()) {
-                const auto* asEntity = dynamic_cast<const Entity*>(node);
-                if (asEntity && const_cast<Entity*>(asEntity)->findComponent<ScreenComponent>()) {
-                    return true;
-                }
-            }
-            return false;
-        };
-
         for (auto& [_, visual] : _textVisuals) {
             visual.activeFrame = false;
         }
@@ -446,18 +424,22 @@ namespace visutwin::canvas
             visual.activeFrame = true;
 
             if (!visual.entity) {
-                visual.worldSpace = !hasScreenAncestor(element->entity());
+                // Screen-space text is drawn in clip space by whatever camera renders the UI
+                // layer (MeshInstance::setScreenSpace); anything else — an element on no
+                // screen or on a world-space one — is geometry in the world.
+                const ScreenComponent* screen = element->screenComponent();
+                visual.worldSpace = !(screen && screen->screenSpace());
                 visual.entity = new Entity();
                 visual.entity->setEngine(_engine.get());
-                visual.entity->setLocalPosition(0.0f, 0.0f,
-                    visual.worldSpace ? 0.0f : 5.0f);
+                visual.entity->setLocalPosition(0.0f, 0.0f, 0.0f);
+                // The visual lives under its element, so destroying the element frees it:
+                // forget it then, rather than touching freed memory when the element
+                // leaves the instance list.
+                visual.destroyHandle = visual.entity->on("destroy", [&visual]() {
+                    visual.entity = nullptr;
+                    visual.render = nullptr;
+                });
                 visual.render = static_cast<RenderComponent*>(visual.entity->addComponent<RenderComponent>());
-                if (visual.render) {
-                    // World-space labels belong to the scene camera's layer; UI
-                    // text is drawn by the separate ortho overlay camera.
-                    visual.render->setLayers(
-                        {visual.worldSpace ? LAYERID_WORLD : LAYERID_UI});
-                }
                 visual.material = std::make_shared<StandardMaterial>();
                 visual.material->setUseLighting(false);
                 visual.material->setUseSkybox(false);
@@ -468,9 +450,9 @@ namespace visutwin::canvas
                 auto alphaBlend = std::make_shared<BlendState>(BlendState::alphaBlend());
                 visual.material->setBlendState(alphaBlend);
                 auto textDepth = std::make_shared<DepthState>(DepthState::noWrite());
-                // UI text is an overlay and must never be occluded; a world-space
-                // label is part of the scene, so geometry in front of it should
-                // hide it. Depth WRITES stay off either way — the text is
+                // Screen-space text is an overlay and must never be occluded; a
+                // world-space label is part of the scene, so geometry in front of it
+                // should hide it. Depth WRITES stay off either way — the text is
                 // transparent and must not punch holes in the depth buffer.
                 textDepth->setDepthTest(visual.worldSpace);
                 visual.material->setDepthState(textDepth);
@@ -484,14 +466,19 @@ namespace visutwin::canvas
                 if (visual.render) {
                     visual.render->setMaterial(visual.material.get());
                 }
-                // Parenting to the element entity is what gives world-space
-                // labels their full transform — position, ROTATION and scale —
-                // instead of the position-only screen mapping below.
-                if (visual.worldSpace) {
-                    element->entity()->addChild(visual.entity);
-                } else {
-                    _engine->root()->addChild(visual.entity);
-                }
+                // A child of its element with an identity transform: the element's
+                // transform — the layout's, for an element on a screen — places it.
+                element->entity()->addChild(visual.entity);
+            }
+
+            // The element's own layers, or the element system's choice.
+            std::vector<int> layers = element->layers();
+            if (layers.empty()) {
+                layers = {visual.worldSpace ? LAYERID_WORLD : LAYERID_UI};
+            }
+            if (visual.render && visual.layers != layers) {
+                visual.render->setLayers(layers);
+                visual.layers = std::move(layers);
             }
 
             const bool needsRebuild = element->textDirty() ||
@@ -499,11 +486,12 @@ namespace visutwin::canvas
                 visual.cachedFontSize != element->fontSize() ||
                 visual.cachedAlign != element->horizontalAlign() ||
                 visual.cachedWrap != element->wrapLines() ||
+                visual.cachedVerticalAlign != element->verticalAlign() ||
                 visual.cachedFont != element->fontResource() ||
                 std::abs(visual.cachedPivot.x - element->pivot().x) > 1e-4f ||
                 std::abs(visual.cachedPivot.y - element->pivot().y) > 1e-4f ||
-                std::abs(visual.cachedWidth - element->width()) > 1e-4f ||
-                std::abs(visual.cachedHeight - element->height()) > 1e-4f;
+                std::abs(visual.cachedWidth - element->calculatedWidth()) > 1e-4f ||
+                std::abs(visual.cachedHeight - element->calculatedHeight()) > 1e-4f;
 
             if (needsRebuild) {
                 visual.mesh = buildTextMesh(_engine->graphicsDevice(), element);
@@ -512,16 +500,18 @@ namespace visutwin::canvas
                     if (visual.mesh) {
                         visual.material->setDiffuseMap(element->fontResource()->texture);
                         auto meshInstance = std::make_unique<MeshInstance>(visual.mesh.get(), visual.material.get(), visual.entity);
+                        meshInstance->setScreenSpace(!visual.worldSpace);
                         visual.render->addMeshInstance(std::move(meshInstance));
                     }
                 }
                 visual.cachedText = element->text();
                 visual.cachedFontSize = element->fontSize();
-                visual.cachedWidth = element->width();
-                visual.cachedHeight = element->height();
+                visual.cachedWidth = element->calculatedWidth();
+                visual.cachedHeight = element->calculatedHeight();
                 visual.cachedPivot = element->pivot();
                 visual.cachedAlign = element->horizontalAlign();
                 visual.cachedWrap = element->wrapLines();
+                visual.cachedVerticalAlign = element->verticalAlign();
                 visual.cachedFont = element->fontResource();
                 element->clearTextDirty();
             }
@@ -548,17 +538,6 @@ namespace visutwin::canvas
             visual.material->setOpacity(element->opacity());
 
             if (visual.entity) {
-                if (!visual.worldSpace) {
-                    // UI: map the element's pixel position into the ortho
-                    // overlay camera's centred coordinate system.
-                    const Vector3 pos = element->entity()->position();
-                    const float worldX = pos.getX() - uiWidth * 0.5f;
-                    const float worldY = uiHeight * 0.5f - pos.getY();
-                    visual.entity->setLocalPosition(worldX, worldY, 5.0f);
-                }
-                // World-space: the visual is a child of the element entity, so
-                // its identity local transform already tracks it. Writing a
-                // position here would fight the parent transform.
                 visual.entity->setEnabled(element->enabled() && element->entity()->enabled());
             }
         }
@@ -577,6 +556,9 @@ namespace visutwin::canvas
             }
         }
         for (auto* element : toRemove) {
+            if (auto& handle = _textVisuals[element].destroyHandle) {
+                handle->off();   // it captures the map entry erased next
+            }
             _textVisuals.erase(element);
         }
     }

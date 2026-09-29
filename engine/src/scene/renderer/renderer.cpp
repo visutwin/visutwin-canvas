@@ -1664,6 +1664,7 @@ namespace visutwin::canvas
         bool lastShaderInstanced = false;
         bool lastShaderInstanceColor = false;
         bool lastShaderInstanceLightMap = false;
+        bool lastShaderScreenSpace = false;
 
         bool lightingSet = false;
         uint32_t lightingSetMask = 0;
@@ -1690,14 +1691,15 @@ namespace visutwin::canvas
             // device over the material's lightmap slot.
             Texture* instanceLightMap = entry->meshInstance ? entry->meshInstance->lightMap().get() : nullptr;
             const bool hasInstanceLightMap = instanceLightMap != nullptr;
+            const bool isScreenSpace = entry->meshInstance && entry->meshInstance->screenSpace();
             _device->setInstanceLightMap(instanceLightMap);
 
             if (boundMaterial != lastShaderMaterial || isDynBatch != lastShaderDynBatch ||
                 isSkinned != lastShaderSkinned || isMorphed != lastShaderMorphed ||
                 isInstanced != lastShaderInstanced || hasInstanceColor != lastShaderInstanceColor ||
-                hasInstanceLightMap != lastShaderInstanceLightMap) {
+                hasInstanceLightMap != lastShaderInstanceLightMap || isScreenSpace != lastShaderScreenSpace) {
                 programLibrary->bindMaterial(_device, boundMaterial, transparent, isDynBatch, isSkinned, isMorphed,
-                    isInstanced, hasInstanceColor, hasInstanceLightMap);
+                    isInstanced, hasInstanceColor, hasInstanceLightMap, isScreenSpace);
                 lastShaderMaterial = boundMaterial;
                 lastShaderDynBatch = isDynBatch;
                 lastShaderSkinned = isSkinned;
@@ -1705,6 +1707,7 @@ namespace visutwin::canvas
                 lastShaderInstanced = isInstanced;
                 lastShaderInstanceColor = hasInstanceColor;
                 lastShaderInstanceLightMap = hasInstanceLightMap;
+                lastShaderScreenSpace = isScreenSpace;
             }
 
             // Phase 4: reuse cached light list when mask matches (zero allocation per draw).

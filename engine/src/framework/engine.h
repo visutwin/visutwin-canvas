@@ -106,6 +106,14 @@ namespace visutwin::canvas
 
         SDL_Window* sdlWindow() const { return _window; }
 
+        /**
+         * The canvas size in the units a screen-space UI and the mouse use: the window's
+         * size in POINTS when there is a window, otherwise the device's size. Upstream's
+         * canvas pixels are CSS pixels at a pixel ratio of 1, which is what window points
+         * are; the drawable is twice that on a Retina display.
+         */
+        std::pair<int, int> canvasSize() const;
+
         /**batcher accessor. */
         BatchManager* batcher() { return _batcher.get(); }
 

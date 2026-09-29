@@ -48,7 +48,8 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> getForwardShader(const Material* material, bool transparentPass,
                                                     bool dynamicBatch = false, bool skinning = false,
                                                     bool morphing = false, bool instancing = false,
-                                                    bool instancingColor = false, bool instanceLightmap = false);
+                                                    bool instancingColor = false, bool instanceLightmap = false,
+                                                    bool screenSpace = false);
         // The caster's material decides the shadow FRONTEND: an alpha-tested caster
         // has to sample its base-colour texture before writing depth, or it throws
         // the shadow of its bounding quad, and a caster with opacityShadowDither
@@ -68,7 +69,8 @@ namespace visutwin::canvas
 
         void bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material, bool transparentPass,
                           bool dynamicBatch = false, bool skinning = false, bool morphing = false,
-                          bool instancing = false, bool instancingColor = false, bool instanceLightmap = false);
+                          bool instancing = false, bool instancingColor = false, bool instanceLightmap = false,
+                          bool screenSpace = false);
 
         // set whether a skybox cubemap is available.
         // When true, skybox materials compile with VT_FEATURE_SKY_CUBEMAP.
@@ -205,6 +207,7 @@ namespace visutwin::canvas
             bool instancingColor = false;  // 80-byte instance stride: per-instance base color overrides the material
             bool planarReflection = false;  // Planar reflection — screen-space UV sampling + Fresnel blend
             bool planarReflectionDepthPass = false;  // Depth pass: output distance-from-plane instead of PBR
+            bool screenSpace = false;       // upstream SCREENSPACE: the world position IS the clip position (screen-space UI)
             bool lightmapBake = false;      // UV-space lightmap bake: rasterize the unwrap, output diffuse light
             bool lightmapBakeAccum = false; // Accumulating bake pass: direct light only, ambient already baked
             bool debugPass = false;         // Debug surface-quantity output (mode chosen at runtime)
@@ -258,7 +261,8 @@ namespace visutwin::canvas
                                                          bool dynamicBatch = false, bool skinning = false,
                                                          bool morphing = false, bool instancing = false,
                                                          bool instancingColor = false,
-                                                         bool instanceLightmap = false) const;
+                                                         bool instanceLightmap = false,
+                                                         bool screenSpace = false) const;
         static std::string resolveProgramName(const ShaderVariantOptions& options);
         static ShaderFeatureSet makeFeatureSet(const ShaderVariantOptions& options);
         VariantKey makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;

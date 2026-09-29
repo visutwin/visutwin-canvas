@@ -52,13 +52,16 @@ namespace visutwin::canvas
             Vector2 cachedPivot = Vector2(0.5f, 0.5f);
             ElementHorizontalAlign cachedAlign = ElementHorizontalAlign::Center;
             bool cachedWrap = false;
+            float cachedVerticalAlign = 1.0f;
             FontResource* cachedFont = nullptr;
             bool activeFrame = false;
-            // Decided once, when the visual is created: a text element under a
-            // ScreenComponent is UI (pixel coords on LAYERID_UI, depth test off,
-            // drawn by the app's ortho overlay camera); one without a Screen
-            // ancestor is a world-space label that simply follows its entity.
+            // Decided once, when the visual is created: a text element on a
+            // screen-space screen is drawn in screen space (depth test off, over
+            // whatever layer it is on); any other is a world-space label that simply
+            // follows its entity.
             bool worldSpace = false;
+            std::vector<int> layers;
+            EventHandlePtr destroyHandle;
         };
 
         bool computeElementRect(const ElementComponent* element, SDL_FRect& outRect) const;

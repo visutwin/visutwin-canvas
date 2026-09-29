@@ -7,6 +7,8 @@
 
 #include <cassert>
 
+#include <SDL3/SDL_video.h>
+
 #include "batching/batchManager.h"
 #include "components/componentSystemRegistry.h"
 #include "scene/materials/standardMaterial.h"
@@ -469,6 +471,18 @@ namespace visutwin::canvas
                 scene->immediate()->onPostRender();
             });
         }
+    }
+
+    std::pair<int, int> Engine::canvasSize() const
+    {
+        if (_window) {
+            int w = 0;
+            int h = 0;
+            if (SDL_GetWindowSize(_window, &w, &h) && w > 0 && h > 0) {
+                return {w, h};
+            }
+        }
+        return _graphicsDevice ? _graphicsDevice->size() : std::pair<int, int>{0, 0};
     }
 
     void Engine::fillFrameStatsBasic(double now, float dt, float ms)
