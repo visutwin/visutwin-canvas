@@ -11,7 +11,7 @@
 // with a red shadow offset (0.25, -0.25)).
 //
 // This is upstream's example BEFORE its rebuild into a game-over screen (#9566);
-// re-port that one once text markup exists.
+// re-port that one once text `spacing` exists (it needs no markup).
 //
 // DEVIATIONS:
 // - no text markup: the rainbow sentence is the same text with its [color] tags
@@ -116,10 +116,17 @@ private:
             .pivot = Vector2(0.5f, 0.5f),
             .width = width,
             .height = height});
+        // Upstream: the wrapped sentence turns autoWidth and autoHeight off, so it wraps at
+        // its 500-unit box; the others take their text's size. The flags go in before the
+        // text, as upstream applies every property before laying the text out.
+        element->setWrapLines(wrapLines);
+        if (wrapLines) {
+            element->setAutoWidth(false);
+            element->setAutoHeight(false);
+        }
         element->setFontResource(font);
         element->setFontSize(fontSize);
         element->setText(text);
-        element->setWrapLines(wrapLines);
         element->setHorizontalAlign(ElementHorizontalAlign::Center);
         element->setColor(color);
         screenEntity->addChild(entity);

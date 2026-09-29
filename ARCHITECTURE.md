@@ -554,6 +554,13 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   the screen depth-first from 1 (priority << 24 on top), queued by binding, unbinding and
   `setPriority` and resolved by the screen system's update; the UI layer's transparent
   sublayer is SORTMODE_MANUAL on it.
+- **Text properties:** `setLineHeight` (default the font size), `setAutoWidth` /
+  `setAutoHeight` (default on; ignored on a split axis), `setWrapLines` (wraps only at a
+  fixed width), `setEnableMarkup`. `textSymbols()` / `markupTags()` / `textWidth()` /
+  `textHeight()` expose the laid-out text. Markup tags: `[color="#rrggbb"]`,
+  `[outline color="#.." thickness=".."]`, `[shadow color="#.." offset=".." offsetX=".."
+  offsetY=".."]`, nested and merged innermost-last; `\[` is a literal bracket; an error
+  (unclosed tag, bad syntax) logs a warning and draws the text as written.
 - **Text layout** is upstream's: glyph metrics scale by `fontSize / 32` (the fonts' em;
   each glyph also divides by its own `scale`), lines step by `fontSize`, a line's width
   for alignment leaves out trailing whitespace, a missing character takes the space's

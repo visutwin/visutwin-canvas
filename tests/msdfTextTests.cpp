@@ -24,6 +24,7 @@
 #include "framework/appOptions.h"
 #include "framework/components/element/elementComponent.h"
 #include "framework/components/element/elementComponentSystem.h"
+#include "framework/components/element/textLayout.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/components/screen/screenComponent.h"
@@ -243,6 +244,87 @@ int main()
     if (!after.empty()) {
         auto* material = dynamic_cast<StandardMaterial*>(after[0]->material());
         check(material && near(material->packedUniforms().msdfOutlineShadow[0], 0.1f), "and updates the thickness");
+    }
+
+    std::cout << "layout (upstream metrics)\n";
+    {
+        // The MSDF font: A and B advance 10 font units, kerning A->B -2.5 and B->A -1, bounds
+        // spanning -5..24, no space glyph. At fontSize 32 a font unit is one element unit.
+        const TextMeasure one = measureText(*msdf, "AB", 32.0f, 32.0f);
+        check(one.lines.size() == 1 && near(one.width, 17.5f), "width is the kerned advance (10 - 2.5 + 10)");
+        check(near(one.height, 29.0f), "height is the glyph-bounds extent (24 - -5)");
+        const TextMeasure half = measureText(*msdf, "AB", 16.0f, 16.0f);
+        check(near(half.width, 8.75f) && near(half.height, 14.5f), "metrics scale by fontSize / 32");
+        const TextMeasure wrapped = measureText(*msdf, "AB AB", 32.0f, 32.0f, 20.0f);
+        check(wrapped.lines.size() == 2 && near(wrapped.width, 17.5f), "a line wraps after the whitespace");
+        check(near(wrapped.height, 24.0f + 32.0f + 5.0f), "and the block spans both lines");
+        const TextMeasure longWord = measureText(*msdf, "ABABAB", 32.0f, 32.0f, 20.0f);
+        check(longWord.lines.size() == 3, "a word longer than the line breaks between characters");
+        const TextMeasure trailing = measureText(*msdf, "AB\n", 32.0f, 32.0f);
+        check(near(trailing.height, 29.0f), "a trailing line break adds no height");
+        const TextMeasure empty = measureText(*msdf, "", 32.0f, 32.0f);
+        check(near(empty.width, 0.0f) && near(empty.height, 0.0f), "empty text measures 0 x 0");
+    }
+
+    std::cout << "auto size\n";
+    {
+        ElementComponent* text = addText(msdf);
+        text->setFontSize(32);
+        text->setText("AB");
+        check(near(text->width(), 17.5f) && near(text->height(), 29.0f), "autoWidth and autoHeight take the text's size");
+        text->setAutoWidth(false);
+        text->setWrapLines(true);
+        text->setWidth(20.0f);
+        text->setText("AB AB");
+        check(near(text->height(), 61.0f), "wrapped at a set width, the height follows the lines");
+        text->setWidth(40.0f);
+        check(near(text->height(), 29.0f), "and a wider element re-wraps at once");
+        ElementComponent* split = addText(msdf);
+        split->setAnchor(Vector4(0.0f, 0.5f, 1.0f, 0.5f));
+        const float before = split->width();
+        split->setText("AB");
+        check(near(split->width(), before), "a split axis keeps its own size");
+    }
+
+    std::cout << "markup\n";
+    {
+        ElementComponent* marked = addText(msdf);
+        marked->setColor(Color(0.5f, 0.5f, 0.5f, 1.0f));
+        marked->setEnableMarkup(true);
+        marked->setText(R"([color="#ff0000"]A[/color]A)");
+        check(marked->textSymbols() == "AA" && marked->markupTags().size() == 2, "tags are stripped from the drawn text");
+        elementInput->syncElements();
+        const auto parts = visualInstances(marked->entity());
+        check(parts.size() == 2, "two styles on one page draw as two parts");
+        bool red = false;
+        bool own = false;
+        for (auto* instance : parts) {
+            auto* material = dynamic_cast<StandardMaterial*>(instance->material());
+            if (material && near(material->emissive().r, 1.0f) && near(material->emissive().g, 0.0f)) {
+                red = true;
+            }
+            if (material && near(material->emissive().r, 0.5f)) {
+                own = true;
+            }
+        }
+        check(red && own, "the tagged run is red, the rest keeps the element's colour");
+
+        marked->setShadowOffset(Vector2(1.0f, 2.0f));
+        elementInput->syncElements();
+        const auto shadowed = visualInstances(marked->entity());
+        auto* material = shadowed.empty() ? nullptr : dynamic_cast<StandardMaterial*>(shadowed[0]->material());
+        check(material && near(material->packedUniforms().msdfOutlineShadow[1], 0.005f) &&
+              near(material->packedUniforms().msdfOutlineShadow[2], 0.01f),
+              "with tags, the shadow takes upstream's per-vertex convention (0.005 x, 0.005 y)");
+
+        ElementComponent* broken = addText(msdf);
+        broken->setEnableMarkup(true);
+        broken->setText(R"([color="#ff0000"]AB)");
+        check(broken->textSymbols() == R"([color="#ff0000"]AB)" && broken->markupTags().empty(),
+              "an unclosed tag draws the text as written");
+        ElementComponent* off = addText(msdf);
+        off->setText(R"([color="#ff0000"]A[/color])");
+        check(off->textSymbols() == R"([color="#ff0000"]A[/color])", "without enableMarkup, brackets are text");
     }
 
     elementInput->detach();

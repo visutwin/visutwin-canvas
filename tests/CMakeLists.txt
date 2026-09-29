@@ -511,6 +511,14 @@ target_link_libraries(visutwin-msdf-text-tests PRIVATE visutwin-canvas)
 
 add_test(NAME msdf-text COMMAND visutwin-msdf-text-tests)
 
+add_executable(visutwin-markup-tests
+    markupTests.cpp
+)
+
+target_link_libraries(visutwin-markup-tests PRIVATE visutwin-canvas)
+
+add_test(NAME markup COMMAND visutwin-markup-tests)
+
 add_executable(visutwin-script-lifetime-tests
     scriptLifetimeTests.cpp
 )

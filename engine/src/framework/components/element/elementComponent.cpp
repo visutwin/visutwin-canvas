@@ -14,7 +14,12 @@
 #include "core/math/quaternion.h"
 #include "framework/components/screen/screenComponent.h"
 #include "framework/entity.h"
+#include "framework/components/element/textLayout.h"
 #include "scene/sprite.h"
+
+#include <limits>
+
+#include <spdlog/spdlog.h>
 
 namespace visutwin::canvas
 {
@@ -362,6 +367,10 @@ namespace visutwin::canvas
         flagChildrenAsDirty();
         fire("set:calculatedWidth", _calculatedWidth);
         fire("resize", _calculatedWidth, _calculatedHeight);
+        // Wrapped text breaks at this width, so its lines and height follow it.
+        if (_type == ElementType::Text && _wrapLines && std::isfinite(textMaxLineWidth())) {
+            updateTextLayout();
+        }
     }
 
     void ElementComponent::setCalculatedHeightInternal(const float value, const bool updateMargins)
@@ -703,6 +712,56 @@ namespace visutwin::canvas
         return _worldCorners;
     }
 
+    // ---- text ------------------------------------------------------------------------
+
+    float ElementComponent::textMaxLineWidth() const
+    {
+        if ((_autoWidth && !hasSplitAnchorsX()) || !_wrapLines) {
+            return std::numeric_limits<float>::infinity();
+        }
+        return _calculatedWidth;
+    }
+
+    void ElementComponent::textChanged()
+    {
+        _textDirty = true;
+        updateTextLayout();
+    }
+
+    void ElementComponent::updateTextLayout()
+    {
+        // Upstream lays text out as soon as an input changes, so a caller can read the
+        // element's size right after setting its text; so does this.
+        if (_type != ElementType::Text || !_fontResource || _inTextLayout) {
+            return;
+        }
+        _inTextLayout = true;
+        _markupTags.clear();
+        if (_enableMarkup) {
+            MarkupResult markup = evaluateMarkup(_text);
+            if (!markup.error.empty()) {
+                spdlog::warn("{} in text '{}'", markup.error, _text);
+            }
+            _symbols = std::move(markup.symbols);
+            _markupTags = std::move(markup.tags);
+        } else {
+            _symbols = _text;
+        }
+        const TextMeasure measure = measureText(*_fontResource, _symbols, static_cast<float>(_fontSize), lineHeight(),
+                                                textMaxLineWidth());
+        _textWidth = measure.width;
+        _textHeight = measure.height;
+        // Upstream's autoWidth / autoHeight setters, run after every layout: the element
+        // takes the text's size on an axis its anchors do not split.
+        if (_autoWidth && !hasSplitAnchorsX()) {
+            setWidth(_textWidth);
+        }
+        if (_autoHeight && !hasSplitAnchorsY()) {
+            setHeight(_textHeight);
+        }
+        _inTextLayout = false;
+    }
+
     // ---- image -----------------------------------------------------------------------
 
     void ElementComponent::setTexture(Texture* value)
@@ -765,6 +824,10 @@ namespace visutwin::canvas
         _horizontalAlign = src->_horizontalAlign;
         _wrapLines = src->_wrapLines;
         _verticalAlign = src->_verticalAlign;
+        _lineHeight = src->_lineHeight;
+        _enableMarkup = src->_enableMarkup;
+        _autoWidth = src->_autoWidth;
+        _autoHeight = src->_autoHeight;
         _outlineColor = src->_outlineColor;
         _outlineThickness = src->_outlineThickness;
         _shadowColor = src->_shadowColor;
@@ -777,6 +840,6 @@ namespace visutwin::canvas
         _pixelsPerUnit = src->_pixelsPerUnit;
         _fitMode = src->_fitMode;
         ++_imageVersion;
-        _textDirty = true;   // the clone has no text mesh of its own yet
+        textChanged();   // the clone has no text mesh of its own yet
     }
 }

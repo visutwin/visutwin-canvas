@@ -24,7 +24,12 @@
 // takes a texture with a UV rect, or a sprite frame, simple or 9-sliced
 // (imageElementGeometry.h); its colour multiplies the texture.
 //
-// Not ported yet: masks, tiled sprites, layout groups and batching.
+// Text is laid out on upstream's metrics (textLayout.h) as soon as an input changes, so its
+// size can be read at once; with autoWidth / autoHeight (the default) the element takes it.
+// `enableMarkup` reads `[color]`, `[outline]` and `[shadow]` tags (markup.h).
+//
+// Not ported yet: masks, tiled sprites, layout groups, batching, letter spacing, max lines,
+// auto-fit font size and right-to-left reordering.
 //
 #pragma once
 
@@ -44,6 +49,7 @@
 #include "core/math/vector4.h"
 #include "framework/components/component.h"
 #include "framework/components/element/imageElementGeometry.h"
+#include "framework/components/element/markup.h"
 #include "framework/handlers/fontResource.h"
 #include "scene/graphNodeTransformHook.h"
 
@@ -100,7 +106,7 @@ namespace visutwin::canvas
         static const std::vector<ElementComponent*>& instances() { return _instances; }
 
         ElementType type() const { return _type; }
-        void setType(ElementType value) { _type = value; _textDirty = true; }
+        void setType(ElementType value) { _type = value; textChanged(); }
 
         // ---- layout (upstream semantics) --------------------------------------------
 
@@ -162,13 +168,13 @@ namespace visutwin::canvas
         float opacity() const { return _opacity; }
         void setOpacity(const float value) { _opacity = std::clamp(value, 0.0f, 1.0f); }
         const Color& color() const { return _color; }
-        void setColor(const Color& value) { _color = value; }
+        void setColor(const Color& value) { _color = value; styleChanged(); }
         int fontSize() const { return _fontSize; }
-        void setFontSize(const int value) { _fontSize = std::max(value, 1); _textDirty = true; }
+        void setFontSize(const int value) { _fontSize = std::max(value, 1); textChanged(); }
         const std::string& text() const { return _text; }
-        void setText(const std::string& value) { _text = value; _textDirty = true; }
+        void setText(const std::string& value) { _text = value; textChanged(); }
         FontResource* fontResource() const { return _fontResource; }
-        void setFontResource(FontResource* value) { _fontResource = value; _textDirty = true; }
+        void setFontResource(FontResource* value) { _fontResource = value; textChanged(); }
         ElementHorizontalAlign horizontalAlign() const { return _horizontalAlign; }
         void setHorizontalAlign(const ElementHorizontalAlign value) { _horizontalAlign = value; _textDirty = true; }
         /// Where the block of lines sits vertically in the box: 0 bottom, 0.5 centre (the
@@ -178,17 +184,44 @@ namespace visutwin::canvas
         void setVerticalAlign(const float value) { _verticalAlign = std::clamp(value, 0.0f, 1.0f); _textDirty = true; }
         /// Text outline (upstream `outlineColor`, `outlineThickness` 0..1). MSDF fonts only.
         const Color& outlineColor() const { return _outlineColor; }
-        void setOutlineColor(const Color& value) { _outlineColor = value; }
+        void setOutlineColor(const Color& value) { _outlineColor = value; styleChanged(); }
         float outlineThickness() const { return _outlineThickness; }
-        void setOutlineThickness(const float value) { _outlineThickness = value; }
+        void setOutlineThickness(const float value) { _outlineThickness = value; styleChanged(); }
         /// Text drop shadow (upstream `shadowColor`, `shadowOffset` in its editor units:
         /// a shift of 0.005 of the atlas width per unit). MSDF fonts only.
         const Color& shadowColor() const { return _shadowColor; }
-        void setShadowColor(const Color& value) { _shadowColor = value; }
+        void setShadowColor(const Color& value) { _shadowColor = value; styleChanged(); }
         const Vector2& shadowOffset() const { return _shadowOffset; }
-        void setShadowOffset(const Vector2& value) { _shadowOffset = value; }
+        void setShadowOffset(const Vector2& value) { _shadowOffset = value; styleChanged(); }
         bool wrapLines() const { return _wrapLines; }
-        void setWrapLines(const bool value) { _wrapLines = value; _textDirty = true; }
+        void setWrapLines(const bool value) { _wrapLines = value; textChanged(); }
+
+        /// The distance between lines (upstream `lineHeight`); unset, the font size.
+        float lineHeight() const { return _lineHeight.value_or(static_cast<float>(_fontSize)); }
+        void setLineHeight(const float value) { _lineHeight = value; textChanged(); }
+        /// Upstream `enableMarkup`: read `[color]`, `[outline]` and `[shadow]` tags in the
+        /// text (markup.h). An error draws the text as written, tags included.
+        bool enableMarkup() const { return _enableMarkup; }
+        void setEnableMarkup(const bool value) { _enableMarkup = value; textChanged(); }
+        /// Upstream `autoWidth` / `autoHeight` (both on by default): the element takes the
+        /// text's size on that axis unless its anchors split it. A text that wraps must turn
+        /// autoWidth off, or it has no width to wrap at.
+        bool autoWidth() const { return _autoWidth; }
+        void setAutoWidth(const bool value) { _autoWidth = value; textChanged(); }
+        bool autoHeight() const { return _autoHeight; }
+        void setAutoHeight(const bool value) { _autoHeight = value; textChanged(); }
+
+        /// The text drawn — markup stripped when it is on — and each symbol's tags (empty
+        /// without markup or tags).
+        const std::string& textSymbols() const { return _symbols; }
+        const std::vector<std::optional<MarkupTags>>& markupTags() const { return _markupTags; }
+        /// The text's own size (upstream TextElement width / height), measured whenever
+        /// the text, font, size, line height, wrapping or wrap width changes.
+        float textWidth() const { return _textWidth; }
+        float textHeight() const { return _textHeight; }
+        /// The width lines wrap at: the element's, when wrapLines is on and the width is not
+        /// automatic on an unsplit axis; unlimited otherwise (upstream's rule).
+        float textMaxLineWidth() const;
         /// The layers the element's visual is drawn on (upstream `layers`). Empty, the
         /// default, lets the element system choose: LAYERID_UI on a screen-space screen,
         /// LAYERID_WORLD otherwise. DEVIATION: upstream defaults to [LAYERID_UI] for both,
@@ -259,6 +292,17 @@ namespace visutwin::canvas
         void onInsert();
         Entity* parseUpToScreen() const;
         void dirtifyLocal();
+        /// A text input changed: mark the mesh stale and measure again.
+        void textChanged();
+        /// A colour, outline or shadow changed. Markup styles fall back to these, so a text
+        /// with tags rebuilds its per-style parts; without tags only the uniforms change.
+        void styleChanged()
+        {
+            if (!_markupTags.empty()) {
+                _textDirty = true;
+            }
+        }
+        void updateTextLayout();
 
         inline static std::vector<ElementComponent*> _instances;
 
@@ -299,6 +343,15 @@ namespace visutwin::canvas
         ElementHorizontalAlign _horizontalAlign = ElementHorizontalAlign::Center;
         bool _wrapLines = false;
         float _verticalAlign = 0.5f;
+        std::optional<float> _lineHeight;
+        bool _enableMarkup = false;
+        bool _autoWidth = true;
+        bool _autoHeight = true;
+        std::string _symbols;
+        std::vector<std::optional<MarkupTags>> _markupTags;
+        float _textWidth = 0.0f;
+        float _textHeight = 0.0f;
+        bool _inTextLayout = false;
         Color _outlineColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
         float _outlineThickness = 0.0f;
         Color _shadowColor = Color(0.0f, 0.0f, 0.0f, 1.0f);

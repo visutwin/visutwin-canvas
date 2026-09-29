@@ -45,6 +45,8 @@ for details.
   the copyright notice and licence must accompany it — they are in the `.txt`).
   Liberation Sans is metric-compatible with Arial, so every advance matches the
   Arial atlas this replaced. Used by `raycast`, `post-processing` and `anisotropy`.
+- `roboto-regular.json` + `roboto-regular.png` + `roboto-regular1.png` — the same for Roboto
+  Regular, same licence. Used by `ui-text-markup`.
 - `roboto-bold.json` + `roboto-bold.png` + `roboto-bold1.png` — upstream's two-page MSDF
   atlas of Roboto Bold 2.138 (Basic Latin through Latin Extended-A), byte-identical to
   upstream's example asset. Roboto is **Apache-2.0**; the notice and licence are in

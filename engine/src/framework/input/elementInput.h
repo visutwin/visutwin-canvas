@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/math/color.h"
 #include "core/math/vector2.h"
 #include "framework/components/element/elementComponent.h"
 
@@ -37,6 +38,16 @@ namespace visutwin::canvas
     class ElementInput
     {
     public:
+        /// The colour, outline and shadow one run of text draws in.
+        struct TextStyle
+        {
+            Color color;
+            Color outlineColor;
+            float outlineThickness = 0.0f;
+            Color shadowColor;
+            Vector2 shadowOffset;
+        };
+
         void setEngine(const std::shared_ptr<Engine>& engine) { _engine = engine; }
 
         void detach();
@@ -53,6 +64,8 @@ namespace visutwin::canvas
             std::shared_ptr<StandardMaterial> material;
             MeshInstance* meshInstance = nullptr;
             Texture* texture = nullptr;
+            /// Index into ElementVisual::styles; 0 is the element's own, read live.
+            int style = 0;
             // What the material was last given, so an unchanged element repacks nothing.
             bool styled = false;
             Color color;
@@ -68,6 +81,11 @@ namespace visutwin::canvas
             Entity* entity = nullptr;
             RenderComponent* render = nullptr;
             std::vector<VisualPart> parts;
+            /// Text: the styles its parts draw in (resolved at the last rebuild).
+            std::vector<TextStyle> styles;
+            /// Text with markup tags: its shadow offsets take upstream's PER-VERTEX
+            /// convention, which differs from the uniform one (see msdfShadowUvOffset).
+            bool markupStyles = false;
             ElementType type = ElementType::Group;
             bool activeFrame = false;
             // Decided once, when the visual is created: an element on a screen-space
@@ -81,13 +99,6 @@ namespace visutwin::canvas
             float cachedWidth = 0.0f;
             float cachedHeight = 0.0f;
             Vector2 cachedPivot = Vector2(0.5f, 0.5f);
-            // text
-            std::string cachedText;
-            int cachedFontSize = 0;
-            ElementHorizontalAlign cachedAlign = ElementHorizontalAlign::Center;
-            bool cachedWrap = false;
-            float cachedVerticalAlign = 0.5f;
-            FontResource* cachedFont = nullptr;
             // image
             uint64_t cachedImageVersion = 0;
             const Sprite* cachedSprite = nullptr;

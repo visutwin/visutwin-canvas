@@ -1793,6 +1793,16 @@ present, but the rule below never depends on reading it.
   it below. Settle a direction on upstream's pixels — count which side of the glyph the rim
   falls on — not on a reading of its UV code, and not on a centroid of the visible rim,
   which the glyph covers.
+  Text layout lives in `textLayout.h` (pure: measure, then place) and runs SYNCHRONOUSLY
+  in the element's text setters, as upstream's does: `autoWidth` / `autoHeight` are ON by
+  default and the element takes the text's size at once, so a caller can stack lines by
+  `height()` right after `setText`. A text that wraps must turn autoWidth off, and BEFORE
+  its text is set, or the element has already grown to the unwrapped width. Markup
+  (`markup.h`, upstream's scanner and parser) resolves to a style per symbol; each (page,
+  style) run is its own mesh instance and material (DEVIATION: upstream uses vertex
+  attributes and one mesh per page). With tags present upstream switches EVERY symbol to
+  its per-vertex shadow convention, `(0.005 x, 0.005 y)`, which points y the other way from
+  the uniform one on a square page; reproduced, not fixed.
   Text is laid out on upstream's METRICS: glyphs scale by fontSize / 32 (the fonts' em),
   lines step by fontSize, and the block is aligned by the glyph `bounds` extent with
   vertical alignment 0.5 by default. Until 2026-09-29 the scale was fontSize over the
@@ -2268,10 +2278,10 @@ What stays HERE is only what bites during UNRELATED work.
   copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
-- **UI not ported yet**: text markup, auto-sized text, layout groups, masks, scroll views,
-  tiled sprites, and upstream's element drag helper (#9551). `world-to-screen` is the
-  rebuilt upstream example (#9569); `ui-text` still ports the version before its rebuild
-  (#9566), which needs markup.
+- **UI not ported yet**: letter spacing, max lines, auto-fit font size, right-to-left text,
+  layout groups, masks, scroll views, tiled sprites, and upstream's element drag helper
+  (#9551). `world-to-screen` and `ui-text-markup` port upstream's current examples;
+  `ui-text` still ports the version before its rebuild (#9566), which needs `spacing`.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles

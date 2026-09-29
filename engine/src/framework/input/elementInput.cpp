@@ -9,7 +9,11 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cctype>
 #include <cstring>
+#include <optional>
 #include <map>
 #include <sstream>
 #include <string>
@@ -21,6 +25,7 @@
 #include "framework/components/button/buttonComponent.h"
 #include "framework/components/componentSystem.h"
 #include "framework/components/element/elementComponent.h"
+#include "framework/components/element/textLayout.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/screen/screenComponent.h"
 #include "framework/engine.h"
@@ -42,121 +47,6 @@ namespace visutwin::canvas
 {
     namespace
     {
-        struct GlyphQuad
-        {
-            float x0 = 0.0f;
-            float y0 = 0.0f;
-            float x1 = 0.0f;
-            float y1 = 0.0f;
-            float u0 = 0.0f;
-            float v0 = 0.0f;
-            float u1 = 0.0f;
-            float v1 = 0.0f;
-        };
-
-        std::vector<std::string> splitLines(const std::string& text)
-        {
-            std::vector<std::string> lines;
-            std::stringstream ss(text);
-            std::string line;
-            while (std::getline(ss, line, '\n')) {
-                lines.push_back(line);
-            }
-            if (text.empty() || text.back() == '\n') {
-                lines.push_back("");
-            }
-            return lines;
-        }
-
-        /// Upstream text-element's MAGIC: font units per em. A glyph's metrics are in font
-        /// units, so `fontSize / 32` takes them to the element's units. This port divided by
-        /// the ATLAS CELL (64) until 2026-09-29, and every text was drawn at half its size.
-        constexpr float kFontUnitsPerEm = 32.0f;
-
-        /// The glyph drawn for `code`: the character itself, else the space, as upstream
-        /// substitutes a missing character (null when the font has neither).
-        const FontGlyph* glyphFor(const FontResource* font, const int code)
-        {
-            if (const auto it = font->glyphs.find(code); it != font->glyphs.end()) {
-                return &it->second;
-            }
-            const auto space = font->glyphs.find(' ');
-            return space != font->glyphs.end() ? &space->second : nullptr;
-        }
-
-        /// The advance of `text`, kerned, in element units — without trailing whitespace,
-        /// which upstream leaves out of a line's width.
-        float lineWidthForText(const std::string& text, const FontResource* font, const float scale)
-        {
-            if (!font || text.empty()) {
-                return 0.0f;
-            }
-
-            float width = 0.0f;
-            float widthMinusTrailing = 0.0f;
-            int prev = -1;
-            for (char c : text) {
-                const int code = static_cast<unsigned char>(c);
-                const FontGlyph* glyph = glyphFor(font, code);
-                const float kern = prev >= 0 ? font->kerningValue(prev, code) * scale : 0.0f;
-                width += kern + (glyph ? glyph->xadvance * scale : 0.0f);
-                if (c != ' ' && c != '\t') {
-                    widthMinusTrailing = width;
-                }
-                prev = code;
-            }
-            return widthMinusTrailing;
-        }
-
-        std::vector<std::string> wrapLine(const std::string& line, const FontResource* font, const float scale, const float maxWidth)
-        {
-            if (!font || maxWidth <= 0.0f || line.empty()) {
-                return {line};
-            }
-
-            std::vector<std::string> out;
-            std::string current;
-            size_t i = 0;
-            while (i < line.size()) {
-                size_t j = i;
-                while (j < line.size() && line[j] != ' ') {
-                    ++j;
-                }
-                const std::string word = line.substr(i, j - i);
-                const bool hasSpace = (j < line.size() && line[j] == ' ');
-                const std::string token = hasSpace ? (word + " ") : word;
-
-                const std::string candidate = current + token;
-                if (!current.empty() && lineWidthForText(candidate, font, scale) > maxWidth) {
-                    out.push_back(current);
-                    current.clear();
-                }
-
-                if (current.empty() && lineWidthForText(token, font, scale) > maxWidth) {
-                    // Fallback to per-character split for very long words.
-                    std::string part;
-                    for (char c : token) {
-                        const std::string next = part + c;
-                        if (!part.empty() && lineWidthForText(next, font, scale) > maxWidth) {
-                            out.push_back(part);
-                            part.clear();
-                        }
-                        part.push_back(c);
-                    }
-                    current += part;
-                } else {
-                    current += token;
-                }
-
-                i = hasSpace ? (j + 1) : j;
-            }
-
-            if (!current.empty()) {
-                out.push_back(current);
-            }
-            return out;
-        }
-
         /// A triangle list in the 14-float layout every UI visual uses: position(3)
         /// normal(3) uv0(2) tangent(4) uv1(2).
         std::shared_ptr<Mesh> makeUiMesh(const std::shared_ptr<GraphicsDevice>& gd, const std::vector<float>& vertices,
@@ -191,144 +81,163 @@ namespace visutwin::canvas
             return mesh;
         }
 
-        /// One mesh per atlas page the text touches, keyed by page (upstream builds a mesh
-        /// instance per `meshInfo` the same way: each page is its own texture).
-        std::vector<std::pair<int, std::shared_ptr<Mesh>>> buildTextMeshes(const std::shared_ptr<GraphicsDevice>& gd,
-                                                                           const ElementComponent* element)
+        /// `#rrggbb` or `#rrggbbaa`, sRGB (upstream Color.fromString); null otherwise.
+        std::optional<Color> parseHexColor(const std::string& text)
         {
-            if (!gd || !element || !element->fontResource() || element->text().empty()) {
-                return {};
+            if ((text.size() != 7 && text.size() != 9) || text[0] != '#') {
+                return std::nullopt;
             }
-
-            const FontResource* font = element->fontResource();
-            const float fontSize = static_cast<float>(element->fontSize());
-            // Upstream text-element's layout: glyph metrics scale by fontSize / 32, and a line
-            // steps down by the element's lineHeight, which defaults to the font size.
-            const float scale = fontSize / kFontUnitsPerEm;
-            const float lineStep = fontSize;
-
-            std::vector<std::string> lines = splitLines(element->text());
-            if (element->wrapLines()) {
-                std::vector<std::string> wrapped;
-                wrapped.reserve(lines.size());
-                for (const auto& l : lines) {
-                    auto sub = wrapLine(l, font, scale, element->calculatedWidth());
-                    wrapped.insert(wrapped.end(), sub.begin(), sub.end());
+            for (size_t i = 1; i < text.size(); ++i) {
+                if (!std::isxdigit(static_cast<unsigned char>(text[i]))) {
+                    return std::nullopt;
                 }
-                lines = std::move(wrapped);
+            }
+            const auto channel = [&](const size_t at) {
+                return static_cast<float>(std::stoi(text.substr(at, 2), nullptr, 16)) / 255.0f;
+            };
+            return Color(channel(1), channel(3), channel(5), text.size() == 9 ? channel(7) : 1.0f);
+        }
+
+        /// A tag attribute as a number (upstream Number()), null when absent or not one.
+        std::optional<float> parseNumber(const MarkupTag& tag, const char* key)
+        {
+            const auto it = tag.attributes.find(key);
+            if (it == tag.attributes.end()) {
+                return std::nullopt;
+            }
+            char* end = nullptr;
+            const float value = std::strtof(it->second.c_str(), &end);
+            if (end == it->second.c_str() || *end != '\0' || !std::isfinite(value)) {
+                return std::nullopt;
+            }
+            return value;
+        }
+
+        /// Upstream text-element's per-symbol colour, outline and shadow for one symbol's
+        /// tags, falling back to the element's own values where a tag leaves one out.
+        ElementInput::TextStyle resolveTextStyle(const ElementComponent* element, const MarkupTags& tags)
+        {
+            ElementInput::TextStyle style{element->color(), element->outlineColor(), element->outlineThickness(),
+                                          element->shadowColor(), element->shadowOffset()};
+            if (const auto it = tags.find("color"); it != tags.end() && it->second.value) {
+                // Upstream accepts only #rrggbb here; the element's opacity stays the alpha.
+                if (const auto c = parseHexColor(*it->second.value); c && it->second.value->size() == 7) {
+                    style.color = Color(c->r, c->g, c->b, element->color().a);
+                }
+            }
+            if (const auto it = tags.find("outline"); it != tags.end() &&
+                (it->second.attributes.count("color") || it->second.attributes.count("thickness"))) {
+                if (const auto c = it->second.attributes.count("color")
+                        ? parseHexColor(it->second.attributes.at("color")) : std::nullopt) {
+                    style.outlineColor = *c;
+                }
+                style.outlineThickness = parseNumber(it->second, "thickness").value_or(element->outlineThickness());
+            }
+            if (const auto it = tags.find("shadow"); it != tags.end() &&
+                (it->second.attributes.count("color") || it->second.attributes.count("offset") ||
+                 it->second.attributes.count("offsetX") || it->second.attributes.count("offsetY"))) {
+                if (const auto c = it->second.attributes.count("color")
+                        ? parseHexColor(it->second.attributes.at("color")) : std::nullopt) {
+                    style.shadowColor = *c;
+                }
+                const auto offset = parseNumber(it->second, "offset");
+                style.shadowOffset = Vector2(
+                    parseNumber(it->second, "offsetX").value_or(offset.value_or(element->shadowOffset().x)),
+                    parseNumber(it->second, "offsetY").value_or(offset.value_or(element->shadowOffset().y)));
+            }
+            return style;
+        }
+
+        std::string styleKey(const ElementInput::TextStyle& s)
+        {
+            char buffer[256];
+            std::snprintf(buffer, sizeof(buffer), "%g %g %g|%g %g %g %g %g|%g %g %g %g %g %g",
+                s.color.r, s.color.g, s.color.b,
+                s.outlineColor.r, s.outlineColor.g, s.outlineColor.b, s.outlineColor.a, s.outlineThickness,
+                s.shadowColor.r, s.shadowColor.g, s.shadowColor.b, s.shadowColor.a, s.shadowOffset.x, s.shadowOffset.y);
+            return buffer;
+        }
+
+        struct TextMeshes
+        {
+            /// (page, style) -> mesh, in key order.
+            std::vector<std::pair<std::pair<int, int>, std::shared_ptr<Mesh>>> meshes;
+            /// Style 0 is the element's own, read live each frame; the rest come from tags.
+            std::vector<ElementInput::TextStyle> styles;
+        };
+
+        /// The text's geometry, one mesh per (atlas page, style) run: each page is its own
+        /// texture, and each markup style its own material. DEVIATION: upstream draws a page
+        /// in ONE mesh with the style in vertex attributes; here glyphs of different styles
+        /// are separate draws, which can order two overlapping neighbours' outlines or
+        /// shadows differently from upstream's glyph order.
+        TextMeshes buildTextMeshes(const std::shared_ptr<GraphicsDevice>& gd, const ElementComponent* element)
+        {
+            TextMeshes result;
+            const FontResource* font = element ? element->fontResource() : nullptr;
+            if (!gd || !font || element->textSymbols().empty()) {
+                return result;
+            }
+            const std::string& symbols = element->textSymbols();
+            const auto& tags = element->markupTags();
+
+            const TextMeasure measure = measureText(*font, symbols, static_cast<float>(element->fontSize()),
+                                                    element->lineHeight(), element->textMaxLineWidth());
+            const float horizontal = element->horizontalAlign() == ElementHorizontalAlign::Left ? 0.0f
+                : element->horizontalAlign() == ElementHorizontalAlign::Right ? 1.0f : 0.5f;
+            const std::vector<PlacedGlyph> glyphs = placeText(*font, symbols, measure, element->calculatedWidth(),
+                element->calculatedHeight(), element->pivot(), horizontal, element->verticalAlign());
+
+            // Upstream's palettes: index 0 the element's own style, one more per distinct
+            // tag style.
+            std::vector<int> styleOf(symbols.size(), 0);
+            result.styles.push_back({element->color(), element->outlineColor(), element->outlineThickness(),
+                                     element->shadowColor(), element->shadowOffset()});
+            std::map<std::string, int> styleIndex{{styleKey(result.styles[0]), 0}};
+            for (size_t i = 0; i < tags.size() && i < symbols.size(); ++i) {
+                if (!tags[i]) {
+                    continue;
+                }
+                ElementInput::TextStyle style = resolveTextStyle(element, *tags[i]);
+                const auto [it, inserted] = styleIndex.emplace(styleKey(style), static_cast<int>(result.styles.size()));
+                if (inserted) {
+                    result.styles.push_back(style);
+                }
+                styleOf[i] = it->second;
             }
 
-            struct PageBuffers
+            struct Buffers
             {
                 std::vector<float> vertices;
                 std::vector<uint32_t> indices;
                 uint32_t base = 0;
             };
-            std::map<int, PageBuffers> pages;
+            std::map<std::pair<int, int>, Buffers> runs;
+            for (const PlacedGlyph& g : glyphs) {
+                Buffers& b = runs[{g.page, styleOf[g.symbol]}];
+                // position(3) normal(3) uv0(2) tangent(4) uv1(2)
+                const std::array<float, 56> quad = {
+                    g.x0, g.y1, 0.0f,   0.0f, 0.0f, 1.0f,   g.u0, g.v0,   1.0f, 0.0f, 0.0f, 1.0f,   g.u0, g.v0,
+                    g.x1, g.y1, 0.0f,   0.0f, 0.0f, 1.0f,   g.u1, g.v0,   1.0f, 0.0f, 0.0f, 1.0f,   g.u1, g.v0,
+                    g.x1, g.y0, 0.0f,   0.0f, 0.0f, 1.0f,   g.u1, g.v1,   1.0f, 0.0f, 0.0f, 1.0f,   g.u1, g.v1,
+                    g.x0, g.y0, 0.0f,   0.0f, 0.0f, 1.0f,   g.u0, g.v1,   1.0f, 0.0f, 0.0f, 1.0f,   g.u0, g.v1
+                };
+                b.vertices.insert(b.vertices.end(), quad.begin(), quad.end());
+                b.indices.insert(b.indices.end(), {b.base, b.base + 2u, b.base + 1u, b.base, b.base + 3u, b.base + 2u});
+                b.base += 4u;
+            }
 
             const float boxW = element->calculatedWidth();
             const float boxH = element->calculatedHeight();
-            const Vector2 pivot = element->pivot();
-
-            // Upstream's vertical placement: the first line's pen sits at 0 and each next one
-            // a lineStep lower; the block spans from the font's highest glyph top above the
-            // first pen to its lowest glyph bottom below the last (the glyph `bounds`), and
-            // the alignment places that block in the box:
-            //   voffset = (1 - pivot.y) H - fontMaxY - (1 - align.y) (H - blockHeight)
-            // The box may be INVERTED (a split axis whose margins cross); the formula holds.
-            const float fontMinY = font->minY * scale;
-            const float fontMaxY = font->maxY * scale;
-            const float lastPenY = -static_cast<float>(lines.size() > 0 ? lines.size() - 1 : 0) * lineStep;
-            const float blockHeight = fontMaxY - (lastPenY + fontMinY);
-            const float voffset = (1.0f - pivot.y) * boxH - fontMaxY -
-                (1.0f - element->verticalAlign()) * (boxH - blockHeight);
-
-            for (size_t li = 0; li < lines.size(); ++li) {
-                const std::string& line = lines[li];
-                const float lineWidth = lineWidthForText(line, font, scale);
-
-                float x = -pivot.x * boxW;
-                if (element->horizontalAlign() == ElementHorizontalAlign::Center) {
-                    x += (boxW - lineWidth) * 0.5f;
-                } else if (element->horizontalAlign() == ElementHorizontalAlign::Right) {
-                    x += (boxW - lineWidth);
-                }
-                const float penY = voffset - static_cast<float>(li) * lineStep;
-
-                int prev = -1;
-                for (char c : line) {
-                    const int code = static_cast<unsigned char>(c);
-                    const FontGlyph* glyph = glyphFor(font, code);
-                    if (!glyph) {
-                        prev = code;
-                        continue;
-                    }
-                    const FontGlyph& g = *glyph;
-                    const float kerning = prev >= 0 ? font->kerningValue(prev, code) : 0.0f;
-
-                    // Glyph placement mirrors upstream text-element.js exactly:
-                    //
-                    //   left   = pen - (xoffset - kerning) * scale
-                    //   bottom = penY - yoffset * scale
-                    //   right/top = left/bottom + quadsize, quadsize = scale * size / glyph scale
-                    //
-                    // Two things here are easy to get wrong. The offsets are SUBTRACTED, not
-                    // added: in an MSDF atlas every glyph sits in a fixed cell (64x64 here)
-                    // and xoffset/yoffset say where the pen sits INSIDE that cell, so the
-                    // cell is pulled back to line the glyph up. Adding them instead displaces
-                    // every character by a different amount — proportional fonts come out
-                    // visibly scrambled, while a monospace font hides it because the offsets
-                    // are then all equal.
-                    //
-                    // And the quad is square — size = (width + height) / 2 — not width x
-                    // height, so a non-square atlas cell cannot skew it.
-                    const float quadSize = scale * (g.width + g.height) * 0.5f / g.scale;
-                    const float gx0 = x - (g.xoffset - kerning) * scale;
-                    const float gx1 = gx0 + quadSize;
-                    const float gyBot = penY - g.yoffset * scale;
-                    const float gyTop = gyBot + quadSize;
-
-                    // UVs are fractions of the glyph's OWN page, v from the atlas top.
-                    const int page = (g.page >= 0 && g.page < static_cast<int>(font->pages.size())) ? g.page : 0;
-                    const Texture* pageTexture = font->pages.empty() ? font->texture : font->pages[static_cast<size_t>(page)];
-                    const float atlasW = static_cast<float>(std::max(pageTexture ? static_cast<int>(pageTexture->width())
-                                                                                  : font->atlasWidth, 1));
-                    const float atlasH = static_cast<float>(std::max(pageTexture ? static_cast<int>(pageTexture->height())
-                                                                                  : font->atlasHeight, 1));
-                    const float u0 = g.x / atlasW;
-                    const float u1 = (g.x + g.width) / atlasW;
-                    const float v0 = g.y / atlasH;
-                    const float v1 = (g.y + g.height) / atlasH;
-
-                    // position(3) normal(3) uv0(2) tangent(4) uv1(2)
-                    const std::array<float, 56> quadVerts = {
-                        gx0, gyTop, 0.0f,   0.0f, 0.0f, 1.0f,   u0, v0,   1.0f,0.0f,0.0f,1.0f,   u0, v0,
-                        gx1, gyTop, 0.0f,   0.0f, 0.0f, 1.0f,   u1, v0,   1.0f,0.0f,0.0f,1.0f,   u1, v0,
-                        gx1, gyBot, 0.0f,   0.0f, 0.0f, 1.0f,   u1, v1,   1.0f,0.0f,0.0f,1.0f,   u1, v1,
-                        gx0, gyBot, 0.0f,   0.0f, 0.0f, 1.0f,   u0, v1,   1.0f,0.0f,0.0f,1.0f,   u0, v1
-                    };
-                    PageBuffers& buffers = pages[page];
-                    buffers.vertices.insert(buffers.vertices.end(), quadVerts.begin(), quadVerts.end());
-                    const uint32_t vbase = buffers.base;
-                    buffers.indices.insert(buffers.indices.end(),
-                        {vbase + 0u, vbase + 2u, vbase + 1u, vbase + 0u, vbase + 3u, vbase + 2u});
-                    buffers.base += 4u;
-
-                    x += (g.xadvance + kerning) * scale;
-                    prev = code;
-                }
-            }
-
             BoundingBox bounds;
             bounds.setCenter(Vector3(0.0f, 0.0f, 0.0f));
             bounds.setHalfExtents(Vector3(std::max(boxW * 0.5f, 1.0f), std::max(boxH * 0.5f, 1.0f), 1.0f));
-            std::vector<std::pair<int, std::shared_ptr<Mesh>>> meshes;
-            for (const auto& [page, buffers] : pages) {
-                if (auto mesh = makeUiMesh(gd, buffers.vertices, buffers.indices, bounds)) {
-                    meshes.emplace_back(page, std::move(mesh));
+            for (const auto& [key, b] : runs) {
+                if (auto mesh = makeUiMesh(gd, b.vertices, b.indices, bounds)) {
+                    result.meshes.emplace_back(key, std::move(mesh));
                 }
             }
-            return meshes;
+            return result;
         }
 
         std::shared_ptr<Mesh> buildImageMesh(const std::shared_ptr<GraphicsDevice>& gd, const ElementComponent* element,
@@ -499,13 +408,21 @@ namespace visutwin::canvas
             return material;
         }
 
-        /// Upstream text-element's shadow_offset, verbatim: 0.005 of the page per unit, the
-        /// y term scaled by -width/height. It is NOT sign-flipped for this engine's v-down
-        /// glyph UVs, although upstream writes its glyph UVs v-up: measured on upstream's
-        /// own ui-text thumbnail, a (0.25, -0.25) shadow sits right of and BELOW the glyphs
-        /// (rim below 23 : above 6), and the flipped value drew it above.
-        Vector2 msdfShadowUvOffset(const Vector2& offset, const Texture* page)
+        /// Upstream text-element's shadow_offset, verbatim. It has TWO conventions:
+        /// - the uniform one, for text without markup tags: 0.005 of the page per unit, the
+        ///   y term scaled by -width/height. It is NOT sign-flipped for this engine's v-down
+        ///   glyph UVs, although upstream writes its glyph UVs v-up: measured on upstream's
+        ///   own ui-text thumbnail, a (0.25, -0.25) shadow sits right of and BELOW the
+        ///   glyphs (rim below 23 : above 6), and the flipped value drew it above;
+        /// - the per-vertex one (msdf.js unpackMsdfParams), which upstream uses for EVERY
+        ///   symbol of a text with tags, the element's own included: 0.005 per unit on both
+        ///   axes, with no aspect and no minus sign. For a square page the two point y in
+        ///   opposite directions; that is upstream's behaviour, reproduced.
+        Vector2 msdfShadowUvOffset(const Vector2& offset, const Texture* page, const bool perVertexConvention)
         {
+            if (perVertexConvention) {
+                return Vector2(0.005f * offset.x, 0.005f * offset.y);
+            }
             const float aspect = page && page->height() > 0
                 ? static_cast<float>(page->width()) / static_cast<float>(page->height()) : 1.0f;
             return Vector2(0.005f * offset.x, -aspect * 0.005f * offset.y);
@@ -601,13 +518,8 @@ namespace visutwin::canvas
 
             bool rebuild = sizeChanged || visual.parts.empty();
             if (isText) {
-                rebuild = rebuild || element->textDirty() ||
-                    visual.cachedText != element->text() ||
-                    visual.cachedFontSize != element->fontSize() ||
-                    visual.cachedAlign != element->horizontalAlign() ||
-                    visual.cachedWrap != element->wrapLines() ||
-                    visual.cachedVerticalAlign != element->verticalAlign() ||
-                    visual.cachedFont != element->fontResource();
+                // Every text input marks the element dirty (and re-measures it).
+                rebuild = rebuild || element->textDirty();
             } else {
                 const Sprite* sprite = element->sprite().get();
                 const uint64_t atlasVersion = sprite && sprite->atlas() ? sprite->atlas()->version() : 0;
@@ -624,9 +536,12 @@ namespace visutwin::canvas
                 visual.parts.clear();
                 if (isText) {
                     const FontResource* font = element->fontResource();
-                    for (auto& [page, mesh] : buildTextMeshes(_engine->graphicsDevice(), element)) {
+                    TextMeshes text = buildTextMeshes(_engine->graphicsDevice(), element);
+                    for (auto& [key, mesh] : text.meshes) {
+                        const auto [page, style] = key;
                         VisualPart part;
                         part.mesh = std::move(mesh);
+                        part.style = style;
                         part.texture = page < static_cast<int>(font->pages.size())
                             ? font->pages[static_cast<size_t>(page)] : font->texture;
                         part.material = makeElementMaterial(visual.worldSpace);
@@ -638,12 +553,8 @@ namespace visutwin::canvas
                         }
                         visual.parts.push_back(std::move(part));
                     }
-                    visual.cachedText = element->text();
-                    visual.cachedFontSize = element->fontSize();
-                    visual.cachedAlign = element->horizontalAlign();
-                    visual.cachedWrap = element->wrapLines();
-                    visual.cachedVerticalAlign = element->verticalAlign();
-                    visual.cachedFont = element->fontResource();
+                    visual.styles = std::move(text.styles);
+                    visual.markupStyles = !element->markupTags().empty();
                     element->clearTextDirty();
                 } else {
                     VisualPart part;
@@ -677,25 +588,31 @@ namespace visutwin::canvas
 
             for (auto& part : visual.parts) {
                 const bool msdf = isText && element->fontResource()->msdf;
-                if (!part.styled || !(part.color == element->color()) || part.opacity != element->opacity()) {
-                    part.material->setEmissive(element->color());
+                // Style 0 is the element's own, read live (a pulsing colour or a changed
+                // outline needs no rebuild); a markup style is what its tags resolved to.
+                const TextStyle style = (!isText || part.style == 0 || part.style >= static_cast<int>(visual.styles.size()))
+                    ? TextStyle{element->color(), element->outlineColor(), element->outlineThickness(),
+                                element->shadowColor(), element->shadowOffset()}
+                    : visual.styles[static_cast<size_t>(part.style)];
+                if (!part.styled || !(part.color == style.color) || part.opacity != element->opacity()) {
+                    part.material->setEmissive(style.color);
                     part.material->setOpacity(element->opacity());
-                    part.color = element->color();
+                    part.color = style.color;
                     part.opacity = element->opacity();
                 }
-                if (msdf && (!part.styled || !(part.outlineColor == element->outlineColor()) ||
-                             part.outlineThickness != element->outlineThickness() ||
-                             !(part.shadowColor == element->shadowColor()) ||
-                             part.shadowOffset.x != element->shadowOffset().x ||
-                             part.shadowOffset.y != element->shadowOffset().y)) {
+                if (msdf && (!part.styled || !(part.outlineColor == style.outlineColor) ||
+                             part.outlineThickness != style.outlineThickness ||
+                             !(part.shadowColor == style.shadowColor) ||
+                             part.shadowOffset.x != style.shadowOffset.x ||
+                             part.shadowOffset.y != style.shadowOffset.y)) {
                     // Upstream's editor units: thickness x 0.2, offset x 0.005 of the page.
-                    part.material->setMsdfOutline(element->outlineColor(), 0.2f * element->outlineThickness());
-                    part.material->setMsdfShadow(element->shadowColor(),
-                                                 msdfShadowUvOffset(element->shadowOffset(), part.texture));
-                    part.outlineColor = element->outlineColor();
-                    part.outlineThickness = element->outlineThickness();
-                    part.shadowColor = element->shadowColor();
-                    part.shadowOffset = element->shadowOffset();
+                    part.material->setMsdfOutline(style.outlineColor, 0.2f * style.outlineThickness);
+                    part.material->setMsdfShadow(style.shadowColor,
+                        msdfShadowUvOffset(style.shadowOffset, part.texture, visual.markupStyles));
+                    part.outlineColor = style.outlineColor;
+                    part.outlineThickness = style.outlineThickness;
+                    part.shadowColor = style.shadowColor;
+                    part.shadowOffset = style.shadowOffset;
                 }
                 part.styled = true;
                 if (part.meshInstance) {
