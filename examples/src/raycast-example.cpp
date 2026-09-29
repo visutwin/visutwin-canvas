@@ -108,9 +108,7 @@ protected:
         _lines->add(&_rayFirst);
         _lines->add(&_rayAll);
 
-        // DEVIATION: upstream loads its arial atlas; this is Liberation Sans, which is
-        // metric-compatible with Arial (identical advances) and OFL-licensed.
-        _font = std::make_unique<Asset>("label-font", AssetType::FONT, assetPath("fonts/liberation-sans.json"));
+        _font = std::make_unique<Asset>("label-font", AssetType::FONT, assetPath("fonts/roboto-regular.json"));
         createText("raycastFirst", 0.5f, 3.75f, 0.0f, 0.0f);
         createText("raycastAll", 0.5f, -0.25f, 0.0f, 0.0f);
 
@@ -221,7 +219,7 @@ private:
             fontResource = std::get<FontResource*>(*res);
         }
         if (!fontResource) {
-            spdlog::warn("liberation-sans.json failed to load; the labels will be missing");
+            spdlog::warn("roboto-regular.json failed to load; the labels will be missing");
             return;
         }
 

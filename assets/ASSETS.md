@@ -39,14 +39,16 @@ for details.
   strip used by `ambient-occlusion-davinci`; `lightmap-pools.tga` is unused.
 
 ### fonts/ — complete
-- `courier.json` + `courier.png` — Courier MSDF bitmap-font atlas (CC-0)
 - `liberation-sans.json` + `liberation-sans.png` + `.txt` — SDF atlas of the 95
   printable ASCII glyphs, generated from Liberation Sans 2.1.5 (**SIL OFL 1.1**, so
   the copyright notice and licence must accompany it — they are in the `.txt`).
   Liberation Sans is metric-compatible with Arial, so every advance matches the
-  Arial atlas this replaced. Used by `raycast`, `post-processing` and `anisotropy`.
+  Arial atlas this replaced. UNUSED since 2026-09-29, when upstream moved its examples to
+  Roboto (#9577) and the ports followed. (`courier.*` was removed the same day: it has no
+  licensor — see THIRD_PARTY_NOTICES.)
 - `roboto-regular.json` + `roboto-regular.png` + `roboto-regular1.png` — the same for Roboto
-  Regular, same licence. Used by `ui-text-markup`.
+  Regular, same licence. Used by `ui-text`, `ui-text-markup`, `post-processing`, `raycast`,
+  `anisotropy` and `lightmap-sources`.
 - `roboto-bold.json` + `roboto-bold.png` + `roboto-bold1.png` — upstream's two-page MSDF
   atlas of Roboto Bold 2.138 (Basic Latin through Latin Extended-A), byte-identical to
   upstream's example asset. Roboto is **Apache-2.0**; the notice and licence are in

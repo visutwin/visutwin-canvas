@@ -151,9 +151,7 @@ protected:
             "statue", AssetType::CONTAINER, assetPath("models/scifi-platform.glb"));
         _mosquito = std::make_unique<Asset>(
             "mosquito", AssetType::CONTAINER, assetPath("models/MosquitoInAmber.glb"));
-        // DEVIATION: upstream loads its arial atlas; this is Liberation Sans, which is
-        // metric-compatible with Arial (identical advances) and OFL-licensed.
-        _font = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/liberation-sans.json"));
+        _font = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/roboto-regular.json"));
 
         const auto helipadResource = _helipad->resource();
         const auto platformResource = _platform->resource();

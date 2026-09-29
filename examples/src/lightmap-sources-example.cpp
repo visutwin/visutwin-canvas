@@ -25,7 +25,7 @@
 // - Upstream's shadowBias 0.2 is in its own units; the authoring value here is 0.05,
 //   as in lightmap-bake (0.2 pushes casters away far enough to lose small shadows).
 // - Labels are text elements scaled into world units (ElementComponent::setFontSize
-//   takes an int), in Liberation Sans, metric-compatible with upstream's Arial.
+//   takes an int).
 //
 #include <memory>
 #include <string>
@@ -71,7 +71,7 @@ protected:
             return false;
         }
         Texture* assignedLightmap = std::get<Texture*>(*lightmapResource);
-        _font = std::make_unique<Asset>("label-font", AssetType::FONT, assetPath("fonts/liberation-sans.json"));
+        _font = std::make_unique<Asset>("label-font", AssetType::FONT, assetPath("fonts/roboto-regular.json"));
 
         // A dim sky ambient. A lightmap is taken to carry the ambient light already, so
         // none of the groups adds it at runtime: the baked groups get it baked in, and
@@ -190,7 +190,7 @@ private:
             fontResource = std::get<FontResource*>(*res);
         }
         if (!fontResource) {
-            spdlog::warn("liberation-sans.json failed to load; the labels will be missing");
+            spdlog::warn("roboto-regular.json failed to load; the labels will be missing");
             return;
         }
 
