@@ -60,7 +60,10 @@ for details.
   `track`, icons), byte-identical; drawn by upstream's own
   `examples/utils/generate-ui-atlas.mjs` from SVG in that script (MIT, as upstream's
   examples). Frame rects are in `ui-atlas.mjs` upstream, measured from the image
-  BOTTOM; the examples copy the frames they use. Used by `world-to-screen`.
+  BOTTOM; the examples copy the frames they use. Used by `world-to-screen` and the UI
+  examples.
+- `landscape.png` — a 400x400 dusk landscape, byte-identical, drawn by the same script as
+  one of its standalone textures (MIT). Used by `text-typewriter`.
 
 ### animations/bitmoji/ — complete
 - `idle.glb`, `walk.glb`, `run.glb`, `jump-flip.glb`, `win-dance.glb` — Bitmoji locomotion clips (CC-0)

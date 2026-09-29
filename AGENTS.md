@@ -2076,6 +2076,10 @@ present, but the rule below never depends on reading it.
   at matched size before calling a thumbnail difference a bug: a 320 px thumbnail averages
   stripes a few pixels wide to nothing. `tests/shadowMapInvalidationTests.cpp` holds the
   default rect.
+  The general rule: a setter that returns early on an unchanged value NEVER RUNS for the
+  default, so anything it derives must also be derived at construction, from the same
+  function. An audit on 2026-09-29 of every such setter (and every dirty flag that starts
+  false) found no other case.
 - **The default is ONE shadow cascade, as upstream.** It was 4, and a one-shot
   directional shadow is unusable with more than one: the receiver picks its cascade
   by VIEW depth, so moving the camera carries the scene into cascades whose maps were
@@ -2310,10 +2314,16 @@ What stays HERE is only what bites during UNRELATED work.
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
 - **UI not ported yet**: max lines, auto-fit font size, right-to-left text, layout groups,
-  masks, scroll views, tiled sprites, XR select events, grapheme clusters (emoji sequences
-  are several symbols), and upstream's element drag helper (#9551). The six UI examples
-  (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`)
-  port upstream's CURRENT versions.
+  masks, scroll views, XR select events, grapheme clusters (emoji sequences are several
+  symbols), and upstream's element drag helper (#9551). The ten UI examples (`ui-text`,
+  `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,
+  `screen-scaling`, `ui-panel`, `text-justify`, `text-typewriter`) port upstream's CURRENT
+  versions.
+- **No maximum pixel ratio.** The drawable always follows the display's density (Metal and
+  Vulkan both size it from `SDL_GetWindowSizeInPixels`), where upstream's
+  `device.maxPixelRatio` caps it; `screen-scaling` leaves out its "Pixel ratio" button for
+  that reason, and GPU-time comparisons with upstream have to match pixels by resizing the
+  window instead. `GraphicsDevice::resizeCanvas` still carries an unused `_maxPixelRatio`.
 - Annotations (`annotationManager`) still draw through ImGui; with input on elements they
   could move.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with

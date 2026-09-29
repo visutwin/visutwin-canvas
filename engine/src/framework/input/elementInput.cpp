@@ -158,8 +158,16 @@ namespace visutwin::canvas
 
         struct TextMeshes
         {
-            /// (page, style) -> mesh, in key order.
-            std::vector<std::pair<std::pair<int, int>, std::shared_ptr<Mesh>>> meshes;
+            struct Run
+            {
+                std::pair<int, int> key;   // (page, style)
+                std::shared_ptr<Mesh> mesh;
+                /// The symbol (code point index) of each quad, ascending: what a draw range
+                /// narrows the index range by.
+                std::vector<uint32_t> quadSymbols;
+            };
+            /// One per (page, style), in key order.
+            std::vector<Run> meshes;
             /// Style 0 is the element's own, read live each frame; the rest come from tags.
             std::vector<ElementInput::TextStyle> styles;
         };
@@ -185,7 +193,7 @@ namespace visutwin::canvas
             const float horizontal = element->horizontalAlign() == ElementHorizontalAlign::Left ? 0.0f
                 : element->horizontalAlign() == ElementHorizontalAlign::Right ? 1.0f : 0.5f;
             const std::vector<PlacedGlyph> glyphs = placeText(*font, symbols, measure, element->calculatedWidth(),
-                element->calculatedHeight(), element->pivot(), horizontal, element->verticalAlign());
+                element->calculatedHeight(), element->pivot(), horizontal, element->verticalAlign(), element->justify());
 
             // Upstream's palettes: index 0 the element's own style, one more per distinct
             // tag style.
@@ -209,6 +217,7 @@ namespace visutwin::canvas
             {
                 std::vector<float> vertices;
                 std::vector<uint32_t> indices;
+                std::vector<uint32_t> symbols;
                 uint32_t base = 0;
             };
             std::map<std::pair<int, int>, Buffers> runs;
@@ -224,6 +233,7 @@ namespace visutwin::canvas
                 b.vertices.insert(b.vertices.end(), quad.begin(), quad.end());
                 b.indices.insert(b.indices.end(), {b.base, b.base + 2u, b.base + 1u, b.base, b.base + 3u, b.base + 2u});
                 b.base += 4u;
+                b.symbols.push_back(static_cast<uint32_t>(g.symbol));
             }
 
             const float boxW = element->calculatedWidth();
@@ -231,9 +241,9 @@ namespace visutwin::canvas
             BoundingBox bounds;
             bounds.setCenter(Vector3(0.0f, 0.0f, 0.0f));
             bounds.setHalfExtents(Vector3(std::max(boxW * 0.5f, 1.0f), std::max(boxH * 0.5f, 1.0f), 1.0f));
-            for (const auto& [key, b] : runs) {
+            for (auto& [key, b] : runs) {
                 if (auto mesh = makeUiMesh(gd, b.vertices, b.indices, bounds)) {
-                    result.meshes.emplace_back(key, std::move(mesh));
+                    result.meshes.push_back({key, std::move(mesh), std::move(b.symbols)});
                 }
             }
             return result;
@@ -257,7 +267,9 @@ namespace visutwin::canvas
                 const Vector2 size = fitImageSize(w, h, frame->rect.getZ() / frame->rect.getW(), element->fitMode());
                 if (sprite->nineSliced()) {
                     const float ppu = element->pixelsPerUnit().value_or(sprite->pixelsPerUnit());
-                    geometry = buildSlicedImageGeometry(size, pivot, *frame, texW, texH, ppu);
+                    geometry = sprite->renderMode() == SpriteRenderMode::Tiled
+                        ? buildTiledImageGeometry(size, pivot, *frame, texW, texH, ppu)
+                        : buildSlicedImageGeometry(size, pivot, *frame, texW, texH, ppu);
                 } else {
                     const Vector4 uvRect(frame->rect.getX() / texW, frame->rect.getY() / texH,
                                          frame->rect.getZ() / texW, frame->rect.getW() / texH);
@@ -485,10 +497,11 @@ namespace visutwin::canvas
                 if (isText) {
                     const FontResource* font = element->fontResource();
                     TextMeshes text = buildTextMeshes(_engine->graphicsDevice(), element);
-                    for (auto& [key, mesh] : text.meshes) {
-                        const auto [page, style] = key;
+                    for (auto& run : text.meshes) {
+                        const auto [page, style] = run.key;
                         VisualPart part;
-                        part.mesh = std::move(mesh);
+                        part.mesh = std::move(run.mesh);
+                        part.quadSymbols = std::move(run.quadSymbols);
                         part.style = style;
                         part.texture = page < static_cast<int>(font->pages.size())
                             ? font->pages[static_cast<size_t>(page)] : font->texture;
@@ -532,6 +545,29 @@ namespace visutwin::canvas
                         visual.render->addMeshInstance(std::move(meshInstance));
                     }
                 }
+            }
+
+            // Upstream _updateRenderRange: draw only the symbols in [rangeStart, rangeEnd), by
+            // narrowing each part's index range to its quads inside it — no new layout.
+            if (isText && (rebuild || visual.cachedRangeVersion != element->rangeVersion())) {
+                const auto start = static_cast<uint32_t>(element->rangeStart());
+                const auto end = static_cast<uint32_t>(element->rangeEnd());
+                for (auto& part : visual.parts) {
+                    const auto& q = part.quadSymbols;
+                    const auto first = static_cast<int>(std::lower_bound(q.begin(), q.end(), start) - q.begin());
+                    const auto last = static_cast<int>(std::lower_bound(q.begin(), q.end(), end) - q.begin());
+                    Primitive primitive;
+                    primitive.type = PRIMITIVE_TRIANGLES;
+                    primitive.base = first * 6;
+                    primitive.count = std::max(last - first, 0) * 6;
+                    primitive.indexed = true;
+                    part.mesh->setPrimitive(primitive, 0);
+                    if (part.meshInstance) {
+                        // a part with nothing in the range would draw no indices
+                        part.meshInstance->setVisible(last > first);
+                    }
+                }
+                visual.cachedRangeVersion = element->rangeVersion();
             }
 
             for (auto& part : visual.parts) {

@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -102,6 +103,93 @@ namespace
         // startNineSliced.js
         v = 1.0f - v;
         return {x, y, u, v};
+    }
+
+    /// Upstream's TILED fragment, ported literally: the sliced mesh's varyings (localPos before
+    /// the -0.5, vUv0, vMask) interpolated across the grid cell holding element point (x, y),
+    /// then startNineSlicedTiled.js. Returns the sampled u, v.
+    Vector2 upstreamTiledUv(const float x, const float y, const Vector2& size, const Vector2& pivot,
+                            const TextureAtlasFrame& frame, const float texW, const float texH, const float ppu)
+    {
+        struct Varyings { float x, y, lx, lz, u, v, mx, my; };
+        const float bws = 2.0f / frame.rect.getZ();
+        const float bhs = 2.0f / frame.rect.getW();
+        const float ioX = frame.border.getX() * bws, ioY = frame.border.getY() * bhs;
+        const float ioZ = frame.border.getZ() * bws, ioW = frame.border.getW() * bhs;
+        const float arX = frame.rect.getX() / texW, arY = frame.rect.getY() / texH;
+        const float arZ = frame.rect.getZ() / texW, arW = frame.rect.getW() / texH;
+        const float scaleMulX = frame.rect.getZ() / ppu, scaleMulY = frame.rect.getW() / ppu;
+        const float outerX = std::max(size.x, ioX * scaleMulX) / scaleMulX;
+        const float outerY = std::max(size.y, ioY * scaleMulY) / scaleMulY;
+        const auto vertex = [&](const int i, const int j) {
+            const ImageVertex p = upstreamSlicedVertex(i, j, size, pivot, frame, texW, texH, ppu);
+            const float meshX = -(-1.0f + 2.0f * (i <= 1 ? 0.0f : 3.0f) / 3.0f);
+            const float meshZ = -(-1.0f + 2.0f * (j <= 1 ? 0.0f : 3.0f) / 3.0f);
+            const float tcX = (i == 0 || i == 3) ? 0.0f : 1.0f;
+            const float tcY = (j == 0 || j == 3) ? 0.0f : 1.0f;
+            const float offX = (-std::clamp(meshX, 0.0f, 1.0f) * ioX + std::clamp(-meshX, 0.0f, 1.0f) * ioZ) * tcX;
+            const float offZ = (-std::clamp(meshZ, 0.0f, 1.0f) * ioY + std::clamp(-meshZ, 0.0f, 1.0f) * ioW) * tcY;
+            // vUv0 before the fragment's v flip: undo the flip upstreamSlicedVertex applied
+            return Varyings{p.x, p.y, meshX * outerX + offX, meshZ * outerY + offZ, p.u, 1.0f - p.v, tcX, tcY};
+        };
+        // the cell holding (x, y): columns and rows run left to right, bottom to top
+        int col = 0, row = 0;
+        for (int i = 0; i < 3; ++i) {
+            if (x >= vertex(i, 0).x) col = i;
+            if (y >= vertex(0, i).y) row = i;
+        }
+        const Varyings a = vertex(col, row), b = vertex(col + 1, row + 1);
+        const float tx = (x - a.x) / (b.x - a.x), ty = (y - a.y) / (b.y - a.y);
+        const auto lerp = [](const float p, const float q, const float t) { return p + (q - p) * t; };
+        const float lx = lerp(a.lx, b.lx, tx), lz = lerp(a.lz, b.lz, ty);
+        const float u0 = lerp(a.u, b.u, tx), v0 = lerp(a.v, b.v, ty);
+        const float mx = lerp(a.mx, b.mx, tx), my = lerp(a.my, b.my, ty);
+        // startNineSlicedTiled.js
+        const float maskX = mx <= 0.99999f ? 1.0f : 0.0f, maskY = my <= 0.99999f ? 1.0f : 0.0f;
+        const float tileX = 0.5f * (ioX + ioZ), tileY = 0.5f * (ioY + ioW);
+        const float tuX = (lx - outerX + ioX) * -0.5f + 1.0f, tuY = (lz - outerY + ioY) * -0.5f + 1.0f;
+        const auto fract = [](const float f) { return f - std::floor(f); };
+        const float fx = fract((tuX - tileX) / (1.0f - tileX)), fy = fract((tuY - tileY) / (1.0f - tileY));
+        const float cu = lerp(ioX * 0.5f, 1.0f - ioZ * 0.5f, fx) * arZ + arX;
+        const float cv = lerp(ioY * 0.5f, 1.0f - ioW * 0.5f, fy) * arW + arY;
+        return Vector2(u0 * maskX + cu * (1.0f - maskX), 1.0f - (v0 * maskY + cv * (1.0f - maskY)));
+    }
+
+    /// The u, v our tiled quads give at element point (x, y).
+    std::optional<Vector2> oursAt(const ImageGeometry& g, const float x, const float y)
+    {
+        for (size_t q = 0; q + 3 < g.vertices.size(); q += 4) {
+            const ImageVertex& a = g.vertices[q];       // bottom left
+            const ImageVertex& c = g.vertices[q + 2];   // top right
+            if (x >= a.x && x < c.x && y >= a.y && y < c.y) {
+                const float tx = (x - a.x) / (c.x - a.x), ty = (y - a.y) / (c.y - a.y);
+                return Vector2(a.u + (c.u - a.u) * tx, a.v + (c.v - a.v) * ty);
+            }
+        }
+        return std::nullopt;
+    }
+
+    void compareTiledWithUpstream(const std::string& label, const Vector2& size, const Vector2& pivot,
+                                  const TextureAtlasFrame& frame, const float texW, const float texH, const float ppu)
+    {
+        const ImageGeometry g = buildTiledImageGeometry(size, pivot, frame, texW, texH, ppu);
+        float worst = 0.0f;
+        int probes = 0;
+        bool covered = true;
+        // An irrational-ish step keeps probes off tile seams, where fract jumps.
+        for (float fy = 0.013f; fy < 1.0f; fy += 0.0731f) {
+            for (float fx = 0.017f; fx < 1.0f; fx += 0.0613f) {
+                const float x = (fx - pivot.x) * size.x, y = (fy - pivot.y) * size.y;
+                const auto ours = oursAt(g, x, y);
+                if (!ours) { covered = false; continue; }
+                const Vector2 theirs = upstreamTiledUv(x, y, size, pivot, frame, texW, texH, ppu);
+                worst = std::max({worst, std::abs(ours->x - theirs.x), std::abs(ours->y - theirs.y)});
+                ++probes;
+            }
+        }
+        check(covered && probes > 100 && worst < 1e-4f,
+              label + " samples what upstream's tiled fragment samples (" + std::to_string(probes) +
+              " probes, worst " + std::to_string(worst) + ")");
     }
 
     void compareWithUpstream(const std::string& label, const Vector2& size, const Vector2& pivot,
@@ -215,6 +303,36 @@ int main()
         check(std::abs(ours.vertices[5].x - shifted.x) > 1.0f, "control: a different pivot is detected");
         const ImageVertex straight = upstreamSlicedVertex(0, 0, Vector2(300.0f, 200.0f), Vector2(0.5f, 0.5f), panel, 1024, 1024, 2);
         check(std::abs(ours.vertices[0].v - (1.0f - straight.v)) > 0.1f, "control: an unflipped v is detected");
+    }
+
+    std::cout << "tiled (upstream startNineSlicedTiled)\n";
+    {
+        // The paper frame's shape: 128 px, 32 px borders, 2 px a unit -> 16-unit borders and a
+        // 32-unit tile, so 100 units across hold two whole tiles and a 4-unit remainder.
+        TextureAtlasFrame frame;
+        frame.rect = Vector4(820.0f, 660.0f, 128.0f, 128.0f);
+        frame.border = Vector4(32.0f, 32.0f, 32.0f, 32.0f);
+        const ImageGeometry g = buildTiledImageGeometry(Vector2(100.0f, 64.0f), Vector2(0.0f, 0.0f), frame,
+                                                        1024.0f, 1024.0f, 2.0f);
+        // columns: border, 32, 32, 4, border = 5; rows: border, 32 (exactly one tile), border = 3
+        check(g.vertices.size() == 5 * 3 * 4, "a 100 x 64 element: five columns by three rows of quads");
+        const auto last = oursAt(g, 82.0f, 30.0f);   // halfway through the 4-unit remainder
+        check(last && near(last->x, (820.0f + 32.0f + 4.0f) / 1024.0f),
+              "the cut-short tile samples only its share of the inner region (8 px of 64)");
+        const Vector2 firstTile = upstreamTiledUv(24.0f, 30.0f, Vector2(100.0f, 64.0f), Vector2(0.0f, 0.0f), frame,
+                                                  1024.0f, 1024.0f, 2.0f);
+        const Vector2 secondTile = upstreamTiledUv(56.0f, 30.0f, Vector2(100.0f, 64.0f), Vector2(0.0f, 0.0f), frame,
+                                                   1024.0f, 1024.0f, 2.0f);
+        check(near(firstTile.x, secondTile.x) && !near(firstTile.x, (820.0f + 64.0f) / 1024.0f),
+              "control: the upstream oracle itself repeats (8 units into two tiles sample alike) and does not stretch");
+        compareTiledWithUpstream("tiled 100 x 64", Vector2(100.0f, 64.0f), Vector2(0.5f, 0.5f), frame, 1024.0f,
+                                 1024.0f, 2.0f);
+        compareTiledWithUpstream("tiled 300 x 256 (the quest log)", Vector2(300.0f, 256.0f), Vector2(0.5f, 1.0f),
+                                 frame, 1024.0f, 1024.0f, 2.0f);
+        TextureAtlasFrame uneven = frame;
+        uneven.border = Vector4(20.0f, 44.0f, 12.0f, 28.0f);
+        compareTiledWithUpstream("tiled with uneven borders", Vector2(173.0f, 121.0f), Vector2(0.2f, 0.7f), uneven,
+                                 1024.0f, 1024.0f, 2.0f);
     }
 
     std::cout << (failures == 0 ? "PASS" : "FAIL") << " (" << failures << " failures)\n";

@@ -8,6 +8,8 @@
 // shrinks the quad about the pivot rather than centring it in the box — with UVs from the
 // element's rect or the sprite frame.
 //
+// TILED: see buildTiledImageGeometry.
+//
 // SLICED: the 4x4-vertex grid upstream builds in its vertex shader, built here on the CPU
 // from the same formulas (DEVIATION, see scene/sprite.h). The borders keep the size of
 // their pixels over pixelsPerUnit and the centre stretches; an element narrower than
@@ -67,4 +69,12 @@ namespace visutwin::canvas
     /// `textureHeight`, drawn at `size` about `pivot` with `pixelsPerUnit`.
     ImageGeometry buildSlicedImageGeometry(const Vector2& size, const Vector2& pivot, const TextureAtlasFrame& frame,
                                            float textureWidth, float textureHeight, float pixelsPerUnit);
+
+    /// TILED: the same grid, with the centre and the four edge strips REPEATING the frame's
+    /// inner region at its natural size (inner pixels over pixelsPerUnit) instead of
+    /// stretching it — the centre on both axes, an edge strip along its length — starting at
+    /// the inner region's left and bottom edges, the last tile cut short (upstream
+    /// startNineSlicedTiled, which does this per fragment; DEVIATION: one quad per tile here).
+    ImageGeometry buildTiledImageGeometry(const Vector2& size, const Vector2& pivot, const TextureAtlasFrame& frame,
+                                          float textureWidth, float textureHeight, float pixelsPerUnit);
 }

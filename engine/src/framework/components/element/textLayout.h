@@ -44,6 +44,10 @@ namespace visutwin::canvas
         size_t end = 0;
         /// Advance of the line without its trailing whitespace.
         float width = 0.0f;
+        /// The word gaps a justified line may widen (upstream `_lineGaps`): the gaps between
+        /// its words for a line broken at a word wrap, 0 for a line ended by a line break, the
+        /// last line, and a word broken mid-word — those keep the plain alignment.
+        int gaps = 0;
     };
 
     struct TextMeasure
@@ -79,9 +83,11 @@ namespace visutwin::canvas
     TextMeasure measureText(const FontResource& font, const std::u32string& symbols, float fontSize, float lineHeight,
                             float maxLineWidth = std::numeric_limits<float>::infinity(), float spacing = 1.0f);
 
+    /// `justify` (upstream `justify`): a line with gaps is stretched flush to both edges of
+    /// the box by widening its word gaps evenly, ignoring `horizontalAlign`.
     std::vector<PlacedGlyph> placeText(const FontResource& font, const std::u32string& symbols, const TextMeasure& measure,
                                        float boxWidth, float boxHeight, const Vector2& pivot,
-                                       float horizontalAlign, float verticalAlign);
+                                       float horizontalAlign, float verticalAlign, bool justify = false);
 
     /// The same, from UTF-8.
     inline TextMeasure measureText(const FontResource& font, const std::string& text, const float fontSize,

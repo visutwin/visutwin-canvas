@@ -28,8 +28,8 @@
 // size can be read at once; with autoWidth / autoHeight (the default) the element takes it.
 // `enableMarkup` reads `[color]`, `[outline]` and `[shadow]` tags (markup.h).
 //
-// Not ported yet: masks, tiled sprites, layout groups, batching, max lines, auto-fit font
-// size and right-to-left reordering.
+// Not ported yet: masks, layout groups, batching, max lines, auto-fit font size and
+// right-to-left reordering.
 //
 #pragma once
 
@@ -208,6 +208,26 @@ namespace visutwin::canvas
         void setLineHeight(const float value) { _lineHeight = value; textChanged(); }
         /// Upstream `enableMarkup`: read `[color]`, `[outline]` and `[shadow]` tags in the
         /// text (markup.h). An error draws the text as written, tags included.
+        /// Upstream `justify`: wrapped lines stretch flush to both edges by widening their
+        /// word gaps; lines ended by a line break and the last line keep the alignment.
+        bool justify() const { return _justify; }
+        void setJustify(const bool value)
+        {
+            if (value != _justify) {
+                _justify = value;
+                textChanged();
+            }
+        }
+        /// Upstream `rangeStart` / `rangeEnd`: only the symbols (code points) in
+        /// [rangeStart, rangeEnd) are drawn, without laying the text out again. Laying it out
+        /// (a new text, font, size, width ...) resets the range to the whole text, so
+        /// `rangeEnd()` right after `setText` is the text's length.
+        int rangeStart() const { return _rangeStart; }
+        void setRangeStart(int value);
+        int rangeEnd() const { return _rangeEnd; }
+        void setRangeEnd(int value);
+        /// Bumped whenever the drawn range changes; ElementInput re-applies it.
+        uint64_t rangeVersion() const { return _rangeVersion; }
         bool enableMarkup() const { return _enableMarkup; }
         void setEnableMarkup(const bool value) { _enableMarkup = value; textChanged(); }
         /// Upstream `autoWidth` / `autoHeight` (both on by default): the element takes the
@@ -358,6 +378,10 @@ namespace visutwin::canvas
         std::optional<float> _lineHeight;
         float _spacing = 1.0f;
         bool _enableMarkup = false;
+        bool _justify = false;
+        int _rangeStart = 0;
+        int _rangeEnd = 0;
+        uint64_t _rangeVersion = 1;
         bool _autoWidth = true;
         bool _autoHeight = true;
         std::string _symbols;

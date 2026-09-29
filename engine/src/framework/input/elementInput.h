@@ -164,6 +164,8 @@ namespace visutwin::canvas
             Texture* texture = nullptr;
             /// Index into ElementVisual::styles; 0 is the element's own, read live.
             int style = 0;
+            /// Text: the symbol of each quad, ascending, for the draw range.
+            std::vector<uint32_t> quadSymbols;
             // What the material was last given, so an unchanged element repacks nothing.
             bool styled = false;
             Color color;
@@ -197,6 +199,7 @@ namespace visutwin::canvas
             float cachedWidth = 0.0f;
             float cachedHeight = 0.0f;
             Vector2 cachedPivot = Vector2(0.5f, 0.5f);
+            uint64_t cachedRangeVersion = 0;
             // image
             uint64_t cachedImageVersion = 0;
             const Sprite* cachedSprite = nullptr;

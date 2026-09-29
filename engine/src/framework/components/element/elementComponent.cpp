@@ -760,6 +760,10 @@ namespace visutwin::canvas
             perCodePoint.resize(_codePoints.size());
             _markupTags = std::move(perCodePoint);
         }
+        // A new layout draws the whole text again (upstream _updateText).
+        _rangeStart = 0;
+        _rangeEnd = static_cast<int>(_codePoints.size());
+        ++_rangeVersion;
         const TextMeasure measure = measureText(*_fontResource, _codePoints, static_cast<float>(_fontSize), lineHeight(),
                                                 textMaxLineWidth(), _spacing);
         _textWidth = measure.width;
@@ -808,6 +812,24 @@ namespace visutwin::canvas
         _spriteFrame = frame;
         ++_imageVersion;
         fire("set:spriteFrame");
+    }
+
+    void ElementComponent::setRangeStart(const int value)
+    {
+        const int start = std::clamp(value, 0, static_cast<int>(_codePoints.size()));
+        if (start != _rangeStart) {
+            _rangeStart = start;
+            ++_rangeVersion;
+        }
+    }
+
+    void ElementComponent::setRangeEnd(const int value)
+    {
+        const int end = std::clamp(value, _rangeStart, static_cast<int>(_codePoints.size()));
+        if (end != _rangeEnd) {
+            _rangeEnd = end;
+            ++_rangeVersion;
+        }
     }
 
     void ElementComponent::setOpacity(const float value)
@@ -869,6 +891,7 @@ namespace visutwin::canvas
         _lineHeight = src->_lineHeight;
         _spacing = src->_spacing;
         _enableMarkup = src->_enableMarkup;
+        _justify = src->_justify;
         _autoWidth = src->_autoWidth;
         _autoHeight = src->_autoHeight;
         _outlineColor = src->_outlineColor;

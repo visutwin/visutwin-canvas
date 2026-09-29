@@ -98,8 +98,27 @@ namespace visutwin::canvas
         m.fontMinY = font.minY * m.scale;
         m.fontMaxY = font.maxY * m.scale;
 
-        const auto pushLine = [&](const size_t begin, const size_t end) {
-            m.lines.push_back({begin, end, rangeWidth(font, symbols, begin, end, m.scale, m.spacing)});
+        const auto pushLine = [&](const size_t begin, const size_t end, const int gaps = 0) {
+            m.lines.push_back({begin, end, rangeWidth(font, symbols, begin, end, m.scale, m.spacing), gaps});
+        };
+        // Upstream's gap count: a whitespace run followed by a visible symbol, after the line's
+        // first visible symbol. Trailing whitespace is no gap.
+        const auto interiorGaps = [&symbols](const size_t begin, const size_t end) {
+            int gaps = 0;
+            bool seenVisible = false;
+            bool afterWhitespace = false;
+            for (size_t k = begin; k < end; ++k) {
+                if (isWhitespace(symbols[k])) {
+                    afterWhitespace = true;
+                } else {
+                    if (afterWhitespace && seenVisible) {
+                        ++gaps;
+                    }
+                    afterWhitespace = false;
+                    seenVisible = true;
+                }
+            }
+            return gaps;
         };
 
         size_t start = 0;
@@ -117,8 +136,11 @@ namespace visutwin::canvas
             // a line of its own.
             if (!isWhitespace(c) && i > start &&
                 rangeWidth(font, symbols, start, i + 1, m.scale, m.spacing) > maxLineWidth) {
-                const size_t breakAt = lastBreak > start ? lastBreak : i;
-                pushLine(start, breakAt);
+                const bool atWord = lastBreak > start;
+                const size_t breakAt = atWord ? lastBreak : i;
+                // Only a line broken at a word may be justified; a word broken mid-word has
+                // nothing to stretch.
+                pushLine(start, breakAt, atWord ? interiorGaps(start, breakAt) : 0);
                 start = breakAt;
                 lastBreak = 0;
             }
@@ -148,7 +170,7 @@ namespace visutwin::canvas
 
     std::vector<PlacedGlyph> placeText(const FontResource& font, const std::u32string& symbols, const TextMeasure& m,
                                        const float boxWidth, const float boxHeight, const Vector2& pivot,
-                                       const float horizontalAlign, const float verticalAlign)
+                                       const float horizontalAlign, const float verticalAlign, const bool justify)
     {
         std::vector<PlacedGlyph> glyphs;
         glyphs.reserve(symbols.size());
@@ -161,12 +183,30 @@ namespace visutwin::canvas
 
         for (size_t li = 0; li < m.lines.size(); ++li) {
             const TextLine& line = m.lines[li];
-            float x = -pivot.x * boxWidth + horizontalAlign * (boxWidth - line.width);
+            // A justified line is flush with both edges, and spreads what it has left over
+            // evenly between its words instead of aligning (upstream _updateMeshes).
+            const float slack = boxWidth - line.width;
+            const bool justified = justify && line.gaps > 0 && slack > 0.0f;
+            const float gapWidth = justified ? slack / static_cast<float>(line.gaps) : 0.0f;
+            float x = -pivot.x * boxWidth + (justified ? 0.0f : horizontalAlign * slack);
             const float penY = voffset - static_cast<float>(li) * m.lineStep;
+            int gapIndex = 0;
+            bool seenVisible = false;
+            bool afterWhitespace = false;
 
             int prev = -1;
             for (size_t i = line.begin; i < line.end; ++i) {
                 const int code = static_cast<int>(symbols[i]);
+                // The gaps before this symbol, counted as measureText counts a line's gaps.
+                if (isWhitespace(symbols[i])) {
+                    afterWhitespace = true;
+                } else {
+                    if (afterWhitespace && seenVisible) {
+                        ++gapIndex;
+                    }
+                    afterWhitespace = false;
+                    seenVisible = true;
+                }
                 const FontGlyph* glyph = glyphFor(font, code);
                 if (!glyph) {
                     prev = code;
@@ -174,6 +214,7 @@ namespace visutwin::canvas
                 }
                 const FontGlyph& g = *glyph;
                 const float kerning = prev >= 0 ? font.kerningValue(prev, code) : 0.0f;
+                const float gapShift = gapWidth * static_cast<float>(gapIndex);
 
                 // Glyph placement mirrors upstream text-element.js exactly:
                 //
@@ -191,7 +232,7 @@ namespace visutwin::canvas
                 PlacedGlyph p;
                 p.symbol = i;
                 p.page = (g.page >= 0 && g.page < static_cast<int>(font.pages.size())) ? g.page : 0;
-                p.x0 = x - (g.xoffset - kerning) * m.scale;
+                p.x0 = x + gapShift - (g.xoffset - kerning) * m.scale;
                 p.x1 = p.x0 + quadSize;
                 p.y0 = penY - g.yoffset * m.scale;
                 p.y1 = p.y0 + quadSize;

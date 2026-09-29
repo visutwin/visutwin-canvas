@@ -590,7 +590,12 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   element) and shrinks the whole grid when the element is narrower than twice its
   left border, as upstream. Both are data only here: there is no sprite component, and
   the grid is built on the CPU (`imageElementGeometry.h`, DEVIATION from upstream's
-  vertex-shader slicing, exact against it). TILED draws as SLICED.
+  vertex-shader slicing, exact against it). TILED repeats the frame's inner region at its
+  natural size over the centre (both axes) and the edge strips (along their length), from
+  the inner region's left and bottom edges, the last tile cut short — one quad per tile
+  (`buildTiledImageGeometry`; DEVIATION from upstream's per-fragment tiling in
+  `startNineSlicedTiled`, and `tests/imageElementGeometryTests.cpp` holds it against a
+  literal port of that fragment code at 238 probes a case).
 - **Layers.** An element with no `layers` of its own draws on LAYERID_UI when it is on a
   screen of either kind, as upstream, so a world-space screen's elements keep their draw
   order (they are depth-tested against the scene); on no screen it draws on WORLD.
@@ -612,6 +617,13 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   advance, and the block — from the font's highest glyph top to its lowest bottom (the
   glyph `bounds`) — is placed by `verticalAlign` (default 0.5). Text is laid out per
   CODE POINT, decoded from UTF-8 (malformed bytes become U+FFFD, drawn as the space).
+  `setJustify` (upstream `justify`) stretches a line broken at a word wrap flush to both
+  edges by widening its word gaps evenly, ignoring the horizontal alignment; lines ended by
+  a line break, the last line and a word broken mid-word keep the alignment
+  (`TextLine::gaps`). `setRangeStart` / `setRangeEnd` (upstream's) draw only the symbols in
+  the range by narrowing each text part's index range to its quads (each part records the
+  symbol of every quad), with no new layout; laying the text out again resets the range to
+  the whole text.
 - **Text.** Fonts are upstream's JSON format with one image per page (`<name>.png`,
   `<name>1.png`, ...). A font whose glyphs carry `range` is MSDF: pages are kept raw and
   bilinear, `pxRange` is scale x range and `intensity` comes from the file. The visual
@@ -623,8 +635,8 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   The fill is tone mapped (unless a camera frame owes it that) before the outline and
   shadow, which are not — upstream applies MSDF after its tone mapping. A font without
   `range` is a bitmap font: coverage in alpha, nearest filtering, as before.
-- **Not ported:** text markup and auto size, layout groups, masks, scroll views, tiled
-  sprites, the drag helper.
+- **Not ported:** max lines, auto-fit font size, right-to-left text, layout groups, masks,
+  scroll views, the drag helper.
 
 ## Graphics abstraction
 

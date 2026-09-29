@@ -308,6 +308,65 @@ int main()
         check(near(split->width(), before), "a split axis keeps its own size");
     }
 
+    std::cout << "justify (upstream justify)\n";
+    {
+        // No space glyph in the test font, so a space advances nothing: "AB AB" measures 35
+        // (17.5 a word) and "AB AB AB" wraps at 40 after the second word.
+        const std::u32string text = decodeUtf8("AB AB AB");
+        const TextMeasure m = measureText(*msdf, text, 32.0f, 32.0f, 40.0f);
+        check(m.lines.size() == 2 && m.lines[0].gaps == 1 && m.lines[1].gaps == 0,
+              "a line broken at a word has its gap; the last line has none");
+        const auto plain = placeText(*msdf, text, m, 40.0f, 80.0f, Vector2(0.0f, 0.0f), 0.0f, 1.0f, false);
+        const auto justified = placeText(*msdf, text, m, 40.0f, 80.0f, Vector2(0.0f, 0.0f), 0.5f, 1.0f, true);
+        const auto shift = [&](const size_t symbol) {
+            float a = 0.0f, b = 0.0f;
+            for (const auto& g : plain) if (g.symbol == symbol) a = g.x0;
+            for (const auto& g : justified) if (g.symbol == symbol) b = g.x0;
+            return b - a;
+        };
+        check(near(shift(0), 0.0f) && near(shift(1), 0.0f),
+              "the justified line starts flush left, whatever the alignment");
+        check(near(shift(3), 5.0f) && near(shift(4), 5.0f),
+              "the word after the gap moves by the whole slack (40 - 35), so the line ends flush right");
+        check(near(shift(6), 11.25f), "the last line keeps the alignment (centred: (40 - 17.5) / 2)");
+        const TextMeasure broken = measureText(*msdf, decodeUtf8("AB AB\nAB"), 32.0f, 32.0f, 40.0f);
+        check(broken.lines.size() == 2 && broken.lines[0].gaps == 0, "a line ended by a line break is not justified");
+        const TextMeasure longWord = measureText(*msdf, decodeUtf8("ABABAB"), 32.0f, 32.0f, 20.0f);
+        check(!longWord.lines.empty() && longWord.lines[0].gaps == 0, "nor is a word broken mid-word");
+    }
+
+    std::cout << "draw range (upstream rangeStart / rangeEnd)\n";
+    {
+        ElementComponent* text = addText(msdf);
+        text->setText("ABAB");
+        check(text->rangeStart() == 0 && text->rangeEnd() == 4, "setting the text draws all of it: rangeEnd is its length");
+        elementInput->syncElements();
+        const auto drawn = [&] {
+            int indices = 0;
+            int visible = 0;
+            for (MeshInstance* mi : visualInstances(text->entity())) {
+                if (mi->visible()) {
+                    ++visible;
+                    indices += mi->mesh()->getPrimitive(0).count;
+                }
+            }
+            return std::pair<int, int>{indices, visible};
+        };
+        check(drawn() == std::pair<int, int>{24, 2}, "all four quads, on both pages");
+        text->setRangeEnd(2);
+        elementInput->syncElements();
+        check(drawn() == std::pair<int, int>{12, 2}, "rangeEnd 2 draws the first A and B");
+        text->setRangeStart(1);
+        elementInput->syncElements();
+        check(drawn() == std::pair<int, int>{6, 1}, "[1, 2) draws the B alone; the A page is hidden, not drawn empty");
+        text->setRangeEnd(99);
+        check(text->rangeEnd() == 4, "the end clamps to the text");
+        text->setRangeEnd(0);
+        check(text->rangeEnd() == 1, "and never falls below the start");
+        text->setText("AB");
+        check(text->rangeStart() == 0 && text->rangeEnd() == 2, "a new text resets the range");
+    }
+
     std::cout << "markup\n";
     {
         ElementComponent* marked = addText(msdf);
