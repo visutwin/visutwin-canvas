@@ -12,11 +12,9 @@
 #include <cstring>
 #include <sstream>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include <SDL3/SDL.h>
-#include <spdlog/spdlog.h>
 
 #include "framework/components/button/buttonComponent.h"
 #include "framework/components/componentSystem.h"
@@ -33,6 +31,9 @@
 #include "scene/materials/standardMaterial.h"
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
+#include "scene/sprite.h"
+#include "scene/textureAtlas.h"
+#include "platform/graphics/texture.h"
 #include "scene/constants.h"
 
 namespace visutwin::canvas
@@ -131,6 +132,40 @@ namespace visutwin::canvas
                 out.push_back(current);
             }
             return out;
+        }
+
+        /// A triangle list in the 14-float layout every UI visual uses: position(3)
+        /// normal(3) uv0(2) tangent(4) uv1(2).
+        std::shared_ptr<Mesh> makeUiMesh(const std::shared_ptr<GraphicsDevice>& gd, const std::vector<float>& vertices,
+                                         const std::vector<uint32_t>& indices, const BoundingBox& bounds)
+        {
+            if (!gd || vertices.empty() || indices.empty()) {
+                return nullptr;
+            }
+            const int vertexCount = static_cast<int>(vertices.size() / 14u);
+            std::vector<uint8_t> vbData(vertices.size() * sizeof(float));
+            std::memcpy(vbData.data(), vertices.data(), vbData.size());
+            VertexBufferOptions vbOpts;
+            vbOpts.data = std::move(vbData);
+            auto vertexFormat = std::make_shared<VertexFormat>(
+                14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
+            auto vb = gd->createVertexBuffer(vertexFormat, vertexCount, vbOpts);
+
+            std::vector<uint8_t> ibData(indices.size() * sizeof(uint32_t));
+            std::memcpy(ibData.data(), indices.data(), ibData.size());
+            auto ib = gd->createIndexBuffer(INDEXFORMAT_UINT32, static_cast<int>(indices.size()), ibData);
+
+            auto mesh = std::make_shared<Mesh>();
+            mesh->setVertexBuffer(vb);
+            mesh->setIndexBuffer(ib, 0);
+            Primitive prim;
+            prim.type = PRIMITIVE_TRIANGLES;
+            prim.base = 0;
+            prim.count = static_cast<int>(indices.size());
+            prim.indexed = true;
+            mesh->setPrimitive(prim, 0);
+            mesh->setAabb(bounds);
+            return mesh;
         }
 
         std::shared_ptr<Mesh> buildTextMesh(const std::shared_ptr<GraphicsDevice>& gd, const ElementComponent* element)
@@ -261,53 +296,90 @@ namespace visutwin::canvas
                 return nullptr;
             }
 
-            const int vertexCount = static_cast<int>(vertices.size() / 14u);
-            std::vector<uint8_t> vbData(vertices.size() * sizeof(float));
-            std::memcpy(vbData.data(), vertices.data(), vbData.size());
-            VertexBufferOptions vbOpts;
-            vbOpts.data = std::move(vbData);
-            auto vertexFormat = std::make_shared<VertexFormat>(
-                14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
-            auto vb = gd->createVertexBuffer(vertexFormat, vertexCount, vbOpts);
-
-            std::vector<uint8_t> ibData(indices.size() * sizeof(uint32_t));
-            std::memcpy(ibData.data(), indices.data(), ibData.size());
-            auto ib = gd->createIndexBuffer(INDEXFORMAT_UINT32, static_cast<int>(indices.size()), ibData);
-
-            auto mesh = std::make_shared<Mesh>();
-            mesh->setVertexBuffer(vb);
-            mesh->setIndexBuffer(ib, 0);
-            Primitive prim;
-            prim.type = PRIMITIVE_TRIANGLES;
-            prim.base = 0;
-            prim.count = static_cast<int>(indices.size());
-            prim.indexed = true;
-            mesh->setPrimitive(prim, 0);
-
             BoundingBox bounds;
             bounds.setCenter(Vector3(0.0f, 0.0f, 0.0f));
             bounds.setHalfExtents(Vector3(std::max(boxW * 0.5f, 1.0f), std::max(boxH * 0.5f, 1.0f), 1.0f));
-            mesh->setAabb(bounds);
-            return mesh;
+            return makeUiMesh(gd, vertices, indices, bounds);
         }
+
+        std::shared_ptr<Mesh> buildImageMesh(const std::shared_ptr<GraphicsDevice>& gd, const ElementComponent* element,
+                                             Texture*& outTexture)
+        {
+            outTexture = nullptr;
+            const Vector2 pivot = element->pivot();
+            const float w = element->calculatedWidth();
+            const float h = element->calculatedHeight();
+
+            ImageGeometry geometry;
+            const Sprite* sprite = element->sprite().get();
+            const TextureAtlasFrame* frame = sprite ? sprite->frame(element->spriteFrame()) : nullptr;
+            Texture* atlasTexture = sprite && sprite->atlas() ? sprite->atlas()->texture() : nullptr;
+            if (frame && atlasTexture && frame->rect.getZ() > 0.0f && frame->rect.getW() > 0.0f) {
+                const float texW = static_cast<float>(atlasTexture->width());
+                const float texH = static_cast<float>(atlasTexture->height());
+                const Vector2 size = fitImageSize(w, h, frame->rect.getZ() / frame->rect.getW(), element->fitMode());
+                if (sprite->nineSliced()) {
+                    const float ppu = element->pixelsPerUnit().value_or(sprite->pixelsPerUnit());
+                    geometry = buildSlicedImageGeometry(size, pivot, *frame, texW, texH, ppu);
+                } else {
+                    const Vector4 uvRect(frame->rect.getX() / texW, frame->rect.getY() / texH,
+                                         frame->rect.getZ() / texW, frame->rect.getW() / texH);
+                    geometry = buildSimpleImageGeometry(size, pivot, uvRect);
+                }
+                outTexture = atlasTexture;
+            } else {
+                Texture* texture = element->texture();
+                const float aspect = texture && texture->height() > 0
+                    ? static_cast<float>(texture->width()) / static_cast<float>(texture->height()) : -1.0f;
+                const Vector2 size = fitImageSize(w, h, aspect, element->fitMode());
+                geometry = buildSimpleImageGeometry(size, pivot, element->rect());
+                outTexture = texture;
+            }
+
+            std::vector<float> vertices;
+            vertices.reserve(geometry.vertices.size() * 14u);
+            float minX = geometry.vertices.empty() ? 0.0f : geometry.vertices[0].x;
+            float maxX = minX;
+            float minY = geometry.vertices.empty() ? 0.0f : geometry.vertices[0].y;
+            float maxY = minY;
+            for (const ImageVertex& v : geometry.vertices) {
+                // position(3) normal(3) uv0(2) tangent(4) uv1(2)
+                vertices.insert(vertices.end(), {v.x, v.y, 0.0f, 0.0f, 0.0f, 1.0f, v.u, v.v,
+                                                 1.0f, 0.0f, 0.0f, 1.0f, v.u, v.v});
+                minX = std::min(minX, v.x);
+                maxX = std::max(maxX, v.x);
+                minY = std::min(minY, v.y);
+                maxY = std::max(maxY, v.y);
+            }
+            BoundingBox bounds;
+            bounds.setCenter(Vector3((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, 0.0f));
+            bounds.setHalfExtents(Vector3((maxX - minX) * 0.5f, (maxY - minY) * 0.5f, 0.001f));
+            return makeUiMesh(gd, vertices, geometry.indices, bounds);
+        }
+    }
+
+    void ElementInput::releaseVisual(ElementVisual& visual)
+    {
+        if (visual.destroyHandle) {
+            visual.destroyHandle->off();   // it captures the map entry about to go
+            visual.destroyHandle.reset();
+        }
+        if (visual.entity) {
+            auto removed = visual.entity->remove();
+            removed.reset();
+        }
+        visual.entity = nullptr;
+        visual.render = nullptr;
+        visual.meshInstance = nullptr;
     }
 
     void ElementInput::detach()
     {
-        for (auto& [_, visual] : _textVisuals) {
-            if (visual.destroyHandle) {
-                visual.destroyHandle->off();
-            }
-            if (visual.entity) {
-                auto removed = visual.entity->remove();
-                removed.reset();
-                visual.entity = nullptr;
-                visual.render = nullptr;
-            }
+        for (auto& [_, visual] : _visuals) {
+            releaseVisual(visual);
         }
-        _textVisuals.clear();
+        _visuals.clear();
         _engine.reset();
-        _sdlRenderer = nullptr;
     }
 
     bool ElementInput::computeElementRect(const ElementComponent* element, SDL_FRect& outRect) const
@@ -370,105 +442,90 @@ namespace visutwin::canvas
         return false;
     }
 
-    void ElementInput::renderElements()
+    ElementInput::ElementVisual& ElementInput::visualFor(ElementComponent* element)
     {
-        if (!_sdlRenderer) {
-            return;
+        auto& visual = _visuals[element];
+        if (visual.entity && visual.type != element->type()) {
+            // The element changed type: its visual is built for the other kind.
+            releaseVisual(visual);
+            visual = ElementVisual{};
+        }
+        if (visual.entity) {
+            return visual;
         }
 
-        SDL_SetRenderDrawBlendMode(_sdlRenderer, SDL_BLENDMODE_BLEND);
+        visual.type = element->type();
+        // A screen-space element is drawn in clip space by whatever camera renders its
+        // layer (MeshInstance::setScreenSpace); anything else — an element on no screen or
+        // on a world-space one — is geometry in the world.
+        const ScreenComponent* screen = element->screenComponent();
+        visual.worldSpace = !(screen && screen->screenSpace());
+        visual.entity = new Entity();
+        visual.entity->setEngine(_engine.get());
+        visual.entity->setLocalPosition(0.0f, 0.0f, 0.0f);
+        // The visual lives under its element, so destroying the element frees it: forget
+        // it then, rather than touching freed memory when the element leaves the list.
+        visual.destroyHandle = visual.entity->on("destroy", [&visual]() {
+            visual.entity = nullptr;
+            visual.render = nullptr;
+            visual.meshInstance = nullptr;
+        });
+        visual.render = static_cast<RenderComponent*>(visual.entity->addComponent<RenderComponent>());
 
-        for (auto* element : ElementComponent::instances()) {
-            if (!element || !element->entity() || !element->enabled() || !element->entity()->enabled()) {
-                continue;
-            }
-
-            SDL_FRect rect{};
-            if (!computeElementRect(element, rect)) {
-                continue;
-            }
-
-            const Color c = element->color();
-            const int alpha = static_cast<int>(std::round(std::clamp(element->opacity() * c.a, 0.0f, 1.0f) * 255.0f));
-            const Uint8 r = static_cast<Uint8>(std::round(std::clamp(c.r, 0.0f, 1.0f) * 255.0f));
-            const Uint8 g = static_cast<Uint8>(std::round(std::clamp(c.g, 0.0f, 1.0f) * 255.0f));
-            const Uint8 b = static_cast<Uint8>(std::round(std::clamp(c.b, 0.0f, 1.0f) * 255.0f));
-            const Uint8 a = static_cast<Uint8>(std::clamp(alpha, 0, 255));
-
-            if (element->type() == ElementType::Image) {
-                SDL_SetRenderDrawColor(_sdlRenderer, r, g, b, a);
-                SDL_RenderFillRect(_sdlRenderer, &rect);
-            }
+        // Upstream's element materials are EMISSIVE-only: black diffuse, the element colour
+        // as the emissive (times the image's texture), alpha from the texture. The diffuse
+        // map stays bound for its alpha — the glyph coverage of a font atlas, whose RGB is
+        // not white, or an image's own alpha. DEVIATION: upstream reads that alpha through
+        // an opacity map, which is Metal-only here; setting the same texture as the opacity
+        // map as well would multiply it in twice on Metal.
+        visual.material = std::make_shared<StandardMaterial>();
+        visual.material->setUseLighting(false);
+        visual.material->setUseSkybox(false);
+        visual.material->setTransparent(true);
+        visual.material->setCullMode(CullMode::CULLFACE_NONE);
+        visual.material->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
+        visual.material->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
+        visual.material->setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
+        auto depth = std::make_shared<DepthState>(DepthState::noWrite());
+        // A screen-space element is an overlay and must never be occluded; a world-space
+        // one is part of the scene, so geometry in front of it hides it. Depth WRITES stay
+        // off either way: it is transparent and must not punch holes in the depth buffer.
+        depth->setDepthTest(visual.worldSpace);
+        visual.material->setDepthState(depth);
+        if (visual.render) {
+            visual.render->setMaterial(visual.material.get());
         }
+        // A child of its element with an identity transform: the element's transform — the
+        // layout's, for an element on a screen — places it.
+        element->entity()->addChild(visual.entity);
+        return visual;
     }
 
-    void ElementInput::syncTextElements()
+    void ElementInput::syncElements()
     {
         if (!_engine || !_engine->graphicsDevice()) {
             return;
         }
 
-        for (auto& [_, visual] : _textVisuals) {
+        for (auto& [_, visual] : _visuals) {
             visual.activeFrame = false;
         }
 
         for (auto* element : ElementComponent::instances()) {
-            if (!element || element->type() != ElementType::Text || !element->entity()) {
+            if (!element || !element->entity()) {
                 continue;
             }
-            if (!element->fontResource() || !element->fontResource()->texture) {
+            const bool isText = element->type() == ElementType::Text && element->fontResource() &&
+                element->fontResource()->texture && !element->text().empty();
+            const bool isImage = element->type() == ElementType::Image;
+            if (!isText && !isImage) {
                 continue;
             }
 
-            auto& visual = _textVisuals[element];
+            auto& visual = visualFor(element);
             visual.activeFrame = true;
-
             if (!visual.entity) {
-                // Screen-space text is drawn in clip space by whatever camera renders the UI
-                // layer (MeshInstance::setScreenSpace); anything else — an element on no
-                // screen or on a world-space one — is geometry in the world.
-                const ScreenComponent* screen = element->screenComponent();
-                visual.worldSpace = !(screen && screen->screenSpace());
-                visual.entity = new Entity();
-                visual.entity->setEngine(_engine.get());
-                visual.entity->setLocalPosition(0.0f, 0.0f, 0.0f);
-                // The visual lives under its element, so destroying the element frees it:
-                // forget it then, rather than touching freed memory when the element
-                // leaves the instance list.
-                visual.destroyHandle = visual.entity->on("destroy", [&visual]() {
-                    visual.entity = nullptr;
-                    visual.render = nullptr;
-                });
-                visual.render = static_cast<RenderComponent*>(visual.entity->addComponent<RenderComponent>());
-                visual.material = std::make_shared<StandardMaterial>();
-                visual.material->setUseLighting(false);
-                visual.material->setUseSkybox(false);
-                visual.material->setTransparent(true);
-                visual.material->setCullMode(CullMode::CULLFACE_NONE);
-                visual.material->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
-                visual.material->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
-                auto alphaBlend = std::make_shared<BlendState>(BlendState::alphaBlend());
-                visual.material->setBlendState(alphaBlend);
-                auto textDepth = std::make_shared<DepthState>(DepthState::noWrite());
-                // Screen-space text is an overlay and must never be occluded; a
-                // world-space label is part of the scene, so geometry in front of it
-                // should hide it. Depth WRITES stay off either way — the text is
-                // transparent and must not punch holes in the depth buffer.
-                textDepth->setDepthTest(visual.worldSpace);
-                visual.material->setDepthState(textDepth);
-                // DEVIATION: upstream's text material takes colour from
-                // emissiveMap and alpha from opacityMap (channel 'a'). The opacity
-                // map is Metal-only here, so the glyph alpha comes from the diffuse
-                // map's alpha instead, which both backends read. Setting the same
-                // texture as the opacity map as well multiplies it in a second
-                // time on Metal (alpha squared) and thins every anti-aliased edge.
-                visual.material->setDiffuseMap(element->fontResource()->texture);
-                if (visual.render) {
-                    visual.render->setMaterial(visual.material.get());
-                }
-                // A child of its element with an identity transform: the element's
-                // transform — the layout's, for an element on a screen — places it.
-                element->entity()->addChild(visual.entity);
+                continue;
             }
 
             // The element's own layers, or the element system's choice.
@@ -481,85 +538,92 @@ namespace visutwin::canvas
                 visual.layers = std::move(layers);
             }
 
-            const bool needsRebuild = element->textDirty() ||
-                visual.cachedText != element->text() ||
-                visual.cachedFontSize != element->fontSize() ||
-                visual.cachedAlign != element->horizontalAlign() ||
-                visual.cachedWrap != element->wrapLines() ||
-                visual.cachedVerticalAlign != element->verticalAlign() ||
-                visual.cachedFont != element->fontResource() ||
+            const bool sizeChanged =
                 std::abs(visual.cachedPivot.x - element->pivot().x) > 1e-4f ||
                 std::abs(visual.cachedPivot.y - element->pivot().y) > 1e-4f ||
                 std::abs(visual.cachedWidth - element->calculatedWidth()) > 1e-4f ||
                 std::abs(visual.cachedHeight - element->calculatedHeight()) > 1e-4f;
 
-            if (needsRebuild) {
-                visual.mesh = buildTextMesh(_engine->graphicsDevice(), element);
-                if (visual.render) {
-                    visual.render->clearMeshInstances();
-                    if (visual.mesh) {
-                        visual.material->setDiffuseMap(element->fontResource()->texture);
-                        auto meshInstance = std::make_unique<MeshInstance>(visual.mesh.get(), visual.material.get(), visual.entity);
-                        meshInstance->setScreenSpace(!visual.worldSpace);
-                        visual.render->addMeshInstance(std::move(meshInstance));
-                    }
+            bool rebuild = sizeChanged || !visual.meshInstance;
+            Texture* texture = nullptr;
+            if (isText) {
+                rebuild = rebuild || element->textDirty() ||
+                    visual.cachedText != element->text() ||
+                    visual.cachedFontSize != element->fontSize() ||
+                    visual.cachedAlign != element->horizontalAlign() ||
+                    visual.cachedWrap != element->wrapLines() ||
+                    visual.cachedVerticalAlign != element->verticalAlign() ||
+                    visual.cachedFont != element->fontResource();
+                texture = element->fontResource()->texture;
+            } else {
+                const Sprite* sprite = element->sprite().get();
+                const uint64_t atlasVersion = sprite && sprite->atlas() ? sprite->atlas()->version() : 0;
+                rebuild = rebuild || visual.cachedImageVersion != element->imageVersion() ||
+                    visual.cachedSprite != sprite ||
+                    visual.cachedSpriteVersion != (sprite ? sprite->version() : 0) ||
+                    visual.cachedAtlasVersion != atlasVersion;
+                texture = visual.boundTexture;   // replaced below if the mesh is rebuilt
+            }
+
+            if (rebuild) {
+                if (isText) {
+                    visual.mesh = buildTextMesh(_engine->graphicsDevice(), element);
+                    visual.cachedText = element->text();
+                    visual.cachedFontSize = element->fontSize();
+                    visual.cachedAlign = element->horizontalAlign();
+                    visual.cachedWrap = element->wrapLines();
+                    visual.cachedVerticalAlign = element->verticalAlign();
+                    visual.cachedFont = element->fontResource();
+                    element->clearTextDirty();
+                } else {
+                    visual.mesh = buildImageMesh(_engine->graphicsDevice(), element, texture);
+                    const Sprite* sprite = element->sprite().get();
+                    visual.cachedImageVersion = element->imageVersion();
+                    visual.cachedSprite = sprite;
+                    visual.cachedSpriteVersion = sprite ? sprite->version() : 0;
+                    visual.cachedAtlasVersion = sprite && sprite->atlas() ? sprite->atlas()->version() : 0;
                 }
-                visual.cachedText = element->text();
-                visual.cachedFontSize = element->fontSize();
                 visual.cachedWidth = element->calculatedWidth();
                 visual.cachedHeight = element->calculatedHeight();
                 visual.cachedPivot = element->pivot();
-                visual.cachedAlign = element->horizontalAlign();
-                visual.cachedWrap = element->wrapLines();
-                visual.cachedVerticalAlign = element->verticalAlign();
-                visual.cachedFont = element->fontResource();
-                element->clearTextDirty();
+
+                if (visual.render) {
+                    visual.render->clearMeshInstances();
+                    visual.meshInstance = nullptr;
+                    if (visual.mesh) {
+                        auto meshInstance = std::make_unique<MeshInstance>(visual.mesh.get(), visual.material.get(), visual.entity);
+                        meshInstance->setScreenSpace(!visual.worldSpace);
+                        visual.meshInstance = meshInstance.get();
+                        visual.render->addMeshInstance(std::move(meshInstance));
+                    }
+                }
             }
 
-            static std::unordered_set<const ElementComponent*> logged;
-            if (logged.find(element) == logged.end()) {
-                const Vector3 pos = element->entity()->position();
-                spdlog::info("{} text element '{}': glyphs={}, meshBuilt={}, size=({}, {}), pos=({}, {}, {})",
-                    visual.worldSpace ? "World-space" : "UI",
-                    element->text(),
-                    element->fontResource()->glyphs.size(),
-                    visual.mesh ? "true" : "false",
-                    element->width(),
-                    element->height(),
-                    pos.getX(),
-                    pos.getY(),
-                    pos.getZ());
-                logged.insert(element);
+            if (texture != visual.boundTexture) {
+                visual.material->setDiffuseMap(texture);
+                // Text takes its colour from the emissive alone (the glyph atlas's RGB is
+                // not white); an image multiplies its texture in.
+                visual.material->setEmissiveMap(isImage ? texture : nullptr);
+                visual.boundTexture = texture;
             }
 
-            const Color c = element->color();
-            visual.material->setDiffuse(c);
-            visual.material->setEmissive(c);
+            visual.material->setEmissive(element->color());
             visual.material->setOpacity(element->opacity());
-
-            if (visual.entity) {
-                visual.entity->setEnabled(element->enabled() && element->entity()->enabled());
+            if (visual.meshInstance) {
+                visual.meshInstance->setDrawOrder(element->drawOrder());
             }
+            visual.entity->setEnabled(element->enabled() && element->entity()->enabled());
         }
 
         std::vector<ElementComponent*> toRemove;
-        toRemove.reserve(_textVisuals.size());
-        for (auto& [element, visual] : _textVisuals) {
+        for (auto& [element, visual] : _visuals) {
             if (!visual.activeFrame) {
-                if (visual.entity) {
-                    auto removed = visual.entity->remove();
-                    removed.reset();
-                    visual.entity = nullptr;
-                    visual.render = nullptr;
-                }
+                releaseVisual(visual);
                 toRemove.push_back(element);
             }
         }
         for (auto* element : toRemove) {
-            if (auto& handle = _textVisuals[element].destroyHandle) {
-                handle->off();   // it captures the map entry erased next
-            }
-            _textVisuals.erase(element);
+            _visuals.erase(element);
         }
     }
 }

@@ -158,11 +158,6 @@ protected:
         _lines->update();
     }
 
-    void preRender() override
-    {
-        _elementInput->syncTextElements();
-    }
-
     void destroy() override
     {
         _lines.reset();

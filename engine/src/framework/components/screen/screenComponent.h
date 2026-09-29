@@ -83,6 +83,15 @@ namespace visutwin::canvas
         void unbindElement(ElementComponent* element);
         const std::vector<ElementComponent*>& elements() const { return _elements; }
 
+        /// Queue a draw-order sync (upstream `syncDrawOrder`); the screen system resolves it
+        /// on its next update, so a burst of hierarchy edits costs one pass.
+        void syncDrawOrder() { _drawOrderDirty = true; }
+        bool drawOrderDirty() const { return _drawOrderDirty; }
+        /// Upstream `_processDrawOrderSync`: every element under the screen entity gets
+        /// the next order depth-first from 1, so children draw over their parent and later
+        /// siblings over earlier ones.
+        void processDrawOrderSync();
+
     private:
         void updateScale();
         void calcProjectionMatrix();
@@ -101,5 +110,6 @@ namespace visutwin::canvas
         bool _screenSpace = false;
         Matrix4 _screenMatrix = Matrix4::identity();
         std::vector<ElementComponent*> _elements;
+        bool _drawOrderDirty = true;
     };
 }

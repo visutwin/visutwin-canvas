@@ -16,16 +16,20 @@ namespace visutwin::canvas
         {
             // Upstream screens listen to the device's `resizecanvas`; nothing here fires
             // one, so the canvas size is polled once an update and a change is handed to
-            // every screen-space screen.
+            // every screen-space screen. The queued draw-order syncs are resolved here too,
+            // as upstream's system does on update.
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](const float /*dt*/) {
                     const auto [w, h] = engine->canvasSize();
-                    if (w <= 0 || h <= 0) {
-                        return;
-                    }
                     for (auto* screen : ScreenComponent::instances()) {
-                        if (screen && screen->entity() && screen->entity()->engine() == engine) {
+                        if (!screen || !screen->entity() || screen->entity()->engine() != engine) {
+                            continue;
+                        }
+                        if (w > 0 && h > 0) {
                             screen->onCanvasResize(w, h);
+                        }
+                        if (screen->drawOrderDirty()) {
+                            screen->processDrawOrderSync();
                         }
                     }
                 }, this);

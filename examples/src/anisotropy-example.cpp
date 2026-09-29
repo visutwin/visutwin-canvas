@@ -156,11 +156,6 @@ protected:
         return false;
     }
 
-    void preRender() override
-    {
-        _elementInput->syncTextElements();
-    }
-
 private:
     // Upstream's two axis labels, lying flat on the ground plane. These are
     // WORLD-SPACE text: the entities have no ScreenComponent ancestor, so the

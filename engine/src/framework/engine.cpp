@@ -276,6 +276,9 @@ namespace visutwin::canvas
         _defaultLayerDepth = std::make_shared<Layer>("Depth", 2);
         _defaultLayerSkybox = std::make_shared<Layer>("Skybox", 3);
         _defaultLayerUi = std::make_shared<Layer>("UI", 4);
+        // Upstream: UI draws in the order its screens assign (ElementComponent::drawOrder),
+        // not by distance, which means nothing for a clip-space element.
+        _defaultLayerUi->setTransparentSortMode(SortMode::SORTMODE_MANUAL);
         _defaultLayerImmediate = std::make_shared<Layer>("Immediate", 5);
 
         // Create default layer composition
@@ -385,6 +388,11 @@ namespace visutwin::canvas
         _frameStartCalled = false;
         _renderCompositionCalled = false;
         _frameEndCalled = false;
+
+        // UI element visuals follow what this frame's update did to their elements.
+        if (_elementInput) {
+            _elementInput->syncElements();
+        }
 
         _graphicsDevice->frameStart();
         _frameStartCalled = true;

@@ -191,7 +191,9 @@ void main() {
         // lane (that is how its decal material draws at all).
         vec3 unlitEmissive = material.emissiveColor.rgb;
         if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
-            unlitEmissive *= texture(emissiveMap, uvEmissive).rgb;
+            // Decoded as the lit path and Metal's unlit path decode it; this path read the
+            // raw sRGB until 2026-09-29, brighter than Metal for any unlit emissive map.
+            unlitEmissive *= srgbToLinear(texture(emissiveMap, uvEmissive).rgb);
         }
         if ((material.flags & (1u << 23)) != 0u) {
             unlitEmissive *= clamp(fragColor.rgb, 0.0, 1.0);

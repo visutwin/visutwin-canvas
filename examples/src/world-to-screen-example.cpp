@@ -10,15 +10,10 @@
 // a "Player N" name in its top 60% and a green health bar in its bottom 40%.
 // Clicking a name recolours it and its player with a random colour.
 //
-// DEVIATIONS:
 // This is upstream's example BEFORE its rebuild into four fighters with sprite
-// health bars (#9569); re-port that one once image elements and sprites render.
+// health bars (#9569).
 //
-// - image elements are not rendered by the element system, so the panel backing
-//   and the health bar are unlit planes on LAYERID_UI, children of their elements
-//   drawn in screen space, sized to the elements' calculated rectangles.
-// - text has no vertical alignment: the name starts at the top of its region
-//   (the top 60% of the panel) where upstream centres it.
+// DEVIATIONS:
 // - there is no CameraComponent::worldToScreen; the projection is done here.
 // - each player has its own white StandardMaterial and a click sets its diffuse,
 //   where upstream overrides material_diffuse on the mesh instance of a shared
@@ -43,8 +38,6 @@
 #include "framework/components/screen/screenComponent.h"
 #include "framework/components/screen/screenComponentSystem.h"
 #include "framework/input/elementInput.h"
-#include "platform/graphics/blendState.h"
-#include "platform/graphics/depthState.h"
 #include "scene/materials/standardMaterial.h"
 
 using namespace visutwin::canvas;
@@ -69,26 +62,7 @@ namespace
         ElementComponent* name = nullptr;
         ButtonComponent* button = nullptr;
 
-        std::shared_ptr<StandardMaterial> panelMaterial;
-        std::shared_ptr<StandardMaterial> healthMaterial;
     };
-
-    std::shared_ptr<StandardMaterial> makeUiMaterial(const Color& color, const float opacity)
-    {
-        auto material = std::make_shared<StandardMaterial>();
-        material->setUseLighting(false);
-        material->setUseSkybox(false);
-        material->setDiffuse(color);
-        material->setEmissive(color);
-        material->setOpacity(opacity);
-        material->setTransparent(true);
-        material->setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
-        material->setCullMode(CullMode::CULLFACE_NONE);
-        // A screen-space element draws over the world, as upstream's UI materials do.
-        material->setDepthState(std::make_shared<DepthState>(DepthState::noWrite()));
-        material->depthState()->setDepthTest(false);
-        return material;
-    }
 
     /// Converts a coordinate in world space into the screen's space: screen units from
     /// its BOTTOM-left corner, as a bottom-left anchor places an element. z is the
@@ -225,8 +199,6 @@ protected:
                 player.playerInfo->setLocalPosition(screenPosition.getX(), screenPosition.getY(), 0.0f);
             }
         }
-
-        _elementInput->syncTextElements();
     }
 
 private:
@@ -267,6 +239,7 @@ private:
         player.name->setFontSize(20);
         player.name->setText("Player " + std::to_string(id));
         player.name->setHorizontalAlign(ElementHorizontalAlign::Center);
+        player.name->setVerticalAlign(0.5f);   // upstream's default text alignment
         player.button = static_cast<ButtonComponent*>(nameEntity->addComponent<ButtonComponent>());
         player.button->setImageEntity(nameEntity);
         player.playerInfo->addChild(nameEntity);
@@ -282,37 +255,12 @@ private:
         health->setOpacity(1.0f);
         player.playerInfo->addChild(healthBar);
 
-        // The two image elements, drawn as planes on the UI layer.
-        player.panelMaterial = makeUiMaterial(Color(1.0f, 1.0f, 1.0f, 1.0f), 0.05f);
-        addImageVisual(info, player.panelMaterial.get());
-        player.healthMaterial = makeUiMaterial(Color(0.2f, 0.6f, 0.2f, 1.0f), 1.0f);
-        addImageVisual(health, player.healthMaterial.get());
-
         player.button->on("click", [this, name = player.name, material = player.material]() {
             std::uniform_real_distribution<float> unit(0.0f, 1.0f);
             const Color color(unit(_rng), unit(_rng), unit(_rng), 1.0f);
             name->setColor(color);
             material->setDiffuse(color);
         });
-    }
-
-    /// A unit plane filling `element`'s rectangle, drawn in screen space as its child.
-    /// Its origin is the element's pivot; the rectangle is fixed at creation.
-    void addImageVisual(ElementComponent* element, Material* material)
-    {
-        const float w = element->calculatedWidth();
-        const float h = element->calculatedHeight();
-        const Vector2 pivot = element->pivot();
-        auto* visual = createPrimitive("plane", material, Vector3(0.0f, 0.0f, 0.0f), Vector3(w, 1.0f, h),
-            {LAYERID_UI});
-        element->entity()->addChild(root()->removeChild(visual));
-        visual->setLocalPosition((0.5f - pivot.x) * w, (0.5f - pivot.y) * h, 0.0f);
-        visual->setLocalEulerAngles(90.0f, 0.0f, 0.0f);
-        if (auto* render = visual->findComponent<RenderComponent>()) {
-            for (auto* meshInstance : render->meshInstances()) {
-                meshInstance->setScreenSpace(true);
-            }
-        }
     }
 
     std::shared_ptr<ElementInput> _elementInput;

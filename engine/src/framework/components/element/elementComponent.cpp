@@ -14,6 +14,7 @@
 #include "core/math/quaternion.h"
 #include "framework/components/screen/screenComponent.h"
 #include "framework/entity.h"
+#include "scene/sprite.h"
 
 namespace visutwin::canvas
 {
@@ -47,6 +48,7 @@ namespace visutwin::canvas
         }
         if (auto* screen = screenComponent()) {
             screen->unbindElement(this);
+            screen->syncDrawOrder();
         }
     }
 
@@ -440,12 +442,14 @@ namespace visutwin::canvas
         if (_screen && _screen != screen) {
             if (auto* old = screenComponent()) {
                 old->unbindElement(this);
+                old->syncDrawOrder();
             }
         }
 
         _screen = screen;
         if (auto* current = screenComponent()) {
             current->bindElement(this);
+            current->syncDrawOrder();   // upstream: every (re)bind re-derives the order
         }
 
         calculateSize(hasSplitAnchorsX(), hasSplitAnchorsY());
@@ -699,6 +703,40 @@ namespace visutwin::canvas
         return _worldCorners;
     }
 
+    // ---- image -----------------------------------------------------------------------
+
+    void ElementComponent::setTexture(Texture* value)
+    {
+        _texture = value;
+        if (value) {
+            _sprite.reset();   // upstream: a texture clears the sprite
+        }
+        ++_imageVersion;
+    }
+
+    void ElementComponent::setSprite(std::shared_ptr<Sprite> value)
+    {
+        _sprite = std::move(value);
+        if (_sprite) {
+            _texture = nullptr;   // and a sprite clears the texture
+        }
+        ++_imageVersion;
+    }
+
+    void ElementComponent::setSpriteFrame(const int value)
+    {
+        _spriteFrame = std::max(value, 0);
+        ++_imageVersion;
+    }
+
+    void ElementComponent::setDrawOrder(int value)
+    {
+        // Upstream: the screen's priority lives in the top 8 bits, the order in the rest.
+        const int priority = screenComponent() ? screenComponent()->priority() : 0;
+        value = std::clamp(value, 0, 0xFFFFFF);
+        _drawOrder = (priority << 24) + value;
+    }
+
     // ---- clone -----------------------------------------------------------------------
 
     void ElementComponent::cloneFrom(const Component* source)
@@ -728,6 +766,13 @@ namespace visutwin::canvas
         _wrapLines = src->_wrapLines;
         _verticalAlign = src->_verticalAlign;
         _layers = src->_layers;
+        _texture = src->_texture;
+        _sprite = src->_sprite;   // shared, as upstream's clone shares the sprite asset
+        _spriteFrame = src->_spriteFrame;
+        _rect = src->_rect;
+        _pixelsPerUnit = src->_pixelsPerUnit;
+        _fitMode = src->_fitMode;
+        ++_imageVersion;
         _textDirty = true;   // the clone has no text mesh of its own yet
     }
 }

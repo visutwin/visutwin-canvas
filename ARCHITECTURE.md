@@ -531,15 +531,31 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   `setPosition` / `setLocalPosition` re-derive the margins. Corners come three
   ways: `screenCorners` (screen units, y up), `canvasCorners` (y down — the space
   ElementInput hit-tests mouse events in) and `worldCorners`.
-- **Drawing.** Only text is drawn, by `ElementInput::syncTextElements`: a visual
-  child of the element with an identity transform, on `ElementComponent::layers()`
-  (empty = LAYERID_UI on a screen-space screen, WORLD otherwise — DEVIATION,
-  upstream's default is UI for both). On a screen-space screen the mesh instance
-  is `setScreenSpace`, so the vertex stage writes world xy straight to clip, with
-  no depth test. An example that wants an image element draws its own
-  screen-space plane under the element (`world-to-screen` does).
-- **Not ported:** layout groups, masks, scroll views, fit modes, sprites and image
-  rendering, text markup, outline, shadow and auto size, draw order.
+- **Drawing.** `ElementInput::syncElements` (called by `Engine::render`) keeps one
+  visual per text or image element: a child entity with an identity transform, on
+  `ElementComponent::layers()` (empty = LAYERID_UI on a screen-space screen, WORLD
+  otherwise — DEVIATION, upstream's default is UI for both). On a screen-space screen
+  the mesh instance is `setScreenSpace`, so the vertex stage writes world xy straight
+  to clip, with no depth test. The material is emissive-only (colour x texture, alpha
+  from the texture), and the mesh is rebuilt only when its inputs change: size and
+  pivot, the text fields, or the image's `imageVersion` plus its sprite's and atlas's
+  versions.
+- **Images.** `setTexture` + `setRect` (x, y from the bottom, w, h as fractions), or
+  `setSprite` + `setSpriteFrame`; each clears the other, as upstream. `setFitMode`
+  (stretch, contain, cover) shrinks the quad about the pivot. A `Sprite`
+  (`scene/sprite.h`) names frames of a `TextureAtlas` (`scene/textureAtlas.h`, rects in
+  pixels from the image BOTTOM, 9-slice borders left/bottom/right/top); a SLICED sprite
+  keeps its borders at pixels / pixelsPerUnit (`setPixelsPerUnit` overrides it per
+  element) and shrinks the whole grid when the element is narrower than twice its
+  left border, as upstream. Both are data only here: there is no sprite component, and
+  the grid is built on the CPU (`imageElementGeometry.h`, DEVIATION from upstream's
+  vertex-shader slicing, exact against it). TILED draws as SLICED.
+- **Draw order.** `ScreenComponent::processDrawOrderSync` numbers the elements under
+  the screen depth-first from 1 (priority << 24 on top), queued by binding, unbinding and
+  `setPriority` and resolved by the screen system's update; the UI layer's transparent
+  sublayer is SORTMODE_MANUAL on it.
+- **Not ported:** MSDF text (multi-page fonts, outline, shadow, markup, auto size),
+  layout groups, masks, scroll views, tiled sprites, the drag helper.
 
 ## Graphics abstraction
 

@@ -331,6 +331,41 @@ int main()
         check(near(posX(e), 75) && near(posY(e), 37.5f), "setPosition takes NDC back into screen units (75, 37.5)");
     }
 
+    std::cout << "\ndraw order (upstream ScreenComponent._processDrawOrderSync)\n";
+    {
+        // Depth-first from 1, so a child draws over its parent and a later sibling over an
+        // earlier one; the screen's priority takes the top 8 bits. Resolved on update.
+        Entity* orderScreen = screenSpaceScreen();
+        Entity* panel = addTo(orderScreen, newEntity("panel"));
+        ElementComponent* panelElement = addElement(panel);
+        Entity* label = addTo(panel, newEntity("label"));
+        ElementComponent* labelElement = addElement(label);
+        Entity* bar = addTo(panel, newEntity("bar"));
+        ElementComponent* barElement = addElement(bar);
+        Entity* sibling = addTo(orderScreen, newEntity("sibling"));
+        ElementComponent* siblingElement = addElement(sibling);
+
+        check(orderScreen->findComponent<ScreenComponent>()->drawOrderDirty(), "binding elements queues a sync");
+        engine->update(0.0f);
+        check(!orderScreen->findComponent<ScreenComponent>()->drawOrderDirty(), "the update resolves it");
+        check(panelElement->drawOrder() == 1 && labelElement->drawOrder() == 2 &&
+              barElement->drawOrder() == 3 && siblingElement->drawOrder() == 4,
+              "parent, its children in order, then the next sibling: 1, 2, 3, 4");
+
+        orderScreen->findComponent<ScreenComponent>()->setPriority(2);
+        engine->update(0.0f);
+        check(panelElement->drawOrder() == (2 << 24) + 1 && siblingElement->drawOrder() == (2 << 24) + 4,
+              "priority 2 goes in the top 8 bits");
+
+        // Moving the label out of the panel to the end of the screen re-derives the order.
+        orderScreen->addChild(panel->removeChild(label));
+        engine->update(0.0f);
+        const int p = 2 << 24;
+        check(panelElement->drawOrder() == p + 1 && barElement->drawOrder() == p + 2 &&
+              siblingElement->drawOrder() == p + 3 && labelElement->drawOrder() == p + 4,
+              "after moving the label to the end: panel, bar, sibling, label");
+    }
+
     std::cout << (failures == 0 ? "\nAll element layout tests passed\n" : "\nElement layout tests FAILED\n");
     engine.reset();
     return failures == 0 ? 0 : 1;

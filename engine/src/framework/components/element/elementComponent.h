@@ -20,13 +20,18 @@
 // at once with `setup(ElementDesc)`, which is upstream's `addComponent('element', data)`
 // and applies the values in its order.
 //
-// Not ported yet: image and text element rendering beyond what ElementInput draws, masks,
-// draw order, fit modes, layout groups and batching.
+// Drawing is ElementInput's (text and images, synced by Engine::render). An image element
+// takes a texture with a UV rect, or a sprite frame, simple or 9-sliced
+// (imageElementGeometry.h); its colour multiplies the texture.
+//
+// Not ported yet: masks, tiled sprites, layout groups and batching.
 //
 #pragma once
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -38,12 +43,15 @@
 #include "core/math/vector3.h"
 #include "core/math/vector4.h"
 #include "framework/components/component.h"
+#include "framework/components/element/imageElementGeometry.h"
 #include "framework/handlers/fontResource.h"
 #include "scene/graphNodeTransformHook.h"
 
 namespace visutwin::canvas
 {
     class ScreenComponent;
+    class Sprite;
+    class Texture;
 
     /// Upstream ELEMENTTYPE_GROUP / IMAGE / TEXT. A group lays out and draws nothing.
     enum class ElementType
@@ -178,6 +186,38 @@ namespace visutwin::canvas
         void setLayers(const std::vector<int>& value) { _layers = value; }
         bool useInput() const { return _useInput; }
         void setUseInput(const bool value) { _useInput = value; }
+
+        // ---- image (upstream ImageElement) -----------------------------------------------
+
+        /// A texture drawn over the element, through `rect`. Setting one clears the sprite,
+        /// as upstream. Borrowed: whoever loaded it must outlive the element.
+        Texture* texture() const { return _texture; }
+        void setTexture(Texture* value);
+        /// A sprite drawn over the element; setting one clears the texture.
+        const std::shared_ptr<Sprite>& sprite() const { return _sprite; }
+        void setSprite(std::shared_ptr<Sprite> value);
+        /// Which of the sprite's frames is drawn.
+        int spriteFrame() const { return _spriteFrame; }
+        void setSpriteFrame(int value);
+        /// The part of the texture drawn: x, y (from the bottom), width, height, as
+        /// fractions of the texture. Upstream `rect`; ignored when a sprite is set.
+        const Vector4& rect() const { return _rect; }
+        void setRect(const Vector4& value) { _rect = value; ++_imageVersion; }
+        /// Overrides the sprite's pixels per unit for a sliced sprite (upstream
+        /// `pixelsPerUnit`, null = the sprite's).
+        std::optional<float> pixelsPerUnit() const { return _pixelsPerUnit; }
+        void setPixelsPerUnit(const std::optional<float> value) { _pixelsPerUnit = value; ++_imageVersion; }
+        /// How the image keeps its aspect inside the rectangle.
+        ElementFitMode fitMode() const { return _fitMode; }
+        void setFitMode(const ElementFitMode value) { _fitMode = value; ++_imageVersion; }
+        /// Bumped by every image setter; ElementInput rebuilds the geometry when it moves.
+        uint64_t imageVersion() const { return _imageVersion; }
+
+        /// The draw order within the screen, the screen's priority in the top 8 bits
+        /// (upstream `drawOrder`). The screen assigns it depth-first, so a child draws over
+        /// its parent and a later sibling over an earlier one.
+        int drawOrder() const { return _drawOrder; }
+        void setDrawOrder(int value);
         bool textDirty() const { return _textDirty; }
         void clearTextDirty() { _textDirty = false; }
 
@@ -251,5 +291,14 @@ namespace visutwin::canvas
         bool _textDirty = true;
         bool _useInput = false;
         std::vector<int> _layers;
+
+        Texture* _texture = nullptr;
+        std::shared_ptr<Sprite> _sprite;
+        int _spriteFrame = 0;
+        Vector4 _rect = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
+        std::optional<float> _pixelsPerUnit;
+        ElementFitMode _fitMode = ElementFitMode::Stretch;
+        uint64_t _imageVersion = 1;
+        int _drawOrder = 0;
     };
 }

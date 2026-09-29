@@ -492,7 +492,10 @@ kept in step with `hdrPass()`. Every shader path that returns early — the tail
 all three sky paths and the unlit path — has to check it, or compose applies gamma a
 second time. Vulkan's UNLIT return missed it until 2026-09-29, invisible until
 `post-processing`'s World-layer label (an unlit HDR emissive) went through the camera
-frame: it rendered grey and did not bloom on Vulkan alone.
+frame: it rendered grey and did not bloom on Vulkan alone. The same path also sampled its
+emissive map without the sRGB decode that Metal's unlit path and Vulkan's lit path apply,
+which is what `area-picker` differed by (6,350 pixels over 8 counts between backends, 0
+after).
 
 ## Shader System
 
@@ -1760,6 +1763,21 @@ present, but the rule below never depends on reading it.
   `Engine::canvasSize()`, window POINTS (the space mouse events arrive in), polled by the
   screen system each update since nothing fires upstream's `resizecanvas`.
   `tests/elementLayoutTests.cpp` ports upstream's element tests.
+  Text and image elements are DRAWN by `ElementInput::syncElements`, which
+  `Engine::render` calls before the frame (no example calls it). The visual's material is
+  upstream's: EMISSIVE-only, colour times the image texture, alpha from the texture, black
+  diffuse. Until 2026-09-29 text set the colour as diffuse AND emissive, so the unlit
+  path's `base + emissive` drew every glyph at twice its linear colour (white clipped and
+  hid it; `post-processing`'s HDR label bloomed twice as hard). A screen assigns its
+  elements' `drawOrder` depth-first (priority in the top 8 bits) on the update after a
+  hierarchy change, and the UI layer sorts its transparent sublayer MANUALLY by it, as
+  upstream; a new UI visual must copy `drawOrder` onto its mesh instance or it draws in
+  collection order. A 9-sliced sprite's grid is built on the CPU
+  (`imageElementGeometry.h`), where upstream slices in the vertex shader;
+  `tests/imageElementGeometryTests.cpp` holds it against a literal port of that shader.
+  Atlas frame rects are measured from the image BOTTOM; with v = 0 at the top row a
+  frame's bottom samples v = 1 - y / height (upstream's fragment stage flips its sliced v
+  to the same result).
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
@@ -2229,11 +2247,13 @@ What stays HERE is only what bites during UNRELATED work.
   copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
-- **UI beyond element layout is not ported**: layout groups, masks, scroll views, image
-  and sprite rendering, text markup, outline and shadow, and upstream's element drag
-  helper (#9551). Upstream rebuilt `text`, `world-to-screen` and its layout examples
-  (#9566, #9569) around those; ours are ports of the versions before the rebuild, and say
-  so in their headers.
+- **UI beyond layout and images is not ported**: MSDF text (and with it multi-page fonts,
+  outline, shadow and markup), layout groups, masks, scroll views, tiled sprites, and
+  upstream's element drag helper (#9551). Text reads glyph coverage from the atlas ALPHA;
+  upstream's current fonts (`roboto-*`) are MSDF with a constant 255 alpha and two pages,
+  so they would draw as solid squares here. Upstream rebuilt `text`, `world-to-screen`
+  and its layout examples (#9566, #9569) on that font; ours port the versions before the
+  rebuild and say so in their headers.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles

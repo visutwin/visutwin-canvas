@@ -102,11 +102,6 @@ protected:
         return true;
     }
 
-    void preRender() override
-    {
-        _elementInput->syncTextElements();
-    }
-
 private:
     ElementComponent* createText(Entity* screenEntity, FontResource* font, const std::string& text,
         int fontSize, float width, float height, bool wrapLines, const Color& color, float offsetY) const

@@ -137,11 +137,6 @@ protected:
         return true;
     }
 
-    void preRender() override
-    {
-        _elementInput->syncTextElements();
-    }
-
     void postRender() override
     {
         if (_baker && _baker->baking() && _baker->update()) {

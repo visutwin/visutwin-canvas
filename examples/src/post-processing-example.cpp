@@ -307,11 +307,6 @@ protected:
 
     }
 
-    void preRender() override
-    {
-        _elementInput->syncTextElements();
-    }
-
     void destroy() override
     {
         _emissiveMaterials.clear();

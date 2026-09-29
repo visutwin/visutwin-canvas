@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include "core/math/quaternion.h"
 #include "framework/components/element/elementComponent.h"
@@ -129,6 +130,28 @@ namespace visutwin::canvas
     void ScreenComponent::setPriority(const int value)
     {
         _priority = std::clamp(value, 0, 0x7F);
+        syncDrawOrder();
+    }
+
+    void ScreenComponent::processDrawOrderSync()
+    {
+        _drawOrderDirty = false;
+        int order = 1;
+        const std::function<void(GraphNode*)> recurse = [&](GraphNode* node) {
+            auto* entity = dynamic_cast<Entity*>(node);
+            if (!entity) {
+                return;
+            }
+            if (auto* element = entity->findComponent<ElementComponent>()) {
+                element->setDrawOrder(order++);
+            }
+            for (const auto& child : entity->children()) {
+                recurse(child.get());
+            }
+        };
+        if (_entity) {
+            recurse(_entity);
+        }
     }
 
     void ScreenComponent::onCanvasResize(const int width, const int height)
