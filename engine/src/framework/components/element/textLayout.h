@@ -13,8 +13,10 @@
 //   (0 left .. 1 right), the block by the vertical alignment, both about the pivot.
 //
 // Glyph metrics scale by fontSize / 32 (the fonts' em, upstream's MAGIC) and lines step
-// by `lineHeight`. Symbols are BYTES: only single-byte characters draw. A character the
-// font lacks takes the space's glyph, as upstream substitutes it.
+// by `lineHeight`. `spacing` multiplies every glyph's advance, kerning included (upstream
+// `spacing`, 1 by default): it spreads the pen, not the glyphs. Symbols are BYTES: only
+// single-byte characters draw. A character the font lacks takes the space's glyph, as
+// upstream substitutes it.
 //
 #pragma once
 
@@ -50,6 +52,7 @@ namespace visutwin::canvas
         float lineStep = 0.0f;   // lineHeight
         float fontMinY = 0.0f;   // the font's glyph-bounds extent, scaled
         float fontMaxY = 0.0f;
+        float spacing = 1.0f;
     };
 
     struct PlacedGlyph
@@ -67,7 +70,7 @@ namespace visutwin::canvas
     };
 
     TextMeasure measureText(const FontResource& font, const std::string& symbols, float fontSize, float lineHeight,
-                            float maxLineWidth = std::numeric_limits<float>::infinity());
+                            float maxLineWidth = std::numeric_limits<float>::infinity(), float spacing = 1.0f);
 
     std::vector<PlacedGlyph> placeText(const FontResource& font, const std::string& symbols, const TextMeasure& measure,
                                        float boxWidth, float boxHeight, const Vector2& pivot,

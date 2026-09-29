@@ -28,8 +28,8 @@
 // size can be read at once; with autoWidth / autoHeight (the default) the element takes it.
 // `enableMarkup` reads `[color]`, `[outline]` and `[shadow]` tags (markup.h).
 //
-// Not ported yet: masks, tiled sprites, layout groups, batching, letter spacing, max lines,
-// auto-fit font size and right-to-left reordering.
+// Not ported yet: masks, tiled sprites, layout groups, batching, max lines, auto-fit font
+// size and right-to-left reordering.
 //
 #pragma once
 
@@ -196,6 +196,9 @@ namespace visutwin::canvas
         bool wrapLines() const { return _wrapLines; }
         void setWrapLines(const bool value) { _wrapLines = value; textChanged(); }
 
+        /// Upstream `spacing`: multiplies every glyph's advance (1 = the font's own).
+        float spacing() const { return _spacing; }
+        void setSpacing(const float value) { _spacing = value; textChanged(); }
         /// The distance between lines (upstream `lineHeight`); unset, the font size.
         float lineHeight() const { return _lineHeight.value_or(static_cast<float>(_fontSize)); }
         void setLineHeight(const float value) { _lineHeight = value; textChanged(); }
@@ -344,6 +347,7 @@ namespace visutwin::canvas
         bool _wrapLines = false;
         float _verticalAlign = 0.5f;
         std::optional<float> _lineHeight;
+        float _spacing = 1.0f;
         bool _enableMarkup = false;
         bool _autoWidth = true;
         bool _autoHeight = true;

@@ -748,7 +748,7 @@ namespace visutwin::canvas
             _symbols = _text;
         }
         const TextMeasure measure = measureText(*_fontResource, _symbols, static_cast<float>(_fontSize), lineHeight(),
-                                                textMaxLineWidth());
+                                                textMaxLineWidth(), _spacing);
         _textWidth = measure.width;
         _textHeight = measure.height;
         // Upstream's autoWidth / autoHeight setters, run after every layout: the element
@@ -825,6 +825,7 @@ namespace visutwin::canvas
         _wrapLines = src->_wrapLines;
         _verticalAlign = src->_verticalAlign;
         _lineHeight = src->_lineHeight;
+        _spacing = src->_spacing;
         _enableMarkup = src->_enableMarkup;
         _autoWidth = src->_autoWidth;
         _autoHeight = src->_autoHeight;

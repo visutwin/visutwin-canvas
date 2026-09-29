@@ -554,7 +554,8 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   the screen depth-first from 1 (priority << 24 on top), queued by binding, unbinding and
   `setPriority` and resolved by the screen system's update; the UI layer's transparent
   sublayer is SORTMODE_MANUAL on it.
-- **Text properties:** `setLineHeight` (default the font size), `setAutoWidth` /
+- **Text properties:** `setSpacing` (a multiplier on every advance, kerning included;
+  default 1), `setLineHeight` (default the font size), `setAutoWidth` /
   `setAutoHeight` (default on; ignored on a split axis), `setWrapLines` (wraps only at a
   fixed width), `setEnableMarkup`. `textSymbols()` / `markupTags()` / `textWidth()` /
   `textHeight()` expose the laid-out text. Markup tags: `[color="#rrggbb"]`,

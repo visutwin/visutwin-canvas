@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -262,6 +263,10 @@ int main()
         check(longWord.lines.size() == 3, "a word longer than the line breaks between characters");
         const TextMeasure trailing = measureText(*msdf, "AB\n", 32.0f, 32.0f);
         check(near(trailing.height, 29.0f), "a trailing line break adds no height");
+        const TextMeasure spaced = measureText(*msdf, "AB", 32.0f, 32.0f, std::numeric_limits<float>::infinity(), 1.4f);
+        check(near(spaced.width, 1.4f * 17.5f), "spacing multiplies every advance, kerning included (1.4 x 17.5)");
+        const TextMeasure spacedWrap = measureText(*msdf, "AB AB", 32.0f, 32.0f, 30.0f, 1.4f);
+        check(spacedWrap.lines.size() == 2, "and wrapping measures the spread line (24.5 fits 30, the second word does not)");
         const TextMeasure empty = measureText(*msdf, "", 32.0f, 32.0f);
         check(near(empty.width, 0.0f) && near(empty.height, 0.0f), "empty text measures 0 x 0");
     }

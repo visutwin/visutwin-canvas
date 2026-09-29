@@ -22,9 +22,10 @@ namespace visutwin::canvas
             return space != font.glyphs.end() ? &space->second : nullptr;
         }
 
-        /// The kerned advance of symbols [begin, end), without trailing whitespace.
+        /// The kerned advance of symbols [begin, end) times `spacing`, without trailing
+        /// whitespace.
         float rangeWidth(const FontResource& font, const std::string& symbols, const size_t begin, const size_t end,
-                         const float scale)
+                         const float scale, const float spacing)
         {
             float width = 0.0f;
             float widthMinusTrailing = 0.0f;
@@ -33,7 +34,7 @@ namespace visutwin::canvas
                 const int code = static_cast<unsigned char>(symbols[i]);
                 const FontGlyph* glyph = glyphFor(font, code);
                 const float kern = prev >= 0 ? font.kerningValue(prev, code) * scale : 0.0f;
-                width += kern + (glyph ? glyph->xadvance * scale : 0.0f);
+                width += spacing * (kern + (glyph ? glyph->xadvance * scale : 0.0f));
                 if (!isWhitespace(symbols[i])) {
                     widthMinusTrailing = width;
                 }
@@ -44,16 +45,17 @@ namespace visutwin::canvas
     }
 
     TextMeasure measureText(const FontResource& font, const std::string& symbols, const float fontSize,
-                            const float lineHeight, const float maxLineWidth)
+                            const float lineHeight, const float maxLineWidth, const float spacing)
     {
         TextMeasure m;
+        m.spacing = spacing;
         m.scale = fontSize / kFontUnitsPerEm;
         m.lineStep = lineHeight;
         m.fontMinY = font.minY * m.scale;
         m.fontMaxY = font.maxY * m.scale;
 
         const auto pushLine = [&](const size_t begin, const size_t end) {
-            m.lines.push_back({begin, end, rangeWidth(font, symbols, begin, end, m.scale)});
+            m.lines.push_back({begin, end, rangeWidth(font, symbols, begin, end, m.scale, m.spacing)});
         };
 
         size_t start = 0;
@@ -69,7 +71,8 @@ namespace visutwin::canvas
             // Greedy wrap: a visible symbol that would take the line past the limit breaks
             // it after the latest whitespace, or before itself inside a word too long for
             // a line of its own.
-            if (!isWhitespace(c) && i > start && rangeWidth(font, symbols, start, i + 1, m.scale) > maxLineWidth) {
+            if (!isWhitespace(c) && i > start &&
+                rangeWidth(font, symbols, start, i + 1, m.scale, m.spacing) > maxLineWidth) {
                 const size_t breakAt = lastBreak > start ? lastBreak : i;
                 pushLine(start, breakAt);
                 start = breakAt;
@@ -159,7 +162,7 @@ namespace visutwin::canvas
                 p.v1 = (g.y + g.height) / atlasH;
                 glyphs.push_back(p);
 
-                x += (g.xadvance + kerning) * m.scale;
+                x += m.spacing * (g.xadvance + kerning) * m.scale;
                 prev = code;
             }
         }

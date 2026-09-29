@@ -2278,10 +2278,10 @@ What stays HERE is only what bites during UNRELATED work.
   copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
-- **UI not ported yet**: letter spacing, max lines, auto-fit font size, right-to-left text,
-  layout groups, masks, scroll views, tiled sprites, and upstream's element drag helper
-  (#9551). `world-to-screen` and `ui-text-markup` port upstream's current examples;
-  `ui-text` still ports the version before its rebuild (#9566), which needs `spacing`.
+- **UI not ported yet**: max lines, auto-fit font size, right-to-left text, layout groups,
+  masks, scroll views, tiled sprites, and upstream's element drag helper (#9551). The three
+  UI examples (`ui-text`, `ui-text-markup`, `world-to-screen`) port upstream's CURRENT
+  versions (#9566, #9569).
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles
