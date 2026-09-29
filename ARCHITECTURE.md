@@ -551,7 +551,12 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   scaled by the screen and local scales (`ElementInput::buildHitCorners`). SDL's mouse
   events synthesized from touches are dropped and only DIRECT touch devices count (a
   trackpad's fingers are not touches). DEVIATION: `touchcancel` never clicks (upstream runs
-  it through its touchend handler).
+  it through its touchend handler). `ElementInput::handleEvent` returns whether a handler
+  stopped an event, and `Engine::handleInputEvent` then withholds that SDL event from the
+  mouse and touch devices (upstream's `stopImmediatePropagation`); `MouseEvent::fromTouch`
+  marks SDL's touch-synthesized mouse events for code that listens to both devices.
+  `CameraComponent::screenToWorld` (upstream's: perspective `z` is the distance along the
+  ray, orthographic `z` a fraction of the clip range) takes canvas points.
 - **Buttons** (`framework/components/button`, upstream button/component.js). A button
   follows its entity's element and shows DEFAULT / HOVER / PRESSED / INACTIVE on the IMAGE
   element of its `imageEntity`: `ButtonTransitionMode::Tint` replaces the image's colour and
@@ -569,8 +574,8 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   ports upstream's button tests; `ui-buttons` is upstream's rebuilt buttons example.
 - **Drawing.** `ElementInput::syncElements` (called by `Engine::render`) keeps one
   visual per text or image element: a child entity with an identity transform, on
-  `ElementComponent::layers()` (empty = LAYERID_UI on a screen-space screen, WORLD
-  otherwise — DEVIATION, upstream's default is UI for both). On a screen-space screen
+  `ElementComponent::layers()` (empty = LAYERID_UI on any screen, WORLD on none —
+  DEVIATION for the last, upstream's default is UI for both). On a screen-space screen
   the mesh instance is `setScreenSpace`, so the vertex stage writes world xy straight
   to clip, with no depth test. The material is emissive-only (colour x texture, alpha
   from the texture), and the mesh is rebuilt only when its inputs change: size and
@@ -586,6 +591,9 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   left border, as upstream. Both are data only here: there is no sprite component, and
   the grid is built on the CPU (`imageElementGeometry.h`, DEVIATION from upstream's
   vertex-shader slicing, exact against it). TILED draws as SLICED.
+- **Layers.** An element with no `layers` of its own draws on LAYERID_UI when it is on a
+  screen of either kind, as upstream, so a world-space screen's elements keep their draw
+  order (they are depth-tested against the scene); on no screen it draws on WORLD.
 - **Draw order.** `ScreenComponent::processDrawOrderSync` numbers the elements under
   the screen depth-first from 1 (priority << 24 on top), queued by binding, unbinding and
   `setPriority` and resolved by the screen system's update; the UI layer's transparent
@@ -603,7 +611,7 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   for alignment leaves out trailing whitespace, a missing character takes the space's
   advance, and the block — from the font's highest glyph top to its lowest bottom (the
   glyph `bounds`) — is placed by `verticalAlign` (default 0.5). Text is laid out per
-  BYTE, so only single-byte characters draw.
+  CODE POINT, decoded from UTF-8 (malformed bytes become U+FFFD, drawn as the space).
 - **Text.** Fonts are upstream's JSON format with one image per page (`<name>.png`,
   `<name>1.png`, ...). A font whose glyphs carry `range` is MSDF: pages are kept raw and
   bilinear, `pxRange` is scale x range and `intensity` comes from the file. The visual

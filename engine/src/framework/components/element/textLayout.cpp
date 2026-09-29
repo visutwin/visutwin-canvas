@@ -10,7 +10,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        bool isWhitespace(const char c) { return c == ' ' || c == '\t'; }
+        bool isWhitespace(const char32_t c) { return c == U' ' || c == U'\t'; }
 
         /// The glyph drawn for `code`: the character itself, else the space.
         const FontGlyph* glyphFor(const FontResource& font, const int code)
@@ -24,14 +24,14 @@ namespace visutwin::canvas
 
         /// The kerned advance of symbols [begin, end) times `spacing`, without trailing
         /// whitespace.
-        float rangeWidth(const FontResource& font, const std::string& symbols, const size_t begin, const size_t end,
+        float rangeWidth(const FontResource& font, const std::u32string& symbols, const size_t begin, const size_t end,
                          const float scale, const float spacing)
         {
             float width = 0.0f;
             float widthMinusTrailing = 0.0f;
             int prev = -1;
             for (size_t i = begin; i < end; ++i) {
-                const int code = static_cast<unsigned char>(symbols[i]);
+                const int code = static_cast<int>(symbols[i]);
                 const FontGlyph* glyph = glyphFor(font, code);
                 const float kern = prev >= 0 ? font.kerningValue(prev, code) * scale : 0.0f;
                 width += spacing * (kern + (glyph ? glyph->xadvance * scale : 0.0f));
@@ -44,7 +44,51 @@ namespace visutwin::canvas
         }
     }
 
-    TextMeasure measureText(const FontResource& font, const std::string& symbols, const float fontSize,
+    std::u32string decodeUtf8(const std::string_view text)
+    {
+        std::u32string out;
+        out.reserve(text.size());
+        size_t i = 0;
+        while (i < text.size()) {
+            const auto lead = static_cast<unsigned char>(text[i]);
+            int length = 0;
+            char32_t code = 0;
+            if (lead < 0x80) {
+                length = 1;
+                code = lead;
+            } else if ((lead & 0xE0) == 0xC0) {
+                length = 2;
+                code = lead & 0x1F;
+            } else if ((lead & 0xF0) == 0xE0) {
+                length = 3;
+                code = lead & 0x0F;
+            } else if ((lead & 0xF8) == 0xF0) {
+                length = 4;
+                code = lead & 0x07;
+            }
+            bool valid = length > 0 && i + static_cast<size_t>(length) <= text.size();
+            for (int k = 1; valid && k < length; ++k) {
+                const auto next = static_cast<unsigned char>(text[i + static_cast<size_t>(k)]);
+                valid = (next & 0xC0) == 0x80;
+                code = (code << 6) | (next & 0x3F);
+            }
+            // Overlong forms, surrogates and values past U+10FFFF are malformed too.
+            static constexpr char32_t kMinimum[5] = {0, 0, 0x80, 0x800, 0x10000};
+            if (valid && (code < kMinimum[length] || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF))) {
+                valid = false;
+            }
+            if (!valid) {
+                out.push_back(U'\uFFFD');
+                ++i;
+                continue;
+            }
+            out.push_back(code);
+            i += static_cast<size_t>(length);
+        }
+        return out;
+    }
+
+    TextMeasure measureText(const FontResource& font, const std::u32string& symbols, const float fontSize,
                             const float lineHeight, const float maxLineWidth, const float spacing)
     {
         TextMeasure m;
@@ -61,8 +105,8 @@ namespace visutwin::canvas
         size_t start = 0;
         size_t lastBreak = 0;   // the first symbol after the latest whitespace; 0 = none on this line
         for (size_t i = 0; i < symbols.size(); ++i) {
-            const char c = symbols[i];
-            if (c == '\n') {
+            const char32_t c = symbols[i];
+            if (c == U'\n') {
                 pushLine(start, i);
                 start = i + 1;
                 lastBreak = 0;
@@ -102,7 +146,7 @@ namespace visutwin::canvas
         return m;
     }
 
-    std::vector<PlacedGlyph> placeText(const FontResource& font, const std::string& symbols, const TextMeasure& m,
+    std::vector<PlacedGlyph> placeText(const FontResource& font, const std::u32string& symbols, const TextMeasure& m,
                                        const float boxWidth, const float boxHeight, const Vector2& pivot,
                                        const float horizontalAlign, const float verticalAlign)
     {
@@ -122,7 +166,7 @@ namespace visutwin::canvas
 
             int prev = -1;
             for (size_t i = line.begin; i < line.end; ++i) {
-                const int code = static_cast<unsigned char>(symbols[i]);
+                const int code = static_cast<int>(symbols[i]);
                 const FontGlyph* glyph = glyphFor(font, code);
                 if (!glyph) {
                     prev = code;

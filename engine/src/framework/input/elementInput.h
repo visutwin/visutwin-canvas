@@ -120,8 +120,11 @@ namespace visutwin::canvas
         /// Translate an SDL mouse or finger event. Touch comes only from DIRECT touch
         /// devices (a trackpad's fingers are not touches on the canvas), and the mouse
         /// events SDL synthesizes from touches are dropped, as a browser's are by a
-        /// button's `preventDefault`.
-        void handleEvent(const SDL_Event& event);
+        /// button's `preventDefault`. Returns true when a handler called
+        /// `stopPropagation()` on an event it produced: upstream's
+        /// `stopImmediatePropagation` of the DOM event, which keeps the press from the mouse
+        /// and touch devices too, and Engine::handleInputEvent withholds it from them.
+        bool handleEvent(const SDL_Event& event);
 
         // Platform-neutral input, in canvas points (y down).
         void onMouseDown(float x, float y, MouseButton button, const KeyModifiers& modifiers = {});
@@ -219,7 +222,7 @@ namespace visutwin::canvas
         std::pair<ElementComponent*, CameraComponent*> targetAt(float x, float y);
         std::vector<CameraComponent*> sortedCameras() const;
         /// Fire `name` at the event's element and on up the parent entities' elements.
-        static void fireEvent(const char* name, ElementInputEvent& event);
+        void fireEvent(const char* name, ElementInputEvent& event);
         /// Forget an element that is going away, so no event is sent to it later.
         void forgetElement(ElementComponent* element);
         void watchElement(ElementComponent* element);
@@ -228,6 +231,8 @@ namespace visutwin::canvas
         std::unordered_map<ElementComponent*, ElementVisual> _visuals;
 
         bool _enabled = true;
+        /// A handler stopped an event since handleEvent began.
+        bool _propagationStopped = false;
         float _lastX = 0.0f;
         float _lastY = 0.0f;
         ElementComponent* _hoveredElement = nullptr;

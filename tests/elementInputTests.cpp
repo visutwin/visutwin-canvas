@@ -37,6 +37,7 @@
 #include "framework/entity.h"
 #include "framework/input/elementInput.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/input/mouse.h"
 #include "scene/camera.h"
 #include "scene/constants.h"
 #include "scene/sprite.h"
@@ -199,6 +200,8 @@ int main()
     AppOptions options;
     options.graphicsDevice = device;
     options.elementInput = input;
+    auto mouseDevice = std::make_shared<Mouse>();
+    options.mouse = mouseDevice;
     options.registerComponentSystem<CameraComponentSystem>();
     options.registerComponentSystem<ScreenComponentSystem>();
     options.registerComponentSystem<ElementComponentSystem>();
@@ -427,8 +430,39 @@ int main()
         finger.tfinger.y = 110.0f / 150.0f;
         engine->handleInputEvent(finger);
         check(r.count("touchstart") == 0, "a finger on no DIRECT touch device (a trackpad, or SDL video not up) is not a touch");
+
+        // Upstream's stopImmediatePropagation: a press an element handler stops does not
+        // reach the mouse device, so game code reading it does not act on a UI click.
+        int devicePresses = 0;
+        auto deviceHandle = mouseDevice->on("mousedown", [&devicePresses]() { ++devicePresses; });
+        engine->handleInputEvent(mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, 1));
+        engine->handleInputEvent(mouse(SDL_EVENT_MOUSE_BUTTON_UP, 1));
+        check(devicePresses == 1, "a press on an element that does not stop it reaches the mouse device too");
+        auto stop = tag->on("mousedown", [](ElementInputEvent* event) { event->stopPropagation(); });
+        engine->handleInputEvent(mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, 1));
+        engine->handleInputEvent(mouse(SDL_EVENT_MOUSE_BUTTON_UP, 1));
+        check(devicePresses == 1, "a press an element handler stops does not");
+        auto press = mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, 1);
+        press.button.x = 10.0f;
+        press.button.y = 10.0f;
+        engine->handleInputEvent(press);
+        check(devicePresses == 2, "a press on no element reaches it as before");
+        stop->off();
+        deviceHandle->off();
         input->onMouseMove(1.0f, 1.0f);
         tag->entity()->destroy();
+    }
+
+    std::cout << "\nCameraComponent::screenToWorld (upstream)\n";
+    {
+        // The camera at the origin looking down -Z, vertical fov 45, aspect 2 on 300x150.
+        const Vector3 centre = camera->screenToWorld(150.0f, 75.0f, 10.0f);
+        check(near(centre.getX(), 0.0f, 1e-4f) && near(centre.getY(), 0.0f, 1e-4f) && near(centre.getZ(), -10.0f, 1e-4f),
+            "the canvas centre at distance 10 is 10 down the view axis");
+        const Vector3 top = camera->screenToWorld(150.0f, 0.0f, 1.0f);
+        const float fov = camera->camera()->fov() * 3.14159265f / 180.0f;
+        check(near(std::atan2(top.getY(), -top.getZ()), fov * 0.5f, 1e-4f) && near(top.length(), 1.0f, 1e-4f),
+            "the top edge is half the fov up, at distance 1 from the camera");
     }
 
     std::cout << "\na destroyed element is forgotten\n";

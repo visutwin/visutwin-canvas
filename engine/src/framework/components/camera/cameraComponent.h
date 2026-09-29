@@ -224,6 +224,10 @@ namespace visutwin::canvas
                 ? const_cast<CameraComponent*>(this) : nullptr;
         }
 
+        /// Upstream CameraComponent.screenToWorld: Camera::screenToWorld on the engine's
+        /// canvas (window points, the space mouse events arrive in).
+        Vector3 screenToWorld(float x, float y, float z) const;
+
         const std::vector<int>& layers() const { return _layers; }
         void setLayers(const std::vector<int>& layers) { _layers = layers; }
 

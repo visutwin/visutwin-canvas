@@ -99,6 +99,15 @@ namespace visutwin::canvas
             }
         }
 
+        /**
+         * Upstream `screenToWorld`: the world point under canvas point (x, y) — y down, in a
+         * canvas `cw` x `ch` — through the camera's rect. Perspective: `z` is the DISTANCE from
+         * the camera along the ray through the point. Orthographic: `z` picks the depth
+         * between the clip planes (z / (far - near) of the way through NDC). Taken from the
+         * inverse view-projection, so a projection offset is included.
+         */
+        Vector3 screenToWorld(float x, float y, float z, float cw, float ch);
+
         const Matrix4& projectionMatrix()
         {
             evaluateProjectionMatrix();

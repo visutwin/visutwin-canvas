@@ -625,22 +625,22 @@ namespace visutwin::canvas
         if (_touch && event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
             _touch->setWindowSize(event.window.data1, event.window.data2);
         }
+        // UI elements first, as upstream's ElementInput is attached before its devices: a
+        // press an element handler stops (`stopPropagation`) does not reach the mouse or
+        // touch devices, so game code reading them does not act on a click that landed on
+        // the UI. Keys and gamepads never go through elements and always get everything.
+        const bool stopped = _elementInput && _elementInput->handleEvent(event);
         if (_keyboard) {
             _keyboard->handleEvent(event);
         }
-        if (_mouse) {
+        if (_mouse && !stopped) {
             _mouse->handleEvent(event);
         }
-        if (_touch) {
+        if (_touch && !stopped) {
             _touch->handleEvent(event);
         }
         if (_gamepads) {
             _gamepads->handleEvent(event);
-        }
-        // After the devices, so an element's handler reads the mouse and keyboard as they
-        // are with this event applied.
-        if (_elementInput) {
-            _elementInput->handleEvent(event);
         }
     }
 

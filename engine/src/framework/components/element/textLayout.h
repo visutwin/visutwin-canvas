@@ -14,15 +14,18 @@
 //
 // Glyph metrics scale by fontSize / 32 (the fonts' em, upstream's MAGIC) and lines step
 // by `lineHeight`. `spacing` multiplies every glyph's advance, kerning included (upstream
-// `spacing`, 1 by default): it spreads the pen, not the glyphs. Symbols are BYTES: only
-// single-byte characters draw. A character the font lacks takes the space's glyph, as
-// upstream substitutes it.
+// `spacing`, 1 by default): it spreads the pen, not the glyphs. Symbols are CODE POINTS,
+// decoded from UTF-8 (`decodeUtf8`), which is what the fonts' glyph ids are. DEVIATION:
+// upstream splits text into grapheme-like symbols (a surrogate pair, an emoji sequence);
+// a combining sequence here is several symbols. A character the font lacks takes the
+// space's glyph, as upstream substitutes it.
 //
 #pragma once
 
 #include <cstddef>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/math/vector2.h"
@@ -36,7 +39,7 @@ namespace visutwin::canvas
 
     struct TextLine
     {
-        /// Symbols [begin, end), the line break itself excluded.
+        /// Symbols (code points) [begin, end), the line break itself excluded.
         size_t begin = 0;
         size_t end = 0;
         /// Advance of the line without its trailing whitespace.
@@ -69,10 +72,23 @@ namespace visutwin::canvas
         float v1 = 0.0f;   // at the bottom
     };
 
-    TextMeasure measureText(const FontResource& font, const std::string& symbols, float fontSize, float lineHeight,
+    /// UTF-8 to code points. A malformed or truncated sequence becomes U+FFFD, one per
+    /// offending byte, which no font here has, so it draws as the space.
+    std::u32string decodeUtf8(std::string_view text);
+
+    TextMeasure measureText(const FontResource& font, const std::u32string& symbols, float fontSize, float lineHeight,
                             float maxLineWidth = std::numeric_limits<float>::infinity(), float spacing = 1.0f);
 
-    std::vector<PlacedGlyph> placeText(const FontResource& font, const std::string& symbols, const TextMeasure& measure,
+    std::vector<PlacedGlyph> placeText(const FontResource& font, const std::u32string& symbols, const TextMeasure& measure,
                                        float boxWidth, float boxHeight, const Vector2& pivot,
                                        float horizontalAlign, float verticalAlign);
+
+    /// The same, from UTF-8.
+    inline TextMeasure measureText(const FontResource& font, const std::string& text, const float fontSize,
+                                   const float lineHeight,
+                                   const float maxLineWidth = std::numeric_limits<float>::infinity(),
+                                   const float spacing = 1.0f)
+    {
+        return measureText(font, decodeUtf8(text), fontSize, lineHeight, maxLineWidth, spacing);
+    }
 }

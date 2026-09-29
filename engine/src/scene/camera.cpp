@@ -156,4 +156,25 @@ namespace visutwin::canvas
             _renderPassDepthGrab.reset();
         }
     }
+
+    Vector3 Camera::screenToWorld(const float x, const float y, const float z, const float cw, const float ch)
+    {
+        const float rx = _rect.getX();
+        const float ry = _rect.getY();
+        const float rw = _rect.getZ();
+        const float rh = _rect.getW();
+        const float ndcX = (x - rx * cw) / (rw * cw) * 2.0f - 1.0f;
+        const float ndcY = (1.0f - (y - (1.0f - ry - rh) * ch) / (rh * ch)) * 2.0f - 1.0f;
+
+        const Matrix4 world = _node ? _node->worldTransform() : Matrix4::identity();
+        const Matrix4 inverseViewProjection = (projectionMatrix() * world.inverse()).inverse();
+        if (_projection == ProjectionType::Perspective) {
+            // The point on the near plane gives the ray's direction from the camera.
+            const Vector3 nearPoint = (inverseViewProjection * Vector4(ndcX, ndcY, -1.0f, 1.0f)).perspectiveDivide();
+            const Vector3 cameraPosition = world.getTranslation();
+            return cameraPosition + (nearPoint - cameraPosition).normalized() * z;
+        }
+        const float ndcZ = z / (_farClip - _nearClip) * 2.0f - 1.0f;
+        return (inverseViewProjection * Vector4(ndcX, ndcY, ndcZ, 1.0f)).perspectiveDivide();
+    }
 }

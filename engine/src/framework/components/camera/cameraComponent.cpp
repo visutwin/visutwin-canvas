@@ -268,4 +268,14 @@ namespace visutwin::canvas
     {
         _priority = value;
     }
+
+    Vector3 CameraComponent::screenToWorld(const float x, const float y, const float z) const
+    {
+        const Engine* engine = _entity ? _entity->engine() : nullptr;
+        const auto [w, h] = engine ? engine->canvasSize() : std::pair<int, int>{0, 0};
+        if (!_camera || w <= 0 || h <= 0) {
+            return Vector3(0.0f, 0.0f, 0.0f);
+        }
+        return _camera->screenToWorld(x, y, z, static_cast<float>(w), static_cast<float>(h));
+    }
 }

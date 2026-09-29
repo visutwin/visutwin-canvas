@@ -110,6 +110,10 @@ namespace visutwin::canvas
         float wheelDelta = 0.0f;
         MouseButton button = MouseButton::None;
         KeyModifiers modifiers;
+        /// SDL synthesized this event from a touch (its `which` is SDL_TOUCH_MOUSEID). A
+        /// handler that also listens to the touch device skips these, as a browser page
+        /// cancels the mouse events that follow a tap with `preventDefault`.
+        bool fromTouch = false;
     };
 
     struct Touch

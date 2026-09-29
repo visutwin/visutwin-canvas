@@ -6,6 +6,7 @@
 #include "mouse.h"
 
 #include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_touch.h>
 
 namespace visutwin::canvas
 {
@@ -59,6 +60,7 @@ namespace visutwin::canvas
                 .dy = event.motion.yrel,
                 .button = MouseButton::None,
                 .modifiers = currentModifiers(),
+                .fromTouch = event.motion.which == SDL_TOUCH_MOUSEID,
             });
             break;
         }
@@ -75,6 +77,7 @@ namespace visutwin::canvas
             fire("mousedown", MouseEvent{
                 .x = event.button.x, .y = event.button.y,
                 .button = button, .modifiers = currentModifiers(),
+                .fromTouch = event.button.which == SDL_TOUCH_MOUSEID,
             });
             break;
         }
@@ -89,6 +92,7 @@ namespace visutwin::canvas
             fire("mouseup", MouseEvent{
                 .x = event.button.x, .y = event.button.y,
                 .button = button, .modifiers = currentModifiers(),
+                .fromTouch = event.button.which == SDL_TOUCH_MOUSEID,
             });
             break;
         }

@@ -100,8 +100,7 @@ namespace visutwin::canvas
             if (!element->layers().empty()) {
                 return element->layers();
             }
-            const ScreenComponent* screen = element->screenComponent();
-            return {screen && screen->screenSpace() ? LAYERID_UI : LAYERID_WORLD};
+            return {element->screen() ? LAYERID_UI : LAYERID_WORLD};
         }
 
         Entity* parentEntity(const Entity* entity)
@@ -349,6 +348,7 @@ namespace visutwin::canvas
         for (ElementComponent* element = event.element; element;) {
             element->fire(name, pointer);
             if (event.propagationStopped()) {
+                _propagationStopped = true;
                 break;
             }
             Entity* parent = parentEntity(element->entity());
@@ -634,11 +634,12 @@ namespace visutwin::canvas
         }
     }
 
-    void ElementInput::handleEvent(const SDL_Event& event)
+    bool ElementInput::handleEvent(const SDL_Event& event)
     {
         if (!_engine) {
-            return;
+            return false;
         }
+        _propagationStopped = false;
         switch (event.type) {
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (event.button.which != SDL_TOUCH_MOUSEID) {
@@ -689,5 +690,6 @@ namespace visutwin::canvas
         default:
             break;
         }
+        return _propagationStopped;
     }
 }

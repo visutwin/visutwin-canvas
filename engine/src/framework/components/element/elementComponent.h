@@ -221,6 +221,9 @@ namespace visutwin::canvas
         /// The text drawn — markup stripped when it is on — and each symbol's tags (empty
         /// without markup or tags).
         const std::string& textSymbols() const { return _symbols; }
+        /// The same text as code points, what the layout places; markupTags() is indexed by
+        /// these.
+        const std::u32string& textCodePoints() const { return _codePoints; }
         const std::vector<std::optional<MarkupTags>>& markupTags() const { return _markupTags; }
         /// The text's own size (upstream TextElement width / height), measured whenever
         /// the text, font, size, line height, wrapping or wrap width changes.
@@ -230,9 +233,11 @@ namespace visutwin::canvas
         /// automatic on an unsplit axis; unlimited otherwise (upstream's rule).
         float textMaxLineWidth() const;
         /// The layers the element's visual is drawn on (upstream `layers`). Empty, the
-        /// default, lets the element system choose: LAYERID_UI on a screen-space screen,
-        /// LAYERID_WORLD otherwise. DEVIATION: upstream defaults to [LAYERID_UI] for both,
-        /// which here would take world-space labels out of the scene camera's view.
+        /// default, lets the element system choose: LAYERID_UI for an element on a screen of
+        /// either kind, as upstream, whose manual sort by draw order keeps a world-space
+        /// screen's coplanar elements in order (on WORLD they sorted by distance and a panel
+        /// could cover its own buttons). DEVIATION: an element on NO screen goes to
+        /// LAYERID_WORLD, where upstream still says UI.
         const std::vector<int>& layers() const { return _layers; }
         void setLayers(const std::vector<int>& value) { _layers = value; }
         bool useInput() const { return _useInput; }
@@ -356,6 +361,7 @@ namespace visutwin::canvas
         bool _autoWidth = true;
         bool _autoHeight = true;
         std::string _symbols;
+        std::u32string _codePoints;
         std::vector<std::optional<MarkupTags>> _markupTags;
         float _textWidth = 0.0f;
         float _textHeight = 0.0f;

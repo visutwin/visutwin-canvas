@@ -269,6 +269,23 @@ int main()
         check(spacedWrap.lines.size() == 2, "and wrapping measures the spread line (24.5 fits 30, the second word does not)");
         const TextMeasure empty = measureText(*msdf, "", 32.0f, 32.0f);
         check(near(empty.width, 0.0f) && near(empty.height, 0.0f), "empty text measures 0 x 0");
+        // Symbols are code points: a glyph keyed 8230 (U+2026, three bytes in UTF-8) is one
+        // symbol with its own advance, where a byte loop drew three missing glyphs.
+        FontGlyph ellipsis = msdf->glyphs[65];
+        ellipsis.id = 0x2026;
+        msdf->glyphs[0x2026] = ellipsis;
+        const TextMeasure dots = measureText(*msdf, "A\u2026", 32.0f, 32.0f);
+        check(near(dots.width, 20.0f), "a multi-byte character lays out as one glyph (10 + 10)");
+        msdf->glyphs.erase(0x2026);
+    }
+
+    std::cout << "UTF-8 decoding\n";
+    {
+        check(decodeUtf8("A\u00e9\u2026\U0001F600") == std::u32string{U'A', 0xE9, 0x2026, 0x1F600},
+            "one, two, three and four byte sequences");
+        check(decodeUtf8("\xC3") == std::u32string{0xFFFD}, "a truncated sequence is U+FFFD");
+        check(decodeUtf8("\xC0\xAF") == std::u32string{0xFFFD, 0xFFFD}, "an overlong one is U+FFFD per byte");
+        check(decodeUtf8("\xED\xA0\x80") == std::u32string{0xFFFD, 0xFFFD, 0xFFFD}, "a surrogate is malformed");
     }
 
     std::cout << "auto size\n";

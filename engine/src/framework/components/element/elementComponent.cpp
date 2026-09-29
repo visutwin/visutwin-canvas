@@ -747,7 +747,20 @@ namespace visutwin::canvas
         } else {
             _symbols = _text;
         }
-        const TextMeasure measure = measureText(*_fontResource, _symbols, static_cast<float>(_fontSize), lineHeight(),
+        _codePoints = decodeUtf8(_symbols);
+        if (!_markupTags.empty() && _codePoints.size() != _symbols.size()) {
+            // The markup parser tags BYTES; a code point takes the tag of its first byte.
+            std::vector<std::optional<MarkupTags>> perCodePoint;
+            perCodePoint.reserve(_codePoints.size());
+            for (size_t i = 0; i < _symbols.size() && i < _markupTags.size(); ++i) {
+                if ((static_cast<unsigned char>(_symbols[i]) & 0xC0) != 0x80) {
+                    perCodePoint.push_back(std::move(_markupTags[i]));
+                }
+            }
+            perCodePoint.resize(_codePoints.size());
+            _markupTags = std::move(perCodePoint);
+        }
+        const TextMeasure measure = measureText(*_fontResource, _codePoints, static_cast<float>(_fontSize), lineHeight(),
                                                 textMaxLineWidth(), _spacing);
         _textWidth = measure.width;
         _textHeight = measure.height;

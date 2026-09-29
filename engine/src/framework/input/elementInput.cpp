@@ -173,10 +173,10 @@ namespace visutwin::canvas
         {
             TextMeshes result;
             const FontResource* font = element ? element->fontResource() : nullptr;
-            if (!gd || !font || element->textSymbols().empty()) {
+            if (!gd || !font || element->textCodePoints().empty()) {
                 return result;
             }
-            const std::string& symbols = element->textSymbols();
+            const std::u32string& symbols = element->textCodePoints();
             const auto& tags = element->markupTags();
 
             const TextMeasure measure = measureText(*font, symbols, static_cast<float>(element->fontSize()),
@@ -451,7 +451,7 @@ namespace visutwin::canvas
             // The element's own layers, or the element system's choice.
             std::vector<int> layers = element->layers();
             if (layers.empty()) {
-                layers = {visual.worldSpace ? LAYERID_WORLD : LAYERID_UI};
+                layers = {element->screen() ? LAYERID_UI : LAYERID_WORLD};
             }
             if (visual.render && visual.layers != layers) {
                 visual.render->setLayers(layers);

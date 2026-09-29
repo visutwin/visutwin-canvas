@@ -1768,6 +1768,15 @@ present, but the rule below never depends on reading it.
   POINTER, so `stopPropagation` is shared along the bubble — a handler typed on a base or
   a value is skipped silently by `EventHandler`), in canvas POINTS; an example forwards
   nothing itself. An element needs `useInput` AND a camera drawing its layer to be hit.
+  ElementInput sees mouse and finger events BEFORE the devices, and a press an element
+  handler stops (`stopPropagation`) is WITHHELD from the mouse and touch devices — upstream's
+  `stopImmediatePropagation` — so game code reading the devices does not act on a UI click
+  (`input-events` demonstrates it). Keys and gamepads always get everything.
+  An element on a screen of EITHER kind defaults to LAYERID_UI (manual draw-order sort, as
+  upstream); one on no screen to WORLD. On WORLD a world-space screen's coplanar elements
+  sorted by distance and a panel covered its own buttons.
+  Text is laid out per CODE POINT (`decodeUtf8` in `textLayout.h`); the fonts' glyph ids
+  are code points, so "…" is one glyph. `markupTags()` is indexed by code point.
   A component's `onEnable` does NOT run when it is added to a live entity here, only on a
   later enable — a component that must subscribe at once does it in
   `initializeComponentData` (ButtonComponent does). `tests/elementInputTests.cpp`.
@@ -2287,9 +2296,15 @@ What stays HERE is only what bites during UNRELATED work.
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
 - **UI not ported yet**: max lines, auto-fit font size, right-to-left text, layout groups,
-  masks, scroll views, tiled sprites, XR select events, and upstream's element drag helper
-  (#9551). The four UI examples (`ui-text`, `ui-text-markup`, `world-to-screen`,
-  `ui-buttons`) port upstream's CURRENT versions (#9565, #9566, #9569). Annotations
+  masks, scroll views, tiled sprites, XR select events, grapheme clusters (emoji sequences
+  are several symbols), and upstream's element drag helper (#9551). The six UI examples
+  (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`)
+  port upstream's CURRENT versions.
+- **`input-events` shows diagonal shadow acne over its ground where upstream's thumbnail is
+  clean, and fainter marker shadows.** The light keeps upstream's defaults (bias 0.05, no
+  normal offset, 1024, PCF3) and the hardware offset is upstream's `shadowBias * -1000`, so
+  the difference is elsewhere: the fitted depth range with a 200 m caster plane, or the
+  receiver-side bias (ours is a fixed 0.0001). Found 2026-09-29, not yet diagnosed. Annotations
   (`annotationManager`) still draw through ImGui; with input on elements they could move.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
