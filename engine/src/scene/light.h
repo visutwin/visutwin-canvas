@@ -167,6 +167,8 @@ namespace visutwin::canvas
         void setCascadeBlend(const float value) { _cascadeBlend = value; }
 
         const std::array<Vector4, 4>& cascadeViewports() const { return _cascadeViewports; }
+        /// The atlas rects of `numCascades` directional cascades (upstream's layout).
+        static const std::array<Vector4, 4>& directionalCascadeLayout(int numCascades);
         const std::array<float, 64>& shadowMatrixPalette() const { return _shadowMatrixPalette; }
         float* shadowMatrixPaletteData() { return _shadowMatrixPalette.data(); }
         const std::array<float, 4>& shadowCascadeDistances() const { return _shadowCascadeDistances; }
@@ -317,7 +319,8 @@ namespace visutwin::canvas
         //   1 cascade: full texture
         //   2 cascades: 2×1 vertical strip
         //   4 cascades: 2×2 grid
-        std::array<Vector4, 4> _cascadeViewports = {{ Vector4(0,0,0.5f,0.5f), Vector4(0,0.5f,0.5f,0.5f), Vector4(0.5f,0,0.5f,0.5f), Vector4(0.5f,0.5f,0.5f,0.5f) }};
+        // Set from directionalCascadeLayout(_numCascades) by the constructor and the setter.
+        std::array<Vector4, 4> _cascadeViewports{};
 
         // Per-cascade VP matrices (viewport-scaled). 4 matrices × 16 floats.
         //_shadowMatrixPalette.

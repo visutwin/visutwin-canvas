@@ -231,12 +231,38 @@ namespace
         }
         return true;
     }
+
+    // A new light's cascade rects must be the layout of its cascade COUNT. The member used
+    // to be initialised with the four-cascade 2x2 grid while the count defaulted to one,
+    // and setNumCascades(1) returns early on an unchanged count, so every default
+    // directional shadow rendered into one quadrant of its map (half upstream's
+    // resolution, found on input-events' ground acne, 2026-09-29).
+    bool checkDefaultCascadeLayout()
+    {
+        Light light(nullptr);
+        const auto& vp = light.cascadeViewports();
+        if (light.numCascades() != 1 || vp[0].getX() != 0.0f || vp[0].getY() != 0.0f ||
+            vp[0].getZ() != 1.0f || vp[0].getW() != 1.0f) {
+            std::cerr << "a default one-cascade light does not cover its whole shadow map (rect "
+                      << vp[0].getX() << ", " << vp[0].getY() << ", " << vp[0].getZ() << ", " << vp[0].getW()
+                      << ")\n";
+            return false;
+        }
+        light.setNumCascades(4);
+        light.setNumCascades(1);
+        if (light.cascadeViewports()[0].getZ() != 1.0f) {
+            std::cerr << "back to one cascade, the rect is not the whole map\n";
+            return false;
+        }
+        return true;
+    }
 }
 
 int main()
 {
     const bool ok = checkResolution() && checkShadowType() && checkNumCascades() &&
-        checkCastShadows() && checkUpdateModeRearmed() && checkLocalVsmFallsBack();
+        checkCastShadows() && checkUpdateModeRearmed() && checkLocalVsmFallsBack() &&
+        checkDefaultCascadeLayout();
     if (!ok) {
         std::cerr << "shadow map invalidation tests FAILED\n";
         return 1;

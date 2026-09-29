@@ -28,10 +28,30 @@ namespace visutwin::canvas
     {
     }
 
+    const std::array<Vector4, 4>& Light::directionalCascadeLayout(const int numCascades)
+    {
+        // Directional cascades layout (upstream directionalCascades):
+        //   1 cascade: full texture [(0,0,1,1)]
+        //   2 cascades: 2×1 vertical strip [(0,0,0.5,0.5), (0,0.5,0.5,0.5)]
+        //   3 cascades: 3 of 4 quadrants
+        //   4 cascades: 2×2 grid
+        static const std::array<std::array<Vector4, 4>, 4> layouts = {{
+            {{ Vector4(0,0,1,1), Vector4(0,0,0,0), Vector4(0,0,0,0), Vector4(0,0,0,0) }},
+            {{ Vector4(0,0,0.5f,0.5f), Vector4(0,0.5f,0.5f,0.5f), Vector4(0,0,0,0), Vector4(0,0,0,0) }},
+            {{ Vector4(0,0,0.5f,0.5f), Vector4(0,0.5f,0.5f,0.5f), Vector4(0.5f,0,0.5f,0.5f), Vector4(0,0,0,0) }},
+            {{ Vector4(0,0,0.5f,0.5f), Vector4(0,0.5f,0.5f,0.5f), Vector4(0.5f,0,0.5f,0.5f), Vector4(0.5f,0.5f,0.5f,0.5f) }}
+        }};
+        return layouts[static_cast<size_t>(std::clamp(numCascades, 1, 4) - 1)];
+    }
+
     Light::Light(GraphicsDevice* graphicsDevice)
         : _device(graphicsDevice)
     {
-
+        // From the same table the setter uses. The member's initializer used to be the
+        // FOUR-cascade 2x2 layout while the count defaulted to one, and setNumCascades(1)
+        // returns early on an unchanged count, so every default directional shadow drew
+        // into one quadrant of its map: half the resolution upstream's has.
+        _cascadeViewports = directionalCascadeLayout(_numCascades);
     }
 
     bool Light::castShadows() const
@@ -85,18 +105,7 @@ namespace visutwin::canvas
         }
         _numCascades = value;
 
-        // Directional cascades layout:
-        //   1 cascade: full texture [(0,0,1,1)]
-        //   2 cascades: 2×1 vertical strip [(0,0,0.5,0.5), (0,0.5,0.5,0.5)]
-        //   3 cascades: 3 of 4 quadrants
-        //   4 cascades: 2×2 grid
-        static const std::array<std::array<Vector4, 4>, 4> layouts = {{
-            {{ Vector4(0,0,1,1), Vector4(0,0,0,0), Vector4(0,0,0,0), Vector4(0,0,0,0) }},
-            {{ Vector4(0,0,0.5f,0.5f), Vector4(0,0.5f,0.5f,0.5f), Vector4(0,0,0,0), Vector4(0,0,0,0) }},
-            {{ Vector4(0,0,0.5f,0.5f), Vector4(0,0.5f,0.5f,0.5f), Vector4(0.5f,0,0.5f,0.5f), Vector4(0,0,0,0) }},
-            {{ Vector4(0,0,0.5f,0.5f), Vector4(0,0.5f,0.5f,0.5f), Vector4(0.5f,0,0.5f,0.5f), Vector4(0.5f,0.5f,0.5f,0.5f) }}
-        }};
-        _cascadeViewports = layouts[value - 1];
+        _cascadeViewports = directionalCascadeLayout(value);
 
         // Reset palette and distances
         _shadowMatrixPalette.fill(0.0f);

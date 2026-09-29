@@ -1701,8 +1701,8 @@ present, but the rule below never depends on reading it.
   `ambient-occlusion`'s directional shadow used to be fitted on frame one with the default
   16:9 aspect instead of the window's, and now is fitted to the real frustum (15k pixels at
   1x, all on shadow edges); `taa`'s first history frame moves by 1-4 counts. The
-  `ambient-occlusion` golden reference predates this and must be re-captured
-  (`--update`) after checking its failure image shows only shadow-edge differences.
+  `ambient-occlusion` golden reference was re-captured on 2026-09-29 with the cascade-rect
+  fix.
 - **A raw `Entity*` an object keeps must follow the entity's `destroy` event**: subscribe
   when set, clear the pointer in the handler, and `off()` the handle in the owner's
   destructor (a handler that outlives its owner is a use-after-free the sanitizer build
@@ -2062,6 +2062,20 @@ present, but the rule below never depends on reading it.
   Diagnose this class by reading the map back (`Texture::read`) on frame 1 and after a
   one-shot re-arm at frame 2: a map that is only right the SECOND time is a first-use
   bug, and realtime updates hide it.
+- **A light's cascade RECTS come from its cascade COUNT, set in the constructor as well as
+  the setter** (`Light::directionalCascadeLayout`). The count defaulted to one while the
+  rect member was initialised with the four-cascade 2x2 grid, and `setNumCascades(1)`
+  returns early on an unchanged count, so from the day the default became one until
+  2026-09-29 every directional shadow that never set a count rendered into ONE QUADRANT of
+  its map: half upstream's resolution (only 4 example files set a count at all; four golden
+  cases moved, on shadow edges only, both backends).
+  Found on `input-events`, whose ground acne upstream's thumbnail seemed to lack; a LIVE
+  upstream frame at the same size had the acne too (it is the scene: a 200 m caster ground),
+  and matched ours at 2048 number for number — the tell for a halved map. After the fix
+  both read ground mean 93.63, std 3.45, range 86-99. Compare against a LIVE upstream frame
+  at matched size before calling a thumbnail difference a bug: a 320 px thumbnail averages
+  stripes a few pixels wide to nothing. `tests/shadowMapInvalidationTests.cpp` holds the
+  default rect.
 - **The default is ONE shadow cascade, as upstream.** It was 4, and a one-shot
   directional shadow is unusable with more than one: the receiver picks its cascade
   by VIEW depth, so moving the camera carries the scene into cascades whose maps were
@@ -2300,12 +2314,8 @@ What stays HERE is only what bites during UNRELATED work.
   are several symbols), and upstream's element drag helper (#9551). The six UI examples
   (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`)
   port upstream's CURRENT versions.
-- **`input-events` shows diagonal shadow acne over its ground where upstream's thumbnail is
-  clean, and fainter marker shadows.** The light keeps upstream's defaults (bias 0.05, no
-  normal offset, 1024, PCF3) and the hardware offset is upstream's `shadowBias * -1000`, so
-  the difference is elsewhere: the fitted depth range with a 200 m caster plane, or the
-  receiver-side bias (ours is a fixed 0.0001). Found 2026-09-29, not yet diagnosed. Annotations
-  (`annotationManager`) still draw through ImGui; with input on elements they could move.
+- Annotations (`annotationManager`) still draw through ImGui; with input on elements they
+  could move.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles
