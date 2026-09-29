@@ -171,9 +171,9 @@ namespace visutwin::canvas
         void setFontResource(FontResource* value) { _fontResource = value; _textDirty = true; }
         ElementHorizontalAlign horizontalAlign() const { return _horizontalAlign; }
         void setHorizontalAlign(const ElementHorizontalAlign value) { _horizontalAlign = value; _textDirty = true; }
-        /// Where the block of lines sits vertically in the box: 0 bottom, 1 top (upstream
-        /// `alignment.y`). DEVIATION: the default is 1, the top, where upstream centres
-        /// (0.5); every port so far was laid out against the top.
+        /// Where the block of lines sits vertically in the box: 0 bottom, 0.5 centre (the
+        /// default, as upstream), 1 top (upstream `alignment.y`). The block is measured
+        /// from the font's glyph bounds, as upstream measures it.
         float verticalAlign() const { return _verticalAlign; }
         void setVerticalAlign(const float value) { _verticalAlign = std::clamp(value, 0.0f, 1.0f); _textDirty = true; }
         /// Text outline (upstream `outlineColor`, `outlineThickness` 0..1). MSDF fonts only.
@@ -298,7 +298,7 @@ namespace visutwin::canvas
         FontResource* _fontResource = nullptr;
         ElementHorizontalAlign _horizontalAlign = ElementHorizontalAlign::Center;
         bool _wrapLines = false;
-        float _verticalAlign = 1.0f;
+        float _verticalAlign = 0.5f;
         Color _outlineColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
         float _outlineThickness = 0.0f;
         Color _shadowColor = Color(0.0f, 0.0f, 0.0f, 1.0f);

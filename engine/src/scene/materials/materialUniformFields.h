@@ -127,7 +127,7 @@
     /* shadow colour, LINEAR, alpha straight (upstream shadow_color) */ \
     X(vec4, msdfShadowColor, {0.0f, 0.0f, 0.0f, 1.0f}) \
     /* x = outline thickness (upstream outline_thickness, already x 0.2), yz = shadow */ \
-    /* offset in UV (upstream shadow_offset, in THIS engine's v-down UVs), w = pad */ \
+    /* offset in UV (upstream shadow_offset), w = pad */ \
     X(vec4, msdfOutlineShadow, {0.0f, 0.0f, 0.0f, 0.0f})
 
 namespace visutwin::canvas

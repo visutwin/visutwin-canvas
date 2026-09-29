@@ -45,6 +45,18 @@ for details.
   the copyright notice and licence must accompany it — they are in the `.txt`).
   Liberation Sans is metric-compatible with Arial, so every advance matches the
   Arial atlas this replaced. Used by `raycast`, `post-processing` and `anisotropy`.
+- `roboto-bold.json` + `roboto-bold.png` + `roboto-bold1.png` — upstream's two-page MSDF
+  atlas of Roboto Bold 2.138 (Basic Latin through Latin Extended-A), byte-identical to
+  upstream's example asset. Roboto is **Apache-2.0**; the notice and licence are in
+  `roboto-license.txt`. Format version 3: glyphs are keyed by LETTER, the code point
+  is `id`. Used by `world-to-screen`.
+
+### ui/ — complete
+- `ui-atlas.png` — upstream's generated UI-kit atlas (panels, buttons, the sliced
+  `track`, icons), byte-identical; drawn by upstream's own
+  `examples/utils/generate-ui-atlas.mjs` from SVG in that script (MIT, as upstream's
+  examples). Frame rects are in `ui-atlas.mjs` upstream, measured from the image
+  BOTTOM; the examples copy the frames they use. Used by `world-to-screen`.
 
 ### animations/bitmoji/ — complete
 - `idle.glb`, `walk.glb`, `run.glb`, `jump-flip.glb`, `win-dance.glb` — Bitmoji locomotion clips (CC-0)

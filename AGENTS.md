@@ -1786,9 +1786,19 @@ present, but the rule below never depends on reading it.
   textures, so text is one mesh instance and material PER PAGE. The loader used to bake
   the field into alpha at a fixed ramp with nearest filtering, which blurred text up close
   and aliased it small; a page is now kept raw and sampled bilinearly.
-  `tests/msdfTextTests.cpp` holds the pages, the per-page split and upstream's outline
-  (x 0.2) and shadow (x 0.005, y by page aspect, sign flipped for this engine's v-down
-  glyph UVs) scaling.
+  `tests/msdfTextTests.cpp` holds the pages, the per-page split, kerning, the glyph-bounds
+  extent and upstream's outline (x 0.2) and shadow (x 0.005, y by MINUS the page aspect,
+  upstream's uniform as is) scaling. The shadow's sign was first "derived" from upstream's
+  v-up glyph UVs and flipped, which drew it above the text; upstream's own thumbnail puts
+  it below. Settle a direction on upstream's pixels — count which side of the glyph the rim
+  falls on — not on a reading of its UV code, and not on a centroid of the visible rim,
+  which the glyph covers.
+  Text is laid out on upstream's METRICS: glyphs scale by fontSize / 32 (the fonts' em),
+  lines step by fontSize, and the block is aligned by the glyph `bounds` extent with
+  vertical alignment 0.5 by default. Until 2026-09-29 the scale was fontSize over the
+  64-pixel atlas cell, so EVERY text was drawn at half its size, and the kerning parser
+  never loaded a pair; compare text size with upstream's thumbnail as a ratio to a
+  neighbouring element (a name to its bar), which survives the thumbnail's other aspect.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
@@ -2259,10 +2269,9 @@ What stays HERE is only what bites during UNRELATED work.
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
 - **UI not ported yet**: text markup, auto-sized text, layout groups, masks, scroll views,
-  tiled sprites, and upstream's element drag helper (#9551). Upstream rebuilt `text`,
-  `world-to-screen` and its layout examples (#9566, #9569); ours port the versions before
-  the rebuild and say so in their headers. MSDF text, the rebuilt examples' other
-  prerequisite, landed 2026-09-29.
+  tiled sprites, and upstream's element drag helper (#9551). `world-to-screen` is the
+  rebuilt upstream example (#9569); `ui-text` still ports the version before its rebuild
+  (#9566), which needs markup.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles

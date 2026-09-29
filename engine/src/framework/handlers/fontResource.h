@@ -26,6 +26,8 @@ namespace visutwin::canvas
         float yoffset = 0.0f;
         /// The atlas page (upstream `map`) the glyph's rect is in.
         int page = 0;
+        /// Upstream `scale`: the atlas cell's size over the glyph's font units.
+        float scale = 1.0f;
     };
 
     /// A font in upstream's JSON format: glyph metrics plus one atlas image per page
@@ -59,6 +61,11 @@ namespace visutwin::canvas
         float pxRange = 2.0f;
         /// Upstream `font_sdfIntensity`: 0 draws the glyph at its edge, 1 fattens it most.
         float intensity = 0.0f;
+        /// The lowest glyph bottom and highest glyph top over every glyph's `bounds`,
+        /// relative to the baseline, in font units (upstream `_fontMinY` / `_fontMaxY`):
+        /// the extent a line of text is aligned by.
+        float minY = 0.0f;
+        float maxY = 0.0f;
         float lineHeight = 64.0f;
         std::unordered_map<int, FontGlyph> glyphs;
         std::unordered_map<uint64_t, float> kerning;

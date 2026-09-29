@@ -86,7 +86,7 @@ namespace visutwin::canvas
             int cachedFontSize = 0;
             ElementHorizontalAlign cachedAlign = ElementHorizontalAlign::Center;
             bool cachedWrap = false;
-            float cachedVerticalAlign = 1.0f;
+            float cachedVerticalAlign = 0.5f;
             FontResource* cachedFont = nullptr;
             // image
             uint64_t cachedImageVersion = 0;

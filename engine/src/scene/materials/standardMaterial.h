@@ -218,8 +218,8 @@ namespace visutwin::canvas
             _msdfOutlineThickness = thickness;
             markUniformsDirty();
         }
-        /// Shadow colour (sRGB, alpha straight) and offset in atlas UV (this engine's
-        /// v-down UVs; the text element converts upstream's shadowOffset).
+        /// Shadow colour (sRGB, alpha straight) and offset in atlas UV (upstream's
+        /// shadow_offset; the text element converts its shadowOffset).
         void setMsdfShadow(const Color& color, const Vector2& uvOffset)
         {
             _msdfShadowColor = color;

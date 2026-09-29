@@ -265,13 +265,16 @@ namespace visutwin::canvas
                 while (true) {
                     const size_t keyStart = charsBlock.find('"', p);
                     if (keyStart == std::string::npos) break;
-                    const size_t keyEnd = charsBlock.find('"', keyStart + 1);
-                    if (keyEnd == std::string::npos) break;
-                    int charId = 0;
-                    if (!parseStrictInt(charsBlock.substr(keyStart + 1, keyEnd - keyStart - 1), charId)) {
-                        p = keyEnd + 1;
-                        continue;
+                    // The key is the code point in format version 2 and the LETTER itself in
+                    // version 3 (upstream's roboto), which may be an escaped quote or
+                    // backslash, so the closing quote is found escape-aware.
+                    size_t keyEnd = keyStart + 1;
+                    while (keyEnd < charsBlock.size() && charsBlock[keyEnd] != '"') {
+                        keyEnd += charsBlock[keyEnd] == '\\' ? 2 : 1;
                     }
+                    if (keyEnd >= charsBlock.size()) break;
+                    int charId = -1;
+                    parseStrictInt(charsBlock.substr(keyStart + 1, keyEnd - keyStart - 1), charId);
                     const size_t glyphObjStart = charsBlock.find('{', keyEnd);
                     if (glyphObjStart == std::string::npos) break;
                     const auto glyphObjEndOpt = findMatchingBrace(charsBlock, glyphObjStart);
@@ -279,7 +282,15 @@ namespace visutwin::canvas
 
                     const std::string block = charsBlock.substr(glyphObjStart, *glyphObjEndOpt - glyphObjStart + 1);
                     FontGlyph glyph{};
-                    glyph.id = charId;
+                    // The code point is the glyph's `id` in both versions; a version 2 key
+                    // is the fallback for a glyph without one.
+                    if (!parseIntField(block, "id", glyph.id)) {
+                        glyph.id = charId;
+                    }
+                    if (glyph.id < 0) {
+                        p = *glyphObjEndOpt + 1;
+                        continue;
+                    }
                     parseNumberField(block, "x", glyph.x);
                     parseNumberField(block, "y", glyph.y);
                     parseNumberField(block, "width", glyph.width);
@@ -288,6 +299,32 @@ namespace visutwin::canvas
                     parseNumberField(block, "xoffset", glyph.xoffset);
                     parseNumberField(block, "yoffset", glyph.yoffset);
                     parseIntField(block, "map", glyph.page);
+                    parseNumberField(block, "scale", glyph.scale);
+                    if (glyph.scale <= 0.0f) {
+                        glyph.scale = 1.0f;
+                    }
+                    // bounds: [x0, y0, x1, y1] about the pen, font units; y1 is the top.
+                    if (const size_t b = block.find("\"bounds\":["); b != std::string::npos) {
+                        float bounds[4]{};
+                        size_t q = b + 10;
+                        int n = 0;
+                        while (n < 4 && q < block.size() && block[q] != ']') {
+                            size_t end = q;
+                            while (end < block.size() && block[end] != ',' && block[end] != ']') {
+                                ++end;
+                            }
+                            try {
+                                bounds[n++] = std::stof(block.substr(q, end - q));
+                            } catch (...) {
+                                break;
+                            }
+                            q = end < block.size() && block[end] == ',' ? end + 1 : end;
+                        }
+                        if (n == 4) {
+                            font->minY = std::min(font->minY, bounds[1]);
+                            font->maxY = std::max(font->maxY, bounds[3]);
+                        }
+                    }
                     // Upstream _getPxRange: scale x range of the first glyph that has one.
                     if (float range = 0.0f; !font->msdf && parseNumberField(block, "range", range) && range > 0.0f) {
                         float scale = 1.0f;
@@ -340,11 +377,13 @@ namespace visutwin::canvas
                                     q = r2 + 1;
                                     continue;
                                 }
+                                // The value follows this key's own colon. Searching for the key
+                                // from its CLOSING quote missed the key itself, so no font's
+                                // kerning ever loaded until 2026-09-29.
                                 float value = 0.0f;
-                                const std::string numKey = "\"" + std::to_string(right) + "\":";
-                                const size_t vPos = sub.find(numKey, r2);
-                                if (vPos != std::string::npos) {
-                                    const size_t nStart = vPos + numKey.size();
+                                const size_t colon = sub.find(':', r2);
+                                if (colon != std::string::npos) {
+                                    const size_t nStart = colon + 1;
                                     size_t nEnd = nStart;
                                     while (nEnd < sub.size()) {
                                         const char c = sub[nEnd];

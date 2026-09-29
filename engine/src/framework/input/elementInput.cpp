@@ -68,6 +68,24 @@ namespace visutwin::canvas
             return lines;
         }
 
+        /// Upstream text-element's MAGIC: font units per em. A glyph's metrics are in font
+        /// units, so `fontSize / 32` takes them to the element's units. This port divided by
+        /// the ATLAS CELL (64) until 2026-09-29, and every text was drawn at half its size.
+        constexpr float kFontUnitsPerEm = 32.0f;
+
+        /// The glyph drawn for `code`: the character itself, else the space, as upstream
+        /// substitutes a missing character (null when the font has neither).
+        const FontGlyph* glyphFor(const FontResource* font, const int code)
+        {
+            if (const auto it = font->glyphs.find(code); it != font->glyphs.end()) {
+                return &it->second;
+            }
+            const auto space = font->glyphs.find(' ');
+            return space != font->glyphs.end() ? &space->second : nullptr;
+        }
+
+        /// The advance of `text`, kerned, in element units — without trailing whitespace,
+        /// which upstream leaves out of a line's width.
         float lineWidthForText(const std::string& text, const FontResource* font, const float scale)
         {
             if (!font || text.empty()) {
@@ -75,16 +93,19 @@ namespace visutwin::canvas
             }
 
             float width = 0.0f;
+            float widthMinusTrailing = 0.0f;
             int prev = -1;
             for (char c : text) {
                 const int code = static_cast<unsigned char>(c);
-                const auto it = font->glyphs.find(code);
-                const float advance = it != font->glyphs.end() ? it->second.xadvance * scale : (font->lineHeight * 0.35f * scale);
+                const FontGlyph* glyph = glyphFor(font, code);
                 const float kern = prev >= 0 ? font->kerningValue(prev, code) * scale : 0.0f;
-                width += kern + advance;
+                width += kern + (glyph ? glyph->xadvance * scale : 0.0f);
+                if (c != ' ' && c != '\t') {
+                    widthMinusTrailing = width;
+                }
                 prev = code;
             }
-            return width;
+            return widthMinusTrailing;
         }
 
         std::vector<std::string> wrapLine(const std::string& line, const FontResource* font, const float scale, const float maxWidth)
@@ -180,8 +201,11 @@ namespace visutwin::canvas
             }
 
             const FontResource* font = element->fontResource();
-            const float lineHeight = std::max(font->lineHeight, 1.0f);
-            const float scale = static_cast<float>(element->fontSize()) / lineHeight;
+            const float fontSize = static_cast<float>(element->fontSize());
+            // Upstream text-element's layout: glyph metrics scale by fontSize / 32, and a line
+            // steps down by the element's lineHeight, which defaults to the font size.
+            const float scale = fontSize / kFontUnitsPerEm;
+            const float lineStep = fontSize;
 
             std::vector<std::string> lines = splitLines(element->text());
             if (element->wrapLines()) {
@@ -205,27 +229,23 @@ namespace visutwin::canvas
             const float boxW = element->calculatedWidth();
             const float boxH = element->calculatedHeight();
             const Vector2 pivot = element->pivot();
-            const float lineStep = lineHeight * scale;
 
-            // The block of lines is placed by the vertical alignment: its top at the box's
-            // top for 1, its bottom at the box's bottom for 0. The box may be INVERTED (a
-            // split axis whose margins cross), which the same formula handles.
-            const float blockH = lineStep * static_cast<float>(lines.size());
-            float yTop = (1.0f - pivot.y) * boxH - (1.0f - element->verticalAlign()) * (boxH - blockH);
+            // Upstream's vertical placement: the first line's pen sits at 0 and each next one
+            // a lineStep lower; the block spans from the font's highest glyph top above the
+            // first pen to its lowest glyph bottom below the last (the glyph `bounds`), and
+            // the alignment places that block in the box:
+            //   voffset = (1 - pivot.y) H - fontMaxY - (1 - align.y) (H - blockHeight)
+            // The box may be INVERTED (a split axis whose margins cross); the formula holds.
+            const float fontMinY = font->minY * scale;
+            const float fontMaxY = font->maxY * scale;
+            const float lastPenY = -static_cast<float>(lines.size() > 0 ? lines.size() - 1 : 0) * lineStep;
+            const float blockHeight = fontMaxY - (lastPenY + fontMinY);
+            const float voffset = (1.0f - pivot.y) * boxH - fontMaxY -
+                (1.0f - element->verticalAlign()) * (boxH - blockHeight);
 
             for (size_t li = 0; li < lines.size(); ++li) {
                 const std::string& line = lines[li];
-
-                float lineWidth = 0.0f;
-                int prevForWidth = -1;
-                for (char c : line) {
-                    const int code = static_cast<unsigned char>(c);
-                    if (const auto it = font->glyphs.find(code); it != font->glyphs.end()) {
-                        lineWidth += (prevForWidth >= 0 ? font->kerningValue(prevForWidth, code) * scale : 0.0f);
-                        lineWidth += it->second.xadvance * scale;
-                        prevForWidth = code;
-                    }
-                }
+                const float lineWidth = lineWidthForText(line, font, scale);
 
                 float x = -pivot.x * boxW;
                 if (element->horizontalAlign() == ElementHorizontalAlign::Center) {
@@ -233,48 +253,42 @@ namespace visutwin::canvas
                 } else if (element->horizontalAlign() == ElementHorizontalAlign::Right) {
                     x += (boxW - lineWidth);
                 }
+                const float penY = voffset - static_cast<float>(li) * lineStep;
 
                 int prev = -1;
                 for (char c : line) {
                     const int code = static_cast<unsigned char>(c);
-                    const auto gIt = font->glyphs.find(code);
-                    if (gIt == font->glyphs.end()) {
-                        x += lineHeight * 0.35f * scale;
+                    const FontGlyph* glyph = glyphFor(font, code);
+                    if (!glyph) {
                         prev = code;
                         continue;
                     }
-
-                    const FontGlyph& g = gIt->second;
-                    const float kerning =
-                        (prev >= 0 ? font->kerningValue(prev, code) : 0.0f);
+                    const FontGlyph& g = *glyph;
+                    const float kerning = prev >= 0 ? font->kerningValue(prev, code) : 0.0f;
 
                     // Glyph placement mirrors upstream text-element.js exactly:
                     //
                     //   left   = pen - (xoffset - kerning) * scale
                     //   bottom = penY - yoffset * scale
-                    //   right/top = left/bottom + quadsize      (a SQUARE cell)
+                    //   right/top = left/bottom + quadsize, quadsize = scale * size / glyph scale
                     //
-                    // Two things here are easy to get wrong. The offsets are
-                    // SUBTRACTED, not added: in an MSDF atlas every glyph sits in
-                    // a fixed cell (64x64 here) and xoffset/yoffset say where the
-                    // pen sits INSIDE that cell, so the cell is pulled back to
-                    // line the glyph up. Adding them instead displaces every
-                    // character by a different amount — proportional fonts come
-                    // out visibly scrambled, while a monospace font (courier,
-                    // which every earlier example used) hides it because the
-                    // offsets are then all equal.
+                    // Two things here are easy to get wrong. The offsets are SUBTRACTED, not
+                    // added: in an MSDF atlas every glyph sits in a fixed cell (64x64 here)
+                    // and xoffset/yoffset say where the pen sits INSIDE that cell, so the
+                    // cell is pulled back to line the glyph up. Adding them instead displaces
+                    // every character by a different amount — proportional fonts come out
+                    // visibly scrambled, while a monospace font hides it because the offsets
+                    // are then all equal.
                     //
-                    // And the quad is square — (width + height) / 2 — not
-                    // width x height, so a non-square atlas cell cannot skew it.
-                    const float quadSize = (g.width + g.height) * 0.5f * scale;
-                    const float penY = yTop - static_cast<float>(li) * lineStep;
-
+                    // And the quad is square — size = (width + height) / 2 — not width x
+                    // height, so a non-square atlas cell cannot skew it.
+                    const float quadSize = scale * (g.width + g.height) * 0.5f / g.scale;
                     const float gx0 = x - (g.xoffset - kerning) * scale;
                     const float gx1 = gx0 + quadSize;
                     const float gyBot = penY - g.yoffset * scale;
                     const float gyTop = gyBot + quadSize;
 
-                    // UVs are fractions of the glyph's OWN page.
+                    // UVs are fractions of the glyph's OWN page, v from the atlas top.
                     const int page = (g.page >= 0 && g.page < static_cast<int>(font->pages.size())) ? g.page : 0;
                     const Texture* pageTexture = font->pages.empty() ? font->texture : font->pages[static_cast<size_t>(page)];
                     const float atlasW = static_cast<float>(std::max(pageTexture ? static_cast<int>(pageTexture->width())
@@ -283,7 +297,6 @@ namespace visutwin::canvas
                                                                                   : font->atlasHeight, 1));
                     const float u0 = g.x / atlasW;
                     const float u1 = (g.x + g.width) / atlasW;
-                    // Use native texture-space orientation for this backend.
                     const float v0 = g.y / atlasH;
                     const float v1 = (g.y + g.height) / atlasH;
 
@@ -297,7 +310,6 @@ namespace visutwin::canvas
                     PageBuffers& buffers = pages[page];
                     buffers.vertices.insert(buffers.vertices.end(), quadVerts.begin(), quadVerts.end());
                     const uint32_t vbase = buffers.base;
-                    // Use front-facing winding for UI camera (+Z looking toward origin).
                     buffers.indices.insert(buffers.indices.end(),
                         {vbase + 0u, vbase + 2u, vbase + 1u, vbase + 0u, vbase + 3u, vbase + 2u});
                     buffers.base += 4u;
@@ -487,14 +499,16 @@ namespace visutwin::canvas
             return material;
         }
 
-        /// Upstream text-element's shadow_offset: 0.005 of the page per unit, the y term
-        /// scaled by the page's aspect. Upstream's glyph UVs run v UP and this engine's run
-        /// v DOWN, so the y term changes sign to put the shadow in the same place on screen.
+        /// Upstream text-element's shadow_offset, verbatim: 0.005 of the page per unit, the
+        /// y term scaled by -width/height. It is NOT sign-flipped for this engine's v-down
+        /// glyph UVs, although upstream writes its glyph UVs v-up: measured on upstream's
+        /// own ui-text thumbnail, a (0.25, -0.25) shadow sits right of and BELOW the glyphs
+        /// (rim below 23 : above 6), and the flipped value drew it above.
         Vector2 msdfShadowUvOffset(const Vector2& offset, const Texture* page)
         {
             const float aspect = page && page->height() > 0
                 ? static_cast<float>(page->width()) / static_cast<float>(page->height()) : 1.0f;
-            return Vector2(0.005f * offset.x, aspect * 0.005f * offset.y);
+            return Vector2(0.005f * offset.x, -aspect * 0.005f * offset.y);
         }
     }
 

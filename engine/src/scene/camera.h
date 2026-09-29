@@ -88,7 +88,16 @@ namespace visutwin::canvas
         const Vector2& projectionOffset() const { return _projectionOffset; }
         void setProjectionOffset(const Vector2& value) { _projectionOffset = value; _projMatDirty = true; }
 
+        /// Upstream `horizontalFov`: the fov is the WIDTH's angle rather than the
+        /// height's, which keeps a scene's width in view on a portrait window.
         bool horizontalFov() const { return _horizontalFov; }
+        void setHorizontalFov(const bool value)
+        {
+            if (_horizontalFov != value) {
+                _horizontalFov = value;
+                _projMatDirty = true;
+            }
+        }
 
         const Matrix4& projectionMatrix()
         {

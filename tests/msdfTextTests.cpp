@@ -4,7 +4,7 @@
 // MSDF text, below the shader: the font loader's pages, pixel range and intensity, the
 // text visual's split into one mesh instance and material per atlas page, and the
 // material values the MSDF shader path reads — upstream's editor-unit scaling of the
-// outline (x 0.2) and shadow (x 0.005 of the page, y by the page's aspect), colours
+// outline (x 0.2) and shadow (x 0.005 of the page, y by minus the page's aspect), colours
 // uploaded linear, and the page size (textureSize() does not survive MoltenVK).
 //
 // The two pages are deliberately DIFFERENT sizes, so a per-page value that is taken from
@@ -88,9 +88,9 @@ namespace
         std::ofstream out(json);
         out << R"({"version":2,"intensity":0.25,"info":{"face":"t","maps":[{"width":64,"height":32},{"width":32,"height":32}]},)"
             << R"("chars":{)"
-            << R"("65":{"id":65,"x":0,"y":0,"width":16,"height":16,"map":0,"xadvance":10,"xoffset":0,"yoffset":0)" << extra << "},"
-            << R"("66":{"id":66,"x":8,"y":8,"width":16,"height":16,"map":1,"xadvance":10,"xoffset":0,"yoffset":0)" << extra << "}"
-            << R"(},"kerning":{}})";
+            << R"("65":{"id":65,"x":0,"y":0,"width":16,"height":16,"map":0,"xadvance":10,"xoffset":0,"yoffset":0,"bounds":[0,-5,10,20])" << extra << "},"
+            << R"("66":{"id":66,"x":8,"y":8,"width":16,"height":16,"map":1,"xadvance":10,"xoffset":0,"yoffset":0,"bounds":[0,-2,8,24])" << extra << "}"
+            << R"(},"kerning":{"65":{"66":-2.5,"65":0.75},"66":{"65":-1}}})";
         return json;
     }
 
@@ -141,6 +141,40 @@ int main()
     check(near(msdf->pxRange, 6.0f), "pxrange is scale x range (1.5 x 4)");
     check(near(msdf->intensity, 0.25f), "intensity is read");
     check(msdf->glyphs[65].page == 0 && msdf->glyphs[66].page == 1, "each glyph keeps its page");
+    // Every pair of a row, not just its first: the value lookup searched from the key's
+    // closing quote and missed the key itself, so no font's kerning ever loaded.
+    check(near(msdf->kerningValue(65, 66), -2.5f) && near(msdf->kerningValue(65, 65), 0.75f) &&
+          near(msdf->kerningValue(66, 65), -1.0f), "every kerning pair loads");
+    check(near(msdf->minY, -5.0f) && near(msdf->maxY, 24.0f),
+          "the font's vertical extent is the union of the glyph bounds (upstream _fontMinY / _fontMaxY)");
+
+    {
+        // Format version 3 (upstream's roboto) keys glyphs by the LETTER, escaped where JSON
+        // needs it; the code point is the glyph's `id`. Reading the key as the code point
+        // lost every letter and put the digits on codes 0-9.
+        writePng(dir / "v3.png", 64, 32);
+        const auto json = dir / "v3.json";
+        {
+            std::ofstream out(json);
+            out << R"({"version":3,"type":"msdf","intensity":0,"info":{"face":"t","maps":[{"width":64,"height":32}]},"chars":{)"
+                << R"("A":{"id":65,"letter":"A","x":0,"y":0,"width":8,"height":8,"map":0,"xadvance":5,"xoffset":0,"yoffset":0,"scale":1,"range":8},)"
+                << R"("\"":{"id":34,"letter":"\"","x":8,"y":0,"width":8,"height":8,"map":0,"xadvance":5,"xoffset":0,"yoffset":0,"scale":1,"range":8},)"
+                << R"("\\":{"id":92,"letter":"\\","x":16,"y":0,"width":8,"height":8,"map":0,"xadvance":5,"xoffset":0,"yoffset":0,"scale":1,"range":8},)"
+                << R"("7":{"id":55,"letter":"7","x":24,"y":0,"width":8,"height":8,"map":0,"xadvance":5,"xoffset":0,"yoffset":0,"scale":1,"range":8})"
+                << R"(},"kerning":{}})";
+        }
+        const auto v3 = loadBitmapFontResource(json.string(), device);
+        check(v3.has_value() && *v3, "a version 3 font loads");
+        if (v3 && *v3) {
+            FontResource* font = *v3;
+            check(font->glyphs.size() == 4, "all four letter-keyed glyphs are read");
+            check(font->glyphs.count(65) && font->glyphs.count(34) && font->glyphs.count(92) && font->glyphs.count(55),
+                  "each under its code point from `id`, escaped keys included");
+            check(!font->glyphs.count(7), "the key \"7\" is not taken as code point 7");
+            check(font->glyphs.count(92) && font->glyphs[92].x == 16.0f, "the backslash glyph's fields are its own");
+            delete font;
+        }
+    }
 
     std::cout << "text visual\n";
     auto* screenEntity = new Entity();
@@ -185,8 +219,8 @@ int main()
         check(near(u.msdfParams[2], w) && near(u.msdfParams[3], h), page + "the page's own size (textureSize stand-in)");
         check(near(u.msdfOutlineShadow[0], 0.15f), page + "outline thickness x 0.2");
         check(near(u.msdfOutlineShadow[1], 0.005f), page + "shadow x offset x 0.005");
-        check(near(u.msdfOutlineShadow[2], (w / h) * 0.005f * -2.0f),
-              page + "shadow y offset x 0.005 x the page aspect, in v-down UVs");
+        check(near(u.msdfOutlineShadow[2], -(w / h) * 0.005f * -2.0f),
+              page + "shadow y offset x 0.005 x -(page aspect), upstream's value as is");
         check(near(u.msdfOutlineColor[0], std::pow(0.5f, 2.2f)) && near(u.msdfOutlineColor[1], std::pow(0.25f, 2.2f)) &&
               near(u.msdfOutlineColor[3], 0.75f), page + "outline colour linear, alpha straight");
         check(near(u.msdfShadowColor[0], 1.0f) && near(u.msdfShadowColor[3], 0.5f), page + "shadow colour linear");

@@ -554,6 +554,12 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   the screen depth-first from 1 (priority << 24 on top), queued by binding, unbinding and
   `setPriority` and resolved by the screen system's update; the UI layer's transparent
   sublayer is SORTMODE_MANUAL on it.
+- **Text layout** is upstream's: glyph metrics scale by `fontSize / 32` (the fonts' em;
+  each glyph also divides by its own `scale`), lines step by `fontSize`, a line's width
+  for alignment leaves out trailing whitespace, a missing character takes the space's
+  advance, and the block — from the font's highest glyph top to its lowest bottom (the
+  glyph `bounds`) — is placed by `verticalAlign` (default 0.5). Text is laid out per
+  BYTE, so only single-byte characters draw.
 - **Text.** Fonts are upstream's JSON format with one image per page (`<name>.png`,
   `<name>1.png`, ...). A font whose glyphs carry `range` is MSDF: pages are kept raw and
   bilinear, `pxRange` is scale x range and `intensity` comes from the file. The visual

@@ -1,28 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Port of upstream user-interface/world-to-screen.
+// Port of upstream user-interface/world-to-screen (as rebuilt in #9569).
 //
-// Three capsule "players" circle the origin at their own radius and speed on a
-// 50x50 checkerboard ground (tiled 50x) under a shadow-casting directional
-// light, seen from a camera pitched down 30 degrees at distance 7. Each player
-// carries a screen-space panel that follows its head: a faint 150x50 backing,
-// a "Player N" name in its top 60% and a green health bar in its bottom 40%.
-// Clicking a name recolours it and its player with a random colour.
-//
-// This is upstream's example BEFORE its rebuild into four fighters with sprite
-// health bars (#9569).
+// Four capsule "fighters" walk circles of their own radius and speed over a dark floor
+// under a shadow-casting directional light, seen from a 45-degree camera at (0, 7, 12)
+// looking at the origin. Each fighter carries a screen-space tag that follows a point
+// 1.4 above it: its name in Roboto Bold with a dark outline, over a 9-sliced health bar
+// (a dark track and a coloured fill whose right anchor is the fraction of health left).
+// A tag fades with its fighter's distance and hides when the fighter is behind the camera
+// or off the canvas. Clicking a tag takes a quarter of that fighter's health, colouring
+// the bar from green toward red, and refills it when it runs low. On a portrait window
+// the camera keeps the arena's width in view and the tags use a portrait reference
+// resolution.
 //
 // DEVIATIONS:
-// - there is no CameraComponent::worldToScreen; the projection is done here.
-// - each player has its own white StandardMaterial and a click sets its diffuse,
-//   where upstream overrides material_diffuse on the mesh instance of a shared
-//   default material. Both store the colour in gamma space and decode it.
+// - there is no CameraComponent::worldToScreen; the projection is done here, straight
+//   into the screen's units (upstream converts CSS pixels by the canvas's pixel ratio).
+// - the name is a text element as wide as its tag, centred in it; upstream's is
+//   auto-sized to the text, which centres it the same way.
 //
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <memory>
-#include <random>
 #include <string>
 #include <vector>
 
@@ -31,14 +32,14 @@
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
 #include "framework/assets/asset.h"
-#include "framework/components/button/buttonComponent.h"
-#include "framework/components/button/buttonComponentSystem.h"
 #include "framework/components/element/elementComponent.h"
 #include "framework/components/element/elementComponentSystem.h"
 #include "framework/components/screen/screenComponent.h"
 #include "framework/components/screen/screenComponentSystem.h"
 #include "framework/input/elementInput.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/sprite.h"
+#include "scene/textureAtlas.h"
 
 using namespace visutwin::canvas;
 
@@ -47,41 +48,57 @@ constexpr int WINDOW_HEIGHT = 720;
 
 namespace
 {
-    constexpr float PANEL_WIDTH = 150.0f;
-    constexpr float PANEL_HEIGHT = 50.0f;
+    const Color DARK(0.05f, 0.05f, 0.07f, 1.0f);
+    const Color GREEN(0.35f, 0.85f, 0.35f, 1.0f);
+    const Color RED(0.95f, 0.3f, 0.25f, 1.0f);
 
-    struct Player
+    struct FighterDef
     {
-        Entity* entity = nullptr;
-        std::shared_ptr<StandardMaterial> material;
-        float angle = 0.0f;
-        float speed = 0.0f;
-        float radius = 1.0f;
-
-        Entity* playerInfo = nullptr;
-        ElementComponent* name = nullptr;
-        ButtonComponent* button = nullptr;
-
+        const char* name;
+        Color color;
+        float radius;
+        float speed;
     };
 
-    /// Converts a coordinate in world space into the screen's space: screen units from
-    /// its BOTTOM-left corner, as a bottom-left anchor places an element. z is the
-    /// depth; <= 0 means behind the camera.
-    Vector3 worldToScreenSpace(const Vector3& worldPosition, CameraComponent* camera, ScreenComponent* screen)
+    struct Fighter
     {
-        const Matrix4 view = camera->entity()->worldTransform().inverse();
-        const Vector3 viewPos = view.transformPoint(worldPosition);
-        const Vector4 clip = camera->camera()->projectionMatrix() *
-            Vector4(viewPos.getX(), viewPos.getY(), viewPos.getZ(), 1.0f);
-        if (viewPos.getZ() >= 0.0f || std::abs(clip.getW()) < 1e-6f) {
-            return Vector3(0.0f, 0.0f, -1.0f);
-        }
+        Entity* body = nullptr;
+        Entity* tag = nullptr;
+        ElementComponent* health = nullptr;
+        std::array<ElementComponent*, 3> parts{};
+        std::shared_ptr<StandardMaterial> material;
+        float hp = 1.0f;
+        float radius = 1.0f;
+        float speed = 0.0f;
+        float angle = 0.0f;
+    };
 
-        const Vector2 resolution = screen->resolution();
-        const float x = (clip.getX() / clip.getW() * 0.5f + 0.5f) * resolution.x;
-        const float y = (clip.getY() / clip.getW() * 0.5f + 0.5f) * resolution.y;
+    /// Where `world` lands on `screen`: screen units from its BOTTOM-left corner (where a
+    /// bottom-left anchor places an element), the view-space depth, and whether it is on
+    /// the canvas at all.
+    struct ScreenPoint
+    {
+        Vector2 position;
+        float viewZ = 0.0f;
+        bool onCanvas = false;
+    };
+
+    ScreenPoint worldToScreen(const Vector3& world, CameraComponent* camera, const ScreenComponent* screen)
+    {
+        ScreenPoint point;
+        const Vector3 view = camera->entity()->worldTransform().inverse().transformPoint(world);
+        point.viewZ = view.getZ();
+        const Vector4 clip = camera->camera()->projectionMatrix() * Vector4(view.getX(), view.getY(), view.getZ(), 1.0f);
+        if (clip.getW() <= 1e-6f) {
+            return point;
+        }
+        const float ndcX = clip.getX() / clip.getW();
+        const float ndcY = clip.getY() / clip.getW();
+        point.onCanvas = ndcX > -1.0f && ndcX < 1.0f && ndcY > -1.0f && ndcY < 1.0f;
         const float scale = std::max(screen->scale(), 1e-6f);
-        return Vector3(x / scale, y / scale, -viewPos.getZ() / scale);
+        point.position = Vector2((ndcX * 0.5f + 0.5f) * screen->resolution().x / scale,
+                                 (ndcY * 0.5f + 0.5f) * screen->resolution().y / scale);
+        return point;
     }
 }
 
@@ -95,7 +112,6 @@ protected:
     void configure(AppOptions& options) override
     {
         options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
         options.registerComponentSystem<ElementComponentSystem>();
         _elementInput = std::make_shared<ElementInput>();
         options.elementInput = _elementInput;
@@ -103,59 +119,71 @@ protected:
 
     bool create() override
     {
-        _checkboard = std::make_unique<Asset>(
-            "checkboard", AssetType::TEXTURE, assetPath("textures/checkboard.png"),
+        _font = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
+        _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        _font = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/courier.json"));
-
         FontResource* font = nullptr;
-        if (const auto fontRes = _font->resource();
-            fontRes.has_value() && std::holds_alternative<FontResource*>(*fontRes)) {
-            font = std::get<FontResource*>(*fontRes);
+        if (const auto res = _font->resource(); res && std::holds_alternative<FontResource*>(*res)) {
+            font = std::get<FontResource*>(*res);
         }
-        const auto checkboardRes = _checkboard->resource();
-        if (!font || !checkboardRes) {
-            spdlog::error("Failed to load the checkboard texture or the courier font");
+        Texture* atlasTexture = nullptr;
+        if (const auto res = _uiAtlasTexture->resource(); res && std::holds_alternative<Texture*>(*res)) {
+            atlasTexture = std::get<Texture*>(*res);
+        }
+        if (!font || !atlasTexture) {
+            spdlog::error("Failed to load fonts/roboto-bold.json or ui/ui-atlas.png");
             return false;
         }
 
-        // Create an Entity with a camera component: rotateLocal(-30, 0, 0), then
-        // translateLocal(0, 0, 7) along the rotated axis.
-        const float pitch = -30.0f * DEG_TO_RAD;
-        _camera = createCamera(Vector3(0.0f, -7.0f * std::sin(pitch), 7.0f * std::cos(pitch)),
-            Vector3(-30.0f, 0.0f, 0.0f))->findComponent<CameraComponent>();
-        _camera->camera()->setClearColor(Color(30.0f / 255.0f, 30.0f / 255.0f, 30.0f / 255.0f, 1.0f));
+        // The track frame of upstream's UI kit atlas (ui-atlas.mjs).
+        _atlas = std::make_shared<TextureAtlas>();
+        _atlas->setTexture(atlasTexture);
+        _atlas->setFrame("track", {.rect = Vector4(292.0f, 308.0f, 64.0f, 32.0f), .pivot = Vector2(0.5f, 0.5f),
+                                   .border = Vector4(16.0f, 16.0f, 16.0f, 16.0f)});
+        _track = std::make_shared<Sprite>(_atlas, std::vector<std::string>{"track"}, 4.0f, SpriteRenderMode::Sliced);
 
-        // Create an Entity for the ground
-        _groundMaterial = std::make_shared<StandardMaterial>();
-        _groundMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
-        _groundMaterial->setDiffuseMap(std::get<Texture*>(*checkboardRes));
-        _groundMaterial->setDiffuseMapTiling(Vector2(50.0f, 50.0f));
-        createPrimitive("box", _groundMaterial.get(), Vector3(0.0f, -0.5f, 0.0f), Vector3(50.0f, 1.0f, 50.0f));
+        // The arena: a floor, lit from above, and a camera looking down at it
+        scene()->setAmbientLight(0.3f, 0.32f, 0.38f);
+        _floorMaterial = createMaterial(Color(0.24f, 0.26f, 0.32f, 1.0f));
+        createPrimitive("plane", _floorMaterial.get(), Vector3(0.0f, 0.0f, 0.0f), Vector3(200.0f, 1.0f, 200.0f));
 
-        // Create an Entity with a light component
-        auto* light = createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f),
-            Color(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, true);
+        auto* light = createDirectionalLight(Vector3(50.0f, 30.0f, 0.0f), Color(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, true);
         if (auto* lightComp = light->findComponent<LightComponent>()) {
+            lightComp->setShadowType(SHADOW_PCF3_32F);
+            lightComp->setShadowDistance(30.0f);
             lightComp->setShadowBias(0.2f);
-            lightComp->setShadowDistance(16.0f);
             lightComp->setShadowNormalBias(0.05f);
-            lightComp->setShadowResolution(2048);
         }
 
-        // Create a 2D screen
+        auto* cameraEntity = createCamera(Vector3(0.0f, 7.0f, 12.0f));
+        cameraEntity->lookAt(0.0f, 0.0f, 0.0f);
+        _camera = cameraEntity->findComponent<CameraComponent>();
+        _camera->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
+        _camera->camera()->setFov(45.0f);
+
+        // The screen the tags are on
         auto* screenEntity = new Entity();
         screenEntity->setEngine(engine());
         _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
         _screen->setScreenSpace(true);
+        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
+        _screen->setScaleMode(ScreenScaleMode::Blend);
+        _screen->setScaleBlend(0.5f);
         root()->addChild(screenEntity);
 
-        _players.reserve(3);
-        createPlayer(screenEntity, font, 1, 135.0f, 30.0f, 1.5f);
-        createPlayer(screenEntity, font, 2, 65.0f, -18.0f, 1.0f);
-        createPlayer(screenEntity, font, 3, 0.0f, 15.0f, 2.5f);
+        // The fighters walk around the arena, each on a circle of its own
+        const std::array<FighterDef, 4> defs{{
+            {"Aria", Color(1.0f, 0.55f, 0.2f, 1.0f), 2.5f, 0.5f},
+            {"Brom", Color(0.3f, 0.6f, 1.0f, 1.0f), 4.5f, -0.3f},
+            {"Cai", Color(0.45f, 0.8f, 0.4f, 1.0f), 6.5f, 0.2f},
+            {"Dara", Color(0.7f, 0.45f, 0.95f, 1.0f), 4.0f, 0.4f},
+        }};
+        _fighters.reserve(defs.size());
+        for (size_t i = 0; i < defs.size(); ++i) {
+            createFighter(screenEntity, font, defs[i], static_cast<float>(i) * 1.7f);
+        }
 
+        layout();
         return true;
     }
 
@@ -167,112 +195,141 @@ protected:
         return false;
     }
 
+    // One update walks the fighters and places their tags.
     void update(const float dt) override
     {
-        // Update the player position every frame with some mock logic
-        for (auto& player : _players) {
-            player.angle += dt * player.speed;
-            if (player.angle > 360.0f) {
-                player.angle -= 360.0f;
-            }
-            player.entity->setLocalPosition(
-                player.radius * std::sin(player.angle * DEG_TO_RAD),
-                0.5f,
-                player.radius * std::cos(player.angle * DEG_TO_RAD));
-            player.entity->setLocalEulerAngles(0.0f, player.angle + 90.0f, 0.0f);
-        }
-    }
+        layout();
+        const Vector3 overHead(0.0f, 1.4f, 0.0f);
+        for (auto& fighter : _fighters) {
+            fighter.angle += dt * fighter.speed;
+            fighter.body->setPosition(fighter.radius * std::sin(fighter.angle), 1.0f,
+                                      fighter.radius * std::cos(fighter.angle));
+            const ScreenPoint point = worldToScreen(fighter.body->position() + overHead, _camera, _screen);
 
-    // After Engine::update, so the overlay follows the transforms this frame renders.
-    void preRender() override
-    {
-        for (auto& player : _players) {
-            // Slightly above the player's head
-            Vector3 worldPosition = player.entity->position();
-            worldPosition = Vector3(worldPosition.getX(), worldPosition.getY() + 0.6f, worldPosition.getZ());
-
-            const Vector3 screenPosition = worldToScreenSpace(worldPosition, _camera, _screen);
-            const bool inFront = screenPosition.getZ() > 0.0f;
-
-            player.playerInfo->setEnabled(inFront);
-            if (inFront) {
-                player.playerInfo->setLocalPosition(screenPosition.getX(), screenPosition.getY(), 0.0f);
+            // Hide the tag when its fighter is behind the camera, which the depth in view
+            // space tells, or off the canvas
+            const bool visible = point.viewZ < 0.0f && point.onCanvas;
+            fighter.tag->setEnabled(visible);
+            if (visible) {
+                fighter.tag->setLocalPosition(point.position.x, point.position.y, 0.0f);
+                // Fade the tags of distant fighters, so that the nearest ones stand out
+                const float opacity = std::clamp(2.2f - -point.viewZ / 10.0f, 0.35f, 1.0f);
+                for (auto* part : fighter.parts) {
+                    part->setOpacity(opacity);
+                }
             }
         }
     }
 
 private:
-    void createPlayer(Entity* screenEntity, FontResource* font, const int id,
-        const float startingAngle, const float speed, const float radius)
+    std::shared_ptr<StandardMaterial> createMaterial(const Color& color) const
     {
-        auto& player = _players.emplace_back();
-        player.angle = startingAngle;
-        player.speed = speed;
-        player.radius = radius;
+        auto material = std::make_shared<StandardMaterial>();
+        material->setDiffuse(color);
+        material->setGloss(0.4f);
+        return material;
+    }
 
-        // Create a capsule entity to represent a player in the 3d world
-        player.material = std::make_shared<StandardMaterial>();
-        player.entity = createPrimitive("capsule", player.material.get(),
-            Vector3(0.0f, 0.5f, 0.0f), Vector3(0.5f, 0.5f, 0.5f));
+    /// An element on `parent`, centred on it unless `desc` says otherwise.
+    ElementComponent* createElement(Entity* parent, const std::string& name, ElementDesc desc) const
+    {
+        auto* entity = new Entity();
+        entity->setEngine(engine());
+        entity->setName(name);
+        if (!desc.anchor) {
+            desc.anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f);
+        }
+        if (!desc.pivot) {
+            desc.pivot = Vector2(0.5f, 0.5f);
+        }
+        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
+        element->setup(desc);
+        parent->addChild(entity);
+        return element;
+    }
 
-        // Create a text element that will hover the player's head
-        player.playerInfo = new Entity();
-        player.playerInfo->setEngine(engine());
-        auto* info = static_cast<ElementComponent*>(player.playerInfo->addComponent<ElementComponent>());
-        info->setup({.type = ElementType::Image,
-            .anchor = Vector4(0.0f, 0.0f, 0.0f, 0.0f),
-            .pivot = Vector2(0.5f, 0.0f),
-            .width = PANEL_WIDTH,
-            .height = PANEL_HEIGHT});
-        info->setOpacity(0.05f);
-        screenEntity->addChild(player.playerInfo);
+    void createFighter(Entity* screen, FontResource* font, const FighterDef& def, const float angle)
+    {
+        auto& fighter = _fighters.emplace_back();
+        fighter.radius = def.radius;
+        fighter.speed = def.speed;
+        fighter.angle = angle;
+        fighter.material = createMaterial(def.color);
+        fighter.body = createPrimitive("capsule", fighter.material.get(), Vector3(0.0f, 1.0f, 0.0f),
+                                       Vector3(0.8f, 1.0f, 0.8f));
+        fighter.body->setName(def.name);
 
-        auto* nameEntity = new Entity();
-        nameEntity->setEngine(engine());
-        player.name = static_cast<ElementComponent*>(nameEntity->addComponent<ElementComponent>());
-        player.name->setup({.type = ElementType::Text,
-            .anchor = Vector4(0.0f, 0.4f, 1.0f, 1.0f),
-            .pivot = Vector2(0.5f, 0.5f),
-            .margin = Vector4(0.0f, 0.0f, 0.0f, 0.0f),
-            .useInput = true});
-        player.name->setFontResource(font);
-        player.name->setFontSize(20);
-        player.name->setText("Player " + std::to_string(id));
-        player.name->setHorizontalAlign(ElementHorizontalAlign::Center);
-        player.name->setVerticalAlign(0.5f);   // upstream's default text alignment
-        player.button = static_cast<ButtonComponent*>(nameEntity->addComponent<ButtonComponent>());
-        player.button->setImageEntity(nameEntity);
-        player.playerInfo->addChild(nameEntity);
+        // The tag is anchored to the bottom-left corner of the screen, and its pivot is the
+        // middle of its bottom edge, so it sits over the point it is placed at. Tapping it
+        // hits the fighter
+        ElementComponent* tag = createElement(screen, std::string(def.name) + " tag",
+            {.type = ElementType::Group, .anchor = Vector4(0.0f, 0.0f, 0.0f, 0.0f), .pivot = Vector2(0.5f, 0.0f),
+             .width = 140.0f, .height = 56.0f, .useInput = true});
+        fighter.tag = tag->entity();
 
-        auto* healthBar = new Entity();
-        healthBar->setEngine(engine());
-        auto* health = static_cast<ElementComponent*>(healthBar->addComponent<ElementComponent>());
-        health->setup({.type = ElementType::Image,
-            .anchor = Vector4(0.0f, 0.0f, 1.0f, 0.4f),
-            .pivot = Vector2(0.5f, 0.0f),
-            .margin = Vector4(0.0f, 0.0f, 0.0f, 0.0f)});
-        health->setColor(Color(0.2f, 0.6f, 0.2f, 1.0f));
-        health->setOpacity(1.0f);
-        player.playerInfo->addChild(healthBar);
+        ElementComponent* label = createElement(fighter.tag, "name",
+            {.type = ElementType::Text, .width = 140.0f, .height = 24.0f});
+        label->setFontResource(font);
+        label->setText(def.name);
+        label->setFontSize(24);
+        label->setHorizontalAlign(ElementHorizontalAlign::Center);
+        label->setVerticalAlign(0.5f);
+        label->setOutlineColor(DARK);
+        label->setOutlineThickness(0.5f);
+        label->entity()->setLocalPosition(0.0f, 10.0f, 0.0f);
 
-        player.button->on("click", [this, name = player.name, material = player.material]() {
-            std::uniform_real_distribution<float> unit(0.0f, 1.0f);
-            const Color color(unit(_rng), unit(_rng), unit(_rng), 1.0f);
-            name->setColor(color);
-            material->setDiffuse(color);
+        // The health bar: a dark track, and a fill whose right anchor is the fraction of
+        // health left
+        ElementComponent* bar = createElement(fighter.tag, "bar",
+            {.type = ElementType::Image, .width = 120.0f, .height = 12.0f});
+        bar->setSprite(_track);
+        bar->setColor(DARK);
+        bar->entity()->setLocalPosition(0.0f, -14.0f, 0.0f);
+
+        fighter.health = createElement(bar->entity(), "health",
+            {.type = ElementType::Image, .anchor = Vector4(0.0f, 0.0f, 1.0f, 1.0f),
+             .margin = Vector4(2.0f, 2.0f, 2.0f, 2.0f)});
+        fighter.health->setSprite(_track);
+        fighter.health->setColor(GREEN);
+        fighter.parts = {label, bar, fighter.health};
+
+        const size_t index = _fighters.size() - 1;
+        tag->on("click", [this, index]() {
+            Fighter& f = _fighters[index];
+            f.hp = f.hp > 0.3f ? f.hp - 0.25f : 1.0f;
+            f.health->setAnchor(Vector4(0.0f, 0.0f, f.hp, 1.0f));
+            Color color;
+            color.lerp(RED, GREEN, f.hp);
+            f.health->setColor(color);
         });
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
-    std::unique_ptr<Asset> _checkboard;
-    std::unique_ptr<Asset> _font;
-    std::shared_ptr<StandardMaterial> _groundMaterial;
+    // On portrait canvases, fit the arena to the width of the view rather than its height,
+    // and use a portrait reference resolution for the tags
+    void layout()
+    {
+        const auto [w, h] = engine()->canvasSize();
+        const bool portrait = h > w;
+        if (portrait == _portrait && _laidOut) {
+            return;
+        }
+        _portrait = portrait;
+        _laidOut = true;
+        _camera->camera()->setHorizontalFov(portrait);
+        _screen->setReferenceResolution(portrait ? Vector2(540.0f, 960.0f) : Vector2(1280.0f, 720.0f));
+    }
 
-    std::vector<Player> _players;
+    std::shared_ptr<ElementInput> _elementInput;
+    std::unique_ptr<Asset> _font;
+    std::unique_ptr<Asset> _uiAtlasTexture;
+    std::shared_ptr<TextureAtlas> _atlas;
+    std::shared_ptr<Sprite> _track;
+    std::shared_ptr<StandardMaterial> _floorMaterial;
+    std::vector<Fighter> _fighters;
     CameraComponent* _camera = nullptr;
     ScreenComponent* _screen = nullptr;
-
-    std::mt19937 _rng{std::random_device{}()};
+    bool _portrait = false;
+    bool _laidOut = false;
 };
 
 VISUTWIN_EXAMPLE_MAIN(WorldToScreenExample)
