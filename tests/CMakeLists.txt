@@ -53,7 +53,8 @@ if(VISUTWIN_BACKEND_VULKAN)
 endif()
 
 # Golden images (tools/golden_images.py): renders deterministic examples with this
-# build's backend and compares them with tests/golden/<backend>/. It needs a GPU, a
+# build's backend and compares them with tests/golden/<backend>/<ratio>x/, the set for the
+# back buffer's pixel ratio. It needs a GPU, a
 # window and the example binaries, so it exists only when the examples are built and
 # carries the `golden` label, which every CI test preset excludes; run it with
 # `ctest --preset golden` (Metal, the `examples` build). A Vulkan build of the examples

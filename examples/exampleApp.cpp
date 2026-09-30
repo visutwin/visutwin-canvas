@@ -487,6 +487,9 @@ namespace visutwin::canvas
                 }
             }
             gd->setMaxPixelRatio(cap);
+            // tools/golden_images.py reads this line to pick the references for this density.
+            const auto [pw, ph] = gd->windowSizeInPoints();
+            spdlog::info("Back buffer pixel ratio {} ({}x{} points)", gd->pixelRatio(), pw, ph);
         }
 
         // The performance HUD. Upstream's example harness puts ministats on every

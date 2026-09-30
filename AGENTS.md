@@ -108,9 +108,12 @@ ctest --preset default
   on the `examples` build for Metal; the script with `--backend vulkan` on a Release
   Vulkan examples build — a Debug one crashes in the validation layer). Nine
   deterministic examples render under `VISUTWIN_FIXED_DT`, are downscaled 4x and
-  compared with `tests/golden/<backend>/`; a changed pixel density (the drawable
-  follows the display, and a sleeping display comes back at 1x) SKIPS a case rather
-  than failing it. Both backends reproduce every reference bit for bit run to run, and
+  compared with `tests/golden/<backend>/<ratio>x/`: one reference set PER PIXEL DENSITY
+  (2x Retina, 1x a standard monitor), picked from the "Back buffer pixel ratio" line the
+  example harness logs, because the drawable follows the display the window opens on (an
+  external 1x monitor, or a sleeping display that comes back at 1x). A density with no set
+  SKIPS its cases; `--update` writes the set for the density it runs at, so a rendering change
+  that is intended needs re-capturing at BOTH densities, on two displays. Both backends reproduce every reference bit for bit run to run, and
   a 1.03 factor on every lit colour failed all eight original cases, so a failure is real. When a
   rendering change is intended, look at the images it writes to
   `<examples-dir>/golden-failures`, then re-capture with `--update` and commit the new

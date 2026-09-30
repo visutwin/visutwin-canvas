@@ -3,7 +3,7 @@
 
 Renders a fixed set of deterministic examples with one backend, downscales each
 frame 4x (box average) and compares it with the reference committed under
-tests/golden/<backend>/. LOCAL ONLY: it needs a GPU and a window, so no CI preset
+tests/golden/<backend>/<ratio>x/, the set for the back buffer's pixel ratio. LOCAL ONLY: it needs a GPU and a window, so no CI preset
 runs it; ctest runs it through the `golden` label (see the `golden` test presets).
 
     tools/golden_images.py --examples-dir build-examples/examples --backend metal
@@ -11,12 +11,14 @@ runs it; ctest runs it through the `golden` label (see the `golden` test presets
     tools/golden_images.py ... --only clearcoat,gsplat
 
 Every case runs under VISUTWIN_FIXED_DT, so an animated example reaches the same
-state at the same frame in every run. A case whose capture is not the size its
-reference was captured at (a display of a different pixel density, which changes
-the drawable size) is SKIPPED, not compared: rendering at another density moves
-edges and every screen-space effect, and a tolerance loose enough to accept that
-would accept real regressions too. If every case is skipped the exit code is 77,
-which ctest reports as a skip.
+state at the same frame in every run. Rendering at another pixel density moves edges
+and every screen-space effect, and a tolerance loose enough to accept that would
+accept real regressions too, so there is one reference set PER DENSITY: the example
+harness logs the back buffer's pixel ratio ("Back buffer pixel ratio 2"), and a
+capture is compared with tests/golden/<backend>/<ratio>x/ (2x on a Retina display,
+1x on a standard one). --update writes the set for the density it runs at. A density
+with no set, or a capture whose size is not its reference's, is SKIPPED; if every
+case is skipped the exit code is 77, which ctest reports as a skip.
 
 A mismatch writes the capture, the reference and a difference image to --out.
 
@@ -24,6 +26,7 @@ Needs Python 3 with numpy and Pillow.
 """
 import argparse
 import json
+import re
 import os
 import pathlib
 import shutil
@@ -119,6 +122,15 @@ def capture(binary: pathlib.Path, backend: str, frame: int, out_png: pathlib.Pat
                 process.wait()
 
 
+def pixel_ratio_label(log_path: pathlib.Path) -> str:
+    """The reference set for the density a run rendered at: "2x", "1x" ... from the harness's
+    "Back buffer pixel ratio R" line; "unknown" when the log has none."""
+    match = re.search(r"Back buffer pixel ratio ([0-9.]+)", log_path.read_text(errors="replace"))
+    if not match:
+        return "unknown"
+    return f"{float(match.group(1)):g}x"
+
+
 def downscale(image: Image.Image) -> Image.Image:
     width = image.width - image.width % DOWNSCALE
     height = image.height - image.height % DOWNSCALE
@@ -151,9 +163,15 @@ def main() -> int:
 
     only = {name for name in args.only.split(",") if name}
     cases = [case for case in CASES if not only or case["example"] in only]
-    reference_dir = GOLDEN_DIR / args.backend
-    manifest_path = reference_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    backend_dir = GOLDEN_DIR / args.backend
+    manifests = {}   # reference set -> its manifest, read once, written back by --update
+
+    def manifest_for(label: str) -> dict:
+        if label not in manifests:
+            path = backend_dir / label / "manifest.json"
+            manifests[label] = json.loads(path.read_text()) if path.exists() else {}
+        return manifests[label]
+
     out_dir = args.out or (args.examples_dir / "golden-failures")
 
     failures, skipped, passed = [], [], []
@@ -173,25 +191,36 @@ def main() -> int:
                 continue
             full = Image.open(shot)
             small = downscale(full)
+            label = pixel_ratio_label(log)
+            reference_dir = backend_dir / label
+            manifest = manifest_for(label)
 
             if args.update:
+                if label == "unknown":
+                    failures.append(f"{example}: the log names no pixel ratio, so no reference set to store in")
+                    continue
                 reference_dir.mkdir(parents=True, exist_ok=True)
                 small.save(reference_dir / f"{example}.png", optimize=True)
                 manifest[example] = {"capture_size": [full.width, full.height], "frame": case["frame"]}
-                print(f"  stored  {example}  ({full.width}x{full.height} -> {small.width}x{small.height})")
+                print(f"  stored  {label}/{example}  ({full.width}x{full.height} -> {small.width}x{small.height})")
                 continue
 
             reference_path = reference_dir / f"{example}.png"
             if not reference_path.exists() or example not in manifest:
-                failures.append(f"{example}: no reference (run with --update to create one)")
+                if any((backend_dir / other / f"{example}.png").exists()
+                       for other in ("1x", "2x") if other != label):
+                    skipped.append(f"{example}: rendered at {label}, which has no reference set "
+                                   f"(run --update on a {label} display to create one)")
+                else:
+                    failures.append(f"{example}: no reference (run with --update to create one)")
                 continue
             expected_size = manifest[example]["capture_size"]
             if [full.width, full.height] != expected_size:
-                skipped.append(f"{example}: captured at {full.width}x{full.height}, reference at "
-                               f"{expected_size[0]}x{expected_size[1]} (display pixel density differs)")
+                skipped.append(f"{example}: captured at {full.width}x{full.height}, the {label} reference at "
+                               f"{expected_size[0]}x{expected_size[1]} (the window changed size)")
                 continue
             ok, differing, mean, heat = compare(small, Image.open(reference_path))
-            line = f"{example}: {differing * 100:.3f}% of pixels differ, mean |d| {mean:.3f}"
+            line = f"{example} ({label}): {differing * 100:.3f}% of pixels differ, mean |d| {mean:.3f}"
             if ok:
                 passed.append(line)
             else:
@@ -203,8 +232,13 @@ def main() -> int:
                                 f"images in {out_dir}")
 
     if args.update:
-        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-        print(f"references for {args.backend} written to {reference_dir}")
+        for label, manifest in manifests.items():
+            if manifest and label != "unknown":
+                path = backend_dir / label / "manifest.json"
+                path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+                print(f"references for {args.backend} at {label} written to {path.parent}")
+        for line in failures:
+            print(f"  FAIL  {line}")
         return 1 if failures else 0
 
     for line in passed:
