@@ -34,6 +34,7 @@
 #include "core/math/vector3.h"
 #include "core/eventHandler.h"
 #include "scene/mesh.h"
+#include "core/scopedTimer.h"
 
 namespace visutwin::canvas
 {
@@ -1075,6 +1076,44 @@ namespace visutwin::canvas
             }
         }
         void recordDisplayWait(const double milliseconds) { _displayWaitMs += milliseconds; }
+
+        /**
+         * Times one call that may block on the display, and records as display wait only
+         * the part of it the calling thread spent NOT running: the call's wall time less
+         * the CPU time the thread used inside it.
+         *
+         * A wall-clock measurement is right only for a call that does nothing but wait.
+         * vkQueueSubmit2 on MoltenVK is the one that does not: it ENCODES the recorded
+         * command buffer into Metal there, and it also takes the drawable there, so under
+         * display sync it holds both the frame's largest single piece of CPU work and its
+         * pacing wait. Timed by the wall clock the encode went into the wait and out of
+         * the render time — at 20k draws 40% of the main thread, missing from
+         * VISUTWIN_CPU_STATS, until 2026-09-30. A thread asleep uses no CPU time, so the
+         * difference is the wait. Where the platform has no per-thread CPU clock the whole
+         * call counts, as before.
+         */
+        class DisplayWaitScope
+        {
+        public:
+            explicit DisplayWaitScope(GraphicsDevice& device)
+                : _device(device), _wallStart(std::chrono::steady_clock::now()),
+                  _cpuStart(threadCpuMilliseconds()) {}
+            ~DisplayWaitScope()
+            {
+                const double wall = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - _wallStart).count();
+                const double cpuEnd = _cpuStart >= 0.0 ? threadCpuMilliseconds() : -1.0;
+                const double cpu = cpuEnd >= 0.0 ? cpuEnd - _cpuStart : 0.0;
+                _device.recordDisplayWait(wall > cpu ? wall - cpu : 0.0);
+            }
+            DisplayWaitScope(const DisplayWaitScope&) = delete;
+            DisplayWaitScope& operator=(const DisplayWaitScope&) = delete;
+
+        private:
+            GraphicsDevice& _device;
+            std::chrono::steady_clock::time_point _wallStart;
+            double _cpuStart;
+        };
 
         void clearVertexBuffer();
         // Backends that destroy their native device in the derived destructor

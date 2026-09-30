@@ -164,6 +164,29 @@ int main()
     batcher.updateAll();
     check(sourcesInGroup(batcher, kGroup).size() == 2, "and the group is rebuilt without it");
 
+    std::cout << "\nchanging a source's material\n";
+    {
+        // setMaterial swaps the instance's material in place (no rebuild since
+        // 2026-09-30), so it must tell the batcher itself: the batch baked the old one in.
+        auto otherMaterial = std::make_shared<StandardMaterial>();
+        MeshInstance* changed = meshes[3];
+        boxes[3]->findComponent<RenderComponent>()->setMaterial(otherMaterial.get());
+        check(!contains(sourcesInGroup(batcher, kGroup), changed),
+            "the batch that merged it with the old material is gone at once");
+        batcher.updateAll();
+        // The group now holds boxes 1 and 3 (box 0 was destroyed, box 2 moved away). With
+        // different materials each is alone in its bucket, and one source makes no batch.
+        check(sourcesInGroup(batcher, kGroup).empty(),
+            "the next update does not merge it with the old material's source again");
+        check(changed == boxes[3]->findComponent<RenderComponent>()->meshInstances()[0] &&
+              changed->material() == otherMaterial.get(),
+            "the source is the same mesh instance throughout, with the new material");
+        boxes[3]->findComponent<RenderComponent>()->setMaterial(material.get());
+        batcher.updateAll();
+        check(contains(sourcesInGroup(batcher, kGroup), changed) && sourcesInGroup(batcher, kGroup).size() == 2,
+            "given the old material back, it is merged with box 1 again");
+    }
+
     std::cout << (failures == 0 ? "\nAll batch lifetime tests passed\n" : "\nBatch lifetime tests FAILED\n");
     return failures == 0 ? 0 : 1;
 }

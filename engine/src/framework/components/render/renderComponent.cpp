@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <map>
+#include <string>
 #include <utility>
 
 #include <spdlog/spdlog.h>
@@ -533,6 +535,61 @@ namespace visutwin::canvas
             return withTangents(std::move(geometry));
         }
 
+    namespace
+    {
+        /**
+         * The mesh of one primitive type on one device, SHARED by every render component
+         * of that type (upstream's getShapePrimitive): a scene of ten thousand boxes has
+         * one box mesh, not ten thousand, and draws of one material and one primitive
+         * then keep one vertex buffer bound. Each component used to build its own —
+         * geometry, tangents and GPU buffers, about 190 KB of GPU memory for a sphere —
+         * and building dominated the 9.5 us a primitive entity cost to create.
+         *
+         * DEVIATION: held WEAKLY. Upstream keeps each primitive for the device's
+         * lifetime; here the components that use a mesh co-own it (`_ownedMeshes`) and
+         * the cache only finds a live one, so the last component to go frees it. The
+         * device fires no "destroy" event a strong cache could clear itself on, and a
+         * mesh freed at static destruction would release its buffers into a device that
+         * is already gone.
+         *
+         * Nothing may modify a mesh reached through a primitive component: it is every
+         * such component's mesh. Per-instance state (material, lightmap, mask, stencil)
+         * lives on the MeshInstance.
+         */
+        std::shared_ptr<Mesh> sharedPrimitiveMesh(const std::shared_ptr<GraphicsDevice>& device,
+            const std::string& type)
+        {
+            static std::map<std::pair<const GraphicsDevice*, std::string>, std::weak_ptr<Mesh>> cache;
+            std::weak_ptr<Mesh>& slot = cache[{device.get(), type}];
+            if (auto mesh = slot.lock()) {
+                return mesh;
+            }
+
+            PrimitiveGeometry geometry;
+            if (type == "box") {
+                geometry = createBoxGeometry();
+            } else if (type == "sphere") {
+                geometry = createSphereGeometry();
+            } else if (type == "cylinder") {
+                geometry = createCylinderGeometry();
+            } else if (type == "cone") {
+                geometry = createConeGeometry();
+            } else if (type == "capsule") {
+                geometry = createCapsuleGeometry();
+            } else if (type == "plane") {
+                geometry = createPlaneGeometry();
+            } else {
+                // DEVIATION: Current C++ RenderComponent primitive port implements box/sphere/cylinder/cone/capsule/plane only.
+                spdlog::warn("Unsupported render primitive type '{}'", type);
+                return nullptr;
+            }
+
+            auto mesh = createMesh(device, geometry);
+            slot = mesh;
+            return mesh;
+        }
+    }
+
     RenderComponent::RenderComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity), _type("asset")
     {
@@ -640,8 +697,20 @@ namespace visutwin::canvas
         }
         _material = material;
 
-        if (_type != "asset") {
-            rebuildPrimitiveMesh();
+        // Upstream: a primitive's instances take the new material; nothing is rebuilt.
+        // This used to rebuild the primitive — a second mesh for the common setType,
+        // setMaterial order — and so also dropped whatever had been set on the instance.
+        if (_type != "asset" && !_meshInstances.empty()) {
+            // A batch bakes its sources' material in: it is rebuilt from them, as it was
+            // when the instance was replaced.
+            if (auto* batches = batcher(); batches && active()) {
+                batches->sourcesLeaving(_batchGroupId);
+            }
+            for (const auto& meshInstance : _meshInstances) {
+                if (meshInstance) {
+                    meshInstance->setMaterial(material);
+                }
+            }
         }
     }
 
@@ -737,26 +806,7 @@ namespace visutwin::canvas
             return;
         }
 
-        PrimitiveGeometry primitiveGeometry;
-        if (_type == "box") {
-            primitiveGeometry = createBoxGeometry();
-        } else if (_type == "sphere") {
-            primitiveGeometry = createSphereGeometry();
-        } else if (_type == "cylinder") {
-            primitiveGeometry = createCylinderGeometry();
-        } else if (_type == "cone") {
-            primitiveGeometry = createConeGeometry();
-        } else if (_type == "capsule") {
-            primitiveGeometry = createCapsuleGeometry();
-        } else if (_type == "plane") {
-            primitiveGeometry = createPlaneGeometry();
-        } else {
-            // DEVIATION: Current C++ RenderComponent primitive port implements box/sphere/cylinder/cone/capsule/plane only.
-            spdlog::warn("Unsupported render primitive type '{}'", _type);
-            return;
-        }
-
-        auto mesh = createMesh(device, primitiveGeometry);
+        auto mesh = sharedPrimitiveMesh(device, _type);
         if (!mesh) {
             return;
         }

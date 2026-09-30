@@ -161,6 +161,14 @@ target_link_libraries(visutwin-component-instance-list-tests PRIVATE visutwin-ca
 
 add_test(NAME component-instance-list COMMAND visutwin-component-instance-list-tests)
 
+add_executable(visutwin-primitive-mesh-sharing-tests
+    primitiveMeshSharingTests.cpp
+)
+
+target_link_libraries(visutwin-primitive-mesh-sharing-tests PRIVATE visutwin-canvas)
+
+add_test(NAME primitive-mesh-sharing COMMAND visutwin-primitive-mesh-sharing-tests)
+
 add_executable(visutwin-batch-split-tests
     batchSplitTests.cpp
 )

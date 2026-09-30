@@ -1576,6 +1576,23 @@ present, but the rule below never depends on reading it.
   for the rest of the call. Note the `_destroying` guard in
   `removeComponentInstance` — teardown has already disabled everything in order,
   and without it each component would get a second `onDisable`.
+- **Every render component of one primitive type shares ONE mesh per device**
+  (`sharedPrimitiveMesh` in `renderComponent.cpp`, upstream's `getShapePrimitive`), and
+  `setMaterial` swaps the instance's material IN PLACE, as upstream, instead of
+  rebuilding the primitive. So nothing may modify a mesh reached through a primitive
+  component — it is every such component's mesh; per-instance state (material,
+  lightmap, mask, stencil, shadow flags) lives on the MeshInstance and now survives a
+  material change. A batched source's material change tears its group down
+  (`sourcesLeaving`) as the rebuild used to. DEVIATION: the cache holds meshes WEAKLY —
+  the components co-own them (`_ownedMeshes`) and the last one to go frees the mesh —
+  because the device fires no "destroy" a strong cache could clear on, and a mesh freed
+  at static destruction would release its buffers into a device already gone. Until
+  2026-09-30 every component built its own geometry and GPU buffers (190 KB for a
+  sphere), creating a primitive entity took 9.5 us on Metal and 30 on Vulkan (0.36
+  after, both), and draws of one material each bound their own vertex buffer: 20k boxes
+  rendered in 6.9 ms of CPU on Metal, 4.0 after. Boxes of one material now tie in the
+  sort key's mesh field and keep collection order, where they used to order by mesh
+  address. `tests/primitiveMeshSharingTests.cpp` counts the buffers.
 - **`Entity::clone` is TWO passes, and a new component owes both.** The first builds
   the copy — node state and tags, then each component in CREATION order through
   `Component::cloneFrom` — and the second, once the whole subtree exists, calls
@@ -2380,7 +2397,10 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     step (2.0) magnifies it until the wrong backend is obvious.
 
 14. `VISUTWIN_CPU_STATS=first,last` prints, when frame `last` is reached, the MEDIAN over
-    frames [first, last] of the engine's update, its render (less the display wait), and
+    frames [first, last] of the engine's update, its render (less the display wait — the
+    time the thread was NOT running inside the calls that can block on the display, so the
+    figure equals the thread's own CPU time over `render()`, checked to 0.01 ms on both
+    backends from an empty scene to 20k draws, vsync on and off), and
     the renderer's per-phase frame statistics (cull, sort, forward, shadow, skin and morph,
     clusters). `VISUTWIN_NO_VSYNC=1` turns off Metal's display sync for such a run; Vulkan
     always presents FIFO. The HUD costs 0.03-0.06 ms a frame (`MiniStats::draw`, timed
@@ -2393,8 +2413,15 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     2026-09-26 the queued "hot" items (the culling sweep, graph-build churn) measured
     under 0.1 ms, while `sample <pid> 5` found the real costs in one minute. Sort its
     output by inclusive samples per engine function; a function that owns most of the
-    main thread but sits in `nextDrawable` (Metal) or `onFrameEnd` (Vulkan) is waiting
-    on the GPU, not working.
+    main thread but sits in `nextDrawable` (Metal) is waiting on the display, not working.
+    On Vulkan look one level deeper: `vkQueueSubmit2` under `onFrameEnd` is where MoltenVK
+    ENCODES the frame into Metal (work) as well as where it takes the drawable (a wait).
+    Until 2026-09-30 the whole submit was recorded as display wait, so Vulkan's render
+    time left out the encode — at 20k draws 40% of the main thread, reported as 8.6 ms
+    where the thread worked 11.4 — and every Metal/Vulkan CPU comparison before that date
+    flattered Vulkan. `GraphicsDevice::DisplayWaitScope` now records a call's wall time
+    less the thread's CPU time inside it; any new call that can block on the display
+    goes through it.
 
 15. `VISUTWIN_MAX_PIXEL_RATIO=r` caps the back buffer at r pixels per point on any example
     (the examples default to min(density, 2)); 1 on a Retina display matches upstream's default

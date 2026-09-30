@@ -9,9 +9,27 @@
 #pragma once
 
 #include <chrono>
+#include <ctime>
 
 namespace visutwin::canvas
 {
+    /**
+     * CPU time the CALLING THREAD has run, in milliseconds, or a negative value where the
+     * platform cannot say. Unlike a wall clock it does not advance while the thread sleeps
+     * — in a semaphore, a fence wait, the display — which is what lets a caller tell work
+     * from waiting inside a call that does some of both (see DisplayWaitScope).
+     */
+    inline double threadCpuMilliseconds()
+    {
+#if defined(CLOCK_THREAD_CPUTIME_ID)
+        timespec now{};
+        if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now) == 0) {
+            return static_cast<double>(now.tv_sec) * 1000.0 + static_cast<double>(now.tv_nsec) * 1e-6;
+        }
+#endif
+        return -1.0;
+    }
+
     class ScopedMilliseconds
     {
     public:

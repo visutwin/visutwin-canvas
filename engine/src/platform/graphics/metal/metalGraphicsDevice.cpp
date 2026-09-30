@@ -1499,10 +1499,10 @@ namespace visutwin::canvas
             } else {
                 // Under display sync this is where the frame waits for the display, and
                 // it is inside Engine::render(); see displayWaitMilliseconds().
-                const auto waitStart = std::chrono::steady_clock::now();
-                _currentDrawable = _metalLayer->nextDrawable();
-                recordDisplayWait(std::chrono::duration<double, std::milli>(
-                    std::chrono::steady_clock::now() - waitStart).count());
+                {
+                    const DisplayWaitScope waitScope(*this);
+                    _currentDrawable = _metalLayer->nextDrawable();
+                }
                 if (!_currentDrawable) {
                     spdlog::warn("Failed to acquire CAMetalDrawable");
                     return;
