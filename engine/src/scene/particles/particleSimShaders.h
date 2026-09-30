@@ -9,8 +9,13 @@
 // binding 1. Both kernels below already matched that layout when they were
 // backend-specific, so the migration did not have to move a single binding.
 //
-// The step is deterministic: birth state derives from a per-particle hash, so an
-// emitter needs no CPU round trip and respawn staggers itself.
+// The step is deterministic: birth state derives from an INTEGER hash (PCG) of the particle
+// index and the emitter's step counter, so an emitter needs no CPU round trip, and both
+// languages draw the same numbers bit for bit. It replaced fract(sin(x) * 43758), whose
+// GPU sine at large arguments was neither uniform (a spark fountain came out 10% narrower
+// than upstream) nor the same in MSL and SPIR-V (spawns a pixel apart between backends), and
+// whose seed included the running time, so its precision fell the longer an emitter ran.
+// The per-life seed is kept in motion.w as a float holding 24 bits, which is exact.
 //
 // The particle clock is upstream's (particleUpdaterStart / Respawn / NoRespawn / OnStop):
 // a life <= 0 is unborn and re-spawned every step; reaching the lifetime wraps the life
@@ -54,7 +59,7 @@ struct ParticleSimParams {
     float4 velocitySpread;   // xyz = spread, w = loop flag
     float4 timeParams;       // dt, time, emission period, particle count
     float4 lifeRot;          // lifetime min/max, rotSpeed min/max (rad/s)
-    float4 angleParams;      // startAngle min/max (rad), seed, on-stop flag
+    float4 angleParams;      // startAngle min/max (rad), step counter, on-stop flag
     float4 graphParams;      // velocity graphs on, rotation speed graph on
     float4 localVelocityLut[16];
     float4 localVelocityLut2[16];
@@ -62,11 +67,14 @@ struct ParticleSimParams {
     float4 velocityLut2[16];
 };
 
-static inline float hash1(float n) { return fract(sin(n) * 43758.5453123); }
-static inline float3 hash3(float n)
+static inline uint pcgHash(uint v)
 {
-    return float3(hash1(n), hash1(n + 17.1717), hash1(n + 41.4141));
+    const uint state = v * 747796405u + 2891336453u;
+    const uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
 }
+static inline float rnd(uint key) { return float(pcgHash(key) >> 8) * (1.0 / 16777216.0); }
+static inline float3 rnd3(uint key) { return float3(rnd(key), rnd(key + 1u), rnd(key + 2u)); }
 
 static inline float4 sampleLut(constant float4* lut, float nlife)
 {
@@ -106,9 +114,9 @@ kernel void particleSimKernel(device Particle* particles [[buffer(0)]],
     if (respawn) {
         // Spawn position from the emitter shape, velocity from base + spread,
         // per-particle lifetime/rotation from the hashed seed.
-        const float seed = p.rotSeedSize.z + params.angleParams.z;
-        const float3 r3 = hash3(seed) * 2.0 - 1.0;
-        const float3 r3b = hash3(seed + 7.77);
+        const uint lifeSeed = pcgHash(gid ^ pcgHash(uint(params.angleParams.z))) & 0xFFFFFFu;
+        const float3 r3 = rnd3(lifeSeed) * 2.0 - 1.0;
+        const float3 r3b = rnd3(lifeSeed + 3u);
 
         float3 localPos;
         if (params.shapeParams.w > 0.5) {
@@ -120,7 +128,7 @@ kernel void particleSimKernel(device Particle* particles [[buffer(0)]],
         }
         p.posAge.xyz = (params.emitterTransform * float4(localPos, 1.0)).xyz;
 
-        float3 vel = params.velocityBase.xyz + (hash3(seed + 3.33) * 2.0 - 1.0) * params.velocitySpread.xyz;
+        float3 vel = params.velocityBase.xyz + (rnd3(lifeSeed + 6u) * 2.0 - 1.0) * params.velocitySpread.xyz;
         if (!localSpace) {
             // World space: rotate the velocity by the emitter orientation.
             vel = (params.emitterTransform * float4(vel, 0.0)).xyz;
@@ -128,8 +136,8 @@ kernel void particleSimKernel(device Particle* particles [[buffer(0)]],
         p.velLifetime.xyz = vel;
         p.velLifetime.w = mix(params.lifeRot.x, params.lifeRot.y, r3b.y);
         p.rotSeedSize.x = mix(params.angleParams.x, params.angleParams.y, r3b.z);
-        p.rotSeedSize.y = mix(params.lifeRot.z, params.lifeRot.w, hash1(seed + 9.99));
-        p.motion.w = hash1(seed + 5.55) * 1000.0;
+        p.rotSeedSize.y = mix(params.lifeRot.z, params.lifeRot.w, rnd(lifeSeed + 9u));
+        p.motion.w = float(lifeSeed);
     }
 
     // Integrate: gravity, damping, then the velocity graphs on top.
@@ -139,7 +147,7 @@ kernel void particleSimKernel(device Particle* particles [[buffer(0)]],
 
     const float nlife = clamp(life / max(p.velLifetime.w, 1e-4), 0.0, 1.0);
     if (params.graphParams.x > 0.5) {
-        const float3 r = hash3(p.motion.w);
+        const float3 r = rnd3(uint(p.motion.w) + 10u);
         const float3 localVelocity = mix(sampleLut(params.localVelocityLut, nlife).xyz,
                                          sampleLut(params.localVelocityLut2, nlife).xyz, r);
         const float3 worldVelocity = mix(sampleLut(params.velocityLut, nlife).xyz,
@@ -150,7 +158,7 @@ kernel void particleSimKernel(device Particle* particles [[buffer(0)]],
     }
     if (params.graphParams.y > 0.5) {
         p.rotSeedSize.x += mix(sampleLut(params.localVelocityLut, nlife).w,
-                               sampleLut(params.localVelocityLut2, nlife).w, hash1(p.motion.w + 3.21)) * dt;
+                               sampleLut(params.localVelocityLut2, nlife).w, rnd(uint(p.motion.w) + 13u)) * dt;
     }
     p.posAge.xyz += vel * dt;
     p.posAge.w = life;
@@ -183,8 +191,13 @@ layout(set = 0, binding = 1, std140) uniform SimParams {
     vec4 velocityLut2[16];
 } params;
 
-float hash1(float n) { return fract(sin(n) * 43758.5453123); }
-vec3 hash3(float n) { return vec3(hash1(n), hash1(n + 17.1717), hash1(n + 41.4141)); }
+uint pcgHash(uint v) {
+    uint state = v * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+float rnd(uint key) { return float(pcgHash(key) >> 8) * (1.0 / 16777216.0); }
+vec3 rnd3(uint key) { return vec3(rnd(key), rnd(key + 1u), rnd(key + 2u)); }
 
 #define SAMPLE_LUT(lut, nlife) mix(lut[min(int(nlife * 15.0), 15)], lut[min(int(nlife * 15.0) + 1, 15)], \
     nlife * 15.0 - float(min(int(nlife * 15.0), 15)))
@@ -210,21 +223,21 @@ void main() {
     if (params.angleParams.w > 0.5 && inLife < 0.0) hidden = true;
 
     if (respawn) {
-        float seed = p.rotSeedSize.z + params.angleParams.z;
-        vec3 r = hash3(seed) * 2.0 - 1.0, rb = hash3(seed + 7.77), localPos;
+        uint lifeSeed = pcgHash(id ^ pcgHash(uint(params.angleParams.z))) & 0xFFFFFFu;
+        vec3 r = rnd3(lifeSeed) * 2.0 - 1.0, rb = rnd3(lifeSeed + 3u), localPos;
         if (params.shapeParams.w > 0.5)
             localPos = normalize(r + vec3(1e-5, 0, 0)) * params.shapeParams.x * pow(rb.x, 1.0 / 3.0);
         else
             localPos = r * params.shapeParams.xyz;
         p.posAge.xyz = (params.emitterTransform * vec4(localPos, 1)).xyz;
         vec3 velocity = params.velocityBase.xyz +
-            (hash3(seed + 3.33) * 2.0 - 1.0) * params.velocitySpread.xyz;
+            (rnd3(lifeSeed + 6u) * 2.0 - 1.0) * params.velocitySpread.xyz;
         if (!localSpace)
             velocity = (params.emitterTransform * vec4(velocity, 0)).xyz;
         p.velLifetime = vec4(velocity, mix(params.lifeRot.x, params.lifeRot.y, rb.y));
         p.rotSeedSize.x = mix(params.angleParams.x, params.angleParams.y, rb.z);
-        p.rotSeedSize.y = mix(params.lifeRot.z, params.lifeRot.w, hash1(seed + 9.99));
-        p.motion.w = hash1(seed + 5.55) * 1000.0;
+        p.rotSeedSize.y = mix(params.lifeRot.z, params.lifeRot.w, rnd(lifeSeed + 9u));
+        p.motion.w = float(lifeSeed);
     }
 
     vec3 velocity = p.velLifetime.xyz + params.gravityDamping.xyz * dt;
@@ -233,7 +246,7 @@ void main() {
 
     float nlife = clamp(life / max(p.velLifetime.w, 1e-4), 0.0, 1.0);
     if (params.graphParams.x > 0.5) {
-        vec3 r = hash3(p.motion.w);
+        vec3 r = rnd3(uint(p.motion.w) + 10u);
         vec3 localVelocity = mix(SAMPLE_LUT(params.localVelocityLut, nlife).xyz,
                                  SAMPLE_LUT(params.localVelocityLut2, nlife).xyz, r);
         vec3 worldVelocity = mix(SAMPLE_LUT(params.velocityLut, nlife).xyz,
@@ -244,7 +257,7 @@ void main() {
     }
     if (params.graphParams.y > 0.5)
         p.rotSeedSize.x += mix(SAMPLE_LUT(params.localVelocityLut, nlife).w,
-                               SAMPLE_LUT(params.localVelocityLut2, nlife).w, hash1(p.motion.w + 3.21)) * dt;
+                               SAMPLE_LUT(params.localVelocityLut2, nlife).w, rnd(uint(p.motion.w) + 13u)) * dt;
     p.posAge.xyz += velocity * dt;
     p.posAge.w = life;
     p.rotSeedSize.w = hidden ? 1.0 : 0.0;

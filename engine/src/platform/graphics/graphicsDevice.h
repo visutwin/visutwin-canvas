@@ -110,7 +110,7 @@ namespace visutwin::canvas
     {
         float posAge[4];        // xyz = position, w = life (<= 0 unborn, as upstream)
         float velLifetime[4];   // xyz = integrated velocity (initial + gravity/damping), w = lifetime
-        float rotSeedSize[4];   // x = angle (rad), y = scalar rotation speed, z = seed, w = hidden flag
+        float rotSeedSize[4];   // x = angle (rad), y = scalar rotation speed, z = unused, w = hidden flag
         float motion[4];        // xyz = total velocity this step (graphs included), w = per-life random seed
     };
     static_assert(sizeof(GpuParticle) == 64);
@@ -126,7 +126,7 @@ namespace visutwin::canvas
         float velocitySpread[4];    // xyz = ± spread, w = loop flag
         float timeParams[4];        // dt, time, emission period (numParticles * rate), particle count
         float lifeRot[4];           // lifetime min/max, rotSpeed min/max (radians/s)
-        float angleParams[4];       // startAngle min/max (radians), seed, on-stop flag
+        float angleParams[4];       // startAngle min/max (radians), hash step counter, on-stop flag
         float graphParams[4];       // x = velocity graphs on, y = rotation speed graph on
         // Over normalized life, 16 samples each: xyz = local velocity (graph and graph2),
         // w = rotation speed in radians/s (graph and graph2); then the world velocity pair.
@@ -145,10 +145,11 @@ namespace visutwin::canvas
         float animParams[4];         // tilesX, tilesY, numFrames, animSpeed
         float miscParams[4];         // intensity, particle count, hasColorMap, animIndex
         float motionParams[4];       // alignToMotion, stretch, screenSpace, viewport height / width
+        float outputParams[4];       // exposure, tone mapping mode, linear HDR target, unused
         float colorLut[16][4];       // rgb + alpha over normalized life
         float scaleLut[16][4];       // x = size (quad half-extent, as upstream), yzw = pad
     };
-    static_assert(sizeof(GpuParticleRenderParams) == 688);
+    static_assert(sizeof(GpuParticleRenderParams) == 704);
 
     struct GpuLightData
     {

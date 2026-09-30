@@ -2,14 +2,15 @@
 struct Particle { vec4 posAge; vec4 velLifetime; vec4 rotSeedSize; vec4 motion; };
 layout(set=6,binding=0,std430) readonly buffer Particles { Particle values[]; } particles;
 layout(set=6,binding=3,std140) uniform RenderParams {
-    mat4 modelView; mat4 projection; vec4 animParams; vec4 miscParams; vec4 motionParams;
+    mat4 modelView; mat4 projection; vec4 animParams; vec4 miscParams; vec4 motionParams; vec4 outputParams;
     vec4 colorLut[16]; vec4 scaleLut[16];
 } params;
 layout(location=0) out vec2 outUv;
 layout(location=1) out vec4 outColor;
 layout(location=2) out float outHasMap;
+layout(location=3) flat out vec3 outOutput; // outputParams.xyz
 void main() {
-    gl_Position=vec4(0,0,2,1); outUv=vec2(0); outColor=vec4(0); outHasMap=params.miscParams.z;
+    gl_Position=vec4(0,0,2,1); outUv=vec2(0); outColor=vec4(0); outHasMap=params.miscParams.z; outOutput=params.outputParams.xyz;
     uint id=gl_InstanceIndex; if(id>=uint(params.miscParams.y)) return;
     Particle p=particles.values[id]; float lifetime=max(p.velLifetime.w,1e-5);
     // Unborn, dead or hidden (upstream particle.js).

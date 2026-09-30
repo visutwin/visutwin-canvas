@@ -145,7 +145,7 @@ def validate(module: str, reflection: dict) -> None:
     if module == "ParticleVert":
         expected = [
             (6, 0, "StorageBuffer", 0),
-            (6, 3, "UniformBuffer", 688),
+            (6, 3, "UniformBuffer", 704),
         ]
         if bindings != expected or push_constant_size(reflection):
             raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")

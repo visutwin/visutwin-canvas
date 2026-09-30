@@ -74,6 +74,7 @@ function(visutwin_add_example example_name)
 endfunction()
 
 visutwin_add_example(particles-anim-index)
+visutwin_add_example(particles-spark)
 visutwin_add_example(parallax-mapping)
 visutwin_add_example(falling-shapes)
 visutwin_add_example(physics-joints)

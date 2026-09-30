@@ -43,7 +43,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 20 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL stages + shared includes compiled to SPIR-V at build time (20 files)
-  examples/        # 66 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 67 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -1488,6 +1488,18 @@ present, but the rule below never depends on reading it.
   world transform as CLIP space with no view or projection, sizes in viewport heights with
   the quad's x scaled by height / width (upstream #9570), and a screen puts it in the UI draw
   order beside its elements (`ScreenComponent::processDrawOrderSync`).
+  A particle's colour is LINEAR and owes the target upstream's output stage (particle_end):
+  the colour map is decoded from sRGB, multiplied by the colour graph, then tone-mapped with
+  the scene's exposure and gamma-encoded, or left linear on a camera frame's HDR scene
+  (`ParticleEmitter::setOutput`, filled per draw by the renderer like the splats' tail).
+  Until 2026-09-30 the billboard wrote `tex x ramp` raw, so every mid-tone of a colour graph
+  was darker than upstream's. The kernel's randomness is an INTEGER hash (PCG of the particle
+  index and a step counter), identical in MSL and GLSL; the `fract(sin(x) * 43758)` it
+  replaced was not uniform on the GPU (a spark fountain 10% narrower than upstream) and not
+  the same on the two backends. An unset graph is a CurveSet whose curves have NO KEYS — a
+  default `CurveSet` still holds one empty curve, and treating that as a zero graph2 halved
+  every velocity graph on average. The option defaults are upstream's: scale 1, opaque,
+  white, BLEND_NORMAL, rate 1.
 - **A script may create a sibling or destroy its own entity from inside its own
   method, and the component's loops are built for it.** `ScriptComponent::forEachScript`
   walks by INDEX, so a script created mid-pass (appended, possibly reallocating the

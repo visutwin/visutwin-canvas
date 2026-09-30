@@ -116,7 +116,7 @@ namespace visutwin::canvas
         int animIndex = 0;
         float animSpeed = 1.0f;
 
-        ParticleBlendType blendType = ParticleBlendType::BLEND_ADDITIVE;
+        ParticleBlendType blendType = ParticleBlendType::BLEND_NORMAL;   // upstream default
         bool depthWrite = false;
 
         ParticleEmitterOptions();
@@ -153,6 +153,11 @@ namespace visutwin::canvas
         /// Called by the renderer draw branch with the viewport it draws into.
         void prepareRender(const Matrix4& view, const Matrix4& projection,
             const Matrix4& model, float viewportWidth, float viewportHeight);
+
+        /// The output stage the fragment applies (upstream particle_end): the scene's exposure
+        /// and tone mapping, and whether the target is a camera frame's linear HDR scene
+        /// (tone mapping and gamma left to compose). Called by the renderer per draw.
+        void setOutput(float exposure, int toneMapping, bool linearTarget);
 
         [[nodiscard]] std::unique_ptr<MeshInstance> createMeshInstance(GraphNode* node);
 
@@ -194,6 +199,7 @@ namespace visutwin::canvas
         GpuParticleRenderParams _renderParams{};
         GpuParticleSimParams _simParams{};   // the LUTs live here; step() fills the rest
         float _time = 0.0f;
+        uint32_t _step = 0;            // simulation steps taken, the kernel's hash seed
         bool _playing = true;
         bool _loop = true;
         bool _stopPending = false;     // the next step hides the unborn (upstream OnStop)

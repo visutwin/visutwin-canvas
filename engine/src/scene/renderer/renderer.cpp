@@ -1848,6 +1848,9 @@ namespace visutwin::canvas
                     ? entry->meshInstance->node()->worldTransform() : Matrix4::identity();
                 particles->prepareRender(viewMatrix, projMatrix, modelMatrix,
                     static_cast<float>(viewportW), static_cast<float>(viewportH));
+                // Upstream particle_end: tone map and gamma-encode on a gamma target, leave
+                // both to compose on a camera frame's linear HDR scene.
+                particles->setOutput(_scene ? _scene->exposure() : 1.0f, toneMapping, _device->hdrPass());
                 _device->setParticleState(particles->particleBuffer(),
                     &particles->renderParams(), sizeof(GpuParticleRenderParams));
                 _device->setTransformUniforms(viewProjection, modelMatrix);

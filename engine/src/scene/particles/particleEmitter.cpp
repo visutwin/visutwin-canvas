@@ -11,6 +11,8 @@
 #include <cmath>
 #include <cstring>
 #include <numbers>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -24,6 +26,7 @@
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
 #include "scene/materials/material.h"
+#include "scene/shader-lib/programLibrary.h"
 
 namespace visutwin::canvas
 {
@@ -42,16 +45,39 @@ namespace visutwin::canvas
 #endif
     }
 
+    namespace
+    {
+        // The Metal billboard program with the forward pass's tone mapping operators spliced
+        // in after its prologue, as the splat program does, so particles tone-map exactly as
+        // meshes do. Empty on Vulkan, whose prebuilt particle.frag includes the same chunk.
+        std::string particleShaderSource(const std::shared_ptr<GraphicsDevice>& device)
+        {
+            std::string source = PARTICLE_SHADER_SOURCE;
+            if (source.empty()) {
+                return source;
+            }
+            const auto library = getProgramLibrary(device);
+            const std::string* toneMapping = library ? library->chunks().get("common-tonemap") : nullptr;
+            constexpr std::string_view prologue = "using namespace metal;\n";
+            const size_t at = source.find(prologue);
+            if (!toneMapping || at == std::string::npos) {
+                spdlog::error("ParticleEmitter: no common-tonemap chunk to splice; the particle shader will not compile");
+                return source;
+            }
+            source.insert(at + prologue.size(), "\n" + *toneMapping + "\n");
+            return source;
+        }
+    }
+
     ParticleEmitterOptions::ParticleEmitterOptions()
     {
-        // Upstream-like defaults: constant size 0.1, white -> transparent fade.
-        scaleGraph.add(0.0f, 0.1f);
+        // Upstream's defaults (default1Curve / default1Curve3): constant scale 1, white, opaque.
+        scaleGraph.add(0.0f, 1.0f);
         colorGraph.curves.resize(3);
         colorGraph.curves[0].add(0.0f, 1.0f);
         colorGraph.curves[1].add(0.0f, 1.0f);
         colorGraph.curves[2].add(0.0f, 1.0f);
         alphaGraph.add(0.0f, 1.0f);
-        alphaGraph.add(1.0f, 0.0f);
     }
 
     ParticleEmitter::ParticleEmitter(const std::shared_ptr<GraphicsDevice>& device,
@@ -118,7 +144,7 @@ namespace visutwin::canvas
             definition.name = "particles";
             definition.vshader = "particleVS";
             definition.fshader = "particleFS";
-            _shader = createShader(_device.get(), definition, PARTICLE_SHADER_SOURCE);
+            _shader = createShader(_device.get(), definition, particleShaderSource(_device));
         }
         if (!_material) {
             _material = std::make_shared<Material>();
@@ -189,10 +215,14 @@ namespace visutwin::canvas
         }
 
         // The velocity and rotation-speed graphs go to the simulation. A missing graph2 is
-        // the graph itself (upstream), and a missing graph contributes zero.
+        // the graph itself (upstream), and a missing graph contributes zero. "Missing" means
+        // no curve has a key: a default CurveSet holds one EMPTY curve, and reading that as a
+        // zero graph2 halved every velocity graph on average (a random point between it and 0).
         const auto quantizeSet = [](CurveSet& graph, float (*lut)[4]) {
             const size_t channels = graph.curves.size();
-            if (channels == 0) {
+            const bool hasKeys = std::any_of(graph.curves.begin(), graph.curves.end(),
+                [](const Curve& curve) { return curve.length() > 0; });
+            if (!hasKeys) {
                 return false;
             }
             const auto samples = graph.quantize(kCurveSamples);
@@ -251,7 +281,6 @@ namespace visutwin::canvas
             std::memset(&p, 0, sizeof(GpuParticle));
             p.posAge[3] = -static_cast<float>(i) * rate;
             p.velLifetime[3] = 0.0f;   // lifetime assigned at birth by the kernel
-            p.rotSeedSize[2] = static_cast<float>(i) * 0.61803398875f;       // golden-ratio seed
         }
         std::vector<uint8_t> bytes(particles.size() * sizeof(GpuParticle));
         std::memcpy(bytes.data(), particles.data(), bytes.size());
@@ -322,7 +351,8 @@ namespace visutwin::canvas
         params.lifeRot[3] = _options.rotationSpeed2 * degToRad;
         params.angleParams[0] = _options.startAngle * degToRad;
         params.angleParams[1] = _options.startAngle2 * degToRad;
-        params.angleParams[2] = _time;   // per-frame hash seed
+        // The hash's step counter: a whole number, exact in a float up to 2^24 steps.
+        params.angleParams[2] = static_cast<float>(_step++ & 0xFFFFFFu);
         params.angleParams[3] = onStop ? 1.0f : 0.0f;
 
         simulate(params);
@@ -396,6 +426,13 @@ namespace visutwin::canvas
         // Upstream #9570: a screen-space quad's x is scaled by height / width to stay square.
         _renderParams.motionParams[3] = viewportWidth > 0.0f && viewportHeight > 0.0f
             ? viewportHeight / viewportWidth : 1.0f;
+    }
+
+    void ParticleEmitter::setOutput(const float exposure, const int toneMapping, const bool linearTarget)
+    {
+        _renderParams.outputParams[0] = std::max(exposure, 0.0f);
+        _renderParams.outputParams[1] = static_cast<float>(toneMapping);
+        _renderParams.outputParams[2] = linearTarget ? 1.0f : 0.0f;
     }
 
     std::unique_ptr<MeshInstance> ParticleEmitter::createMeshInstance(GraphNode* node)
