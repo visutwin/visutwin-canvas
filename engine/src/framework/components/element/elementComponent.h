@@ -56,6 +56,7 @@
 
 namespace visutwin::canvas
 {
+    class Material;
     class ScreenComponent;
     class Sprite;
     class Texture;
@@ -297,6 +298,16 @@ namespace visutwin::canvas
 
         // ---- image (upstream ImageElement) -----------------------------------------------
 
+        /// Upstream `material` on an image element: a custom material (a ShaderMaterial, say)
+        /// that draws the element's quad instead of the element's own. It REPLACES the element's
+        /// handling of colour, opacity and texture, which then belong to the material, as upstream.
+        /// Null (the default) draws the element's own material.
+        const std::shared_ptr<Material>& material() const { return _customMaterial; }
+        void setMaterial(std::shared_ptr<Material> value)
+        {
+            _customMaterial = std::move(value);
+            ++_imageVersion;
+        }
         /// A texture drawn over the element, through `rect`. Setting one clears the sprite,
         /// as upstream. Borrowed: whoever loaded it must outlive the element.
         Texture* texture() const { return _texture; }
@@ -465,6 +476,7 @@ namespace visutwin::canvas
         ElementFitMode _fitMode = ElementFitMode::Stretch;
         uint64_t _imageVersion = 1;
         bool _mask = false;
+        std::shared_ptr<Material> _customMaterial;
         ElementComponent* _maskedBy = nullptr;
         int _drawOrder = 0;
     };

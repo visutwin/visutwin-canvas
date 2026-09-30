@@ -955,6 +955,7 @@ namespace visutwin::canvas
         _enableMarkup = src->_enableMarkup;
         _justify = src->_justify;
         _mask = src->_mask;
+        _customMaterial = src->_customMaterial;
         _autoWidth = src->_autoWidth;
         _autoHeight = src->_autoHeight;
         _outlineColor = src->_outlineColor;

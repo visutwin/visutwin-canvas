@@ -596,6 +596,33 @@ int main()
         outside->entity()->destroy();
     }
 
+    std::cout << "\ncustom material (upstream image element `material`)\n";
+    {
+        auto* e = static_cast<ElementComponent*>(addTo(screen, newEntity("overlay"))->addComponent<ElementComponent>());
+        e->setup({.type = ElementType::Image, .anchor = Vector4(0, 0, 0, 0), .pivot = Vector2(0, 0),
+                  .width = 20.0f, .height = 20.0f});
+        engine->update(0.0f);
+        input->syncElements();
+        const auto instances = [&e]() { return visualInstances(e->entity()); };
+        const Material* own = instances().empty() ? nullptr : instances()[0]->material();
+        check(own && dynamic_cast<const StandardMaterial*>(own), "an image draws its own material by default");
+
+        auto custom = std::make_shared<StandardMaterial>();
+        custom->setEmissive(Color(0.1f, 0.2f, 0.3f, 1.0f));
+        e->setMaterial(custom);
+        e->setColor(Color(1.0f, 0.0f, 0.0f, 1.0f));
+        input->syncElements();
+        check(instances().size() == 1 && instances()[0]->material() == custom.get(),
+              "a custom material draws the quad instead");
+        check(custom->emissive().r == 0.1f && custom->emissive().g == 0.2f,
+              "the element's colour does not touch it: colour and opacity are the material's");
+        e->setMaterial(nullptr);
+        input->syncElements();
+        check(!instances().empty() && instances()[0]->material() != custom.get(),
+              "clearing it draws the element's own material again");
+        e->entity()->destroy();
+    }
+
     std::cout << "\nButtonComponent defaults (upstream #addComponent)\n";
     {
         Entity* e = addTo(engine->root(), newEntity());

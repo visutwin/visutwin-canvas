@@ -633,11 +633,17 @@ namespace visutwin::canvas
                 } else {
                     VisualPart part;
                     part.mesh = buildImageMesh(_engine->graphicsDevice(), element, part.texture);
-                    part.material = makeElementMaterial(visual.worldSpace);
-                    // An image multiplies its texture into the colour and takes its alpha.
-                    part.material->setDiffuseMap(part.texture);
-                    part.material->setEmissiveMap(part.texture);
-                    if (element->mask()) {
+                    if (element->material()) {
+                        // Upstream: a custom material draws the quad, and owns what the
+                        // element's own material would have done with its colour and texture.
+                        part.customMaterial = element->material();
+                    } else {
+                        part.material = makeElementMaterial(visual.worldSpace);
+                        // An image multiplies its texture into the colour and takes its alpha.
+                        part.material->setDiffuseMap(part.texture);
+                        part.material->setEmissiveMap(part.texture);
+                    }
+                    if (element->mask() && part.material) {
                         // Upstream's mask material: into the stencil alone, every colour
                         // channel off, and only where the image is fully opaque (alpha test 1),
                         // which is what lets a sprite's transparent corners shape the mask.
@@ -672,12 +678,13 @@ namespace visutwin::canvas
 
                 if (visual.render) {
                     for (auto& part : visual.parts) {
-                        auto meshInstance = std::make_unique<MeshInstance>(part.mesh.get(), part.material.get(), visual.entity);
+                        Material* material = part.customMaterial ? part.customMaterial.get() : part.material.get();
+                        auto meshInstance = std::make_unique<MeshInstance>(part.mesh.get(), material, visual.entity);
                         meshInstance->setScreenSpace(!visual.worldSpace);
                         part.meshInstance = meshInstance.get();
                         visual.render->addMeshInstance(std::move(meshInstance));
                     }
-                    if (!isText && element->mask() && !visual.parts.empty()) {
+                    if (!isText && element->mask() && !visual.parts.empty() && visual.parts.front().material) {
                         const VisualPart& part = visual.parts.front();
                         auto unmask = std::make_unique<MeshInstance>(part.mesh.get(), part.material.get(), visual.entity);
                         unmask->setScreenSpace(!visual.worldSpace);
@@ -711,6 +718,12 @@ namespace visutwin::canvas
             }
 
             for (auto& part : visual.parts) {
+                if (!part.material) {   // a custom material styles itself
+                    if (part.meshInstance) {
+                        part.meshInstance->setDrawOrder(element->drawOrder());
+                    }
+                    continue;
+                }
                 const bool msdf = isText && element->fontResource()->msdf;
                 // Style 0 is the element's own, read live (a pulsing colour or a changed
                 // outline needs no rebuild); a markup style is what its tags resolved to.

@@ -712,6 +712,15 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   `ElementComponent::measureLayout()` measures for the element and its visual alike.
   `tests/textFitTests.cpp` ports upstream's auto-fit and maxLines cases on the Roboto font, with
   "the largest size that fits" as the oracle where upstream's expectations are its test font's.
+- **Custom materials** (upstream image element `material`, ported 2026-09-30).
+  `ElementComponent::setMaterial` makes an image draw its quad with that material (a
+  `ShaderMaterial`, say) instead of its own; the element's colour, opacity and texture are then
+  the material's affair, as upstream, and a mask ignores it. The quad's UVs run v DOWN the
+  element; on a screen-space screen the model matrix maps it straight to clip space, so a custom
+  vertex stage writes `model * position` with z 0.5 (upstream's GL 0 after the remap). The UI
+  layer draws only transparent materials in its sorted sublayer, so the material wants
+  `setAlphaMode(BLEND)`. `ui-custom-shader` ports upstream's cooldown example, its shader in MSL and
+  GLSL and its two uniforms as one `customUniformData` block.
 - **Not ported:** right-to-left text.
 
 ## Graphics abstraction

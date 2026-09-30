@@ -29,6 +29,7 @@ namespace visutwin::canvas
     class ElementComponent;
     class Entity;
     class Mesh;
+    class Material;
     class MeshInstance;
     class RenderComponent;
     class Sprite;
@@ -166,6 +167,9 @@ namespace visutwin::canvas
         {
             std::shared_ptr<Mesh> mesh;
             std::shared_ptr<StandardMaterial> material;
+            /// An image element's own `material()`, drawn instead of `material` (which is then
+            /// null): its colour, opacity and texture are its own affair.
+            std::shared_ptr<Material> customMaterial;
             MeshInstance* meshInstance = nullptr;
             Texture* texture = nullptr;
             /// Index into ElementVisual::styles; 0 is the element's own, read live.
