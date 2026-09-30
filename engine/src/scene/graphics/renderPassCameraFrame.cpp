@@ -1105,6 +1105,11 @@ namespace visutwin::canvas
             if (_scenePassHalf) {
                 _scenePassHalf->setSourceTexture(resolvedTexture);
             }
+            // The high-quality depth of field's far pass reads the full-resolution scene; without
+            // this it blurred the raw, jittered frame under TAA (upstream #9591).
+            if (_dofPass) {
+                _dofPass->setSceneTexture(resolvedTexture);
+            }
         }
     }
 }

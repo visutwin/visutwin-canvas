@@ -19,6 +19,7 @@
 // caps had both tangent and bitangent reversed.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
@@ -301,6 +302,71 @@ int main()
         // Upstream's plane and sphere use UV0 as UV1; an empty uvs1 says so.
         check(createPlaneGeometry().uvs1.empty(), "plane: UV1 is its UV0 (no unwrap of its own)");
         check(createSphereGeometry().uvs1.empty(), "sphere: UV1 is its UV0 (no unwrap of its own)");
+    }
+
+    // Upstream #9597 (procedural-geometry.test.mjs): the triangles that collapse to a line at a
+    // sphere or capsule pole and at a cone tip are gone, each pole or tip vertex has its u centred
+    // on the one triangle that uses it, and every index names a vertex that exists, also where the
+    // body or a cap is skipped.
+    {
+        const auto area2 = [](const PrimitiveGeometry& g, const size_t t) {
+            const auto p = [&g](const uint32_t i) {
+                return std::array<float, 3>{g.positions[i * 3], g.positions[i * 3 + 1], g.positions[i * 3 + 2]};
+            };
+            const auto a = p(g.indices[t]), b = p(g.indices[t + 1]), c = p(g.indices[t + 2]);
+            const float ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+            const float vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+            const float cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+            return std::sqrt(cx * cx + cy * cy + cz * cz);
+        };
+        const auto noDegenerate = [&](const PrimitiveGeometry& g) {
+            for (size_t t = 0; t + 2 < g.indices.size(); t += 3) {
+                if (area2(g, t) < 1e-8f) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        const auto indicesInRange = [](const PrimitiveGeometry& g) {
+            const auto count = static_cast<uint32_t>(g.positions.size() / 3);
+            return std::all_of(g.indices.begin(), g.indices.end(), [count](const uint32_t i) { return i < count; });
+        };
+        // A vertex's u against the mean u of the other two corners of the one triangle using it.
+        const auto poleUsCentred = [](const PrimitiveGeometry& g, const float poleY) {
+            bool any = false;
+            for (size_t t = 0; t + 2 < g.indices.size(); t += 3) {
+                for (int k = 0; k < 3; ++k) {
+                    const uint32_t i = g.indices[t + k];
+                    if (std::abs(g.positions[i * 3 + 1] - poleY) > 1e-5f) {
+                        continue;
+                    }
+                    const uint32_t a = g.indices[t + (k + 1) % 3];
+                    const uint32_t b = g.indices[t + (k + 2) % 3];
+                    const float mid = 0.5f * (g.uvs[a * 2] + g.uvs[b * 2]);
+                    if (std::abs(g.uvs[i * 2] - mid) > 1e-5f) {
+                        return false;
+                    }
+                    any = true;
+                }
+            }
+            return any;
+        };
+
+        const PrimitiveGeometry sphere = createSphereGeometry();
+        check(noDegenerate(sphere), "sphere: no zero-area triangles at the poles");
+        check(poleUsCentred(sphere, 0.5f) && poleUsCentred(sphere, -0.5f),
+              "sphere: each pole vertex's u is centred on its triangle");
+        const PrimitiveGeometry capsule = createCapsuleGeometry();
+        check(noDegenerate(capsule) && indicesInRange(capsule), "capsule: no zero-area triangles at the poles");
+        const PrimitiveGeometry roundCapsule = createConeBaseGeometry(0.5f, 0.5f, 0.0f, 1, 20, true);
+        check(!roundCapsule.indices.empty() && indicesInRange(roundCapsule),
+              "capsule as tall as it is wide: only existing vertices are indexed");
+        const PrimitiveGeometry cone = createConeGeometry();
+        check(noDegenerate(cone), "cone: no zero-area triangles at the tip");
+        check(poleUsCentred(cone, 0.5f), "cone: each tip vertex's u is centred on its triangle");
+        const PrimitiveGeometry inverted = createConeBaseGeometry(0.0f, 0.5f, 1.0f, 5, 20, false);
+        check(noDegenerate(inverted) && indicesInRange(inverted),
+              "inverted cone (zero base radius): no degenerate tip, only existing vertices indexed");
     }
 
     std::cout << (failures == 0 ? "PASS\n" : "FAILED\n");

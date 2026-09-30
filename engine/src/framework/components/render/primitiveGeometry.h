@@ -41,4 +41,8 @@ namespace visutwin::canvas
     PrimitiveGeometry createConeGeometry();
     PrimitiveGeometry createCapsuleGeometry();
     PrimitiveGeometry createPlaneGeometry();
+    /// Upstream ConeBaseGeometry: the cylinder, cone and capsule all come from it. A zero
+    /// radius at either end is a tip; `roundedCaps` makes hemispheres of radius `peakRadius`.
+    PrimitiveGeometry createConeBaseGeometry(float baseRadius, float peakRadius, float height, int heightSegments,
+                                             int capSegments, bool roundedCaps);
 }

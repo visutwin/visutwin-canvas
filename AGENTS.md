@@ -663,6 +663,10 @@ present, but the rule below never depends on reading it.
   17 (a SEPARATE image — declare `texture2D` and sample through the extra sampler at
   24) and slot 7 is binding 19 (`sampler2D`). Also: `textureSize()` on a combined
   sampler does not survive the MSL translation either; pass sizes as uniforms.
+  Under TAA the blur must read the TAA OUTPUT, which alternates between two history textures:
+  the camera frame retargets the half-resolution copy and, since 2026-09-30 (upstream #9591),
+  the high-quality far pass (`RenderPassDof::setSceneTexture`) every frame; the far pass used to
+  keep blurring the raw jittered frame, which shimmers with a static camera.
   Verified on `depth-of-field` (nearBlur on): high-pass energy near lamps 2.25 ->
   1.73 (near blur exists now), far windows 3.29 -> 0.96, cat 7.60 -> 6.93; Metal
   and Vulkan agree on 786k of 786k pixels but 16.
@@ -1263,7 +1267,10 @@ present, but the rule below never depends on reading it.
   dP/dv axis. Until 2026-09-15 the box wrote (1, 0, 0) on every face (parallel to
   the normal on +/-X, which rendered those faces black), and the sphere and capsule
   had tangent AND bitangent reversed — a 180-degree turn of the normal map that
-  reads as light from the wrong side, not as an error. Change a primitive's UVs and
+  reads as light from the wrong side, not as an error. The sphere, capsule and cone emit NO
+  triangle that collapses to a line at a pole or tip, and each pole or tip vertex has its u
+  centred on the one triangle that uses it (upstream #9597, 2026-09-30); their caps index from
+  the vertices made so far, so a zero height or a zero radius no longer indexes past them. Change a primitive's UVs and
   the frame follows; the test checks every corner against its triangle's UV
   gradient. `DEBUGPASS_WORLDNORMAL` on a normal-mapped box beside a plane wall shows
   a wrong frame in one frame: matching faces must match in colour. The frame is not

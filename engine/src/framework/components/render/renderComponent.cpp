@@ -260,6 +260,16 @@ namespace visutwin::canvas
                 const float sinTheta = std::sin(theta);
                 const float cosTheta = std::cos(theta);
 
+                // Each pole vertex is used by a single triangle, so its u is centred on that
+                // triangle's segment (upstream #9597): the top triangles use the vertex at the
+                // segment's end, the bottom ones the vertex at its start.
+                float poleUOffset = 0.0f;
+                if (lat == 0) {
+                    poleUOffset = 0.5f / static_cast<float>(longitudeBands);
+                } else if (lat == latitudeBands) {
+                    poleUOffset = -0.5f / static_cast<float>(longitudeBands);
+                }
+
                 for (int lon = 0; lon <= longitudeBands; ++lon) {
                     const float phi = static_cast<float>(lon) * 2.0f * PI_F / static_cast<float>(longitudeBands) - PI_F * 0.5f;
                     const float sinPhi = std::sin(phi);
@@ -268,7 +278,7 @@ namespace visutwin::canvas
                     const float x = cosPhi * sinTheta;
                     const float y = cosTheta;
                     const float z = sinPhi * sinTheta;
-                    const float u = 1.0f - static_cast<float>(lon) / static_cast<float>(longitudeBands);
+                    const float u = 1.0f - static_cast<float>(lon) / static_cast<float>(longitudeBands) + poleUOffset;
                     const float v = static_cast<float>(lat) / static_cast<float>(latitudeBands);
 
                     pushVertex(geometry, x * radius, y * radius, z * radius, x, y, z, u, v);
@@ -279,12 +289,13 @@ namespace visutwin::canvas
                 for (int lon = 0; lon < longitudeBands; ++lon) {
                     const uint32_t first = static_cast<uint32_t>(lat * (longitudeBands + 1) + lon);
                     const uint32_t second = first + static_cast<uint32_t>(longitudeBands + 1);
-                    geometry.indices.push_back(first + 1u);
-                    geometry.indices.push_back(second);
-                    geometry.indices.push_back(first);
-                    geometry.indices.push_back(first + 1u);
-                    geometry.indices.push_back(second + 1u);
-                    geometry.indices.push_back(second);
+                    // The triangle that collapses to a line at each pole is left out.
+                    if (lat != 0) {
+                        geometry.indices.insert(geometry.indices.end(), {first + 1u, second, first});
+                    }
+                    if (lat != latitudeBands - 1) {
+                        geometry.indices.insert(geometry.indices.end(), {first + 1u, second + 1u, second});
+                    }
                 }
             }
 
@@ -298,8 +309,19 @@ namespace visutwin::canvas
 
             if (height > 0.0f) {
                 for (int i = 0; i <= heightSegments; ++i) {
+                    // A row with a zero radius collapses to the tip, and each of its vertices is
+                    // used by a single triangle, so the vertex is centred on that triangle's
+                    // segment to keep its normal and u unskewed (upstream #9597). The triangles
+                    // use the vertex at the segment's start at the top, and its end at the bottom.
+                    float tipOffset = 0.0f;
+                    if (i == heightSegments && peakRadius == 0.0f) {
+                        tipOffset = 0.5f;
+                    } else if (i == 0 && baseRadius == 0.0f) {
+                        tipOffset = -0.5f;
+                    }
                     for (int j = 0; j <= capSegments; ++j) {
-                        const float theta = (static_cast<float>(j) / static_cast<float>(capSegments)) * 2.0f * PI_F - PI_F;
+                        const float theta = ((static_cast<float>(j) + tipOffset) / static_cast<float>(capSegments)) *
+                            2.0f * PI_F - PI_F;
                         const float sinTheta = std::sin(theta);
                         const float cosTheta = std::cos(theta);
 
@@ -311,7 +333,7 @@ namespace visutwin::canvas
                         const Vector3 tangent(cosTheta, 0.0f, -sinTheta);
                         const Vector3 norm = tangent.cross(bottomToTop).normalized();
 
-                        const float u = static_cast<float>(j) / static_cast<float>(capSegments);
+                        const float u = (static_cast<float>(j) + tipOffset) / static_cast<float>(capSegments);
                         const float v = 1.0f - static_cast<float>(i) / static_cast<float>(heightSegments);
                         pushVertex(geometry,
                             pos.getX(), pos.getY(), pos.getZ(),
@@ -326,8 +348,13 @@ namespace visutwin::canvas
                             const uint32_t second = static_cast<uint32_t>(i * (capSegments + 1) + (j + 1));
                             const uint32_t third = static_cast<uint32_t>((i + 1) * (capSegments + 1) + j);
                             const uint32_t fourth = static_cast<uint32_t>((i + 1) * (capSegments + 1) + (j + 1));
-                            geometry.indices.insert(geometry.indices.end(), {first, second, third});
-                            geometry.indices.insert(geometry.indices.end(), {second, fourth, third});
+                            // The triangle that collapses to a line at a tip is left out.
+                            if (i > 0 || baseRadius > 0.0f) {
+                                geometry.indices.insert(geometry.indices.end(), {first, second, third});
+                            }
+                            if (i < heightSegments - 1 || peakRadius > 0.0f) {
+                                geometry.indices.insert(geometry.indices.end(), {second, fourth, third});
+                            }
                         }
                     }
                 }
@@ -337,6 +364,13 @@ namespace visutwin::canvas
                 const int latitudeBands = std::max(1, capSegments / 2);
                 const int longitudeBands = capSegments;
                 const float capOffset = height * 0.5f;
+                // Each pole vertex is used by a single triangle, so its u is centred on that
+                // triangle's segment: the top cap's triangles use the vertex at the segment's end,
+                // the bottom cap's the vertex at its start.
+                const float poleUOffset = 0.5f / static_cast<float>(longitudeBands);
+                // The caps index from the vertices made so far: with a zero height there is no body
+                // (upstream #9597; a capsule as tall as it is wide indexed vertices that did not exist).
+                const auto topOffset = static_cast<uint32_t>(geometry.positions.size() / 3);
 
                 for (int lat = 0; lat <= latitudeBands; ++lat) {
                     const float theta = (static_cast<float>(lat) * PI_F * 0.5f) / static_cast<float>(latitudeBands);
@@ -349,7 +383,8 @@ namespace visutwin::canvas
                         const float x = cosPhi * sinTheta;
                         const float y = cosTheta;
                         const float z = sinPhi * sinTheta;
-                        const float u = 1.0f - static_cast<float>(lon) / static_cast<float>(longitudeBands);
+                        const float u = 1.0f - static_cast<float>(lon) / static_cast<float>(longitudeBands) +
+                            (lat == 0 ? poleUOffset : 0.0f);
                         const float v = static_cast<float>(lat) / static_cast<float>(latitudeBands);
                         pushVertex(geometry,
                             x * peakRadius, y * peakRadius + capOffset, z * peakRadius,
@@ -360,17 +395,21 @@ namespace visutwin::canvas
                     }
                 }
 
-                const uint32_t topOffset = static_cast<uint32_t>((heightSegments + 1) * (capSegments + 1));
                 for (int lat = 0; lat < latitudeBands; ++lat) {
                     for (int lon = 0; lon < longitudeBands; ++lon) {
                         const uint32_t first = static_cast<uint32_t>(lat * (longitudeBands + 1) + lon);
                         const uint32_t second = first + static_cast<uint32_t>(longitudeBands + 1);
-                        geometry.indices.insert(geometry.indices.end(), {
-                            topOffset + first + 1u, topOffset + second, topOffset + first,
-                            topOffset + first + 1u, topOffset + second + 1u, topOffset + second
-                        });
+                        // The triangle that collapses to a line at the pole is left out.
+                        if (lat != 0) {
+                            geometry.indices.insert(geometry.indices.end(),
+                                {topOffset + first + 1u, topOffset + second, topOffset + first});
+                        }
+                        geometry.indices.insert(geometry.indices.end(),
+                            {topOffset + first + 1u, topOffset + second + 1u, topOffset + second});
                     }
                 }
+
+                const auto bottomOffset = static_cast<uint32_t>(geometry.positions.size() / 3);
 
                 for (int lat = 0; lat <= latitudeBands; ++lat) {
                     const float theta = PI_F * 0.5f + (static_cast<float>(lat) * PI_F * 0.5f) / static_cast<float>(latitudeBands);
@@ -383,7 +422,8 @@ namespace visutwin::canvas
                         const float x = cosPhi * sinTheta;
                         const float y = cosTheta;
                         const float z = sinPhi * sinTheta;
-                        const float u = 1.0f - static_cast<float>(lon) / static_cast<float>(longitudeBands);
+                        const float u = 1.0f - static_cast<float>(lon) / static_cast<float>(longitudeBands) -
+                            (lat == latitudeBands ? poleUOffset : 0.0f);
                         const float v = static_cast<float>(lat) / static_cast<float>(latitudeBands);
                         pushVertex(geometry,
                             x * peakRadius, y * peakRadius - capOffset, z * peakRadius,
@@ -394,21 +434,24 @@ namespace visutwin::canvas
                     }
                 }
 
-                const uint32_t bottomOffset = static_cast<uint32_t>(
-                    (heightSegments + 1) * (capSegments + 1) +
-                    (longitudeBands + 1) * (latitudeBands + 1));
                 for (int lat = 0; lat < latitudeBands; ++lat) {
                     for (int lon = 0; lon < longitudeBands; ++lon) {
                         const uint32_t first = static_cast<uint32_t>(lat * (longitudeBands + 1) + lon);
                         const uint32_t second = first + static_cast<uint32_t>(longitudeBands + 1);
-                        geometry.indices.insert(geometry.indices.end(), {
-                            bottomOffset + first + 1u, bottomOffset + second, bottomOffset + first,
-                            bottomOffset + first + 1u, bottomOffset + second + 1u, bottomOffset + second
-                        });
+                        geometry.indices.insert(geometry.indices.end(),
+                            {bottomOffset + first + 1u, bottomOffset + second, bottomOffset + first});
+                        // The triangle that collapses to a line at the pole is left out.
+                        if (lat != latitudeBands - 1) {
+                            geometry.indices.insert(geometry.indices.end(),
+                                {bottomOffset + first + 1u, bottomOffset + second + 1u, bottomOffset + second});
+                        }
                     }
                 }
             } else {
-                uint32_t offset = static_cast<uint32_t>((heightSegments + 1) * (capSegments + 1));
+                // The caps index from the vertices made so far: the body is skipped at a zero
+                // height, and a cap at a zero radius (upstream #9597; an inverted cone indexed its
+                // top cap past the vertices).
+                auto offset = static_cast<uint32_t>(geometry.positions.size() / 3);
                 if (baseRadius > 0.0f) {
                     for (int i = 0; i < capSegments; ++i) {
                         const float theta = static_cast<float>(i) * 2.0f * PI_F / static_cast<float>(capSegments);
@@ -428,7 +471,7 @@ namespace visutwin::canvas
                     }
                 }
 
-                offset += static_cast<uint32_t>(capSegments);
+                offset = static_cast<uint32_t>(geometry.positions.size() / 3);
                 if (peakRadius > 0.0f) {
                     for (int i = 0; i < capSegments; ++i) {
                         const float theta = static_cast<float>(i) * 2.0f * PI_F / static_cast<float>(capSegments);
