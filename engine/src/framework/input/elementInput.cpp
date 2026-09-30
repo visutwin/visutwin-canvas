@@ -189,9 +189,7 @@ namespace visutwin::canvas
             const std::u32string& symbols = element->textCodePoints();
             const auto& tags = element->markupTags();
 
-            const TextMeasure measure = measureText(*font, symbols, static_cast<float>(element->fontSize()),
-                                                    element->lineHeight(), element->textMaxLineWidth(),
-                                                    element->spacing());
+            const TextMeasure measure = element->measureLayout();
             const float horizontal = element->horizontalAlign() == ElementHorizontalAlign::Left ? 0.0f
                 : element->horizontalAlign() == ElementHorizontalAlign::Right ? 1.0f : 0.5f;
             const std::vector<PlacedGlyph> glyphs = placeText(*font, symbols, measure, element->calculatedWidth(),

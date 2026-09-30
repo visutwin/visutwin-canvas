@@ -50,6 +50,7 @@
 #include "framework/components/component.h"
 #include "framework/components/element/imageElementGeometry.h"
 #include "framework/components/element/markup.h"
+#include "framework/components/element/textLayout.h"
 #include "framework/handlers/fontResource.h"
 #include "scene/graphNodeTransformHook.h"
 
@@ -176,8 +177,34 @@ namespace visutwin::canvas
         void setOpacity(float value);
         const Color& color() const { return _color; }
         void setColor(const Color& value);
-        int fontSize() const { return _fontSize; }
+        /// The size the text is drawn at: under auto fit, the size the fit chose (upstream's
+        /// getter); otherwise the size set.
+        int fontSize() const { return shouldAutoFit() ? _fittedFontSize : _fontSize; }
+        /// The size to draw at when not auto fitting (upstream's setter keeps it as
+        /// `_originalFontSize` while a fit is on).
         void setFontSize(const int value) { _fontSize = std::max(value, 1); textChanged(); }
+        /// Upstream `autoFitWidth` / `autoFitHeight`: shrink the font, from maxFontSize down to
+        /// minFontSize, until the text fits the element's width / height. Each works only while
+        /// the matching autoWidth / autoHeight is off, as upstream.
+        bool autoFitWidth() const { return _autoFitWidth; }
+        void setAutoFitWidth(const bool value) { _autoFitWidth = value; textChanged(); }
+        bool autoFitHeight() const { return _autoFitHeight; }
+        void setAutoFitHeight(const bool value) { _autoFitHeight = value; textChanged(); }
+        int minFontSize() const { return _minFontSize; }
+        void setMinFontSize(const int value) { _minFontSize = value; textChanged(); }
+        int maxFontSize() const { return _maxFontSize; }
+        void setMaxFontSize(const int value) { _maxFontSize = value; textChanged(); }
+        /// Upstream `maxLines`: a wrapping text stops breaking lines once it has this many, and
+        /// the rest runs on in the last one. Negative (the default) for no limit; ignored for text
+        /// that does not wrap.
+        int maxLines() const { return _maxLines; }
+        void setMaxLines(const int value) { _maxLines = value < 0 ? -1 : value; textChanged(); }
+        bool shouldAutoFitWidth() const { return _autoFitWidth && !_autoWidth; }
+        bool shouldAutoFitHeight() const { return _autoFitHeight && !_autoHeight; }
+        bool shouldAutoFit() const { return shouldAutoFitWidth() || shouldAutoFitHeight(); }
+        /// The layout at the current (fitted) size: what the element measures itself by and its
+        /// visual places glyphs by.
+        TextMeasure measureLayout() const;
         const std::string& text() const { return _text; }
         void setText(const std::string& value) { _text = value; textChanged(); }
         FontResource* fontResource() const { return _fontResource; }
@@ -207,6 +234,8 @@ namespace visutwin::canvas
         float spacing() const { return _spacing; }
         void setSpacing(const float value) { _spacing = value; textChanged(); }
         /// The distance between lines (upstream `lineHeight`); unset, the font size.
+        /// Under auto fit the lines step by this scaled by the fitted size over maxFontSize, as
+        /// upstream scales them (`_scaledLineHeight`).
         float lineHeight() const { return _lineHeight.value_or(static_cast<float>(_fontSize)); }
         void setLineHeight(const float value) { _lineHeight = value; textChanged(); }
         /// Upstream `enableMarkup`: read `[color]`, `[outline]` and `[shadow]` tags in the
@@ -400,6 +429,12 @@ namespace visutwin::canvas
         bool _wrapLines = false;
         float _verticalAlign = 0.5f;
         std::optional<float> _lineHeight;
+        int _fittedFontSize = 32;
+        int _minFontSize = 8;
+        int _maxFontSize = 32;
+        bool _autoFitWidth = false;
+        bool _autoFitHeight = false;
+        int _maxLines = -1;
         float _spacing = 1.0f;
         bool _enableMarkup = false;
         bool _justify = false;

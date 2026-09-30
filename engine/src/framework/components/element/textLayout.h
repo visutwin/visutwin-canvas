@@ -4,7 +4,8 @@
 // Text layout on upstream's metrics (text-element.js `_updateMeshes`), split in two so an
 // element can know its size without building geometry:
 //
-// - measureText breaks the symbols into lines — at '\n', and greedily at word boundaries
+// - measureText breaks the symbols into lines — at a line break ('\n' or '\r', as
+//   upstream), and greedily at word boundaries
 //   (a word longer than the line breaks between characters) when a line would grow past
 //   `maxLineWidth` — and measures the block: its width is the widest line leaving out
 //   trailing whitespace, its height runs from the font's highest glyph top above the first
@@ -80,8 +81,12 @@ namespace visutwin::canvas
     /// offending byte, which no font here has, so it draws as the space.
     std::u32string decodeUtf8(std::string_view text);
 
+    /// `maxLines` (upstream's; negative for none) stops breaking lines once there are that many:
+    /// the rest of the text runs on in the last one. Pass it only for text that wraps, as upstream
+    /// ignores it otherwise.
     TextMeasure measureText(const FontResource& font, const std::u32string& symbols, float fontSize, float lineHeight,
-                            float maxLineWidth = std::numeric_limits<float>::infinity(), float spacing = 1.0f);
+                            float maxLineWidth = std::numeric_limits<float>::infinity(), float spacing = 1.0f,
+                            int maxLines = -1);
 
     /// `justify` (upstream `justify`): a line with gaps is stretched flush to both edges of
     /// the box by widening its word gaps evenly, ignoring `horizontalAlign`.

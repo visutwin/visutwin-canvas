@@ -11,6 +11,8 @@ namespace visutwin::canvas
     namespace
     {
         bool isWhitespace(const char32_t c) { return c == U' ' || c == U'\t'; }
+        // Upstream LINE_BREAK_CHAR: '\r' breaks a line as '\n' does (so "\r\n" is two breaks).
+        bool isLineBreak(const char32_t c) { return c == U'\n' || c == U'\r'; }
 
         /// The glyph drawn for `code`: the character itself, else the space.
         const FontGlyph* glyphFor(const FontResource& font, const int code)
@@ -32,6 +34,12 @@ namespace visutwin::canvas
             int prev = -1;
             for (size_t i = begin; i < end; ++i) {
                 const int code = static_cast<int>(symbols[i]);
+                // A line break inside a line (the last of `maxLines`) takes no space, as upstream
+                // skips it before any advance.
+                if (isLineBreak(symbols[i])) {
+                    prev = code;
+                    continue;
+                }
                 const FontGlyph* glyph = glyphFor(font, code);
                 const float kern = prev >= 0 ? font.kerningValue(prev, code) * scale : 0.0f;
                 width += spacing * (kern + (glyph ? glyph->xadvance * scale : 0.0f));
@@ -89,7 +97,7 @@ namespace visutwin::canvas
     }
 
     TextMeasure measureText(const FontResource& font, const std::u32string& symbols, const float fontSize,
-                            const float lineHeight, const float maxLineWidth, const float spacing)
+                            const float lineHeight, const float maxLineWidth, const float spacing, const int maxLines)
     {
         TextMeasure m;
         m.spacing = spacing;
@@ -123,9 +131,17 @@ namespace visutwin::canvas
 
         size_t start = 0;
         size_t lastBreak = 0;   // the first symbol after the latest whitespace; 0 = none on this line
+        // Upstream `maxLines`: on the last line allowed nothing breaks any more, so the rest of
+        // the text runs on in it, past the width, line breaks included (and drawn as nothing).
+        const auto mayBreak = [&m, maxLines]() {
+            return maxLines < 0 || static_cast<int>(m.lines.size()) + 1 < maxLines;
+        };
         for (size_t i = 0; i < symbols.size(); ++i) {
             const char32_t c = symbols[i];
-            if (c == U'\n') {
+            if (isLineBreak(c)) {
+                if (!mayBreak()) {
+                    continue;
+                }
                 pushLine(start, i);
                 start = i + 1;
                 lastBreak = 0;
@@ -134,7 +150,7 @@ namespace visutwin::canvas
             // Greedy wrap: a visible symbol that would take the line past the limit breaks
             // it after the latest whitespace, or before itself inside a word too long for
             // a line of its own.
-            if (!isWhitespace(c) && i > start &&
+            if (!isWhitespace(c) && i > start && mayBreak() &&
                 rangeWidth(font, symbols, start, i + 1, m.scale, m.spacing) > maxLineWidth) {
                 const bool atWord = lastBreak > start;
                 const size_t breakAt = atWord ? lastBreak : i;
@@ -197,6 +213,10 @@ namespace visutwin::canvas
             int prev = -1;
             for (size_t i = line.begin; i < line.end; ++i) {
                 const int code = static_cast<int>(symbols[i]);
+                if (isLineBreak(symbols[i])) {   // run on into the last of `maxLines`: no glyph, no advance
+                    prev = code;
+                    continue;
+                }
                 // The gaps before this symbol, counted as measureText counts a line's gaps.
                 if (isWhitespace(symbols[i])) {
                     afterWhitespace = true;

@@ -374,8 +374,9 @@ namespace visutwin::canvas
         flagChildrenAsDirty();
         fire("set:calculatedWidth", _calculatedWidth);
         fire("resize", _calculatedWidth, _calculatedHeight);
-        // Wrapped text breaks at this width, so its lines and height follow it.
-        if (_type == ElementType::Text && _wrapLines && std::isfinite(textMaxLineWidth())) {
+        // Wrapped text breaks at this width, and auto-fitted text fits it, so either follows it.
+        if (_type == ElementType::Text &&
+            ((_wrapLines && std::isfinite(textMaxLineWidth())) || shouldAutoFitWidth())) {
             updateTextLayout();
         }
     }
@@ -396,6 +397,10 @@ namespace visutwin::canvas
         flagChildrenAsDirty();
         fire("set:calculatedHeight", _calculatedHeight);
         fire("resize", _calculatedWidth, _calculatedHeight);
+        // Auto-fitted text fits the height, so it follows it.
+        if (_type == ElementType::Text && shouldAutoFitHeight()) {
+            updateTextLayout();
+        }
     }
 
     void ElementComponent::updateMarginsFromPosition()
@@ -745,6 +750,18 @@ namespace visutwin::canvas
         updateTextLayout();
     }
 
+    TextMeasure ElementComponent::measureLayout() const
+    {
+        if (!_fontResource) {
+            return {};
+        }
+        const auto size = static_cast<float>(fontSize());
+        const float step = shouldAutoFit()
+            ? lineHeight() * size / std::max(static_cast<float>(_maxFontSize), 0.0001f) : lineHeight();
+        return measureText(*_fontResource, _codePoints, size, step, textMaxLineWidth(), _spacing,
+                           _wrapLines ? _maxLines : -1);
+    }
+
     void ElementComponent::updateTextLayout()
     {
         // Upstream lays text out as soon as an input changes, so a caller can read the
@@ -781,8 +798,30 @@ namespace visutwin::canvas
         _rangeStart = 0;
         _rangeEnd = static_cast<int>(_codePoints.size());
         ++_rangeVersion;
-        const TextMeasure measure = measureText(*_fontResource, _codePoints, static_cast<float>(_fontSize), lineHeight(),
-                                                textMaxLineWidth(), _spacing);
+        // Upstream's auto fit (text-element.js _updateMeshes): start at maxFontSize and lay out
+        // again smaller while the text overflows — a width overflow scales the size by how far
+        // it overflows (floored), a height overflow takes it down by one — within
+        // [minFontSize, maxFontSize]. Upstream tests the overflow glyph by glyph; the text's
+        // width grows linearly with the size, so testing the whole measure lands on the same size.
+        const int minFont = std::min(_minFontSize, _maxFontSize);
+        const int maxFont = _maxFontSize;
+        _fittedFontSize = shouldAutoFit() ? _maxFontSize : _fontSize;
+        TextMeasure measure = measureLayout();
+        while (shouldAutoFit()) {
+            int size = _fittedFontSize;
+            if (shouldAutoFitWidth() && measure.width > _calculatedWidth) {
+                size = std::clamp(static_cast<int>(std::floor(static_cast<float>(_fittedFontSize) * _calculatedWidth /
+                                                              std::max(measure.width, 0.0001f))), minFont, maxFont);
+            }
+            if (size == _fittedFontSize && shouldAutoFitHeight() && measure.height > _calculatedHeight) {
+                size = std::clamp(_fittedFontSize - 1, minFont, maxFont);
+            }
+            if (size == _fittedFontSize) {
+                break;
+            }
+            _fittedFontSize = size;
+            measure = measureLayout();
+        }
         _textWidth = measure.width;
         _textHeight = measure.height;
         // Upstream's autoWidth / autoHeight setters, run after every layout: the element
@@ -900,6 +939,12 @@ namespace visutwin::canvas
         _opacity = src->_opacity;
         _color = src->_color;
         _fontSize = src->_fontSize;
+        _fittedFontSize = src->_fittedFontSize;
+        _minFontSize = src->_minFontSize;
+        _maxFontSize = src->_maxFontSize;
+        _autoFitWidth = src->_autoFitWidth;
+        _autoFitHeight = src->_autoFitHeight;
+        _maxLines = src->_maxLines;
         _text = src->_text;
         _fontResource = src->_fontResource;
         _horizontalAlign = src->_horizontalAlign;

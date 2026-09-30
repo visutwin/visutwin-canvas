@@ -558,3 +558,12 @@ add_executable(visutwin-ui-layout-scroll-tests
 target_link_libraries(visutwin-ui-layout-scroll-tests PRIVATE visutwin-canvas)
 
 add_test(NAME ui-layout-scroll COMMAND visutwin-ui-layout-scroll-tests)
+
+add_executable(visutwin-text-fit-tests
+    textFitTests.cpp
+)
+
+target_link_libraries(visutwin-text-fit-tests PRIVATE visutwin-canvas)
+target_compile_definitions(visutwin-text-fit-tests PRIVATE VISUTWIN_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
+
+add_test(NAME text-fit COMMAND visutwin-text-fit-tests)

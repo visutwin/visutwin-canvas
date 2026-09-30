@@ -698,7 +698,21 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   Bounce, 0.1 and 0.05; and a wheel notch is 100 pixels. `layout-group`, `scroll-view` and
   `common-widgets` port upstream's examples; `tests/uiLayoutScrollTests.cpp` holds all four
   parts through the real engine and ElementInput.
-- **Not ported:** max lines, auto-fit font size, right-to-left text.
+- **Auto fit and max lines** (upstream's, ported 2026-09-30). `setAutoFitWidth` /
+  `setAutoFitHeight` shrink the font from `maxFontSize` (32) down to `minFontSize` (8) until the
+  text fits the element's width / height; each works only while the matching autoWidth /
+  autoHeight is off. A width overflow scales the size to `floor(size x width / text width)`, a
+  height overflow takes one off, and the layout runs again; the line height scales by the
+  fitted size over maxFontSize. `fontSize()` reports the fitted size, `setFontSize` the size
+  used when no fit is on (upstream's `_originalFontSize`). The fit follows the element: a new
+  width or height lays the text out again. `setMaxLines(n)` stops a WRAPPING text breaking lines
+  once it has n, and the rest runs on in the last one, past the width; text that does not wrap
+  ignores it, as upstream. `'\r'` breaks a line as `'\n'` does (upstream LINE_BREAK_CHAR), and
+  a line break run on into the last line draws and advances nothing. One
+  `ElementComponent::measureLayout()` measures for the element and its visual alike.
+  `tests/textFitTests.cpp` ports upstream's auto-fit and maxLines cases on the Roboto font, with
+  "the largest size that fits" as the oracle where upstream's expectations are its test font's.
+- **Not ported:** right-to-left text.
 
 ## Graphics abstraction
 

@@ -2357,13 +2357,13 @@ What stays HERE is only what bites during UNRELATED work.
   copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
-- **UI not ported yet**: max lines, auto-fit font size, right-to-left text, XR select events
-  and grapheme clusters (emoji sequences are several symbols). The eighteen UI examples
+- **UI not ported yet**: right-to-left text, XR select events and grapheme clusters (emoji
+  sequences are several symbols). The nineteen UI examples
   (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,
   `screen-scaling`, `ui-panel`, `text-justify`, `text-typewriter`, `masking`, `layout-group`,
-  `scroll-view`, `common-widgets`, `anchors`, `image-fit`, `drag-and-drop`, `render-to-image`)
-  port upstream's CURRENT versions; the UI `custom-shader` and `particle-system`,
-  `text-auto-font-size`, `text-emojis` and `text-localization` are not ported yet.
+  `scroll-view`, `common-widgets`, `anchors`, `image-fit`, `drag-and-drop`, `render-to-image`,
+  `text-auto-font-size`) port upstream's CURRENT versions; the UI `custom-shader` and
+  `particle-system`, `text-emojis` and `text-localization` are not ported yet.
 - **No maximum pixel ratio.** The drawable always follows the display's density (Metal and
   Vulkan both size it from `SDL_GetWindowSizeInPixels`), where upstream's
   `device.maxPixelRatio` caps it; `screen-scaling` leaves out its "Pixel ratio" button for
