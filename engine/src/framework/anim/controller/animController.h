@@ -97,6 +97,9 @@ namespace visutwin::canvas
         bool removeNodeAnimations(const std::string& nodeName);
 
         void play(const std::string& stateName = {});
+        /// Blend from the active state to `to` over `time` seconds through an ad-hoc transition
+        /// (upstream AnimComponentLayer.transition); a negative offset is none.
+        void transition(const std::string& to, float time, float transitionOffset = -1.0f);
         void pause();
         void reset();
         void update(float dt);

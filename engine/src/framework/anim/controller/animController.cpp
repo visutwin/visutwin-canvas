@@ -437,6 +437,11 @@ namespace visutwin::canvas
         return true;
     }
 
+    void AnimController::transition(const std::string& to, const float time, const float transitionOffset)
+    {
+        updateStateFromTransition(AnimTransition(_activeStateName, to, time, 0, {}, -1.0f, transitionOffset));
+    }
+
     void AnimController::play(const std::string& stateName)
     {
         if (!stateName.empty()) {

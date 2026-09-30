@@ -111,10 +111,20 @@ namespace visutwin::canvas
     void AnimComponent::assignAnimation(const std::string& path, const std::shared_ptr<AnimTrack>& track,
         const std::string& layerName, const std::optional<float> speed, const std::optional<bool> loop)
     {
+        // With no state graph, a plain state name makes one: a Base layer that plays that state
+        // from the start (upstream's default graph).
+        if (_layers.empty() && path.find('.') == std::string::npos) {
+            AnimStateGraph stateGraph;
+            auto& layer = stateGraph.addLayer("Base");
+            layer.states.push_back(AnimStateDesc{path, speed.value_or(1.0f), loop.value_or(true)});
+            layer.transitions.push_back(AnimTransitionDesc{.from = ANIM_STATE_START, .to = path});
+            loadStateGraph(stateGraph);
+            baseLayer()->assignAnimation(path, track);
+            return;
+        }
         AnimComponentLayer* layer = layerName.empty() ? baseLayer() : findAnimationLayer(layerName);
         if (!layer) {
-            spdlog::error("AnimComponent::assignAnimation: no layer '{}' — call loadStateGraph first",
-                layerName.empty() ? "<base>" : layerName);
+            spdlog::error("AnimComponent::assignAnimation: no layer '{}'", layerName.empty() ? "<base>" : layerName);
             return;
         }
         layer->assignAnimation(path, track, speed, loop);

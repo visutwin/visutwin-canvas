@@ -56,8 +56,15 @@ namespace visutwin::canvas
         void pause() { _controller->pause(); }
         void reset() { _controller->reset(); }
 
-        /** Transition to the named state (uses a graph transition when one exists). */
-        void transition(const std::string& to) { _controller->play(to); }
+        /**
+         * Blend from the active state to the named one over `time` seconds, whatever the graph's
+         * transitions say (upstream `transition(to, time, transitionOffset)`); a negative offset
+         * is none, starting the new state from its beginning.
+         */
+        void transition(const std::string& to, const float time = 0.0f, const float transitionOffset = -1.0f)
+        {
+            _controller->transition(to, time, transitionOffset);
+        }
 
         bool playing() const { return _controller->playing(); }
         void setPlaying(const bool value) { _controller->setPlaying(value); }

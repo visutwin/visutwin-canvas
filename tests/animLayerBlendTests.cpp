@@ -221,6 +221,36 @@ int main()
             "rotation overwrite at 0.5 lands at the half turn: " + str(turned));
     }
 
+    // No state graph: assigning a plain state name makes upstream's default graph, which plays
+    // it; a second name becomes a state too, and a timed transition (upstream
+    // `layer.transition(to, time)`) blends to it over that time.
+    {
+        Rig rig;
+        rig.root = std::make_unique<Entity>();
+        rig.root->setName("Root");
+        auto bone = std::make_unique<Entity>();
+        bone->setName("Bone");
+        rig.bone = bone.get();
+        rig.root->addChild(std::move(bone));
+        rig.anim = static_cast<AnimComponent*>(rig.root->addComponentInstance(
+            std::make_unique<AnimComponent>(nullptr, rig.root.get()), kAnimTypeId));
+        rig.anim->assignAnimation("Idle", constantTranslation(Vector3(0.0f, 0.0f, 0.0f)));
+        check(rig.anim->baseLayer() != nullptr, "assignAnimation with no graph makes a Base layer");
+        rig.anim->assignAnimation("Attack", constantTranslation(Vector3(10.0f, 0.0f, 0.0f)), {}, 1.0f, false);
+        rig.anim->update(0.1f);
+        check(rig.anim->baseLayer()->activeState() == "Idle" && near(rig.bone->localPosition(), 0.0f, 0.0f, 0.0f),
+            "the default graph plays the first state: " + str(rig.bone->localPosition()));
+
+        rig.anim->baseLayer()->transition("Attack", 0.2f);
+        rig.anim->update(0.1f);
+        check(rig.anim->baseLayer()->transitioning() && near(rig.bone->localPosition(), 5.0f, 0.0f, 0.0f, 1e-3f),
+            "half way through a 0.2 s transition the pose is half way: " + str(rig.bone->localPosition()));
+        rig.anim->update(0.15f);
+        check(!rig.anim->baseLayer()->transitioning() && rig.anim->baseLayer()->activeState() == "Attack" &&
+                  near(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f),
+            "after it, the new state alone: " + str(rig.bone->localPosition()));
+    }
+
     if (failures == 0) {
         std::cout << "anim-layer-blend: all checks passed\n";
         return 0;
