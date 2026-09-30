@@ -147,14 +147,26 @@ namespace visutwin::canvas
         _vertexBuffers.clear();
     }
 
-    void GraphicsDevice::resizeCanvas(int width, int height) {
-        float pixelRatio = std::min(_maxPixelRatio, 1.0f); // Would get actual device pixel ratio
-        int w = static_cast<int>(std::floor(width * pixelRatio));
-        int h = static_cast<int>(std::floor(height * pixelRatio));
-
-        auto size = this->size();
+    void GraphicsDevice::resizeCanvas(const int width, const int height)
+    {
+        const float ratio = pixelRatio();
+        const int w = static_cast<int>(std::floor(static_cast<float>(width) * ratio));
+        const int h = static_cast<int>(std::floor(static_cast<float>(height) * ratio));
+        const auto size = this->size();
         if (w != size.first || h != size.second) {
             setResolution(w, h);
+        }
+    }
+
+    void GraphicsDevice::setMaxPixelRatio(const float value)
+    {
+        if (!(value > 0.0f)) {
+            return;
+        }
+        _maxPixelRatio = value;
+        const auto [w, h] = windowSizeInPoints();
+        if (w > 0 && h > 0) {
+            resizeCanvas(w, h);
         }
     }
 

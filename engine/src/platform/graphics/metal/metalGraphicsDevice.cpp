@@ -3,6 +3,7 @@
 //
 // Created by Arnis Lektauers on 13.09.2025.
 //
+#include <cmath>
 #include "metalGraphicsDevice.h"
 #include <typeinfo>
 
@@ -364,6 +365,29 @@ namespace visutwin::canvas
         }
         int w, h;
         SDL_GetWindowSizeInPixels(_window, &w, &h);
+        // Capped below the display's density (maxPixelRatio), the drawable is the window in
+        // points at the capped ratio, and the layer scales it up to the window.
+        const float ratio = pixelRatio();
+        if (ratio < devicePixelRatio()) {
+            const auto [pw, ph] = windowSizeInPoints();
+            return {static_cast<int>(std::floor(static_cast<float>(pw) * ratio)),
+                    static_cast<int>(std::floor(static_cast<float>(ph) * ratio))};
+        }
+        return {w, h};
+    }
+
+    float MetalGraphicsDevice::devicePixelRatio() const
+    {
+        const float density = _window ? SDL_GetWindowPixelDensity(_window) : 0.0f;
+        return density > 0.0f ? density : 1.0f;
+    }
+
+    std::pair<int, int> MetalGraphicsDevice::windowSizeInPoints() const
+    {
+        int w = 0, h = 0;
+        if (_window) {
+            SDL_GetWindowSize(_window, &w, &h);
+        }
         return {w, h};
     }
 

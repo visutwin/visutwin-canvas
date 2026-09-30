@@ -144,6 +144,12 @@ namespace visutwin::canvas
         // ── Display management ───────────────────────────────────────────
         void setResolution(int width, int height) override;
         std::pair<int, int> size() const override;
+        float devicePixelRatio() const override;
+        /// The extent the swapchain should have for the surface's capabilities (maxPixelRatio).
+        VkExtent2D targetSwapchainExtent(const VkSurfaceCapabilitiesKHR& caps) const;
+        /// Whether that extent differs from the swapchain's.
+        bool swapchainExtentStale() const;
+        std::pair<int, int> windowSizeInPoints() const override;
 
         // False for a frame skipped at acquire: the command buffer is not
         // recording, so every pass this frame is a no-op.

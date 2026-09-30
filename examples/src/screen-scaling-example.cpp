@@ -10,12 +10,11 @@
 // Blend fits the reference to the canvas where None keeps its units in pixels, and Scale
 // Blend picks the axis to follow (Fit follows whichever has less room).
 //
-// DEVIATIONS:
-// - no "Pixel ratio" button: the drawable here always follows the display's density, and the
-//   engine has no maximum pixel ratio yet; the other two buttons are centred as a pair.
+// DEVIATION:
 // - the readout's canvas size is the drawable's pixels, which is upstream's `device.width` at
 //   the device's pixel ratio.
 //
+#include <algorithm>
 #include <functional>
 #include <iomanip>
 #include <memory>
@@ -197,6 +196,13 @@ protected:
             {"0.5", [this] { _blend = 0.5f; fitReference(); }},
             {"1 (height)", [this] { _blend = 1.0f; fitReference(); }},
         }));
+        // The device's pixel ratio (capped at 2, as the examples cap it) or 1x: the canvas keeps its
+        // size in points, and the back buffer has fewer pixels, scaled up to the window
+        const float devicePixelRatio = std::min(device()->devicePixelRatio(), 2.0f);
+        _toggles.push_back(createToggle(controlsEntity, "Pixel ratio", {
+            {"Device", [this, devicePixelRatio] { device()->setMaxPixelRatio(devicePixelRatio); }},
+            {"1x", [this] { device()->setMaxPixelRatio(1.0f); }},
+        }));
 
         layout();
         return true;
@@ -291,7 +297,7 @@ private:
         _controls->setReferenceResolution(portrait ? Vector2(540.0f, 960.0f) : Vector2(1280.0f, 720.0f));
         for (size_t i = 0; i < _toggles.size(); ++i) {
             const auto fi = static_cast<float>(i);
-            _toggles[i]->setLocalPosition(portrait ? 0.0f : (fi - 0.5f) * 280.0f, portrait ? -40.0f - fi * 80.0f : -80.0f,
+            _toggles[i]->setLocalPosition(portrait ? 0.0f : (fi - 1.0f) * 280.0f, portrait ? -40.0f - fi * 80.0f : -80.0f,
                                           0.0f);
         }
         _readout->entity()->setLocalPosition(0.0f, portrait ? 60.0f : 0.0f, 0.0f);

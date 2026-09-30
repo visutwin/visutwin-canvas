@@ -763,7 +763,8 @@ present, but the rule below never depends on reading it.
   `SDL_WINDOW_HIGH_PIXEL_DENSITY`, a 1800x1400 drawable on a Retina display, while
   upstream's `GraphicsDevice` caps `maxPixelRatio` at 1, so its 900x700 canvas is 900x700
   pixels — four times fewer. Resize the browser tab to 1800x1400 (upstream then reads 2.7
-  ms) or run ours at a 450x350 window before reading either number. (2) CLOCK: the
+  ms), or run ours with `VISUTWIN_MAX_PIXEL_RATIO=1` (since 2026-09-30), before reading either
+  number. (2) CLOCK: the
   `gpu-performance-state-intervals` table shows the GPU in its MINIMUM state 55-88% of the
   time under either engine, and every pass costs 2-3x more there than at Maximum; bucket
   per-frame costs by state, or run both engines at once so they share one clock. (3) A
@@ -1877,6 +1878,18 @@ present, but the rule below never depends on reading it.
   scrollbars after each update (`refreshBindings`), since nothing fires `element:add` or
   `scrollbar:add` here; the mouse wheel reaches the scroll view as a browser's pixel deltas,
   100 a notch (`ElementInputEvent::wheelPixelsX/Y`).
+- **The back buffer is the canvas in POINTS times `GraphicsDevice::pixelRatio()`** =
+  min(`maxPixelRatio`, the window's pixel density), upstream's `maxPixelRatio`.
+  `resizeCanvas` takes points, as upstream's takes CSS pixels. The default is uncapped (a
+  DEVIATION from upstream's browser default of 1), and `ExampleApp` caps it at 2 as upstream's
+  examples do, so nothing moved by default. Metal shrinks the layer's `drawableSize` and Core
+  Animation scales it to the window. Vulkan builds its swapchain ITSELF (`initSwapchain`, no
+  longer vk-bootstrap, which always takes the surface's current extent) at an extent clamped into
+  the surface's [min, max]: MoltenVK allows 1..16384 and scales, and where min = max = current
+  (X11, Windows) the clamp falls back to the window. A SUBOPTIMAL present rebuilds the swapchain
+  only when the target size changed (`swapchainExtentStale`), since a deliberately small swapchain
+  may be reported suboptimal on every present. ImGui's framebuffer scale follows the drawable.
+  `vulkanSmoke` caps and uncaps mid-run under validation.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
@@ -2255,6 +2268,12 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     main thread but sits in `nextDrawable` (Metal) or `onFrameEnd` (Vulkan) is waiting
     on the GPU, not working.
 
+15. `VISUTWIN_MAX_PIXEL_RATIO=r` caps the back buffer at r pixels per point on any example
+    (the examples default to min(density, 2)); 1 on a Retina display matches upstream's default
+    browser density for GPU-time comparisons, and a value below the display's density exercises
+    the scaled swapchain on Vulkan. An example that sets its own ratio (`screen-scaling`'s
+    toggle) overrides it.
+
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.
 
@@ -2372,11 +2391,6 @@ What stays HERE is only what bites during UNRELATED work.
   `text-auto-font-size`, `ui-custom-shader` — upstream's user-interface/custom-shader) port
   upstream's CURRENT versions; the UI `particle-system`, `text-emojis` and `text-localization`
   are not ported yet.
-- **No maximum pixel ratio.** The drawable always follows the display's density (Metal and
-  Vulkan both size it from `SDL_GetWindowSizeInPixels`), where upstream's
-  `device.maxPixelRatio` caps it; `screen-scaling` leaves out its "Pixel ratio" button for
-  that reason, and GPU-time comparisons with upstream have to match pixels by resizing the
-  window instead. `GraphicsDevice::resizeCanvas` still carries an unused `_maxPixelRatio`.
 - Annotations (`annotationManager`) still draw through ImGui; with input on elements they
   could move.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with

@@ -147,6 +147,8 @@ namespace visutwin::canvas
         int maxFramesInFlight() const override { return MetalUniformRingBuffer::kMaxInflightFrames; }
 
         std::pair<int, int> size() const override;
+        float devicePixelRatio() const override;
+        std::pair<int, int> windowSizeInPoints() const override;
 
         void setDepthBias(float depthBias, float slopeScale, float clamp) override;
 

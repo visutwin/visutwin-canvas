@@ -474,6 +474,20 @@ namespace visutwin::canvas
         _engine->init(appOptions);
         _engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
         _engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
+        // Upstream's examples: `device.maxPixelRatio = Math.min(window.devicePixelRatio, 2)`.
+        // VISUTWIN_MAX_PIXEL_RATIO overrides it (1 renders a Retina window at upstream's default
+        // browser density, the way to compare GPU time with upstream at matched pixels).
+        if (auto* gd = _engine->graphicsDevice().get()) {
+            float cap = std::min(gd->devicePixelRatio(), 2.0f);
+            if (const char* env = std::getenv("VISUTWIN_MAX_PIXEL_RATIO")) {
+                const float value = std::strtof(env, nullptr);
+                if (value > 0.0f) {
+                    cap = value;
+                    spdlog::info("Max pixel ratio {} from VISUTWIN_MAX_PIXEL_RATIO", cap);
+                }
+            }
+            gd->setMaxPixelRatio(cap);
+        }
 
         // The performance HUD. Upstream's example harness puts ministats on every
         // example, so it belongs to the host here rather than to any one scene —

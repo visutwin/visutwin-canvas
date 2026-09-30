@@ -3,6 +3,8 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <vector>
+#include <cmath>
 #include "vulkanGraphicsDevice.h"
 
 #include <algorithm>
@@ -37,58 +39,154 @@
 namespace visutwin::canvas
 {
 
+    VkExtent2D VulkanGraphicsDevice::targetSwapchainExtent(const VkSurfaceCapabilitiesKHR& caps) const
+    {
+        // The back buffer at pixelRatio(): the window's own pixels uncapped, its points times the
+        // ratio when maxPixelRatio caps it below the display's density. A capped extent is
+        // smaller than the surface's current extent, which is legal wherever the surface allows
+        // it (MoltenVK takes 1..16384 and scales the layer's contents up to the window); where
+        // min = max = current (X11, Windows) the clamp below puts it back to the window's size.
+        uint32_t width = caps.currentExtent.width;
+        uint32_t height = caps.currentExtent.height;
+        const float ratio = pixelRatio();
+        if (ratio < devicePixelRatio()) {
+            const auto [pw, ph] = windowSizeInPoints();
+            width = static_cast<uint32_t>(std::max(0.0f, std::floor(static_cast<float>(pw) * ratio)));
+            height = static_cast<uint32_t>(std::max(0.0f, std::floor(static_cast<float>(ph) * ratio)));
+        } else if (caps.currentExtent.width == UINT32_MAX) {
+            // The surface takes its size from the swapchain (Wayland): the window's pixels.
+            int pw = 0, ph = 0;
+            if (_window) {
+                SDL_GetWindowSizeInPixels(_window, &pw, &ph);
+            }
+            width = static_cast<uint32_t>(std::max(pw, 0));
+            height = static_cast<uint32_t>(std::max(ph, 0));
+        }
+        width = std::clamp(width, caps.minImageExtent.width, caps.maxImageExtent.width);
+        height = std::clamp(height, caps.minImageExtent.height, caps.maxImageExtent.height);
+        return {width, height};
+    }
+
+    bool VulkanGraphicsDevice::swapchainExtentStale() const
+    {
+        VkSurfaceCapabilitiesKHR caps{};
+        if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(_physicalDevice, _surface, &caps) != VK_SUCCESS) {
+            return true;
+        }
+        const VkExtent2D target = targetSwapchainExtent(caps);
+        return target.width != _swapchainExtent.width || target.height != _swapchainExtent.height;
+    }
+
     bool VulkanGraphicsDevice::initSwapchain(
-        const int width, const int height,
+        const int /*width*/, const int /*height*/,
         const VkSwapchainKHR oldSwapchain)
     {
+        // Built here rather than by vk-bootstrap, whose swapchain always takes the surface's
+        // current extent when it has one, so a back buffer smaller than the window
+        // (maxPixelRatio) could not be asked for. Everything else is vk-bootstrap's choice as this
+        // device used it: its image count (min + 1, capped), the surface's current transform, an
+        // opaque composite, clipped, concurrent sharing across distinct queue families.
+        //
         // Use a linear (UNORM) swapchain — the shaders apply manual
         // pow(1/2.2) for display gamma encoding, matching the Metal path
         // which renders into a non-sRGB BGRA8Unorm drawable.  Choosing
         // VK_FORMAT_B8G8R8A8_SRGB instead would make the hardware apply a
         // second sRGB encode on store, doubling the gamma and washing out
         // the rendered scene.
-        // Passing both family indices makes vk-bootstrap use concurrent image
-        // sharing when graphics and presentation are on different families,
-        // avoiding explicit queue-family ownership transfers for each frame.
-        vkb::SwapchainBuilder swapBuilder{
-            _physicalDevice, _device, _surface,
-            _graphicsQueueFamily, _presentQueueFamily};
-        swapBuilder.set_desired_extent(static_cast<uint32_t>(width), static_cast<uint32_t>(height))
-                   .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-                   .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
-                   .add_image_usage_flags(
-                       VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-        if (oldSwapchain != VK_NULL_HANDLE) {
-            swapBuilder.set_old_swapchain(oldSwapchain);
-        }
-
-        auto result = swapBuilder.build();
-        if (!result) {
-            spdlog::error("Failed to create Vulkan swapchain: {}", result.error().message());
+        VkSurfaceCapabilitiesKHR caps{};
+        if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(_physicalDevice, _surface, &caps) != VK_SUCCESS) {
+            spdlog::error("Failed to query the Vulkan surface capabilities");
             return false;
         }
-        auto vkbSwap = result.value();
-        auto imagesResult = vkbSwap.get_images();
-        auto viewsResult = vkbSwap.get_image_views();
-        if (!imagesResult || !viewsResult) {
-            if (viewsResult) {
-                vkbSwap.destroy_image_views(viewsResult.value());
+
+        uint32_t formatCount = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(_physicalDevice, _surface, &formatCount, nullptr);
+        std::vector<VkSurfaceFormatKHR> formats(formatCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(_physicalDevice, _surface, &formatCount, formats.data());
+        if (formats.empty()) {
+            spdlog::error("The Vulkan surface reports no formats");
+            return false;
+        }
+        VkSurfaceFormatKHR surfaceFormat = formats.front();   // vk-bootstrap's fallback
+        for (const auto& format : formats) {
+            if (format.format == VK_FORMAT_B8G8R8A8_UNORM && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                surfaceFormat = format;
+                break;
             }
-            vkb::destroy_swapchain(vkbSwap);
-            // A successful vkCreateSwapchainKHR retires oldSwapchain even if
-            // subsequent setup fails, so the caller must not restore it.
-            _swapchain = VK_NULL_HANDLE;
-            spdlog::error(
-                "Failed to retrieve Vulkan swapchain images or image views");
+        }
+
+        uint32_t imageCount = caps.minImageCount + 1;
+        if (caps.maxImageCount > 0 && imageCount > caps.maxImageCount) {
+            imageCount = caps.maxImageCount;
+        }
+
+        const VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        if ((caps.supportedUsageFlags & usage) != usage) {
+            spdlog::error("The Vulkan surface does not support the swapchain's image usage");
             return false;
         }
 
-        _swapchain = vkbSwap.swapchain;
-        _swapchainFormat = vkbSwap.image_format;
-        _swapchainExtent = vkbSwap.extent;
-        _swapchainImages = std::move(imagesResult.value());
-        _swapchainImageViews = std::move(viewsResult.value());
+        const uint32_t queueFamilies[] = {_graphicsQueueFamily, _presentQueueFamily};
+        VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+        info.surface = _surface;
+        info.minImageCount = imageCount;
+        info.imageFormat = surfaceFormat.format;
+        info.imageColorSpace = surfaceFormat.colorSpace;
+        info.imageExtent = targetSwapchainExtent(caps);
+        info.imageArrayLayers = 1;
+        info.imageUsage = usage;
+        if (_graphicsQueueFamily != _presentQueueFamily) {
+            info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+            info.queueFamilyIndexCount = 2;
+            info.pQueueFamilyIndices = queueFamilies;
+        } else {
+            info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        }
+        info.preTransform = caps.currentTransform;
+        info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        info.presentMode = VK_PRESENT_MODE_FIFO_KHR;   // always supported
+        info.clipped = VK_TRUE;
+        info.oldSwapchain = oldSwapchain;
+
+        VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+        if (vkCreateSwapchainKHR(_device, &info, nullptr, &swapchain) != VK_SUCCESS) {
+            spdlog::error("Failed to create Vulkan swapchain ({}x{})", info.imageExtent.width, info.imageExtent.height);
+            return false;
+        }
+
+        uint32_t count = 0;
+        vkGetSwapchainImagesKHR(_device, swapchain, &count, nullptr);
+        std::vector<VkImage> images(count);
+        vkGetSwapchainImagesKHR(_device, swapchain, &count, images.data());
+        std::vector<VkImageView> views;
+        views.reserve(count);
+        for (const VkImage image : images) {
+            VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            viewInfo.image = image;
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewInfo.format = surfaceFormat.format;
+            viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            VkImageView view = VK_NULL_HANDLE;
+            if (vkCreateImageView(_device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
+                for (const VkImageView created : views) {
+                    vkDestroyImageView(_device, created, nullptr);
+                }
+                vkDestroySwapchainKHR(_device, swapchain, nullptr);
+                // A successful vkCreateSwapchainKHR retires oldSwapchain even if
+                // subsequent setup fails, so the caller must not restore it.
+                _swapchain = VK_NULL_HANDLE;
+                spdlog::error("Failed to create the Vulkan swapchain image views");
+                return false;
+            }
+            views.push_back(view);
+        }
+
+        _swapchain = swapchain;
+        _swapchainFormat = surfaceFormat.format;
+        _swapchainExtent = info.imageExtent;
+        _swapchainImages = std::move(images);
+        _swapchainImageViews = std::move(views);
 
         // Adopt the actual swapchain extent as the device size.  The requested
         // width/height can be stale or zero before the window is first shown,
@@ -619,7 +717,11 @@ namespace visutwin::canvas
             vkQueuePresentKHR(_presentQueue, &presentInfo);
         recordDisplayWait(std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - presentStart).count());
-        if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
+        // SUBOPTIMAL rebuilds only when the size the back buffer should have changed: a swapchain
+        // kept deliberately smaller than the window (maxPixelRatio) may be reported suboptimal on
+        // every present, and rebuilding it each frame would change nothing.
+        if (presentResult == VK_ERROR_OUT_OF_DATE_KHR ||
+            (presentResult == VK_SUBOPTIMAL_KHR && swapchainExtentStale())) {
             // Present is the usual place a resize surfaces — rebuild now so the
             // next acquire starts from a valid swapchain.
             (void)recreateSwapchain();
@@ -962,6 +1064,21 @@ namespace visutwin::canvas
         _swapchainRecreationPending = false;
         _swapchainDeferredFrames = 0;
         return SwapchainRecreation::Recreated;
+    }
+
+    float VulkanGraphicsDevice::devicePixelRatio() const
+    {
+        const float density = _window ? SDL_GetWindowPixelDensity(_window) : 0.0f;
+        return density > 0.0f ? density : 1.0f;
+    }
+
+    std::pair<int, int> VulkanGraphicsDevice::windowSizeInPoints() const
+    {
+        int w = 0, h = 0;
+        if (_window) {
+            SDL_GetWindowSize(_window, &w, &h);
+        }
+        return {w, h};
     }
 
     std::pair<int, int> VulkanGraphicsDevice::size() const

@@ -560,11 +560,15 @@ namespace visutwin::canvas
     {
         _resolutionMode = mode;
 
-        // In AUTO mode the resolution is the same as the canvas size, unless specified
+        // In AUTO mode the resolution is the canvas's, unless specified. resizeCanvas takes
+        // POINTS and applies the device's pixel ratio (upstream: CSS pixels).
         if (mode == ResolutionMode::RESOLUTION_AUTO && (width == 0)) {
-            auto size = _graphicsDevice->size();
-            width = size.first;
-            height = size.second;
+            const auto points = _graphicsDevice->windowSizeInPoints();
+            if (points.first <= 0 || points.second <= 0) {
+                return;   // no window: the device keeps the size it was made with
+            }
+            width = points.first;
+            height = points.second;
         }
 
         _graphicsDevice->resizeCanvas(width, height);
@@ -780,9 +784,11 @@ namespace visutwin::canvas
 
         // In AUTO mode the resolution is changed to match the canvas size
         if (_resolutionMode == ResolutionMode::RESOLUTION_AUTO) {
-            int w, h;
-            SDL_GetWindowSizeInPixels(_window, &w, &h);
-            _graphicsDevice->resizeCanvas(w, h);
+            // resizeCanvas takes points and applies the device's pixel ratio (maxPixelRatio).
+            const auto [w, h] = _graphicsDevice->windowSizeInPoints();
+            if (w > 0 && h > 0) {
+                _graphicsDevice->resizeCanvas(w, h);
+            }
         }
     }
 }

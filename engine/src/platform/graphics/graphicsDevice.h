@@ -10,6 +10,8 @@
 #include <array>
 #include <atomic>
 #include <map>
+#include <algorithm>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -692,8 +694,25 @@ namespace visutwin::canvas
 
         int samples() const { return _samples; }
 
+        /// Size the back buffer for a canvas of `width` x `height` POINTS (upstream
+        /// `resizeCanvas`, whose arguments are CSS pixels): points x `pixelRatio()`, floored.
         void resizeCanvas(int width, int height);
         virtual void setResolution(int width, int height) = 0;
+
+        /// Upstream `maxPixelRatio`: the most back-buffer pixels per canvas point. The back
+        /// buffer is the canvas at `pixelRatio()` = min(maxPixelRatio, devicePixelRatio), so a
+        /// Retina display with a cap of 1 renders a quarter of its pixels, scaled up to the window.
+        /// DEVIATION: unlimited by default (the display's own density, as this engine always
+        /// rendered), where upstream's browser default is 1; the examples cap it at 2 as upstream's
+        /// examples do. Setting it resizes the back buffer at once.
+        float maxPixelRatio() const { return _maxPixelRatio; }
+        void setMaxPixelRatio(float value);
+        /// The display's pixels per point for the window (SDL's pixel density); 1 without one.
+        virtual float devicePixelRatio() const { return 1.0f; }
+        /// The back buffer's pixels per canvas point.
+        float pixelRatio() const { return std::min(_maxPixelRatio, devicePixelRatio()); }
+        /// The window's size in points, or {0, 0} for a device with no window.
+        virtual std::pair<int, int> windowSizeInPoints() const { return {0, 0}; }
 
         virtual std::pair<int, int> size() const = 0;
 
@@ -1114,10 +1133,7 @@ namespace visutwin::canvas
 
         int _samples = 0;
 
-        // Never assigned elsewhere; resizeCanvas clamps it with min(_, 1.0f), so
-        // an uninitialized read could scale the backbuffer to 0×0 and (on Vulkan)
-        // wedge swapchain recreation permanently.
-        float _maxPixelRatio = 1.0f;
+        float _maxPixelRatio = std::numeric_limits<float>::infinity();
 
         int _shaderSwitchesPerFrame = 0;
         int _drawCallsPerFrame = 0;

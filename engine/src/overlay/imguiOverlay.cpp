@@ -298,6 +298,16 @@ namespace visutwin::canvas
         }
 
         ImGui_ImplSDL3_NewFrame();
+        // The SDL backend takes the window's full pixel density; the back buffer is the canvas
+        // at the device's pixel ratio (maxPixelRatio may cap it lower), so scale to that.
+        if (_device) {
+            ImGuiIO& io = ImGui::GetIO();
+            const auto [w, h] = _device->size();
+            if (io.DisplaySize.x > 0.0f && io.DisplaySize.y > 0.0f && w > 0 && h > 0) {
+                io.DisplayFramebufferScale = ImVec2(static_cast<float>(w) / io.DisplaySize.x,
+                                                    static_cast<float>(h) / io.DisplaySize.y);
+            }
+        }
         ImGui::NewFrame();
     }
 

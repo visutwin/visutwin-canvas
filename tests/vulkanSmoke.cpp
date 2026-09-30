@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 
+#include <limits>
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -2796,6 +2797,45 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             }
         }
         }
+        }
+
+        // maxPixelRatio: a cap below the window's density makes a swapchain smaller than the
+        // window (built by hand, as vk-bootstrap always takes the surface's current extent),
+        // which renders and presents under validation; lifting the cap restores the window's
+        // own size. A deliberately small swapchain must not be rebuilt on every present either.
+        {
+            const auto before = device->size();
+            const auto points = device->windowSizeInPoints();
+            device->setMaxPixelRatio(0.5f);
+            const auto capped = device->size();
+            const int expectedW = static_cast<int>(std::floor(static_cast<float>(points.first) * 0.5f));
+            const int expectedH = static_cast<int>(std::floor(static_cast<float>(points.second) * 0.5f));
+            if (capped.first != std::max(expectedW, 1) || capped.second != std::max(expectedH, 1)) {
+                spdlog::error("Vulkan smoke: maxPixelRatio 0.5 gave a {}x{} back buffer for {}x{} points",
+                    capped.first, capped.second, points.first, points.second);
+                result = 1;
+            }
+            for (int i = 0; i < 4; ++i) {
+                device->frameStart();
+                if (!VulkanGraphicsDeviceTestAccess::frameActive(*device)) {
+                    spdlog::error("Vulkan smoke: a frame at maxPixelRatio 0.5 did not start");
+                    result = 1;
+                }
+                device->frameEnd();
+            }
+            if (device->size() != capped) {
+                spdlog::error("Vulkan smoke: the capped swapchain was rebuilt at another size");
+                result = 1;
+            }
+            device->setMaxPixelRatio(std::numeric_limits<float>::infinity());
+            if (device->size() != before) {
+                spdlog::error("Vulkan smoke: lifting maxPixelRatio did not restore {}x{} (got {}x{})",
+                    before.first, before.second, device->size().first, device->size().second);
+                result = 1;
+            } else {
+                spdlog::info("Vulkan smoke: maxPixelRatio 0.5 rendered at {}x{}, lifted back to {}x{}",
+                    capped.first, capped.second, before.first, before.second);
+            }
         }
 
         // A zero-sized drawable must defer swapchain recreation and skip
