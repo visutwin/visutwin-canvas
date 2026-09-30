@@ -82,6 +82,12 @@ namespace visutwin::canvas
             Texture* depthDestination) override;
         void generateMipmaps(Texture* texture) override;
 
+        /// Depth-stencil, for UI masks (metal::kBackBufferDepthFormat); a blit needs matching
+        /// formats, so a depth grab from the back buffer allocates this.
+        PixelFormat backBufferDepthFormat() const override
+        {
+            return PixelFormat::PIXELFORMAT_DEPTHSTENCIL;
+        }
         // The CAMetalLayer is created BGRA8Unorm, and a blit needs matching formats.
         PixelFormat backBufferColorFormat() const override
         {

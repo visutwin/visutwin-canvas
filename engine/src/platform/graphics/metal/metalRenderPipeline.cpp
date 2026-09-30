@@ -8,6 +8,7 @@
 #include <algorithm>
 
 #include "metalRenderTarget.h"
+#include "metalUtils.h"
 #include "metalShader.h"
 #include "platform/graphics/vertexFormat.h"
 #include "core/utils.h"
@@ -331,11 +332,19 @@ namespace visutwin::canvas
             pipelineDescriptor->setRasterSampleCount(
                 static_cast<NS::UInteger>(std::max(metalTarget->samples(), 1)));
         } else {
-            // Back buffer: BGRA8 color + Depth32Float (always attached by startRenderPass)
+            // Back buffer: BGRA8 color + depth-stencil (always attached by startRenderPass)
             auto* colorAttachment = pipelineDescriptor->colorAttachments()->object(0);
             colorAttachment->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
+            // A mask draws into the stencil alone, with every colour channel off.
+            MTL::ColorWriteMask writeMask = MTL::ColorWriteMaskNone;
+            if (blendState->redWrite())   writeMask |= MTL::ColorWriteMaskRed;
+            if (blendState->greenWrite()) writeMask |= MTL::ColorWriteMaskGreen;
+            if (blendState->blueWrite())  writeMask |= MTL::ColorWriteMaskBlue;
+            if (blendState->alphaWrite()) writeMask |= MTL::ColorWriteMaskAlpha;
+            colorAttachment->setWriteMask(writeMask);
             setBlend(colorAttachment, blendState);
-            pipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float);
+            pipelineDescriptor->setDepthAttachmentPixelFormat(metal::kBackBufferDepthFormat);
+            pipelineDescriptor->setStencilAttachmentPixelFormat(metal::kBackBufferDepthFormat);
         }
 
         _pipelineId++;

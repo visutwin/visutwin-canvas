@@ -1085,8 +1085,8 @@ namespace visutwin::canvas
         case SortMode::SORTMODE_MANUAL:
             std::stable_sort(drawEntries.begin(), drawEntries.end(),
                 [](const ForwardDrawEntry* a, const ForwardDrawEntry* b) {
-                    const int orderA = a->meshInstance ? a->meshInstance->drawOrder() : 0;
-                    const int orderB = b->meshInstance ? b->meshInstance->drawOrder() : 0;
+                    const double orderA = a->meshInstance ? a->meshInstance->drawOrder() : 0.0;
+                    const double orderB = b->meshInstance ? b->meshInstance->drawOrder() : 0.0;
                     return orderA < orderB;
                 });
             break;
@@ -1693,6 +1693,12 @@ namespace visutwin::canvas
             const bool hasInstanceLightMap = instanceLightMap != nullptr;
             const bool isScreenSpace = entry->meshInstance && entry->meshInstance->screenSpace();
             _device->setInstanceLightMap(instanceLightMap);
+            // Upstream's per-draw stencil (UI masks); null leaves the stencil off.
+            if (entry->meshInstance) {
+                _device->setStencilState(entry->meshInstance->stencilFront(), entry->meshInstance->stencilBack());
+            } else {
+                _device->setStencilState();
+            }
 
             if (boundMaterial != lastShaderMaterial || isDynBatch != lastShaderDynBatch ||
                 isSkinned != lastShaderSkinned || isMorphed != lastShaderMorphed ||
@@ -1943,6 +1949,7 @@ namespace visutwin::canvas
         }
         // No other pass may inherit the last draw's lightmap.
         _device->setInstanceLightMap(nullptr);
+        _device->setStencilState();
 
         // Restore global viewport/scissor after this camera-layer pass.
         _device->setViewport(oldVx, oldVy, oldVw, oldVh);

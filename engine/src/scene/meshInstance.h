@@ -18,6 +18,7 @@
 #include "gsplat/gsplatInstance.h"
 #include "scene/constants.h"
 #include "materials/material.h"
+#include "platform/graphics/stencilParameters.h"
 #include "platform/graphics/vertexBuffer.h"
 
 namespace visutwin::canvas
@@ -159,8 +160,20 @@ namespace visutwin::canvas
          * Application-authored order, used only by SORTMODE_MANUAL. Upstream's
          * MeshInstance.drawOrder. Lower draws first.
          */
-        int drawOrder() const { return _drawOrder; }
-        void setDrawOrder(const int value) { _drawOrder = value; }
+        double drawOrder() const { return _drawOrder; }
+        /// A double, as upstream's number: an unmask draw sits BETWEEN two elements' orders.
+        void setDrawOrder(const double value) { _drawOrder = value; }
+
+        /// Upstream `stencilFront` / `stencilBack`: the stencil test and write this draw
+        /// uses (a UI mask writes the stencil, the elements under it test it); null draws
+        /// with the stencil off. Shared, so one parameter set can serve a whole mask level.
+        const std::shared_ptr<StencilParameters>& stencilFront() const { return _stencilFront; }
+        const std::shared_ptr<StencilParameters>& stencilBack() const { return _stencilBack; }
+        void setStencil(std::shared_ptr<StencilParameters> front, std::shared_ptr<StencilParameters> back)
+        {
+            _stencilFront = std::move(front);
+            _stencilBack = std::move(back);
+        }
 
         /**
          * Coarse priority, the HIGHEST-priority field of the material sort key, so a
@@ -403,7 +416,9 @@ namespace visutwin::canvas
         bool _cull = true;
         bool _screenSpace = false;
         bool _visibleThisFrame = false;
-        int _drawOrder = 0;
+        double _drawOrder = 0.0;
+        std::shared_ptr<StencilParameters> _stencilFront;
+        std::shared_ptr<StencilParameters> _stencilBack;
         uint8_t _drawBucket = 0;
         float _sortDistance = 0.0f;
         uint32_t _mask = MASK_AFFECT_DYNAMIC;

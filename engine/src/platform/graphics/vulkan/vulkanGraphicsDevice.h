@@ -26,6 +26,7 @@
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "vulkanGpuProfiler.h"
 #include "vulkanUniformLayouts.h"
+#include "vulkanUtils.h"
 
 namespace visutwin::canvas
 {
@@ -215,6 +216,13 @@ namespace visutwin::canvas
          */
         bool runOneShotCommands(const std::function<void(VkCommandBuffer)>& record);
         [[nodiscard]] VkFormat depthFormat() const { return _depthFormat; }
+        /// Every aspect of the swapchain depth image: a depth-stencil image's layout
+        /// transitions must name both.
+        [[nodiscard]] VkImageAspectFlags depthImageAspect() const
+        {
+            return vulkanFormatHasStencil(_depthFormat)
+                ? (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT) : VK_IMAGE_ASPECT_DEPTH_BIT;
+        }
         [[nodiscard]] bool validationEnabled() const { return _validationEnabled; }
         [[nodiscard]] std::shared_ptr<const std::atomic_uint32_t> validationErrorCounter() const {
             return _validationErrorCount;
@@ -272,6 +280,13 @@ namespace visutwin::canvas
         void generateMipmaps(Texture* texture) override;
 
         // A blit needs matching formats, so report what the swapchain actually is.
+        /// Depth-stencil when the swapchain depth has a stencil (UI masks); a depth grab
+        /// copies into this, and vkCmdCopyImage needs matching depth formats.
+        PixelFormat backBufferDepthFormat() const override
+        {
+            return vulkanFormatHasStencil(_depthFormat) ? PixelFormat::PIXELFORMAT_DEPTHSTENCIL
+                                                        : PixelFormat::PIXELFORMAT_DEPTH;
+        }
         PixelFormat backBufferColorFormat() const override
         {
             return _swapchainFormat == VK_FORMAT_R8G8B8A8_UNORM

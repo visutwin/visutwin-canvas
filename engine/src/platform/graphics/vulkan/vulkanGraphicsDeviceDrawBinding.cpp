@@ -224,7 +224,7 @@ namespace visutwin::canvas
             if (_depthImageLayout != VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
                 vulkanTransitionImageLayout(cmd, _depthImage,
                     _depthImageLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                    VK_IMAGE_ASPECT_DEPTH_BIT);
+                    depthImageAspect());
                 _depthImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             }
 
@@ -249,6 +249,20 @@ namespace visutwin::canvas
             depthInfo.storeOp = (dsOps && dsOps->storeDepth)
                 ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
             depthInfo.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
+
+            // The stencil (UI masks) follows the depth, as on Metal: cleared when either
+            // is, kept when either is, so a mask drawn in a later pass never reads a
+            // stencil the previous pass discarded.
+            if (vulkanFormatHasStencil(_depthFormat)) {
+                hasStencil = true;
+                stencilInfo = depthInfo;
+                stencilInfo.loadOp = (!dsOps || dsOps->clearStencil || dsOps->clearDepth)
+                    ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+                stencilInfo.storeOp = (dsOps && (dsOps->storeStencil || dsOps->storeDepth))
+                    ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                stencilInfo.clearValue.depthStencil.stencil =
+                    static_cast<uint32_t>(dsOps ? dsOps->clearStencilValue : 0);
+            }
         }
 
         VkRenderingInfo renderingInfo{VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -1178,11 +1192,15 @@ namespace visutwin::canvas
             const uint32_t height = destination->height();
             VkImage sourceImage = src ? src->image() : fallbackImage;
 
+            // A depth-stencil image is transitioned with BOTH aspects, while the copy
+            // takes only the one asked for.
+            const VkImageAspectFlags fallbackBarrierAspect =
+                aspect == VK_IMAGE_ASPECT_DEPTH_BIT ? depthImageAspect() : aspect;
             if (src) {
                 src->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
             } else {
                 vulkanTransitionImageLayout(cmd, sourceImage, fallbackLayout,
-                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, aspect);
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, fallbackBarrierAspect);
                 fallbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
             }
             dst->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -1198,7 +1216,7 @@ namespace visutwin::canvas
                 src->transitionLayout(cmd, sourceRestoreLayout, 0, 1, 0, 1);
             } else {
                 vulkanTransitionImageLayout(cmd, sourceImage, fallbackLayout,
-                    fallbackRestoreLayout, aspect);
+                    fallbackRestoreLayout, fallbackBarrierAspect);
                 fallbackLayout = fallbackRestoreLayout;
             }
 

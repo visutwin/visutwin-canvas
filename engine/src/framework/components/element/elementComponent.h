@@ -283,6 +283,23 @@ namespace visutwin::canvas
         /// `pixelsPerUnit`, null = the sprite's).
         std::optional<float> pixelsPerUnit() const { return _pixelsPerUnit; }
         void setPixelsPerUnit(const std::optional<float> value) { _pixelsPerUnit = value; ++_imageVersion; }
+        /// Upstream `mask`: an image element that MASKS its descendants. It is not drawn
+        /// itself; its opaque texels (alpha test 1, so a sprite's transparent corners shape
+        /// it) mark the stencil, and every element below it draws only there. Masks nest.
+        bool mask() const { return _mask; }
+        void setMask(const bool value)
+        {
+            if (value != _mask) {
+                _mask = value;
+                ++_imageVersion;
+            }
+        }
+        /// The nearest mask above this element, or null (upstream `maskedBy`, which is an
+        /// entity there). Worked out by ElementInput before each frame; a hit test on this
+        /// element must also hit it.
+        ElementComponent* maskedBy() const { return _maskedBy; }
+        void setMaskedBy(ElementComponent* value) { _maskedBy = value; }
+
         /// How the image keeps its aspect inside the rectangle.
         ElementFitMode fitMode() const { return _fitMode; }
         void setFitMode(const ElementFitMode value) { _fitMode = value; ++_imageVersion; }
@@ -405,6 +422,8 @@ namespace visutwin::canvas
         std::optional<float> _pixelsPerUnit;
         ElementFitMode _fitMode = ElementFitMode::Stretch;
         uint64_t _imageVersion = 1;
+        bool _mask = false;
+        ElementComponent* _maskedBy = nullptr;
         int _drawOrder = 0;
     };
 }

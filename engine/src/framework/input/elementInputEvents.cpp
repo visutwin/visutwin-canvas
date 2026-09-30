@@ -133,6 +133,12 @@ namespace visutwin::canvas
 
         float checkElement(const Segment& ray, ElementComponent* element, const bool screen)
         {
+            // Upstream: a masked element is only hit where its mask is, all the way up.
+            if (ElementComponent* mask = element->maskedBy()) {
+                if (checkElement(ray, mask, screen) < 0.0f) {
+                    return -1.0f;
+                }
+            }
             const Vector3 scale = screen ? scaleToScreen(element) : scaleToWorld(element);
             const auto corners = ElementInput::buildHitCorners(element, screen ? element->screenCorners()
                                                                                : element->worldCorners(), scale);

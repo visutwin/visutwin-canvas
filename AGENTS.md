@@ -1826,6 +1826,22 @@ present, but the rule below never depends on reading it.
   64-pixel atlas cell, so EVERY text was drawn at half its size, and the kerning parser
   never loaded a pair; compare text size with upstream's thumbnail as a ratio to a
   neighbouring element (a name to its bar), which survives the thumbnail's other aspect.
+- **The BACK BUFFER's depth attachment carries STENCIL, on both backends, and the
+  stencil follows the depth.** UI masks write it (ARCHITECTURE.md, UI masks). Metal's is
+  `Depth32Float_Stencil8` (`metal::kBackBufferDepthFormat`, which every back-buffer pipeline
+  names as BOTH its depth and stencil format — a pipeline that names one and not the other
+  fails validation against the pass); Vulkan's is `D32_SFLOAT_S8_UINT` where the device
+  supports it and falls back to the depth-only format. The stencil is cleared whenever the
+  pass clears stencil OR depth and stored whenever it stores either, so no pass needs to know
+  it exists. On Vulkan a layout barrier on that image must name BOTH aspects
+  (`depthImageAspect()`), a SAMPLED view must name depth alone, a render-target attachment
+  view both, and a depth copy stays depth-only in its region; `backBufferDepthFormat()`
+  reports `PIXELFORMAT_DEPTHSTENCIL` so the depth-grab copy's target matches. Stencil state
+  is PER DRAW from the mesh instance (`MeshInstance::setStencil`); the renderer resets it
+  after each layer's loop, so a draw that sets none tests nothing. Note also that
+  `Material::setAlphaMode` RESETS the blend, the depth state and the transparent flag —
+  set it first and the rest after, or they are silently lost (the mask material's first
+  version was).
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
@@ -2314,11 +2330,11 @@ What stays HERE is only what bites during UNRELATED work.
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
 - **UI not ported yet**: max lines, auto-fit font size, right-to-left text, layout groups,
-  masks, scroll views, XR select events, grapheme clusters (emoji sequences are several
+  scroll views, XR select events, grapheme clusters (emoji sequences are several
   symbols), and upstream's element drag helper (#9551). The ten UI examples (`ui-text`,
   `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,
-  `screen-scaling`, `ui-panel`, `text-justify`, `text-typewriter`) port upstream's CURRENT
-  versions.
+  `screen-scaling`, `ui-panel`, `text-justify`, `text-typewriter`, `masking`) port upstream's
+  CURRENT versions.
 - **No maximum pixel ratio.** The drawable always follows the display's density (Metal and
   Vulkan both size it from `SDL_GetWindowSizeInPixels`), where upstream's
   `device.maxPixelRatio` caps it; `screen-scaling` leaves out its "Pixel ratio" button for

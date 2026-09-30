@@ -45,6 +45,13 @@ namespace visutwin::canvas
     ElementComponent::~ElementComponent()
     {
         std::erase(_instances, this);
+        // An element masked by this one must not keep a pointer to it until the next frame
+        // works the masks out again: a hit test in between would follow it.
+        for (auto* element : _instances) {
+            if (element->_maskedBy == this) {
+                element->_maskedBy = nullptr;
+            }
+        }
         if (_onInsertHandle) {
             _onInsertHandle->off();
         }
@@ -892,6 +899,7 @@ namespace visutwin::canvas
         _spacing = src->_spacing;
         _enableMarkup = src->_enableMarkup;
         _justify = src->_justify;
+        _mask = src->_mask;
         _autoWidth = src->_autoWidth;
         _autoHeight = src->_autoHeight;
         _outlineColor = src->_outlineColor;

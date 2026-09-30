@@ -40,6 +40,11 @@
 #include "platform/input/mouse.h"
 #include "scene/camera.h"
 #include "scene/constants.h"
+#include "framework/components/render/renderComponent.h"
+#include "framework/components/render/renderComponentSystem.h"
+#include "platform/graphics/blendState.h"
+#include "scene/materials/standardMaterial.h"
+#include "scene/meshInstance.h"
 #include "scene/sprite.h"
 
 using namespace visutwin::canvas;
@@ -188,6 +193,25 @@ namespace
         b.component->setImageEntity(b.image);
         return b;
     }
+    /// The mesh instances of an element's visual (the render component on its child).
+    std::vector<MeshInstance*> visualInstances(Entity* elementEntity)
+    {
+        for (const auto& child : elementEntity->children()) {
+            auto* entity = dynamic_cast<Entity*>(child.get());
+            if (auto* render = entity ? entity->findComponent<RenderComponent>() : nullptr) {
+                return render->meshInstances();
+            }
+        }
+        return {};
+    }
+
+    bool stencilIs(const MeshInstance* mi, const StencilCompareFunction func, const StencilOperation pass,
+                   const uint32_t ref)
+    {
+        const auto& sp = mi ? mi->stencilFront() : nullptr;
+        return sp && mi->stencilBack() == sp && sp->compareFunction() == func && sp->passOperation() == pass &&
+               sp->reference() == ref;
+    }
 }
 
 int main()
@@ -203,6 +227,8 @@ int main()
     auto mouseDevice = std::make_shared<Mouse>();
     options.mouse = mouseDevice;
     options.registerComponentSystem<CameraComponentSystem>();
+    // the element visuals are render components
+    options.registerComponentSystem<RenderComponentSystem>();
     options.registerComponentSystem<ScreenComponentSystem>();
     options.registerComponentSystem<ElementComponentSystem>();
     options.registerComponentSystem<ButtonComponentSystem>();
@@ -496,6 +522,78 @@ int main()
         check(input->elementAt(camera, 10.0f, 10.0f) == nullptr, "a corner of the canvas misses both");
         nearBox->entity()->destroy();
         farBox->entity()->destroy();
+    }
+
+    std::cout << "\nmasks (upstream _updateMask)\n";
+    {
+        // Upstream's masking card: a card mask, a cover mask inside it over a photo, and an
+        // avatar mask with its picture, the last element of the card.
+        const auto image = [&](GraphNode* parent, const std::string& name, const bool mask, const float w,
+                               const float h, const bool useInput = false) {
+            Entity* e = addTo(parent, newEntity(name));
+            ElementComponent* element = addElement(e, {.type = ElementType::Image, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f),
+                .pivot = Vector2(0.5f, 0.5f), .width = w, .height = h, .useInput = useInput});
+            element->setMask(mask);
+            return element;
+        };
+        ElementComponent* card = image(screen, "card", true, 120.0f, 120.0f);
+        ElementComponent* background = image(card->entity(), "background", false, 120.0f, 120.0f);
+        ElementComponent* cover = image(card->entity(), "cover", true, 100.0f, 40.0f);
+        ElementComponent* photo = image(cover->entity(), "photo", false, 200.0f, 200.0f, true);
+        ElementComponent* avatar = image(card->entity(), "avatar", true, 30.0f, 30.0f);
+        ElementComponent* picture = image(avatar->entity(), "picture", false, 30.0f, 30.0f);
+        ElementComponent* outside = image(screen, "outside", false, 10.0f, 10.0f);
+        engine->update(0.0f);   // draw orders
+        input->syncElements();
+
+        const auto first = [](ElementComponent* e) {
+            const auto instances = visualInstances(e->entity());
+            return instances.empty() ? nullptr : instances[0];
+        };
+        const auto unmask = [](ElementComponent* e) {
+            const auto instances = visualInstances(e->entity());
+            return instances.size() < 2 ? nullptr : instances[1];
+        };
+        using F = StencilCompareFunction;
+        using O = StencilOperation;
+        check(card->maskedBy() == nullptr && background->maskedBy() == card && cover->maskedBy() == card &&
+              photo->maskedBy() == cover && avatar->maskedBy() == card && picture->maskedBy() == avatar &&
+              outside->maskedBy() == nullptr, "maskedBy is the nearest mask above");
+        check(stencilIs(first(card), F::Always, O::Replace, 1), "the outer mask writes its depth (ALWAYS, REPLACE 1)");
+        check(stencilIs(first(background), F::Equal, O::Keep, 1), "an element under it draws where the stencil is 1");
+        check(stencilIs(first(cover), F::Equal, O::IncrementClamp, 1),
+              "a nested mask increments inside its parent (EQUAL 1, INCREMENT)");
+        check(stencilIs(first(photo), F::Equal, O::Keep, 2), "and what is under it draws at 2");
+        check(stencilIs(first(picture), F::Equal, O::Keep, 2), "a sibling nested mask reuses the same depth");
+        check(first(outside) && !first(outside)->stencilFront(), "an element under no mask draws with the stencil off");
+        check(stencilIs(unmask(cover), F::Equal, O::DecrementClamp, 2) &&
+              stencilIs(unmask(card), F::Equal, O::DecrementClamp, 1),
+              "each mask is undone by an unmask that decrements its value back to its parent's");
+        const double lastOrder = static_cast<double>(picture->drawOrder());
+        check(unmask(cover) && std::abs(unmask(cover)->drawOrder() - (photo->drawOrder() + 0.5)) < 1e-9,
+              "the cover's unmask draws just after its last descendant (the photo + 0.5)");
+        check(unmask(card) && unmask(avatar) && std::abs(unmask(card)->drawOrder() - (lastOrder + 0.5)) < 1e-9 &&
+              std::abs(unmask(avatar)->drawOrder() - (lastOrder + 0.499)) < 1e-9,
+              "masks ending on the same element unmask innermost first (0.499 before 0.5)");
+        const auto* material = first(card) ? dynamic_cast<const Material*>(first(card)->material()) : nullptr;
+        check(material && material->alphaMode() == AlphaMode::MASK && material->alphaCutoff() == 1.0f &&
+              material->blendState() && !material->blendState()->redWrite() && !material->blendState()->alphaWrite() &&
+              material->transparent() && material->depthState() && !material->depthState()->depthWrite(),
+              "a mask draws no colour, only where its image is fully opaque (alpha test 1), in the sorted "
+              "transparent sublayer and without writing depth");
+
+        // The photo is 200 x 200 but shows only through the 100 x 40 cover: a click on it
+        // outside the cover misses it.
+        const Vector2 centre(150.0f, 75.0f);
+        check(input->elementAt(camera, centre.x, centre.y) == photo, "a click inside the cover reaches the photo");
+        check(input->elementAt(camera, centre.x + 70.0f, centre.y) == nullptr,
+              "a click on the photo outside its mask does not");
+        cover->setMask(false);
+        input->syncElements();
+        check(photo->maskedBy() == card && stencilIs(first(photo), F::Equal, O::Keep, 1) && !unmask(cover),
+              "turning a mask off hands its children to the mask above, and drops its unmask");
+        card->entity()->destroy();
+        outside->entity()->destroy();
     }
 
     std::cout << "\nButtonComponent defaults (upstream #addComponent)\n";

@@ -14,7 +14,9 @@
 #include <cctype>
 #include <cstring>
 #include <optional>
+#include <functional>
 #include <map>
+#include <unordered_map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -389,6 +391,117 @@ namespace visutwin::canvas
         }
     }
 
+    std::shared_ptr<StencilParameters> ElementInput::stencilParameters(const StencilCompareFunction func,
+                                                                       const StencilOperation pass,
+                                                                       const uint32_t ref)
+    {
+        const uint64_t key = (static_cast<uint64_t>(func) << 40) | (static_cast<uint64_t>(pass) << 32) | ref;
+        auto& entry = _stencilCache[key];
+        if (!entry) {
+            entry = std::make_shared<StencilParameters>();
+            entry->setCompareFunction(func);
+            entry->setPassOperation(pass);
+            entry->setReference(ref);
+        }
+        return entry;
+    }
+
+    void ElementInput::syncMasks()
+    {
+        // Upstream getMaskOffset: how far past its last descendant an unmask draws, from
+        // 0.5 down by 0.001 each time the same element is asked in a frame, so masks ending
+        // on the same element unmask innermost first (the walk meets the outer one first).
+        std::unordered_map<const ElementComponent*, double> maskOffsets;
+        const auto maskOffset = [&maskOffsets](const ElementComponent* element) {
+            const auto [it, inserted] = maskOffsets.emplace(element, 0.5);
+            const double offset = it->second;
+            it->second -= 0.001;
+            return offset;
+        };
+        const auto elementOf = [](GraphNode* node) -> ElementComponent* {
+            auto* entity = dynamic_cast<Entity*>(node);
+            return entity ? entity->findComponent<ElementComponent>() : nullptr;
+        };
+        // upstream getLastChild: the last element child, followed down to its own last one
+        const auto lastDescendant = [&elementOf](ElementComponent* element) {
+            ElementComponent* last = nullptr;
+            for (ElementComponent* current = element; current;) {
+                ElementComponent* next = nullptr;
+                for (const auto& child : current->entity()->children()) {
+                    if (ElementComponent* childElement = elementOf(child.get())) {
+                        next = childElement;
+                    }
+                }
+                if (next) {
+                    last = next;
+                }
+                current = next;
+            }
+            return last;
+        };
+        const auto setPartsStencil = [this](ElementComponent* element, const std::shared_ptr<StencilParameters>& sp) {
+            const auto it = _visuals.find(element);
+            if (it == _visuals.end()) {
+                return;
+            }
+            for (auto& part : it->second.parts) {
+                if (part.meshInstance) {
+                    part.meshInstance->setStencil(sp, sp);
+                }
+            }
+        };
+        std::unordered_map<const ElementComponent*, uint32_t> maskRefs;
+
+        // Upstream _updateMask: depth-first, each element tested against the mask above it,
+        // and each mask written (the outermost with REPLACE, a nested one with INCREMENT
+        // inside its parent's value) and unmasked after its last descendant.
+        std::function<void(ElementComponent*, ElementComponent*, uint32_t)> update =
+            [&](ElementComponent* element, ElementComponent* currentMask, uint32_t depth) {
+                element->setMaskedBy(currentMask);
+                const uint32_t parentRef = currentMask ? maskRefs[currentMask] : 0u;
+                setPartsStencil(element, currentMask
+                    ? stencilParameters(StencilCompareFunction::Equal, StencilOperation::Keep, parentRef) : nullptr);
+
+                const bool isMask = element->mask() && element->type() == ElementType::Image;
+                if (isMask) {
+                    setPartsStencil(element, currentMask
+                        ? stencilParameters(StencilCompareFunction::Equal, StencilOperation::IncrementClamp, parentRef)
+                        : stencilParameters(StencilCompareFunction::Always, StencilOperation::Replace, depth));
+                    maskRefs[element] = depth;
+                    if (const auto it = _visuals.find(element); it != _visuals.end() && it->second.unmask) {
+                        // Back to the parent's value: where the stencil holds this mask's
+                        // (parentRef + 1), decrement it (upstream _setStencil).
+                        const auto sp = stencilParameters(StencilCompareFunction::Equal,
+                                                          StencilOperation::DecrementClamp, parentRef + 1u);
+                        it->second.unmask->setStencil(sp, sp);
+                        ElementComponent* last = lastDescendant(element);
+                        it->second.unmask->setDrawOrder(last
+                            ? static_cast<double>(last->drawOrder()) + maskOffset(last)
+                            : static_cast<double>(element->drawOrder()) + maskOffset(element));
+                    }
+                    ++depth;
+                    currentMask = element;
+                }
+                for (const auto& child : element->entity()->children()) {
+                    if (ElementComponent* childElement = elementOf(child.get())) {
+                        update(childElement, currentMask, depth);
+                    }
+                }
+            };
+
+        // Every element tree: an element whose parent entity has none (upstream starts from
+        // the element directly under a screen, or at the root).
+        for (auto* element : ElementComponent::instances()) {
+            if (!element || !element->entity() || element->entity()->engine() != _engine.get()) {
+                continue;
+            }
+            if (elementOf(element->entity()->parent())) {
+                continue;
+            }
+            update(element, nullptr, 1u);
+        }
+    }
+
     ElementInput::ElementVisual& ElementInput::visualFor(ElementComponent* element)
     {
         auto& visual = _visuals[element];
@@ -483,7 +596,8 @@ namespace visutwin::canvas
             } else {
                 const Sprite* sprite = element->sprite().get();
                 const uint64_t atlasVersion = sprite && sprite->atlas() ? sprite->atlas()->version() : 0;
-                rebuild = rebuild || visual.cachedImageVersion != element->imageVersion() ||
+                rebuild = rebuild || visual.cachedMask != element->mask() ||
+                    visual.cachedImageVersion != element->imageVersion() ||
                     visual.cachedSprite != sprite ||
                     visual.cachedSpriteVersion != (sprite ? sprite->version() : 0) ||
                     visual.cachedAtlasVersion != atlasVersion;
@@ -494,6 +608,7 @@ namespace visutwin::canvas
                     visual.render->clearMeshInstances();
                 }
                 visual.parts.clear();
+                visual.unmask = nullptr;
                 if (isText) {
                     const FontResource* font = element->fontResource();
                     TextMeshes text = buildTextMeshes(_engine->graphicsDevice(), element);
@@ -524,6 +639,26 @@ namespace visutwin::canvas
                     // An image multiplies its texture into the colour and takes its alpha.
                     part.material->setDiffuseMap(part.texture);
                     part.material->setEmissiveMap(part.texture);
+                    if (element->mask()) {
+                        // Upstream's mask material: into the stencil alone, every colour
+                        // channel off, and only where the image is fully opaque (alpha test 1),
+                        // which is what lets a sprite's transparent corners shape the mask.
+                        // setAlphaMode resets the blend, the depth state and transparency,
+                        // so it goes first and the element's own depth state and sublayer (the
+                        // transparent one, sorted by draw order) are put back after it.
+                        const auto depthState = part.material->depthState();
+                        part.material->setAlphaMode(AlphaMode::MASK);
+                        part.material->setAlphaCutoff(1.0f);
+                        part.material->setDepthState(depthState);
+                        part.material->setTransparent(true);
+                        auto blend = std::make_shared<BlendState>(BlendState::alphaBlend());
+                        blend->setRedWrite(false);
+                        blend->setGreenWrite(false);
+                        blend->setBlueWrite(false);
+                        blend->setAlphaWrite(false);
+                        part.material->setBlendState(blend);
+                    }
+                    visual.cachedMask = element->mask();
                     if (part.mesh) {
                         visual.parts.push_back(std::move(part));
                     }
@@ -543,6 +678,13 @@ namespace visutwin::canvas
                         meshInstance->setScreenSpace(!visual.worldSpace);
                         part.meshInstance = meshInstance.get();
                         visual.render->addMeshInstance(std::move(meshInstance));
+                    }
+                    if (!isText && element->mask() && !visual.parts.empty()) {
+                        const VisualPart& part = visual.parts.front();
+                        auto unmask = std::make_unique<MeshInstance>(part.mesh.get(), part.material.get(), visual.entity);
+                        unmask->setScreenSpace(!visual.worldSpace);
+                        visual.unmask = unmask.get();
+                        visual.render->addMeshInstance(std::move(unmask));
                     }
                 }
             }
@@ -605,6 +747,8 @@ namespace visutwin::canvas
             }
             visual.entity->setEnabled(element->enabled() && element->entity()->enabled());
         }
+
+        syncMasks();
 
         std::vector<ElementComponent*> toRemove;
         for (auto& [element, visual] : _visuals) {

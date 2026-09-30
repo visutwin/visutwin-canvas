@@ -259,7 +259,9 @@ namespace visutwin::canvas::gpu
             : (_arrayLayers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
                                 : VK_IMAGE_VIEW_TYPE_2D);
         viewInfo.format = _format;
-        viewInfo.subresourceRange.aspectMask = _aspect;
+        // A sampled view may name ONE aspect: a depth-stencil texture samples its depth.
+        // Render targets carve their own both-aspect view to attach it.
+        viewInfo.subresourceRange.aspectMask = (_aspect & VK_IMAGE_ASPECT_DEPTH_BIT) ? VK_IMAGE_ASPECT_DEPTH_BIT : _aspect;
         viewInfo.subresourceRange.baseMipLevel = 0;
         viewInfo.subresourceRange.levelCount = _mipLevels;
         viewInfo.subresourceRange.baseArrayLayer = 0;

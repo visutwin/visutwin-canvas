@@ -76,6 +76,9 @@ namespace visutwin::canvas
     VkCompareOp vulkanMapStencilCompare(StencilCompareFunction function);
     VkStencilOp vulkanMapStencilOperation(StencilOperation operation);
     bool vulkanFormatHasStencil(VkFormat format);
+
+    /// Whether `format` can be a depth-stencil attachment with optimal tiling.
+    bool vulkanFormatSupportsDepthAttachment(VkPhysicalDevice physicalDevice, VkFormat format);
 }
 
 #endif // VISUTWIN_HAS_VULKAN

@@ -1503,6 +1503,22 @@ namespace visutwin::canvas
                 depthAttachment->setStoreAction(depthOps && depthOps->storeDepth
                     ? MTL::StoreActionStore
                     : MTL::StoreActionDontCare);
+
+                // The stencil shares the texture and follows the depth: cleared when
+                // either is (a pass that starts a fresh depth starts a fresh stencil),
+                // kept when either is kept, so UI masks drawn in a later pass never read
+                // a stencil the previous pass discarded.
+                auto* stencilAttachment = passDesc->stencilAttachment();
+                stencilAttachment->setTexture(_backBufferDepthTexture);
+                if (depthOps && (depthOps->clearStencil || depthOps->clearDepth)) {
+                    stencilAttachment->setLoadAction(MTL::LoadActionClear);
+                    stencilAttachment->setClearStencil(static_cast<uint32_t>(depthOps->clearStencilValue));
+                } else {
+                    stencilAttachment->setLoadAction(MTL::LoadActionLoad);
+                }
+                stencilAttachment->setStoreAction(depthOps && (depthOps->storeStencil || depthOps->storeDepth)
+                    ? MTL::StoreActionStore
+                    : MTL::StoreActionDontCare);
             }
         } else {
             const auto& colorAttachments = offscreenTarget->colorAttachments();

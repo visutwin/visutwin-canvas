@@ -635,7 +635,28 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   The fill is tone mapped (unless a camera frame owes it that) before the outline and
   shadow, which are not — upstream applies MSDF after its tone mapping. A font without
   `range` is a bitmap font: coverage in alpha, nearest filtering, as before.
-- **Not ported:** max lines, auto-fit font size, right-to-left text, layout groups, masks,
+- **Masks** (upstream `_updateMask`, ported 2026-09-29). `setMask(true)` on an IMAGE
+  element makes it write the stencil instead of colour: its material keeps alpha test 1
+  (`AlphaMode::MASK`, cutoff 1.0, so a sprite's transparent texels are outside the mask),
+  turns every colour write off and draws in the transparent sublayer without depth
+  write. `ElementInput::syncMasks` walks each element tree depth-first every frame: a
+  mask under no other mask draws ALWAYS / REPLACE with its depth as the reference
+  (starting at 1), a nested one EQUAL parent / INCREMENT_CLAMP, and every element below a
+  mask EQUAL / KEEP against it (`maskedBy()`). Each mask gets a second mesh instance on
+  its visual, the UNMASK — the same mesh and material, EQUAL (parent + 1) /
+  DECREMENT_CLAMP — drawn after its last descendant at that element's `drawOrder` plus an
+  offset that starts at 0.5 and falls by 0.001 per request in the frame, so where masks end
+  on the same element the inner one unmasks first. That is why `MeshInstance::drawOrder` is
+  a `double` (upstream's is a number). The stencil state rides on the mesh instance
+  (`setStencil(front, back)`) and the renderer applies it per draw, resetting it after the
+  layer. A masked element is hit by input only where its mask chain is hit too
+  (`checkElement`). The stencil comes from the BACK BUFFER's depth attachment, which is
+  depth-stencil on both backends (see AGENTS.md). DEVIATION: the walk runs every frame,
+  where upstream re-runs it on a hierarchy or mask change; it touches only the stencil
+  parameters, which are shared per (function, operation, reference). `masking` ports
+  upstream's example: a card mask holding a panning photo in a cover mask and a circle
+  avatar mask.
+- **Not ported:** max lines, auto-fit font size, right-to-left text, layout groups,
   scroll views, the drag helper.
 
 ## Graphics abstraction

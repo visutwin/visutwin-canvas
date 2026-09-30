@@ -19,6 +19,7 @@
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "framework/components/element/elementComponent.h"
+#include "platform/graphics/stencilParameters.h"
 #include "platform/input/inputConstants.h"
 
 namespace visutwin::canvas
@@ -200,6 +201,10 @@ namespace visutwin::canvas
             float cachedHeight = 0.0f;
             Vector2 cachedPivot = Vector2(0.5f, 0.5f);
             uint64_t cachedRangeVersion = 0;
+            /// A mask's second draw, after its last descendant, which puts the stencil back
+            /// (upstream `unmaskMeshInstance`); null for anything that is not a mask.
+            MeshInstance* unmask = nullptr;
+            bool cachedMask = false;
             // image
             uint64_t cachedImageVersion = 0;
             const Sprite* cachedSprite = nullptr;
@@ -214,6 +219,13 @@ namespace visutwin::canvas
             float x = 0.0f;
             float y = 0.0f;
         };
+
+        /// Upstream `_updateMask`, run over every element tree before each frame: who masks
+        /// whom, each draw's stencil state, and where each unmask draws.
+        void syncMasks();
+        /// One shared parameter set per (test, write, reference).
+        std::shared_ptr<StencilParameters> stencilParameters(StencilCompareFunction func, StencilOperation pass,
+                                                             uint32_t ref);
 
         ElementVisual& visualFor(ElementComponent* element);
         void releaseVisual(ElementVisual& visual);
@@ -232,6 +244,7 @@ namespace visutwin::canvas
 
         std::shared_ptr<Engine> _engine;
         std::unordered_map<ElementComponent*, ElementVisual> _visuals;
+        std::unordered_map<uint64_t, std::shared_ptr<StencilParameters>> _stencilCache;
 
         bool _enabled = true;
         /// A handler stopped an event since handleEvent began.

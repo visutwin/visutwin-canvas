@@ -114,7 +114,11 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::createDepthResources()
     {
-        _depthFormat = vulkanSupportedDepthFormat(_physicalDevice);
+        // Depth WITH stencil when the device has 32-bit float depth-stencil (UI masks write
+        // and test it); the float depth keeps the precision the depth-only format had. A
+        // device without it falls back to depth alone, and masks then clip nothing.
+        _depthFormat = vulkanFormatSupportsDepthAttachment(_physicalDevice, VK_FORMAT_D32_SFLOAT_S8_UINT)
+            ? VK_FORMAT_D32_SFLOAT_S8_UINT : vulkanSupportedDepthFormat(_physicalDevice);
         if (_depthFormat == VK_FORMAT_UNDEFINED) {
             throw std::runtime_error(
                 "VulkanGraphicsDevice: no supported swapchain depth format");
@@ -144,7 +148,8 @@ namespace visutwin::canvas
         viewInfo.image = _depthImage;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = _depthFormat;
-        viewInfo.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+        // An attachment view of a depth-stencil image covers both aspects.
+        viewInfo.subresourceRange = {depthImageAspect(), 0, 1, 0, 1};
         if (vkCreateImageView(_device, &viewInfo, nullptr, &_depthImageView) !=
             VK_SUCCESS) {
             vmaDestroyImage(_vmaAllocator, _depthImage, _depthAllocation);

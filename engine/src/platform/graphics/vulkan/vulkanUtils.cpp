@@ -208,7 +208,9 @@ namespace visutwin::canvas
         case PixelFormat::PIXELFORMAT_R32F:         return VK_FORMAT_R32_SFLOAT;
         case PixelFormat::PIXELFORMAT_DEPTH:        return VK_FORMAT_D32_SFLOAT;
         case PixelFormat::PIXELFORMAT_DEPTH16:      return VK_FORMAT_D16_UNORM;
-        case PixelFormat::PIXELFORMAT_DEPTHSTENCIL: return VK_FORMAT_D24_UNORM_S8_UINT;
+        // 32-bit float depth with stencil: the swapchain's depth when stencil is available,
+        // and the one depth-stencil format Apple GPUs (MoltenVK) have.
+        case PixelFormat::PIXELFORMAT_DEPTHSTENCIL: return VK_FORMAT_D32_SFLOAT_S8_UINT;
         case PixelFormat::PIXELFORMAT_R8:           return VK_FORMAT_R8_UNORM;
         case PixelFormat::PIXELFORMAT_RG8:          return VK_FORMAT_R8G8_UNORM;
         case PixelFormat::PIXELFORMAT_ASTC_4x4:     return VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
@@ -258,9 +260,16 @@ namespace visutwin::canvas
                (imageProperties.sampleCounts & samples) != 0;
     }
 
+    bool vulkanFormatSupportsDepthAttachment(const VkPhysicalDevice physicalDevice, const VkFormat format)
+    {
+        VkFormatProperties props{};
+        vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+        return (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
+    }
+
     VkFormat vulkanSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice)
     {
-        for (const VkFormat format : {VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT}) {
+        for (const VkFormat format : {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT}) {
             VkFormatProperties props{};
             vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
             if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
