@@ -102,10 +102,15 @@ namespace visutwin::canvas
         }
     }
 
-    void MetalTextureBinder::clearAllMaterialSlots(MTL::RenderCommandEncoder* encoder)
+    void MetalTextureBinder::clearMaterialSlots(MTL::RenderCommandEncoder* encoder)
     {
-        for (int i = 0; i < 8; ++i) {
-            clearCached(encoder, i);
+        // The material's slots among 0-7, NOT 2, 6 and 7: those are the environment
+        // atlas, the shadow map and the scene depth, which bindSceneTextures binds right
+        // after this for the same draw. Clearing them here cost a clear and a rebind of
+        // each on every material-less draw — every opaque shadow caster.
+        constexpr int materialSlots[] = {0, 1, 3, 4, 5};
+        for (const int slot : materialSlots) {
+            clearCached(encoder, slot);
         }
     }
 

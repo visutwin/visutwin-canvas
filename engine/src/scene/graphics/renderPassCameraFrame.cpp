@@ -117,12 +117,13 @@ namespace visutwin::canvas
     CameraFrameOptions RenderPassCameraFrame::sanitizeOptions(const CameraFrameOptions& options) const
     {
         CameraFrameOptions sanitized = options;
-        // Every effect that samples scene depth gets it from the PREPASS, which is
-        // the only depth producer under MSAA: the scene target's multisampled depth
-        // is internal, discarded at the end of the pass and never resolved
-        // (upstream refuses in-scene depth with MSAA for the same reason). Resolving
-        // it used to cost 1 ms a frame on ambient-occlusion for a texture the
-        // prepass had already written.
+        // Every effect that samples scene depth is a depth consumer. Under MSAA it gets
+        // the depth from the PREPASS, the only producer there: the scene target's
+        // multisampled depth is internal, discarded at the end of the pass and never
+        // resolved (upstream refuses in-scene depth with MSAA for the same reason).
+        // Resolving it used to cost 1 ms a frame on ambient-occlusion for a texture the
+        // prepass had already written. Single-sampled, the scene pass writes the shared
+        // depth texture itself and a prepass renders only where prepassRenders() says.
         if (sanitized.taaEnabled || sanitized.ssaoType != SSAOTYPE_NONE || sanitized.dofEnabled ||
             sanitized.fogEnabled) {
             sanitized.prepassEnabled = true;
@@ -656,9 +657,27 @@ namespace visutwin::canvas
         }
     }
 
+    // Whether the depth consumers need a prepass to RENDER. The split is upstream's
+    // (sanitizeOptions: depth needed IN the scene, or depth needed after it where the
+    // scene's own depth cannot serve, which for both engines means MSAA):
+    //  - under MSAA always, since nothing else produces a sampleable depth;
+    //  - single-sampled only for lighting-mode SSAO, the one consumer that reads the
+    //    depth BEFORE the scene pass. The scene pass clears the shared depth texture and
+    //    writes it again, so for the consumers that run after it (TAA, DOF, fog,
+    //    compose-mode SSAO) a prepass is a second geometry pass whose output is erased
+    //    before anything samples it.
+    // Until 2026-09-30 it rendered for every consumer: on `taa` a third of the frame's
+    // draws (2173 -> 1455) and 18% of its CPU render time, for a frame that comes back
+    // the same without it.
+    bool RenderPassCameraFrame::prepassRenders(const CameraFrameOptions& options)
+    {
+        return options.prepassEnabled &&
+            (options.samples > 1 || options.ssaoType == SSAOTYPE_LIGHTING);
+    }
+
     void RenderPassCameraFrame::setupScenePrepass(const CameraFrameOptions& options)
     {
-        if (options.prepassEnabled && _prepassRenderTarget) {
+        if (prepassRenders(options) && _prepassRenderTarget) {
             _prePass = std::make_shared<RenderPassPrepass>(device(), _scene, _renderer, _cameraComponent,
                 _sceneDepthTexture.get(), _sceneOptions);
             // Clears the depth it is about to write; the scene pass clears it again.

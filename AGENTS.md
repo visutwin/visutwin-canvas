@@ -713,7 +713,11 @@ present, but the rule below never depends on reading it.
   a pass silently shared ONE uniform block. Invisible while a pass drew a single
   quad, which every effect did until the env atlas started drawing a rect list in
   one pass: the convolve draws read the reproject block and wrote nothing. `draw()`
-  now passes a null material for the uniform key whenever the quad block is in use.
+  passes a null KEY whenever the quad block is in use. A key is what the material-slot
+  block came from: the material, null for a block nothing may share, or
+  `MetalUniformBinder::sharedDefaultBlockKey()` for a draw with no material at all, whose
+  default block is uploaded once a pass (every opaque shadow caster and prepass draw
+  carries it; each took a ring slot of its own until 2026-09-30).
 - **A shader that exists in MSL and GLSL is only shared by CONVENTION.** The two
   bodies in a `*Shaders.h` sit in separate raw strings, and a migration that
   unified the uniform BLOCK does not unify the code. Compose carried three stages
@@ -1781,14 +1785,49 @@ present, but the rule below never depends on reading it.
 - **A per-draw deduplication must not HASH the block it deduplicates.** Metal's binder
   hashed the whole ~2.8 KB lighting block with FNV-1a on every draw to find it unchanged:
   a serial 700-step multiply chain, about a microsecond a draw, and on a 2,000-draw frame
-  the largest CPU cost in the engine. It keeps a copy of the last upload and `memcmp`s
-  against it now: vectorised, and exact where a hash can collide and reuse the wrong
-  block. Vulkan's image descriptor sets likewise remember the last set handed out per
+  the largest CPU cost in the engine. From 2026-09-26 it kept a copy of the last upload
+  and `memcmp`ed against it: vectorised, and exact where a hash can collide and reuse the
+  wrong block — and still 8-12% of the frame at 10-20k draws (17% of a shadow pass, whose
+  draws never read lighting). Since 2026-09-30 a draw compares a VERSION: every writer of
+  `_lightingUniforms` calls `markLightingChanged()`, the three setters `draw()` itself
+  calls per draw go through `writeLightingIfChanged` (an unconditional bump there would
+  make every draw a lighting change), and the block is compared exactly only when the
+  version has moved. A NEW WRITER THAT SKIPS THE BUMP leaves draws on the previous
+  lighting block; Debug builds assert on it in `submitPerDrawUniforms`.
+  Vulkan's image descriptor sets likewise remember the last set handed out per
   layout, with the exact image infos (`LastImageDescriptorSet`, tied to `_frameSerial`),
   before falling back to the hashed per-frame cache. Measured 2026-09-26 on `taa` by the
   phase timers: Metal forward 0.84 -> 0.38 ms and shadow 0.88 -> 0.71 ms; Vulkan forward
   0.40 -> 0.28 ms and shadow 0.39 -> 0.27 ms (Vulkan's whole render, stable run to run
   there, 1.41 -> 1.02 ms). Bit-identical frames.
+- **Metal's `draw()` issues encoder state only when it differs from what the encoder
+  holds, and it is the ONLY writer of that state.** The pipeline, the vertex buffers at
+  slots 0 and 5, the cull mode, the depth-stencil state, the stencil reference and the
+  offsets of buffer slots 3 and 4 are remembered per encoder (`_pipelineState`,
+  `_encoderVertexBuffer0` ..., and the binder's `_encoderMaterialOffset`);
+  `startRenderPass` forgets them with the new encoder (`resetEncoderStateCache`,
+  `resetPassState`) and sets the front-face winding once. Code that sets any of these on
+  `_renderPassEncoder` from anywhere else must update or reset the cache, or the next
+  draw skips a bind it needed. Slot 1 is deliberately not cached (the scene block goes
+  there through `setVertexBytes`). Until 2026-09-30 every call site passed
+  `first = true, last = true` and `last` cleared `_pipelineState`, so each draw re-issued
+  all of it and the driver re-emitted its render state per draw. Measured that day, old
+  and new binaries alternated three times (stress scene: N boxes on `orbit`): 20k boxes
+  render 11.4 -> 8.2 ms (forward 8.3 -> 5.5); 10k boxes under one shadow cascade 10.8 ->
+  7.6 ms (shadow 6.1 -> 3.3); `taa` 1.77 -> 1.11 ms, which includes the prepass below.
+  All 68 examples on both backends came back identical or inside their own run-to-run
+  noise. `MetalRenderPipeline::get` also answers a repeat of the previous key from a
+  one-entry memo.
+- **A camera frame's depth prepass RENDERS only where something reads the depth before
+  the scene pass, or under MSAA** (`RenderPassCameraFrame::prepassRenders`).
+  `prepassEnabled` means "there is a depth consumer" (TAA, SSAO, DOF, fog). Under MSAA
+  the prepass is the only sampleable depth, so any consumer renders it; single-sampled
+  the scene pass clears and rewrites the shared depth texture, so only lighting-mode
+  SSAO, which samples the depth BEFORE the scene pass, needs one. Until 2026-09-30 it
+  rendered for every consumer at any sample count: on `taa` a third of the draws
+  (2173 -> 1455) for depth erased before anything sampled it. The split is upstream's.
+  A new consumer that reads scene depth inside or before the scene pass has to be added
+  to that predicate; `tests/cameraFrameStopTests.cpp` holds the table.
 - **A UI element on a screen OWNS its entity's transform** (upstream's patched `_sync`,
   here `GraphNodeTransformHook`, which `ElementComponent` installs on its entity):
   `GraphNode::sync`, `setPosition` and `setLocalPosition` go through the hook, the world

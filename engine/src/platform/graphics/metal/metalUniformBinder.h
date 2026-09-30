@@ -67,14 +67,17 @@ namespace visutwin::canvas
         /// Pack atmosphere uniforms (Nishita scattering) into AtmosphereUniforms.
         void setAtmosphereUniforms(const void* data, size_t size);
 
+        // The three setters below run on EVERY draw (MetalGraphicsDevice::draw), with values
+        // that change a few times a frame at most. Each writes, and bumps the lighting
+        // version, only when a value actually differs: an unconditional bump here would make
+        // every draw look like a lighting change and re-upload the block per draw.
+
         /// Pack screen resolution for planar reflection screen-space UV.
         void setScreenResolution(float width, float height)
         {
             if (width > 0.0f && height > 0.0f) {
-                _lightingUniforms.screenInvResolution[0] = 1.0f / width;
-                _lightingUniforms.screenInvResolution[1] = 1.0f / height;
-                _lightingUniforms.screenInvResolution[2] = width;
-                _lightingUniforms.screenInvResolution[3] = height;
+                writeLightingIfChanged(_lightingUniforms.screenInvResolution,
+                    {1.0f / width, 1.0f / height, width, height});
             }
         }
 
@@ -82,23 +85,16 @@ namespace visutwin::canvas
         void setReflectionBlurParams(float intensity, float blurAmount, float fadeStrength, float angleFade,
             float fadeR, float fadeG, float fadeB)
         {
-            _lightingUniforms.reflectionParams[0] = intensity;
-            _lightingUniforms.reflectionParams[1] = blurAmount;
-            _lightingUniforms.reflectionParams[2] = fadeStrength;
-            _lightingUniforms.reflectionParams[3] = angleFade;
-            _lightingUniforms.reflectionFadeColor[0] = fadeR;
-            _lightingUniforms.reflectionFadeColor[1] = fadeG;
-            _lightingUniforms.reflectionFadeColor[2] = fadeB;
-            _lightingUniforms.reflectionFadeColor[3] = 0.0f;
+            writeLightingIfChanged(_lightingUniforms.reflectionParams,
+                {intensity, blurAmount, fadeStrength, angleFade});
+            writeLightingIfChanged(_lightingUniforms.reflectionFadeColor, {fadeR, fadeG, fadeB, 0.0f});
         }
 
         /// Pack planar reflection depth pass parameters.
         void setReflectionDepthParams(float planeDistance, float heightRange)
         {
-            _lightingUniforms.reflectionDepthParams[0] = planeDistance;
-            _lightingUniforms.reflectionDepthParams[1] = (heightRange > 0.001f) ? heightRange : 0.001f;
-            _lightingUniforms.reflectionDepthParams[2] = 0.0f;
-            _lightingUniforms.reflectionDepthParams[3] = 0.0f;
+            writeLightingIfChanged(_lightingUniforms.reflectionDepthParams,
+                {planeDistance, (heightRange > 0.001f) ? heightRange : 0.001f, 0.0f, 0.0f});
         }
 
         /// Pack clustered lighting grid parameters into LightingUniforms.
@@ -131,18 +127,31 @@ namespace visutwin::canvas
             _lightingUniforms.clusterParams2[1] = 0u;
             _lightingUniforms.clusterParams2[2] = 0u;
             _lightingUniforms.clusterParams2[3] = 0u;
+            markLightingChanged();
         }
 
         // ---------------------------------------------------------------
         // Per-draw uniform submission with deduplication (called from draw())
         // ---------------------------------------------------------------
 
+        /**
+         * Uploads the material-slot block and the lighting block for one draw, reusing the
+         * previous upload of each when it still holds.
+         *
+         * `materialKey` identifies what the material-slot block came from: the bound
+         * Material, sharedDefaultBlockKey() for a draw with no material (every such draw
+         * carries the same default block, so one upload serves the pass), or nullptr for a
+         * block nothing else may share — a quad's own uniforms, which differ per draw.
+         */
         void submitPerDrawUniforms(MTL::RenderCommandEncoder* encoder,
             MetalUniformRingBuffer* uniformRing,
-            const Material* currentMaterial,
+            const void* materialKey,
             const void* uniformData,
             size_t uniformSize,
             bool hdrPass);
+
+        /// The materialKey of a draw that has no material and no block of its own.
+        [[nodiscard]] static const void* sharedDefaultBlockKey();
 
         // ---------------------------------------------------------------
         // UniformBinder interface
@@ -152,7 +161,7 @@ namespace visutwin::canvas
 
         [[nodiscard]] bool isMaterialChanged(const Material* mat) const override
         {
-            return !_materialBoundThisPass || mat != _lastBoundMaterial;
+            return !_materialBoundThisPass || static_cast<const void*>(mat) != _lastMaterialKey;
         }
 
         [[nodiscard]] Texture* envAtlasTexture() const override { return _envAtlasTexture; }
@@ -190,16 +199,39 @@ namespace visutwin::canvas
         bool _sceneDataBoundThisPass = false;
         simd::float4x4 _cachedSceneVP{};
 
-        // Lighting dedup: FNV-1a hash of LightingUniforms.
+        // Every writer of _lightingUniforms calls this (or writeLightingIfChanged). A draw
+        // compares the version, not the ~2.6 KB block: see submitPerDrawUniforms. A writer
+        // that forgets leaves draws on the previous lighting block, which Debug builds
+        // assert on.
+        void markLightingChanged() { ++_lightingVersion; }
+
+        /// Writes one field of the lighting block and bumps the version, if it differs.
+        void writeLightingIfChanged(PackedVector4f& field, const PackedVector4f& value)
+        {
+            if (field.x != value.x || field.y != value.y || field.z != value.z || field.w != value.w) {
+                field = value;
+                markLightingChanged();
+            }
+        }
+
+        // Lighting dedup: a version bumped by every write, with the block last uploaded
+        // this pass kept to compare EXACTLY when the version moved (a write that put the
+        // same values back must not cost an upload).
         bool _lightingBoundThisPass = false;
-        // The block last uploaded this pass, compared EXACTLY against the current one
-        // (see submitPerDrawUniforms).
+        uint64_t _lightingVersion = 1;
+        uint64_t _lastLightingVersion = 0;
         LightingUniforms _lastLightingUniforms{};
         size_t _lastLightingOffset = 0;
 
-        // Material dedup: pointer comparison.
+        // Material-slot dedup: key comparison (see submitPerDrawUniforms).
         bool _materialBoundThisPass = false;
-        const Material* _lastBoundMaterial = nullptr;
+        const void* _lastMaterialKey = nullptr;
         size_t _lastMaterialOffset = 0;
+        // The default block shared by every material-less draw of the pass.
+        bool _defaultBlockBoundThisPass = false;
+        size_t _defaultBlockOffset = 0;
+        // The offset the encoder's slot 3 currently holds.
+        bool _materialOffsetSetThisPass = false;
+        size_t _encoderMaterialOffset = 0;
     };
 }

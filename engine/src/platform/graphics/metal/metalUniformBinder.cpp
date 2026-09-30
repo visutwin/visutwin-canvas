@@ -9,6 +9,7 @@
 #include "platform/graphics/lightingDerivation.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 #include "metalUniformRingBuffer.h"
 #include "metalUtils.h"
@@ -95,6 +96,7 @@ namespace visutwin::canvas
     {
         // The values are decided in deriveLighting, shared with the Vulkan backend; this only
         // lays them out in LightingUniforms.
+        markLightingChanged();
         auto& lu = _lightingUniforms;
         const DerivedLighting derived = deriveLighting(ambientColor, lights, std::size(lu.lights),
             fogParams, shadowParams, ambientSH, viewProjection);
@@ -244,18 +246,21 @@ namespace visutwin::canvas
     {
         _lightingUniforms.cameraNearFar[0] = nearClip;
         _lightingUniforms.cameraNearFar[1] = farClip;
+        markLightingChanged();
     }
 
     void MetalUniformBinder::setDebugShaderPass(const uint32_t mode)
     {
         // flagsAndPad[0] is the bitfield; [1] carries the debug pass mode as a plain value.
         _lightingUniforms.flagsAndPad[1] = mode;
+        markLightingChanged();
     }
 
     void MetalUniformBinder::setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
         const Vector3& boxMax, const bool boxProjection, const float intensity, const float maxLod)
     {
         _reflectionProbeCubeTexture = cubemap;
+        markLightingChanged();
         boxMin.store(&_lightingUniforms.reflectionProbeBoxMin.x);
         boxMax.store(&_lightingUniforms.reflectionProbeBoxMax.x);
         _lightingUniforms.reflectionProbeParams[0] = boxProjection ? 1.0f : 0.0f;
@@ -269,6 +274,7 @@ namespace visutwin::canvas
     {
         _envAtlasTexture = envAtlas;
         _skyboxCubeMapTexture = skyboxCubeMap;
+        markLightingChanged();
         _lightingUniforms.cameraPositionSkyboxIntensity[3] = skyboxIntensity;
         _lightingUniforms.skyboxMipAndPad[0] = skyboxMip;
 
@@ -309,62 +315,88 @@ namespace visutwin::canvas
     // Per-draw uniform submission with deduplication
     // -----------------------------------------------------------------------
 
+    const void* MetalUniformBinder::sharedDefaultBlockKey()
+    {
+        static const char key = 0;
+        return &key;
+    }
+
     void MetalUniformBinder::submitPerDrawUniforms(MTL::RenderCommandEncoder* encoder,
         MetalUniformRingBuffer* uniformRing,
-        const Material* currentMaterial,
+        const void* materialKey,
         const void* uniformData,
         const size_t uniformSize,
         const bool hdrPass)
     {
-        // Material uniforms at slot 3 — skip ring allocation when the same material
-        // is bound as the previous draw (consecutive draws sharing a material
-        // produce identical uniform data, so the previous ring offset is reusable).
+        // Material-slot block at slot 3 — skip the ring allocation when the block is the
+        // one the previous draw uploaded (consecutive draws sharing a material carry
+        // identical data), or the default block a material-less draw of this pass already
+        // uploaded: every opaque shadow caster and prepass draw carries that same block,
+        // and each used to take a ring slot of its own.
         //
-        // A null material is NOT a cache key: a quad pass has no material and puts
-        // its own block in this slot, so every quad draw would compare equal to the
-        // last and silently reuse the FIRST draw's uniforms. That is invisible while
-        // a pass draws one quad, which every effect did until the environment bakes
-        // started drawing a rect list in one pass — there the convolve draws read
-        // the reproject block and produced nothing.
+        // A null key is NOT a cache key: a quad pass has no material and puts its own
+        // block in this slot, so every quad draw would compare equal to the last and
+        // silently reuse the FIRST draw's uniforms. That is invisible while a pass draws
+        // one quad, which every effect did until the environment bakes started drawing a
+        // rect list in one pass — there the convolve draws read the reproject block and
+        // produced nothing.
         size_t materialOffset;
-        if (currentMaterial != nullptr && _materialBoundThisPass &&
-            currentMaterial == _lastBoundMaterial) {
+        if (materialKey != nullptr && _materialBoundThisPass && materialKey == _lastMaterialKey) {
             materialOffset = _lastMaterialOffset;
+        } else if (materialKey == sharedDefaultBlockKey() && _defaultBlockBoundThisPass) {
+            materialOffset = _defaultBlockOffset;
         } else {
             materialOffset = uniformRing->allocate(uniformData, uniformSize);
-            _lastBoundMaterial = currentMaterial;
-            _lastMaterialOffset = materialOffset;
-            _materialBoundThisPass = true;
+            if (materialKey == sharedDefaultBlockKey()) {
+                _defaultBlockOffset = materialOffset;
+                _defaultBlockBoundThisPass = true;
+            }
         }
-        encoder->setFragmentBufferOffset(materialOffset, 3);
-        encoder->setVertexBufferOffset(materialOffset, 3);
+        _lastMaterialKey = materialKey;
+        _lastMaterialOffset = materialOffset;
+        _materialBoundThisPass = true;
+        // Nothing else moves slot 3's offset within a pass, so an unchanged offset is
+        // already on the encoder.
+        if (!_materialOffsetSetThisPass || materialOffset != _encoderMaterialOffset) {
+            encoder->setFragmentBufferOffset(materialOffset, 3);
+            encoder->setVertexBufferOffset(materialOffset, 3);
+            _encoderMaterialOffset = materialOffset;
+            _materialOffsetSetThisPass = true;
+        }
 
         // Set HDR pass flag (bit 5) — forward shaders check this at runtime
         // to skip tonemapping + gamma when CameraFrame handles them.
-        if (hdrPass) {
-            _lightingUniforms.flagsAndPad[0] |= (1u << 5);
-        } else {
-            _lightingUniforms.flagsAndPad[0] &= ~(1u << 5);
+        const uint32_t flags = hdrPass
+            ? (_lightingUniforms.flagsAndPad[0] | (1u << 5))
+            : (_lightingUniforms.flagsAndPad[0] & ~(1u << 5));
+        if (flags != _lightingUniforms.flagsAndPad[0]) {
+            _lightingUniforms.flagsAndPad[0] = flags;
+            markLightingChanged();
         }
 
         // LightingUniforms at slot 4: reuse the previous upload when the block is
         // unchanged, which is nearly every draw — the renderer sets it once per layer.
-        // Compared with memcmp against a copy of what was uploaded, not by hashing it:
-        // FNV-1a over the ~2.8 KB block is a serial 700-step multiply chain, about a
-        // microsecond per draw, and on a 2,000-draw frame (`taa`) it was the single
-        // largest CPU cost in the engine, 2 ms; memcmp is vectorised and exact, where a
-        // hash could also collide and reuse the wrong lighting.
-        size_t lightingOffset;
-        if (_lightingBoundThisPass &&
-            std::memcmp(&_lightingUniforms, &_lastLightingUniforms, sizeof(LightingUniforms)) == 0) {
-            lightingOffset = _lastLightingOffset;
+        // "Unchanged" is a VERSION every writer of the block bumps, so a draw costs one
+        // integer compare. It was a memcmp of the whole ~2.6 KB block per draw (and
+        // before that an FNV-1a hash of it): 8-12% of the frame's CPU at 10-20k draws,
+        // 17% of a shadow pass, whose draws never read lighting at all. The block is
+        // still compared exactly when the version HAS moved, so a writer that put the
+        // same values back (the per-layer setLightingUniforms of a second sublayer)
+        // costs one compare rather than an upload.
+        if (!_lightingBoundThisPass || _lightingVersion != _lastLightingVersion) {
+            if (!_lightingBoundThisPass ||
+                std::memcmp(&_lightingUniforms, &_lastLightingUniforms, sizeof(LightingUniforms)) != 0) {
+                _lastLightingOffset = uniformRing->allocate(&_lightingUniforms, sizeof(LightingUniforms));
+                std::memcpy(&_lastLightingUniforms, &_lightingUniforms, sizeof(LightingUniforms));
+                // Slot 4's offset is moved only here, so it needs setting only on upload.
+                encoder->setFragmentBufferOffset(_lastLightingOffset, 4);
+                _lightingBoundThisPass = true;
+            }
+            _lastLightingVersion = _lightingVersion;
         } else {
-            lightingOffset = uniformRing->allocate(&_lightingUniforms, sizeof(LightingUniforms));
-            std::memcpy(&_lastLightingUniforms, &_lightingUniforms, sizeof(LightingUniforms));
-            _lastLightingOffset = lightingOffset;
-            _lightingBoundThisPass = true;
+            // A writer of _lightingUniforms that skipped markLightingChanged() shows here.
+            assert(std::memcmp(&_lightingUniforms, &_lastLightingUniforms, sizeof(LightingUniforms)) == 0);
         }
-        encoder->setFragmentBufferOffset(lightingOffset, 4);
     }
 
     // -----------------------------------------------------------------------
@@ -376,6 +408,8 @@ namespace visutwin::canvas
         _sceneDataBoundThisPass = false;
         _lightingBoundThisPass = false;
         _materialBoundThisPass = false;
-        _lastBoundMaterial = nullptr;
+        _lastMaterialKey = nullptr;
+        _defaultBlockBoundThisPass = false;
+        _materialOffsetSetThisPass = false;
     }
 }

@@ -207,6 +207,11 @@ namespace visutwin::canvas
         _lookupHashes[14] = (instancingFormat && instancingFormat->isInstancing())
             ? instancingFormat->renderingHash() : 0;
 
+        // The same key as the previous lookup: the same pipeline.
+        if (_lastPipeline && _lookupHashes == _lastLookupHashes) {
+            return _lastPipeline;
+        }
+
         uint32_t hash = hash32Fnv1a(_lookupHashes.data(), _lookupHashes.size());
 
         // Check cached pipeline
@@ -216,6 +221,8 @@ namespace visutwin::canvas
             // Find an exact match in case of hash collision
             for (auto& entry : cacheEntries) {
                 if (std::equal(entry->hashes.begin(), entry->hashes.end(), _lookupHashes.begin())) {
+                    _lastLookupHashes = _lookupHashes;
+                    _lastPipeline = entry->pipeline;
                     return entry->pipeline;
                 }
             }
@@ -247,6 +254,8 @@ namespace visutwin::canvas
             _cache[hash] = { cacheEntry };
         }
 
+        _lastLookupHashes = _lookupHashes;
+        _lastPipeline = cacheEntry->pipeline;
         return cacheEntry->pipeline;
     }
 

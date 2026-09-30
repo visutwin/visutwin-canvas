@@ -74,6 +74,13 @@ namespace visutwin::canvas
         // Temporary array for hash lookups
         std::vector<uint32_t> _lookupHashes;
 
+        // The previous lookup and its answer. Consecutive draws nearly always ask for the
+        // same pipeline, and comparing fifteen words against the last key is cheaper than
+        // hashing them and walking the cache. The cache never evicts, so the answer stays
+        // valid for as long as this object lives.
+        std::vector<uint32_t> _lastLookupHashes;
+        MTL::RenderPipelineState* _lastPipeline = nullptr;
+
         // The cache of render pipelines
         std::unordered_map<uint32_t, std::vector<std::shared_ptr<CacheEntry>>> _cache;
 

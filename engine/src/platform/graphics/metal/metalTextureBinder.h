@@ -40,8 +40,9 @@ namespace visutwin::canvas
         void bindMaterialTextures(MTL::RenderCommandEncoder* encoder,
             const std::vector<TextureSlot>& textureSlots);
 
-        /// Clear all 8 texture slots (used when no material is bound).
-        void clearAllMaterialSlots(MTL::RenderCommandEncoder* encoder);
+        /// Clear the material's slots among 0-7 (used when no material is bound). The
+        /// scene slots in that range (2, 6, 7) are bindSceneTextures' to set.
+        void clearMaterialSlots(MTL::RenderCommandEncoder* encoder);
 
         /// Bind scene-global textures (envAtlas, shadow, sceneDepth, skybox cubemap, reflection, reflectionDepth, ssao).
         void bindSceneTextures(MTL::RenderCommandEncoder* encoder,

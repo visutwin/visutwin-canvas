@@ -852,9 +852,12 @@ The cross-cutting traps stay in `AGENTS.md`.
   intermediate ones.
 - **The camera frame's multisampled scene target has INTERNAL depth, and the
   prepass is the only sampleable depth under MSAA** (as upstream, which refuses
-  in-scene depth with MSAA). `sanitizeOptions` forces the prepass on for every
-  depth consumer — TAA, SSAO in either mode, DOF, volumetric fog — and the scene
-  pass's multisampled depth is discarded, never stored or resolved. Before
+  in-scene depth with MSAA). `sanitizeOptions` marks every depth consumer — TAA,
+  SSAO in either mode, DOF, volumetric fog — and under MSAA the prepass renders for
+  any of them (`prepassRenders`), while the scene pass's multisampled depth is
+  discarded, never stored or resolved. Single-sampled the scene pass writes the
+  shared depth texture itself, and the prepass renders only for lighting-mode
+  SSAO, which reads the depth before the scene pass. Before
   2026-09-17 the scene target was built over the shared depth texture, which made
   `allocateAttachments` store AND resolve the 4x depth every frame for a texture
   the prepass had already written. Two companions landed with it: a render target
@@ -967,7 +970,8 @@ The cross-cutting traps stay in `AGENTS.md`.
   still occludes in screen space, and a dithered-shadow caster must not write
   prepass depth.
 - **The prepass and the scene pass write the SAME depth texture through two render
-  targets — single-sampled.** The prepass target is depth-only and single-sampled
+  targets — single-sampled, where the prepass runs at all (lighting-mode SSAO).**
+  The prepass target is depth-only and single-sampled
   on purpose: under MSAA the scene target's depth is internal and discarded, and
   the texture every later pass samples is the prepass's own output, needing no
   resolve. The cost is that a resize of the shared texture through

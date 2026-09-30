@@ -59,6 +59,8 @@ namespace visutwin::canvas
         float sharpness = 0.0f;
         std::string_view ssaoType = SSAOTYPE_NONE;
         bool ssaoBlurEnabled = true;
+        // "Something samples the scene depth": set for every depth consumer by
+        // sanitizeOptions. Whether a prepass actually RENDERS for it is prepassRenders().
         bool prepassEnabled = false;
         bool dofEnabled = false;
         bool dofNearBlur = false;
@@ -112,6 +114,11 @@ namespace visutwin::canvas
         static constexpr int kStopLayerNotInComposition = -1000000;
         static int findActionIndex(const std::vector<RenderAction*>& actions, LayerComposition* composition,
             int targetLayerId, bool targetTransparent, int fromIndex);
+
+        // Whether sanitized options make a depth prepass RENDER: under MSAA for any depth
+        // consumer, single-sampled only for lighting-mode SSAO (see the definition).
+        // Static for the same test.
+        static bool prepassRenders(const CameraFrameOptions& options);
 
         RenderPassCameraFrame(const std::shared_ptr<GraphicsDevice>& device, LayerComposition* layerComposition, Scene* scene,
             Renderer* renderer, const std::vector<RenderAction*>& sourceActions, CameraComponent* cameraComponent,

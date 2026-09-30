@@ -11,6 +11,13 @@
 // a refractive surface sampled itself from the previous frame (one of the three stacked
 // causes of the dark refraction found on 2026-09-15). A disabled stop layer is placed
 // by its POSITION in the composition instead, as upstream's addCameraLayers does.
+//
+// And when the frame's depth prepass renders (RenderPassCameraFrame::prepassRenders).
+// Single-sampled, the scene pass clears and rewrites the depth texture a prepass wrote,
+// so only a consumer that reads it BEFORE the scene pass — lighting-mode SSAO — needs
+// one; under MSAA the prepass is the only sampleable depth and every consumer needs it.
+// It used to render for every consumer at any sample count: a second geometry pass
+// whose output was erased before anything sampled it.
 
 #include <iostream>
 #include <memory>
@@ -108,6 +115,31 @@ int main()
         const int uiIndex = indexOf(actions, LAYERID_UI, true);
         check(RenderPassCameraFrame::findActionIndex(actions, &composition, LAYERID_SKYBOX, false, uiIndex) ==
               uiIndex - 1, "searching past the stop renders nothing (fromIndex - 1)");
+    }
+
+    std::cout << "\nwhen the depth prepass renders\n";
+    {
+        // prepassEnabled is what sanitizeOptions sets for any depth consumer.
+        CameraFrameOptions options;
+        options.samples = 1;
+        check(!RenderPassCameraFrame::prepassRenders(options), "no depth consumer: no prepass");
+
+        options.prepassEnabled = true;
+        options.taaEnabled = true;
+        check(!RenderPassCameraFrame::prepassRenders(options),
+            "single-sampled, a consumer after the scene pass (TAA) reads the scene's own depth");
+        options.ssaoType = SSAOTYPE_COMBINE;
+        check(!RenderPassCameraFrame::prepassRenders(options), "so does compose-mode SSAO");
+        options.ssaoType = SSAOTYPE_LIGHTING;
+        check(RenderPassCameraFrame::prepassRenders(options),
+            "lighting-mode SSAO reads depth before the scene pass and needs the prepass");
+
+        options.ssaoType = SSAOTYPE_NONE;
+        options.samples = 4;
+        check(RenderPassCameraFrame::prepassRenders(options),
+            "under MSAA the prepass is the only sampleable depth");
+        options.prepassEnabled = false;
+        check(!RenderPassCameraFrame::prepassRenders(options), "and with no consumer it still does not render");
     }
 
     std::cout << (failures == 0 ? "\nAll camera frame stop tests passed\n" : "\nCamera frame stop tests FAILED\n");

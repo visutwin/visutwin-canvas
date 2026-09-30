@@ -246,7 +246,23 @@ namespace visutwin::canvas
         // returns a different drawable each call, unlike WebGL's persistent back buffer).
         CA::MetalDrawable* _frameDrawable = nullptr;
 
-        MTL::RenderPipelineState* _pipelineState = nullptr;
+        // What the CURRENT render encoder holds, so a draw re-issues only the state that
+        // differs from the previous draw's. draw() is the only writer of each of these on
+        // the encoder; startRenderPass resets them all with the new encoder
+        // (resetEncoderStateCache). Until 2026-09-30 every draw re-issued the pipeline, the
+        // vertex buffer, the winding, the cull mode and the depth-stencil state, and the
+        // driver re-emitted its render state for each: a quarter of the frame's CPU at
+        // 20k draws.
+        MTL::RenderPipelineState* _pipelineState = nullptr;   // non-owning, see draw()
+        MTL::Buffer* _encoderVertexBuffer0 = nullptr;
+        MTL::Buffer* _encoderInstancingBuffer = nullptr;
+        MTL::DepthStencilState* _encoderDepthStencilState = nullptr;
+        int _encoderCullMode = -1;
+        bool _encoderStencilReferenceValid = false;
+        uint32_t _encoderStencilReferenceFront = 0;
+        uint32_t _encoderStencilReferenceBack = 0;
+        void resetEncoderStateCache();
+
         MTL::Buffer* _indirectDrawBuffer = nullptr;  // Set by setIndirectDrawBuffer(), consumed by draw()
 
         // Live between beginGpuCullBatch/endGpuCullBatch (autoreleased).

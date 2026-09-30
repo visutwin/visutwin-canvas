@@ -549,8 +549,32 @@ namespace visutwin::canvas
             return 0;
         }
 
+        // Slots 0 (mesh) and 5 (instancing) are written only here, so a buffer the
+        // encoder already holds there needs no rebind: consecutive draws of one mesh,
+        // and every draw sharing an instancing buffer. The command buffer retains what
+        // was bound, so a pointer cannot come back as a different buffer within a pass.
+        // Slot 1 is not cached — the scene block is set there with setVertexBytes.
+        MTL::Buffer** cached = slot == 0 ? &_encoderVertexBuffer0
+            : (slot == 5 ? &_encoderInstancingBuffer : nullptr);
+        if (cached) {
+            if (*cached == vbBuffer) {
+                return 1;
+            }
+            *cached = vbBuffer;
+        }
+
         _renderPassEncoder->setVertexBuffer(vbBuffer, 0, static_cast<NS::UInteger>(slot));
         return 1;
+    }
+
+    void MetalGraphicsDevice::resetEncoderStateCache()
+    {
+        _pipelineState = nullptr;
+        _encoderVertexBuffer0 = nullptr;
+        _encoderInstancingBuffer = nullptr;
+        _encoderDepthStencilState = nullptr;
+        _encoderCullMode = -1;
+        _encoderStencilReferenceValid = false;
     }
 
     MTL::DepthStencilState* MetalGraphicsDevice::resolveDepthStencilState(const DepthState* depthState,
@@ -1145,7 +1169,9 @@ namespace visutwin::canvas
                 return;
             }
 
-            // Set the pipeline state if changed.
+            // Set the pipeline state if changed. _pipelineState is what the encoder
+            // holds and lives until the pass ends (resetEncoderStateCache): it used to be
+            // cleared after every draw, which made this test always true.
             // NOTE: _pipelineState is a non-owning (borrowing) pointer — the render
             // pipeline cache (_renderPipeline) owns pipeline states and releases them
             // in its destructor.  Do NOT call release() here; the previous code did
@@ -1186,16 +1212,20 @@ namespace visutwin::canvas
         if (_cullMode == CullMode::CULLFACE_FRONTANDBACK) {
             return;
         }
-        // glTF (and upstream/WebGL) use counter-clockwise front faces by default.
-        passEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
-        passEncoder->setCullMode(toMetalCullMode(_cullMode));
+        // The winding is set once per pass (startRenderPass); the cull mode when it changes.
+        if (const int cullMode = static_cast<int>(_cullMode); cullMode != _encoderCullMode) {
+            passEncoder->setCullMode(toMetalCullMode(_cullMode));
+            _encoderCullMode = cullMode;
+        }
 
-        MaterialUniforms materialUniforms;
+        // The block a draw with no material carries: every such draw's is this one, so
+        // it is built once and the binder uploads it once per pass.
+        static const MaterialUniforms defaultMaterialUniforms{};
         const auto* boundMaterial = material();
 
         // Uniform data: use customUniformData() if available (e.g., globe tiles
         // with extended uniforms), otherwise fall back to standard updateUniforms().
-        const void* uniformData = &materialUniforms;
+        const void* uniformData = &defaultMaterialUniforms;
         size_t uniformSize = sizeof(MaterialUniforms);
 
         if (boundMaterial) {
@@ -1230,7 +1260,10 @@ namespace visutwin::canvas
                 _boundInstanceLightMap = instanceLightMap();
             }
         } else {
-            _textureBinder.clearAllMaterialSlots(passEncoder);
+            // A quad binds all eight of its slots itself just below.
+            if (!quadRenderActive()) {
+                _textureBinder.clearMaterialSlots(passEncoder);
+            }
             _boundInstanceLightMap = nullptr;
         }
 
@@ -1286,10 +1319,15 @@ namespace visutwin::canvas
         // invisible while a pass draws a single quad — which every effect did until
         // the environment bakes started drawing a rect list in one pass, where the
         // convolve draws then read the reproject block and wrote nothing.
-        const Material* uniformKeyMaterial =
-            (quadRenderActive() && !quadUniformData().empty()) ? nullptr : boundMaterial;
+        // A draw with neither a material nor a quad block carries the default block,
+        // which one upload per pass serves (every opaque shadow caster and prepass draw).
+        const void* uniformKey = nullptr;
+        if (!(quadRenderActive() && !quadUniformData().empty())) {
+            uniformKey = boundMaterial ? static_cast<const void*>(boundMaterial)
+                : MetalUniformBinder::sharedDefaultBlockKey();
+        }
         _uniformBinder.submitPerDrawUniforms(passEncoder, _uniformRing.get(),
-            uniformKeyMaterial, uniformData, uniformSize, hdrPass());
+            uniformKey, uniformData, uniformSize, hdrPass());
 
         // Bind atmosphere uniforms at fragment slot 9 for skybox draws when atmosphere is enabled.
         if (atmosphereEnabled() && boundMaterial && boundMaterial->isSkybox()) {
@@ -1311,19 +1349,29 @@ namespace visutwin::canvas
         // subsequent draws can rely on the cache for deduplication.
         _textureBinder.markClean();
 
-        // Depth/stencil state is dynamic Metal encoder state. Select the exact
-        // depth-test/depth-write combination on every draw so state from a prior
-        // draw or a specialized pass cannot leak into this one.
+        // Depth/stencil state is dynamic Metal encoder state. The exact
+        // depth-test/depth-write combination is RESOLVED on every draw, so state from a
+        // prior draw or a specialized pass cannot leak into this one, and issued when it
+        // differs from what the encoder holds.
         MTL::DepthStencilState* drawDepthState = resolveDepthStencilState(
             _depthState.get(), _stencilEnabled ? _stencilFront.get() : nullptr,
             _stencilEnabled ? _stencilBack.get() : nullptr);
-        if (drawDepthState) {
+        if (drawDepthState && drawDepthState != _encoderDepthStencilState) {
             passEncoder->setDepthStencilState(drawDepthState);
+            _encoderDepthStencilState = drawDepthState;
         }
         if (_stencilEnabled && (_stencilFront || _stencilBack)) {
             const auto* front = _stencilFront ? _stencilFront.get() : _stencilBack.get();
             const auto* back = _stencilBack ? _stencilBack.get() : _stencilFront.get();
-            passEncoder->setStencilReferenceValues(front->reference(), back->reference());
+            const uint32_t frontReference = front->reference();
+            const uint32_t backReference = back->reference();
+            if (!_encoderStencilReferenceValid || frontReference != _encoderStencilReferenceFront ||
+                backReference != _encoderStencilReferenceBack) {
+                passEncoder->setStencilReferenceValues(frontReference, backReference);
+                _encoderStencilReferenceFront = frontReference;
+                _encoderStencilReferenceBack = backReference;
+                _encoderStencilReferenceValid = true;
+            }
         }
 
         // ── Dynamic batch palette binding (slot 6) ─────────────────────
@@ -1411,9 +1459,9 @@ namespace visutwin::canvas
         recordDraw(primitive, numInstances);
 
         if (last) {
-            // Clear vertex buffer array
+            // Clear the vertex buffer array. What the ENCODER holds stays as it is: the
+            // next draw compares against it (_pipelineState, _encoderVertexBuffer0 ...).
             clearVertexBuffer();
-            _pipelineState = nullptr;
         }
     }
 
@@ -1686,9 +1734,15 @@ namespace visutwin::canvas
             _currentDrawable = nullptr;
             _insideRenderPass = false;
         } else {
+            // A new encoder holds none of the previous one's state.
+            resetEncoderStateCache();
             if (_defaultDepthStencilState) {
                 _renderPassEncoder->setDepthStencilState(_defaultDepthStencilState);
+                _encoderDepthStencilState = _defaultDepthStencilState;
             }
+            // glTF (and upstream/WebGL) use counter-clockwise front faces by default, and
+            // nothing draws with the other winding, so it is encoder state set once.
+            _renderPassEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
             const int targetWidth = activeTarget ? activeTarget->width() : size().first;
             const int targetHeight = activeTarget ? activeTarget->height() : size().second;
             _passWidth = std::max(targetWidth, 0);
