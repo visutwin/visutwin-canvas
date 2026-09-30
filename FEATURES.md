@@ -45,7 +45,7 @@ the [README](README.md).
 ## Foundation
 - **Scene graph** with an entity-component system (14 component types) and layer composition with render-action scheduling
 - **GLB/glTF loading** with Draco decompression, plus OBJ/STL/Assimp parsers
-- **Screen-space and world-space UI** with anchored elements, image and MSDF text elements, buttons with tint and sprite states, nested stencil masks (rectangles and sprite shapes), and mouse and touch input events (hover, press, click, bubbling, hit padding)
+- **Screen-space and world-space UI** with anchored elements, image and MSDF text elements, buttons with tint and sprite states, nested stencil masks (rectangles and sprite shapes), layout groups, scrollbars and sliders, draggable elements, scroll views with momentum and bounce, and mouse and touch input events (hover, press, click, bubbling, hit padding)
 - **SIMD math** with SSE, ARM NEON, and Apple SIMD backends (Apple SIMD active on Apple Silicon)
 - **ShaderChunks registry**: 25 named, user-overridable Metal micro-chunks with cache-invalidation hashing, plus build-time-embedded standalone shaders; the Vulkan backend compiles a parallel GLSL set (20 chunks and 19 stage programs, every file a build dependency of the bundle) to SPIR-V and drives the same 58-flag feature contract through specialization constants
 - **XR / ARKit** framework (in development)
@@ -73,7 +73,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Graphics / Metal | Buffers/textures/pipelines, ASTC/BC formats, compute, particles/culling, post-processing, volumetric fog, environment baking, GSplat, texture streaming, GPU timestamp profiling |
 | Graphics / Vulkan | Vulkan 1.3 dynamic rendering/synchronization2, MRT, PBR draw binding, PCSS/VSM shadows + clustered shadow atlas, SSR, dynamic refraction, planar reflections, shadow catcher, atmosphere, opacity dither, debug passes, dual-source blending, compute/particles/culling, post-processing, async uploads, GPU profiling, validation smoke test |
 | Framework / ECS | Engine, Entity, component-system registry, scripts, hierarchy, lifecycle/event integration |
-| Framework / Components | 14 types: Camera, Render, Light, Script, Animation, Anim (state graph), Screen, Element, Button, Collision, RigidBody, Joint, GSplat, ParticleSystem |
+| Framework / Components | 18 types: Camera, Render, Light, Script, Animation, Anim (state graph), Screen, Element, Button, LayoutGroup, LayoutChild, Scrollbar, ScrollView, Collision, RigidBody, Joint, GSplat, ParticleSystem |
 | Framework / Animation | GPU skinning, morph targets/weights, clips/evaluator/binder with path resolution, state graphs, transitions, blend trees, weighted layer composition |
 | Framework / Gizmo | Interactive translate/rotate/scale handles with axis picking and snapping |
 | Framework / Assets | Async container/texture/font loading; GLB/glTF (+Draco, quantised attributes, texture transform, node identity for unnamed nodes), OBJ/STL/Assimp; KTX2/Basis transcoding to ASTC or BC |
@@ -83,7 +83,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 ## Known Limitations
 
 - Metal remains the primary graphics backend; Vulkan is functional and covers most rendering paths, but not yet at full parity. Metal-only today: volumetric fog, texture streaming, the ImGui/ImPlot overlay, and the compute passes used by the sibling visualization project (marching cubes, LIC)
-- No audio subsystem; no Sprite / layout / scroll-view UI components
+- No audio subsystem; no sprite component (sprites are data an image element shows)
 - Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported
 - Reflection probes support runtime scene-capture baking (dynamic cubemap) as well as supplied cubemaps; per-level GGX cube prefilter is deferred (roughness uses hardware trilinear cube mips)
 - Texture streaming is partial (no progressive mip-level budgeting)

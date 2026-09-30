@@ -1842,6 +1842,34 @@ present, but the rule below never depends on reading it.
   `Material::setAlphaMode` RESETS the blend, the depth state and the transparent flag —
   set it first and the rest after, or they are silently lost (the mask material's first
   version was).
+- **A layout group reflows when its INPUTS differ, not on events** (DEVIATION from upstream's
+  dozen reflow-triggering events, several of which this port does not fire —
+  `enableelement`, `element:add`, `layoutchild:add`). After every update the layout group
+  system compares each active group's inputs — its options and size, and each child's
+  serial, enabled state, width, height, pivot, anchors and layout-child settings, as raw bits
+  — with those of its last reflow, reflows the ones that differ outermost first (by graph
+  depth), and repeats until none does, giving up after upstream's 100 passes. The calculator
+  (`layoutCalculator.h`) is a pure function, so the layouts are upstream's;
+  `tests/layoutCalculatorTests.cpp` ports all 36 of upstream's cases. Two things the
+  comparison had to get right: the inputs are RECORDED AFTER the layout is applied and before
+  `reflow` fires, so the anchors a reflow resets do not reflow it again (upstream's
+  `_isPerformingReflow`) while a size a `reflow` handler sets does (the scroll view's content
+  sizes itself that way); and a child is identified by `ElementComponent::serial()`, never its
+  address, which a new element can reuse after a freed one and would then never be placed.
+  It costs a few floats per child per frame and nothing more while nothing changes.
+- **An element's corners are only as current as its entity's world transform, which is
+  LAZY here.** Upstream syncs the whole hierarchy every frame; this engine computes a world
+  transform when something asks for it, and that sync is what marks the corners dirty. So
+  `screenCorners` / `canvasCorners` / `worldCorners` sync the entity FIRST; until 2026-09-30
+  they tested the dirty flag first, and an element moved since the last render was hit where
+  it used to be. Found by the drag helper's test, not by any example: every example renders
+  between a move and the next press.
+- **A text element's default font size is 32, as upstream** (`text-element.js`); it was 16
+  until 2026-09-30, so every text that set no size drew at half upstream's (`layout-group`'s
+  and `scroll-view`'s titles). A scroll view, scrollbar and button look for their elements and
+  scrollbars after each update (`refreshBindings`), since nothing fires `element:add` or
+  `scrollbar:add` here; the mouse wheel reaches the scroll view as a browser's pixel deltas,
+  100 a notch (`ElementInputEvent::wheelPixelsX/Y`).
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.
@@ -2329,12 +2357,13 @@ What stays HERE is only what bites during UNRELATED work.
   copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
-- **UI not ported yet**: max lines, auto-fit font size, right-to-left text, layout groups,
-  scroll views, XR select events, grapheme clusters (emoji sequences are several
-  symbols), and upstream's element drag helper (#9551). The ten UI examples (`ui-text`,
-  `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,
-  `screen-scaling`, `ui-panel`, `text-justify`, `text-typewriter`, `masking`) port upstream's
-  CURRENT versions.
+- **UI not ported yet**: max lines, auto-fit font size, right-to-left text, XR select events
+  and grapheme clusters (emoji sequences are several symbols). The fourteen UI examples
+  (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,
+  `screen-scaling`, `ui-panel`, `text-justify`, `text-typewriter`, `masking`, `layout-group`,
+  `scroll-view`, `common-widgets`) port upstream's CURRENT versions; `anchors`, `image-fit`,
+  `drag-and-drop`, `render-to-image`, the UI `custom-shader` and `particle-system`,
+  `text-auto-font-size`, `text-emojis` and `text-localization` are not ported yet.
 - **No maximum pixel ratio.** The drawable always follows the display's density (Metal and
   Vulkan both size it from `SDL_GetWindowSizeInPixels`), where upstream's
   `device.maxPixelRatio` caps it; `screen-scaling` leaves out its "Pixel ratio" button for

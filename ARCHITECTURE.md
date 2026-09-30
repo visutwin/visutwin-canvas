@@ -500,8 +500,9 @@ already rendered in front of it.
 - `GraphNode::lookAt(target, up = +Y)` aims the node's -Z at a world-space target,
   setting WORLD rotation. Some examples predating it still carry local yaw/pitch
   helpers; those are equivalent.
-- **12 component types:** Camera, Render, Light, Script, Animation, Anim (state
-  graph), Screen, Element, Button, Collision, RigidBody, GSplat, ParticleSystem
+- **18 component types:** Camera, Render, Light, Script, Animation, Anim (state
+  graph), Screen, Element, Button, LayoutGroup, LayoutChild, Scrollbar, ScrollView,
+  Collision, RigidBody, Joint, GSplat, ParticleSystem
 - **Component systems are supplied by the APPLICATION**, not by the engine:
   `Engine` registers whatever `AppOptions::componentSystems` carries. The examples
   harness registers Render, Camera, Light and Script; anything else is one
@@ -656,8 +657,42 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   parameters, which are shared per (function, operation, reference). `masking` ports
   upstream's example: a card mask holding a panning photo in a cover mask and a circle
   avatar mask.
-- **Not ported:** max lines, auto-fit font size, right-to-left text, layout groups,
-  scroll views, the drag helper.
+- **Layout groups** (`framework/components/layoutgroup`, `layoutchild`; upstream layout-group
+  and layout-child, ported 2026-09-30). A `LayoutGroupComponent` lays out the element children
+  of its entity in a row or column (`setOrientation`), wrapping into more (`setWrap`), fitting
+  them to its size per axis (`LayoutFitting::None / Stretch / Shrink / Both`), and placing the
+  block by `setAlignment` (x 0 left to 1 right, y 0 bottom to 1 top; default (0, 1)),
+  `setPadding` (left, bottom, right, top) and `setSpacing`; `reverseY` is ON by default, so rows
+  stack from the top. A child takes part while its entity and element are enabled; a
+  `LayoutChildComponent` gives it min/max sizes, a share of what a fit hands out
+  (`fitWidthProportion`) or `excludeFromLayout`. The group resets each child's anchors to zero
+  and sets its calculated size and local position, then fires `reflow` with the bounds (x, y,
+  width, height). The arithmetic is `calculateLayout` (`layoutCalculator.h`), a pure function
+  over plain structs; the component gathers the items and applies the result. DEVIATION: the
+  system reflows a group whose inputs changed since its last reflow (compared after every
+  update) instead of listening for upstream's events; see AGENTS.md.
+- **Dragging** (`element/elementDragHelper.h`, upstream element-drag-helper.js). An
+  `ElementDragHelper` on an element with `useInput` moves its entity by the pointer's travel
+  in the element's plane, in its parent's units (the screen's scale and every ancestor's scale
+  divided out), optionally along one axis (`DragAxis`), firing `drag:start`, `drag:move` (the
+  new local position) and `drag:end`. Its owner deletes it before the element goes.
+- **Scrollbars** (`framework/components/scrollbar`, upstream scrollbar). The track is the
+  entity's element, the handle `handleEntity`'s; the scrollbar sizes the handle to `handleSize`
+  of the track and places it at `value` (0 to 1, from the left, or DOWN from the top when
+  vertical), and a drag helper on the handle sets `value`, fired as `set:value`. A handle
+  smaller than its track is a slider (`common-widgets`).
+- **Scroll views** (`framework/components/scrollview`, upstream scroll-view). A content element
+  in a viewport element (usually a mask), dragged (a drag helper on the content), flicked
+  (velocity decaying by `friction` per frame, as upstream), wheeled (`wheelPixelsY` over the
+  content's height) or driven by its scrollbars. `scroll` runs 0 to 1 per axis, from the top on
+  y; `ScrollMode::Clamp` stops at the ends, `Bounce` goes past them with a log10 tension while
+  dragged and springs back by `bounceAmount`, `Infinite` has none. A drag past `dragThreshold`
+  turns off `useInput` on every element under the content until it ends. `set:scroll` fires on
+  every change. DEVIATIONS: the unset properties upstream leaves undefined default to both axes,
+  Bounce, 0.1 and 0.05; and a wheel notch is 100 pixels. `layout-group`, `scroll-view` and
+  `common-widgets` port upstream's examples; `tests/uiLayoutScrollTests.cpp` holds all four
+  parts through the real engine and ElementInput.
+- **Not ported:** max lines, auto-fit font size, right-to-left text.
 
 ## Graphics abstraction
 

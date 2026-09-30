@@ -104,6 +104,9 @@ namespace visutwin::canvas
         void setup(const ElementDesc& desc);
 
         static const std::vector<ElementComponent*>& instances() { return _instances; }
+        /// Unique for the life of the process (an address can be reused by a later element);
+        /// what a layout group tells its children apart by.
+        uint64_t serial() const { return _serial; }
 
         ElementType type() const { return _type; }
         void setType(ElementType value) { _type = value; textChanged(); }
@@ -341,6 +344,8 @@ namespace visutwin::canvas
         void onInsert();
         Entity* parseUpToScreen() const;
         void dirtifyLocal();
+        /// Bring the entity's world transform up to date, which marks the corners dirty when it moved.
+        void syncEntityTransform();
         /// A text input changed: mark the mesh stale and measure again.
         void textChanged();
         /// A colour, outline or shadow changed. Markup styles fall back to these, so a text
@@ -355,6 +360,8 @@ namespace visutwin::canvas
 
         inline static std::vector<ElementComponent*> _instances;
 
+        static inline uint64_t _nextSerial = 1;
+        uint64_t _serial = _nextSerial++;
         ElementType _type = ElementType::Group;
 
         Vector4 _anchor = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -386,7 +393,7 @@ namespace visutwin::canvas
 
         float _opacity = 1.0f;
         Color _color = Color(1.0f, 1.0f, 1.0f, 1.0f);
-        int _fontSize = 16;
+        int _fontSize = 32;   // upstream text-element.js
         std::string _text;
         FontResource* _fontResource = nullptr;
         ElementHorizontalAlign _horizontalAlign = ElementHorizontalAlign::Center;

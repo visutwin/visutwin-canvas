@@ -620,15 +620,23 @@ namespace visutwin::canvas
 
     // ---- corners ---------------------------------------------------------------------
 
+    void ElementComponent::syncEntityTransform()
+    {
+        if (_entity) {
+            _entity->worldTransform();
+        }
+    }
+
     const std::array<Vector3, 4>& ElementComponent::screenCorners()
     {
+        // Sync FIRST: transforms here are lazy, and the sync is what marks the corners dirty.
+        // Upstream syncs the whole hierarchy every frame, so its corners are at most a frame old;
+        // here they would stay where the element was until something asked for a transform.
+        // This also brings _screenTransform up to date.
+        syncEntityTransform();
         ScreenComponent* screen = screenComponent();
         if (!_cornersDirty || !screen) {
             return _screenCorners;
-        }
-
-        if (_entity) {
-            _entity->worldTransform();   // brings _screenTransform up to date
         }
 
         const ElementComponent* parent = parentElement();
@@ -663,6 +671,7 @@ namespace visutwin::canvas
 
     const std::array<Vector2, 4>& ElementComponent::canvasCorners()
     {
+        syncEntityTransform();
         ScreenComponent* screen = screenComponent();
         if (!_canvasCornersDirty || !screen || !screen->screenSpace()) {
             return _canvasCorners;
@@ -680,6 +689,7 @@ namespace visutwin::canvas
 
     const std::array<Vector3, 4>& ElementComponent::worldCorners()
     {
+        syncEntityTransform();
         if (!_worldCornersDirty) {
             return _worldCorners;
         }

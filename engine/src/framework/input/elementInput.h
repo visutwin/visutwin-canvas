@@ -60,6 +60,11 @@ namespace visutwin::canvas
         MouseButton button = MouseButton::None;
         /// The wheel's direction only, -1 or 1 (upstream snaps it the same way).
         int wheelDelta = 0;
+        /// The wheel's movement as a browser's WheelEvent gives it (what upstream's scroll view
+        /// reads): pixels, x positive to the right and y positive TOWARD the user. DEVIATION:
+        /// SDL gives notches, and a notch is taken as 100 pixels.
+        float wheelPixelsX = 0.0f;
+        float wheelPixelsY = 0.0f;
         KeyModifiers modifiers;
         /// A touch event, and the finger it is for.
         bool touch = false;
@@ -131,8 +136,8 @@ namespace visutwin::canvas
         void onMouseDown(float x, float y, MouseButton button, const KeyModifiers& modifiers = {});
         void onMouseUp(float x, float y, MouseButton button, const KeyModifiers& modifiers = {});
         void onMouseMove(float x, float y, const KeyModifiers& modifiers = {});
-        /// `deltaY` > 0 is away from the user.
-        void onMouseWheel(float x, float y, float deltaY, const KeyModifiers& modifiers = {});
+        /// In notches: `deltaY` > 0 is away from the user, `deltaX` > 0 to the right.
+        void onMouseWheel(float x, float y, float deltaY, const KeyModifiers& modifiers = {}, float deltaX = 0.0f);
         void onTouchStart(int64_t id, float x, float y);
         void onTouchMove(int64_t id, float x, float y);
         void onTouchEnd(int64_t id, float x, float y);
@@ -250,6 +255,9 @@ namespace visutwin::canvas
         /// A handler stopped an event since handleEvent began.
         bool _propagationStopped = false;
         float _lastX = 0.0f;
+        // The wheel event being delivered, in pixels (ElementInputEvent::wheelPixelsX/Y).
+        float _wheelPixelsX = 0.0f;
+        float _wheelPixelsY = 0.0f;
         float _lastY = 0.0f;
         ElementComponent* _hoveredElement = nullptr;
         ElementComponent* _pressedElement = nullptr;

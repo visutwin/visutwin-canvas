@@ -542,3 +542,19 @@ add_executable(visutwin-picker-tests
 target_link_libraries(visutwin-picker-tests PRIVATE visutwin-canvas)
 
 add_test(NAME picker COMMAND visutwin-picker-tests)
+
+add_executable(visutwin-layout-calculator-tests
+    layoutCalculatorTests.cpp
+)
+
+target_link_libraries(visutwin-layout-calculator-tests PRIVATE visutwin-canvas)
+
+add_test(NAME layout-calculator COMMAND visutwin-layout-calculator-tests)
+
+add_executable(visutwin-ui-layout-scroll-tests
+    uiLayoutScrollTests.cpp
+)
+
+target_link_libraries(visutwin-ui-layout-scroll-tests PRIVATE visutwin-canvas)
+
+add_test(NAME ui-layout-scroll COMMAND visutwin-ui-layout-scroll-tests)

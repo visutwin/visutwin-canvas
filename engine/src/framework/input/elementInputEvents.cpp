@@ -403,6 +403,8 @@ namespace visutwin::canvas
             event.dy = y - _lastY;
             event.button = button;
             event.wheelDelta = wheelDelta;
+            event.wheelPixelsX = _wheelPixelsX;
+            event.wheelPixelsY = _wheelPixelsY;
             event.modifiers = modifiers;
             return event;
         };
@@ -474,14 +476,21 @@ namespace visutwin::canvas
         _lastY = y;
     }
 
-    void ElementInput::onMouseWheel(const float x, const float y, const float deltaY, const KeyModifiers& modifiers)
+    void ElementInput::onMouseWheel(const float x, const float y, const float deltaY, const KeyModifiers& modifiers,
+                                    const float deltaX)
     {
         if (!_enabled) {
             return;
         }
         // Upstream snaps the browser's deltaY, positive TOWARD the user, to its sign.
         const int wheelDelta = deltaY > 0.0f ? -1 : (deltaY < 0.0f ? 1 : 0);
+        // The browser's pixel deltas, for whoever reads them (the scroll view); 100 a notch.
+        constexpr float kPixelsPerNotch = 100.0f;
+        _wheelPixelsX = deltaX * kPixelsPerNotch;
+        _wheelPixelsY = -deltaY * kPixelsPerNotch;
         onElementMouseEvent("mousewheel", x, y, MouseButton::None, wheelDelta, modifiers);
+        _wheelPixelsX = 0.0f;
+        _wheelPixelsY = 0.0f;
     }
 
     void ElementInput::onTouchStart(const int64_t id, const float x, const float y)
@@ -666,8 +675,9 @@ namespace visutwin::canvas
             if (event.wheel.which == SDL_TOUCH_MOUSEID) {
                 break;
             }
-            const float deltaY = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;
-            onMouseWheel(event.wheel.mouse_x, event.wheel.mouse_y, deltaY, currentModifiers());
+            const float flip = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0f : 1.0f;
+            onMouseWheel(event.wheel.mouse_x, event.wheel.mouse_y, flip * event.wheel.y, currentModifiers(),
+                         flip * event.wheel.x);
             break;
         }
         case SDL_EVENT_FINGER_DOWN:
