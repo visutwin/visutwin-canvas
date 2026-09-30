@@ -13,7 +13,9 @@
 
 #include "core/math/quaternion.h"
 #include "framework/components/screen/screenComponent.h"
+#include "framework/engine.h"
 #include "framework/entity.h"
+#include "framework/i18n/i18n.h"
 #include "framework/components/element/textLayout.h"
 #include "scene/sprite.h"
 
@@ -54,6 +56,11 @@ namespace visutwin::canvas
         }
         if (_onInsertHandle) {
             _onInsertHandle->off();
+        }
+        for (const auto& handle : {_localeHandle, _localeDataAddHandle, _localeDataRemoveHandle}) {
+            if (handle) {
+                handle->off();
+            }
         }
         if (_entity && _entity->transformHook() == this) {
             _entity->setTransformHook(nullptr);   // upstream `_unpatch`
@@ -744,6 +751,49 @@ namespace visutwin::canvas
         return _calculatedWidth;
     }
 
+    void ElementComponent::setKey(const std::string& value)
+    {
+        if (_i18nKey == value) {
+            return;
+        }
+        _i18nKey = value;
+        if (!_i18nKey.empty()) {
+            subscribeLocalization();
+            resetLocalizedText();
+        }
+    }
+
+    void ElementComponent::subscribeLocalization()
+    {
+        if (_localeHandle) {
+            return;
+        }
+        I18n* i18n = _entity && _entity->engine() ? _entity->engine()->i18n() : nullptr;
+        if (!i18n) {
+            return;
+        }
+        // Upstream _onLocaleSet (less its font swap) and _onLocalizationData.
+        _localeHandle = i18n->on("change", [this](const std::string& /*locale*/, const std::string& /*old*/) {
+            if (!_i18nKey.empty()) {
+                resetLocalizedText();
+            }
+        });
+        const auto onData = [this](const std::string& /*locale*/, const std::vector<std::string>& keys) {
+            if (!_i18nKey.empty() && std::find(keys.begin(), keys.end(), _i18nKey) != keys.end()) {
+                resetLocalizedText();
+            }
+        };
+        _localeDataAddHandle = i18n->on("data:add", onData);
+        _localeDataRemoveHandle = i18n->on("data:remove", onData);
+    }
+
+    void ElementComponent::resetLocalizedText()
+    {
+        I18n* i18n = _entity && _entity->engine() ? _entity->engine()->i18n() : nullptr;
+        _text = i18n ? i18n->getText(_i18nKey) : _i18nKey;
+        textChanged();
+    }
+
     void ElementComponent::textChanged()
     {
         _textDirty = true;
@@ -970,6 +1020,10 @@ namespace visutwin::canvas
         _pixelsPerUnit = src->_pixelsPerUnit;
         _fitMode = src->_fitMode;
         ++_imageVersion;
+        if (!src->_i18nKey.empty()) {
+            _i18nKey = src->_i18nKey;
+            subscribeLocalization();
+        }
         textChanged();   // the clone has no text mesh of its own yet
     }
 }

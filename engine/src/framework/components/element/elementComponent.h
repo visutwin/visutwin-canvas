@@ -207,7 +207,12 @@ namespace visutwin::canvas
         /// visual places glyphs by.
         TextMeasure measureLayout() const;
         const std::string& text() const { return _text; }
-        void setText(const std::string& value) { _text = value; textChanged(); }
+        /// Plain text; clears the localization key, as upstream's `text` setter does.
+        void setText(const std::string& value) { _i18nKey.clear(); _text = value; textChanged(); }
+        /// Upstream `key`: the text is the engine's I18n message for this key in the current
+        /// locale, and follows the locale and any data added for it. Empty for none.
+        const std::string& key() const { return _i18nKey; }
+        void setKey(const std::string& value);
         FontResource* fontResource() const { return _fontResource; }
         void setFontResource(FontResource* value) { _fontResource = value; textChanged(); }
         ElementHorizontalAlign horizontalAlign() const { return _horizontalAlign; }
@@ -430,6 +435,14 @@ namespace visutwin::canvas
 
         Entity* _screen = nullptr;
         EventHandlePtr _onInsertHandle;
+        // Localization (upstream `_i18nKey` and its three i18n subscriptions), subscribed the
+        // first time a key is set: a component added to a live entity gets no onEnable here.
+        void subscribeLocalization();
+        void resetLocalizedText();
+        std::string _i18nKey;
+        EventHandlePtr _localeHandle;
+        EventHandlePtr _localeDataAddHandle;
+        EventHandlePtr _localeDataRemoveHandle;
 
         float _opacity = 1.0f;
         Color _color = Color(1.0f, 1.0f, 1.0f, 1.0f);

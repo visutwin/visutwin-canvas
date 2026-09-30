@@ -43,7 +43,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 20 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL stages + shared includes compiled to SPIR-V at build time (20 files)
-  examples/        # 67 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 68 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -2411,13 +2411,14 @@ What stays HERE is only what bites during UNRELATED work.
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
 - **UI not ported yet**: right-to-left text, XR select events and grapheme clusters (emoji
-  sequences are several symbols). The twenty-one UI examples
+  sequences are several symbols). The twenty-two UI examples
   (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,
   `screen-scaling`, `ui-panel`, `text-justify`, `text-typewriter`, `masking`, `layout-group`,
   `scroll-view`, `common-widgets`, `anchors`, `image-fit`, `drag-and-drop`, `render-to-image`,
   `text-auto-font-size`, `ui-custom-shader` — upstream's user-interface/custom-shader — and
-  `ui-particle-system` — user-interface/particle-system) port upstream's CURRENT versions;
-  `text-emojis` and `text-localization` are not ported yet.
+  `ui-particle-system` — user-interface/particle-system — and `text-localization`) port
+  upstream's CURRENT versions; `text-emojis` is not ported yet (it draws with upstream's
+  `CanvasFont`, a system-font rasteriser this port does not have).
 - Annotations (`annotationManager`) still draw through ImGui; with input on elements they
   could move.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with

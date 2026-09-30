@@ -114,6 +114,9 @@ namespace visutwin::canvas
          */
         std::pair<int, int> canvasSize() const;
 
+        /// Localization (upstream `app.i18n`): the locale, its messages and plural forms.
+        I18n* i18n() const { return _i18n.get(); }
+
         /**batcher accessor. */
         BatchManager* batcher() { return _batcher.get(); }
 

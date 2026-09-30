@@ -721,6 +721,21 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   layer draws only transparent materials in its sorted sublayer, so the material wants
   `setAlphaMode(BLEND)`. `ui-custom-shader` ports upstream's cooldown example, its shader in MSL and
   GLSL and its two uniforms as one `customUniformData` block.
+- **Localization** (upstream `framework/i18n`, ported 2026-09-30). `Engine::i18n()` is upstream's
+  `app.i18n`: a locale (`setLocale`, "change" event with the new and old locale), messages added
+  from upstream's JSON format (`addData` / `addDataFromFile`, parsed with nlohmann/json and
+  validated always, not only in debug; `removeData`), `getText`, `getPluralText` with upstream's
+  CLDR rules per language, and `findAvailableLocale` with its fallback chain (the locale, its
+  DEFAULT_LOCALE_FALLBACKS entry, its language's, the first locale added for the language,
+  en-US). A text element's `setKey` makes its text the message of that key; it subscribes to
+  the i18n events the first time a key is set (a component added to a live entity gets no
+  onEnable here), follows the locale and data added later, and `setText` clears the key, as
+  upstream. `tests/i18nTests.cpp` ports upstream's i18n test suite less its asset cases.
+  DEVIATIONS: no localization assets (data is added directly), no per-locale font swap, and a
+  plain-string message is its own single plural form where upstream's getPluralText returns one
+  character of it. `text-localization` ports upstream's example; C++ has no Intl, so its price
+  is formatted by a small function that writes what the browser's Intl writes for the four
+  locales it reaches (U+00A0 before the symbol).
 - **Not ported:** right-to-left text.
 
 ## Graphics abstraction

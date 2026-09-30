@@ -65,6 +65,12 @@ for details.
 - `landscape.png` — a 400x400 dusk landscape, byte-identical, drawn by the same script as
   one of its standalone textures (MIT). Used by `text-typewriter`.
 
+### localization/ — complete
+- `text-localization.json` — upstream's `text-localization.localization.json`, byte-identical
+  (MIT, as upstream's examples): the four locales' messages of `text-localization`, in
+  upstream's i18n data format. Its French, Spanish and Polish letters are all in the shipped
+  Roboto fonts.
+
 ### animations/bitmoji/ — complete
 - `idle.glb`, `walk.glb`, `run.glb`, `jump-flip.glb`, `win-dance.glb` — Bitmoji locomotion clips (CC-0)
 

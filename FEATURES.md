@@ -46,6 +46,7 @@ the [README](README.md).
 - **Scene graph** with an entity-component system (14 component types) and layer composition with render-action scheduling
 - **GLB/glTF loading** with Draco decompression, plus OBJ/STL/Assimp parsers
 - **Screen-space and world-space UI** with anchored elements, image and MSDF text elements, buttons with tint and sprite states, nested stencil masks (rectangles and sprite shapes), layout groups, scrollbars and sliders, draggable elements, scroll views with momentum and bounce, and mouse and touch input events (hover, press, click, bubbling, hit padding)
+- **Localization**: locales with fallbacks, messages from upstream's JSON format, CLDR plural forms, and text elements that follow the locale by key
 - **SIMD math** with SSE, ARM NEON, and Apple SIMD backends (Apple SIMD active on Apple Silicon)
 - **ShaderChunks registry**: 25 named, user-overridable Metal micro-chunks with cache-invalidation hashing, plus build-time-embedded standalone shaders; the Vulkan backend compiles a parallel GLSL set (20 chunks and 19 stage programs, every file a build dependency of the bundle) to SPIR-V and drives the same 58-flag feature contract through specialization constants
 - **XR / ARKit** framework (in development)
