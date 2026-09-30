@@ -134,30 +134,38 @@ namespace visutwin::canvas
             const Matrix4 viewProjection = shadowCam->projectionMatrix()
                 * shadowCam->node()->worldTransform().inverse();
 
-            // Build the cascade's frustum once for the whole caster sweep.
-            const Frustum shadowFrustum = (shadowCam && shadowCam->node())
-                ? buildCameraFrustum(shadowCam, shadowCam->node()) : Frustum{};
-
-            // The same collector the FIT uses, so the two cannot disagree about what
-            // a caster is again. Batch mesh instances belong to no RenderComponent —
-            // BatchManager registers them straight with the scene layers — and each
-            // of these two sweeps used to decide separately whether to include them.
-            std::vector<MeshInstance*> casters;
-            collectShadowCasters(casters, _camera);
-
-            {
-                for (auto* meshInstance : casters) {
-                    if (!meshInstance || !meshInstance->visible()) {
-                        continue;
-                    }
-                    if (!shouldRenderShadowMeshInstance(meshInstance, shadowCam, shadowFrustum)) {
-                        continue;
-                    }
-
+            // The cascade's casters, prepared this frame by the fit
+            // (ShadowRendererDirectional::cull), which already holds the scene's casters
+            // and tests them against this same fitted frustum: this pass used to collect
+            // and test the whole scene again for the same answer. The list is this
+            // frame's or it is not used — it holds raw pointers — and then the pass
+            // collects and culls for itself, with the same collector the fit uses, so
+            // the two cannot disagree about what a caster is.
+            if (rd->visibleCastersFrame == _graphicsDevice->renderVersion()) {
+                for (auto* meshInstance : rd->visibleCasters) {
                     if (drawDepthOnly(_graphicsDevice.get(), programLibrary.get(), meshInstance,
                             viewProjection, shaders)) {
                         _graphicsDevice->frameCounters().shadowDrawCalls++;
                     }
+                }
+                continue;
+            }
+
+            // Built only on this path: the prepared list needs no frustum.
+            const Frustum shadowFrustum = buildCameraFrustum(shadowCam, shadowCam->node());
+            std::vector<MeshInstance*> casters;
+            collectShadowCasters(casters, _camera);
+            for (auto* meshInstance : casters) {
+                if (!meshInstance || !meshInstance->visible()) {
+                    continue;
+                }
+                if (!shouldRenderShadowMeshInstance(meshInstance, shadowCam, shadowFrustum)) {
+                    continue;
+                }
+
+                if (drawDepthOnly(_graphicsDevice.get(), programLibrary.get(), meshInstance,
+                        viewProjection, shaders)) {
+                    _graphicsDevice->frameCounters().shadowDrawCalls++;
                 }
             }
         }

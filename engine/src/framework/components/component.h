@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 #include <core/eventHandler.h>
@@ -20,6 +21,9 @@ namespace visutwin::canvas
     using CloneNodeMap = std::unordered_map<const GraphNode*, GraphNode*>;
 
     using ComponentTypeID = std::size_t;
+
+    template <class T>
+    class ComponentInstanceList;
 
     inline ComponentTypeID nextComponentTypeID() {
         static ComponentTypeID lastID = 0;
@@ -121,6 +125,12 @@ namespace visutwin::canvas
         bool _enabled = true;
 
     private:
+        // Which entry of its type's instance list this component is; ComponentInstanceList
+        // finds the slot by it.
+        template <class T>
+        friend class ComponentInstanceList;
+        std::uint64_t _instanceSerial = 0;
+
         IComponentSystem* _system;
     };
 }

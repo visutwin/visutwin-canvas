@@ -57,27 +57,33 @@ namespace visutwin::canvas
         }
     }
 
-    bool shouldRenderShadowRenderComponent(const RenderComponent* renderComponent, const Camera* camera)
+    ShadowCasterComponentFilter::ShadowCasterComponentFilter(const Camera* camera)
+        // A lightmap bake camera renders one mesh in UV space through its own private
+        // layer, but the shadows baked into that mesh have to come from the WHOLE scene —
+        // filtering casters by the camera's layers would leave the bake shadowless.
+        : _everyLayer(camera && camera->lightmapBakePass()),
+          _cameraComponent(_everyLayer ? nullptr : findCameraComponentForCamera(camera))
+    {
+    }
+
+    bool ShadowCasterComponentFilter::accepts(const RenderComponent* renderComponent) const
     {
         if (!renderComponent || !renderComponent->enabled() || !renderComponent->entity() || !renderComponent->entity()->enabled()) {
             return false;
         }
+        return _everyLayer || cameraRendersRenderComponent(_cameraComponent, renderComponent);
+    }
 
-        // A lightmap bake camera renders one mesh in UV space through its own private
-        // layer, but the shadows baked into that mesh have to come from the WHOLE scene —
-        // filtering casters by the camera's layers would leave the bake shadowless.
-        if (camera && camera->lightmapBakePass()) {
-            return true;
-        }
-
-        const auto* cameraComponent = findCameraComponentForCamera(camera);
-        return cameraRendersRenderComponent(cameraComponent, renderComponent);
+    bool shouldRenderShadowRenderComponent(const RenderComponent* renderComponent, const Camera* camera)
+    {
+        return ShadowCasterComponentFilter(camera).accepts(renderComponent);
     }
 
     void collectShadowCasters(std::vector<MeshInstance*>& casters, const Camera* camera)
     {
+        const ShadowCasterComponentFilter filter(camera);
         for (auto* renderComponent : RenderComponent::instances()) {
-            if (!shouldRenderShadowRenderComponent(renderComponent, camera)) {
+            if (!filter.accepts(renderComponent)) {
                 continue;
             }
             for (auto* meshInstance : renderComponent->meshInstances()) {
@@ -113,7 +119,7 @@ namespace visutwin::canvas
             return false;
         }
 
-        return meshInstance->mesh()->getVertexBuffer() != nullptr;
+        return meshInstance->mesh()->hasVertexBuffer();
     }
 
     bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera)

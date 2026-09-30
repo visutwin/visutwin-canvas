@@ -53,6 +53,7 @@
 #include "framework/components/element/textLayout.h"
 #include "framework/handlers/fontResource.h"
 #include "scene/graphNodeTransformHook.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -105,7 +106,7 @@ namespace visutwin::canvas
         /// Upstream ElementComponentSystem.initializeComponentData for `desc`.
         void setup(const ElementDesc& desc);
 
-        static const std::vector<ElementComponent*>& instances() { return _instances; }
+        static const std::vector<ElementComponent*>& instances() { return _instanceList.items(); }
         /// Unique for the life of the process (an address can be reused by a later element);
         /// what a layout group tells its children apart by.
         uint64_t serial() const { return _serial; }
@@ -346,7 +347,13 @@ namespace visutwin::canvas
         /// entity there). Worked out by ElementInput before each frame; a hit test on this
         /// element must also hit it.
         ElementComponent* maskedBy() const { return _maskedBy; }
-        void setMaskedBy(ElementComponent* value) { _maskedBy = value; }
+        void setMaskedBy(ElementComponent* value)
+        {
+            _maskedBy = value;
+            if (value) {
+                value->_wasUsedAsMask = true;
+            }
+        }
 
         /// How the image keeps its aspect inside the rectangle.
         ElementFitMode fitMode() const { return _fitMode; }
@@ -403,7 +410,7 @@ namespace visutwin::canvas
         }
         void updateTextLayout();
 
-        inline static std::vector<ElementComponent*> _instances;
+        inline static ComponentInstanceList<ElementComponent> _instanceList;
 
         static inline uint64_t _nextSerial = 1;
         uint64_t _serial = _nextSerial++;
@@ -491,6 +498,9 @@ namespace visutwin::canvas
         bool _mask = false;
         std::shared_ptr<Material> _customMaterial;
         ElementComponent* _maskedBy = nullptr;
+        // Set once some element's _maskedBy has pointed here; the destructor then clears
+        // those pointers (see ~ElementComponent).
+        bool _wasUsedAsMask = false;
         int _drawOrder = 0;
     };
 }

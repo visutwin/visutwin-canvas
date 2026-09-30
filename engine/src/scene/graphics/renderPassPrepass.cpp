@@ -121,8 +121,9 @@ namespace visutwin::canvas
         // own SSAO reads. Batched mesh instances belong to no RenderComponent and are
         // added separately, exactly as the shadow passes do.
         std::vector<MeshInstance*> meshInstances;
+        const ShadowCasterComponentFilter componentFilter(camera);
         for (auto* renderComponent : RenderComponent::instances()) {
-            if (!shouldRenderShadowRenderComponent(renderComponent, camera)) {
+            if (!componentFilter.accepts(renderComponent)) {
                 continue;
             }
             for (auto* meshInstance : renderComponent->meshInstances()) {

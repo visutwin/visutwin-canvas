@@ -14,6 +14,7 @@
 #include "platform/graphics/texture.h"
 #include "scene/camera.h"
 #include "scene/constants.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -179,7 +180,7 @@ namespace visutwin::canvas
         CameraComponent(IComponentSystem* system, Entity* entity);
         ~CameraComponent();
 
-        static const std::vector<CameraComponent*>& instances() { return _instances; }
+        static const std::vector<CameraComponent*>& instances() { return _instanceList.items(); }
 
         const Matrix4& projectionMatrix() const { return _camera->projectionMatrix(); }
 
@@ -300,7 +301,7 @@ namespace visutwin::canvas
         }
 
     private:
-        static std::vector<CameraComponent*> _instances;
+        inline static ComponentInstanceList<CameraComponent> _instanceList;
 
         Camera* _camera = nullptr;
 

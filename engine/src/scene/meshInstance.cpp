@@ -177,6 +177,7 @@ namespace visutwin::canvas
 
         _instanceCullRadius = boundingSphereRadius;
         _gpuCullingEnabled = true;
+        _gpuCullingCount.count();
 
         spdlog::info("[MeshInstance] GPU instance culling enabled: {} instances, radius={:.2f}",
             _instancingData.count, boundingSphereRadius);

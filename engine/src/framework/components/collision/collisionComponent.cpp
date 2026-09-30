@@ -10,12 +10,12 @@ namespace visutwin::canvas
     CollisionComponent::CollisionComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
     }
 
     CollisionComponent::~CollisionComponent()
     {
-        std::erase(_instances, this);
+        _instanceList.remove(this);
     }
 
     BoundingSphere CollisionComponent::worldBounds() const

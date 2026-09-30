@@ -36,13 +36,13 @@ namespace visutwin::canvas
     ScrollViewComponent::ScrollViewComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
         setBindingEntity(_self, entity);
     }
 
     ScrollViewComponent::~ScrollViewComponent()
     {
-        std::erase(_instances, this);
+        _instanceList.remove(this);
         // upstream onBeforeRemove: everything the view refers to may outlive it.
         for (Binding* binding : {&_self, &_viewport, &_content, &_scrollbars[0], &_scrollbars[1]}) {
             unbind(*binding);

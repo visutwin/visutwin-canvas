@@ -101,6 +101,26 @@ namespace visutwin::canvas
         std::array<BoundingBox, 4> cascadeAabb{};
         std::array<bool, 4> cascadeAabbValid{};
 
+        // The scene's casters for this camera, collected ONCE for all the cascades, with
+        // everything that does not depend on a cascade decided here too: what is left
+        // per cascade is the frustum test. Each cascade used to collect and test the
+        // whole scene itself, and the pass then did both again.
+        //
+        // The SAME caster set the pass will draw, through the shared collector: this used
+        // to sweep RenderComponent::instances() by hand and so missed the batch mesh
+        // instances, which belong to no component; the pass drew them anyway, into a depth
+        // range fitted without them. A batch outside that range was clipped out of the
+        // shadow map — its shadow simply absent, with nothing to say why, and only in a
+        // scene that batches at all.
+        static thread_local std::vector<MeshInstance*> casters;
+        casters.clear();
+        collectShadowCasters(casters, camera);
+        std::erase_if(casters, [](MeshInstance* meshInstance) {
+            return !meshInstance || !meshInstance->visible() ||
+                !shouldRenderShadowMeshInstanceIgnoringVisibility(meshInstance);
+        });
+        const int frame = _device ? _device->renderVersion() : -1;
+
         for (int cascade = 0; cascade < numCascades && cascade < 4; ++cascade) {
             LightRenderData* lightRenderData = _shadowRenderer->getLightRenderData(light, camera, cascade);
             if (!lightRenderData || !lightRenderData->shadowCamera) {
@@ -205,23 +225,13 @@ namespace visutwin::canvas
                 const Frustum casterFrustum = (shadowCam && shadowCam->node())
                     ? buildCameraFrustum(shadowCam, shadowCam->node()) : Frustum{};
 
-                // The SAME caster set the pass will draw. This used to sweep
-                // RenderComponent::instances() by hand and so missed the batch mesh
-                // instances, which belong to no component; the pass drew them anyway,
-                // into a depth range fitted without them. A batch outside that range
-                // was clipped out of the shadow map — its shadow simply absent, with
-                // nothing to say why, and only in a scene that batches at all.
-                std::vector<MeshInstance*> casters;
-                collectShadowCasters(casters, camera);
-
                 for (auto* meshInstance : casters) {
-                    if (!meshInstance || !meshInstance->visible()) {
+                    const BoundingBox worldAabb = meshInstance->aabb();
+                    // The rest of shouldRenderShadowMeshInstance: the frustum, for a
+                    // caster that is culled at all.
+                    if (meshInstance->cull() && !isVisibleInFrustum(casterFrustum, worldAabb)) {
                         continue;
                     }
-                    if (!shouldRenderShadowMeshInstance(meshInstance, shadowCam, casterFrustum)) {
-                        continue;
-                    }
-                    const auto worldAabb = meshInstance->aabb();
                     if (!haveAabb) {
                         visibleSceneAabb = worldAabb;
                         haveAabb = true;
@@ -305,6 +315,26 @@ namespace visutwin::canvas
                 }
                 shadowCamNode->translateLocal(0.0f, 0.0f, depthMax + 0.1f);
                 shadowCam->setFarClip(depthMax - depthMin + 0.2f);
+            }
+
+            // The casters the pass draws, against the FITTED frustum — the test the pass
+            // used to run itself, after collecting the whole scene a second time. Not the
+            // set the sweep above found: that one is tested from a camera a million units
+            // back, where the side planes are only good to about a tenth of a unit, and
+            // on a 40k-draw frame the two disagreed about six casters sitting on a
+            // cascade's edge. The fitted camera is close, so this is the exact answer,
+            // and it costs a frustum test per caster rather than a sweep of the scene.
+            {
+                auto& visibleCasters = lightRenderData->visibleCasters;
+                visibleCasters.clear();
+                lightRenderData->visibleCastersFrame = frame;
+                const Frustum fittedFrustum = buildCameraFrustum(shadowCam, shadowCamNode);
+                for (auto* meshInstance : casters) {
+                    if (meshInstance->cull() && !isVisibleInFrustum(fittedFrustum, meshInstance->aabb())) {
+                        continue;
+                    }
+                    visibleCasters.push_back(meshInstance);
+                }
             }
 
             // Build the viewport-scaled shadow matrix for this cascade:

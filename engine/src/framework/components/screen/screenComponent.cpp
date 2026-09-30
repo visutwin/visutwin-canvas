@@ -17,13 +17,13 @@ namespace visutwin::canvas
     ScreenComponent::ScreenComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
         calcProjectionMatrix();
     }
 
     ScreenComponent::~ScreenComponent()
     {
-        std::erase(_instances, this);
+        _instanceList.remove(this);
         // Upstream onBeforeRemove: every element bound here loses its screen. On a copy,
         // because each one unbinds itself from this list.
         const auto elements = _elements;

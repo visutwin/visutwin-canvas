@@ -14,6 +14,7 @@
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
 #include "scene/constants.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -31,7 +32,7 @@ namespace visutwin::canvas
 
         void initializeComponentData() override {}
 
-        static const std::vector<LightComponent*>& instances() { return _instances; }
+        static const std::vector<LightComponent*>& instances() { return _instanceList.items(); }
 
         // Keep the backing scene Light in step with the component's active state.
         void onEnable() override;
@@ -223,7 +224,7 @@ namespace visutwin::canvas
     private:
         void syncToLight() const;
 
-        inline static std::vector<LightComponent*> _instances;
+        inline static ComponentInstanceList<LightComponent> _instanceList;
 
         mutable std::unique_ptr<Light> _light;
 

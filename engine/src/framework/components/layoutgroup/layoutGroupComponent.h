@@ -26,6 +26,7 @@
 #include "core/math/vector4.h"
 #include "framework/components/component.h"
 #include "layoutCalculator.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -39,7 +40,7 @@ namespace visutwin::canvas
         void cloneFrom(const Component* source) override;
         void onDisable() override { _lastInputs.clear(); }
 
-        static const std::vector<LayoutGroupComponent*>& instances() { return _instances; }
+        static const std::vector<LayoutGroupComponent*>& instances() { return _instanceList.items(); }
 
         Orientation orientation() const { return _options.orientation; }
         void setOrientation(const Orientation value) { _options.orientation = value; }
@@ -75,7 +76,7 @@ namespace visutwin::canvas
         /// and layout-child settings.
         std::vector<uint32_t> gatherInputs() const;
 
-        static inline std::vector<LayoutGroupComponent*> _instances;
+        inline static ComponentInstanceList<LayoutGroupComponent> _instanceList;
         LayoutOptions _options;
         std::vector<uint32_t> _lastInputs;
     };

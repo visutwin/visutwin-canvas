@@ -113,6 +113,9 @@ namespace visutwin::canvas
         }
 
         std::shared_ptr<VertexBuffer> getVertexBuffer() const { return _vertexBuffer; }
+        /// Whether there is geometry to draw, without the shared_ptr copy getVertexBuffer
+        /// makes — for the per-instance tests of the culling sweeps.
+        [[nodiscard]] bool hasVertexBuffer() const { return _vertexBuffer != nullptr; }
 
         std::shared_ptr<IndexBuffer> getIndexBuffer(const size_t style = 0) const
         {

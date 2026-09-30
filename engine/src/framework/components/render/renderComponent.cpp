@@ -536,7 +536,7 @@ namespace visutwin::canvas
     RenderComponent::RenderComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity), _type("asset")
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
     }
 
     RenderComponent::~RenderComponent()
@@ -548,7 +548,7 @@ namespace visutwin::canvas
         clearMeshInstances();
         _ownedMeshes.clear();
 
-        _instances.erase(std::remove(_instances.begin(), _instances.end(), this), _instances.end());
+        _instanceList.remove(this);
     }
 
     const std::vector<MeshInstance*>& RenderComponent::meshInstances() const

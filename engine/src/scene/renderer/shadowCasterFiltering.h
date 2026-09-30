@@ -13,6 +13,7 @@
 namespace visutwin::canvas
 {
     class Camera;
+    class CameraComponent;
     class Material;
     class MeshInstance;
     class ProgramLibrary;
@@ -21,6 +22,21 @@ namespace visutwin::canvas
 
     // Checks component/entity state and camera layer compatibility for shadow casting.
     bool shouldRenderShadowRenderComponent(const RenderComponent* renderComponent, const Camera* camera);
+
+    // The same test for a whole sweep: what it needs to know about the camera — its
+    // component, found by a search of every camera — is resolved ONCE here instead of
+    // once per render component.
+    class ShadowCasterComponentFilter
+    {
+    public:
+        explicit ShadowCasterComponentFilter(const Camera* camera);
+        [[nodiscard]] bool accepts(const RenderComponent* renderComponent) const;
+
+    private:
+        // A lightmap bake camera takes casters from every layer (see accepts).
+        bool _everyLayer = false;
+        const CameraComponent* _cameraComponent = nullptr;
+    };
 
     // Collects every shadow caster in the scene: each enabled RenderComponent's mesh
     // instances plus the batch mesh instances, which belong to no RenderComponent and

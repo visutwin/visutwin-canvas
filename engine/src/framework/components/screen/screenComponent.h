@@ -22,6 +22,7 @@
 #include "core/math/matrix4.h"
 #include "core/math/vector2.h"
 #include "framework/components/component.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -45,7 +46,7 @@ namespace visutwin::canvas
         void initializeComponentData() override;
         void cloneFrom(const Component* source) override;
 
-        static const std::vector<ScreenComponent*>& instances() { return _instances; }
+        static const std::vector<ScreenComponent*>& instances() { return _instanceList.items(); }
 
         /// A world-space screen takes this as given; a screen-space one ignores it and
         /// follows the canvas.
@@ -99,7 +100,7 @@ namespace visutwin::canvas
         void notifyElementsResized();
         Vector2 canvasResolution() const;
 
-        inline static std::vector<ScreenComponent*> _instances;
+        inline static ComponentInstanceList<ScreenComponent> _instanceList;
 
         Vector2 _resolution = Vector2(640.0f, 320.0f);
         Vector2 _referenceResolution = Vector2(640.0f, 320.0f);

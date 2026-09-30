@@ -9,6 +9,7 @@
 #include "core/math/vector3.h"
 #include "core/shape/boundingSphere.h"
 #include "framework/components/component.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -23,7 +24,7 @@ namespace visutwin::canvas
         void initializeComponentData() override {}
         void cloneFrom(const Component* source) override;
 
-        static const std::vector<CollisionComponent*>& instances() { return _instances; }
+        static const std::vector<CollisionComponent*>& instances() { return _instanceList.items(); }
 
         const std::string& type() const { return _type; }
         void setType(const std::string& type) { _type = type; }
@@ -40,7 +41,7 @@ namespace visutwin::canvas
         BoundingSphere worldBounds() const;
 
     private:
-        inline static std::vector<CollisionComponent*> _instances;
+        inline static ComponentInstanceList<CollisionComponent> _instanceList;
 
         std::string _type = "box";
         Vector3 _halfExtents = Vector3(0.5f, 0.5f, 0.5f);

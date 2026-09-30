@@ -35,12 +35,12 @@ namespace visutwin::canvas
     ButtonComponent::ButtonComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
     }
 
     ButtonComponent::~ButtonComponent()
     {
-        std::erase(_instances, this);
+        _instanceList.remove(this);
         // The elements and the image entity may outlive the button; their events must not
         // call back into a freed component.
         unbindHitElement();

@@ -1548,6 +1548,25 @@ present, but the rule below never depends on reading it.
   maps while leaving the original alive, owned and still subscribed behind an id
   that no longer resolved to it. `remove` erases from the owning vector and both
   maps together — partial erasure is the bug this pairing exists to prevent.
+- **A component type's `instances()` list keeps CREATION order, and a destroyed
+  component leaves a NULL in it until the list is next read**
+  (`framework/components/componentInstanceList.h`). Every component type registers in a
+  `ComponentInstanceList<T>` from its constructor and leaves it from its destructor;
+  removal finds the slot by binary search on a creation serial and nulls it, and
+  `items()` closes the holes in one ordered pass. It used to be `std::erase` on a
+  vector — a scan and a shift per removal — so destroying K of N components cost K x N:
+  20k entities under one parent took 98 ms to destroy, 40k took 306 ms (7.6 us each),
+  and after it 24 and 47 ms (1.2 us each). Two rules follow. Every loop over
+  `instances()` checks each entry for null — the list never hands out a hole, but a
+  component destroyed during the loop becomes one under it (where the old erase shifted
+  the survivors and the loop skipped one). And a destructor or teardown hook that
+  walks its own type's list uses `forEachLive`, which does not compact, because it may
+  run inside someone else's loop over `items()`. A new component type registers the
+  same way; `tests/componentInstanceListTests.cpp` holds order, holes and a destroy
+  mid-walk. `ElementComponent`'s destructor sweeps the elements for `_maskedBy` only
+  if it was ever handed out as a mask. Still linear per removal: `GraphNode::removeChild`
+  (a find and an erase in the parent's child vector), which is what 20k siblings under
+  the root still pay (415 -> 320 ms).
 - **`Entity::destroy()` is the teardown path, and it does NOT free the node.**
   Descendants first, disable in order, `destroy` event, then each component
   released THROUGH the system that owns it (so `beforeremove` / `remove` fire for
@@ -1626,6 +1645,19 @@ present, but the rule below never depends on reading it.
   `RenderComponent` in the scene and run the frustum test itself, for the OPAQUE
   sublayer and then again for the TRANSPARENT one, each discarding the half that
   belonged to the other.
+
+  **All of a camera's layers are culled in ONE sweep of the scene**
+  (`Renderer::cullMeshInstances`): each component's layers are matched against the
+  requested ones as a bitmask, and an instance is tested once and pushed into every
+  requested layer's bucket it belongs to. Until 2026-09-30 each (camera, layer) pair
+  swept every component itself — five sweeps for a default camera (World, Depth,
+  Skybox, UI, Immediate), four of which found almost nothing — and at 20k instances
+  culling was a quarter of the frame (2.4 -> 1.1 ms after). Each bucket's ORDER is
+  what the per-layer sweep produced (components in creation order, then the layer's
+  own instances); keep it, since equal sort keys keep it too. The cache keeps each
+  pair's vectors across frames and drops a pair not culled the frame before.
+  `dispatchGpuInstanceCulling` returns at once when no mesh instance has GPU culling
+  on (`MeshInstance::gpuCulledInstanceCount`) instead of sweeping the scene to find none.
 
   **The cache is keyed on the FRUSTUM, not just the pair.** Culling happens while the
   graph is built and the sets are read while it renders, and on the first frame a
@@ -2127,6 +2159,25 @@ present, but the rule below never depends on reading it.
   it should have been 104, with the near plane 55 units past the batches. The camera
   argument filters components by layer, and a caller that fits or draws for one camera
   must pass it. Two sweeps of the same thing will drift again; use the collector.
+
+  **A directional cascade's pass draws the list its fit prepared**
+  (`LightRenderData::visibleCasters`, stamped with the frame's `renderVersion`).
+  `ShadowRendererDirectional::cull` collects the scene's casters ONCE per (light,
+  camera), applies the camera-independent caster rules once, and per cascade tests
+  them against the FITTED frustum — the exact test the pass used to run after a second
+  full collection of its own. It must be the fitted frustum, not the wide one the fit
+  sweeps with: that camera sits a million units back and its side planes are good to
+  about a tenth of a unit, which on a 40k-caster frame disagreed about six casters on a
+  cascade edge. A list stamped with another frame is not used (it holds raw pointers);
+  the pass then collects for itself. `ShadowCasterComponentFilter` resolves the camera's
+  component once per sweep, where `shouldRenderShadowRenderComponent` searched every
+  camera for every render component. Verified 2026-09-30 by running the old sweeps
+  beside the new ones in one process and comparing element for element: 0 differences
+  over all 68 examples and the stress scene with 1 and 4 cascades, PCSS, VSM and omni
+  shadows (about 60 million culled instances and 100 million casters). The saving is
+  the pass's second collection; the fitted test costs about 0.5 ms of it back at 40k
+  shadow draws, and a first version that reused the wide-frustum list was that much
+  faster and drew six casters too few.
 - **A depth-only draw sets the caster's cull mode itself** (`drawDepthOnly` →
   `resolveCullMode`, the material's cull with the node's scale flip, upstream's
   `setupCullModeAndFrontFace` in `submitCasters`). Until 2026-09-17 the shadow and

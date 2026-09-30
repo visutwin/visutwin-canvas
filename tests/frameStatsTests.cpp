@@ -153,12 +153,16 @@ int main()
 
     auto materialA = std::make_shared<StandardMaterial>();
     auto materialB = std::make_shared<StandardMaterial>();
+    std::vector<Entity*> boxes;
+    std::vector<RenderComponent*> renders;
     for (int i = 0; i < 3; ++i) {
         Entity* box = addEntity(*engine, "Box" + std::to_string(i));
         box->setLocalPosition(static_cast<float>(i - 1) * 2.5f, 0.0f, 0.0f);
         auto* render = static_cast<RenderComponent*>(box->addComponent<RenderComponent>());
         render->setMaterial(i < 2 ? materialA.get() : materialB.get());
         render->setType("box");
+        boxes.push_back(box);
+        renders.push_back(render);
     }
 
     engine->start();
@@ -202,6 +206,47 @@ int main()
         engine->update(1.0f / 60.0f);
         engine->render();
         check(s.frame().cameras == 1 && s.drawCalls().forward == 3, "disabled again: back to 1 camera, 3 draws");
+    }
+
+    // The camera's layers are culled in ONE sweep of the scene, and a directional
+    // cascade's pass draws the caster list its fit kept. Both replaced per-layer and
+    // per-pass sweeps on 2026-09-30; what each must still answer is counted here.
+    std::cout << "\nlayers and the frustum\n";
+    {
+        auto& s = const_cast<ApplicationStats&>(stats);
+        const auto renderFrame = [&] {
+            engine->update(1.0f / 60.0f);
+            engine->render();
+        };
+
+        boxes[0]->setLocalPosition(1000.0f, 0.0f, 0.0f);
+        renderFrame();
+        check(s.drawCalls().forward == 2, "a box outside the frustum is not drawn: forward = 2");
+        check(s.drawCalls().shadow == 2, "nor cast from outside the cascade: shadow = 2");
+        boxes[0]->setLocalPosition(-2.5f, 0.0f, 0.0f);
+
+        // Immediate, not UI: the UI layer has no opaque sublayer to draw a box in.
+        renders[1]->setLayers({LAYERID_WORLD, LAYERID_IMMEDIATE});
+        renderFrame();
+        check(s.drawCalls().forward == 4, "a box on two of the camera's layers is drawn in each: forward = 4");
+        check(s.drawCalls().shadow == 3, "and casts once: shadow = 3");
+
+        renders[2]->setLayers({12345});
+        renderFrame();
+        check(s.drawCalls().forward == 3, "a box on a layer the camera does not draw is left out: forward = 3");
+        check(s.drawCalls().shadow == 2, "and is not a caster for that camera: shadow = 2");
+        renders[1]->setLayers({LAYERID_WORLD});
+        renders[2]->setLayers({LAYERID_WORLD});
+
+        light->setNumCascades(4);
+        renderFrame();
+        const int fourCascades = s.drawCalls().shadow;
+        check(fourCascades >= 3 && fourCascades <= 12 && s.frame().shadowMapUpdates == 4,
+            "four cascades: each draws the casters its own fit found (" + std::to_string(fourCascades) + " draws)");
+        renderFrame();
+        check(s.drawCalls().shadow == fourCascades && s.drawCalls().forward == 3,
+            "and the same again the next frame");
+        light->setNumCascades(1);
     }
 
     std::cout << (failures == 0 ? "\nAll frame stats tests passed\n" : "\nFrame stats tests FAILED\n");

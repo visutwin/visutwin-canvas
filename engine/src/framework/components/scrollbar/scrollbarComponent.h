@@ -23,6 +23,7 @@
 
 #include "framework/components/component.h"
 #include "framework/components/layoutgroup/layoutCalculator.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -42,7 +43,7 @@ namespace visutwin::canvas
         void onEnable() override;
         void onDisable() override;
 
-        static const std::vector<ScrollbarComponent*>& instances() { return _instances; }
+        static const std::vector<ScrollbarComponent*>& instances() { return _instanceList.items(); }
 
         Orientation orientation() const { return _orientation; }
         void setOrientation(Orientation value);
@@ -74,7 +75,7 @@ namespace visutwin::canvas
         float usableTrackLength() const;
         float sign() const { return _orientation == Orientation::Horizontal ? 1.0f : -1.0f; }
 
-        static inline std::vector<ScrollbarComponent*> _instances;
+        inline static ComponentInstanceList<ScrollbarComponent> _instanceList;
         Orientation _orientation = Orientation::Horizontal;
         float _value = 0.0f;
         float _handleSize = 0.0f;

@@ -12,15 +12,12 @@ namespace visutwin::canvas
     AnimationComponent::AnimationComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
     }
 
     AnimationComponent::~AnimationComponent()
     {
-        const auto it = std::find(_instances.begin(), _instances.end(), this);
-        if (it != _instances.end()) {
-            _instances.erase(it);
-        }
+        _instanceList.remove(this);
     }
 
     void AnimationComponent::setAnimations(const std::unordered_map<std::string, AnimationResource>& value)

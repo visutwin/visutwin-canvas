@@ -35,6 +35,7 @@
 #include "core/math/color.h"
 #include "core/math/vector4.h"
 #include "framework/components/component.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -71,7 +72,7 @@ namespace visutwin::canvas
         void onEnable() override;
         void onDisable() override;
 
-        static const std::vector<ButtonComponent*>& instances() { return _instances; }
+        static const std::vector<ButtonComponent*>& instances() { return _instanceList.items(); }
 
         /// Upstream `active`: an inactive button shows its inactive state and fires no
         /// events. DEVIATION in name only: `active()` is Component's "enabled here and in
@@ -147,7 +148,7 @@ namespace visutwin::canvas
         void applyTintImmediately(const Color& tint);
         void cancelTween() { _tween.reset(); }
 
-        inline static std::vector<ButtonComponent*> _instances;
+        inline static ComponentInstanceList<ButtonComponent> _instanceList;
 
         bool _active = true;
         Entity* _imageEntity = nullptr;

@@ -17,15 +17,12 @@ namespace visutwin::canvas
 {
     LightComponent::LightComponent(IComponentSystem* system, Entity* entity) : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
     }
 
     LightComponent::~LightComponent()
     {
-        const auto it = std::find(_instances.begin(), _instances.end(), this);
-        if (it != _instances.end()) {
-            _instances.erase(it);
-        }
+        _instanceList.remove(this);
     }
 
     Light* LightComponent::light() const

@@ -8,6 +8,7 @@
 
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -49,7 +50,7 @@ namespace visutwin::canvas
         void initializeComponentData() override {}
         void cloneFrom(const Component* source) override;
 
-        static const std::vector<RigidBodyComponent*>& instances() { return _instances; }
+        static const std::vector<RigidBodyComponent*>& instances() { return _instanceList.items(); }
 
         RigidBodyType type() const { return _type; }
         void setType(RigidBodyType type);
@@ -113,7 +114,7 @@ namespace visutwin::canvas
     private:
         void markBodyStale() { _bodyStale = true; }
 
-        inline static std::vector<RigidBodyComponent*> _instances;
+        inline static ComponentInstanceList<RigidBodyComponent> _instanceList;
 
         RigidBodyType _type = RigidBodyType::Static;
         float _mass = 1.0f;

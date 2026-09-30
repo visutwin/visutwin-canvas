@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -365,7 +366,21 @@ namespace visutwin::canvas
 
     void Renderer::resetCulledInstances()
     {
-        _culledInstances.clear();
+        // An entry culled last frame keeps its vectors' storage for this one: a large
+        // scene's lists are the same size every frame, and clearing the map made each
+        // grow from nothing again. One that was NOT culled last frame belongs to a
+        // camera or layer that has gone, and is dropped — which also keeps the raw
+        // pointer keys from outliving what they point at by more than a frame.
+        for (auto it = _culledInstances.begin(); it != _culledInstances.end();) {
+            if (!it->second.valid) {
+                it = _culledInstances.erase(it);
+                continue;
+            }
+            it->second.valid = false;
+            it->second.opaque.clear();
+            it->second.transparent.clear();
+            ++it;
+        }
         _cullCameras.clear();
         _cullRequests.clear();
     }
@@ -398,11 +413,15 @@ namespace visutwin::canvas
             if (_scene) {
                 _scene->fire("precull", camera);
             }
+            // Every layer this camera asked for, in ONE sweep of the scene.
             GraphNode* cameraNode = camera ? camera->node() : nullptr;
-            for (Layer* layer : _cullRequests[camera]) {
-                cullMeshInstancesInto(camera, cameraNode, layer,
-                    _culledInstances[{camera, layer}]);
+            const std::vector<Layer*>& layers = _cullRequests[camera];
+            static thread_local std::vector<CulledInstances*> outs;
+            outs.clear();
+            for (Layer* layer : layers) {
+                outs.push_back(&_culledInstances[{camera, layer}]);
             }
+            cullMeshInstances(camera, cameraNode, layers.data(), outs.data(), layers.size());
             if (_scene) {
                 _scene->fire("postcull", camera);
             }
@@ -437,70 +456,134 @@ namespace visutwin::canvas
     void Renderer::cullMeshInstancesInto(Camera* camera, GraphNode* cameraNode, Layer* layer,
         CulledInstances& out)
     {
-        const ScopedMilliseconds cullTimer(_device->frameCounters().cullTime);
-        out.opaque.clear();
-        out.transparent.clear();
-        if (!layer) {
+        CulledInstances* outs[1] = {&out};
+        cullMeshInstances(camera, cameraNode, &layer, outs, 1);
+    }
+
+    void Renderer::cullMeshInstances(Camera* camera, GraphNode* cameraNode, Layer* const* layers,
+        CulledInstances* const* outs, const size_t layerCount)
+    {
+        // A component's layers are matched against the requested ones through a bit per
+        // request, so the sweep below handles at most this many at once; a camera asking
+        // for more (none does) is served in slices.
+        constexpr size_t kMaxLayersPerSweep = 64;
+        if (layerCount > kMaxLayersPerSweep) {
+            cullMeshInstances(camera, cameraNode, layers, outs, kMaxLayersPerSweep);
+            cullMeshInstances(camera, cameraNode, layers + kMaxLayersPerSweep, outs + kMaxLayersPerSweep,
+                layerCount - kMaxLayersPerSweep);
             return;
         }
+
+        const ScopedMilliseconds cullTimer(_device->frameCounters().cullTime);
 
         const bool hasCameraFrustum = camera && cameraNode;
         const Frustum cameraFrustum = hasCameraFrustum
             ? buildCameraFrustum(camera, cameraNode) : Frustum{};
-        out.frustum = cameraFrustum;
-        out.valid = true;
         const uint32_t cullingMask = camera ? camera->cullingMask() : 0xFFFFFFFFu;
 
-        const auto consider = [&](MeshInstance* meshInstance) {
-            if (!meshInstance || !meshInstance->visible() || !meshInstance->mesh()) {
-                return;
+        std::array<int, kMaxLayersPerSweep> layerIds{};
+        uint64_t requested = 0;
+        for (size_t i = 0; i < layerCount; ++i) {
+            CulledInstances& out = *outs[i];
+            out.opaque.clear();
+            out.transparent.clear();
+            if (!layers[i]) {
+                continue;
             }
-            if (!meshInstance->mesh()->getVertexBuffer()) {
-                return;
+            out.frustum = cameraFrustum;
+            out.valid = true;
+            layerIds[i] = layers[i]->id();
+            requested |= uint64_t{1} << i;
+        }
+        if (requested == 0) {
+            return;
+        }
+
+        // The same for every instance of the sweep.
+        const auto fallbackMaterial = getDefaultMaterial(_device);
+
+        enum class Bucket { None, Opaque, Transparent };
+        // Whether the camera draws this instance, and in which sublayer. Decided ONCE per
+        // instance: an instance on several requested layers goes into each of their
+        // buckets on this one answer.
+        const auto classify = [&](MeshInstance* meshInstance) {
+            if (!meshInstance || !meshInstance->visible() || !meshInstance->mesh()) {
+                return Bucket::None;
+            }
+            if (!meshInstance->mesh()->hasVertexBuffer()) {
+                return Bucket::None;
             }
             // Upstream's Camera.cullingMask against MeshInstance.mask: a camera that
             // wants a subset of the scene says so here rather than by juggling layers.
             if ((meshInstance->mask() & cullingMask) == 0u) {
-                return;
+                return Bucket::None;
             }
 
-            const auto fallbackMaterial = getDefaultMaterial(_device);
             const Material* material = meshInstance->material()
                 ? meshInstance->material() : fallbackMaterial.get();
             if (!material) {
-                return;
+                return Bucket::None;
             }
 
             // A skybox is drawn around the camera and has no meaningful bounds, so it
             // is never culled — the same exception the per-draw path used to make.
             if (!material->isSkybox() && hasCameraFrustum && meshInstance->cull() &&
                 !isVisibleInFrustum(cameraFrustum, meshInstance->aabb())) {
-                return;
+                return Bucket::None;
             }
 
             // Split here, ONCE, so each sublayer reads only its own bucket.
-            (material->transparent() ? out.transparent : out.opaque).push_back(meshInstance);
+            return material->transparent() ? Bucket::Transparent : Bucket::Opaque;
+        };
+        const auto push = [&](const size_t i, const Bucket bucket, MeshInstance* meshInstance) {
+            (bucket == Bucket::Transparent ? outs[i]->transparent : outs[i]->opaque).push_back(meshInstance);
         };
 
+        // ONE sweep of the components for all of the camera's layers. It used to be one
+        // sweep per layer — five for a default camera (World, Depth, Skybox, UI,
+        // Immediate), four of which found nearly nothing — and at 20k instances the
+        // culling was a quarter of the frame. The order inside each bucket is what the
+        // per-layer sweeps produced: components in creation order, then the layer's own
+        // instances.
         for (auto* renderComponent : RenderComponent::instances()) {
             // active() covers both halves: the component's own flag and the owning
             // entity's hierarchy state.
             if (!renderComponent || !renderComponent->active()) {
                 continue;
             }
-            const auto& componentLayers = renderComponent->layers();
-            if (std::find(componentLayers.begin(), componentLayers.end(), layer->id())
-                    == componentLayers.end()) {
+            uint64_t onLayers = 0;
+            for (const int layerId : renderComponent->layers()) {
+                for (size_t i = 0; i < layerCount; ++i) {
+                    if (layerIds[i] == layerId) {
+                        onLayers |= uint64_t{1} << i;
+                    }
+                }
+            }
+            onLayers &= requested;
+            if (onLayers == 0) {
                 continue;
             }
             for (auto* meshInstance : renderComponent->meshInstances()) {
-                consider(meshInstance);
+                const Bucket bucket = classify(meshInstance);
+                if (bucket == Bucket::None) {
+                    continue;
+                }
+                for (uint64_t remaining = onLayers; remaining != 0; remaining &= remaining - 1) {
+                    push(static_cast<size_t>(std::countr_zero(remaining)), bucket, meshInstance);
+                }
             }
         }
 
-        // Instances added to the layer directly rather than through a component.
-        for (auto* meshInstance : layer->meshInstances()) {
-            consider(meshInstance);
+        // Instances added to a layer directly rather than through a component.
+        for (size_t i = 0; i < layerCount; ++i) {
+            if (!layers[i]) {
+                continue;
+            }
+            for (auto* meshInstance : layers[i]->meshInstances()) {
+                if (const Bucket bucket = classify(meshInstance); bucket != Bucket::None) {
+                    push(i, bucket, meshInstance);
+                }
+            }
         }
     }
 
@@ -628,6 +711,11 @@ namespace visutwin::canvas
     void Renderer::dispatchGpuInstanceCulling(Camera* camera)
     {
         if (!_device || (camera && !camera->node())) {
+            return;
+        }
+        // Nothing to cull: skip the sweep below, which visits every component in the
+        // scene to find the few instances that use this.
+        if (MeshInstance::gpuCulledInstanceCount() == 0) {
             return;
         }
 

@@ -19,19 +19,14 @@
 
 namespace visutwin::canvas
 {
-    std::vector<CameraComponent*> CameraComponent::_instances;
-
     CameraComponent::CameraComponent(IComponentSystem* system, Entity* entity) : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
     }
 
     CameraComponent::~CameraComponent()
     {
-        const auto it = std::find(_instances.begin(), _instances.end(), this);
-        if (it != _instances.end()) {
-            _instances.erase(it);
-        }
+        _instanceList.remove(this);
 
         if (_cameraFrame) {
             _cameraFrame->destroy();

@@ -20,7 +20,7 @@ namespace visutwin::canvas
     JointComponent::JointComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
     }
 
     JointComponent::~JointComponent()
@@ -30,7 +30,7 @@ namespace visutwin::canvas
         if (_entityADestroyed) { _entityADestroyed->off(); }
         if (_entityBDestroyed) { _entityBDestroyed->off(); }
         dropJoint();
-        std::erase(_instances, this);
+        _instanceList.remove(this);
     }
 
     void JointComponent::dropJoint()
@@ -47,13 +47,14 @@ namespace visutwin::canvas
         if (owner == nullptr) {
             return;
         }
-        for (auto* joint : _instances) {
-            if (joint != nullptr && joint->_joint != nullptr &&
-                (joint->_entityA == owner || joint->_entityB == owner)) {
+        // Without compacting the list: this runs from a body's teardown, which may itself
+        // be inside a loop over the joints.
+        _instanceList.forEachLive([owner](JointComponent* joint) {
+            if (joint->_joint != nullptr && (joint->_entityA == owner || joint->_entityB == owner)) {
                 joint->dropJoint();
                 joint->markStale();
             }
-        }
+        });
     }
 
     // An end's entity going away frees its body, and with it this constraint, a

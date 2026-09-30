@@ -40,7 +40,7 @@ namespace visutwin::canvas
     RigidBodyComponent::RigidBodyComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
     }
 
     RigidBodyComponent::~RigidBodyComponent()
@@ -49,7 +49,7 @@ namespace visutwin::canvas
             JointComponent::bodyWillBeDestroyed(entity());
             _world->destroyBody(_body);
         }
-        std::erase(_instances, this);
+        _instanceList.remove(this);
     }
 
     void RigidBodyComponent::setType(const RigidBodyType type)

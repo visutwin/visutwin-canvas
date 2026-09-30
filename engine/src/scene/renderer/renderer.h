@@ -232,9 +232,10 @@ namespace visutwin::canvas
         // Frame statistics are counted into GraphicsDevice::frameCounters(), which the
         // shadow passes and depth-only draws reach too; see frameCounters.h.
 
-        // Per-frame mesh-instance cull cache, keyed by (camera, layer). Cleared by
-        // resetCulledInstances at the top of each frame; a camera or layer destroyed
-        // mid-frame cannot outlive it, which is why raw pointers are safe as keys.
+        // Per-frame mesh-instance cull cache, keyed by (camera, layer). Emptied by
+        // resetCulledInstances at the top of each frame, which keeps an entry (for its
+        // storage) only while the pair was culled the frame before; the raw pointer keys
+        // are never dereferenced, so one that outlives its camera by a frame is harmless.
         std::map<std::pair<Camera*, Layer*>, CulledInstances> _culledInstances;
         // Cameras registered this frame, in registration order, each with the layers
         // asked for. Consumed and cleared by executeMeshInstanceCull.
@@ -243,5 +244,8 @@ namespace visutwin::canvas
 
         void cullMeshInstancesInto(Camera* camera, GraphNode* cameraNode, Layer* layer,
             CulledInstances& out);
+        // Culls one camera's view into a bucket per layer with a single sweep of the scene.
+        void cullMeshInstances(Camera* camera, GraphNode* cameraNode, Layer* const* layers,
+            CulledInstances* const* outs, size_t layerCount);
      };
 }

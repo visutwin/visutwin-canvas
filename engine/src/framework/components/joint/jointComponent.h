@@ -10,6 +10,7 @@
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
 #include "framework/physics/physicsWorld.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -38,7 +39,7 @@ namespace visutwin::canvas
         void cloneFrom(const Component* source) override;
         void resolveClonedReferences(const Component* source, const CloneNodeMap& map) override;
 
-        static const std::vector<JointComponent*>& instances() { return _instances; }
+        static const std::vector<JointComponent*>& instances() { return _instanceList.items(); }
 
         PhysicsJointType type() const { return _type; }
         void setType(PhysicsJointType type);
@@ -96,7 +97,7 @@ namespace visutwin::canvas
         void dropJoint();
         void watchEnd(Entity* entity, EventHandlePtr& handle, bool isA);
 
-        inline static std::vector<JointComponent*> _instances;
+        inline static ComponentInstanceList<JointComponent> _instanceList;
 
         PhysicsJointType _type = PhysicsJointType::Ball;
         Entity* _entityA = nullptr;

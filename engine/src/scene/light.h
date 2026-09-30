@@ -47,11 +47,20 @@ namespace visutwin::canvas
         // Scissor rectangle for the shadow rendering to the texture
         Vector4 shadowScissor;
 
-        // Casters this face must draw, filled once per frame for OMNI lights by
-        // cullShadowCastersOmni: one sweep of the scene classifies each caster
-        // into the faces it touches, instead of six independent frustum sweeps.
-        // Empty for every other light type, whose passes cull as they draw.
+        // Casters this face must draw, decided when the light is culled — before the
+        // frame graph runs — so the pass draws a prepared list instead of sweeping the
+        // scene again:
+        //  - OMNI: cullShadowCastersOmni classifies each caster into the faces it
+        //    touches in one sweep, instead of six independent frustum sweeps;
+        //  - DIRECTIONAL: the cascade fit (ShadowRendererDirectional::cull) has the
+        //    scene's casters in hand to size the cascade's depth range, and tests them
+        //    against the fitted frustum once it is known.
+        // Empty for a spot light, whose pass culls as it draws.
         std::vector<MeshInstance*> visibleCasters;
+        // The device's renderVersion when visibleCasters was filled for a directional
+        // cascade. The pass uses the list only in that same frame — it holds raw
+        // pointers — and collects for itself otherwise.
+        int visibleCastersFrame = -1;
     };
 
     /**

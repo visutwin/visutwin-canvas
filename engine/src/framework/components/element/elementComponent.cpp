@@ -36,7 +36,7 @@ namespace visutwin::canvas
     ElementComponent::ElementComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instances.push_back(this);
+        _instanceList.add(this);
         if (_entity) {
             // Upstream constructor: `entity.on('insert', ...)` and `_patch()`.
             _onInsertHandle = _entity->on("insert", [this](GraphNode* /*parent*/) { onInsert(); });
@@ -46,13 +46,18 @@ namespace visutwin::canvas
 
     ElementComponent::~ElementComponent()
     {
-        std::erase(_instances, this);
+        _instanceList.remove(this);
         // An element masked by this one must not keep a pointer to it until the next frame
-        // works the masks out again: a hit test in between would follow it.
-        for (auto* element : _instances) {
-            if (element->_maskedBy == this) {
-                element->_maskedBy = nullptr;
-            }
+        // works the masks out again: a hit test in between would follow it. Only an element
+        // that was ever handed out as a mask can be pointed at, so every other element's
+        // destructor skips the sweep — it used to run for each, which made destroying N
+        // elements cost N x N.
+        if (_wasUsedAsMask) {
+            _instanceList.forEachLive([this](ElementComponent* element) {
+                if (element->_maskedBy == this) {
+                    element->_maskedBy = nullptr;
+                }
+            });
         }
         if (_onInsertHandle) {
             _onInsertHandle->off();

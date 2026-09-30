@@ -17,6 +17,7 @@
 #include "framework/components/component.h"
 #include "framework/anim/state-graph/animStateGraph.h"
 #include "animComponentLayer.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -34,7 +35,7 @@ namespace visutwin::canvas
         void initializeComponentData() override {}
         void cloneFrom(const Component* source) override;
 
-        static const std::vector<AnimComponent*>& instances() { return _instances; }
+        static const std::vector<AnimComponent*>& instances() { return _instanceList.items(); }
 
         /** Build layers and parameters from a state graph description. */
         void loadStateGraph(const AnimStateGraph& stateGraph);
@@ -100,7 +101,7 @@ namespace visutwin::canvas
     private:
         void consumeTrigger(const std::string& name) { _consumedTriggers.insert(name); }
 
-        inline static std::vector<AnimComponent*> _instances;
+        inline static ComponentInstanceList<AnimComponent> _instanceList;
 
         std::vector<std::unique_ptr<AnimComponentLayer>> _layers;
         std::unordered_map<std::string, AnimParameter> _parameters;

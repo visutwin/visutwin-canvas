@@ -248,6 +248,9 @@ namespace visutwin::canvas
         void enableGpuInstanceCulling(GraphicsDevice* device, float boundingSphereRadius);
 
         bool gpuCullingEnabled() const { return _gpuCullingEnabled; }
+        /// How many live mesh instances have GPU culling on. The renderer's per-frame
+        /// dispatch sweeps the whole scene for them, and skips the sweep at zero.
+        static int gpuCulledInstanceCount() { return GpuCullingCount::live; }
         float instanceCullRadius() const { return _instanceCullRadius; }
         InstanceCuller* instanceCuller() const { return _instanceCuller.get(); }
 
@@ -409,6 +412,20 @@ namespace visutwin::canvas
         std::shared_ptr<VertexBuffer> _cachedCompactedVb;
         float _instanceCullRadius = 0.0f;
         bool _gpuCullingEnabled = false;
+        // Counts this instance in gpuCulledInstanceCount() for as long as it lives with
+        // culling on. A member rather than a destructor, so the class keeps its implicit
+        // ones; never copied or moved, like the instance that owns it.
+        struct GpuCullingCount
+        {
+            inline static int live = 0;
+            bool counted = false;
+            GpuCullingCount() = default;
+            GpuCullingCount(const GpuCullingCount&) = delete;
+            GpuCullingCount& operator=(const GpuCullingCount&) = delete;
+            ~GpuCullingCount() { if (counted) { --live; } }
+            void count() { if (!counted) { counted = true; ++live; } }
+        };
+        GpuCullingCount _gpuCullingCount;
 
         bool _castShadow = true;
         bool _receiveShadow = true;

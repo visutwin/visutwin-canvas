@@ -15,6 +15,7 @@
 #include "core/math/curveSet.h"
 #include "scene/animation/animation.h"
 #include "scene/animation/skeleton.h"
+#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -32,7 +33,7 @@ namespace visutwin::canvas
         void cloneFrom(const Component* source) override;
         void resolveClonedReferences(const Component* source, const CloneNodeMap& map) override;
 
-        static const std::vector<AnimationComponent*>& instances() { return _instances; }
+        static const std::vector<AnimationComponent*>& instances() { return _instanceList.items(); }
 
         void setAnimations(const std::unordered_map<std::string, AnimationResource>& value);
         const std::unordered_map<std::string, AnimationResource>& animations() const { return _animations; }
@@ -89,7 +90,7 @@ namespace visutwin::canvas
         float _speed = 1.0f;
         bool _playing = false;
 
-        inline static std::vector<AnimationComponent*> _instances;
+        inline static ComponentInstanceList<AnimationComponent> _instanceList;
 
         std::unordered_map<std::string, AnimationResource> _animations;
         std::vector<int> _assets;
