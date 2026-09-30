@@ -43,7 +43,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 20 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL stages + shared includes compiled to SPIR-V at build time (20 files)
-  examples/        # 47 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 66 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -1476,6 +1476,18 @@ present, but the rule below never depends on reading it.
   PARTICLE SYSTEMS were the last loop found with it (2026-09-25): their update
   tested the component's and its own entity's `enabled()`, so an emitter under a
   disabled PARENT kept simulating.
+- **A particle's clock is upstream's, and `rate` is the seconds between births, so 0 is a
+  BURST.** Particle i starts at life `-i * rate`; a life <= 0 is unborn and re-spawned every
+  step; reaching the lifetime wraps the life back by `max(lifetime, numParticles * rate)`,
+  showing the particle again when the emitter loops and HIDING it (flag in `rotSeedSize.w`)
+  when it does not; `stop()` clears the loop and hides the unborn, and `play()` restores it,
+  bringing hidden particles back at their next wrap. Until 2026-09-30 `rate` 0 meant "auto,
+  lifetime / numParticles", `stop()` froze and cleared the pool, and every quad was HALF
+  upstream's size (`scaleGraph` is a half-extent, as upstream's +/-1 quad times scale). A
+  screen-space emitter (`screenSpace`, a child of a screen-space element) takes the node's
+  world transform as CLIP space with no view or projection, sizes in viewport heights with
+  the quad's x scaled by height / width (upstream #9570), and a screen puts it in the UI draw
+  order beside its elements (`ScreenComponent::processDrawOrderSync`).
 - **A script may create a sibling or destroy its own entity from inside its own
   method, and the component's loops are built for it.** `ScriptComponent::forEachScript`
   walks by INDEX, so a script created mid-pass (appended, possibly reallocating the
@@ -2387,13 +2399,13 @@ What stays HERE is only what bites during UNRELATED work.
   on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
   and Metal and Vulkan agree on the floor mean to 0.1.
 - **UI not ported yet**: right-to-left text, XR select events and grapheme clusters (emoji
-  sequences are several symbols). The twenty UI examples
+  sequences are several symbols). The twenty-one UI examples
   (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,
   `screen-scaling`, `ui-panel`, `text-justify`, `text-typewriter`, `masking`, `layout-group`,
   `scroll-view`, `common-widgets`, `anchors`, `image-fit`, `drag-and-drop`, `render-to-image`,
-  `text-auto-font-size`, `ui-custom-shader` — upstream's user-interface/custom-shader) port
-  upstream's CURRENT versions; the UI `particle-system`, `text-emojis` and `text-localization`
-  are not ported yet.
+  `text-auto-font-size`, `ui-custom-shader` — upstream's user-interface/custom-shader — and
+  `ui-particle-system` — user-interface/particle-system) port upstream's CURRENT versions;
+  `text-emojis` and `text-localization` are not ported yet.
 - Annotations (`annotationManager`) still draw through ImGui; with input on elements they
   could move.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with

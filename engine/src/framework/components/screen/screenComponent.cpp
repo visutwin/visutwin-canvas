@@ -8,6 +8,7 @@
 
 #include "core/math/quaternion.h"
 #include "framework/components/element/elementComponent.h"
+#include "framework/components/particlesystem/particleSystemComponent.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
 
@@ -144,6 +145,10 @@ namespace visutwin::canvas
             }
             if (auto* element = entity->findComponent<ElementComponent>()) {
                 element->setDrawOrder(order++);
+            }
+            // A particle system in the screen's hierarchy is sorted with the elements.
+            if (auto* particles = entity->findComponent<ParticleSystemComponent>()) {
+                particles->setDrawOrder(order++);
             }
             for (const auto& child : entity->children()) {
                 recurse(child.get());

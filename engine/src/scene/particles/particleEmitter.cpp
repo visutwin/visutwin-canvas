@@ -59,6 +59,7 @@ namespace visutwin::canvas
         : _device(device), _options(options)
     {
         _options.numParticles = std::clamp(_options.numParticles, 1u, 1u << 20);
+        _loop = _options.loop;
         createParticleBuffer();
         createQuadMesh();
         createMaterial();
@@ -71,6 +72,7 @@ namespace visutwin::canvas
         const bool poolChanged = options.numParticles != _options.numParticles;
         _options = options;
         _options.numParticles = std::clamp(_options.numParticles, 1u, 1u << 20);
+        _loop = _options.loop;
         if (poolChanged) {
             createParticleBuffer();
             reset();
@@ -159,7 +161,9 @@ namespace visutwin::canvas
         _material->setBlendState(blendState);
 
         auto depthState = std::make_shared<DepthState>();
-        depthState->setDepthTest(true);
+        // Screen-space particles draw in the UI's order, like the screen-space elements
+        // around them, which do not depth test either.
+        depthState->setDepthTest(!_options.screenSpace);
         depthState->setDepthWrite(_options.depthWrite);
         _material->setDepthState(depthState);
     }
@@ -183,21 +187,69 @@ namespace visutwin::canvas
             _renderParams.colorLut[i][3] = std::clamp(alpha[i], 0.0f, 1.0f);
             _renderParams.scaleLut[i][0] = std::max(scale[i], 0.0f);
         }
+
+        // The velocity and rotation-speed graphs go to the simulation. A missing graph2 is
+        // the graph itself (upstream), and a missing graph contributes zero.
+        const auto quantizeSet = [](CurveSet& graph, float (*lut)[4]) {
+            const size_t channels = graph.curves.size();
+            if (channels == 0) {
+                return false;
+            }
+            const auto samples = graph.quantize(kCurveSamples);
+            for (int i = 0; i < kCurveSamples; ++i) {
+                for (size_t c = 0; c < 3; ++c) {
+                    lut[i][c] = c < channels ? samples[i * channels + c] : 0.0f;
+                }
+            }
+            return true;
+        };
+        const auto quantizeRotation = [](Curve& graph, float (*lut)[4]) {
+            if (graph.length() == 0) {
+                return false;
+            }
+            constexpr float degToRad = std::numbers::pi_v<float> / 180.0f;
+            const auto samples = graph.quantize(kCurveSamples);
+            for (int i = 0; i < kCurveSamples; ++i) {
+                lut[i][3] = samples[i] * degToRad;
+            }
+            return true;
+        };
+        for (auto* lut : {_simParams.localVelocityLut, _simParams.localVelocityLut2,
+                          _simParams.velocityLut, _simParams.velocityLut2}) {
+            std::memset(lut, 0, sizeof(_simParams.localVelocityLut));
+        }
+        bool velocityGraphs = quantizeSet(_options.localVelocityGraph, _simParams.localVelocityLut);
+        if (!quantizeSet(_options.localVelocityGraph2, _simParams.localVelocityLut2)) {
+            std::memcpy(_simParams.localVelocityLut2, _simParams.localVelocityLut, sizeof(_simParams.localVelocityLut));
+        } else {
+            velocityGraphs = true;
+        }
+        velocityGraphs |= quantizeSet(_options.velocityGraph, _simParams.velocityLut);
+        if (!quantizeSet(_options.velocityGraph2, _simParams.velocityLut2)) {
+            std::memcpy(_simParams.velocityLut2, _simParams.velocityLut, sizeof(_simParams.velocityLut));
+        } else {
+            velocityGraphs = true;
+        }
+        const bool rotationGraph = quantizeRotation(_options.rotationSpeedGraph, _simParams.localVelocityLut);
+        if (!quantizeRotation(_options.rotationSpeedGraph2, _simParams.localVelocityLut2)) {
+            for (int i = 0; i < kCurveSamples; ++i) {
+                _simParams.localVelocityLut2[i][3] = _simParams.localVelocityLut[i][3];
+            }
+        }
+        _simParams.graphParams[0] = velocityGraphs ? 1.0f : 0.0f;
+        _simParams.graphParams[1] = rotationGraph || _options.rotationSpeedGraph2.length() > 0 ? 1.0f : 0.0f;
     }
 
     void ParticleEmitter::reset()
     {
-        // Stagger births: particle i is born at t = i * birthInterval. The pool
-        // reaches steady state after numParticles * interval seconds.
-        const float birthInterval = (_options.rate > 0.0f)
-            ? _options.rate
-            : std::max(_options.lifetime, _options.lifetime2) / static_cast<float>(_options.numParticles);
-
+        // Upstream's start times: particle i is born at i * rate, so rate 0 is a burst.
+        // A life <= 0 is unborn; the kernel places the particle when it is born.
+        const float rate = std::max(_options.rate, 0.0f);
         std::vector<GpuParticle> particles(_options.numParticles);
         for (uint32_t i = 0; i < _options.numParticles; ++i) {
             auto& p = particles[i];
             std::memset(&p, 0, sizeof(GpuParticle));
-            p.posAge[3] = -(static_cast<float>(i) * birthInterval) - 1e-4f;  // unborn countdown
+            p.posAge[3] = -static_cast<float>(i) * rate;
             p.velLifetime[3] = 0.0f;   // lifetime assigned at birth by the kernel
             p.rotSeedSize[2] = static_cast<float>(i) * 0.61803398875f;       // golden-ratio seed
         }
@@ -205,21 +257,51 @@ namespace visutwin::canvas
         std::memcpy(bytes.data(), particles.data(), bytes.size());
         _particleBuffer->setData(bytes);
         _time = 0.0f;
+        _stopPending = false;
+        // The pre-warm dispatches the simulation, which has to happen inside a frame's
+        // update like any other step, so it waits for the next one.
+        _prewarmPending = _options.preWarm;
+    }
+
+    void ParticleEmitter::stop()
+    {
+        _loop = false;
+        _stopPending = true;
     }
 
     void ParticleEmitter::update(const float dt, const Matrix4& emitterTransform)
     {
+        if (_prewarmPending) {
+            // Upstream prewarm(lifetime): the simulation runs one lifetime in 32 steps.
+            _prewarmPending = false;
+            constexpr int kPrewarmSteps = 32;
+            const float lifetime = std::max(std::max(_options.lifetime, _options.lifetime2), 1e-4f);
+            for (int i = 0; i < kPrewarmSteps; ++i) {
+                step(lifetime / kPrewarmSteps, emitterTransform, false);
+            }
+        }
         if (!_playing || dt <= 0.0f) {
             return;
         }
+        step(dt, emitterTransform, _stopPending);
+        _stopPending = false;
+    }
+
+    void ParticleEmitter::step(const float dt, const Matrix4& emitterTransform, const bool onStop)
+    {
         _time += dt;
 
-        GpuParticleSimParams params{};
+        GpuParticleSimParams& params = _simParams;
         params.emitterTransform = _options.localSpace ? Matrix4::identity() : emitterTransform;
+        // A world velocity graph is carried into the emitter's space for local particles.
+        // (The kernel applies it with w = 0, so its translation never enters.)
+        params.worldToEmitter = _options.localSpace ? emitterTransform.inverse() : Matrix4::identity();
         _options.gravity.store(params.gravityDamping);
         params.gravityDamping[3] = std::clamp(_options.damping, 0.0f, 1.0f);
         if (_options.emitterShape == ParticleEmitterShape::EMITTERSHAPE_SPHERE) {
             params.shapeParams[0] = std::max(_options.emitterRadius, 0.0f);
+            params.shapeParams[1] = 0.0f;
+            params.shapeParams[2] = 0.0f;
             params.shapeParams[3] = 1.0f;
         } else {
             _options.emitterExtents.store(params.shapeParams);
@@ -228,13 +310,10 @@ namespace visutwin::canvas
         _options.initialVelocity.store(params.velocityBase);
         params.velocityBase[3] = _options.localSpace ? 1.0f : 0.0f;
         _options.velocitySpread.store(params.velocitySpread);
-        params.velocitySpread[3] = _options.loop ? 1.0f : 0.0f;
-        const float birthInterval = (_options.rate > 0.0f)
-            ? _options.rate
-            : std::max(_options.lifetime, _options.lifetime2) / static_cast<float>(_options.numParticles);
+        params.velocitySpread[3] = _loop ? 1.0f : 0.0f;
         params.timeParams[0] = std::min(dt, 0.1f);   // clamp huge hitches
         params.timeParams[1] = _time;
-        params.timeParams[2] = birthInterval;
+        params.timeParams[2] = static_cast<float>(_options.numParticles) * std::max(_options.rate, 0.0f);
         params.timeParams[3] = static_cast<float>(_options.numParticles);
         constexpr float degToRad = std::numbers::pi_v<float> / 180.0f;
         params.lifeRot[0] = std::max(_options.lifetime, 1e-4f);
@@ -244,7 +323,7 @@ namespace visutwin::canvas
         params.angleParams[0] = _options.startAngle * degToRad;
         params.angleParams[1] = _options.startAngle2 * degToRad;
         params.angleParams[2] = _time;   // per-frame hash seed
-        params.angleParams[3] = 1.0f;
+        params.angleParams[3] = onStop ? 1.0f : 0.0f;
 
         simulate(params);
     }
@@ -290,12 +369,19 @@ namespace visutwin::canvas
     }
 
     void ParticleEmitter::prepareRender(const Matrix4& view, const Matrix4& projection,
-        const Matrix4& model)
+        const Matrix4& model, const float viewportWidth, const float viewportHeight)
     {
-        // Local-space emitters bake the node transform into modelView; world-space
-        // particles already live in world coordinates.
-        _renderParams.modelView = _options.localSpace ? (view * model) : view;
-        _renderParams.projection = projection;
+        if (_options.screenSpace) {
+            // Screen space (upstream SCREEN_SPACE): the node's world transform lands in clip
+            // space already, so neither the camera's view nor its projection applies.
+            _renderParams.modelView = _options.localSpace ? model : Matrix4::identity();
+            _renderParams.projection = Matrix4::identity();
+        } else {
+            // Local-space emitters bake the node transform into modelView; world-space
+            // particles already live in world coordinates.
+            _renderParams.modelView = _options.localSpace ? (view * model) : view;
+            _renderParams.projection = projection;
+        }
         _renderParams.animParams[0] = static_cast<float>(std::max(_options.animTilesX, 1));
         _renderParams.animParams[1] = static_cast<float>(std::max(_options.animTilesY, 1));
         _renderParams.animParams[2] = static_cast<float>(std::max(_options.animNumFrames, 1));
@@ -304,6 +390,12 @@ namespace visutwin::canvas
         _renderParams.miscParams[1] = static_cast<float>(_options.numParticles);
         _renderParams.miscParams[2] = _options.colorMap ? 1.0f : 0.0f;
         _renderParams.miscParams[3] = static_cast<float>(std::max(_options.animIndex, 0));
+        _renderParams.motionParams[0] = _options.alignToMotion ? 1.0f : 0.0f;
+        _renderParams.motionParams[1] = std::max(_options.stretch, 0.0f);
+        _renderParams.motionParams[2] = _options.screenSpace ? 1.0f : 0.0f;
+        // Upstream #9570: a screen-space quad's x is scaled by height / width to stay square.
+        _renderParams.motionParams[3] = viewportWidth > 0.0f && viewportHeight > 0.0f
+            ? viewportHeight / viewportWidth : 1.0f;
     }
 
     std::unique_ptr<MeshInstance> ParticleEmitter::createMeshInstance(GraphNode* node)
@@ -315,6 +407,9 @@ namespace visutwin::canvas
         // entirely) — skip frustum culling rather than track a moving AABB.
         meshInstance->setCull(false);
         meshInstance->setParticleEmitter(shared_from_this());
+        // Screen space skips culling, shadows and depth passes and draws on any camera,
+        // like a screen-space element.
+        meshInstance->setScreenSpace(_options.screenSpace);
         return meshInstance;
     }
 }

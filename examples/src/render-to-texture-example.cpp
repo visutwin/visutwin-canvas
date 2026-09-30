@@ -24,10 +24,6 @@
 //    The preview is a RenderPassDownsample appended to the frame graph with the
 //    same viewport-fraction rectangle, so it draws over everything rather than
 //    straight after the skybox, and does not follow a window resize.
-//  - the particle system has no velocity curves. Upstream's local velocity
-//    ramps to a random +/-8 per axis at half life and its world velocity rises to
-//    6 and falls to -48 in y; this is approximated with a random +/-8 spread, an
-//    upward initial velocity of 6 and gravity of -54.
 //  - orbitCamera is CameraControls. Upstream's orbit camera keeps the camera's
 //    lookAt(1, 4, 0) direction and places it at its current distance from the
 //    focus entity (the plane, at the origin); the camera here is placed at that
@@ -269,10 +265,11 @@ private:
         o.rate = 0.01f;
         o.scaleGraph = Curve(std::vector<float>{0.0f, 0.5f});
         o.blendType = ParticleBlendType::BLEND_NORMAL;
-        // DEVIATION: stands in for the local/world velocity curves, see the header
-        o.initialVelocity = Vector3(0.0f, 6.0f, 0.0f);
-        o.velocitySpread = Vector3(8.0f, 8.0f, 8.0f);
-        o.gravity = Vector3(0.0f, -54.0f, 0.0f);
+        // Make particles move in different directions
+        o.localVelocityGraph = CurveSet({{0.0f, 0.0f, 0.5f, 8.0f}, {0.0f, 0.0f, 0.5f, 8.0f}, {0.0f, 0.0f, 0.5f, 8.0f}});
+        o.localVelocityGraph2 = CurveSet({{0.0f, 0.0f, 0.5f, -8.0f}, {0.0f, 0.0f, 0.5f, -8.0f}, {0.0f, 0.0f, 0.5f, -8.0f}});
+        // Increasing gravity
+        o.velocityGraph = CurveSet({{0.0f, 0.0f}, {0.0f, 0.0f, 0.2f, 6.0f, 1.0f, -48.0f}, {0.0f, 0.0f}});
         particles->apply();
         particles->play();
     }

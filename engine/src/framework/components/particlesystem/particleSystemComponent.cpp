@@ -13,6 +13,7 @@
 #include "framework/entity.h"
 #include "framework/components/componentSystem.h"
 #include "framework/components/render/renderComponent.h"
+#include "scene/meshInstance.h"
 
 namespace visutwin::canvas
 {
@@ -43,21 +44,33 @@ namespace visutwin::canvas
 
         if (_emitter) {
             _emitter->rebuild(_options);
+            if (auto* render = _entity->findComponent<RenderComponent>(); render && !_options.layers.empty()) {
+                render->setLayers(_options.layers);
+            }
             return;
         }
 
         _emitter = std::make_shared<ParticleEmitter>(device, _options);
 
         auto meshInstance = _emitter->createMeshInstance(_entity);
-        if (auto* render = _entity->findComponent<RenderComponent>()) {
-            render->addMeshInstance(std::move(meshInstance));
-        } else {
+        meshInstance->setDrawOrder(_drawOrder);
+        auto* render = _entity->findComponent<RenderComponent>();
+        if (!render) {
             auto renderComponent = std::make_unique<RenderComponent>(nullptr, _entity);
-            renderComponent->addMeshInstance(std::move(meshInstance));
+            render = renderComponent.get();
             _entity->addComponentInstance(std::move(renderComponent),
                 componentTypeID<RenderComponent>());
         }
-        _meshAttached = true;
+        if (!_options.layers.empty()) {
+            render->setLayers(_options.layers);
+        }
+        _meshInstance = render->addMeshInstance(std::move(meshInstance));
+
+        // Upstream: a system that does not auto play is built paused and hidden.
+        if (!_options.autoPlay) {
+            _emitter->setPlaying(false);
+            _meshInstance->setVisible(false);
+        }
 
         spdlog::info("ParticleSystemComponent: {} particles on '{}'",
             _emitter->numParticles(), _entity->name());
@@ -70,6 +83,10 @@ namespace visutwin::canvas
         }
         if (_emitter) {
             _emitter->setPlaying(true);
+            _emitter->setLoop(_options.loop);
+            if (_meshInstance) {
+                _meshInstance->setVisible(true);
+            }
         }
     }
 
@@ -80,11 +97,17 @@ namespace visutwin::canvas
         }
     }
 
+    void ParticleSystemComponent::unpause()
+    {
+        if (_emitter) {
+            _emitter->setPlaying(true);
+        }
+    }
+
     void ParticleSystemComponent::stop()
     {
         if (_emitter) {
-            _emitter->setPlaying(false);
-            _emitter->reset();
+            _emitter->stop();
         }
     }
 
@@ -95,13 +118,23 @@ namespace visutwin::canvas
         }
     }
 
+    void ParticleSystemComponent::setDrawOrder(const int value)
+    {
+        _drawOrder = value;
+        if (_meshInstance) {
+            _meshInstance->setDrawOrder(value);
+        }
+    }
+
     bool ParticleSystemComponent::update(const float dt)
     {
-        if (!_emitter || !_emitter->playing() || !_entity) {
+        if (!_emitter || !_entity) {
             return false;
         }
+        // The emitter runs a pending pre-warm even while paused, as upstream's reset does.
+        const bool playing = _emitter->playing();
         _emitter->update(dt, _entity->worldTransform());
-        return true;
+        return playing;
     }
 
     void ParticleSystemComponent::cloneFrom(const Component* source)
@@ -113,6 +146,7 @@ namespace visutwin::canvas
         // Options are shared settings; the emitter (its particle state and GPU
         // buffers) is the clone's own, built only if the source had built one.
         _options = src->_options;
+        _drawOrder = src->_drawOrder;
         if (src->_emitter) {
             apply();
             if (src->playing()) {

@@ -1846,7 +1846,8 @@ namespace visutwin::canvas
                 // compute-simulated pool (dead particles emit clipped vertices).
                 const Matrix4 modelMatrix = entry->meshInstance->node()
                     ? entry->meshInstance->node()->worldTransform() : Matrix4::identity();
-                particles->prepareRender(viewMatrix, projMatrix, modelMatrix);
+                particles->prepareRender(viewMatrix, projMatrix, modelMatrix,
+                    static_cast<float>(viewportW), static_cast<float>(viewportH));
                 _device->setParticleState(particles->particleBuffer(),
                     &particles->renderParams(), sizeof(GpuParticleRenderParams));
                 _device->setTransformUniforms(viewProjection, modelMatrix);

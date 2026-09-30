@@ -4,14 +4,16 @@ using namespace metal;
 struct Particle {
     float4 posAge;        // xyz = position, w = age (<0 unborn, >lifetime dead)
     float4 velLifetime;   // xyz = velocity, w = lifetime
-    float4 rotSeedSize;   // x = rotation (rad), y = rotSpeed (rad/s), z = seed, w = unused
+    float4 rotSeedSize;   // x = rotation (rad), y = rotSpeed (rad/s), z = seed, w = hidden
+    float4 motion;        // xyz = velocity this step, w = per-life seed
 };
 
 struct ParticleRenderParams {
     float4x4 modelView;
     float4x4 projection;
     float4 animParams;    // tilesX, tilesY, numFrames, animSpeed
-    float4 miscParams;    // intensity, particle count, hasColorMap, pad
+    float4 miscParams;    // intensity, particle count, hasColorMap, animIndex
+    float4 motionParams;  // alignToMotion, stretch, screenSpace, viewport height / width
     float4 colorLut[16];  // rgb + alpha over normalized life
     float4 scaleLut[16];  // x = world size
 };
@@ -40,8 +42,8 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
     const Particle p = particles[iid];
     const float age = p.posAge.w;
     const float lifetime = max(p.velLifetime.w, 1e-5);
-    if (age < 0.0 || age > lifetime) {
-        return out;   // unborn or dead
+    if (age <= 0.0 || age > lifetime || p.rotSeedSize.w > 0.5) {
+        return out;   // unborn, dead or hidden (upstream particle.js)
     }
     const float lifeT = saturate(age / lifetime);
 
@@ -57,21 +59,50 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
         return out;
     }
 
-    // Screen-aligned billboard: offset the corners in view space.
+    // Screen-aligned billboard, upstream's particle.js + particle_pointAlong / _billboard /
+    // _stretch / _end, in view space. In SCREEN SPACE the model matrix already lands in clip
+    // space (the view and projection are identity) and the quad is sized in viewport heights.
     const float2 cornerUV[4] = { float2(-1.0, -1.0), float2(1.0, -1.0),
                                  float2(-1.0, 1.0), float2(1.0, 1.0) };
     const float2 corner = cornerUV[vid];
-
-    const float angle = p.rotSeedSize.x + p.rotSeedSize.y * age;
-    const float ca = cos(angle);
-    const float sa = sin(angle);
-    const float2 rotated = float2(corner.x * ca - corner.y * sa,
-                                  corner.x * sa + corner.y * ca) * (size * 0.5);
+    const bool screenSpace = params.motionParams.z > 0.5;
 
     float4 viewPos = params.modelView * float4(p.posAge.xyz, 1.0);
-    viewPos.xy += rotated;
+    const float3 viewVelocity = (params.modelView * float4(p.motion.xyz, 0.0)).xyz;
+    float2 velocityV = viewVelocity.xy;
+    if (screenSpace) {
+        // The offset x is scaled by height / width below (upstream #9570), so measure the
+        // direction of motion in the same units.
+        velocityV.x /= params.motionParams.w;
+    }
+    velocityV = length(velocityV) > 1e-6 ? normalize(velocityV) : velocityV;
 
-    float4 clip = params.projection * viewPos;
+    float angle = p.rotSeedSize.x + p.rotSeedSize.y * age;
+    if (params.motionParams.x > 0.5) {
+        angle = atan2(velocityV.x, velocityV.y);
+    }
+    // Upstream's rotate(): a positive angle turns the quad clockwise.
+    const float ca = cos(angle);
+    const float sa = sin(angle);
+    const float2 offset = float2(corner.x * ca + corner.y * sa,
+                                 -corner.x * sa + corner.y * ca);
+
+    if (params.motionParams.y > 0.0) {
+        // Stretch: the vertices trailing the motion are pulled back along it.
+        const float3 previous = viewPos.xyz - viewVelocity * params.motionParams.y;
+        const float interpolation = dot(-velocityV, normalize(offset)) * 0.5 + 0.5;
+        viewPos.xyz = mix(viewPos.xyz, previous, interpolation);
+    }
+
+    float2 scaled = offset * size;
+    float4 clip;
+    if (screenSpace) {
+        scaled.x *= params.motionParams.w;
+        clip = float4(viewPos.xy + scaled, 0.0, 1.0);
+    } else {
+        viewPos.xy += scaled;
+        clip = params.projection * viewPos;
+    }
     // DEVIATION: OpenGL NDC z range is [-1,1]; Metal requires [0,1].
     clip.z = 0.5 * (clip.z + clip.w);
 

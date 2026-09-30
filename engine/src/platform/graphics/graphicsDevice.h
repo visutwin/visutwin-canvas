@@ -108,25 +108,34 @@ namespace visutwin::canvas
     /// age < 0 counts down to birth; age > lifetime on a non-looping emitter = dead.
     struct GpuParticle
     {
-        float posAge[4];
-        float velLifetime[4];
-        float rotSeedSize[4];
+        float posAge[4];        // xyz = position, w = life (<= 0 unborn, as upstream)
+        float velLifetime[4];   // xyz = integrated velocity (initial + gravity/damping), w = lifetime
+        float rotSeedSize[4];   // x = angle (rad), y = scalar rotation speed, z = seed, w = hidden flag
+        float motion[4];        // xyz = total velocity this step (graphs included), w = per-life random seed
     };
-    static_assert(sizeof(GpuParticle) == 48);
+    static_assert(sizeof(GpuParticle) == 64);
 
-    /// Mirrors the MSL ParticleSimParams struct (compute kernel, buffer 1).
+    /// Mirrors the particle simulation kernel's parameter block (particleSimShaders.h).
     struct GpuParticleSimParams
     {
         Matrix4 emitterTransform;   // world transform for spawn (identity in local space)
+        Matrix4 worldToEmitter;     // local space: inverse node transform (world velocity graph); else identity
         float gravityDamping[4];    // xyz = gravity, w = damping (fraction/s)
         float shapeParams[4];       // xyz = box half-extents or x=radius, w = shape type
         float velocityBase[4];      // xyz = base velocity, w = localSpace flag
         float velocitySpread[4];    // xyz = ± spread, w = loop flag
-        float timeParams[4];        // dt, time, birth interval (s), particle count
+        float timeParams[4];        // dt, time, emission period (numParticles * rate), particle count
         float lifeRot[4];           // lifetime min/max, rotSpeed min/max (radians/s)
-        float angleParams[4];       // startAngle min/max (radians), seed, playing flag
+        float angleParams[4];       // startAngle min/max (radians), seed, on-stop flag
+        float graphParams[4];       // x = velocity graphs on, y = rotation speed graph on
+        // Over normalized life, 16 samples each: xyz = local velocity (graph and graph2),
+        // w = rotation speed in radians/s (graph and graph2); then the world velocity pair.
+        float localVelocityLut[16][4];
+        float localVelocityLut2[16][4];
+        float velocityLut[16][4];
+        float velocityLut2[16][4];
     };
-    static_assert(sizeof(GpuParticleSimParams) == 176);
+    static_assert(sizeof(GpuParticleSimParams) == 1280);
 
     /// Mirrors the MSL ParticleRenderParams struct (vertex slot 11).
     struct GpuParticleRenderParams
@@ -134,11 +143,12 @@ namespace visutwin::canvas
         Matrix4 modelView;
         Matrix4 projection;          // GL-style clip; z remapped in-shader
         float animParams[4];         // tilesX, tilesY, numFrames, animSpeed
-        float miscParams[4];         // intensity, particle count, hasColorMap, pad
+        float miscParams[4];         // intensity, particle count, hasColorMap, animIndex
+        float motionParams[4];       // alignToMotion, stretch, screenSpace, viewport height / width
         float colorLut[16][4];       // rgb + alpha over normalized life
-        float scaleLut[16][4];       // x = world size, yzw = pad
+        float scaleLut[16][4];       // x = size (quad half-extent, as upstream), yzw = pad
     };
-    static_assert(sizeof(GpuParticleRenderParams) == 672);
+    static_assert(sizeof(GpuParticleRenderParams) == 688);
 
     struct GpuLightData
     {

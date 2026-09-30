@@ -10,13 +10,15 @@
 // (gsplat-style renderer branch).
 //
 // DEVIATIONS from upstream: GPU path only (no CPU sim), no particle sorting,
-// unlit only, screen-aligned billboards only (no stretch/alignToMotion/mesh
-// particles), constant initial velocity + gravity/damping instead of
-// velocity/radial graphs, no wrap, no depth softening, no pre-warm.
+// unlit only, camera-facing billboards only (no mesh particles or custom face),
+// an initial velocity + spread with gravity/damping beside upstream's velocity
+// graphs (no radial speed graph), no scale/alpha/color graph2, no wrap, no depth
+// softening, one rate (no rate2).
 //
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "core/math/curve.h"
 #include "core/math/curveSet.h"
@@ -56,14 +58,19 @@ namespace visutwin::canvas
 
         float lifetime = 2.0f;            // per-particle lifetime min (seconds)
         float lifetime2 = 2.0f;           // per-particle lifetime max
-        float rate = 0.0f;                // seconds between births (0 = auto: lifetime/numParticles)
+        // Seconds between births, as upstream: particle i is born at i * rate, so 0 emits
+        // the whole pool at once (a burst), and a looping particle comes back after
+        // max(lifetime, numParticles * rate).
+        float rate = 1.0f;
         bool loop = true;                 // one-shot when false
+        bool preWarm = false;             // start as if a looping emitter had run one lifetime
+        bool autoPlay = true;             // play when built; false leaves it paused and hidden
 
         ParticleEmitterShape emitterShape = ParticleEmitterShape::EMITTERSHAPE_BOX;
         Vector3 emitterExtents = Vector3(0.0f, 0.0f, 0.0f);  // box half-extents
         float emitterRadius = 0.0f;                          // sphere radius
 
-        Vector3 initialVelocity = Vector3(0.0f, 1.0f, 0.0f); // base velocity (units/s)
+        Vector3 initialVelocity = Vector3(0.0f, 0.0f, 0.0f); // base velocity (units/s)
         Vector3 velocitySpread = Vector3(0.0f);              // ± random per axis
         Vector3 gravity = Vector3(0.0f, 0.0f, 0.0f);
         float damping = 0.0f;             // fraction of velocity lost per second (0..1)
@@ -73,9 +80,28 @@ namespace visutwin::canvas
         float rotationSpeed = 0.0f;       // rotation speed min (degrees/s)
         float rotationSpeed2 = 0.0f;      // rotation speed max
 
-        bool localSpace = false;          // particles follow the emitter node when true
+        // Upstream's velocity graphs over normalized life (units/s): the local graph is
+        // turned by the emitter, the world graph is not, and each particle takes a random
+        // point between a graph and its graph2 (an empty graph2 means the graph itself).
+        // Empty graphs contribute nothing.
+        CurveSet localVelocityGraph;
+        CurveSet localVelocityGraph2;
+        CurveSet velocityGraph;
+        CurveSet velocityGraph2;
+        // Rotation speed over normalized life (degrees/s), added to rotationSpeed.
+        Curve rotationSpeedGraph;
+        Curve rotationSpeedGraph2;
 
-        Curve scaleGraph;                 // particle world size over normalized life
+        bool alignToMotion = false;       // turn each particle to face its direction of motion
+        float stretch = 0.0f;             // pull the trailing vertices back by velocity * stretch
+
+        bool localSpace = false;          // particles follow the emitter node when true
+        // Upstream screenSpace: the emitter's world transform is already clip space (a child
+        // of a screen-space element), and sizes are measured in viewport heights.
+        bool screenSpace = false;
+        std::vector<int> layers;          // layers to render on (empty: the render component's)
+
+        Curve scaleGraph;                 // quad half-extent over normalized life, as upstream
         CurveSet colorGraph;              // rgb over normalized life
         Curve alphaGraph;                 // alpha over normalized life
         float intensity = 1.0f;           // color multiplier (HDR glow)
@@ -119,10 +145,14 @@ namespace visutwin::canvas
         /// particle-system component with the emitter node's world transform.
         void update(float dt, const Matrix4& emitterTransform);
 
+        /// Stop emitting (upstream `stop`): live particles finish their lives, the unborn
+        /// never appear, and nothing respawns until play() restores the loop.
+        void stop();
+
         /// Fill the render params consumed by the billboard vertex shader.
-        /// Called by the renderer draw branch.
+        /// Called by the renderer draw branch with the viewport it draws into.
         void prepareRender(const Matrix4& view, const Matrix4& projection,
-            const Matrix4& model);
+            const Matrix4& model, float viewportWidth, float viewportHeight);
 
         [[nodiscard]] std::unique_ptr<MeshInstance> createMeshInstance(GraphNode* node);
 
@@ -132,6 +162,8 @@ namespace visutwin::canvas
         [[nodiscard]] uint32_t numParticles() const { return _options.numParticles; }
         [[nodiscard]] bool playing() const { return _playing; }
         void setPlaying(const bool value) { _playing = value; }
+        /// Whether dead particles respawn; play() restores it from the options.
+        void setLoop(const bool value) { _loop = value; }
 
     private:
         void createParticleBuffer();
@@ -150,6 +182,7 @@ namespace visutwin::canvas
         static constexpr uint32_t kSimThreadgroupSize = 256u;  // matches local_size_x
 
         void simulate(const GpuParticleSimParams& params);
+        void step(float dt, const Matrix4& emitterTransform, bool onStop);
 
         std::shared_ptr<Shader> _simShader;
         std::unique_ptr<Compute> _simCompute;
@@ -159,7 +192,11 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> _shader;
 
         GpuParticleRenderParams _renderParams{};
+        GpuParticleSimParams _simParams{};   // the LUTs live here; step() fills the rest
         float _time = 0.0f;
         bool _playing = true;
+        bool _loop = true;
+        bool _stopPending = false;     // the next step hides the unborn (upstream OnStop)
+        bool _prewarmPending = false;  // reset() asked for a pre-warm; run at the next update
     };
 }

@@ -31,7 +31,7 @@ the [README](README.md).
 
 ## Gaussian splatting & particles
 - **Gaussian splatting** (classic path): 3DGS PLY loading, CPU-precomputed covariance, background depth sorter, EWA screen-space projection — with **view-dependent spherical harmonics** (bands 1–3) and the SuperSplat **`.compressed.ply`** quantized format
-- **GPU particle system**: compute-simulated pool, curve-driven size/color/alpha over life, box/sphere emitters, sprite-sheet animation, additive/normal/premultiplied blending
+- **GPU particle system**: compute-simulated pool, curve-driven size/color/alpha over life, local and world velocity graphs, rotation speed graph, bursts, pre-warm, align-to-motion and stretch, box/sphere emitters, sprite-sheet animation, additive/normal/premultiplied blending, screen-space particles drawn in the UI's order
 
 ## Post-processing & tooling
 - **TAA**, **SSAO** (post-compose or per-material lighting mode), **bloom** (configurable chain depth), **depth of field** (multi-pass bokeh: circle of confusion, CoC-premultiplied far downsample, concentric near/far blur, composed by CoC), **edge detection**, and a compose chain with **color grading**, **3D LUT**, chromatic **fringing**, **color enhance**, **vignette**, and tone mapping (Linear, Filmic, ACES, **ACES2**, Neutral, None)

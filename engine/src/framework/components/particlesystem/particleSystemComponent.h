@@ -41,12 +41,20 @@ namespace visutwin::canvas
         /// the particle mesh instance to the entity's RenderComponent.
         void apply();
 
+        /// Upstream play(): unfreeze, show, and loop again if the options loop.
         void play();
+        /// Freeze the simulation.
         void pause();
-        /// Stop and clear the pool (restarts from scratch on the next play()).
+        void unpause();
+        /// Upstream stop(): stop emitting and let the live particles finish their lives.
         void stop();
-        /// Restart the emission stream from time zero.
+        /// Restart the emission stream from time zero (and pre-warm it if asked to).
         void reset();
+
+        /// Upstream `drawOrder`: the order among UI draws, which a screen assigns to a
+        /// particle system in its hierarchy (ScreenComponent::syncDrawOrder).
+        [[nodiscard]] int drawOrder() const { return _drawOrder; }
+        void setDrawOrder(int value);
 
         [[nodiscard]] bool playing() const { return _emitter && _emitter->playing(); }
         [[nodiscard]] const std::shared_ptr<ParticleEmitter>& emitter() const { return _emitter; }
@@ -60,6 +68,7 @@ namespace visutwin::canvas
 
         ParticleEmitterOptions _options;
         std::shared_ptr<ParticleEmitter> _emitter;
-        bool _meshAttached = false;
+        MeshInstance* _meshInstance = nullptr;
+        int _drawOrder = 0;
     };
 }
