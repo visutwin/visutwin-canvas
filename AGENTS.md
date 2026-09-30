@@ -106,7 +106,7 @@ ctest --preset default
   read.
 - **Golden images are LOCAL ONLY** (`tools/golden_images.py`, `ctest --preset golden`
   on the `examples` build for Metal; the script with `--backend vulkan` on a Release
-  Vulkan examples build — a Debug one crashes in the validation layer). Nine
+  Vulkan examples build — a Debug one runs the validation layer and is far slower). Nine
   deterministic examples render under `VISUTWIN_FIXED_DT`, are downscaled 4x and
   compared with `tests/golden/<backend>/<ratio>x/`: one reference set PER PIXEL DENSITY
   (2x Retina, 1x a standard monitor), picked from the "Back buffer pixel ratio" line the
@@ -248,6 +248,17 @@ area-light data), and most shared fields sit at different indices. Unifying them
 means rewriting one backend's shaders, not extracting a header. When you change it,
 `VulkanLightingUBO`'s size is asserted in `vulkanRenderPipeline.cpp` AND in the
 shader-bundle validator.
+
+What IS single-sourced is the block's CONTENT: `deriveLighting`
+(`platform/graphics/lightingDerivation.h`) decides every value both layouts carry — the
+sRGB decode of ambient, light and fog colours, the SH and view-projection packing, the
+area-light up axis, the local shadow slots (spot matrix, omni near / far / RELATIVE bias,
+the unused-slot defaults), the cookie slots and when a directional slot counts as
+active — and each backend's `setLightingUniforms` only lays the result out. A new
+lighting value is decided there, then copied by both binders. Until 2026-09-30 each
+backend derived it all itself, and the two had drifted (an absent view-projection was
+identity on Metal and zeros on Vulkan; a directional slot was active on Metal whenever it
+was counted, on Vulkan only when it also had a map).
 
 ### Adding a shader feature
 
@@ -2318,29 +2329,15 @@ What stays HERE is only what bites during UNRELATED work.
 
 ## Open items
 
-- **A DEBUG Vulkan build crashes before its first frame, inside the validation
-  layer.** Found 2026-09-16. An example built from the `vulkan` preset defines
-  `VISUTWIN_DEBUG_GPU_VALIDATION` (Debug config), which makes
-  `GraphicsDeviceOptions::enableValidation` default true, and the process dies with
-  SIGSEGV — EXC_BAD_ACCESS at 0x200 — in `libVkLayer_khronos_validation` during
-  `SDL_Vulkan_CreateSurface`: `vvl::GetDispatchInstance` ->
-  `vulkan_layer_chassis::CreateMetalSurfaceEXT` -> `vkCreateMetalSurfaceEXT` ->
-  `Cocoa_Vulkan_CreateSurfaceViaMetalView` -> `VulkanGraphicsDevice::initInstance`.
-  The last line logged is "Vulkan validation enabled", so it READS like a hang or a
-  silent startup failure and is neither — check the exit code (139) and
-  `~/Library/Logs/DiagnosticReports`, not the log. A RELEASE Vulkan build never
-  loads the layer and runs normally, which is both the workaround and the proof.
-  It is NOT engine code: it reproduces with the examples' HUD disabled entirely,
-  and `vulkan-validation-smoke` passes only because it creates its window
-  `SDL_WINDOW_HIDDEN`. Suspect the loader/layer pairing — this machine has four
-  `libvulkan` dylibs in `/usr/local/lib` (system 1.4.357) while the vcpkg build
-  resolves its own 1.4.341.
-- **`DeviceVRAM::ub` and `sb` are still zero, and the texture figure is a LOWER
-  BOUND.** `tex`, `vb` and `ib` are live as of 2026-09-16 — before that the whole
-  texture side was dead code (`Texture::_gpuSize` was declared and never assigned,
-  so `adjustVramSizeTracking` was never reached and the HUD deliberately printed no
-  texture figure at all). What is still missing: the backends' uniform and storage
-  pools are not wired to it, so `ub` and `sb` cannot be shown; and the texture
+- **The VRAM figure is a LOWER BOUND, and a storage buffer is counted as `sb`, not `vb`.**
+  All five buckets are live: `tex`, `vb` and `ib` since 2026-09-16 (before that the texture
+  side was dead code), `ub` and `sb` since 2026-09-30. `ub` is the uniform memory a backend
+  owns — its per-frame rings, every frame in flight included — which each backend reports at
+  frame start (`GraphicsDevice::setBackendBufferVram`), since a ring only grows there. `sb`
+  is every `VertexBuffer` once it is bound as STORAGE (`VertexBuffer::markStorageUse`: a
+  `Compute` buffer parameter, a particle, splat or storage draw, and the splat buffers at
+  creation; its bytes move out of `vb`), plus Metal's cluster light and cell buffers. The
+  HUD's compact VRAM is upstream's `vram.totalUsed`, all five summed. The texture
   figure is CONTENT size from `TextureUtils::calcGpuSize`, fixed at construction, so
   it counts no driver padding and under-counts any texture whose mips are generated
   on the GPU afterwards (`setMipmaps` does not move `_numLevels`). That is a stable
@@ -2459,14 +2456,15 @@ What stays HERE is only what bites during UNRELATED work.
   A SEPARATE image read through a shared sampler must be filtered EXACTLY as the
   per-texture sampler would filter it — check anisotropy, not just filter and
   wrap — or every oblique surface diverges by backend.
-- **Queued after the 2026-09-25 triage — verified still true that day, none a correctness
-  bug:** the lighting block's semantic derivation is written twice
-  (`MetalUniformBinder::setLightingUniforms` and Vulkan's `setLightingUniforms` — the
-  LAYOUTS differ, the derivation need not); component `_instances` lists are
-  process-global (two engines in one process see each other's components); three
-  `generateTangents` copies in the parsers (same sign rule, opposite to
-  `calculateTangents`); glTF animation tracks keyed by name lose clip order; the binding
-  footprint exceeds WebGPU's defaults (Metal 36 texture slots, Vulkan 7 sets). MEASURED
+- **Queued after the 2026-09-25 triage — none a correctness bug:** component `_instances`
+  lists are process-global (two engines in one process see each other's components; NOT a
+  simple move to per-engine lists, because entities instantiated from a glTF container have
+  no engine when their RenderComponents are constructed — see the 2026-09-30 log entry); the
+  binding footprint exceeds WebGPU's defaults (Metal 36 texture slots, Vulkan 7 sets). Done
+  on 2026-09-30: the lighting derivation (`deriveLighting`), the parsers' one
+  `generateTangents` / `tangentFromNormal` (`packedVertex.h`, same sign rule as before,
+  opposite to `calculateTangents`), and glTF animation tracks in file order
+  (`AnimTrackList`). MEASURED
   and dropped on 2026-09-26 (`VISUTWIN_CPU_STATS` plus `sample`): the per-(camera, layer)
   culling sweep is at most 0.1 ms a frame even at 2,173 draws; `renderForwardLayer`'s own
   per-sublayer work is under 2% of the main thread; the graph build and its allocations

@@ -7,7 +7,14 @@
 // (formatIsPackedVertexLayout in batchSplit.h is the guard on that cast). Five private
 // copies of it used to have to agree by convention.
 //
+// The tangent helpers the parsers share live here too, for the same reason: the glTF, OBJ
+// and Assimp parsers each carried a private copy of generateTangents, and those three plus
+// the STL parser a copy of tangentFromNormal.
+//
 #pragma once
+
+#include <cstdint>
+#include <vector>
 
 namespace visutwin::canvas
 {
@@ -20,4 +27,19 @@ namespace visutwin::canvas
         float u1, v1;           // uv1
     };
     static_assert(sizeof(PackedVertex) == 56, "PackedVertex must be 56 bytes (14 floats)");
+
+    /**
+     * Per-vertex tangents from the UVs (Lengyel's accumulation), written into tx..tw, with the
+     * handedness in tw. `indices` lists triangles; when empty, every three vertices are one.
+     * A vertex whose UVs are degenerate takes a tangent perpendicular to its normal.
+     *
+     * NOTE the handedness: the bitangent cross(n, t) * w points toward INCREASING v here, the
+     * opposite of `calculateTangents` (scene/geometry/geometryUtils.h), which the built-in
+     * primitives use. The parsers flip V into the vertex, so this is the sign their meshes shade
+     * with; do not merge the two functions without re-deriving that.
+     */
+    void generateTangents(std::vector<PackedVertex>& vertices, const std::vector<uint32_t>& indices);
+
+    /// A tangent perpendicular to the normal, for a vertex with no UVs (handedness 1).
+    void tangentFromNormal(float nx, float ny, float nz, float& tx, float& ty, float& tz, float& tw);
 }

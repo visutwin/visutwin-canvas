@@ -33,6 +33,9 @@ namespace visutwin::canvas
 
     void Compute::setParameter(const std::string& name, const std::shared_ptr<VertexBuffer>& buffer)
     {
+        if (buffer) {
+            buffer->markStorageUse();
+        }
         _bufferParameters[name] = buffer;
     }
 

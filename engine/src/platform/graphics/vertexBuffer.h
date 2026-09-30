@@ -49,6 +49,12 @@ namespace visutwin::canvas
 
         virtual void* nativeBuffer() const { return nullptr; }
 
+        /// Count this buffer as a STORAGE buffer in the device's VRAM statistics (upstream's
+        /// vram.sb) rather than a vertex buffer. Called wherever it is bound as storage; the
+        /// first call moves its bytes from vb to sb, later ones do nothing.
+        void markStorageUse();
+        [[nodiscard]] bool storageUse() const { return _storageUse; }
+
         /** CPU-side vertex data. Used by BatchManager to read vertex positions/normals for merging. */
         const std::vector<uint8_t>& storage() const { return _storage; }
 
@@ -65,6 +71,8 @@ namespace visutwin::canvas
 
     private:
         void adjustVramSizeTracking(DeviceVRAM& vram, int size);
+
+        bool _storageUse = false;
 
         static int _nextId;
 

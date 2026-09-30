@@ -319,7 +319,12 @@ namespace visutwin::canvas
         int tex = 0;
         int vb = 0;
         int ib = 0;
+        // Uniform memory the backend owns: its per-frame uniform (and palette) rings, all frames
+        // in flight included. Recomputed by the backend at each frame start.
         int ub = 0;
+        // Storage buffers: every VertexBuffer once it has been bound as storage (a compute
+        // parameter, or a particle, splat or storage draw — its bytes move here from vb), plus
+        // the storage buffers the backend owns (Metal's cluster light and cell buffers).
         int sb = 0;
     };
 
@@ -772,6 +777,17 @@ namespace visutwin::canvas
         /// "VRAM" total.
         [[nodiscard]] const DeviceVRAM& vram() const { return _vram; }
 
+    protected:
+        /// A backend reports the uniform and storage memory it owns itself (see DeviceVRAM::ub
+        /// and ::sb); the storage VertexBuffers are counted apart and added to sb here.
+        void setBackendBufferVram(const size_t uniformBytes, const size_t storageBytes)
+        {
+            _vram.ub = static_cast<int>(uniformBytes);
+            _vram.sb = _storageVertexBufferBytes + static_cast<int>(storageBytes);
+        }
+
+    public:
+
         bool contextLost() const { return _contextLost; }
 
         virtual void update();
@@ -1177,6 +1193,7 @@ namespace visutwin::canvas
         std::unordered_set<RenderTarget*> _targets;
 
         DeviceVRAM _vram;
+        int _storageVertexBufferBytes = 0;   // VertexBuffers bound as storage (in _vram.sb)
 
         std::vector<std::shared_ptr<Texture>> _textures;
 

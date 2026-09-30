@@ -78,6 +78,9 @@ namespace visutwin::canvas
         VertexBufferOptions splatOptions;
         splatOptions.data = std::move(splatBytes);
         _splatBuffer = device->createVertexBuffer(splatFormat, _data->numSplats(), splatOptions);
+        if (_splatBuffer) {
+            _splatBuffer->markStorageUse();   // read as a storage buffer: vram.sb
+        }
 
         // ── SH coefficient buffer (vertex slot 12) ───────────────────────
         // 45 floats/splat (coefficient-major interleaved) when shBands > 0; a
@@ -95,6 +98,9 @@ namespace visutwin::canvas
             VertexBufferOptions shOptions;
             shOptions.data = std::move(shBytes);
             _shBuffer = device->createVertexBuffer(shFormat, shFloats, shOptions);
+            if (_shBuffer) {
+                _shBuffer->markStorageUse();
+            }
         }
 
         // ── Quad mesh: 4 dummy vertices, one triangle-strip quad per instance ──

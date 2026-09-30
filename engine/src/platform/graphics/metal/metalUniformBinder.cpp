@@ -6,6 +6,8 @@
 //
 #include "metalUniformBinder.h"
 
+#include "platform/graphics/lightingDerivation.h"
+
 #include <algorithm>
 #include <cstring>
 #include "metalUniformRingBuffer.h"
@@ -91,125 +93,89 @@ namespace visutwin::canvas
         const FogParams& fogParams, const ShadowParams& shadowParams,
         const int toneMapping, const Vector3* ambientSH, const Matrix4* viewProjection)
     {
-        // Ambient SH light probes (VT_FEATURE_LIGHT_PROBES): 9 premultiplied
-        // irradiance coefficients, or zeros when disabled.
-        if (ambientSH) {
-            for (int i = 0; i < 9; ++i) {
-                ambientSH[i].store(&_lightingUniforms.ambientSH[i].x);
-                _lightingUniforms.ambientSH[i][3] = 0.0f;
-            }
-        } else {
-            std::memset(_lightingUniforms.ambientSH, 0, sizeof(_lightingUniforms.ambientSH));
-        }
+        // The values are decided in deriveLighting, shared with the Vulkan backend; this only
+        // lays them out in LightingUniforms.
+        auto& lu = _lightingUniforms;
+        const DerivedLighting derived = deriveLighting(ambientColor, lights, std::size(lu.lights),
+            fogParams, shadowParams, ambientSH, viewProjection);
 
-        // Camera view-projection for fragment-stage screen projection
-        // (dynamic grab-pass refraction). Identity when not provided.
-        // Column-major, as Matrix4::store writes it: this used to pass getElement(row, col),
-        // uploading the TRANSPOSE, which gives every refracting fragment a negative w and
-        // clamps its grab UV into a corner - a flat, dark, opaque-looking surface.
-        if (viewProjection) {
-            viewProjection->store(_lightingUniforms.viewProjection);
-        } else {
-            std::memset(_lightingUniforms.viewProjection, 0, sizeof(_lightingUniforms.viewProjection));
-            _lightingUniforms.viewProjection[0] = _lightingUniforms.viewProjection[5] =
-                _lightingUniforms.viewProjection[10] = _lightingUniforms.viewProjection[15] = 1.0f;
-        }
+        std::memcpy(lu.ambientSH, derived.ambientSH, sizeof(lu.ambientSH));
+        std::memcpy(lu.viewProjection, derived.viewProjection, sizeof(lu.viewProjection));
+        std::memcpy(&lu.ambientColor, derived.ambient, sizeof(derived.ambient));
 
-        // scene ambient color is authored in sRGB and converted to linear.
-        Color ambientLinear;
-        ambientLinear.linear(&ambientColor);
-        _lightingUniforms.ambientColor[0] = ambientLinear.r;
-        _lightingUniforms.ambientColor[1] = ambientLinear.g;
-        _lightingUniforms.ambientColor[2] = ambientLinear.b;
-        _lightingUniforms.ambientColor[3] = 0.0f;
-
-        const size_t maxLights = std::size(_lightingUniforms.lights);
-        const size_t lightCount = std::min(lights.size(), maxLights);
-        _lightingUniforms.lightCountAndFlags[0] = static_cast<uint32_t>(lightCount);
-        _lightingUniforms.lightCountAndFlags[1] = 0u;
-        _lightingUniforms.lightCountAndFlags[2] = 0u;
-        _lightingUniforms.lightCountAndFlags[3] = 0u;
-
-        for (size_t i = 0; i < maxLights; ++i) {
-            auto& dst = _lightingUniforms.lights[i];
-            if (i < lightCount) {
-                const auto& src = lights[i];
-                Color lightLinear;
-                lightLinear.linear(&src.color);
-                src.position.store(&dst.positionRange.x);
-                dst.positionRange[3] = src.range;
-                src.direction.store(&dst.directionCone.x);
-                dst.colorIntensity[0] = lightLinear.r;
-                dst.colorIntensity[1] = lightLinear.g;
-                dst.colorIntensity[2] = lightLinear.b;
-                dst.colorIntensity[3] = src.intensity;
-                if (src.type == GpuLightType::AreaRect) {
-                    // Area rect: repurpose cone slots for half-extents + right axis.
-                    // directionCone[3] = areaHalfWidth  (was outerConeCos)
-                    // coneAngles[0]    = areaHalfHeight  (was innerConeCos)
-                    // coneAngles[1..3] = areaRight.xyz   (was outerConeCos/pad/pad)
-                    dst.directionCone[3] = src.areaHalfWidth;
-                    dst.coneAngles[0] = src.areaHalfHeight;
-                    src.areaRight.store(&dst.coneAngles[1]);
-                } else {
-                    dst.directionCone[3] = src.outerConeCos;
-                    dst.coneAngles[0] = src.innerConeCos;
-                    dst.coneAngles[1] = src.outerConeCos;
-                    dst.coneAngles[2] = 0.0f;
-                    dst.coneAngles[3] = 0.0f;
-                }
-                dst.typeCastShadows[0] = static_cast<uint32_t>(src.type);
-                // Area lights never cast shadows in this port — their castShadows
-                // slot carries the shape instead (0=rect, 1=disk, 2=sphere).
-                dst.typeCastShadows[1] = (src.type == GpuLightType::AreaRect)
-                    ? src.areaShape : (src.castShadows ? 1u : 0u);
-                dst.typeCastShadows[2] = src.falloffModeLinear ? 1u : 0u;
-                // Local shadow map index: 0 or 1 → texture slots 11/12. Encoded as uint.
-                dst.typeCastShadows[3] = (src.shadowMapIndex >= 0)
-                    ? static_cast<uint32_t>(src.shadowMapIndex) : 0u;
-                dst.cookieFlags[0] = (src.cookieIndex >= 0 && src.cookie) ? 1u : 0u;
-                dst.cookieFlags[1] = (src.cookieIndex >= 0)
-                    ? static_cast<uint32_t>(src.cookieIndex) : 0u;
-                dst.cookieFlags[2] = src.cookieChannel;
-                dst.cookieFlags[3] = src.cookieFalloff ? 1u : 0u;
-            } else {
+        lu.lightCountAndFlags[0] = derived.lightCount;
+        lu.lightCountAndFlags[1] = 0u;
+        lu.lightCountAndFlags[2] = 0u;
+        lu.lightCountAndFlags[3] = 0u;
+        for (size_t i = 0; i < std::size(lu.lights); ++i) {
+            auto& dst = lu.lights[i];
+            if (i >= derived.lightCount) {
                 dst = GpuLightUniform{};
+                continue;
             }
+            const DerivedLight& light = derived.lights[i];
+            const GpuLightData& src = *light.source;
+            src.position.store(&dst.positionRange.x);
+            dst.positionRange[3] = src.range;
+            src.direction.store(&dst.directionCone.x);
+            dst.colorIntensity[0] = light.linearColor[0];
+            dst.colorIntensity[1] = light.linearColor[1];
+            dst.colorIntensity[2] = light.linearColor[2];
+            dst.colorIntensity[3] = src.intensity;
+            if (src.type == GpuLightType::AreaRect) {
+                // Area rect: the cone slots carry the half-extents and the right axis.
+                // directionCone[3] = areaHalfWidth, coneAngles[0] = areaHalfHeight,
+                // coneAngles[1..3] = areaRight.
+                dst.directionCone[3] = src.areaHalfWidth;
+                dst.coneAngles[0] = src.areaHalfHeight;
+                src.areaRight.store(&dst.coneAngles[1]);
+            } else {
+                dst.directionCone[3] = src.outerConeCos;
+                dst.coneAngles[0] = src.innerConeCos;
+                dst.coneAngles[1] = src.outerConeCos;
+                dst.coneAngles[2] = 0.0f;
+                dst.coneAngles[3] = 0.0f;
+            }
+            dst.typeCastShadows[0] = static_cast<uint32_t>(src.type);
+            // Area lights never cast shadows in this port — their castShadows
+            // slot carries the shape instead (0=rect, 1=disk, 2=sphere).
+            dst.typeCastShadows[1] = (src.type == GpuLightType::AreaRect)
+                ? src.areaShape : (src.castShadows ? 1u : 0u);
+            dst.typeCastShadows[2] = src.falloffModeLinear ? 1u : 0u;
+            // The light's shadow slot: a local slot (0/1), or for a directional light its
+            // directional slot. Encoded as uint.
+            dst.typeCastShadows[3] = (src.shadowMapIndex >= 0) ? static_cast<uint32_t>(src.shadowMapIndex) : 0u;
+            dst.cookieFlags[0] = (src.cookieIndex >= 0 && src.cookie) ? 1u : 0u;
+            dst.cookieFlags[1] = (src.cookieIndex >= 0) ? static_cast<uint32_t>(src.cookieIndex) : 0u;
+            dst.cookieFlags[2] = src.cookieChannel;
+            dst.cookieFlags[3] = src.cookieFalloff ? 1u : 0u;
         }
 
         if (enableNormalMaps) {
-            _lightingUniforms.flagsAndPad[0] |= (1u << 2);
+            lu.flagsAndPad[0] |= (1u << 2);
         } else {
-            _lightingUniforms.flagsAndPad[0] &= ~(1u << 2);
+            lu.flagsAndPad[0] &= ~(1u << 2);
         }
-        cameraPosition.store(&_lightingUniforms.cameraPositionSkyboxIntensity.x);
-        _lightingUniforms.skyboxMipAndPad[1] = exposure;
+        cameraPosition.store(&lu.cameraPositionSkyboxIntensity.x);
+        lu.skyboxMipAndPad[1] = exposure;
         // forward-fragment-tail uses this to select the tone mapping curve
         // when CameraFrame is not active (non-deferred path).
-        _lightingUniforms.skyboxMipAndPad[2] = static_cast<float>(toneMapping);
+        lu.skyboxMipAndPad[2] = static_cast<float>(toneMapping);
 
-        Color fogLinear;
-        fogLinear.linear(&fogParams.color);
-        _lightingUniforms.fogColorDensity[0] = fogLinear.r;
-        _lightingUniforms.fogColorDensity[1] = fogLinear.g;
-        _lightingUniforms.fogColorDensity[2] = fogLinear.b;
-        _lightingUniforms.fogColorDensity[3] = fogParams.density;
-        _lightingUniforms.fogStartEndType[0] = fogParams.start;
-        _lightingUniforms.fogStartEndType[1] = fogParams.end;
-        _lightingUniforms.fogStartEndType[2] = fogParams.enabled
-            ? static_cast<float>(fogParams.type) : 0.0f;   // 0 = off, else FogType
-        _lightingUniforms.fogStartEndType[3] = 0.0f;
+        std::memcpy(&lu.fogColorDensity, derived.fogColorDensity, sizeof(derived.fogColorDensity));
+        std::memcpy(&lu.fogStartEndType, derived.fogStartEndType, sizeof(derived.fogStartEndType));
 
         // Directional shadow slots. The PCSS sample counts belong to the variant,
         // so they ride slot 0's pcssParams for both slots.
-        const auto packDirectional = [&](const ShadowParams::DirectionalShadow& dir, const bool active,
+        const auto packDirectional = [&](const int slot,
             PackedVector4f& biasNormalStrength, float* palette, PackedVector4f& distances,
             PackedVector4f& cascadeParams, PackedVector4f& pcssParams, PackedVector4f& pcssRadii,
             PackedVector4f& pcssDepthRanges) {
+            const auto& dir = shadowParams.directional[slot];
             biasNormalStrength[0] = dir.bias;
             biasNormalStrength[1] = dir.normalBias;
             biasNormalStrength[2] = dir.strength;
-            biasNormalStrength[3] = active ? 1.0f : 0.0f;
+            biasNormalStrength[3] = derived.directionalActive[slot] ? 1.0f : 0.0f;
             pcssParams[0] = static_cast<float>(shadowParams.pcssSamples);
             pcssParams[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
             pcssParams[2] = dir.penumbraSize;
@@ -223,142 +189,51 @@ namespace visutwin::canvas
             cascadeParams[2] = 0.0f;
             cascadeParams[3] = 0.0f;
         };
-        auto& lu = _lightingUniforms;
-        packDirectional(shadowParams.directional[0], shadowParams.directionalCount > 0,
-            lu.shadowBiasNormalStrength, lu.shadowMatrixPalette, lu.shadowCascadeDistances,
+        packDirectional(0, lu.shadowBiasNormalStrength, lu.shadowMatrixPalette, lu.shadowCascadeDistances,
             lu.shadowCascadeParams, lu.pcssParams, lu.pcssCascadeRadii, lu.pcssCascadeDepthRanges);
-        packDirectional(shadowParams.directional[1], shadowParams.directionalCount > 1,
-            lu.shadow1BiasNormalStrength, lu.shadow1MatrixPalette, lu.shadow1CascadeDistances,
+        packDirectional(1, lu.shadow1BiasNormalStrength, lu.shadow1MatrixPalette, lu.shadow1CascadeDistances,
             lu.shadow1CascadeParams, lu.shadow1PcssParams, lu.shadow1PcssCascadeRadii,
             lu.shadow1PcssCascadeDepthRanges);
+        _shadowTexture = derived.directionalActive[0] ? shadowParams.directional[0].shadowMap : nullptr;
+        _shadowTexture1 = derived.directionalActive[1] ? shadowParams.directional[1].shadowMap : nullptr;
 
-        _shadowTexture = shadowParams.directionalCount > 0 ? shadowParams.directional[0].shadowMap : nullptr;
-        _shadowTexture1 = shadowParams.directionalCount > 1 ? shadowParams.directional[1].shadowMap : nullptr;
-
-        // Local light shadows (spot/point): pack VP matrices and per-light params.
-        // Omni lights use cubemap shadow textures (bound separately); spot lights use 2D.
-        _localShadowTexture0 = nullptr;
-        _localShadowTexture1 = nullptr;
-        _omniShadowCube0 = nullptr;
-        _omniShadowCube1 = nullptr;
-
-        // Helper lambda to pack a local shadow entry.
-        auto packLocalShadow = [&](int idx, const ShadowParams::LocalShadow& ls) {
-            float* matDst = (idx == 0) ? _lightingUniforms.localShadowMatrix0 : _lightingUniforms.localShadowMatrix1;
-            float* paramsDst = (idx == 0) ? &_lightingUniforms.localShadowParams0.x : &_lightingUniforms.localShadowParams1.x;
-
-            if (ls.isOmni) {
-                // Omni: bind cubemap texture, pack omni-specific params.
-                // RELATIVE bias — a fraction of the receiver distance, applied by the
-                // shader BEFORE the perspective projection. Perspective depth for a
-                // cubemap shadow is crushed against 1.0 (with near 0.01 / far 30,
-                // half a world unit of separation is 8e-5 of stored depth), so the
-                // old fixed post-projection offset of 0.001 was more than ten times
-                // the gap it was meant to preserve and erased omni shadows outright.
-                constexpr float omniShaderBias = 0.002f;
-                const float farClip = ls.viewProjection.getElement(0, 0);
-                if (idx == 0) {
-                    _omniShadowCube0 = ls.shadowMap;
-                    _lightingUniforms.omniShadowParams0[0] = 0.01f;  // near
-                    _lightingUniforms.omniShadowParams0[1] = farClip;  // far (stored in VP[0][0] by renderer)
-                    _lightingUniforms.omniShadowParams0[2] = omniShaderBias;
-                    _lightingUniforms.omniShadowParams0[3] = ls.normalBias;
-                    _lightingUniforms.omniShadowParams0Extra[0] = ls.intensity;
-                } else {
-                    _omniShadowCube1 = ls.shadowMap;
-                    _lightingUniforms.omniShadowParams1[0] = 0.01f;
-                    _lightingUniforms.omniShadowParams1[1] = farClip;
-                    _lightingUniforms.omniShadowParams1[2] = omniShaderBias;
-                    _lightingUniforms.omniShadowParams1[3] = ls.normalBias;
-                    _lightingUniforms.omniShadowParams1Extra[0] = ls.intensity;
-                }
-                // Don't set 2D shadow texture for omni lights.
-                std::memset(matDst, 0, 16 * sizeof(float));
-            } else {
-                // Spot: bind 2D texture, pack VP matrix.
-                if (idx == 0) {
-                    _localShadowTexture0 = ls.shadowMap;
-                } else {
-                    _localShadowTexture1 = ls.shadowMap;
-                }
-                ls.viewProjection.store(matDst);  // column-major
+        // Local light shadows (spot 2D, omni cube). Omni params: near, far, relative bias,
+        // normal bias, with the intensity in the Extra lane.
+        const DerivedLocalShadow& local0 = derived.localShadows[0];
+        const DerivedLocalShadow& local1 = derived.localShadows[1];
+        _localShadowTexture0 = local0.spotMap;
+        _localShadowTexture1 = local1.spotMap;
+        _omniShadowCube0 = local0.omniMap;
+        _omniShadowCube1 = local1.omniMap;
+        const auto packLocal = [](const DerivedLocalShadow& ls, float* matrix, PackedVector4f& params,
+                                  PackedVector4f& pcss, PackedVector4f& omni, PackedVector4f& omniExtra) {
+            std::memcpy(matrix, ls.matrix, sizeof(ls.matrix));
+            std::memcpy(&params, ls.params, sizeof(ls.params));
+            std::memcpy(&pcss, ls.pcss, sizeof(ls.pcss));
+            if (ls.active && ls.isOmni) {
+                omni[0] = ls.omniNear;
+                omni[1] = ls.omniFar;
+                omni[2] = ls.omniBias;
+                omni[3] = ls.params[1];
+                omniExtra[0] = ls.params[2];
             }
-            paramsDst[0] = ls.bias;
-            paramsDst[1] = ls.normalBias;
-            paramsDst[2] = ls.intensity;
-            paramsDst[3] = ls.isOmni ? 1.0f : 0.0f;  // Flag: 1=omni cubemap, 0=spot 2D
-
-            float* pcssDst = (idx == 0) ? &_lightingUniforms.localShadowPcss0.x : &_lightingUniforms.localShadowPcss1.x;
-            pcssDst[0] = ls.pcssSearchArea;
-            pcssDst[1] = ls.nearClip;
-            pcssDst[2] = ls.farClip;
-            pcssDst[3] = 0.0f;
         };
+        packLocal(local0, lu.localShadowMatrix0, lu.localShadowParams0, lu.localShadowPcss0,
+            lu.omniShadowParams0, lu.omniShadowParams0Extra);
+        packLocal(local1, lu.localShadowMatrix1, lu.localShadowParams1, lu.localShadowPcss1,
+            lu.omniShadowParams1, lu.omniShadowParams1Extra);
 
-        for (int i = 0; i < ShadowParams::kMaxLocalShadows; ++i) {
-            if (i < shadowParams.localShadowCount) {
-                packLocalShadow(i, shadowParams.localShadows[i]);
-            } else {
-                // Clear unused slots.
-                float* matDst = (i == 0) ? _lightingUniforms.localShadowMatrix0 : _lightingUniforms.localShadowMatrix1;
-                float* paramsDst = (i == 0) ? &_lightingUniforms.localShadowParams0.x : &_lightingUniforms.localShadowParams1.x;
-                std::memset(matDst, 0, 16 * sizeof(float));
-                paramsDst[0] = 0.0001f;
-                paramsDst[1] = 0.0f;
-                paramsDst[2] = 1.0f;
-                paramsDst[3] = 0.0f;
-                float* pcssDst = (i == 0) ? &_lightingUniforms.localShadowPcss0.x : &_lightingUniforms.localShadowPcss1.x;
-                pcssDst[0] = 0.0f;
-            }
-        }
-
-        // Light cookies: two 2D (spot) and two cubemap (omni) slots, indexed by
-        // GpuLightData::cookieIndex within the pool the light type selects.
-        _cookieTexture2D0 = nullptr;
-        _cookieTexture2D1 = nullptr;
-        _cookieTextureCube0 = nullptr;
-        _cookieTextureCube1 = nullptr;
-
-        auto clearCookieSlot = [](float* matDst, float* paramsDst) {
-            std::memset(matDst, 0, 16 * sizeof(float));
-            matDst[0] = matDst[5] = matDst[10] = matDst[15] = 1.0f;
-            paramsDst[0] = 1.0f;
-            paramsDst[1] = 1.0f;
-            paramsDst[2] = 0.0f;
-            paramsDst[3] = 0.0f;
+        // Light cookies: two 2D (spot) and two cube (omni) slots.
+        const auto packCookie = [](const DerivedCookieSlot& slot, Texture*& texture, float* matrix,
+                                   PackedVector4f& params) {
+            texture = slot.texture;
+            std::memcpy(matrix, slot.matrix, sizeof(slot.matrix));
+            std::memcpy(&params, slot.params, sizeof(slot.params));
         };
-        clearCookieSlot(_lightingUniforms.cookieMatrix2D0, &_lightingUniforms.cookieParams2D0.x);
-        clearCookieSlot(_lightingUniforms.cookieMatrix2D1, &_lightingUniforms.cookieParams2D1.x);
-        clearCookieSlot(_lightingUniforms.cookieMatrixCube0, &_lightingUniforms.cookieParamsCube0.x);
-        clearCookieSlot(_lightingUniforms.cookieMatrixCube1, &_lightingUniforms.cookieParamsCube1.x);
-
-        for (size_t i = 0; i < lightCount; ++i) {
-            const auto& src = lights[i];
-            if (!src.cookie || src.cookieIndex < 0 || src.cookieIndex > 1) {
-                continue;
-            }
-            const bool isCube = (src.type == GpuLightType::Point);
-            float* matDst;
-            float* paramsDst;
-            if (isCube) {
-                (src.cookieIndex == 0 ? _cookieTextureCube0 : _cookieTextureCube1) = src.cookie;
-                matDst = (src.cookieIndex == 0)
-                    ? _lightingUniforms.cookieMatrixCube0 : _lightingUniforms.cookieMatrixCube1;
-                paramsDst = (src.cookieIndex == 0)
-                    ? &_lightingUniforms.cookieParamsCube0.x : &_lightingUniforms.cookieParamsCube1.x;
-            } else {
-                (src.cookieIndex == 0 ? _cookieTexture2D0 : _cookieTexture2D1) = src.cookie;
-                matDst = (src.cookieIndex == 0)
-                    ? _lightingUniforms.cookieMatrix2D0 : _lightingUniforms.cookieMatrix2D1;
-                paramsDst = (src.cookieIndex == 0)
-                    ? &_lightingUniforms.cookieParams2D0.x : &_lightingUniforms.cookieParams2D1.x;
-            }
-            src.cookieMatrix.store(matDst);  // column-major
-            paramsDst[0] = src.cookieIntensity;
-            paramsDst[1] = src.cookieFalloff ? 1.0f : 0.0f;
-            paramsDst[2] = static_cast<float>(src.cookieChannel);
-            paramsDst[3] = 0.0f;
-        }
+        packCookie(derived.cookie2D[0], _cookieTexture2D0, lu.cookieMatrix2D0, lu.cookieParams2D0);
+        packCookie(derived.cookie2D[1], _cookieTexture2D1, lu.cookieMatrix2D1, lu.cookieParams2D1);
+        packCookie(derived.cookieCube[0], _cookieTextureCube0, lu.cookieMatrixCube0, lu.cookieParamsCube0);
+        packCookie(derived.cookieCube[1], _cookieTextureCube1, lu.cookieMatrixCube1, lu.cookieParamsCube1);
     }
 
     // -----------------------------------------------------------------------

@@ -477,6 +477,9 @@ namespace visutwin::canvas
             // is still there to size the growth by.
             growUniformRingIfNeeded();
             _uniformRing->beginFrame(_frameIndex);
+            // The ring carries the uniforms, the palettes and the cluster data; this backend
+            // owns no other storage buffer.
+            setBackendBufferVram(static_cast<size_t>(_uniformRing->totalSize()), 0);
         }
         _lightingNeedsUpload = true;
 

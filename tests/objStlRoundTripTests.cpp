@@ -10,6 +10,10 @@
 // triangle, so a normal belonging to another face also fails.
 //
 // CPU only: a stub device keeps the buffers' bytes.
+//
+// Also the parsers' one shared generateTangents (packedVertex.h): the tangent follows +u, is
+// unit and perpendicular to the normal, the handedness puts the bitangent toward +v, and a
+// vertex with degenerate UVs still gets a unit tangent perpendicular to its normal.
 
 #include <cmath>
 #include <cstdint>
@@ -420,6 +424,50 @@ int main()
                 std::string("flipWinding (") + (smooth ? "smooth" : "flat") +
                 ") reverses the triangles AND the normals derived from them");
         }
+    }
+
+    {
+        // A quad in the XY plane facing +Z, u along +X and v along +Y, then the same quad with
+        // v running down (-Y): only the handedness may change between the two.
+        const auto quad = [](const float vSign) {
+            std::vector<PackedVertex> v(4);
+            const float corners[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+            for (int i = 0; i < 4; ++i) {
+                v[i] = PackedVertex{corners[i][0], corners[i][1], 0.0f, 0.0f, 0.0f, 1.0f,
+                                    corners[i][0], vSign > 0 ? corners[i][1] : 1.0f - corners[i][1],
+                                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+            }
+            return v;
+        };
+        const std::vector<uint32_t> indices = {0, 1, 2, 0, 2, 3};
+        auto up = quad(1.0f);
+        generateTangents(up, indices);
+        auto down = quad(-1.0f);
+        generateTangents(down, indices);
+        bool along = true;
+        for (size_t i = 0; i < 4; ++i) {
+            along &= std::abs(up[i].tx - 1.0f) < 1e-6f && std::abs(up[i].ty) < 1e-6f && std::abs(up[i].tz) < 1e-6f;
+            along &= up[i].tw == 1.0f && down[i].tw == -1.0f;
+        }
+        check(along, "generateTangents: tangent along +u, bitangent toward +v (w +1), flipped v gives w -1");
+
+        // Degenerate UVs (all the same): the fallback is unit and perpendicular to the normal.
+        std::vector<PackedVertex> flat(3);
+        const Vector3 n = Vector3(0.3f, 0.8f, 0.52f).normalized();
+        for (int i = 0; i < 3; ++i) {
+            flat[i] = PackedVertex{static_cast<float>(i), static_cast<float>(i * i), 0.0f,
+                                   n.getX(), n.getY(), n.getZ(), 0.5f, 0.5f, 0, 0, 0, 0, 0, 0};
+        }
+        generateTangents(flat, {});
+        const Vector3 t(flat[0].tx, flat[0].ty, flat[0].tz);
+        check(std::abs(t.length() - 1.0f) < 1e-5f && std::abs(t.dot(n)) < 1e-5f,
+              "generateTangents: degenerate UVs give a unit tangent perpendicular to the normal");
+
+        float tx, ty, tz, tw;
+        tangentFromNormal(n.getX(), n.getY(), n.getZ(), tx, ty, tz, tw);
+        const Vector3 fallback(tx, ty, tz);
+        check(std::abs(fallback.length() - 1.0f) < 1e-5f && std::abs(fallback.dot(n)) < 1e-5f && tw == 1.0f,
+              "tangentFromNormal: unit, perpendicular to the normal, handedness 1");
     }
 
     std::filesystem::remove_all(dir);

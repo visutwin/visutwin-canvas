@@ -36,7 +36,10 @@
 #include "framework/parsers/glbContainerResource.h"
 #include "framework/parsers/glbParser.h"
 #include "framework/script/scriptRegistry.h"
+#include "platform/graphics/compute.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/vertexBuffer.h"
+#include "platform/graphics/vertexFormat.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/standardMaterial.h"
 
@@ -70,6 +73,13 @@ namespace
         void setResolution(int, int) override {}
         std::pair<int, int> size() const override { return {0, 0}; }
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
+    };
+
+    class CpuVertexBuffer final : public VertexBuffer
+    {
+    public:
+        using VertexBuffer::VertexBuffer;
+        void unlock() override {}
     };
 
     bool hasSlot(const StandardMaterial& material, const int slot)
@@ -234,7 +244,9 @@ int main()
         scene.nodes = {0};
         model.scenes = {scene};
         model.defaultScene = 0;
-        for (int i = 0; i < 2; ++i) {
+        // Two "Walk"s, then names whose hash order is not their file order.
+        const std::vector<std::string> names = {"Walk", "Walk", "Zeta", "Alpha", "Mid", "Beta"};
+        for (const auto& animationName : names) {
             tinygltf::AnimationSampler sampler;
             sampler.input = 0;
             sampler.output = 1;
@@ -244,15 +256,41 @@ int main()
             channel.target_node = 0;
             channel.target_path = "translation";
             tinygltf::Animation animation;
-            animation.name = "Walk";
+            animation.name = animationName;
             animation.samplers = {sampler};
             animation.channels = {channel};
             model.animations.push_back(animation);
         }
         auto container = GlbParser::createFromModel(model, device, "triageContractsTests");
-        const auto& tracks = container ? container->animTracks() : std::unordered_map<std::string, std::shared_ptr<AnimTrack>>{};
-        check(tracks.size() == 2 && tracks.contains("Walk") && tracks.contains("Walk_1"),
+        static const AnimTrackList none;
+        const auto& tracks = container ? container->animTracks() : none;
+        check(tracks.size() == 6 && tracks.contains("Walk") && tracks.contains("Walk_1"),
             "both are kept, the later one as 'Walk_1'");
+        std::string order;
+        for (const auto& [name, track] : tracks) {
+            order += (order.empty() ? "" : ",") + name;
+        }
+        check(order == "Walk,Walk_1,Zeta,Alpha,Mid,Beta",
+            "the tracks keep the file's order (upstream container.animations): " + order);
+    }
+
+    std::cout << "VRAM: storage buffers are counted as sb, not vb\n";
+    {
+        const auto format = std::make_shared<VertexFormat>(64, true, false);
+        {
+            auto vertices = std::make_shared<CpuVertexBuffer>(device.get(), format, 10, VertexBufferOptions{});
+            auto storage = std::make_shared<CpuVertexBuffer>(device.get(), format, 100, VertexBufferOptions{});
+            check(device->vram().vb == 640 + 6400 && device->vram().sb == 0, "both start as vertex buffers");
+            storage->markStorageUse();
+            storage->markStorageUse();
+            check(device->vram().vb == 640 && device->vram().sb == 6400,
+                "marking one as storage moves its bytes from vb to sb, once");
+            Compute compute(device.get(), nullptr, "vram");
+            compute.setParameter("buffer", std::static_pointer_cast<VertexBuffer>(vertices));
+            check(device->vram().vb == 0 && device->vram().sb == 7040,
+                "a Compute buffer parameter is storage");
+        }
+        check(device->vram().vb == 0 && device->vram().sb == 0, "freeing them returns both buckets to zero");
     }
 
     std::cout << (failures == 0 ? "\nAll triage contract tests passed\n" : "\nTriage contract tests FAILED\n");

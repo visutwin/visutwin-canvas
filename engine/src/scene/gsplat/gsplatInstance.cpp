@@ -39,6 +39,9 @@ namespace visutwin::canvas
             VertexBufferOptions options;
             options.data = orderBytes;
             buffer = device->createVertexBuffer(orderFormat, numSplats, options);
+            if (buffer) {
+                buffer->markStorageUse();   // read as a storage buffer: vram.sb, all copies
+            }
         }
         _visibleCount = static_cast<uint32_t>(numSplats);
     }

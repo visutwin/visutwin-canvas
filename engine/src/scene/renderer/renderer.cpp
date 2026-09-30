@@ -1836,6 +1836,9 @@ namespace visutwin::canvas
                 const Matrix4 modelMatrix = entry->meshInstance->node()
                     ? entry->meshInstance->node()->worldTransform() : Matrix4::identity();
                 const auto& storageParams = entry->meshInstance->storageParams();
+                if (entry->meshInstance->storageBuffer()) {
+                    entry->meshInstance->storageBuffer()->markStorageUse();   // counts as vram.sb
+                }
                 _device->setStorageDrawState(entry->meshInstance->storageBuffer(),
                     storageParams.data(), storageParams.size());
                 _device->setTransformUniforms(viewProjection, modelMatrix);
@@ -1851,6 +1854,9 @@ namespace visutwin::canvas
                 // Upstream particle_end: tone map and gamma-encode on a gamma target, leave
                 // both to compose on a camera frame's linear HDR scene.
                 particles->setOutput(_scene ? _scene->exposure() : 1.0f, toneMapping, _device->hdrPass());
+                if (particles->particleBuffer()) {
+                    particles->particleBuffer()->markStorageUse();   // counts as vram.sb
+                }
                 _device->setParticleState(particles->particleBuffer(),
                     &particles->renderParams(), sizeof(GpuParticleRenderParams));
                 _device->setTransformUniforms(viewProjection, modelMatrix);
@@ -1898,6 +1904,12 @@ namespace visutwin::canvas
                     splatParams.output[0] = _scene ? _scene->exposure() : 1.0f;
                     splatParams.output[1] = static_cast<float>(toneMapping);
                     splatParams.output[2] = _device->hdrPass() ? 1.0f : 0.0f;
+                    for (const auto* buffer : {&gsplat->resource()->splatBuffer(), &gsplat->orderBuffer(),
+                                               &gsplat->resource()->shBuffer()}) {
+                        if (*buffer) {
+                            (*buffer)->markStorageUse();   // counts as vram.sb
+                        }
+                    }
                     _device->setGSplatState(gsplat->resource()->splatBuffer(), gsplat->orderBuffer(),
                         gsplat->resource()->shBuffer(), &splatParams, sizeof(GpuGSplatParams));
                     _device->setTransformUniforms(viewProjection, modelMatrix);

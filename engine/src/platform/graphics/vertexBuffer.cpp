@@ -62,8 +62,22 @@ namespace visutwin::canvas
     }
 
     void VertexBuffer::adjustVramSizeTracking(DeviceVRAM& vram, int size) {
-        spdlog::trace("${this.id} size: ${size} vram.vb: ${vram.vb} => ${vram.vb + size}");
-        vram.vb += size;
+        if (_storageUse) {
+            vram.sb += size;
+            _device->_storageVertexBufferBytes += size;
+        } else {
+            vram.vb += size;
+        }
+    }
+
+    void VertexBuffer::markStorageUse()
+    {
+        if (_storageUse || !_device) {
+            return;
+        }
+        adjustVramSizeTracking(_device->_vram, -_numBytes);
+        _storageUse = true;
+        adjustVramSizeTracking(_device->_vram, _numBytes);
     }
 
     bool VertexBuffer::setData(const std::vector<uint8_t>& data)

@@ -15,6 +15,7 @@
 #include "core/math/vector3.h"
 #include <framework/handlers/containerResource.h>
 #include "framework/anim/evaluator/animTrack.h"
+#include "framework/parsers/animTrackList.h"
 #include "scene/materials/material.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "scene/mesh.h"
@@ -138,8 +139,9 @@ namespace visutwin::canvas
         void addRootNodeIndex(const int index) { _rootNodeIndices.push_back(index); }
         void addOwnedTexture(const std::shared_ptr<Texture>& texture) { _ownedTextures->push_back(texture); }
 
-        void addAnimTrack(const std::string& name, const std::shared_ptr<AnimTrack>& track) { _animTracks[name] = track; }
-        const std::unordered_map<std::string, std::shared_ptr<AnimTrack>>& animTracks() const { return _animTracks; }
+        void addAnimTrack(const std::string& name, const std::shared_ptr<AnimTrack>& track) { _animTracks.add(name, track); }
+        /// The animations in the file's order, looked up by name with find / contains.
+        const AnimTrackList& animTracks() const { return _animTracks; }
 
         /// The mesh payloads in the order the parser added them; tests read the parsed geometry through here.
         const std::vector<GlbMeshPayload>& meshPayloads() const { return _meshPayloads; }
@@ -159,6 +161,6 @@ namespace visutwin::canvas
         // Shared, so the materials handed out can keep it alive past this container.
         std::shared_ptr<std::vector<std::shared_ptr<Texture>>> _ownedTextures =
             std::make_shared<std::vector<std::shared_ptr<Texture>>>();
-        std::unordered_map<std::string, std::shared_ptr<AnimTrack>> _animTracks;
+        AnimTrackList _animTracks;
     };
 }

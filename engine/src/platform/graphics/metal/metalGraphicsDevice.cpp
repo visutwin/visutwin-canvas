@@ -413,6 +413,9 @@ namespace visutwin::canvas
         _uniformRing->beginFrame();
         _paletteRing->beginFrame();
         _pendingPaletteOffset = SIZE_MAX;
+        // After beginFrame, which is where a ring that overflowed last frame grows.
+        setBackendBufferVram(_transformRing->totalSize() + _uniformRing->totalSize() + _paletteRing->totalSize(),
+            _clusterLightBufferCapacity + _clusterCellBufferCapacity);
 
         // GPU profiler: rotate frame slot + resolve the slot from 2 frames ago.
         if (_metalGpuProfiler) {

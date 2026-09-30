@@ -165,6 +165,8 @@ namespace visutwin::canvas
         [[nodiscard]] bool wantsGrowth() const { return _requestedBytes > _regionSize; }
 
         [[nodiscard]] VkBuffer buffer() const { return _buffer; }
+        /// Bytes allocated, every frame region included (DeviceVRAM::ub).
+        [[nodiscard]] VkDeviceSize totalSize() const { return _totalSize; }
         [[nodiscard]] VkDeviceSize usedBytes() const { return _cursor; }
         [[nodiscard]] VkDeviceSize capacityPerFrame() const { return _regionSize; }
 

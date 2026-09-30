@@ -186,11 +186,11 @@ namespace visutwin::canvas
         _cpu.push(static_cast<float>(frame.updateTime + frame.renderTime), frameMs);
         _gpu.push(profiler ? static_cast<float>(profiler->frameMilliseconds()) : 0.0f, frameMs);
         _drawCalls.push(static_cast<float>(drawCalls.total), frameMs);
-        // Textures and geometry, all live counters since 2026-09-16. Labelled VRAM as upstream
-        // labels its `vram.totalUsed`, but a LOWER BOUND: the backends' uniform and storage
-        // pools are not tracked, and the texture figure is content size (no driver padding,
-        // no GPU-generated mips). The detailed view spells the parts out.
-        _vram.push(static_cast<float>(static_cast<double>(vram.tex + vram.vb + vram.ib) * toMb), frameMs);
+        // Upstream's `vram.totalUsed`: textures, vertex, index, uniform and storage buffers. Still
+        // a LOWER BOUND: the texture figure is content size (no driver padding, no GPU-generated
+        // mips). The detailed view spells the parts out.
+        _vram.push(static_cast<float>(static_cast<double>(vram.tex + vram.vb + vram.ib + vram.ub + vram.sb) * toMb),
+                   frameMs);
         recordPassTimings();
 
         // Smoothed frame rate over the sample window, paired with the same window's mean so the
@@ -244,15 +244,16 @@ namespace visutwin::canvas
                     ImGui::Text("gsplats     %d", frame.gsplats);
                 }
 
-                // Still NOT called a VRAM total here, where there is room to say why: the
-                // backends' uniform and storage pools are not tracked at all, and the texture
-                // figure is content size, so it excludes driver padding and any mip generated
-                // on the GPU after creation.
-                ImGui::Text("tex+geom    %.1f MB  (tex %.1f, vb %.1f, ib %.1f)",
-                    static_cast<double>(vram.tex + vram.vb + vram.ib) * toMb,
+                // The parts of the compact VRAM figure. It is a lower bound, not an allocation
+                // total: the texture figure is content size, so it excludes driver padding and
+                // any mip generated on the GPU after creation.
+                ImGui::Text("vram        %.1f MB  (tex %.1f, vb %.1f, ib %.1f, ub %.1f, sb %.1f)",
+                    static_cast<double>(vram.tex + vram.vb + vram.ib + vram.ub + vram.sb) * toMb,
                     static_cast<double>(vram.tex) * toMb,
                     static_cast<double>(vram.vb) * toMb,
-                    static_cast<double>(vram.ib) * toMb);
+                    static_cast<double>(vram.ib) * toMb,
+                    static_cast<double>(vram.ub) * toMb,
+                    static_cast<double>(vram.sb) * toMb);
                 // The shadow/asset/lightmap split, live since the creation sites were
                 // tagged with a TexHint. What is left untagged is deliberate — render
                 // targets, the post chain, env atlases and probes are neither loaded

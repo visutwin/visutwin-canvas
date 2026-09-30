@@ -57,20 +57,6 @@ namespace visutwin::canvas
             float v2x, v2y, v2z;    // vertex 2
         };
 
-        // ── Tangent-from-normal fallback (no UVs in STL) ─────────────────
-
-        void tangentFromNormal(float nx, float ny, float nz,
-                               float& tx, float& ty, float& tz, float& tw)
-        {
-            Vector3 n(nx, ny, nz);
-            Vector3 up = std::abs(ny) < 0.999f ? Vector3(0.0f, 1.0f, 0.0f) : Vector3(1.0f, 0.0f, 0.0f);
-            Vector3 t = n.cross(up).normalized();
-            tx = t.getX();
-            ty = t.getY();
-            tz = t.getZ();
-            tw = 1.0f;
-        }
-
         // ── Compute geometric face normal from 3 vertices ────────────────
 
         Vector3 computeFaceNormal(const Vector3& v0, const Vector3& v1, const Vector3& v2)

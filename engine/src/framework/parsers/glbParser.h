@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include "framework/parsers/animTrackList.h"
+
 #include "scene/gsplat/gsplatData.h"
 
 #include <cstdint>
@@ -91,8 +93,8 @@ namespace visutwin::canvas
         bool pointCloudsMerged = false;
         PrimitiveData mergedPoints;   ///< Valid when pointCloudsMerged and vertexCount > 0.
 
-        /// Fully parsed animation tracks (keyed by animation name).
-        std::unordered_map<std::string, std::shared_ptr<AnimTrack>> animTracks;
+        /// Fully parsed animation tracks, in the file's order.
+        AnimTrackList animTracks;
 
         size_t dracoPrimitiveCount      = 0;
         size_t dracoDecodeSuccessCount  = 0;
