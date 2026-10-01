@@ -119,6 +119,17 @@ namespace visutwin::canvas
         void setLightmapsEnabled(bool enabled);
 
     private:
+        // bake()'s stages, in the order it runs them.
+        /// The lightmap texture, render target, private layer and bake camera of one
+        /// target (a null lightmap for a target with no mesh).
+        void prepareTarget(size_t index);
+        Entity* createBakeCamera(const Layer& layer, const std::shared_ptr<RenderTarget>& renderTarget);
+        /// Every scene light reaches the bake layers, and a MASK_BAKE light casts shadows.
+        void widenLightsForBake();
+        /// Records the directional lights to bake as soft-shadow copies and disables them.
+        void prepareDirectionalSamples();
+        std::vector<int> bakeLayerIds() const;
+
         void destroyBakeNodes();
 
         Engine* _engine = nullptr;

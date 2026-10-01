@@ -89,6 +89,34 @@ namespace visutwin::canvas
         destroyBakeNodes();
     }
 
+    namespace
+    {
+        // HDR: the bake stores LINEAR light, and the sun alone exceeds 1.0 before
+        // exposure — an 8-bit target would clamp it to white and flatten the scene.
+        // The accumulating virtual-light passes need the headroom too.
+        std::shared_ptr<Texture> createLightmapTexture(GraphicsDevice* device, const int size)
+        {
+            TextureOptions texOptions;
+            texOptions.width = static_cast<uint32_t>(size);
+            texOptions.height = static_cast<uint32_t>(size);
+            texOptions.format = PixelFormat::PIXELFORMAT_RGBA16F;
+            texOptions.mipmaps = false;
+            texOptions.name = "gpuLightmap";
+            texOptions.profilerHint = TexHint::TEXHINT_LIGHTMAP;
+            return std::make_shared<Texture>(device, texOptions);
+        }
+
+        std::shared_ptr<RenderTarget> createLightmapTarget(GraphicsDevice& device, Texture* texture)
+        {
+            RenderTargetOptions rtOptions;
+            rtOptions.graphicsDevice = &device;
+            rtOptions.colorBuffer = texture;
+            rtOptions.depth = true;
+            rtOptions.name = "gpuLightmapTarget";
+            return device.createRenderTarget(rtOptions);
+        }
+    }
+
     void GpuLightmapper::bake(const std::vector<MeshInstance*>& targets, const Options& options)
     {
         if (!_engine || targets.empty()) {
@@ -101,93 +129,108 @@ namespace visutwin::canvas
         _lightmaps.clear();
         _originalMasks.clear();
 
-        const auto& device = _engine->graphicsDevice();
-        const auto& layers = _engine->scene()->layers();
-
         for (size_t i = 0; i < _targets.size(); ++i) {
-            auto* meshInstance = _targets[i];
-            if (!meshInstance || !meshInstance->mesh()) {
-                _lightmaps.push_back(nullptr);
-                continue;
-            }
+            prepareTarget(i);
+        }
+        widenLightsForBake();
+        prepareDirectionalSamples();
 
-            const int size = lightmapSizeFor(meshInstance, _options, device->maxTextureSize());
-
-            TextureOptions texOptions;
-            texOptions.width = static_cast<uint32_t>(size);
-            texOptions.height = static_cast<uint32_t>(size);
-            // HDR: the bake stores LINEAR light, and the sun alone exceeds 1.0 before
-            // exposure — an 8-bit target would clamp it to white and flatten the scene.
-            // The accumulating virtual-light passes need the headroom too.
-            texOptions.format = PixelFormat::PIXELFORMAT_RGBA16F;
-            texOptions.mipmaps = false;
-            texOptions.name = "gpuLightmap";
-            texOptions.profilerHint = TexHint::TEXHINT_LIGHTMAP;
-            auto texture = std::make_shared<Texture>(device.get(), texOptions);
-
-            RenderTargetOptions rtOptions;
-            rtOptions.graphicsDevice = device.get();
-            rtOptions.colorBuffer = texture.get();
-            rtOptions.depth = true;
-            rtOptions.name = "gpuLightmapTarget";
-            auto renderTarget = device->createRenderTarget(rtOptions);
-
-            // A private layer per target: the bake camera renders exactly one mesh, so
-            // its unwrap owns the whole target.
-            auto layer = std::make_shared<Layer>("LightmapBake" + std::to_string(i),
-                _options.baseLayerId + static_cast<int>(i));
-            layer->addMeshInstances({meshInstance});
-            layers->pushOpaque(layer);
-
-            // Upstream's mask scheme: the bake lights carry MASK_BAKE, so the mesh wears
-            // MASK_BAKE while it is being baked (those lights reach it) and switches to
-            // MASK_AFFECT_LIGHTMAPPED afterwards (they no longer do, and the bake is not
-            // applied twice). Remember what it had so a failed bake can restore it.
-            // The mesh is lit through MASK_AFFECT_LIGHTMAPPED during the bake — see the
-            // light-mask note below for why not MASK_BAKE — and keeps that mask after,
-            // which is what stops the bake lights (back on MASK_BAKE) from lighting it
-            // a second time at runtime.
-            _originalMasks.push_back(meshInstance->mask());
-            meshInstance->setMask(MASK_AFFECT_LIGHTMAPPED);
-
-            auto* cameraEntity = new Entity();
-            cameraEntity->setName("LightmapBakeCamera");
-            cameraEntity->setEngine(_engine);
-            _engine->root()->addChild(cameraEntity);
-
-            auto* cameraComponent = static_cast<CameraComponent*>(
-                cameraEntity->addComponent<CameraComponent>());
-            cameraComponent->setLayers({layer->id()});
-
-            Camera* camera = cameraComponent->camera();
-            camera->setRenderTarget(renderTarget);
-            camera->setLightmapBakePass(true);
-            camera->setClearColor(Color(0.0f, 0.0f, 0.0f, 1.0f));
-            // The UV-space vertex stage ignores this transform; it exists only so the
-            // directional shadow cascades are fitted to the scene rather than to a
-            // degenerate frustum. Place it back from the scene and look at its centre.
-            camera->setFarClip(std::max(_options.bakeCameraDistance * 4.0f, 100.0f));
-            cameraEntity->setLocalPosition(
-                _options.bakeCameraTarget + Vector3(1.0f, 1.0f, 1.0f).normalized() *
-                    _options.bakeCameraDistance);
-            cameraEntity->lookAt(_options.bakeCameraTarget);
-
-            _lightmaps.push_back(std::move(texture));
-            _targetsRT.push_back(std::move(renderTarget));
-            _layers.push_back(std::move(layer));
-            _cameras.push_back(cameraEntity);
+        // Ambient occlusion: the scene's own ambient is suppressed for the bake and
+        // re-introduced as virtual lights, so the ambient term carries visibility
+        // instead of being flat. Sample -1 is the direct-light pass.
+        _ambientSample = -1;
+        _ambientNormalization = 0.0f;
+        if (_options.ambientBake && _options.ambientBakeNumSamples > 0) {
+            _savedAmbient = _engine->scene()->ambientLight();
+            setupAmbientLight();
         }
 
+        _pending = true;
+        _framesWaited = 0;
+        spdlog::info("GpuLightmapper: baking {} mesh(es) in UV space", _targets.size());
+    }
+
+    void GpuLightmapper::prepareTarget(const size_t index)
+    {
+        auto* meshInstance = _targets[index];
+        if (!meshInstance || !meshInstance->mesh()) {
+            _lightmaps.push_back(nullptr);   // keeps lightmaps() aligned with the targets
+            return;
+        }
+
+        const auto& device = _engine->graphicsDevice();
+        const int size = lightmapSizeFor(meshInstance, _options, device->maxTextureSize());
+        auto texture = createLightmapTexture(device.get(), size);
+        auto renderTarget = createLightmapTarget(*device, texture.get());
+
+        // A private layer per target: the bake camera renders exactly one mesh, so
+        // its unwrap owns the whole target.
+        auto layer = std::make_shared<Layer>("LightmapBake" + std::to_string(index),
+            _options.baseLayerId + static_cast<int>(index));
+        layer->addMeshInstances({meshInstance});
+        _engine->scene()->layers()->pushOpaque(layer);
+
+        // Upstream's mask scheme: the bake lights carry MASK_BAKE, so the mesh wears
+        // MASK_BAKE while it is being baked (those lights reach it) and switches to
+        // MASK_AFFECT_LIGHTMAPPED afterwards (they no longer do, and the bake is not
+        // applied twice). Remember what it had so a failed bake can restore it.
+        // The mesh is lit through MASK_AFFECT_LIGHTMAPPED during the bake — see the
+        // light-mask note in widenLightsForBake for why not MASK_BAKE — and keeps that
+        // mask after, which is what stops the bake lights (back on MASK_BAKE) from
+        // lighting it a second time at runtime.
+        _originalMasks.push_back(meshInstance->mask());
+        meshInstance->setMask(MASK_AFFECT_LIGHTMAPPED);
+
+        _cameras.push_back(createBakeCamera(*layer, renderTarget));
+        _lightmaps.push_back(std::move(texture));
+        _targetsRT.push_back(std::move(renderTarget));
+        _layers.push_back(std::move(layer));
+    }
+
+    Entity* GpuLightmapper::createBakeCamera(const Layer& layer, const std::shared_ptr<RenderTarget>& renderTarget)
+    {
+        auto* cameraEntity = new Entity();
+        cameraEntity->setName("LightmapBakeCamera");
+        cameraEntity->setEngine(_engine);
+        _engine->root()->addChild(cameraEntity);
+
+        auto* cameraComponent = static_cast<CameraComponent*>(
+            cameraEntity->addComponent<CameraComponent>());
+        cameraComponent->setLayers({layer.id()});
+
+        Camera* camera = cameraComponent->camera();
+        camera->setRenderTarget(renderTarget);
+        camera->setLightmapBakePass(true);
+        camera->setClearColor(Color(0.0f, 0.0f, 0.0f, 1.0f));
+        // The UV-space vertex stage ignores this transform; it exists only so the
+        // directional shadow cascades are fitted to the scene rather than to a
+        // degenerate frustum. Place it back from the scene and look at its centre.
+        camera->setFarClip(std::max(_options.bakeCameraDistance * 4.0f, 100.0f));
+        cameraEntity->setLocalPosition(
+            _options.bakeCameraTarget + Vector3(1.0f, 1.0f, 1.0f).normalized() *
+                _options.bakeCameraDistance);
+        cameraEntity->lookAt(_options.bakeCameraTarget);
+        return cameraEntity;
+    }
+
+    std::vector<int> GpuLightmapper::bakeLayerIds() const
+    {
+        std::vector<int> layerIds;
+        layerIds.reserve(_layers.size());
+        for (const auto& layer : _layers) {
+            if (layer) {
+                layerIds.push_back(layer->id());
+            }
+        }
+        return layerIds;
+    }
+
+    void GpuLightmapper::widenLightsForBake()
+    {
         // Lights are filtered per layer, so every scene light has to be told about the
         // private bake layers or the bake would only pick up ambient. Their original
         // layer lists are restored once the bake is collected.
-        std::vector<int> bakeLayerIds;
-        bakeLayerIds.reserve(_layers.size());
-        for (const auto& layer : _layers) {
-            if (layer) {
-                bakeLayerIds.push_back(layer->id());
-            }
-        }
+        const std::vector<int> bakeLayers = bakeLayerIds();
         // Every instance, including inactive ones: this only widens and then
         // restores each light's layer list, and a light disabled during the bake
         // still has to get its own list back.
@@ -197,7 +240,7 @@ namespace visutwin::canvas
             }
             _lightLayerBackup.emplace_back(lightComponent, lightComponent->layers());
             std::vector<int> layerIds = lightComponent->layers();
-            layerIds.insert(layerIds.end(), bakeLayerIds.begin(), bakeLayerIds.end());
+            layerIds.insert(layerIds.end(), bakeLayers.begin(), bakeLayers.end());
             lightComponent->setLayers(layerIds);
 
             // A light on MASK_BAKE reports castShadows() == false by design
@@ -210,43 +253,32 @@ namespace visutwin::canvas
                 lightComponent->setMask(MASK_AFFECT_LIGHTMAPPED);
             }
         }
+    }
 
+    void GpuLightmapper::prepareDirectionalSamples()
+    {
         // Directional lights bake as N virtual copies when soft shadows are asked for, so
         // they sit out the direct-light frame and contribute one accumulated pass each.
         _directionalLights.clear();
         _dirSample = -1;
         _dirSampleCount = 0;
-        if (_options.directionalBakeNumSamples > 1 && _options.directionalBakeArea > 0.0f) {
-            for (auto* lightComponent : LightComponent::instances()) {
-                if (!lightComponent || !lightComponent->active() ||
-                    lightComponent->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
-                    continue;
-                }
-                auto* node = lightComponent->entity();
-                _directionalLights.emplace_back(lightComponent,
-                    node ? node->localRotation() : Quaternion(),
-                    lightComponent->intensity(), lightComponent->luminance());
-                lightComponent->setEnabled(false);
-            }
-            if (!_directionalLights.empty()) {
-                _dirSampleCount = _options.directionalBakeNumSamples;
-            }
+        if (!(_options.directionalBakeNumSamples > 1 && _options.directionalBakeArea > 0.0f)) {
+            return;
         }
-
-        // Ambient occlusion: the scene's own ambient is suppressed for the bake and
-        // re-introduced as virtual lights, so the ambient term carries visibility
-        // instead of being flat. Sample -1 is the direct-light pass.
-        _ambientSample = -1;
-        _ambientNormalization = 0.0f;
-        if (_options.ambientBake && _options.ambientBakeNumSamples > 0) {
-            auto scene = _engine->scene();
-            _savedAmbient = scene->ambientLight();
-            setupAmbientLight();
+        for (auto* lightComponent : LightComponent::instances()) {
+            if (!lightComponent || !lightComponent->active() ||
+                lightComponent->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
+                continue;
+            }
+            auto* node = lightComponent->entity();
+            _directionalLights.emplace_back(lightComponent,
+                node ? node->localRotation() : Quaternion(),
+                lightComponent->intensity(), lightComponent->luminance());
+            lightComponent->setEnabled(false);
         }
-
-        _pending = true;
-        _framesWaited = 0;
-        spdlog::info("GpuLightmapper: baking {} mesh(es) in UV space", _targets.size());
+        if (!_directionalLights.empty()) {
+            _dirSampleCount = _options.directionalBakeNumSamples;
+        }
     }
 
     bool GpuLightmapper::update()
@@ -325,13 +357,7 @@ namespace visutwin::canvas
         _ambientLight->setMask(MASK_AFFECT_LIGHTMAPPED);
         _ambientLight->setEnabled(false);   // enabled once the direct pass is done
 
-        std::vector<int> layerIds;
-        for (const auto& layer : _layers) {
-            if (layer) {
-                layerIds.push_back(layer->id());
-            }
-        }
-        _ambientLight->setLayers(layerIds);
+        _ambientLight->setLayers(bakeLayerIds());
     }
 
     void GpuLightmapper::beginAccumulation()
