@@ -51,6 +51,11 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPassShadowLocalNonClustered::prepareShaders()
+    {
+        prepareLocalShadowShaders(_graphicsDevice, false);
+    }
+
     void RenderPassShadowLocalNonClustered::execute()
     {
         if (!_graphicsDevice || !_shadowCamera || !_shadowCamera->node()) {

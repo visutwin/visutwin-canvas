@@ -244,6 +244,13 @@ void main() {
         }
     }
 
+    void RenderPassDofBlur::prepareShaders()
+    {
+        if (!shader()) {
+            useCachedShader("dof-blur-quad", "dofBlurVertex", "dofBlurFragment", DOF_BLUR_MSL, DOF_BLUR_GLSL);
+        }
+    }
+
     void RenderPassDofBlur::execute()
     {
         if (_kernel.empty()) {
@@ -269,22 +276,8 @@ void main() {
             return;
         }
 
-        if (!shader()) {
-            constexpr const char* cacheKey = "dof-blur-quad";
-            auto cached = gd->getCachedShader(cacheKey);
-            if (!cached) {
-                ShaderDefinition definition;
-                definition.name = cacheKey;
-                definition.vshader = "dofBlurVertex";
-                definition.fshader = "dofBlurFragment";
-                cached = createShader(gd.get(), definition,
-                    gd->shaderLanguage() == ShaderLanguage::Glsl ? DOF_BLUR_GLSL : DOF_BLUR_MSL);
-                if (cached) {
-                    gd->setCachedShader(cacheKey, cached);
-                }
-            }
-            setShader(cached);
-        }
+        // Normally there already: the frame graph prepares every pass's shaders first.
+        prepareShaders();
         if (!shader()) {
             return;
         }

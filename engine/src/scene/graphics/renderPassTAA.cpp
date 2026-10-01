@@ -77,6 +77,13 @@ namespace visutwin::canvas
         setOptions(options);
     }
 
+    void RenderPassTAA::prepareShaders()
+    {
+        if (!shader()) {
+            useCachedShader("taa-quad", "taaVertex", "taaFragment", taa_shaders::TAA_MSL, taa_shaders::TAA_GLSL);
+        }
+    }
+
     void RenderPassTAA::execute()
     {
         const auto gd = device();
@@ -102,23 +109,8 @@ namespace visutwin::canvas
             camera->projection() == ProjectionType::Orthographic ? 1.0f : 0.0f
         };
 
-        if (!shader()) {
-            constexpr const char* cacheKey = "taa-quad";
-            auto cached = gd->getCachedShader(cacheKey);
-            if (!cached) {
-                ShaderDefinition definition;
-                definition.name = cacheKey;
-                definition.vshader = "taaVertex";
-                definition.fshader = "taaFragment";
-                cached = createShader(gd.get(), definition,
-                    gd->shaderLanguage() == ShaderLanguage::Glsl
-                        ? taa_shaders::TAA_GLSL : taa_shaders::TAA_MSL);
-                if (cached) {
-                    gd->setCachedShader(cacheKey, cached);
-                }
-            }
-            setShader(cached);
-        }
+        // Normally there already: the frame graph prepares every pass's shaders first.
+        prepareShaders();
         if (!shader()) {
             return;
         }

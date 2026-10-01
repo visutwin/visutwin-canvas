@@ -35,6 +35,7 @@ namespace visutwin::canvas
         void update(const std::vector<Light*>& localLights);
 
         void execute() override;
+        void prepareShaders() override;
 
     private:
         std::shared_ptr<GraphicsDevice> _graphicsDevice;

@@ -141,6 +141,7 @@ namespace visutwin::canvas
         }
 
         void execute() override;
+        void prepareShaders() override;
 
     private:
         Texture* _sceneTexture = nullptr;

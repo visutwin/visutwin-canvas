@@ -19,6 +19,7 @@ namespace visutwin::canvas
 
         void before() override;
         void execute() override;
+        void prepareShaders() override;
         void frameUpdate() const override;
 
         std::shared_ptr<Texture> update();

@@ -175,8 +175,9 @@ namespace visutwin::canvas
          * Image-loader callback for tinygltf.
          *
          * Public so the background ContainerResourceHandler can register it
-         * when calling tinygltf::LoadBinaryFromMemory.  Uses per-thread
-         * stb_image flip state for thread safety.
+         * when calling tinygltf::LoadBinaryFromMemory. It decodes NOTHING: every image
+         * is kept as its encoded bytes (marked `as_is`, or recognisable as KTX2), and
+         * prepareFromModel decodes or transcodes them all at once, one per thread.
          */
         static bool loadImageData(tinygltf::Image* image, int imageIndex,
             std::string* err, std::string* warn, int reqWidth, int reqHeight,

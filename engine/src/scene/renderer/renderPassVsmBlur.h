@@ -28,6 +28,7 @@ namespace visutwin::canvas
             float cascadeTileSize = 1.0f);
 
         void execute() override;
+        void prepareShaders() override;
 
     private:
         Texture* _sourceTexture;

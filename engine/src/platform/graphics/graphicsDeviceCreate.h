@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <string>
 #include <memory>
 
 #include "graphicsDevice.h"
@@ -38,6 +39,14 @@ namespace visutwin::canvas
 #else
         bool enableValidation{false};
 #endif
+
+        /// Keep compiled shaders on disk between runs where the backend has to do that
+        /// itself (Vulkan: the SPIR-V it compiles from GLSL at run time, and its
+        /// pipeline cache; Metal's system cache needs no help). `shaderCacheDirectory`
+        /// empty means a per-user cache directory — see ShaderDiskCache::resolveDirectory,
+        /// which also lists the environment overrides.
+        bool persistentShaderCache{true};
+        std::string shaderCacheDirectory;
     };
 
     /// Human-readable backend name ("Metal", "Vulkan", "WebGPU").

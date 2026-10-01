@@ -268,6 +268,17 @@ Shader variants are cached on an exact `ProgramLibrary::VariantKey` (program-nam
 hash + the feature set itself + chunk-override hashes), compared in full rather
 than folded into one integer, so no two variants can alias.
 
+**A material remembers the forward shader it resolved to, and three things key that
+memo.** `getForwardShader` rebuilds the options, the program name and the variant key
+only when the material's `uniformsVersion()` moved, the draw's flags differ, the
+library's frame switches differ (`forwardFrameBits`) or the chunk registry changed;
+otherwise it returns `Material::forwardShaderMemo()` (two entries, held weakly). So:
+a material mutator that changes a FEATURE without `markUniformsDirty()` keeps the old
+shader, and a new frame switch on `ProgramLibrary` must be added to
+`forwardFrameBits()` or it changes no variant for a material already drawn. Debug
+builds resolve in full on every memo hit and assert the two agree;
+`tests/forwardShaderMemoTests.cpp` moves each input.
+
 ### Adding a texture slot
 
 Bump `MetalTextureBinder::kMaxTextureSlots` AND add the slot to the
@@ -1271,6 +1282,17 @@ present, but the rule below never depends on reading it.
   unseen. `tests/glbMaterialPathsTests.cpp` and
   `tests/glbPointCloudTests.cpp` build models in memory and check both halves. A new
   glTF feature goes into the shared step, never into one entry point.
+- **A glTF's images are decoded in `prepareFromModel`, all at once, one per thread; the
+  tinygltf callback decodes nothing.** `GlbParser::loadImageData` keeps each image's
+  encoded bytes and marks it `as_is` (KTX2 payloads are recognised by their magic);
+  `prepareFromModel` decodes or transcodes every image in a `parallelFor`, straight to
+  RGBA8 through `StbVerticalFlipScope`, which is per thread. Decoding inside the
+  callback decodes a model's images one after another on the loading thread — three
+  quarters of what a textured model takes to load. An image that is NOT `as_is` holds
+  pixels someone else decoded (a model built in memory) and only gets widened to RGBA.
+  The body of that loop may touch nothing shared: each image fills its own slot.
+  `tests/glbImageDecodeTests.cpp` holds every channel count, the flip and 48 images
+  staying in their own slots.
 - **glTF cameras and `KHR_lights_punctual` lights are imported DISABLED**, as upstream's
   `createCamera` / `createLight` build them; an app enables the ones it wants
   (`findComponents<CameraComponent>()`). A camera sits on its node (glTF and this engine
@@ -1848,6 +1870,41 @@ present, but the rule below never depends on reading it.
   reset it, or the next draw skips a bind it needed. Per-draw work must not allocate:
   the pipeline's colour formats are a fixed array, and `_materialUniformSlots` is stamped
   with `_frameSerial` instead of cleared (clearing frees a node per material per frame).
+- **A shader is CREATED before the frame's first pass draws, and on Metal creating it is
+  what starts its compile.** `MetalShader` compiles its library asynchronously from its
+  constructor and `getLibrary` waits for it. Compiling MSL source is the whole cost of a
+  shader the system has not cached (about 0.4 s each; the back-end pipeline step is a
+  twentieth of that), so shaders compiled on first use make a frame that needs sixteen
+  new ones wait for them in a row — a 7 s first frame on `post-processing` with a cold
+  system cache, 1.5 s with them compiling side by side. Three pieces keep the creations
+  ahead of the uses: `FrameGraph::render` calls `RenderPass::prepareShaders()` on every
+  pass (and its before/after passes) before the first executes; the forward pass
+  resolves its render actions' variants there (`Renderer::prepareForwardShaders`, due on
+  the first frame and the frame after one that built a variant); and
+  `renderForwardLayer` resolves once more right before its draw loop, with the frame
+  switches as they then are (one of them, the lighting-mode SSAO texture, is published
+  by a pass of the same frame). A NEW PASS creates its shaders in `prepareShaders()`
+  (a quad pass: `useCachedShader`; a depth-only pass: `prepareDepthOnlyShaders`) and
+  calls it from `execute()` too; one that creates a shader in `execute()` alone still
+  renders, and waits alone for its compile the first time. An override must cost nothing
+  once its shaders exist. Measure a change here COLD: move
+  `$(getconf DARWIN_USER_CACHE_DIR)/com.visutwin.<example>` aside for the run and put
+  it back (a warm first frame is ~40 ms whatever the code does).
+- **Vulkan keeps its compiled shaders between runs itself** (`ShaderDiskCache`, in
+  `~/Library/Caches/visutwin-canvas` or `$XDG_CACHE_HOME/visutwin-canvas`;
+  `GraphicsDeviceOptions::persistentShaderCache` / `shaderCacheDirectory`;
+  `VISUTWIN_SHADER_CACHE_DIR=<dir>` and `VISUTWIN_SHADER_CACHE=0` override both). Two
+  things go there: the SPIR-V `vulkanCompileGlsl` compiles at run time (every quad pass
+  and custom shader), keyed on the stage, the defines and the WHOLE source — an entry is
+  found by a hash and accepted only when the stored key matches byte for byte — and the
+  device's `VkPipelineCache`, which every graphics and compute pipeline is created
+  through (`pipelineCache()`, then `notePipelineCreated()`) and which is written back
+  120 frames after the last new pipeline and when the device goes away. Without them
+  every run reconverts each pipeline's SPIR-V (on MoltenVK most of a pipeline's
+  creation) and reruns shaderc: a warm first frame of 300 ms instead of 70. A compile
+  setting changed in `vulkanCompileGlsl` must change the tag at the top of its cache
+  key, or old entries are served. `vulkanSmoke` points the cache at a directory of its
+  own; `tests/shaderDiskCacheTests.cpp` holds the format and every miss.
 - **A camera frame's depth prepass RENDERS only where something reads the depth before
   the scene pass, or under MSAA** (`RenderPassCameraFrame::prepassRenders`).
   `prepassEnabled` means "there is a depth consumer" (TAA, SSAO, DOF, fog). Under MSAA

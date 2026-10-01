@@ -196,6 +196,13 @@ void main() {
         }
     }
 
+    void RenderPassVsmBlur::prepareShaders()
+    {
+        if (const auto dev = device()) {
+            (void)vsmBlurShader(dev.get());
+        }
+    }
+
     void RenderPassVsmBlur::execute()
     {
         auto dev = device();

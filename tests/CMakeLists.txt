@@ -186,6 +186,30 @@ target_link_libraries(visutwin-palette-sharing-tests PRIVATE visutwin-canvas)
 
 add_test(NAME palette-sharing COMMAND visutwin-palette-sharing-tests)
 
+add_executable(visutwin-shader-disk-cache-tests
+    shaderDiskCacheTests.cpp
+)
+
+target_link_libraries(visutwin-shader-disk-cache-tests PRIVATE visutwin-canvas)
+
+add_test(NAME shader-disk-cache COMMAND visutwin-shader-disk-cache-tests)
+
+add_executable(visutwin-forward-shader-memo-tests
+    forwardShaderMemoTests.cpp
+)
+
+target_link_libraries(visutwin-forward-shader-memo-tests PRIVATE visutwin-canvas)
+
+add_test(NAME forward-shader-memo COMMAND visutwin-forward-shader-memo-tests)
+
+add_executable(visutwin-glb-image-decode-tests
+    glbImageDecodeTests.cpp
+)
+
+target_link_libraries(visutwin-glb-image-decode-tests PRIVATE visutwin-canvas)
+
+add_test(NAME glb-image-decode COMMAND visutwin-glb-image-decode-tests)
+
 add_executable(visutwin-batch-split-tests
     batchSplitTests.cpp
 )

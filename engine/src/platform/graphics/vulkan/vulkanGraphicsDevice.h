@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "platform/graphics/shaderDiskCache.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "vulkanGpuProfiler.h"
@@ -164,6 +165,18 @@ namespace visutwin::canvas
         // ── Vulkan accessors (for internal use by Vulkan subsystems) ─────
         [[nodiscard]] VkDevice device() const { return _device; }
         [[nodiscard]] VkPhysicalDevice physicalDevice() const { return _physicalDevice; }
+
+        /// The cache every pipeline of this device is created through, loaded from the
+        /// shader cache directory and written back there (see createShaderCaches). Null
+        /// handle when it could not be created; pipeline creation accepts that.
+        [[nodiscard]] VkPipelineCache pipelineCache() const { return _pipelineCache; }
+        /// Whoever creates a pipeline through pipelineCache() says so, so the cache is
+        /// written back once the creations stop.
+        void notePipelineCreated()
+        {
+            ++_pipelinesCreated;
+            _framesSincePipelineCreated = 0;
+        }
         [[nodiscard]] VkQueue graphicsQueue() const { return _graphicsQueue; }
         [[nodiscard]] uint32_t graphicsQueueFamily() const { return _graphicsQueueFamily; }
         [[nodiscard]] VkQueue presentQueue() const { return _presentQueue; }
@@ -693,6 +706,23 @@ namespace visutwin::canvas
         std::shared_ptr<VertexBuffer> _pendingGSplatShBuffer;
         std::array<uint8_t, 256> _pendingGSplatParams{};
         size_t _pendingGSplatParamsSize = 0;
+
+        // ── Shaders kept between runs ────────────────────────────────────
+        // Without these every run converts each pipeline's SPIR-V to the driver's own
+        // language again (on MoltenVK that conversion is most of a pipeline's creation)
+        // and recompiles every run-time GLSL shader. The pipeline cache is written back
+        // when pipelines have been created and none has been for a while, and when the
+        // device goes away — a process that is killed never reaches the second.
+        void createShaderCaches(const GraphicsDeviceOptions& options);
+        void savePipelineCache();
+        void savePipelineCacheWhenSettled();
+        void destroyShaderCaches();
+        ShaderDiskCache _shaderDiskCache;
+        VkPipelineCache _pipelineCache = VK_NULL_HANDLE;
+        std::string _pipelineCacheKey;
+        uint64_t _pipelinesCreated = 0;
+        uint64_t _pipelinesSaved = 0;
+        int _framesSincePipelineCreated = 0;
 
         // ── Render pipeline ──────────────────────────────────────────────
         std::unique_ptr<VulkanRenderPipeline> _renderPipeline;

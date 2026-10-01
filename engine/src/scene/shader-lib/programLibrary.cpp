@@ -118,8 +118,18 @@ namespace visutwin::canvas
         }
     }
 
+    namespace
+    {
+        uint64_t nextProgramLibrarySerial()
+        {
+            static uint64_t serial = 0;
+            return ++serial;
+        }
+    }
+
     ProgramLibrary::ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device)
         : _device(device),
+          _serial(nextProgramLibrarySerial()),
           _chunks(device ? device->shaderLanguage() : ShaderLanguage::Msl)
     {
         // Mirrors upstream program registration model (program -> ordered chunk keys).
@@ -812,6 +822,78 @@ namespace visutwin::canvas
         return createShader(_device.get(), definition, sourceCode);
     }
 
+    namespace
+    {
+        // The draw's flags take the low bits of a memo's state word, the frame
+        // switches the rest.
+        constexpr unsigned kForwardDrawBitCount = 8;
+    }
+
+    uint64_t ProgramLibrary::forwardFrameBits() const
+    {
+        uint64_t bits = 0;
+        unsigned index = 0;
+        const auto add = [&bits, &index](const bool value) {
+            bits |= static_cast<uint64_t>(value) << index++;
+        };
+        // Every switch applyFrameOptions reads.
+        add(_envAtlasEnabled);
+        add(_reflectionProbeEnabled);
+        add(_clusteredLightingEnabled);
+        add(_ssaoEnabled);
+        add(_lightProbesEnabled);
+        add(_atmosphereEnabled);
+        add(_skyCubemapAvailable);
+        add(_planarReflectionDepthPass);
+        add(_lightmapBakePass);
+        add(_lightmapBakeAccumulate);
+        add(_debugPassEnabled);
+        add(_localShadowsEnabled);
+        add(_omniShadowsEnabled);
+        add(_cookie2DEnabled);
+        add(_cookieCubeEnabled);
+        add(_vsmShadowsEnabled);
+        add(_pcssShadowsEnabled);
+        add(_areaLightsEnabled);
+        return bits;
+    }
+
+    uint64_t ProgramLibrary::forwardStateBits(const bool transparentPass, const bool dynamicBatch,
+        const bool skinning, const bool morphing, const bool instancing, const bool instancingColor,
+        const bool instanceLightmap, const bool screenSpace) const
+    {
+        uint64_t bits = 0;
+        unsigned index = 0;
+        const auto add = [&bits, &index](const bool value) {
+            bits |= static_cast<uint64_t>(value) << index++;
+        };
+        add(transparentPass);
+        add(dynamicBatch);
+        add(skinning);
+        add(morphing);
+        add(instancing);
+        add(instancingColor);
+        add(instanceLightmap);
+        add(screenSpace);
+        static_assert(kForwardDrawBitCount == 8, "one bit per draw flag above");
+        return bits | (forwardFrameBits() << kForwardDrawBitCount);
+    }
+
+    bool ProgramLibrary::forwardShaderResolved(const Material* material, const uint64_t frameBits) const
+    {
+        if (!material) {
+            return false;
+        }
+        const uint64_t version = material->uniformsVersion();
+        for (const auto& memo : material->forwardShaderMemo()) {
+            if (memo.library == _serial && memo.materialVersion == version &&
+                (memo.state >> kForwardDrawBitCount) == frameBits) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     std::shared_ptr<Shader> ProgramLibrary::getForwardShader(const Material* material, const bool transparentPass,
         const bool dynamicBatch, const bool skinning, const bool morphing,
         const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace)
@@ -819,7 +901,57 @@ namespace visutwin::canvas
         if (!_device) {
             return nullptr;
         }
+        if (!material) {
+            return resolveForwardShader(material, transparentPass, dynamicBatch, skinning, morphing,
+                instancing, instancingColor, instanceLightmap, screenSpace);
+        }
 
+        // The resolution is a function of the material (as of its version), the draw's
+        // flags, the frame switches and the chunk registry. With all four as they were
+        // the last time, the answer is the one the material remembers.
+        const uint64_t state = forwardStateBits(transparentPass, dynamicBatch, skinning, morphing,
+            instancing, instancingColor, instanceLightmap, screenSpace);
+        const uint64_t version = material->uniformsVersion();
+        const uint64_t chunksHash = _chunks.hash();
+        for (const auto& memo : material->forwardShaderMemo()) {
+            if (memo.library == _serial && memo.materialVersion == version && memo.state == state &&
+                memo.chunksHash == chunksHash) {
+                if (auto shader = memo.shader.lock()) {
+#ifndef NDEBUG
+                    // A memo that disagrees with the full resolution means an input is
+                    // missing from the key: a material mutator that skipped
+                    // markUniformsDirty(), or a frame switch not in forwardStateBits.
+                    const auto resolved = resolveForwardShader(material, transparentPass, dynamicBatch,
+                        skinning, morphing, instancing, instancingColor, instanceLightmap, screenSpace);
+                    if (resolved != shader) {
+                        spdlog::error("ProgramLibrary: the forward shader remembered for material '{}' is not "
+                            "the one its state resolves to", material->name());
+                        assert(resolved == shader && "stale forward shader memo");
+                        return resolved;
+                    }
+#endif
+                    return shader;
+                }
+            }
+        }
+
+        auto shader = resolveForwardShader(material, transparentPass, dynamicBatch, skinning, morphing,
+            instancing, instancingColor, instanceLightmap, screenSpace);
+        if (shader) {
+            auto& memo = material->nextForwardShaderMemo();
+            memo.library = _serial;
+            memo.materialVersion = version;
+            memo.state = state;
+            memo.chunksHash = chunksHash;
+            memo.shader = shader;
+        }
+        return shader;
+    }
+
+    std::shared_ptr<Shader> ProgramLibrary::resolveForwardShader(const Material* material, const bool transparentPass,
+        const bool dynamicBatch, const bool skinning, const bool morphing,
+        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace)
+    {
         const ShaderVariantOptions options = buildForwardVariantOptions(material, transparentPass, dynamicBatch,
             skinning, morphing, instancing, instancingColor, instanceLightmap, screenSpace);
         const std::string programName = resolveProgramName(options);
@@ -842,6 +974,7 @@ namespace visutwin::canvas
         }
 
         const uint64_t variantId = key.hash();
+        ++_forwardVariantsCreated;
         auto shader = buildForwardShaderVariant(programName, options, variantId, material);
         if (!shader) {
             spdlog::error("Failed to build shader variant '{}' (id={:#x}, localShadows={}, shadows={}, envAtlas={})",
@@ -849,6 +982,18 @@ namespace visutwin::canvas
         }
         _forwardShaderCache[key] = shader;
         return shader;
+    }
+
+    void ProgramLibrary::prepareDepthOnlyShaders(const bool vsm)
+    {
+        const size_t index = vsm ? 1 : 0;
+        if (_depthOnlyPrepared[index] && _depthOnlyPreparedChunks[index] == _chunks.hash()) {
+            return;
+        }
+        _depthOnlyPrepared[index] = true;
+        _depthOnlyPreparedChunks[index] = _chunks.hash();
+        (void)getShadowShader(nullptr, false, false, false, false, false, vsm);
+        (void)getShadowShader(nullptr, true, false, false, false, false, vsm);
     }
 
     bool ProgramLibrary::shadowNeedsMaterial(const Material* material)

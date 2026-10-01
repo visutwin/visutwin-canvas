@@ -1661,6 +1661,68 @@ namespace visutwin::canvas
             bool operator==(const ShaderVariantInputs&) const = default;
         };
 
+        /// What a draw contributes to its shader variant, read off its mesh instance.
+        ShaderVariantInputs shaderVariantInputs(const MeshInstance* meshInstance, const Material* boundMaterial)
+        {
+            ShaderVariantInputs variant;
+            variant.material = boundMaterial;
+            if (!meshInstance) {
+                return variant;
+            }
+            // Hardware instancing is a property of the draw, not the material: a mesh instance
+            // that carries a per-instance buffer gets the instanced vertex stage, and the buffer's
+            // stride decides whether that stage also reads a per-instance base color.
+            const auto& drawInstancing = meshInstance->instancingData();
+            const auto& instanceBuffer = drawInstancing.compactedVertexBuffer
+                ? drawInstancing.compactedVertexBuffer : drawInstancing.vertexBuffer;
+            variant.dynamicBatch = meshInstance->isDynamicBatch();
+            variant.skinned = meshInstance->skinInstance() != nullptr;
+            variant.morphed = meshInstance->morphInstance() != nullptr;
+            variant.instanced = instanceBuffer != nullptr && drawInstancing.count > 0;
+            variant.instanceColor = variant.instanced && instanceBuffer->format() &&
+                instanceBuffer->format()->hasInstanceColor();
+            // A lightmap the mesh instance owns (a lightmapper's bake) selects the
+            // lightmap variant whatever the material says.
+            variant.instanceLightMap = meshInstance->lightMap() != nullptr;
+            variant.screenSpace = meshInstance->screenSpace();
+            return variant;
+        }
+
+        /// Resolves the forward shader of every draw whose material the library has not
+        /// resolved as it is now — a new material, an edited one, or one last drawn under
+        /// other frame switches — BEFORE anything draws with them. A backend that
+        /// compiles a shader when it is created (Metal: MetalShader) then compiles the
+        /// new variants side by side instead of the draw loop stopping at each for a
+        /// compile of its own. With nothing new this is one pass over the draws that
+        /// reads what the loop is about to read anyway.
+        ///
+        /// `meshInstanceOf` and `materialOf` read a draw; the frame switches must
+        /// already be set on the library (configureForwardShaderFeatures).
+        template <typename Draws, typename MeshInstanceOf, typename MaterialOf>
+        void resolveNewForwardShaders(ProgramLibrary& programLibrary, const Material* defaultMaterial,
+            const bool transparent, const Draws& draws, MeshInstanceOf&& meshInstanceOf, MaterialOf&& materialOf)
+        {
+            const uint64_t frameBits = programLibrary.forwardFrameBits();
+            const Material* lastMaterial = nullptr;
+            for (const auto& draw : draws) {
+                const Material* drawMaterial = materialOf(draw);
+                const Material* material = drawMaterial ? drawMaterial : defaultMaterial;
+                if (material == lastMaterial) {
+                    continue;
+                }
+                lastMaterial = material;
+                // A shader override is used as it is; a resolved material needs nothing.
+                if (!material || material->shaderOverride() ||
+                    programLibrary.forwardShaderResolved(material, frameBits)) {
+                    continue;
+                }
+                const ShaderVariantInputs variant = shaderVariantInputs(meshInstanceOf(draw), material);
+                (void)programLibrary.getForwardShader(material, transparent, variant.dynamicBatch,
+                    variant.skinned, variant.morphed, variant.instanced, variant.instanceColor,
+                    variant.instanceLightMap, variant.screenSpace);
+            }
+        }
+
         void submitGSplatDraw(const ForwardDrawContext& ctx, const ForwardDrawEntry& entry, GSplatInstance& gsplat)
         {
             GraphicsDevice& device = *ctx.device;
@@ -1846,6 +1908,14 @@ namespace visutwin::canvas
             uint32_t maskedLightsMask = MASK_AFFECT_DYNAMIC;
             filterLightsForMask(ctx.lights, maskedLightsMask, ctx.clusteredEnabled, maskedLights);
 
+            // New variants start compiling before the loop needs the first of them. The
+            // frame graph did this for the whole frame before any pass ran
+            // (prepareForwardShaders); this is the exact one, with the frame switches as
+            // they are now, for whatever that could not foresee.
+            resolveNewForwardShaders(ctx.programLibrary, ctx.defaultMaterial, ctx.transparent, entries,
+                [](const ForwardDrawEntry* entry) { return entry->meshInstance; },
+                [](const ForwardDrawEntry* entry) { return entry->material; });
+
             ShaderVariantInputs boundVariant;
 
             // The lighting block depends on the DRAW only through its light mask and
@@ -1866,29 +1936,12 @@ namespace visutwin::canvas
                 MeshInstance* meshInstance = entry->meshInstance;
                 const Material* boundMaterial = entry->material ? entry->material : ctx.defaultMaterial;
 
-                // Hardware instancing is a property of the draw, not the material: a mesh instance
-                // that carries a per-instance buffer gets the instanced vertex stage, and the buffer's
-                // stride decides whether that stage also reads a per-instance base color.
-                const auto& drawInstancing = meshInstance
-                    ? meshInstance->instancingData() : MeshInstance::InstancingData{};
-                const auto& instanceBuffer = drawInstancing.compactedVertexBuffer
-                    ? drawInstancing.compactedVertexBuffer : drawInstancing.vertexBuffer;
-
                 // A lightmap the mesh instance owns (a lightmapper's bake) overrides the
                 // material's, so it both selects the lightmap variant and is bound by the
                 // device over the material's lightmap slot.
                 Texture* instanceLightMap = meshInstance ? meshInstance->lightMap().get() : nullptr;
 
-                ShaderVariantInputs variant;
-                variant.material = boundMaterial;
-                variant.dynamicBatch = meshInstance && meshInstance->isDynamicBatch();
-                variant.skinned = meshInstance && meshInstance->skinInstance() != nullptr;
-                variant.morphed = meshInstance && meshInstance->morphInstance() != nullptr;
-                variant.instanced = instanceBuffer != nullptr && drawInstancing.count > 0;
-                variant.instanceColor = variant.instanced && instanceBuffer->format() &&
-                    instanceBuffer->format()->hasInstanceColor();
-                variant.instanceLightMap = instanceLightMap != nullptr;
-                variant.screenSpace = meshInstance && meshInstance->screenSpace();
+                const ShaderVariantInputs variant = shaderVariantInputs(meshInstance, boundMaterial);
 
                 device.setInstanceLightMap(instanceLightMap);
                 // Upstream's per-draw stencil (UI masks); null leaves the stencil off.
@@ -1947,7 +2000,8 @@ namespace visutwin::canvas
                 device.setCullMode(cullMode);
 
                 device.setVertexBuffer(entry->vertexBuffer, 0);
-                submitForwardDraw(ctx, *entry, variant, drawInstancing);
+                submitForwardDraw(ctx, *entry, variant,
+                    meshInstance ? meshInstance->instancingData() : MeshInstance::InstancingData{});
                 counters.forwardDrawCalls++;
             }
 
@@ -2065,6 +2119,47 @@ namespace visutwin::canvas
         }
 
         bindLayerClusters(clusters);
+    }
+
+    bool Renderer::forwardShaderPreparationDue()
+    {
+        if (!_device) {
+            return false;
+        }
+        // Decided once a frame: the first frame, and any frame after one that built a
+        // variant (new content tends to arrive over several frames).
+        const int frame = _device->renderVersion();
+        if (frame != _shaderPreparationFrame) {
+            _shaderPreparationFrame = frame;
+            const auto programLibrary = getProgramLibrary(_device);
+            const uint64_t created = programLibrary ? programLibrary->forwardVariantsCreated() : 0;
+            _shaderPreparationDue = !_shaderPreparationEver || created != _shaderPreparationVariantsSeen;
+            _shaderPreparationVariantsSeen = created;
+            _shaderPreparationEver = true;
+        }
+        return _shaderPreparationDue;
+    }
+
+    void Renderer::prepareForwardShaders(Camera* camera, Layer* layer, const bool transparent)
+    {
+        if (!camera || !layer || !_device || !forwardShaderPreparationDue()) {
+            return;
+        }
+        const auto programLibrary = getProgramLibrary(_device);
+        if (!programLibrary) {
+            return;
+        }
+        // The frame switches as renderForwardLayer will set them for this camera. One
+        // of them can still change before it runs (the lighting-mode SSAO texture is
+        // published by a pass of this frame); renderForwardLayer resolves again, with
+        // the switches as they then are.
+        configureForwardShaderFeatures(*programLibrary, *camera, _scene && _scene->clusteredLightingEnabled());
+        const CulledInstances& visible = culledInstances(camera, camera->node(), layer);
+        const auto defaultMaterial = getDefaultMaterial(_device);
+        resolveNewForwardShaders(*programLibrary, defaultMaterial.get(), transparent,
+            transparent ? visible.transparent : visible.opaque,
+            [](const MeshInstance* meshInstance) { return meshInstance; },
+            [](const MeshInstance* meshInstance) { return meshInstance ? meshInstance->material() : nullptr; });
     }
 
     void Renderer::renderForwardLayer(Camera* camera, RenderTarget* renderTarget, Layer* layer, bool transparent)

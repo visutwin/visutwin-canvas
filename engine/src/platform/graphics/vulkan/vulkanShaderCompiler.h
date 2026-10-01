@@ -33,6 +33,17 @@ namespace visutwin::canvas
         VulkanShaderStage stage, const std::string& name,
         const std::vector<std::pair<std::string, std::string>>& defines = {});
 
+    class ShaderDiskCache;
+    /// Where vulkanCompileGlsl keeps what it compiles, so the next run reads the
+    /// SPIR-V back instead of running the compiler (every quad pass and custom shader
+    /// is GLSL compiled at run time; a first frame spends longer in shaderc than in
+    /// anything else it does itself). The key is the stage, the defines and the source,
+    /// compared in full. Null turns it off. The device that owns the cache sets it and
+    /// clears it again before the cache goes away.
+    void setVulkanShaderDiskCache(const ShaderDiskCache* cache);
+    /// Clears it if it is still `cache` (another device may have set its own since).
+    void releaseVulkanShaderDiskCache(const ShaderDiskCache* cache);
+
 }
 
 #endif // VISUTWIN_HAS_VULKAN

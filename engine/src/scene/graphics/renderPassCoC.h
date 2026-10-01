@@ -21,6 +21,7 @@ namespace visutwin::canvas
         void setFocusRange(const float value) { _focusRange = value; }
 
         void execute() override;
+        void prepareShaders() override;
 
     private:
         CameraComponent* _cameraComponent = nullptr;

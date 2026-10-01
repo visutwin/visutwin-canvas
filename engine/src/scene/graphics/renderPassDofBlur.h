@@ -28,6 +28,7 @@ namespace visutwin::canvas
         int blurRingPoints() const { return _blurRingPoints; }
 
         void execute() override;
+        void prepareShaders() override;
 
     private:
         void rebuildKernel();

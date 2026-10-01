@@ -392,7 +392,8 @@ namespace visutwin::canvas
         VkComputePipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
         pipelineInfo.stage = stage;
         pipelineInfo.layout = resources.pipelineLayout;
-        if (vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
+        notePipelineCreated();
+        if (vkCreateComputePipelines(_device, _pipelineCache, 1, &pipelineInfo, nullptr,
                 &resources.pipeline) != VK_SUCCESS) {
             vkDestroyPipelineLayout(_device, resources.pipelineLayout, nullptr);
             vkDestroyDescriptorSetLayout(_device, resources.setLayout, nullptr);

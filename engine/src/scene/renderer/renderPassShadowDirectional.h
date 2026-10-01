@@ -25,6 +25,7 @@ namespace visutwin::canvas
 
         void execute() override;
         void after() override;
+        void prepareShaders() override;
 
     private:
         Light* _light = nullptr;

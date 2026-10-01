@@ -56,4 +56,10 @@ namespace visutwin::canvas
     /// shadow pass can count its caster draws into FrameCounters::shadowDrawCalls.
     bool drawDepthOnly(GraphicsDevice* device, ProgramLibrary* programLibrary,
         MeshInstance* meshInstance, const Matrix4& viewProjection, DepthOnlyShaders& shaders);
+
+    /// Creates the two depth-only programs every such pass binds before its loop (the
+    /// plain one and the dynamic-batch one), for a pass's prepareShaders(). `vsm` as
+    /// DepthOnlyShaders::vsm. The deformation variants stay lazy: most scenes have no
+    /// skinned or instanced casters and should not compile them.
+    void prepareDepthOnlyShaders(const std::shared_ptr<GraphicsDevice>& device, bool vsm = false);
 }

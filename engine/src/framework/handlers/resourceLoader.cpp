@@ -336,10 +336,10 @@ namespace visutwin::canvas
         spdlog::info("ContainerResourceHandler: read {} bytes from '{}'", result->bytes.size(), url);
 
         // ── Pre-parse GLB on the background thread ──────────────────────
-        // tinygltf::LoadBinaryFromMemory does the heavy CPU work: JSON
-        // parsing, embedded image decoding via stb_image, and buffer view
-        // resolution.  By running it here (on the I/O thread), only the
-        // fast GPU resource creation remains for the main-thread callback.
+        // tinygltf::LoadBinaryFromMemory parses the JSON and resolves the buffer
+        // views; the images stay encoded until prepareFromModel (below) decodes them,
+        // all at once. With both run here, on the I/O thread, only the fast GPU
+        // resource creation remains for the main-thread callback.
         const bool isGlb = hasExtension(url, ".glb");
         const bool isGltf = hasExtension(url, ".gltf");
 
@@ -377,8 +377,8 @@ namespace visutwin::canvas
             }
             if (ok) {
                 // Phase 2: pre-process all CPU-heavy work on the bg thread
-                // (Draco decompression, vertex extraction, tangent generation,
-                //  pixel format conversion, animation parsing).
+                // (image decoding, Draco decompression, vertex extraction, tangent
+                //  generation, animation parsing).
                 auto prepared = std::make_shared<PreparedGlbData>(
                     GlbParser::prepareFromModel(*model, _ktx2TargetFormat, url));
                 result->preparsed = std::move(model);

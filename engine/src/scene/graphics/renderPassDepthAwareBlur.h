@@ -23,6 +23,7 @@ namespace visutwin::canvas
             Texture* sourceTexture, CameraComponent* cameraComponent, bool horizontal);
 
         void execute() override;
+        void prepareShaders() override;
 
     private:
         Texture* _sourceTexture = nullptr;

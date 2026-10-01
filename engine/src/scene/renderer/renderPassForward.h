@@ -35,6 +35,7 @@ namespace visutwin::canvas
         void before() override;
         void execute() override;
         void after() override;
+        void prepareShaders() override;
 
     private:
         void updateClears();

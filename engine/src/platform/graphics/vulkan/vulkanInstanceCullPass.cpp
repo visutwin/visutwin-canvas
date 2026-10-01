@@ -76,7 +76,8 @@ namespace visutwin::canvas
         info.stage = stage;
         info.layout = _pipelineLayout;
         const VkResult result = vkCreateComputePipelines(
-            vk, VK_NULL_HANDLE, 1, &info, nullptr, &_pipeline);
+            vk, _device->pipelineCache(), 1, &info, nullptr, &_pipeline);
+        _device->notePipelineCreated();
         vkDestroyShaderModule(vk, module, nullptr);
         if (result != VK_SUCCESS) return false;
 

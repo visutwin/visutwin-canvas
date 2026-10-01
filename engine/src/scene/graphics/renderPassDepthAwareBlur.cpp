@@ -189,6 +189,13 @@ void main() {
     {
     }
 
+    void RenderPassDepthAwareBlur::prepareShaders()
+    {
+        if (!shader()) {
+            useCachedShader("depth-aware-blur-quad", "blurVertex", "blurFragment", BLUR_MSL, BLUR_GLSL);
+        }
+    }
+
     void RenderPassDepthAwareBlur::execute()
     {
         const auto gd = device();
@@ -208,22 +215,8 @@ void main() {
 
         const auto* camera = _cameraComponent->camera();
 
-        if (!shader()) {
-            constexpr const char* cacheKey = "depth-aware-blur-quad";
-            auto cached = gd->getCachedShader(cacheKey);
-            if (!cached) {
-                ShaderDefinition definition;
-                definition.name = cacheKey;
-                definition.vshader = "blurVertex";
-                definition.fshader = "blurFragment";
-                cached = createShader(gd.get(), definition,
-                    gd->shaderLanguage() == ShaderLanguage::Glsl ? BLUR_GLSL : BLUR_MSL);
-                if (cached) {
-                    gd->setCachedShader(cacheKey, cached);
-                }
-            }
-            setShader(cached);
-        }
+        // Normally there already: the frame graph prepares every pass's shaders first.
+        prepareShaders();
         if (!shader()) {
             return;
         }

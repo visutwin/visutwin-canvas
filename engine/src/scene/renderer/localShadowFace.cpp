@@ -89,6 +89,17 @@ void main() {}
         }
     }
 
+    void prepareLocalShadowShaders(const std::shared_ptr<GraphicsDevice>& device, const bool clearsRects)
+    {
+        if (!device) {
+            return;
+        }
+        prepareDepthOnlyShaders(device);
+        if (clearsRects) {
+            (void)clearDepthShader(device.get());
+        }
+    }
+
     bool bindLocalShadowState(GraphicsDevice* device, ProgramLibrary* programLibrary,
         const Light* light, DepthOnlyShaders& shaders)
     {

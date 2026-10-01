@@ -838,7 +838,8 @@ namespace visutwin::canvas
         pipelineInfo.renderPass = VK_NULL_HANDLE; // dynamic rendering
 
         VkPipeline pipeline = VK_NULL_HANDLE;
-        VkResult result = vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
+        VkResult result = vkCreateGraphicsPipelines(vk, _device->pipelineCache(), 1, &pipelineInfo, nullptr, &pipeline);
+        _device->notePipelineCreated();
         if (result != VK_SUCCESS) {
             spdlog::error("Failed to create Vulkan graphics pipeline: {}", static_cast<int>(result));
         }

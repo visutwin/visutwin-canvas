@@ -66,6 +66,11 @@ namespace visutwin::canvas
         setOptions(options);
     }
 
+    void RenderPassPrepass::prepareShaders()
+    {
+        prepareDepthOnlyShaders(device());
+    }
+
     void RenderPassPrepass::execute()
     {
         const auto gd = device();

@@ -103,6 +103,19 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPassForward::prepareShaders()
+    {
+        if (!_renderer) {
+            return;
+        }
+        for (const auto* renderAction : _renderActions) {
+            if (renderAction && renderAction->camera) {
+                _renderer->prepareForwardShaders(renderAction->camera->camera(), renderAction->layer,
+                    renderAction->transparent);
+            }
+        }
+    }
+
     void RenderPassForward::renderRenderAction(RenderAction* renderAction, const bool firstRenderAction)
     {
         (void)firstRenderAction;

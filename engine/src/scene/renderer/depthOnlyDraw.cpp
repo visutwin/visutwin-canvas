@@ -19,6 +19,13 @@
 
 namespace visutwin::canvas
 {
+    void prepareDepthOnlyShaders(const std::shared_ptr<GraphicsDevice>& device, const bool vsm)
+    {
+        if (const auto programLibrary = getProgramLibrary(device)) {
+            programLibrary->prepareDepthOnlyShaders(vsm);
+        }
+    }
+
     bool drawDepthOnly(GraphicsDevice* device, ProgramLibrary* programLibrary,
         MeshInstance* meshInstance, const Matrix4& viewProjection, DepthOnlyShaders& shaders)
     {

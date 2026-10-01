@@ -62,6 +62,15 @@ namespace visutwin::canvas
         void execute() override;
 
         CullMode cullMode() const { return _cullMode; }
+
+    protected:
+        /// Takes the device-cached shader of this name as the pass's shader, creating
+        /// it on first use from the source in the device's language. What a quad
+        /// pass's prepareShaders() calls.
+        void useCachedShader(const char* cacheKey, const char* vertexEntry, const char* fragmentEntry,
+            const char* msl, const char* glsl);
+
+    public:
         void setCullMode(const CullMode value) { _cullMode = value; }
 
         const std::shared_ptr<BlendState>& blendState() const { return _blendState; }

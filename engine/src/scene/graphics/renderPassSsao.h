@@ -49,6 +49,7 @@ namespace visutwin::canvas
         Texture* ssaoTexture() const { return _ssaoTexture.get(); }
 
         void execute() override;
+        void prepareShaders() override;
         void after() override;
 
         void setScale(float value);

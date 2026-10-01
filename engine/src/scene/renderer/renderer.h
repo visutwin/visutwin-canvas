@@ -41,6 +41,16 @@ namespace visutwin::canvas
 
         void renderForwardLayer(Camera* camera, RenderTarget* renderTarget, Layer* layer, bool transparent);
 
+        /// Creates the forward shaders a (camera, layer) sublayer will draw with, ahead
+        /// of the frame's first pass (RenderPass::prepareShaders for the forward pass):
+        /// every culled draw whose material the library has not resolved yet. Does
+        /// nothing on most frames — it is due on the first frame and on the frame after
+        /// one that built a variant — because renderForwardLayer makes the same check
+        /// itself, exactly, right before it draws; this one exists so that a frame's new
+        /// variants start compiling together, before its shadow and effect passes, and
+        /// not one layer at a time.
+        void prepareForwardShaders(Camera* camera, Layer* layer, bool transparent);
+
         // Collects directional shadow-casting lights for a camera, allocates shadow maps,
         // and calls ShadowRendererDirectional::cull() to position shadow cameras.
         // Must be called once per frame before buildFrameGraph().
@@ -238,6 +248,12 @@ namespace visutwin::canvas
         /// Sets the frame-wide shader feature switches (lights, sky, SSAO, probes,
         /// atmosphere) for this camera, and binds the area-light LUTs and atmosphere
         /// uniforms they imply.
+        bool forwardShaderPreparationDue();
+        int _shaderPreparationFrame = -1;
+        bool _shaderPreparationDue = false;
+        bool _shaderPreparationEver = false;
+        uint64_t _shaderPreparationVariantsSeen = 0;
+
         void configureForwardShaderFeatures(ProgramLibrary& programLibrary, const Camera& camera,
             bool clusteredEnabled);
 

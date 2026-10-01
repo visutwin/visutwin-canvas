@@ -6,6 +6,7 @@
 #define VMA_IMPLEMENTATION
 #include "vulkanGraphicsDevice.h"
 
+#include <chrono>
 #include <algorithm>
 #include <cstring>
 #include <vector>
@@ -155,6 +156,7 @@ namespace visutwin::canvas
         }
 
         createAllocator();
+        createShaderCaches(options);
 
         if (!initSwapchain(_width, _height)) {
             throw std::runtime_error("VulkanGraphicsDevice: swapchain creation failed");
@@ -431,6 +433,92 @@ namespace visutwin::canvas
         }
     }
 
+    void VulkanGraphicsDevice::createShaderCaches(const GraphicsDeviceOptions& options)
+    {
+        _shaderDiskCache = ShaderDiskCache(ShaderDiskCache::resolveDirectory(
+            options.shaderCacheDirectory, options.persistentShaderCache));
+        if (_shaderDiskCache.enabled()) {
+            setVulkanShaderDiskCache(&_shaderDiskCache);
+        }
+
+        // The pipeline cache belongs to one device and one driver build; the driver
+        // checks its own header as well, and starts empty if it does not like the data.
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(_physicalDevice, &properties);
+        _pipelineCacheKey = "vulkan pipeline cache\n";
+        _pipelineCacheKey += "vendor " + std::to_string(properties.vendorID) +
+            " device " + std::to_string(properties.deviceID) +
+            " driver " + std::to_string(properties.driverVersion) + "\nuuid";
+        for (const uint8_t byte : properties.pipelineCacheUUID) {
+            _pipelineCacheKey += " " + std::to_string(byte);
+        }
+
+        const auto stored = _shaderDiskCache.load("pipelines", _pipelineCacheKey);
+        VkPipelineCacheCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+        if (stored) {
+            info.initialDataSize = stored->size();
+            info.pInitialData = stored->data();
+        }
+        if (vkCreatePipelineCache(_device, &info, nullptr, &_pipelineCache) != VK_SUCCESS) {
+            // Data the driver refuses outright: try once more with none.
+            info.initialDataSize = 0;
+            info.pInitialData = nullptr;
+            if (vkCreatePipelineCache(_device, &info, nullptr, &_pipelineCache) != VK_SUCCESS) {
+                _pipelineCache = VK_NULL_HANDLE;
+            }
+        }
+        if (_shaderDiskCache.enabled()) {
+            spdlog::info("Vulkan shader cache: '{}' ({} bytes of pipeline cache loaded)",
+                _shaderDiskCache.directory().string(), stored ? stored->size() : 0);
+        }
+    }
+
+    void VulkanGraphicsDevice::savePipelineCache()
+    {
+        _pipelinesSaved = _pipelinesCreated;
+        if (_pipelineCache == VK_NULL_HANDLE || !_shaderDiskCache.enabled()) {
+            return;
+        }
+        const auto started = std::chrono::steady_clock::now();
+        size_t size = 0;
+        if (vkGetPipelineCacheData(_device, _pipelineCache, &size, nullptr) != VK_SUCCESS || size == 0) {
+            return;
+        }
+        std::vector<uint8_t> data(size);
+        const VkResult result = vkGetPipelineCacheData(_device, _pipelineCache, &size, data.data());
+        if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
+            return;
+        }
+        data.resize(size);
+        if (_shaderDiskCache.store("pipelines", _pipelineCacheKey, data)) {
+            spdlog::debug("Vulkan shader cache: wrote {} bytes of pipeline cache in {:.1f} ms", data.size(),
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+        }
+    }
+
+    void VulkanGraphicsDevice::savePipelineCacheWhenSettled()
+    {
+        // Once per burst of new pipelines, two seconds or so after the last of them:
+        // serializing the cache is not free, and a scene that is still loading would
+        // write it again and again.
+        constexpr int kSettledFrames = 120;
+        if (_pipelinesCreated != _pipelinesSaved && ++_framesSincePipelineCreated > kSettledFrames) {
+            savePipelineCache();
+        }
+    }
+
+    void VulkanGraphicsDevice::destroyShaderCaches()
+    {
+        if (_pipelinesCreated != _pipelinesSaved) {
+            savePipelineCache();
+        }
+        if (_pipelineCache != VK_NULL_HANDLE) {
+            vkDestroyPipelineCache(_device, _pipelineCache, nullptr);
+            _pipelineCache = VK_NULL_HANDLE;
+        }
+        releaseVulkanShaderDiskCache(&_shaderDiskCache);
+    }
+
     VulkanGraphicsDevice::~VulkanGraphicsDevice()
     {
         flushUploads();
@@ -449,6 +537,8 @@ namespace visutwin::canvas
 
 
         _renderPipeline.reset();
+        // After the last pipeline is gone; written back first if this run added to it.
+        destroyShaderCaches();
         // Owns VkQueryPools — must die before the VkDevice.
         _vulkanGpuProfiler.reset();
         _gpuProfiler.reset();

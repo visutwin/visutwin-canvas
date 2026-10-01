@@ -40,6 +40,14 @@ namespace visutwin::canvas
         _name += "-face" + std::to_string(_face);
     }
 
+    void RenderPassShadowDirectional::prepareShaders()
+    {
+        if (_graphicsDevice && _light) {
+            // As execute() asks for them: a VSM light's pass writes moments.
+            prepareDepthOnlyShaders(_graphicsDevice, _light->shadowType() == SHADOW_VSM_16F);
+        }
+    }
+
     void RenderPassShadowDirectional::execute()
     {
         if (!_graphicsDevice || !_light) {

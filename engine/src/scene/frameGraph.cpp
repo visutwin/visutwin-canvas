@@ -187,6 +187,11 @@ namespace visutwin::canvas
     void FrameGraph::render(GraphicsDevice* /*device*/) {
         compile();
 
+        // Every pass creates its shaders before any pass draws (RenderPass::prepareShaders).
+        for (const auto& pass : _renderPasses) {
+            pass->prepareShadersWithChildren();
+        }
+
         for (auto pass : _renderPasses) {
             pass->render();
         }

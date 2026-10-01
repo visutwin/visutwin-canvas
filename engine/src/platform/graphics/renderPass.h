@@ -77,6 +77,19 @@ namespace visutwin::canvas
         virtual void after() {}
         virtual void execute() {}
 
+        /// CREATE — not use — every shader this pass will draw with. The frame graph
+        /// calls it on all of a frame's passes before the first one executes
+        /// (prepareShadersWithChildren), so a backend that starts compiling a shader
+        /// when it is created (Metal) compiles the frame's new shaders side by side,
+        /// and the frame waits for the slowest of them rather than for each in turn as
+        /// its pass comes up. Called every frame: an override must cost nothing once
+        /// its shaders exist, and must tolerate running before the pass's inputs do.
+        /// A pass that still creates a shader in execute() is correct, only slower the
+        /// first time.
+        virtual void prepareShaders() {}
+        /// prepareShaders() for this pass and its before and after passes, if enabled.
+        void prepareShadersWithChildren();
+
         void render();
 
         /** Debug name (set by subclasses) — used by the GPU profiler. */

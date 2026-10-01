@@ -114,6 +114,13 @@ namespace visutwin::canvas
         return device()->createRenderTarget(rtOptions);
     }
 
+    void RenderPassSsao::prepareShaders()
+    {
+        if (!shader()) {
+            useCachedShader("ssao-quad", "ssaoVertex", "ssaoFragment", ssao_shaders::SSAO_MSL, ssao_shaders::SSAO_GLSL);
+        }
+    }
+
     void RenderPassSsao::execute()
     {
         const auto gd = device();
@@ -188,23 +195,8 @@ namespace visutwin::canvas
         params.cameraNear = camera->nearClip();
         params.cameraFar = camera->farClip();
 
-        if (!shader()) {
-            constexpr const char* cacheKey = "ssao-quad";
-            auto cached = gd->getCachedShader(cacheKey);
-            if (!cached) {
-                ShaderDefinition definition;
-                definition.name = cacheKey;
-                definition.vshader = "ssaoVertex";
-                definition.fshader = "ssaoFragment";
-                cached = createShader(gd.get(), definition,
-                    gd->shaderLanguage() == ShaderLanguage::Glsl
-                        ? ssao_shaders::SSAO_GLSL : ssao_shaders::SSAO_MSL);
-                if (cached) {
-                    gd->setCachedShader(cacheKey, cached);
-                }
-            }
-            setShader(cached);
-        }
+        // Normally there already: the frame graph prepares every pass's shaders first.
+        prepareShaders();
         if (!shader()) {
             return;
         }

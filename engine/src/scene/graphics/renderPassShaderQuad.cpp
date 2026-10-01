@@ -22,6 +22,28 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPassShaderQuad::useCachedShader(const char* cacheKey, const char* vertexEntry,
+        const char* fragmentEntry, const char* msl, const char* glsl)
+    {
+        const auto gd = device();
+        if (!gd) {
+            return;
+        }
+        auto cached = gd->getCachedShader(cacheKey);
+        if (!cached) {
+            ShaderDefinition definition;
+            definition.name = cacheKey;
+            definition.vshader = vertexEntry;
+            definition.fshader = fragmentEntry;
+            cached = createShader(gd.get(), definition,
+                gd->shaderLanguage() == ShaderLanguage::Glsl ? glsl : msl);
+            if (cached) {
+                gd->setCachedShader(cacheKey, cached);
+            }
+        }
+        setShader(cached);
+    }
+
     void RenderPassShaderQuad::execute()
     {
         const auto gd = device();

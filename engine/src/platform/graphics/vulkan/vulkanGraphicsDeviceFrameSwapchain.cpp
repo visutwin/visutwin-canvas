@@ -614,6 +614,7 @@ namespace visutwin::canvas
             return;
         }
         _frameActive = false;
+        savePipelineCacheWhenSettled();
 
         auto& frame = _frames[_frameIndex];
         VkCommandBuffer cmd = frame.commandBuffer;

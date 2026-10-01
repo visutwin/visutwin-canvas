@@ -14,6 +14,7 @@
 #include "framework/components/light/lightComponent.h"
 
 #include <algorithm>
+#include <atomic>
 #include <numbers>
 #include <mutex>
 #include <array>
@@ -23,6 +24,7 @@
 #include <limits>
 #include <queue>
 #include <set>
+#include <thread>
 #include <vector>
 
 #include <draco/compression/decode.h>
@@ -94,41 +96,19 @@ namespace visutwin::canvas
             return true;
         }
 
-        int width = 0;
-        int height = 0;
-        int components = 0;
-        // Per-thread flip state, restored after the decode so it cannot leak into the
-        // next image loaded on this thread (see stbImageFlip.h).
-        stbi_uc* decoded = nullptr;
-        {
-            const StbVerticalFlipScope flipScope(true);
-            decoded = stbi_load_from_memory(bytes, size, &width, &height, &components, 0);
-        }
-        if (!decoded) {
-            // Unsupported image format (e.g. Basis .basis payloads).
-            // Generate a 1x1 magenta placeholder so the model geometry still loads.
-            const char* reason = stbi_failure_reason();
-            spdlog::warn("GLB image #{}: stb_image cannot decode ({}), mimeType={} — using placeholder",
-                imageIndex, reason ? reason : "unknown", image->mimeType);
-
-            image->width = 1;
-            image->height = 1;
-            image->component = 4;
-            image->bits = 8;
-            image->pixel_type = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
-            image->image = {255, 0, 255, 255}; // magenta RGBA
-            return true;
-        }
-
-        image->width = width;
-        image->height = height;
-        image->component = components;
+        // Every other image is kept ENCODED too, marked `as_is` (tinygltf's own flag
+        // for "the bytes are the file's, not pixels"), and decoded by prepareFromModel.
+        // tinygltf calls this for one image at a time while it parses, so decoding
+        // here decodes a model's images one after another on the calling thread, which
+        // is most of what loading a textured model costs; prepareFromModel has all of
+        // them in hand and decodes them side by side.
+        image->width = 0;
+        image->height = 0;
+        image->component = 0;
         image->bits = 8;
         image->pixel_type = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
-
-        const size_t decodedSize = static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(components);
-        image->image.assign(decoded, decoded + decodedSize);
-        stbi_image_free(decoded);
+        image->as_is = true;
+        image->image.assign(bytes, bytes + size);
         return true;
     }
 
@@ -1244,6 +1224,73 @@ namespace visutwin::canvas
         bool imageHoldsKtx2(const tinygltf::Image& image)
         {
             return Ktx2Transcoder::isKtx2(image.image.data(), image.image.size());
+        }
+
+        /// Decodes an image loadImageData left encoded (`as_is`) straight to RGBA8, with
+        /// row 0 at the top as every texture here has it. An image stb cannot read
+        /// (a .basis payload, say) becomes a 1x1 magenta placeholder so the model's
+        /// geometry still loads. Safe on any thread: the flip is per thread.
+        void decodeEncodedImage(const tinygltf::Image& image, const size_t imageIndex,
+            PreparedGlbData::ImageData& out)
+        {
+            int width = 0;
+            int height = 0;
+            int components = 0;
+            stbi_uc* decoded = nullptr;
+            {
+                // Per-thread flip state, restored after the decode so it cannot leak
+                // into the next image loaded on this thread (see stbImageFlip.h).
+                const StbVerticalFlipScope flipScope(true);
+                decoded = stbi_load_from_memory(image.image.data(), static_cast<int>(image.image.size()),
+                    &width, &height, &components, 4);
+            }
+            if (!decoded) {
+                const char* reason = stbi_failure_reason();
+                spdlog::warn("GLB image #{}: stb_image cannot decode ({}), mimeType={} — using placeholder",
+                    imageIndex, reason ? reason : "unknown", image.mimeType);
+                out.rgbaPixels = {255, 0, 255, 255};
+                out.width = 1;
+                out.height = 1;
+                out.valid = true;
+                return;
+            }
+            const size_t byteCount = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+            out.rgbaPixels.assign(decoded, decoded + byteCount);
+            stbi_image_free(decoded);
+            out.width = width;
+            out.height = height;
+            out.valid = true;
+        }
+
+        /// Runs body(i) for every i in [0, count), on this thread and as many others as
+        /// there is work and hardware for. Returns when all of it is done. The bodies
+        /// must not touch shared state: here each one fills its own image.
+        template <typename Body>
+        void parallelFor(const size_t count, Body&& body)
+        {
+            const size_t workers = std::min<size_t>(count,
+                std::max<size_t>(1, std::thread::hardware_concurrency()));
+            if (workers <= 1) {
+                for (size_t i = 0; i < count; ++i) {
+                    body(i);
+                }
+                return;
+            }
+            std::atomic<size_t> next{0};
+            const auto run = [&] {
+                for (size_t i = next.fetch_add(1); i < count; i = next.fetch_add(1)) {
+                    body(i);
+                }
+            };
+            std::vector<std::thread> threads;
+            threads.reserve(workers - 1);
+            for (size_t t = 1; t < workers; ++t) {
+                threads.emplace_back(run);
+            }
+            run();
+            for (auto& thread : threads) {
+                thread.join();
+            }
         }
 
         /// Create a block-compressed Texture from raw KTX2 bytes (KHR_texture_basisu).
@@ -2808,8 +2855,10 @@ namespace visutwin::canvas
         PreparedGlbData result;
 
         // ── Images: RGBA8, or transcoded KTX2 ────────────────────────
+        // All of them at once, one per thread: decoding is most of the time a textured
+        // model takes to load, and no image depends on another.
         result.images.resize(model.images.size());
-        for (size_t i = 0; i < model.images.size(); ++i) {
+        parallelFor(model.images.size(), [&](const size_t i) {
             auto& img = result.images[i];
             const auto& srcImage = model.images[i];
             if (imageHoldsKtx2(srcImage)) {
@@ -2825,8 +2874,14 @@ namespace visutwin::canvas
                     img.height = static_cast<int>(transcoded.height);
                     img.valid = true;
                 }
-                continue;
+                return;
             }
+            if (srcImage.as_is) {
+                // Left encoded by loadImageData.
+                decodeEncodedImage(srcImage, i, img);
+                return;
+            }
+            // Pixels someone else decoded (a model built in memory).
             img.valid = buildRgba8Image(srcImage, img.rgbaPixels);
             if (img.valid) {
                 img.width  = srcImage.width;
@@ -2835,7 +2890,7 @@ namespace visutwin::canvas
                 spdlog::warn("glTF image '{}' unsupported format (bits={}, components={}, pixelType={})",
                     srcImage.name, srcImage.bits, srcImage.component, srcImage.pixel_type);
             }
-        }
+        });
 
         // ── Primitives ───────────────────────────────────────────────
         // With animations, POINTS stay per node in local space so animating the node

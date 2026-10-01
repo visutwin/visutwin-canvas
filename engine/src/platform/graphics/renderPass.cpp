@@ -37,6 +37,24 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPass::prepareShadersWithChildren()
+    {
+        if (!_enabled) {
+            return;
+        }
+        for (const auto& pass : _beforePasses) {
+            if (pass) {
+                pass->prepareShadersWithChildren();
+            }
+        }
+        prepareShaders();
+        for (const auto& pass : _afterPasses) {
+            if (pass) {
+                pass->prepareShadersWithChildren();
+            }
+        }
+    }
+
     void RenderPass::render() {
         if (_enabled) {
             // null means backbuffer (real pass), "uninitialized" means no pass.

@@ -6,6 +6,7 @@
 #pragma once
 
 #include "shaderChunks.h"
+#include <array>
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
@@ -50,6 +51,19 @@ namespace visutwin::canvas
                                                     bool morphing = false, bool instancing = false,
                                                     bool instancingColor = false, bool instanceLightmap = false,
                                                     bool screenSpace = false);
+        /// The frame switches (setEnvAtlasEnabled ... setAreaLightsEnabled) as one word.
+        uint64_t forwardFrameBits() const;
+        /// Whether this library has already resolved a forward shader for the material
+        /// as it is now, under these frame switches. False for a material it has never
+        /// drawn, one edited since, or one last drawn under other switches: the cases
+        /// in which drawing it may have to build a new variant. (The draw's own flags
+        /// are not asked about; a material used by, say, skinned and unskinned meshes
+        /// reads as resolved once either has drawn.)
+        bool forwardShaderResolved(const Material* material, uint64_t frameBits) const;
+        /// How many forward variants this library has built. Moves when a frame met a
+        /// material state it had no shader for.
+        uint64_t forwardVariantsCreated() const { return _forwardVariantsCreated; }
+
         // The caster's material decides the shadow FRONTEND: an alpha-tested caster
         // has to sample its base-colour texture before writing depth, or it throws
         // the shadow of its bounding quad, and a caster with opacityShadowDither
@@ -60,6 +74,12 @@ namespace visutwin::canvas
                                                 bool dynamicBatch = false, bool skinning = false,
                                                 bool morphing = false, bool instancing = false,
                                                 bool instancingColor = false, bool vsm = false);
+
+        /// Creates the two depth-only programs every depth-only pass binds before its
+        /// loop — getShadowShader(nullptr) plain and dynamic-batch, for `vsm` — unless
+        /// it already has for the registry as it is. For a pass's prepareShaders(),
+        /// which runs every frame: after the first time this is one compare.
+        void prepareDepthOnlyShaders(bool vsm);
 
         // True when this caster's material needs that frontend, and therefore needs
         // its uniforms and textures bound for the shadow draw. Shadow passes bind a
@@ -305,7 +325,27 @@ namespace visutwin::canvas
         // alone; nothing else in the engine uses this.
         friend struct ProgramLibraryTestAccess;
 
+        /// The full resolution: options from the material, the draw and the frame
+        /// switches, then the variant cache, building the variant on a miss.
+        std::shared_ptr<Shader> resolveForwardShader(const Material* material, bool transparentPass,
+            bool dynamicBatch, bool skinning, bool morphing, bool instancing, bool instancingColor,
+            bool instanceLightmap, bool screenSpace);
+        /// Every input of that resolution that is not the material: the draw's flags in
+        /// the low bits, forwardFrameBits() above them. The switches are READ on every
+        /// call rather than kept in step by their setters, so a new switch has to be
+        /// added to forwardFrameBits to affect a variant at all — the Debug check in
+        /// getForwardShader fails if one is left out.
+        uint64_t forwardStateBits(bool transparentPass, bool dynamicBatch, bool skinning, bool morphing,
+            bool instancing, bool instancingColor, bool instanceLightmap, bool screenSpace) const;
+
         std::shared_ptr<GraphicsDevice> _device;
+        // Names this library in a material's ForwardShaderMemo; process-wide and never
+        // reused, so a memo left by a library that is gone can never match another.
+        uint64_t _serial;
+        uint64_t _forwardVariantsCreated = 0;
+        // prepareDepthOnlyShaders: done for [vsm] under this chunk registry hash.
+        std::array<bool, 2> _depthOnlyPrepared{};
+        std::array<uint64_t, 2> _depthOnlyPreparedChunks{};
         std::unordered_map<VariantKey, std::shared_ptr<Shader>, VariantKeyHash> _forwardShaderCache;
         mutable std::unordered_set<std::string> _warnedFeatureFlags;
         std::unordered_map<std::string, std::vector<std::string>> _registeredPrograms;

@@ -6,6 +6,10 @@
 
 #include "vulkanShaderCompiler.h"
 
+#include <atomic>
+#include <cstring>
+
+#include "platform/graphics/shaderDiskCache.h"
 #include "spdlog/spdlog.h"
 
 #ifdef VISUTWIN_HAS_SHADERC
@@ -14,6 +18,37 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        std::atomic<const ShaderDiskCache*> spirvDiskCache{nullptr};
+
+        // Everything the SPIR-V is a function of. The first line names the compile
+        // settings below (target environment, SPIR-V version, optimisation level):
+        // change one and this tag has to change with it, or old entries are served.
+        std::string spirvCacheKey(const std::string& source, const VulkanShaderStage stage,
+            const std::vector<std::pair<std::string, std::string>>& defines)
+        {
+            std::string key = "glsl->spirv vulkan1.3 spirv1.3 performance\n";
+            key += "stage " + std::to_string(static_cast<int>(stage)) + "\n";
+            for (const auto& [name, value] : defines) {
+                key += "define " + name + "=" + value + "\n";
+            }
+            key += source;
+            return key;
+        }
+    }
+
+    void setVulkanShaderDiskCache(const ShaderDiskCache* cache)
+    {
+        spirvDiskCache.store(cache);
+    }
+
+    void releaseVulkanShaderDiskCache(const ShaderDiskCache* cache)
+    {
+        const ShaderDiskCache* expected = cache;
+        spirvDiskCache.compare_exchange_strong(expected, nullptr);
+    }
+
 #ifdef VISUTWIN_HAS_SHADERC
 
     bool vulkanShaderCompilerAvailable()
@@ -25,6 +60,20 @@ namespace visutwin::canvas
         const VulkanShaderStage stage, const std::string& name,
         const std::vector<std::pair<std::string, std::string>>& defines)
     {
+        // A previous run's output for exactly this stage, these defines and this
+        // source, if there is one.
+        const ShaderDiskCache* cache = spirvDiskCache.load();
+        std::string cacheKey;
+        if (cache && cache->enabled()) {
+            cacheKey = spirvCacheKey(source, stage, defines);
+            if (const auto stored = cache->load("spirv", cacheKey);
+                stored && !stored->empty() && stored->size() % sizeof(uint32_t) == 0) {
+                std::vector<uint32_t> words(stored->size() / sizeof(uint32_t));
+                std::memcpy(words.data(), stored->data(), stored->size());
+                return words;
+            }
+        }
+
         static shaderc::Compiler compiler;
 
         shaderc::CompileOptions options;
@@ -58,7 +107,12 @@ namespace visutwin::canvas
                 name, result.GetNumWarnings(), result.GetErrorMessage());
         }
 
-        return {result.cbegin(), result.cend()};
+        std::vector<uint32_t> words{result.cbegin(), result.cend()};
+        if (cache && cache->enabled() && !words.empty()) {
+            cache->store("spirv", cacheKey, {reinterpret_cast<const uint8_t*>(words.data()),
+                words.size() * sizeof(uint32_t)});
+        }
+        return words;
     }
 
 #else // !VISUTWIN_HAS_SHADERC

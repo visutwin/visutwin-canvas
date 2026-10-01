@@ -14,6 +14,13 @@
 
 namespace visutwin::canvas
 {
+    void RenderPassCompose::prepareShaders()
+    {
+        if (!shader()) {
+            useCachedShader("compose-quad", "composeVertex", "composeFragment", compose_shaders::COMPOSE_MSL, compose_shaders::COMPOSE_GLSL);
+        }
+    }
+
     void RenderPassCompose::execute()
     {
         const auto gd = device();
@@ -21,24 +28,8 @@ namespace visutwin::canvas
             return;
         }
 
-        if (!shader()) {
-            constexpr const char* cacheKey = "compose-quad";
-            auto cached = gd->getCachedShader(cacheKey);
-            if (!cached) {
-                ShaderDefinition definition;
-                definition.name = cacheKey;
-                definition.vshader = "composeVertex";
-                definition.fshader = "composeFragment";
-                cached = createShader(gd.get(), definition,
-                    gd->shaderLanguage() == ShaderLanguage::Glsl
-                        ? compose_shaders::COMPOSE_GLSL
-                        : compose_shaders::COMPOSE_MSL);
-                if (cached) {
-                    gd->setCachedShader(cacheKey, cached);
-                }
-            }
-            setShader(cached);
-        }
+        // Normally there already: the frame graph prepares every pass's shaders first.
+        prepareShaders();
         if (!shader()) {
             return;
         }

@@ -154,6 +154,13 @@ void main() {
     {
     }
 
+    void RenderPassCoC::prepareShaders()
+    {
+        if (!shader()) {
+            useCachedShader("dof-coc-quad", "cocVertex", "cocFragment", COC_MSL, COC_GLSL);
+        }
+    }
+
     void RenderPassCoC::execute()
     {
         _params[0] = _focusDistance + 0.001f;
@@ -171,22 +178,8 @@ void main() {
             return;
         }
 
-        if (!shader()) {
-            constexpr const char* cacheKey = "dof-coc-quad";
-            auto cached = gd->getCachedShader(cacheKey);
-            if (!cached) {
-                ShaderDefinition definition;
-                definition.name = cacheKey;
-                definition.vshader = "cocVertex";
-                definition.fshader = "cocFragment";
-                cached = createShader(gd.get(), definition,
-                    gd->shaderLanguage() == ShaderLanguage::Glsl ? COC_GLSL : COC_MSL);
-                if (cached) {
-                    gd->setCachedShader(cacheKey, cached);
-                }
-            }
-            setShader(cached);
-        }
+        // Normally there already: the frame graph prepares every pass's shaders first.
+        prepareShaders();
         if (!shader()) {
             return;
         }

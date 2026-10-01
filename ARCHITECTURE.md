@@ -777,6 +777,8 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
 - **Compressed textures**: `.ktx2` and GLB `KHR_texture_basisu` transcode via
   `Ktx2Transcoder` to **ASTC 4x4** on the loader thread. Generate test assets with
   the vcpkg `basisu` CLI (`-ktx2 -mipmap -uastc`).
+- A glTF's images are decoded (or transcoded) in `GlbParser::prepareFromModel`, all at
+  once across the machine's cores; tinygltf's image callback only keeps the encoded bytes.
 - Parsers: GLB (tinygltf), OBJ (tinyobjloader), STL, Assimp. The GLB parser reads
   KHR_materials_transmission/_ior/_volume/_dispersion and generates tangents for
   triangle primitives with no TANGENT attribute.
@@ -785,6 +787,20 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
   own root transform.
 - stb's vertical-flip flag is **thread-local**. Setting the global one does not
   affect a loader-thread decode.
+
+### Shader creation and caches
+
+- A pass creates its shaders in `RenderPass::prepareShaders()`, which the frame graph
+  calls on every pass before the first one executes. On Metal a shader starts
+  compiling when it is created (`MetalShader`, asynchronously) and the first use waits
+  for it, so a frame's new shaders compile side by side. The forward pass resolves the
+  variants of its culled draws there and again right before each layer's draw loop.
+- A material remembers its resolved forward shader (`Material::ForwardShaderMemo`),
+  keyed on its `uniformsVersion()`, the draw's flags, the library's frame switches and
+  the chunk registry.
+- Metal relies on the system's shader cache between runs. Vulkan keeps its own in
+  `ShaderDiskCache`: run-time GLSL-to-SPIR-V output and the device's pipeline cache
+  (`GraphicsDeviceOptions::persistentShaderCache` / `shaderCacheDirectory`).
 
 ### Render pass types
 

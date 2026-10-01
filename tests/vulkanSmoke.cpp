@@ -8,12 +8,18 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <memory>
+#include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
+
+#include <unistd.h>
 
 #include "core/math/color.h"
 #include "core/math/matrix4.h"
@@ -152,6 +158,22 @@ int main()
     if (!checkBlendFactorMapping()) {
         return 1;
     }
+
+    // The devices below keep their compiled shaders in a directory of this run's own,
+    // so the test neither reads what an earlier run left in the user's cache nor adds
+    // to it, and still creates every pipeline through a pipeline cache under validation.
+    const std::filesystem::path shaderCacheDirectory = std::filesystem::temp_directory_path() /
+        ("visutwin-vulkan-smoke-shader-cache-" + std::to_string(static_cast<long long>(getpid())));
+    setenv("VISUTWIN_SHADER_CACHE_DIR", shaderCacheDirectory.string().c_str(), 1);
+    struct ShaderCacheCleanup
+    {
+        std::filesystem::path directory;
+        ~ShaderCacheCleanup()
+        {
+            std::error_code error;
+            std::filesystem::remove_all(directory, error);
+        }
+    } shaderCacheCleanup{shaderCacheDirectory};
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         spdlog::error("Vulkan smoke: SDL_Init failed: {}", SDL_GetError());

@@ -26,6 +26,11 @@ namespace visutwin::canvas
     bool bindLocalShadowState(GraphicsDevice* device, ProgramLibrary* programLibrary,
         const Light* light, DepthOnlyShaders& shaders);
 
+    /// Creates what a local shadow pass draws with before it draws: the depth-only
+    /// programs bindLocalShadowState binds and, for the atlas pass, the program
+    /// clearDepthRect clears a rect with. For the passes' prepareShaders().
+    void prepareLocalShadowShaders(const std::shared_ptr<GraphicsDevice>& device, bool clearsRects);
+
     /**
      * Draws face `face` of `light`'s shadow into whatever target and viewport are
      * bound: the caster list the light's cull prepared this frame, or a culled sweep

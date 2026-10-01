@@ -35,6 +35,12 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPassShadowLocalClustered::prepareShaders()
+    {
+        // The atlas pass clears each face's rect with a program of its own.
+        prepareLocalShadowShaders(_graphicsDevice, true);
+    }
+
     void RenderPassShadowLocalClustered::execute()
     {
         if (!_graphicsDevice || !_shadowRendererLocal) {

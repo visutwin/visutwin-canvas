@@ -7,8 +7,10 @@
 
 #include "scene/materials/materialUniformFields.h"
 
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <unordered_map>
 #include <string>
 #include <variant>
@@ -158,6 +160,31 @@ namespace visutwin::canvas
                 }
             }
             _retainedResources.push_back(owner);
+        }
+
+        /// A forward shader ProgramLibrary::getForwardShader resolved for this material,
+        /// with everything it was resolved from, so a repeat is a compare instead of a
+        /// rebuilt option set, a program name, a variant key and a cache lookup. Filled
+        /// and read by the library alone. `materialVersion` is uniformsVersion(), which
+        /// every mutator moves; the shader is held weakly, so the memo never keeps a
+        /// variant alive that the library has dropped.
+        struct ForwardShaderMemo
+        {
+            uint64_t library = 0;          // ProgramLibrary serial; 0 = empty
+            uint64_t materialVersion = 0;
+            uint64_t state = 0;            // the draw's flags and the library's frame switches
+            uint64_t chunksHash = 0;       // the registry's chunk overrides
+            std::weak_ptr<Shader> shader;
+        };
+        /// Two entries: a material is commonly drawn with two sets of inputs in one
+        /// frame (the scene camera and a reflection or bake camera, say), and one entry
+        /// would be rebuilt on every switch between them.
+        std::array<ForwardShaderMemo, 2>& forwardShaderMemo() const { return _forwardShaderMemo; }
+        /// The entry the next resolution replaces, alternating.
+        ForwardShaderMemo& nextForwardShaderMemo() const
+        {
+            _forwardShaderMemoNext = static_cast<uint8_t>((_forwardShaderMemoNext + 1) % _forwardShaderMemo.size());
+            return _forwardShaderMemo[_forwardShaderMemoNext];
         }
 
         const std::shared_ptr<Shader>& shaderOverride() const { return _shaderOverride; }
@@ -357,6 +384,8 @@ namespace visutwin::canvas
 
         // Optional user-provided shader override.
         std::shared_ptr<Shader> _shaderOverride;
+        mutable std::array<ForwardShaderMemo, 2> _forwardShaderMemo;
+        mutable uint8_t _forwardShaderMemoNext = 0;
         std::vector<std::shared_ptr<const void>> _retainedResources;
 
         // Material render states used by the renderer when binding draw calls.
