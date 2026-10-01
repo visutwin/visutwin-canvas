@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <optional>
+#include <vector>
 #include "platform/graphics/texture.h"
 #include "spdlog/spdlog.h"
 
@@ -35,11 +37,6 @@ namespace visutwin::canvas::gpu
             default:
                 return VK_IMAGE_ASPECT_COLOR_BIT;
             }
-        }
-
-        bool formatIsDepth(VkFormat fmt)
-        {
-            return (aspectForFormat(fmt) & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
         }
 
     }
@@ -88,6 +85,216 @@ namespace visutwin::canvas::gpu
         }
     }
 
+    namespace
+    {
+        /// One subresource of host data to copy into the image.
+        struct SubresourceUpload
+        {
+            const void* data = nullptr;
+            size_t size = 0;
+            uint32_t mipLevel = 0;
+            uint32_t layer = 0;
+            uint32_t width = 1;
+            uint32_t height = 1;
+        };
+
+        /// The host data a texture carries, laid out for one staging buffer.
+        struct HostUploads
+        {
+            std::vector<SubresourceUpload> uploads;
+            // Bytes the staging buffer needs, each upload 4-byte aligned.
+            size_t totalSize = 0;
+            bool allBaseLayersPresent = false;
+            bool hasExplicitHigherMips = false;
+        };
+
+        size_t alignTo4(const size_t value)
+        {
+            return (value + 3u) & ~size_t(3u);
+        }
+
+        /// The size one mip level of the owner's format needs, block-rounded when the
+        /// format is compressed.
+        size_t expectedLevelSize(const PixelFormat pixelFormat, const uint32_t mipWidth, const uint32_t mipHeight)
+        {
+            if (isCompressedPixelFormat(pixelFormat)) {
+                const uint32_t blockWidth = compressedPixelFormatBlockWidth(pixelFormat);
+                const uint32_t blockHeight = compressedPixelFormatBlockHeight(pixelFormat);
+                return static_cast<size_t>((mipWidth + blockWidth - 1) / blockWidth) *
+                    ((mipHeight + blockHeight - 1) / blockHeight) * compressedPixelFormatBlockSize(pixelFormat);
+            }
+            return static_cast<size_t>(mipWidth) * mipHeight * pixelFormatBytesPerPixel(pixelFormat);
+        }
+
+        /// Every subresource the owner holds host data for. A depth texture never
+        /// carries any. A level shorter than its format needs is reported and skipped.
+        HostUploads collectHostUploads(const Texture& owner, const bool isDepth,
+            const uint32_t arrayLayers, const uint32_t mipLevels)
+        {
+            HostUploads result;
+            result.allBaseLayersPresent = !isDepth;
+            if (isDepth) {
+                return result;
+            }
+
+            const PixelFormat pixelFormat = owner.format();
+            const uint32_t width = owner.width();
+            const uint32_t height = owner.height();
+            for (uint32_t layer = 0; layer < arrayLayers; ++layer) {
+                bool basePresent = false;
+                for (uint32_t mip = 0; mip < mipLevels; ++mip) {
+                    const void* source = owner.getLevel(mip, layer);
+                    const size_t sourceSize = owner.getLevelDataSize(mip, layer);
+                    if (!source || sourceSize == 0) {
+                        continue;
+                    }
+
+                    const uint32_t mipWidth = std::max(width >> mip, 1u);
+                    const uint32_t mipHeight = std::max(height >> mip, 1u);
+                    const size_t expectedSize = expectedLevelSize(pixelFormat, mipWidth, mipHeight);
+                    if (expectedSize == 0 || sourceSize < expectedSize) {
+                        spdlog::error(
+                            "VulkanTexture: subresource face={} mip={} has {} bytes, expected at least {}",
+                            layer, mip, sourceSize, expectedSize);
+                        continue;
+                    }
+
+                    result.totalSize = alignTo4(result.totalSize);
+                    result.uploads.push_back({source, expectedSize, mip, layer, mipWidth, mipHeight});
+                    result.totalSize += expectedSize;
+                    basePresent |= mip == 0;
+                    result.hasExplicitHigherMips |= mip > 0;
+                }
+                result.allBaseLayersPresent &= basePresent;
+            }
+            return result;
+        }
+
+        /// A filled staging buffer and the copy regions that read it.
+        struct StagedUploads
+        {
+            VkBuffer buffer = VK_NULL_HANDLE;
+            VmaAllocation allocation = VK_NULL_HANDLE;
+            std::vector<VkBufferImageCopy> regions;
+        };
+
+        /// Copies the host data into a new CPU-visible staging buffer. Nothing is left
+        /// allocated when it fails.
+        std::optional<StagedUploads> stageHostUploads(VmaAllocator allocator, const VkImageAspectFlags aspect,
+            const HostUploads& host)
+        {
+            StagedUploads staged;
+            VkBufferCreateInfo stagingInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            stagingInfo.size = host.totalSize;
+            stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            VmaAllocationCreateInfo stagingAllocInfo{};
+            stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+            if (vmaCreateBuffer(allocator, &stagingInfo, &stagingAllocInfo,
+                    &staged.buffer, &staged.allocation, nullptr) != VK_SUCCESS) {
+                spdlog::error("VulkanTexture: failed to allocate {}-byte staging buffer", host.totalSize);
+                return std::nullopt;
+            }
+
+            void* mapped = nullptr;
+            if (vmaMapMemory(allocator, staged.allocation, &mapped) != VK_SUCCESS) {
+                spdlog::error("VulkanTexture: failed to map staging buffer");
+                vmaDestroyBuffer(allocator, staged.buffer, staged.allocation);
+                return std::nullopt;
+            }
+            staged.regions.reserve(host.uploads.size());
+            size_t offset = 0;
+            for (const auto& upload : host.uploads) {
+                offset = alignTo4(offset);
+                memcpy(static_cast<uint8_t*>(mapped) + offset, upload.data, upload.size);
+
+                VkBufferImageCopy region{};
+                region.bufferOffset = offset;
+                region.imageSubresource = {aspect, upload.mipLevel, upload.layer, 1};
+                region.imageExtent = {upload.width, upload.height, 1};
+                staged.regions.push_back(region);
+
+                offset += upload.size;
+            }
+            vmaUnmapMemory(allocator, staged.allocation);
+            return staged;
+        }
+
+        /// What the recorded upload works on, captured by value: the commands run
+        /// later, when the device flushes its upload queue.
+        struct UploadTarget
+        {
+            VkImage image = VK_NULL_HANDLE;
+            VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+            uint32_t mipLevels = 1;
+            uint32_t arrayLayers = 1;
+            uint32_t width = 1;
+            uint32_t height = 1;
+        };
+
+        /// Fills levels 1..n-1 from level 0 by successive linear blits, leaving the
+        /// whole chain in SHADER_READ_ONLY. Level 0 enters in TRANSFER_DST.
+        void recordMipChainBlits(VkCommandBuffer cmd, const UploadTarget& target)
+        {
+            int32_t mipW = static_cast<int32_t>(target.width);
+            int32_t mipH = static_cast<int32_t>(target.height);
+            for (uint32_t level = 1; level < target.mipLevels; ++level) {
+                vulkanTransitionImageLayout(cmd, target.image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    target.aspect, level - 1, 1, 0, target.arrayLayers);
+
+                const int32_t nextW = std::max(mipW / 2, 1);
+                const int32_t nextH = std::max(mipH / 2, 1);
+
+                VkImageBlit blit{};
+                blit.srcSubresource = {target.aspect, level - 1, 0, target.arrayLayers};
+                blit.srcOffsets[1] = {mipW, mipH, 1};
+                blit.dstSubresource = {target.aspect, level, 0, target.arrayLayers};
+                blit.dstOffsets[1] = {nextW, nextH, 1};
+                vkCmdBlitImage(cmd,
+                    target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    target.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1, &blit, VK_FILTER_LINEAR);
+
+                mipW = nextW;
+                mipH = nextH;
+            }
+
+            vulkanTransitionImageLayout(cmd, target.image,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                target.aspect, 0, target.mipLevels - 1, 0, target.arrayLayers);
+            vulkanTransitionImageLayout(cmd, target.image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                target.aspect, target.mipLevels - 1, 1, 0, target.arrayLayers);
+        }
+
+        /// Copies the staged data into the image, generates the remaining mips when
+        /// asked, and leaves every subresource in SHADER_READ_ONLY.
+        void recordStagedUpload(VkCommandBuffer cmd, const UploadTarget& target, VkBuffer stagingBuffer,
+            const std::vector<VkBufferImageCopy>& regions, const bool generateMips)
+        {
+            vulkanTransitionImageLayout(cmd, target.image,
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                target.aspect, 0, target.mipLevels, 0, target.arrayLayers);
+
+            vkCmdCopyBufferToImage(cmd, stagingBuffer, target.image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                static_cast<uint32_t>(regions.size()), regions.data());
+
+            if (generateMips) {
+                recordMipChainBlits(cmd, target);
+            } else {
+                vulkanTransitionImageLayout(cmd, target.image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    target.aspect, 0, target.mipLevels, 0, target.arrayLayers);
+            }
+        }
+    }
+
     void VulkanTexture::uploadImmediate(GraphicsDevice* device)
     {
         auto* vkDev = static_cast<VulkanGraphicsDevice*>(device);
@@ -96,119 +303,181 @@ namespace visutwin::canvas::gpu
         _vkDevice = vkDev->device();
         _allocator = vkDev->vmaAllocator();
 
-        if (_image != VK_NULL_HANDLE) {
-            const VkImage oldImage = _image;
-            const VmaAllocation oldAllocation = _allocation;
-            const VkImageView oldView = _imageView;
-            const VkSampler oldSampler = _sampler;
-            vkDev->deferDestroy(
-                [vkDevice = _vkDevice, allocator = _allocator,
-                 oldImage, oldAllocation, oldView, oldSampler] {
-                    if (oldSampler != VK_NULL_HANDLE)
-                        vkDestroySampler(vkDevice, oldSampler, nullptr);
-                    if (oldView != VK_NULL_HANDLE)
-                        vkDestroyImageView(vkDevice, oldView, nullptr);
-                    vmaDestroyImage(allocator, oldImage, oldAllocation);
-                });
-            _image = VK_NULL_HANDLE;
-            _allocation = VK_NULL_HANDLE;
-            _imageView = VK_NULL_HANDLE;
-            _sampler = VK_NULL_HANDLE;
+        retireImage();
+        if (!resolveFormat(vkDev)) {
+            return;
+        }
+        resolveLevelsAndCapabilities(vkDev);
+        if (!createImage(vkDev) || !createImageView()) {
+            return;
+        }
+        // Sampler — only meaningful for color textures, but harmless on depth.
+        if (!createSampler(vkDev, _sampler)) {
+            releaseImageResources();
+            return;
         }
 
-        const uint32_t width = _owner->width();
-        const uint32_t height = _owner->height();
+        const UploadTarget target{_image, _aspect, _mipLevels, _arrayLayers, _owner->width(), _owner->height()};
+        const HostUploads host = collectHostUploads(*_owner, isDepth(), _arrayLayers, _mipLevels);
+        if (!host.uploads.empty()) {
+            auto staged = stageHostUploads(_allocator, _aspect, host);
+            if (!staged) {
+                releaseImageResources();
+                return;
+            }
+            // Mips are generated only when level 0 of every layer arrived and no
+            // higher level did: explicit higher levels are the owner's own chain.
+            const bool generateMips = _supportsLinearBlit && _mipLevels > 1 &&
+                host.allBaseLayersPresent && !host.hasExplicitHigherMips;
+            vkDev->enqueueUpload(
+                [target, stagingBuffer = staged->buffer, regions = std::move(staged->regions),
+                 generateMips](VkCommandBuffer cmd) {
+                    recordStagedUpload(cmd, target, stagingBuffer, regions, generateMips);
+                },
+                [allocator = _allocator, stagingBuffer = staged->buffer, stagingAlloc = staged->allocation] {
+                    vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
+                });
+        } else {
+            // No host data — but the image must still be in a defined layout
+            // before *any* shader can sample it (e.g. as a default-bound slot)
+            // and before any descriptor that references its view is allowed
+            // to be in flight.  Transition to SHADER_READ_ONLY here; the
+            // first render-target use will transition to the appropriate
+            // attachment layout, which is fine because LOAD_OP_CLEAR /
+            // LOAD_OP_DONT_CARE discard the contents anyway.
+            vkDev->enqueueUpload([target](VkCommandBuffer cmd) {
+                vulkanTransitionImageLayout(cmd, target.image,
+                    VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    target.aspect, 0, target.mipLevels, 0, target.arrayLayers);
+            });
+        }
+        std::fill(_subresourceLayouts.begin(), _subresourceLayouts.end(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+
+    void VulkanTexture::retireImage()
+    {
+        // A re-upload replaces the image. The old one may still be referenced by a
+        // frame in flight, so the device destroys it once that frame has completed.
+        if (_image == VK_NULL_HANDLE) {
+            return;
+        }
+        _deviceRef->deferDestroy(
+            [vkDevice = _vkDevice, allocator = _allocator,
+             oldImage = _image, oldAllocation = _allocation, oldView = _imageView, oldSampler = _sampler] {
+                if (oldSampler != VK_NULL_HANDLE)
+                    vkDestroySampler(vkDevice, oldSampler, nullptr);
+                if (oldView != VK_NULL_HANDLE)
+                    vkDestroyImageView(vkDevice, oldView, nullptr);
+                vmaDestroyImage(allocator, oldImage, oldAllocation);
+            });
+        _image = VK_NULL_HANDLE;
+        _allocation = VK_NULL_HANDLE;
+        _imageView = VK_NULL_HANDLE;
+        _sampler = VK_NULL_HANDLE;
+    }
+
+    bool VulkanTexture::resolveFormat(VulkanGraphicsDevice* device)
+    {
         _format = vulkanMapPixelFormat(_owner->format());
         if (_format == VK_FORMAT_UNDEFINED) {
             spdlog::error("VulkanTexture: pixel format {} has no Vulkan mapping",
                 static_cast<uint32_t>(_owner->format()));
-            return;
+            return false;
         }
         if (_format == VK_FORMAT_D24_UNORM_S8_UINT) {
             // Not supported by MoltenVK on Apple GPUs — probe for a fallback.
-            _format = vulkanSupportedDepthStencilFormat(vkDev->physicalDevice());
+            _format = vulkanSupportedDepthStencilFormat(device->physicalDevice());
         } else if (_format == VK_FORMAT_D32_SFLOAT ||
                    _format == VK_FORMAT_D16_UNORM) {
             VkFormatProperties depthProperties{};
             vkGetPhysicalDeviceFormatProperties(
-                vkDev->physicalDevice(), _format, &depthProperties);
+                device->physicalDevice(), _format, &depthProperties);
             if (!(depthProperties.optimalTilingFeatures &
                   VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
-                _format = vulkanSupportedDepthFormat(vkDev->physicalDevice());
+                _format = vulkanSupportedDepthFormat(device->physicalDevice());
             }
         }
         if (_format == VK_FORMAT_UNDEFINED) {
             spdlog::error(
                 "VulkanTexture: no supported Vulkan format for pixel format {}",
                 static_cast<uint32_t>(_owner->format()));
-            return;
+            return false;
         }
         _aspect = aspectForFormat(_format);
-        const bool isDepth = formatIsDepth(_format);
-        const bool isCubemap = _owner->isCubemap();
+        return true;
+    }
+
+    bool VulkanTexture::ownerHasHigherMipLevels() const
+    {
+        for (uint32_t layer = 0; layer < _arrayLayers; ++layer) {
+            for (uint32_t mip = 1; mip < _mipLevels; ++mip) {
+                if (_owner->getLevel(mip, layer) != nullptr && _owner->getLevelDataSize(mip, layer) != 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    void VulkanTexture::resolveLevelsAndCapabilities(VulkanGraphicsDevice* device)
+    {
         // Array textures (the clustered spot-shadow atlas is one) carry their slice
         // count in arrayLength. Ignoring it created a single-layer VkImage, and every
         // per-slice render target then tried to carve an attachment view at
         // baseArrayLayer >= 1 — invalid, and the slices had nowhere to render.
-        _arrayLayers = isCubemap
+        _arrayLayers = _owner->isCubemap()
             ? 6u
             : std::max(1u, _owner->getArrayLength());
         _mipLevels = std::max(1u, _owner->getNumLevels());
 
         VkFormatProperties formatProperties{};
         vkGetPhysicalDeviceFormatProperties(
-            vkDev->physicalDevice(), _format, &formatProperties);
+            device->physicalDevice(), _format, &formatProperties);
         const auto optimalFeatures = formatProperties.optimalTilingFeatures;
+        constexpr VkFormatFeatureFlags kLinearBlitFeatures = VK_FORMAT_FEATURE_BLIT_SRC_BIT |
+            VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
         _supportsLinearSampling =
             (optimalFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
-        _supportsLinearBlit = !isDepth &&
+        _supportsLinearBlit = !isDepth() &&
             !isCompressedPixelFormat(_owner->format()) &&
-            (optimalFeatures & (VK_FORMAT_FEATURE_BLIT_SRC_BIT |
-                                VK_FORMAT_FEATURE_BLIT_DST_BIT |
-                                VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) ==
-                (VK_FORMAT_FEATURE_BLIT_SRC_BIT |
-                 VK_FORMAT_FEATURE_BLIT_DST_BIT |
-                 VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT);
-        bool ownerHasHigherMips = false;
-        for (uint32_t layer = 0; layer < _arrayLayers && !ownerHasHigherMips; ++layer) {
-            for (uint32_t mip = 1; mip < _mipLevels; ++mip) {
-                ownerHasHigherMips =
-                    _owner->getLevel(mip, layer) != nullptr &&
-                    _owner->getLevelDataSize(mip, layer) != 0;
-                if (ownerHasHigherMips) break;
-            }
-        }
-        if (_mipLevels > 1 && !_supportsLinearBlit && !ownerHasHigherMips) {
+            (optimalFeatures & kLinearBlitFeatures) == kLinearBlitFeatures;
+        _supportsColorAttachment = !isDepth() &&
+            (optimalFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT);
+
+        // A chain this format cannot blit is kept only when the owner supplies it.
+        if (_mipLevels > 1 && !_supportsLinearBlit && !ownerHasHigherMipLevels()) {
             spdlog::warn(
                 "VulkanTexture: format {} cannot generate mipmaps; using level 0 only",
                 static_cast<int>(_format));
             _mipLevels = 1;
         }
+    }
 
+    bool VulkanTexture::createImage(VulkanGraphicsDevice* device)
+    {
+        const uint32_t width = _owner->width();
+        const uint32_t height = _owner->height();
+        const bool isCubemap = _owner->isCubemap();
         const VkImageCreateFlags imageFlags = isCubemap
             ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
-        _supportsColorAttachment = !isDepth &&
-            (optimalFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT);
+
         VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_DST_BIT |
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        if (isDepth) {
+        VkFormatFeatureFlags requiredFeatures = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+        if (isDepth()) {
             imageUsage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            requiredFeatures |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
         } else if (_supportsColorAttachment) {
             imageUsage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         }
         if (_owner->storage()) {
             imageUsage |= VK_IMAGE_USAGE_STORAGE_BIT;
-        }
-
-        VkFormatFeatureFlags requiredFeatures = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-        if (isDepth) {
-            requiredFeatures |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        }
-        if (_owner->storage()) {
             requiredFeatures |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
         }
-        if (!vulkanFormatSupportsImage(vkDev->physicalDevice(), _format,
+        if (!vulkanFormatSupportsImage(device->physicalDevice(), _format,
                 VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, imageUsage,
                 imageFlags, requiredFeatures, {width, height, 1},
                 _mipLevels, _arrayLayers, VK_SAMPLE_COUNT_1_BIT)) {
@@ -216,10 +485,9 @@ namespace visutwin::canvas::gpu
                 "VulkanTexture: format {} does not support requested usage {:#x}{}",
                 static_cast<int>(_format), static_cast<uint32_t>(imageUsage),
                 isCubemap ? " as a cubemap" : "");
-            return;
+            return false;
         }
 
-        // Image creation
         VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
         imageInfo.format = _format;
@@ -235,18 +503,20 @@ namespace visutwin::canvas::gpu
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-        VkResult result = vmaCreateImage(_allocator, &imageInfo, &allocInfo,
-            &_image, &_allocation, nullptr);
-        if (result != VK_SUCCESS) {
+        if (vmaCreateImage(_allocator, &imageInfo, &allocInfo, &_image, &_allocation, nullptr) != VK_SUCCESS) {
             spdlog::error("VulkanTexture: failed to create VkImage ({}x{}, fmt={})",
                 width, height, static_cast<int>(_format));
-            return;
+            return false;
         }
 
         _subresourceLayouts.assign(
             static_cast<size_t>(_mipLevels) * _arrayLayers,
             VK_IMAGE_LAYOUT_UNDEFINED);
+        return true;
+    }
 
+    bool VulkanTexture::createImageView()
+    {
         // Image view (full-resource view used for sampling).  Render-target
         // attachments use their own per-face / per-mip views owned by
         // VulkanRenderTarget, so this sampling view is always the full image.
@@ -254,7 +524,7 @@ namespace visutwin::canvas::gpu
         viewInfo.image = _image;
         // A VIEW_TYPE_2D view may only cover one layer, so a multi-layer image
         // needs the array view type to match layerCount below.
-        viewInfo.viewType = isCubemap
+        viewInfo.viewType = _owner->isCubemap()
             ? VK_IMAGE_VIEW_TYPE_CUBE
             : (_arrayLayers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
                                 : VK_IMAGE_VIEW_TYPE_2D);
@@ -266,221 +536,30 @@ namespace visutwin::canvas::gpu
         viewInfo.subresourceRange.levelCount = _mipLevels;
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = _arrayLayers;
-        if (vkCreateImageView(_vkDevice, &viewInfo, nullptr, &_imageView) !=
-            VK_SUCCESS) {
+        if (vkCreateImageView(_vkDevice, &viewInfo, nullptr, &_imageView) != VK_SUCCESS) {
             spdlog::error("VulkanTexture: failed to create image view");
-            vmaDestroyImage(_allocator, _image, _allocation);
-            _image = VK_NULL_HANDLE;
-            _allocation = VK_NULL_HANDLE;
-            return;
-        }
-
-        // Sampler — only meaningful for color textures, but harmless on depth.
-        if (!createSampler(vkDev, _sampler)) {
-            vkDestroyImageView(_vkDevice, _imageView, nullptr);
-            vmaDestroyImage(_allocator, _image, _allocation);
             _imageView = VK_NULL_HANDLE;
+            releaseImageResources();
+            return false;
+        }
+        return true;
+    }
+
+    void VulkanTexture::releaseImageResources()
+    {
+        // For a failed upload: nothing has been recorded against these yet, so they
+        // are destroyed at once rather than deferred.
+        destroySampler();
+        if (_imageView != VK_NULL_HANDLE) {
+            vkDestroyImageView(_vkDevice, _imageView, nullptr);
+            _imageView = VK_NULL_HANDLE;
+        }
+        if (_image != VK_NULL_HANDLE) {
+            vmaDestroyImage(_allocator, _image, _allocation);
             _image = VK_NULL_HANDLE;
             _allocation = VK_NULL_HANDLE;
-            _subresourceLayouts.clear();
-            return;
         }
-
-        struct UploadData
-        {
-            const void* data = nullptr;
-            size_t size = 0;
-            uint32_t mipLevel = 0;
-            uint32_t layer = 0;
-            uint32_t width = 1;
-            uint32_t height = 1;
-        };
-        std::vector<UploadData> uploads;
-        size_t totalSize = 0;
-        bool allBaseLayersPresent = !isDepth;
-        bool hasExplicitHigherMips = false;
-
-        if (!isDepth) {
-            const PixelFormat pixelFormat = _owner->format();
-            const bool compressed = isCompressedPixelFormat(pixelFormat);
-            const uint32_t blockBytes = compressedPixelFormatBlockSize(pixelFormat);
-            const uint32_t blockWidth = compressedPixelFormatBlockWidth(pixelFormat);
-            const uint32_t blockHeight = compressedPixelFormatBlockHeight(pixelFormat);
-            const uint32_t bytesPerPixel = pixelFormatBytesPerPixel(pixelFormat);
-
-            for (uint32_t layer = 0; layer < _arrayLayers; ++layer) {
-                bool basePresent = false;
-                for (uint32_t mip = 0; mip < _mipLevels; ++mip) {
-                    const void* source = _owner->getLevel(mip, layer);
-                    const size_t sourceSize = _owner->getLevelDataSize(mip, layer);
-                    if (!source || sourceSize == 0) {
-                        continue;
-                    }
-
-                    const uint32_t mipWidth = std::max(width >> mip, 1u);
-                    const uint32_t mipHeight = std::max(height >> mip, 1u);
-                    const size_t expectedSize = compressed
-                        ? static_cast<size_t>((mipWidth + blockWidth - 1) / blockWidth) *
-                          ((mipHeight + blockHeight - 1) / blockHeight) * blockBytes
-                        : static_cast<size_t>(mipWidth) * mipHeight * bytesPerPixel;
-                    if (expectedSize == 0 || sourceSize < expectedSize) {
-                        spdlog::error(
-                            "VulkanTexture: subresource face={} mip={} has {} bytes, expected at least {}",
-                            layer, mip, sourceSize, expectedSize);
-                        continue;
-                    }
-
-                    totalSize = (totalSize + 3u) & ~size_t(3u);
-                    uploads.push_back(
-                        {source, expectedSize, mip, layer, mipWidth, mipHeight});
-                    totalSize += expectedSize;
-                    basePresent |= mip == 0;
-                    hasExplicitHigherMips |= mip > 0;
-                }
-                allBaseLayersPresent &= basePresent;
-            }
-        }
-
-        if (!uploads.empty()) {
-            VkBuffer stagingBuffer = VK_NULL_HANDLE;
-            VmaAllocation stagingAlloc = VK_NULL_HANDLE;
-
-            VkBufferCreateInfo stagingInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-            stagingInfo.size = totalSize;
-            stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-            VmaAllocationCreateInfo stagingAllocInfo{};
-            stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-            if (vmaCreateBuffer(_allocator, &stagingInfo, &stagingAllocInfo,
-                    &stagingBuffer, &stagingAlloc, nullptr) != VK_SUCCESS) {
-                spdlog::error(
-                    "VulkanTexture: failed to allocate {}-byte staging buffer",
-                    totalSize);
-                destroySampler();
-                vkDestroyImageView(_vkDevice, _imageView, nullptr);
-                _imageView = VK_NULL_HANDLE;
-                vmaDestroyImage(_allocator, _image, _allocation);
-                _image = VK_NULL_HANDLE;
-                _allocation = VK_NULL_HANDLE;
-                return;
-            }
-
-            std::vector<VkBufferImageCopy> regions;
-            regions.reserve(uploads.size());
-            {
-                void* mapped = nullptr;
-                if (vmaMapMemory(_allocator, stagingAlloc, &mapped) != VK_SUCCESS) {
-                    spdlog::error("VulkanTexture: failed to map staging buffer");
-                    vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);
-                    destroySampler();
-                    vkDestroyImageView(_vkDevice, _imageView, nullptr);
-                    _imageView = VK_NULL_HANDLE;
-                    vmaDestroyImage(_allocator, _image, _allocation);
-                    _image = VK_NULL_HANDLE;
-                    _allocation = VK_NULL_HANDLE;
-                    return;
-                }
-                size_t offset = 0;
-                for (const auto& upload : uploads) {
-                    offset = (offset + 3u) & ~size_t(3u);
-                    memcpy(static_cast<uint8_t*>(mapped) + offset,
-                        upload.data, upload.size);
-
-                    VkBufferImageCopy region{};
-                    region.bufferOffset = offset;
-                    region.imageSubresource = {
-                        _aspect, upload.mipLevel, upload.layer, 1};
-                    region.imageExtent = {upload.width, upload.height, 1};
-                    regions.push_back(region);
-
-                    offset += upload.size;
-                }
-                vmaUnmapMemory(_allocator, stagingAlloc);
-            }
-
-            const VkImage image = _image;
-            const VkImageAspectFlags aspect = _aspect;
-            const uint32_t mipLevels = _mipLevels;
-            const uint32_t arrayLayers = _arrayLayers;
-            const bool generate = _supportsLinearBlit &&
-                mipLevels > 1 && allBaseLayersPresent && !hasExplicitHigherMips;
-            vkDev->enqueueUpload(
-                [image, aspect, mipLevels, arrayLayers, width, height,
-                 stagingBuffer, regions = std::move(regions), generate](VkCommandBuffer cmd) {
-                vulkanTransitionImageLayout(cmd, image,
-                    VK_IMAGE_LAYOUT_UNDEFINED,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    aspect, 0, mipLevels, 0, arrayLayers);
-
-                vkCmdCopyBufferToImage(cmd, stagingBuffer, image,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    static_cast<uint32_t>(regions.size()), regions.data());
-
-                if (generate) {
-                    int32_t mipW = static_cast<int32_t>(width);
-                    int32_t mipH = static_cast<int32_t>(height);
-                    for (uint32_t level = 1; level < mipLevels; ++level) {
-                        vulkanTransitionImageLayout(cmd, image,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                        aspect, level - 1, 1, 0, arrayLayers);
-
-                        const int32_t nextW = std::max(mipW / 2, 1);
-                        const int32_t nextH = std::max(mipH / 2, 1);
-
-                        VkImageBlit blit{};
-                        blit.srcSubresource = {aspect, level - 1, 0, arrayLayers};
-                        blit.srcOffsets[1] = {mipW, mipH, 1};
-                        blit.dstSubresource = {aspect, level, 0, arrayLayers};
-                        blit.dstOffsets[1] = {nextW, nextH, 1};
-                        vkCmdBlitImage(cmd,
-                            image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                            image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            1, &blit, VK_FILTER_LINEAR);
-
-                        mipW = nextW;
-                        mipH = nextH;
-                    }
-
-                    vulkanTransitionImageLayout(cmd, image,
-                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        aspect, 0, mipLevels - 1, 0, arrayLayers);
-                    vulkanTransitionImageLayout(cmd, image,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        aspect, mipLevels - 1, 1, 0, arrayLayers);
-                } else {
-                    vulkanTransitionImageLayout(cmd, image,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        aspect, 0, mipLevels, 0, arrayLayers);
-                }
-            }, [allocator = _allocator, stagingBuffer, stagingAlloc] {
-                vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
-            });
-        } else {
-            // No host data — but the image must still be in a defined layout
-            // before *any* shader can sample it (e.g. as a default-bound slot)
-            // and before any descriptor that references its view is allowed
-            // to be in flight.  Transition to SHADER_READ_ONLY here; the
-            // first render-target use will transition to the appropriate
-            // attachment layout, which is fine because LOAD_OP_CLEAR /
-            // LOAD_OP_DONT_CARE discard the contents anyway.
-            const VkImage image = _image;
-            const VkImageAspectFlags aspect = _aspect;
-            const uint32_t mipLevels = _mipLevels;
-            const uint32_t arrayLayers = _arrayLayers;
-            vkDev->enqueueUpload([image, aspect, mipLevels, arrayLayers](VkCommandBuffer cmd) {
-                vulkanTransitionImageLayout(cmd, image,
-                    VK_IMAGE_LAYOUT_UNDEFINED,
-                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    aspect, 0, mipLevels, 0, arrayLayers);
-            });
-        }
-        std::fill(_subresourceLayouts.begin(), _subresourceLayouts.end(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        _subresourceLayouts.clear();
     }
 
     VkImageLayout VulkanTexture::layout(

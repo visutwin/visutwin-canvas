@@ -60,6 +60,26 @@ namespace visutwin::canvas::gpu
             VulkanGraphicsDevice* device, VkSampler& sampler) const;
         void destroySampler();
 
+        // uploadImmediate's stages, in the order it runs them. Each bool stage
+        // returns false when the upload has to stop; it has logged why and left
+        // nothing half-built behind.
+
+        /// Hands the current image, view and sampler to the device to destroy once
+        /// the frames in flight that may still use them have completed.
+        void retireImage();
+        /// The VkFormat and aspect for the owner's pixel format, with a depth
+        /// fallback where the device lacks the exact format.
+        [[nodiscard]] bool resolveFormat(VulkanGraphicsDevice* device);
+        /// Layer and mip counts, and what the format supports (linear sampling,
+        /// blit mip generation, colour attachment).
+        void resolveLevelsAndCapabilities(VulkanGraphicsDevice* device);
+        [[nodiscard]] bool ownerHasHigherMipLevels() const;
+        [[nodiscard]] bool createImage(VulkanGraphicsDevice* device);
+        [[nodiscard]] bool createImageView();
+        /// Destroys the sampler, view and image at once, for an upload that failed
+        /// before anything was recorded against them.
+        void releaseImageResources();
+
         Texture* _owner = nullptr;
         // Set in uploadImmediate; used to defer GPU-resource destruction until
         // in-flight frames that may reference this texture have completed.
