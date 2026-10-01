@@ -105,6 +105,15 @@ namespace visutwin::canvas
 
     }
 
+    namespace
+    {
+        /// An sRGB-authored colour channel in linear space (upstream convertColorToLinear).
+        float toLinear(const float c)
+        {
+            return std::pow(std::max(c, 0.0f), 2.2f);
+        }
+    }
+
     void StandardMaterial::updateUniforms(MaterialUniforms& uniforms) const
     {
         // Start with base Material implementation which reads typed properties + parameter overrides.
@@ -112,6 +121,24 @@ namespace visutwin::canvas
         // Material rather than on StandardMaterial-specific members.
         Material::updateUniforms(uniforms);
 
+        packMapTransforms(uniforms);
+        packSurface(uniforms);
+        packEmissiveAndAmbient(uniforms);
+        packMsdf(uniforms);
+        packAnisotropy(uniforms);
+        packMetalnessSpecular(uniforms);
+        packTransmission(uniforms);
+        packLayers(uniforms);
+        packFlags(uniforms);
+
+        // Re-apply setParameter() overrides last: the typed writes above
+        // (baseColor/metallic/roughness/normalScale/emissive) would otherwise
+        // silently discard them, breaking the documented dual-binding contract.
+        applyParameterOverrides(uniforms);
+    }
+
+    void StandardMaterial::packMapTransforms(MaterialUniforms& uniforms) const
+    {
         // StandardMaterial's per-map UV transforms replace the base ones in the packed
         // block. They used to be WRITTEN into the base fields through a const_cast on
         // every pack, which re-dirtied the material from inside its own packer.
@@ -125,7 +152,14 @@ namespace visutwin::canvas
             uniforms.occlusionTransform0, uniforms.occlusionTransform1);
         packTextureTransform({_emissiveMapTiling, _emissiveMapOffset, _emissiveMapRotation},
             uniforms.emissiveTransform0, uniforms.emissiveTransform1);
+        if (_detailNormalMap) {
+            packTextureTransform(_detailNormalTransform, uniforms.detailNormalTransform0,
+                uniforms.detailNormalTransform1);
+        }
+    }
 
+    void StandardMaterial::packSurface(MaterialUniforms& uniforms) const
+    {
         // StandardMaterial's own scalars ALWAYS win. This used to apply only when a
         // diffuse map was set or no base-colour texture was, so a GLB material — the
         // parser binds its texture on the base Material — silently ignored every later
@@ -148,15 +182,6 @@ namespace visutwin::canvas
 
         uniforms.normalScale = _bumpiness;
 
-        // StandardMaterial always owns the emissive contribution: write _emissive * _emissiveIntensity
-        // (linearized) directly, overriding whatever base Material::updateUniforms wrote from
-        // _emissiveFactor. This matches upstream semantics (StandardMaterial.emissive is the
-        // authoritative emissive color) and prevents common authoring glitches — e.g. specular-
-        // glossiness GLB exporters that write emissiveFactor=(1,1,1) as a sentinel when no
-        // emissive texture is present, which would otherwise produce fully-white glowing surfaces.
-        // Users who want emission must call setEmissive()/setEmissiveIntensity(); when they do,
-        // the linearize-first-then-scale order keeps HDR intensities (e.g. 200 × neon) in range
-        // (pow(1, 2.2) * 200 = 200 linear, vs pow(200, 2.2) ≈ 1.7e5 which overflows fp16).
         // Scalar maps modulate their factor by one channel of a texture. The gloss
         // factor travels separately because the packed uniform carries ROUGHNESS, and
         // the map has to scale gloss before the inversion (upstream getGlossiness).
@@ -168,108 +193,117 @@ namespace visutwin::canvas
             ? static_cast<float>(_thicknessMapChannel) : -1.0f;
         uniforms.mapChannelParams[3] = _refractionMap
             ? static_cast<float>(_refractionMapChannel) : -1.0f;
+    }
 
-        uniforms.emissiveColor[0] = std::pow(std::max(_emissive.r, 0.0f), 2.2f) * _emissiveIntensity;
-        uniforms.emissiveColor[1] = std::pow(std::max(_emissive.g, 0.0f), 2.2f) * _emissiveIntensity;
-        uniforms.emissiveColor[2] = std::pow(std::max(_emissive.b, 0.0f), 2.2f) * _emissiveIntensity;
+    void StandardMaterial::packEmissiveAndAmbient(MaterialUniforms& uniforms) const
+    {
+        // StandardMaterial always owns the emissive contribution: write _emissive * _emissiveIntensity
+        // (linearized) directly, overriding whatever base Material::updateUniforms wrote from
+        // _emissiveFactor. This matches upstream semantics (StandardMaterial.emissive is the
+        // authoritative emissive color) and prevents common authoring glitches — e.g. specular-
+        // glossiness GLB exporters that write emissiveFactor=(1,1,1) as a sentinel when no
+        // emissive texture is present, which would otherwise produce fully-white glowing surfaces.
+        // Users who want emission must call setEmissive()/setEmissiveIntensity(); when they do,
+        // the linearize-first-then-scale order keeps HDR intensities (e.g. 200 × neon) in range
+        // (pow(1, 2.2) * 200 = 200 linear, vs pow(200, 2.2) ≈ 1.7e5 which overflows fp16).
+        uniforms.emissiveColor[0] = toLinear(_emissive.r) * _emissiveIntensity;
+        uniforms.emissiveColor[1] = toLinear(_emissive.g) * _emissiveIntensity;
+        uniforms.emissiveColor[2] = toLinear(_emissive.b) * _emissiveIntensity;
         uniforms.emissiveColor[3] = 1.0f;
 
         // Ambient tint, linearised as emissive is (upstream convertColorToLinear).
-        uniforms.ambientTint[0] = std::pow(std::max(_ambient.r, 0.0f), 2.2f);
-        uniforms.ambientTint[1] = std::pow(std::max(_ambient.g, 0.0f), 2.2f);
-        uniforms.ambientTint[2] = std::pow(std::max(_ambient.b, 0.0f), 2.2f);
+        uniforms.ambientTint[0] = toLinear(_ambient.r);
+        uniforms.ambientTint[1] = toLinear(_ambient.g);
+        uniforms.ambientTint[2] = toLinear(_ambient.b);
         uniforms.ambientTint[3] = 1.0f;
+    }
 
+    void StandardMaterial::packMsdf(MaterialUniforms& uniforms) const
+    {
         // MSDF text: colours linear as upstream uploads them (Color.linear), alpha straight.
-        if (_msdfMap) {
-            uniforms.msdfParams[0] = _msdfPxRange;
-            uniforms.msdfParams[1] = _msdfIntensity;
-            uniforms.msdfParams[2] = static_cast<float>(std::max(_msdfMap->width(), 1u));
-            uniforms.msdfParams[3] = static_cast<float>(std::max(_msdfMap->height(), 1u));
-            const auto linear = [](const float c) { return std::pow(std::max(c, 0.0f), 2.2f); };
-            uniforms.msdfOutlineColor[0] = linear(_msdfOutlineColor.r);
-            uniforms.msdfOutlineColor[1] = linear(_msdfOutlineColor.g);
-            uniforms.msdfOutlineColor[2] = linear(_msdfOutlineColor.b);
-            uniforms.msdfOutlineColor[3] = _msdfOutlineColor.a;
-            uniforms.msdfShadowColor[0] = linear(_msdfShadowColor.r);
-            uniforms.msdfShadowColor[1] = linear(_msdfShadowColor.g);
-            uniforms.msdfShadowColor[2] = linear(_msdfShadowColor.b);
-            uniforms.msdfShadowColor[3] = _msdfShadowColor.a;
-            uniforms.msdfOutlineShadow[0] = _msdfOutlineThickness;
-            uniforms.msdfOutlineShadow[1] = _msdfShadowOffset.x;
-            uniforms.msdfOutlineShadow[2] = _msdfShadowOffset.y;
-            uniforms.msdfOutlineShadow[3] = 0.0f;
+        if (!_msdfMap) {
+            return;
         }
+        uniforms.msdfParams[0] = _msdfPxRange;
+        uniforms.msdfParams[1] = _msdfIntensity;
+        uniforms.msdfParams[2] = static_cast<float>(std::max(_msdfMap->width(), 1u));
+        uniforms.msdfParams[3] = static_cast<float>(std::max(_msdfMap->height(), 1u));
+        uniforms.msdfOutlineColor[0] = toLinear(_msdfOutlineColor.r);
+        uniforms.msdfOutlineColor[1] = toLinear(_msdfOutlineColor.g);
+        uniforms.msdfOutlineColor[2] = toLinear(_msdfOutlineColor.b);
+        uniforms.msdfOutlineColor[3] = _msdfOutlineColor.a;
+        uniforms.msdfShadowColor[0] = toLinear(_msdfShadowColor.r);
+        uniforms.msdfShadowColor[1] = toLinear(_msdfShadowColor.g);
+        uniforms.msdfShadowColor[2] = toLinear(_msdfShadowColor.b);
+        uniforms.msdfShadowColor[3] = _msdfShadowColor.a;
+        uniforms.msdfOutlineShadow[0] = _msdfOutlineThickness;
+        uniforms.msdfOutlineShadow[1] = _msdfShadowOffset.x;
+        uniforms.msdfOutlineShadow[2] = _msdfShadowOffset.y;
+        uniforms.msdfOutlineShadow[3] = 0.0f;
+    }
 
-        // StandardMaterial adds twoSidedLighting support to the doubleSided flag.
-        if (_twoSidedLighting) {
-            uniforms.flags |= (1u << 3);    // bit 3: doubleSided
-        }
-
-        // Override texture flags with StandardMaterial-specific texture maps (if set).
-        if (_diffuseMap)    uniforms.flags |= 1u;              // bit 0: hasBaseColorMap
-        if (_normalMap)     uniforms.flags |= (1u << 2);       // bit 2: hasNormalMap
-        if (_metalnessMap)  uniforms.flags |= (1u << 6);       // bit 6: hasMetallicRoughnessMap
-        if (_aoMap)         uniforms.flags |= (1u << 9);       // bit 9: hasOcclusionMap
-        if (_emissiveMap)   uniforms.flags |= (1u << 11);      // bit 11: hasEmissiveMap
-        // bit 18: useSkybox OFF. Stored inverted so a zero flags word keeps the scene
-        // environment, which is upstream's default. Upstream's useSceneEnv drops the
-        // environment atlas for this material; SH probes and the flat ambient remain.
-        if (!_useSkybox)    uniforms.flags |= (1u << 18);
-        // bit 19: hasOpacityMap (slot 34, METAL ONLY — see ProgramLibrary's warning).
-        // The flags word was full; bits 18-20 came free when the sheen and iridescence
-        // map bits, which neither backend ever read, were removed.
-        if (_opacityMap)    uniforms.flags |= (1u << 19);
-
+    void StandardMaterial::packAnisotropy(MaterialUniforms& uniforms) const
+    {
         // anisotropic specular. The strength goes up as a MAGNITUDE and the direction as
         // (cos, sin) of the rotation; the deprecated negative strength is rotation + 90.
         // Quarter turns are written exactly, so a material that only ever used the old
         // sign picks the tangent or bitangent bit for bit as the shader did before.
         uniforms.anisotropy = std::abs(_anisotropy);
-        {
-            double degrees = std::fmod(static_cast<double>(_anisotropyRotation) + (_anisotropy < 0.0f ? 90.0 : 0.0), 360.0);
-            if (degrees < 0.0) {
-                degrees += 360.0;
-            }
-            float c = 0.0f;
-            float s = 0.0f;
-            if (degrees == 0.0) {
-                c = 1.0f;
-            } else if (degrees == 90.0) {
-                s = 1.0f;
-            } else if (degrees == 180.0) {
-                c = -1.0f;
-            } else if (degrees == 270.0) {
-                s = -1.0f;
-            } else {
-                const double radians = degrees * std::numbers::pi / 180.0;
-                c = static_cast<float>(std::cos(radians));
-                s = static_cast<float>(std::sin(radians));
-            }
-            uniforms.anisotropyParams[0] = c;
-            uniforms.anisotropyParams[1] = s;
-        }
 
+        double degrees = std::fmod(static_cast<double>(_anisotropyRotation) + (_anisotropy < 0.0f ? 90.0 : 0.0), 360.0);
+        if (degrees < 0.0) {
+            degrees += 360.0;
+        }
+        float c = 0.0f;
+        float s = 0.0f;
+        if (degrees == 0.0) {
+            c = 1.0f;
+        } else if (degrees == 90.0) {
+            s = 1.0f;
+        } else if (degrees == 180.0) {
+            c = -1.0f;
+        } else if (degrees == 270.0) {
+            s = -1.0f;
+        } else {
+            const double radians = degrees * std::numbers::pi / 180.0;
+            c = static_cast<float>(std::cos(radians));
+            s = static_cast<float>(std::sin(radians));
+        }
+        uniforms.anisotropyParams[0] = c;
+        uniforms.anisotropyParams[1] = s;
+    }
+
+    void StandardMaterial::packMetalnessSpecular(MaterialUniforms& uniforms) const
+    {
         // Metalness workflow: the non-metal F0 (upstream getSpecularModulate), from the
         // IOR, tinted by the specular colour when asked and scaled by the specularity
         // factor. In DOUBLE so the default IOR of 1.5 lands on exactly 0.04f, the
         // constant both shaders used before this field existed.
-        {
-            const double ior = static_cast<double>(_refractionIndex);
-            double f0 = (ior - 1.0) / (ior + 1.0);
-            f0 *= f0;
-            const auto linear = [](const float c) { return std::pow(std::max(static_cast<double>(c), 0.0), 2.2); };
-            const double factor = static_cast<double>(_specularityFactor);
-            const double r = _useMetalnessSpecularColor ? linear(_specular.r) : 1.0;
-            const double g = _useMetalnessSpecularColor ? linear(_specular.g) : 1.0;
-            const double b = _useMetalnessSpecularColor ? linear(_specular.b) : 1.0;
-            uniforms.metalnessSpecular[0] = static_cast<float>(f0 * r * factor);
-            uniforms.metalnessSpecular[1] = static_cast<float>(f0 * g * factor);
-            uniforms.metalnessSpecular[2] = static_cast<float>(f0 * b * factor);
-            uniforms.metalnessSpecular[3] = _specularityFactor;
-        }
+        const double ior = static_cast<double>(_refractionIndex);
+        double f0 = (ior - 1.0) / (ior + 1.0);
+        f0 *= f0;
+        const auto linear = [](const float c) { return std::pow(std::max(static_cast<double>(c), 0.0), 2.2); };
+        const double factor = static_cast<double>(_specularityFactor);
+        const double r = _useMetalnessSpecularColor ? linear(_specular.r) : 1.0;
+        const double g = _useMetalnessSpecularColor ? linear(_specular.g) : 1.0;
+        const double b = _useMetalnessSpecularColor ? linear(_specular.b) : 1.0;
+        uniforms.metalnessSpecular[0] = static_cast<float>(f0 * r * factor);
+        uniforms.metalnessSpecular[1] = static_cast<float>(f0 * g * factor);
+        uniforms.metalnessSpecular[2] = static_cast<float>(f0 * b * factor);
+        uniforms.metalnessSpecular[3] = _specularityFactor;
 
-        // transmission / refraction.
+        // The specular workflow's F0 and gloss. `specular` is authored in sRGB and
+        // uploaded linear, as upstream's _defineColor uniforms are; gloss is the same
+        // `gloss` the metalness workflow uses, with glossInvert applied.
+        // (KHR_materials_pbrSpecularGlossiness.)
+        uniforms.specGlossParams[0] = toLinear(_specular.r);
+        uniforms.specGlossParams[1] = toLinear(_specular.g);
+        uniforms.specGlossParams[2] = toLinear(_specular.b);
+        uniforms.specGlossParams[3] = _glossInvert ? (1.0f - _gloss) : _gloss;
+    }
+
+    void StandardMaterial::packTransmission(MaterialUniforms& uniforms) const
+    {
         uniforms.transmissionFactor = _transmissionFactor;
         uniforms.refractionIndex = _refractionIndex;
         uniforms.thickness = _thickness;
@@ -279,32 +313,35 @@ namespace visutwin::canvas
         uniforms.attenuationParams[3] = _attenuationDistance;
         uniforms.dispersionParams[0] = _dispersion;
 
-        // parallax / height map uniform packing.
+        // Decoupled dither strength. Negative means "unset", which the shaders read as
+        // "fall back to opacity" — the coupled behaviour every material had before.
+        uniforms.dispersionParams[1] = _alphaDither;
+    }
+
+    void StandardMaterial::packLayers(MaterialUniforms& uniforms) const
+    {
+        // parallax / height map.
         if (_heightMap) {
             uniforms.heightMapFactor = _heightMapFactor;
             uniforms.heightMapParams[0] = std::clamp(_heightMapBase, 0.0f, 1.0f);
             uniforms.heightMapParams[1] = std::clamp(_heightMapShadow, 0.0f, 1.0f);
-            uniforms.flags |= (1u << 17);   // bit 17: hasHeightMap
         }
 
-        // clearcoat uniform packing.
+        // clearcoat.
         if (_clearCoat > 0.0f) {
             uniforms.clearCoatFactor = _clearCoat;
             const float ccGloss = _clearCoatGlossInvert ? (1.0f - _clearCoatGloss) : _clearCoatGloss;
             uniforms.clearCoatRoughness = 1.0f - ccGloss;
             uniforms.clearCoatBumpiness = _clearCoatBumpiness;
-            if (_clearCoatMap)       uniforms.flags |= (1u << 14);  // bit 14: hasClearCoatMap
-            if (_clearCoatGlossMap)  uniforms.flags |= (1u << 15);  // bit 15: hasClearCoatGlossMap
-            if (_clearCoatNormalMap) uniforms.flags |= (1u << 16);  // bit 16: hasClearCoatNormalMap
         }
 
-        // sheen uniform packing (KHR_materials_sheen).
+        // sheen (KHR_materials_sheen).
         uniforms.sheenColor[0] = _sheenColor.r;
         uniforms.sheenColor[1] = _sheenColor.g;
         uniforms.sheenColor[2] = _sheenColor.b;
         uniforms.sheenColor[3] = _sheenRoughness;
 
-        // iridescence uniform packing (KHR_materials_iridescence).
+        // iridescence (KHR_materials_iridescence).
         uniforms.iridescenceParams[0] = _iridescenceIntensity;
         uniforms.iridescenceParams[1] = _iridescenceIOR;
         // z was the minimum thickness, which only a thickness map interpolates towards;
@@ -312,50 +349,59 @@ namespace visutwin::canvas
         uniforms.iridescenceParams[2] = 0.0f;
         uniforms.iridescenceParams[3] = _iridescenceThicknessMax;
 
-        // spec-gloss uniform packing (KHR_materials_pbrSpecularGlossiness).
-        // The specular workflow's F0 and gloss. `specular` is authored in sRGB and
-        // uploaded linear, as upstream's _defineColor uniforms are; gloss is the same
-        // `gloss` the metalness workflow uses, with glossInvert applied.
-        uniforms.specGlossParams[0] = std::pow(std::max(_specular.r, 0.0f), 2.2f);
-        uniforms.specGlossParams[1] = std::pow(std::max(_specular.g, 0.0f), 2.2f);
-        uniforms.specGlossParams[2] = std::pow(std::max(_specular.b, 0.0f), 2.2f);
-        uniforms.specGlossParams[3] = _glossInvert ? (1.0f - _gloss) : _gloss;
-        if (_specGlossMap) uniforms.flags |= (1u << 21);  // bit 21: hasSpecGlossMap
-
-        // detail normals + displacement uniform packing.
+        // detail normals + displacement.
         uniforms.detailDisplacementParams[0] = _detailNormalScale;
         uniforms.detailDisplacementParams[1] = _displacementScale;
         uniforms.detailDisplacementParams[2] = _displacementBias;
         uniforms.detailDisplacementParams[3] = 0.0f;
-        if (_detailNormalMap) {
-            uniforms.flags |= (1u << 22);  // bit 22: hasDetailNormalMap
-            packTextureTransform(_detailNormalTransform, uniforms.detailNormalTransform0, uniforms.detailNormalTransform1);
+    }
+
+    void StandardMaterial::packFlags(MaterialUniforms& uniforms) const
+    {
+        // Every bit StandardMaterial adds to the flags word the base Material packed.
+        uint32_t& flags = uniforms.flags;
+
+        // StandardMaterial adds twoSidedLighting support to the doubleSided flag.
+        if (_twoSidedLighting) flags |= (1u << 3);    // bit 3: doubleSided
+
+        // Texture flags for StandardMaterial-specific texture maps (if set).
+        if (_diffuseMap)    flags |= 1u;              // bit 0: hasBaseColorMap
+        if (_normalMap)     flags |= (1u << 2);       // bit 2: hasNormalMap
+        if (_metalnessMap)  flags |= (1u << 6);       // bit 6: hasMetallicRoughnessMap
+        if (_aoMap)         flags |= (1u << 9);       // bit 9: hasOcclusionMap
+        if (_emissiveMap)   flags |= (1u << 11);      // bit 11: hasEmissiveMap
+        if (_clearCoat > 0.0f) {
+            if (_clearCoatMap)       flags |= (1u << 14);  // bit 14: hasClearCoatMap
+            if (_clearCoatGlossMap)  flags |= (1u << 15);  // bit 15: hasClearCoatGlossMap
+            if (_clearCoatNormalMap) flags |= (1u << 16);  // bit 16: hasClearCoatNormalMap
         }
-        if (_displacementMap)  uniforms.flags |= (1u << 24);  // bit 24: hasDisplacementMap
+        if (_heightMap)     flags |= (1u << 17);      // bit 17: hasHeightMap
+        // bit 18: useSkybox OFF. Stored inverted so a zero flags word keeps the scene
+        // environment, which is upstream's default. Upstream's useSceneEnv drops the
+        // environment atlas for this material; SH probes and the flat ambient remain.
+        if (!_useSkybox)    flags |= (1u << 18);
+        // bit 19: hasOpacityMap (slot 34, METAL ONLY — see ProgramLibrary's warning).
+        // The flags word was full; bits 18-20 came free when the sheen and iridescence
+        // map bits, which neither backend ever read, were removed.
+        if (_opacityMap)    flags |= (1u << 19);
+        if (_specGlossMap)  flags |= (1u << 21);      // bit 21: hasSpecGlossMap
+        if (_detailNormalMap) flags |= (1u << 22);    // bit 22: hasDetailNormalMap
+        if (_displacementMap) flags |= (1u << 24);    // bit 24: hasDisplacementMap
 
         // Vertex color routing (upstream diffuseVertexColor / emissiveVertexColor).
         // Bit 28 is the DISABLE for the diffuse lane so that a zero flags word keeps
         // the long-standing "vertex colors tint diffuse" behaviour.
-        if (_emissiveVertexColor)  uniforms.flags |= (1u << 23);
-        if (!_diffuseVertexColor)  uniforms.flags |= (1u << 28);
+        if (_emissiveVertexColor)  flags |= (1u << 23);
+        if (!_diffuseVertexColor)  flags |= (1u << 28);
 
         // bits 25-27: opacity dither matrix (DitherMode). Which matrix is a runtime value rather
         // than a shader variant, so changing it costs no recompile — VT_FEATURE_OPACITY_DITHER
         // only gates whether the dither block exists at all.
-        uniforms.flags |= (static_cast<uint32_t>(_opacityDitherMode) & 0x7u) << 25;
+        flags |= (static_cast<uint32_t>(_opacityDitherMode) & 0x7u) << 25;
 
         // bits 29-31: shadow-pass dither matrix, kept independent of the forward one so a
         // caster can dither its shadow without dithering itself (and the reverse).
-        uniforms.flags |= (static_cast<uint32_t>(_opacityShadowDitherMode) & 0x7u) << 29;
-
-        // Decoupled dither strength. Negative means "unset", which the shaders read as
-        // "fall back to opacity" — the coupled behaviour every material had before.
-        uniforms.dispersionParams[1] = _alphaDither;
-
-        // Re-apply setParameter() overrides last: the typed writes above
-        // (baseColor/metallic/roughness/normalScale/emissive) would otherwise
-        // silently discard them, breaking the documented dual-binding contract.
-        applyParameterOverrides(uniforms);
+        flags |= (static_cast<uint32_t>(_opacityShadowDitherMode) & 0x7u) << 29;
     }
 
     void StandardMaterial::getTextureSlots(std::vector<TextureSlot>& slots) const

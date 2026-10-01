@@ -449,6 +449,20 @@ namespace visutwin::canvas
         bool shadowCatcher() const { return _shadowCatcher; }
         void setShadowCatcher(const bool value) { _shadowCatcher = value; markUniformsDirty(); }
     private:
+        // updateUniforms' groups, in the order it packs them; packFlags sets every
+        // flag bit StandardMaterial owns.
+        void packMapTransforms(MaterialUniforms& uniforms) const;
+        void packSurface(MaterialUniforms& uniforms) const;
+        void packEmissiveAndAmbient(MaterialUniforms& uniforms) const;
+        void packMsdf(MaterialUniforms& uniforms) const;
+        void packAnisotropy(MaterialUniforms& uniforms) const;
+        /// The non-metal F0 of the metalness workflow and the specular workflow's F0 and gloss.
+        void packMetalnessSpecular(MaterialUniforms& uniforms) const;
+        void packTransmission(MaterialUniforms& uniforms) const;
+        /// Height map, clearcoat, sheen, iridescence, detail normal and displacement.
+        void packLayers(MaterialUniforms& uniforms) const;
+        void packFlags(MaterialUniforms& uniforms) const;
+
         Color _diffuse = Color(1.0f, 1.0f, 1.0f, 1.0f);
         Texture* _diffuseMap = nullptr;
 
