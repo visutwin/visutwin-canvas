@@ -110,6 +110,7 @@ namespace visutwin::canvas
     {
         _nodes.erase(path);
         _morphInstances.erase(path);
+        ++_version;
     }
 
     std::vector<MorphInstance*> DefaultAnimBinder::resolveMorphInstances(const std::string& path)

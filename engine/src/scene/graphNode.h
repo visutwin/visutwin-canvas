@@ -116,7 +116,23 @@ namespace visutwin::canvas
          */
         void addChild(GraphNode* node);
 
-        const std::vector<std::unique_ptr<GraphNode>>& children() const { return _children; }
+        /**
+         * The children in order, with no gaps. A removal leaves a hole in the list where
+         * the child was (so removing is O(1) and moves nobody: removeChild used to find
+         * the child and erase it, a scan and a shift, and destroying 20k children of one
+         * node took 320 ms), and this closes the holes in one ordered pass before
+         * returning. A child removed DURING a loop over this list therefore shows as a
+         * null entry under that loop — never a shift past the loop — so a loop whose body
+         * can remove a sibling checks for null, and does not call children() again on
+         * the same node inside the loop.
+         */
+        const std::vector<std::unique_ptr<GraphNode>>& children() const
+        {
+            if (_childHoles != 0) {
+                compactChildren();
+            }
+            return _children;
+        }
 
         GraphNode* findByName(const std::string& name);
 
@@ -223,7 +239,15 @@ namespace visutwin::canvas
         int _worldScaleSign = 0;
 
         GraphNode* _parent = nullptr;
-        std::vector<std::unique_ptr<GraphNode>> _children;
+        // May hold null entries (holes) after a removal; see children(). Mutable because
+        // closing the holes is invisible to the caller of a const children().
+        mutable std::vector<std::unique_ptr<GraphNode>> _children;
+        mutable size_t _childHoles = 0;
+        // This node's index in _parent->_children; kept by addChild and compactChildren.
+        size_t _slotInParent = 0;
+        void compactChildren() const;
+        // The slot `child` occupies in _children, or SIZE_MAX.
+        size_t childSlot(const GraphNode* child) const;
         int _graphDepth = 0;
 
         bool _dirtyLocal = false;

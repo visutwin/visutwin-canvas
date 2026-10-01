@@ -21,18 +21,20 @@ namespace visutwin::canvas
         // A manually deleted attached node must first release the parent's
         // unique_ptr without recursively deleting itself.
         if (_parent) {
-            auto& siblings = _parent->_children;
-            const auto it = std::find_if(siblings.begin(), siblings.end(), [this](const auto& child) {
-                return child.get() == this;
-            });
-            if (it != siblings.end()) {
-                it->release();
-                siblings.erase(it);
+            if (const size_t slot = _parent->childSlot(this); slot != SIZE_MAX) {
+                _parent->_children[slot].release();
+                if (slot + 1 == _parent->_children.size()) {
+                    _parent->_children.pop_back();
+                } else {
+                    ++_parent->_childHoles;
+                }
             }
             _parent = nullptr;
         }
         for (auto& child : _children) {
-            child->_parent = nullptr;
+            if (child) {
+                child->_parent = nullptr;
+            }
         }
         // _children owns and destroys the complete subtree.
     }
@@ -61,7 +63,7 @@ namespace visutwin::canvas
             _frozen = false;
             _dirtyWorld = true;
             for (const auto& child : _children) {
-                if (!child->_dirtyWorld) {
+                if (child && !child->_dirtyWorld) {
                     child->dirtifyWorldInternal();
                 }
             }
@@ -307,6 +309,7 @@ namespace visutwin::canvas
         }
 
         auto* raw = node.get();
+        raw->_slotInParent = _children.size();
         _children.push_back(std::move(node));
         onInsertChild(raw);
     }
@@ -323,6 +326,7 @@ namespace visutwin::canvas
         }
 
         auto* raw = ownership.get();
+        raw->_slotInParent = _children.size();
         _children.push_back(std::move(ownership));
         onInsertChild(raw);
     }
@@ -347,17 +351,55 @@ namespace visutwin::canvas
         return nullptr;
     }
 
+    size_t GraphNode::childSlot(const GraphNode* child) const
+    {
+        if (!child || child->_parent != this) {
+            return SIZE_MAX;
+        }
+        // The child knows its slot; the scan is only a guard against a slot gone stale.
+        const size_t slot = child->_slotInParent;
+        if (slot < _children.size() && _children[slot].get() == child) {
+            return slot;
+        }
+        for (size_t i = 0; i < _children.size(); ++i) {
+            if (_children[i].get() == child) {
+                return i;
+            }
+        }
+        return SIZE_MAX;
+    }
+
+    void GraphNode::compactChildren() const
+    {
+        size_t write = 0;
+        for (size_t read = 0; read < _children.size(); ++read) {
+            if (_children[read]) {
+                if (write != read) {
+                    _children[write] = std::move(_children[read]);
+                }
+                _children[write]->_slotInParent = write;
+                ++write;
+            }
+        }
+        _children.resize(write);
+        _childHoles = 0;
+    }
+
     std::unique_ptr<GraphNode> GraphNode::removeChild(GraphNode* child)
     {
-        auto it = std::find_if(_children.begin(), _children.end(), [child](const auto& candidate) {
-            return candidate.get() == child;
-        });
-        if (it == _children.end()) {
+        const size_t slot = childSlot(child);
+        if (slot == SIZE_MAX) {
             return nullptr;
         }
 
-        auto ownership = std::move(*it);
-        _children.erase(it);
+        // A hole, not an erase: see children(). The last child is simply popped, which
+        // keeps the list dense for the common remove-from-the-back loop.
+        auto ownership = std::move(_children[slot]);
+        if (slot + 1 == _children.size()) {
+            _children.pop_back();
+        } else {
+            ++_childHoles;
+        }
         child->_parent = nullptr;
         child->updateGraphDepth();
         child->dirtifyWorld();
@@ -372,8 +414,11 @@ namespace visutwin::canvas
     void GraphNode::fireOnHierarchy(const std::string& name, const std::string& nameHierarchy, GraphNode* parent)
     {
         fire(name, parent);
-        for (const auto& child : _children) {
-            child->fireOnHierarchy(nameHierarchy, nameHierarchy, parent);
+        // By index, skipping holes: a handler may remove a child (see children()).
+        for (size_t i = 0; i < _children.size(); ++i) {
+            if (GraphNode* child = _children[i].get()) {
+                child->fireOnHierarchy(nameHierarchy, nameHierarchy, parent);
+            }
         }
     }
 
@@ -418,9 +463,11 @@ namespace visutwin::canvas
     {
         node->onHierarchyStateChanged(enabled);
 
-        for (const auto& child : node->_children) {
-            if (child->_enabled) {
-                notifyHierarchyStateChanged(child.get(), enabled);
+        // By index, skipping holes: an enable or disable hook may remove a child.
+        for (size_t i = 0; i < node->_children.size(); ++i) {
+            GraphNode* child = node->_children[i].get();
+            if (child && child->_enabled) {
+                notifyHierarchyStateChanged(child, enabled);
             }
         }
     }
@@ -453,7 +500,9 @@ namespace visutwin::canvas
         _graphDepth = _parent ? _parent->_graphDepth + 1 : 0;
 
         for (const auto& child : _children) {
-            child->updateGraphDepth();
+            if (child) {
+                child->updateGraphDepth();
+            }
         }
     }
 
@@ -535,7 +584,7 @@ namespace visutwin::canvas
         }
 
         for (const auto& child : _children) {
-            if (GraphNode* found = child->findByName(name)) {
+            if (GraphNode* found = child ? child->findByName(name) : nullptr) {
                 return found;
             }
         }
@@ -552,6 +601,9 @@ namespace visutwin::canvas
         }
 
         for (const auto& child : _children) {
+            if (!child) {
+                continue;
+            }
             auto childResults = child->find(predicate);
             results.insert(results.end(), childResults.begin(), childResults.end());
         }

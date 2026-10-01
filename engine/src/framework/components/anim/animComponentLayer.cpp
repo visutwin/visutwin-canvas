@@ -36,8 +36,9 @@ namespace visutwin::canvas
             std::make_unique<DefaultAnimBinder>(component ? component->entity() : nullptr));
         // The pose goes to the component, not to the nodes: it composes all layers.
         if (component) {
-            _evaluator->setPoseSink([component, index](const std::string& nodePath, const AnimTransform& value) {
-                component->accumulateLayerPose(index, nodePath, value);
+            _evaluator->setPoseSink([component, index](const size_t slot, const std::string& nodePath,
+                    const AnimTransform& value) {
+                component->accumulateLayerPose(index, slot, nodePath, value);
             });
         }
         _controller = std::make_unique<AnimController>(

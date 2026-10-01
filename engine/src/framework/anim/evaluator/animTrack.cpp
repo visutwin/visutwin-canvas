@@ -37,6 +37,40 @@ namespace visutwin::canvas
     {
     }
 
+    namespace
+    {
+        uint64_t nextTrackSerial()
+        {
+            static uint64_t last = 0;
+            return ++last;
+        }
+    }
+
+    AnimTrack::Serial::Serial() : value(nextTrackSerial()) {}
+    AnimTrack::Serial::Serial(const Serial&) : value(nextTrackSerial()) {}
+
+    void AnimTrack::addCurve(const AnimCurve& curve)
+    {
+        AnimCurve stored = curve;
+        const auto [it, inserted] = _targetLookup.try_emplace(curve.nodeName, _targets.size());
+        if (inserted) {
+            _targets.push_back(curve.nodeName);
+        }
+        stored.targetIndex = it->second;
+        if (curve.propertyPath == "localPosition") {
+            stored.property = AnimProperty::Position;
+        } else if (curve.propertyPath == "localRotation") {
+            stored.property = AnimProperty::Rotation;
+        } else if (curve.propertyPath == "localScale") {
+            stored.property = AnimProperty::Scale;
+        } else if (curve.propertyPath == "weights") {
+            stored.property = AnimProperty::Weights;
+        } else {
+            stored.property = AnimProperty::Unknown;
+        }
+        _curves.push_back(std::move(stored));
+    }
+
     float AnimTrack::hermite(const float t, const float p0, const float m0, const float p1, const float m1)
     {
         const float t2 = t * t;
@@ -47,7 +81,7 @@ namespace visutwin::canvas
                (t3 - t2) * m1;
     }
 
-    void AnimTrack::eval(float time, std::unordered_map<std::string, AnimTransform>& transforms) const
+    void AnimTrack::eval(float time, AnimTransform* out, uint8_t* touched) const
     {
         if (_curves.empty()) {
             return;
@@ -96,23 +130,24 @@ namespace visutwin::canvas
                 alpha = (dt > 0.0f) ? (t - input.data[i0]) / dt : 0.0f;
             }
 
-            auto& transform = transforms[curve.nodeName];
+            auto& transform = out[curve.targetIndex];
+            touched[curve.targetIndex] = 1;
             const int comp = output.components;
 
             if (curve.interpolation == AnimInterpolation::STEP) {
                 // STEP: use value at i0 directly (no interpolation).
                 const float* v = &output.data[i0 * static_cast<size_t>(comp)];
 
-                if (curve.propertyPath == "localPosition") {
+                if (curve.property == AnimProperty::Position) {
                     transform.position = Vector3::load(v);
                     transform.hasPosition = true;
-                } else if (curve.propertyPath == "localRotation") {
+                } else if (curve.property == AnimProperty::Rotation) {
                     transform.rotation = Quaternion::load(v);
                     transform.hasRotation = true;
-                } else if (curve.propertyPath == "localScale") {
+                } else if (curve.property == AnimProperty::Scale) {
                     transform.scale = Vector3::load(v);
                     transform.hasScale = true;
-                } else if (curve.propertyPath == "weights") {
+                } else if (curve.property == AnimProperty::Weights) {
                     transform.weights.assign(v, v + comp);
                     transform.hasWeights = true;
                 }
@@ -122,16 +157,16 @@ namespace visutwin::canvas
                 const float* v0 = &output.data[i0 * static_cast<size_t>(comp)];
                 const float* v1 = &output.data[i1 * static_cast<size_t>(comp)];
 
-                if (curve.propertyPath == "localPosition") {
+                if (curve.property == AnimProperty::Position) {
                     transform.position = Vector3::lerp(Vector3::load(v0), Vector3::load(v1), alpha);
                     transform.hasPosition = true;
-                } else if (curve.propertyPath == "localRotation") {
+                } else if (curve.property == AnimProperty::Rotation) {
                     transform.rotation = Quaternion::slerp(Quaternion::load(v0), Quaternion::load(v1), alpha);
                     transform.hasRotation = true;
-                } else if (curve.propertyPath == "localScale") {
+                } else if (curve.property == AnimProperty::Scale) {
                     transform.scale = Vector3::lerp(Vector3::load(v0), Vector3::load(v1), alpha);
                     transform.hasScale = true;
-                } else if (curve.propertyPath == "weights") {
+                } else if (curve.property == AnimProperty::Weights) {
                     transform.weights.resize(static_cast<size_t>(comp));
                     for (int c = 0; c < comp; ++c) {
                         transform.weights[static_cast<size_t>(c)] = v0[c] + (v1[c] - v0[c]) * alpha;
@@ -154,7 +189,7 @@ namespace visutwin::canvas
 
                 // Hermite spline. Weights channels can have arbitrarily many components (one per
                 // morph target); transform channels use at most 4.
-                if (curve.propertyPath == "weights") {
+                if (curve.property == AnimProperty::Weights) {
                     transform.weights.resize(static_cast<size_t>(comp));
                     for (int c = 0; c < comp; ++c) {
                         transform.weights[static_cast<size_t>(c)] =
@@ -170,14 +205,14 @@ namespace visutwin::canvas
                         Vector3::load(val1), Vector3::load(inTan1) * timeDelta);
                 };
 
-                if (curve.propertyPath == "localPosition") {
+                if (curve.property == AnimProperty::Position) {
                     transform.position = blendVector3();
                     transform.hasPosition = true;
-                } else if (curve.propertyPath == "localRotation") {
+                } else if (curve.property == AnimProperty::Rotation) {
                     transform.rotation = basis.blend(Quaternion::load(val0), Quaternion::load(outTan0) * timeDelta,
                         Quaternion::load(val1), Quaternion::load(inTan1) * timeDelta).normalized();
                     transform.hasRotation = true;
-                } else if (curve.propertyPath == "localScale") {
+                } else if (curve.property == AnimProperty::Scale) {
                     transform.scale = blendVector3();
                     transform.hasScale = true;
                 }

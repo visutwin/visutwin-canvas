@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <cstdint>
+
 #include <unordered_set>
 #include "framework/anim/state-graph/animStateGraph.h"
 #include <memory>
@@ -45,8 +47,10 @@ namespace visutwin::canvas
         void setBlendType(const AnimLayerBlendType value) { _blendType = value; }
         /** Node paths this layer may drive (curve nodeName); empty = every node. */
         const std::unordered_set<std::string>& mask() const { return _mask; }
-        void setMask(std::unordered_set<std::string> value) { _mask = std::move(value); }
+        void setMask(std::unordered_set<std::string> value) { _mask = std::move(value); ++_maskVersion; }
         bool drives(const std::string& nodePath) const { return _mask.empty() || _mask.contains(nodePath); }
+        /// Bumped by setMask, so a caller caching drives() per node knows when to ask again.
+        uint64_t maskVersion() const { return _maskVersion; }
         AnimEvaluator* evaluator() const { return _evaluator.get(); }
 
         AnimController* controller() const { return _controller.get(); }
@@ -95,6 +99,7 @@ namespace visutwin::canvas
         float _weight;
         AnimLayerBlendType _blendType = AnimLayerBlendType::OVERWRITE;
         std::unordered_set<std::string> _mask;
+        uint64_t _maskVersion = 1;
         std::unique_ptr<AnimEvaluator> _evaluator;
         std::unique_ptr<AnimController> _controller;
     };

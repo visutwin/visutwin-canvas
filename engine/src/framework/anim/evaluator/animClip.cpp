@@ -77,12 +77,12 @@ namespace visutwin::canvas
         }
     }
 
-    void AnimClip::eval(std::unordered_map<std::string, AnimTransform>& transforms) const
+    void AnimClip::eval(AnimTransform* out, uint8_t* touched) const
     {
         if (!_track) {
             return;
         }
 
-        _track->eval(_time, transforms);
+        _track->eval(_time, out, touched);
     }
 }

@@ -5,6 +5,8 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <vector>
+#include <string>
 #include <stdexcept>
 #include <string_view>
 
@@ -316,6 +318,67 @@ int main()
         parent->setLocalEulerAngles(0.0f, 90.0f, 0.0f);     // only the PARENT changes
         passed &= expectRotationAxis(childObserver, Vector3(0.0f, 0.0f, -1.0f),
             "a parent rotation invalidates the child's cached world rotation");
+    }
+
+    // Removing a child leaves a hole that children() closes in order (2026-10-01); it
+    // used to find and erase, a scan and a shift per removal. The order of the rest, the
+    // removal of a child that is no longer there, a child deleted while still attached,
+    // and a removal made while walking the parent are what must not change.
+    {
+        auto parent = std::make_unique<GraphNode>("holes-parent");
+        std::vector<GraphNode*> kids;
+        for (int i = 0; i < 6; ++i) {
+            auto child = std::make_unique<GraphNode>("kid" + std::to_string(i));
+            kids.push_back(child.get());
+            parent->addChild(std::move(child));
+        }
+        const auto names = [&parent] {
+            std::string joined;
+            for (const auto& child : parent->children()) {
+                joined += child ? child->name() + " " : std::string("null ");
+            }
+            return joined;
+        };
+
+        auto removed = parent->removeChild(kids[2]);
+        auto removedFront = parent->removeChild(kids[0]);
+        passed &= expect(removed.get() == kids[2] && removedFront.get() == kids[0] && !kids[2]->parent(),
+            "removeChild hands back the child, detached");
+        passed &= expect(names() == "kid1 kid3 kid4 kid5 ", "the others keep their order");
+        passed &= expect(parent->findByName("kid4") == kids[4], "and are still found");
+        passed &= expect(parent->removeChild(kids[2]) == nullptr, "removing it again finds nothing");
+
+        auto removedBack = parent->removeChild(kids[5]);
+        auto late = std::make_unique<GraphNode>("late");
+        GraphNode* lateRaw = late.get();
+        parent->addChild(std::move(late));
+        auto removedMiddle = parent->removeChild(kids[3]);
+        passed &= expect(names() == "kid1 kid4 late ", "removals either side of a later addition");
+        passed &= expect(parent->removeChild(lateRaw).get() == lateRaw && names() == "kid1 kid4 ",
+            "and the later child is removed by its own slot after a compaction");
+
+        delete kids[1];   // still attached: the destructor detaches it from its parent
+        passed &= expect(names() == "kid4 ", "a child deleted while attached leaves the rest in order");
+
+        // A removal during a walk shows as a hole under the walk, never as a shift.
+        for (int i = 0; i < 3; ++i) {
+            parent->addChild(std::make_unique<GraphNode>("walk" + std::to_string(i)));
+        }
+        const auto& walked = parent->children();
+        std::vector<std::unique_ptr<GraphNode>> taken;
+        std::string visited;
+        for (size_t i = 0; i < walked.size(); ++i) {
+            if (!walked[i]) {
+                visited += "hole ";
+                continue;
+            }
+            visited += walked[i]->name() + " ";
+            if (walked[i]->name() == "kid4") {
+                taken.push_back(parent->removeChild(parent->findByName("walk1")));
+            }
+        }
+        passed &= expect(visited == "kid4 walk0 hole walk2 ", "a walk sees the removed sibling as a hole");
+        passed &= expect(names() == "kid4 walk0 walk2 ", "which the next read closes");
     }
 
     return passed ? 0 : 1;

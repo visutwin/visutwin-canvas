@@ -50,6 +50,10 @@ namespace visutwin::canvas
         _layers.clear();
         _stateGraph.reset();
         _targets.clear();
+        _targetLookup.clear();
+        _layerSlotTargets.clear();
+        _touchedTargets.clear();
+        _targetTouched.clear();
         _binder.reset();
         _parameters.clear();
         _consumedTriggers.clear();
@@ -224,17 +228,72 @@ namespace visutwin::canvas
         _consumedTriggers.clear();
     }
 
-    void AnimComponent::accumulateLayerPose(const size_t layerIndex, const std::string& nodePath,
-        const AnimTransform& value)
+    void AnimComponent::accumulateLayerPose(const size_t layerIndex, const size_t slot,
+        const std::string& nodePath, const AnimTransform& value)
     {
-        _targets[nodePath].contributions.push_back(LayerContribution{layerIndex, value});
+        if (_layerSlotTargets.size() <= layerIndex) {
+            _layerSlotTargets.resize(layerIndex + 1);
+        }
+        auto& slotTargets = _layerSlotTargets[layerIndex];
+        if (slotTargets.size() <= slot) {
+            slotTargets.resize(slot + 1, SIZE_MAX);
+        }
+        size_t targetIndex = slotTargets[slot];
+        if (targetIndex == SIZE_MAX) {
+            const auto [it, inserted] = _targetLookup.try_emplace(nodePath, _targets.size());
+            if (inserted) {
+                _targets.emplace_back();
+                _targets.back().path = nodePath;
+                _targetTouched.push_back(0);
+            }
+            targetIndex = it->second;
+            slotTargets[slot] = targetIndex;
+        }
+
+        TargetValue& target = _targets[targetIndex];
+        if (target.layers.size() <= layerIndex) {
+            target.layers.resize(layerIndex + 1);
+        }
+        // Assigned, not appended: the weights vector keeps its storage frame to frame.
+        target.layers[layerIndex].value = value;
+        target.layers[layerIndex].present = true;
+        if (!_targetTouched[targetIndex]) {
+            _targetTouched[targetIndex] = 1;
+            _touchedTargets.push_back(targetIndex);
+        }
+    }
+
+    void AnimComponent::clearContributions()
+    {
+        for (const size_t targetIndex : _touchedTargets) {
+            for (auto& contribution : _targets[targetIndex].layers) {
+                contribution.present = false;
+            }
+            _targetTouched[targetIndex] = 0;
+        }
+        _touchedTargets.clear();
+    }
+
+    bool AnimComponent::layerDrives(TargetValue& target, const size_t layer)
+    {
+        const AnimComponentLayer& animLayer = *_layers[layer];
+        if (animLayer.mask().empty()) {
+            return true;
+        }
+        if (target.maskVersions.size() <= layer) {
+            target.maskVersions.resize(layer + 1, 0);
+            target.drives.resize(layer + 1, 0);
+        }
+        if (target.maskVersions[layer] != animLayer.maskVersion()) {
+            target.drives[layer] = animLayer.drives(target.path) ? 1 : 0;
+            target.maskVersions[layer] = animLayer.maskVersion();
+        }
+        return target.drives[layer] != 0;
     }
 
     void AnimComponent::update(const float dt)
     {
-        for (auto& [path, target] : _targets) {
-            target.contributions.clear();
-        }
+        clearContributions();
         // Every layer advances, whatever its weight (upstream updates them all); a
         // weight of 0 contributes nothing in composeTargets but keeps the layer's time
         // moving, so fading it back in resumes where it would have been.
@@ -259,10 +318,8 @@ namespace visutwin::canvas
         if (!_binder) {
             return;
         }
-        for (auto& [path, target] : _targets) {
-            if (!target.contributions.empty()) {
-                writeTarget(path, target);
-            }
+        for (const size_t targetIndex : _touchedTargets) {
+            writeTarget(_targets[targetIndex]);
         }
     }
 
@@ -270,26 +327,37 @@ namespace visutwin::canvas
     // layers that drove it, in layer order. Off normalisation the value starts at the
     // node's rest pose; on it, at identity, and only the topmost OVERWRITE layer and
     // the layers above it take part (upstream zeroes the masks beneath it).
-    void AnimComponent::writeTarget(const std::string& nodePath, TargetValue& target)
+    void AnimComponent::writeTarget(TargetValue& target)
     {
-        GraphNode* node = _binder->resolve(nodePath);
-        std::vector<MorphInstance*> morphs;
+        if (target.nodeVersion != _binder->version()) {
+            target.node = _binder->resolve(target.path);
+            target.nodeVersion = _binder->version();
+        }
+        GraphNode* node = target.node;
         bool anyWeights = false;
-        for (const auto& c : target.contributions) {
-            anyWeights = anyWeights || c.value.hasWeights;
+        for (const auto& c : target.layers) {
+            anyWeights = anyWeights || (c.present && c.value.hasWeights);
         }
+        static const std::vector<MorphInstance*> noMorphs;
+        const std::vector<MorphInstance*>* morphsFound = &noMorphs;
         if (anyWeights) {
-            morphs = _binder->resolveMorphInstances(nodePath);
+            if (target.morphsVersion != _binder->version()) {
+                target.morphs = _binder->resolveMorphInstances(target.path);
+                target.morphsVersion = _binder->version();
+            }
+            morphsFound = &target.morphs;
         }
+        const std::vector<MorphInstance*>& morphs = *morphsFound;
         if (!node && morphs.empty()) {
             return;
         }
 
-        // Contributions from layers that may drive this node, in layer order.
-        std::vector<const LayerContribution*> active;
-        for (const auto& c : target.contributions) {
-            if (c.layer < _layers.size() && _layers[c.layer]->drives(nodePath)) {
-                active.push_back(&c);
+        // Layers that contributed and may drive this node, in layer order.
+        std::vector<size_t>& active = _activeLayers;
+        active.clear();
+        for (size_t layer = 0; layer < target.layers.size() && layer < _layers.size(); ++layer) {
+            if (target.layers[layer].present && layerDrives(target, layer)) {
+                active.push_back(layer);
             }
         }
         if (active.empty()) {
@@ -298,18 +366,18 @@ namespace visutwin::canvas
         if (_normalizeWeights) {
             size_t firstKept = 0;
             for (size_t i = 0; i < active.size(); ++i) {
-                if (_layers[active[i]->layer]->blendType() == AnimLayerBlendType::OVERWRITE) {
+                if (_layers[active[i]]->blendType() == AnimLayerBlendType::OVERWRITE) {
                     firstKept = i;
                 }
             }
             active.erase(active.begin(), active.begin() + static_cast<std::ptrdiff_t>(firstKept));
         }
         float total = 0.0f;
-        for (const auto* c : active) {
-            total += _layers[c->layer]->weight();
+        for (const size_t layer : active) {
+            total += _layers[layer]->weight();
         }
-        const auto weightOf = [&](const LayerContribution& c) {
-            const float w = _layers[c.layer]->weight();
+        const auto weightOf = [&](const size_t layer) {
+            const float w = _layers[layer]->weight();
             if (_normalizeWeights) {
                 return total > 0.0f ? w / total : 0.0f;
             }
@@ -324,8 +392,9 @@ namespace visutwin::canvas
             if (!base.hasScale) { base.scale = node->localScale(); base.hasScale = true; }
         }
         if (anyWeights && !base.hasWeights) {
-            for (const auto* c : active) {
-                if (c->value.hasWeights) { base.weights.assign(c->value.weights.size(), 0.0f); break; }
+            for (const size_t layer : active) {
+                const AnimTransform& v = target.layers[layer].value;
+                if (v.hasWeights) { base.weights.assign(v.weights.size(), 0.0f); break; }
             }
             if (!morphs.empty() && morphs.front()) {
                 for (size_t i = 0; i < base.weights.size(); ++i) {
@@ -337,8 +406,9 @@ namespace visutwin::canvas
             base.hasWeights = true;
         }
 
-        // Start value: rest pose, or identity when normalising (upstream).
-        AnimTransform value;
+        // Start value: rest pose, or identity when normalising (upstream). Kept across
+        // calls so its weights vector keeps its storage.
+        AnimTransform& value = _composeScratch;
         if (_normalizeWeights) {
             value.position = Vector3(0.0f);
             value.rotation = identityQuat();
@@ -349,14 +419,14 @@ namespace visutwin::canvas
         }
         value.hasPosition = value.hasRotation = value.hasScale = value.hasWeights = false;
 
-        for (const auto* c : active) {
-            const float w = weightOf(*c);
+        for (const size_t layer : active) {
+            const float w = weightOf(layer);
             if (w <= 0.0f) {
                 continue;
             }
             const bool additive = !_normalizeWeights &&
-                _layers[c->layer]->blendType() == AnimLayerBlendType::ADDITIVE;
-            const AnimTransform& v = c->value;
+                _layers[layer]->blendType() == AnimLayerBlendType::ADDITIVE;
+            const AnimTransform& v = target.layers[layer].value;
             if (v.hasPosition) {
                 value.position = additive
                     ? value.position + (v.position - base.position) * w

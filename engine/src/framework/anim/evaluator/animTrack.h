@@ -35,6 +35,17 @@ namespace visutwin::canvas
         size_t count() const { return components > 0 ? data.size() / static_cast<size_t>(components) : 0; }
     };
 
+    /// Which property a curve drives, decided once when the curve is added from its
+    /// propertyPath, so evaluation compares an enum rather than strings.
+    enum class AnimProperty : uint8_t
+    {
+        Unknown = 0,
+        Position,   // "localPosition"
+        Rotation,   // "localRotation"
+        Scale,      // "localScale"
+        Weights     // "weights"
+    };
+
     //
     enum class AnimInterpolation : uint8_t
     {
@@ -55,6 +66,10 @@ namespace visutwin::canvas
         size_t inputIndex = 0;         // index into AnimTrack::_inputs
         size_t outputIndex = 0;        // index into AnimTrack::_outputs
         AnimInterpolation interpolation = AnimInterpolation::LINEAR;
+
+        // Filled by AnimTrack::addCurve; whatever the caller wrote here is replaced.
+        size_t targetIndex = 0;                         // index into AnimTrack::targets()
+        AnimProperty property = AnimProperty::Unknown;  // from propertyPath
     };
 
     class AnimTrack
@@ -69,8 +84,9 @@ namespace visutwin::canvas
         float duration() const { return _duration; }
         void setDuration(float value) { _duration = value; }
 
-        // Curve-based API
-        void addCurve(const AnimCurve& curve) { _curves.push_back(curve); }
+        // Curve-based API. addCurve gives the curve its target index (one per distinct
+        // nodeName, in first-seen order) and its property.
+        void addCurve(const AnimCurve& curve);
         void addInput(const AnimData& input) { _inputs.push_back(input); }
         void addOutput(const AnimData& output) { _outputs.push_back(output); }
 
@@ -78,16 +94,40 @@ namespace visutwin::canvas
         const std::vector<AnimData>& inputs() const { return _inputs; }
         const std::vector<AnimData>& outputs() const { return _outputs; }
 
-        // eval() signature unchanged — AnimClip/AnimEvaluator don't change.
-        void eval(float time, std::unordered_map<std::string, AnimTransform>& transforms) const;
+        /// The distinct node paths the curves drive, in first-seen order.
+        const std::vector<std::string>& targets() const { return _targets; }
+
+        /// Process-unique identity of this track's target list: an evaluator caches how
+        /// the track's targets map onto its own nodes under it. A copy gets a new one.
+        uint64_t serial() const { return _serial.value; }
+
+        /**
+         * Evaluates every curve at `time` into `out[curve.targetIndex]`, one entry per
+         * target. A target some curve evaluated is marked in `touched` (as the map the
+         * old signature filled gained an entry); the caller clears the has* flags of the
+         * entries and the marks before the call. Nothing is allocated here and no string
+         * is hashed or compared: this runs per clip per frame.
+         */
+        void eval(float time, AnimTransform* out, uint8_t* touched) const;
 
     private:
         static float hermite(float t, float p0, float m0, float p1, float m1);
+
+        struct Serial
+        {
+            uint64_t value;
+            Serial();
+            Serial(const Serial&);
+            Serial& operator=(const Serial&) { return *this; }   // an assigned-to track keeps its own
+        };
 
         std::string _name;
         float _duration = 0.0f;
         std::vector<AnimCurve> _curves;
         std::vector<AnimData> _inputs;    // keyframe time arrays (shared across curves)
         std::vector<AnimData> _outputs;   // value arrays
+        std::vector<std::string> _targets;
+        std::unordered_map<std::string, size_t> _targetLookup;   // addCurve only
+        Serial _serial;
     };
 }

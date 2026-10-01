@@ -21,6 +21,8 @@
 
 namespace visutwin::canvas
 {
+    class GraphNode;
+    class MorphInstance;
     /**
      * The modern animation component (upstream `anim`): drives the entity hierarchy through a
      * state graph of layers, states, transitions with conditions, and blend trees, controlled
@@ -90,7 +92,8 @@ namespace visutwin::canvas
         void setNormalizeWeights(const bool value) { _normalizeWeights = value; }
 
         /** A layer's evaluator reports its pose here (see AnimEvaluator::setPoseSink). */
-        void accumulateLayerPose(size_t layerIndex, const std::string& nodePath, const AnimTransform& value);
+        void accumulateLayerPose(size_t layerIndex, size_t slot, const std::string& nodePath,
+            const AnimTransform& value);
 
         bool activate() const { return _activate; }
         void setActivate(const bool value) { _activate = value; }
@@ -113,25 +116,43 @@ namespace visutwin::canvas
 
         // Per animated node: what each layer produced this update, and the node's
         // rest value per property, captured the first time a layer drives it — the
-        // baseValue upstream reads at bind. Kept across frames; contributions are
-        // cleared every update.
+        // baseValue upstream reads at bind. Kept across frames, INDEXED: a layer's
+        // evaluator reports a node by its slot, which maps to a target once
+        // (_layerSlotTargets). The binder's answers and each layer's mask test are cached
+        // per target. Until 2026-10-01 this was a map keyed by node path, hashed and
+        // probed several times per node per frame, with two vectors allocated per node.
         struct LayerContribution
         {
-            size_t layer = 0;
             AnimTransform value;
+            bool present = false;    // this update
         };
         struct TargetValue
         {
-            std::vector<LayerContribution> contributions;
+            std::string path;
+            std::vector<LayerContribution> layers;    // by layer index
             AnimTransform base;
+            uint64_t nodeVersion = UINT64_MAX;
+            GraphNode* node = nullptr;
+            uint64_t morphsVersion = UINT64_MAX;
+            std::vector<MorphInstance*> morphs;
+            std::vector<uint64_t> maskVersions;       // by layer; drives() answer below
+            std::vector<uint8_t> drives;
         };
-        std::unordered_map<std::string, TargetValue> _targets;
+        std::vector<TargetValue> _targets;
+        std::unordered_map<std::string, size_t> _targetLookup;      // a slot's first report only
+        std::vector<std::vector<size_t>> _layerSlotTargets;          // [layer][slot] -> target
+        std::vector<size_t> _touchedTargets;                         // this update
+        std::vector<uint8_t> _targetTouched;
+        std::vector<size_t> _activeLayers;                           // writeTarget scratch
+        AnimTransform _composeScratch;                               // writeTarget's value
+        void clearContributions();
+        bool layerDrives(TargetValue& target, size_t layer);
         // The graph loadStateGraph was given, kept so a clone can load the same one.
         std::optional<AnimStateGraph> _stateGraph;
         std::unique_ptr<AnimBinder> _binder;   // resolves node paths for the final write
 
         void composeTargets();
-        void writeTarget(const std::string& nodePath, TargetValue& target);
+        void writeTarget(TargetValue& target);
 
         friend class AnimComponentLayer;
     };

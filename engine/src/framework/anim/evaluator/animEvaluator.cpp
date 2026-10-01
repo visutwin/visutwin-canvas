@@ -55,6 +55,42 @@ namespace visutwin::canvas
         }
     }
 
+    const AnimEvaluator::TrackBinding& AnimEvaluator::bindingFor(const AnimTrack& track)
+    {
+        TrackBinding& binding = _trackBindings[track.serial()];
+        const auto& targets = track.targets();
+        // Targets are only ever appended (AnimTrack::addCurve), so a binding made
+        // earlier is extended rather than rebuilt.
+        while (binding.slots.size() < targets.size()) {
+            const std::string& path = targets[binding.slots.size()];
+            const auto [it, inserted] = _slotLookup.try_emplace(path, _slots.size());
+            if (inserted) {
+                _slots.emplace_back();
+                _slotPaths.push_back(path);
+            }
+            binding.slots.push_back(it->second);
+        }
+        return binding;
+    }
+
+    GraphNode* AnimEvaluator::nodeFor(Slot& slot, const std::string& path)
+    {
+        if (slot.resolvedVersion != _binder->version()) {
+            slot.node = _binder->resolve(path);
+            slot.resolvedVersion = _binder->version();
+        }
+        return slot.node;
+    }
+
+    const std::vector<MorphInstance*>& AnimEvaluator::morphsFor(Slot& slot, const std::string& path)
+    {
+        if (slot.morphsVersion != _binder->version()) {
+            slot.morphs = _binder->resolveMorphInstances(path);
+            slot.morphsVersion = _binder->version();
+        }
+        return slot.morphs;
+    }
+
     void AnimEvaluator::update(const float dt)
     {
         if (!_binder || _clips.empty()) {
@@ -67,16 +103,13 @@ namespace visutwin::canvas
         // by its blendWeight. Clips added later (the transition's destination state)
         // therefore composite over earlier ones. A clip with weight >= 1 resets the
         // accumulation. Only clips with weight > 0 advance their time.
-        struct Accum
-        {
-            AnimTransform value;
-            int posCounter = 0;
-            int rotCounter = 0;
-            int sclCounter = 0;
-            int wgtCounter = 0;
-        };
-        std::unordered_map<std::string, Accum> blended;
-        std::unordered_map<std::string, AnimTransform> tmp;
+        //
+        // Per node the accumulation lives in a persistent SLOT, and each clip's track
+        // evaluates into a reused array indexed by its own targets. Until 2026-10-01
+        // every update built two unordered_maps keyed by the full node path — about six
+        // path hashes and four allocations per animated node per frame, the largest
+        // per-frame cost of an animated character.
+        _touchedSlots.clear();
 
         for (const auto& clip : _clips) {
             if (!clip) {
@@ -88,12 +121,38 @@ namespace visutwin::canvas
             } else {
                 continue;
             }
+            const AnimTrack* track = clip->track().get();
+            if (!track) {
+                continue;
+            }
 
-            tmp.clear();
-            clip->eval(tmp);
+            const TrackBinding& binding = bindingFor(*track);
+            const size_t targetCount = track->targets().size();
+            if (_scratch.size() < targetCount) {
+                _scratch.resize(targetCount);
+            }
+            _scratchTouched.assign(targetCount, 0);
+            for (size_t t = 0; t < targetCount; ++t) {
+                AnimTransform& entry = _scratch[t];
+                entry.hasPosition = entry.hasRotation = entry.hasScale = entry.hasWeights = false;
+            }
+            clip->eval(_scratch.data(), _scratchTouched.data());
 
-            for (const auto& [nodeName, transform] : tmp) {
-                auto& acc = blended[nodeName];
+            for (size_t t = 0; t < targetCount; ++t) {
+                if (!_scratchTouched[t]) {
+                    continue;
+                }
+                const AnimTransform& transform = _scratch[t];
+                const size_t slotIndex = binding.slots[t];
+                Slot& acc = _slots[slotIndex];
+                if (!acc.touched) {
+                    // The first contribution this update: what a fresh map entry was.
+                    acc.touched = true;
+                    acc.posCounter = acc.rotCounter = acc.sclCounter = acc.wgtCounter = 0;
+                    acc.value.hasPosition = acc.value.hasRotation = acc.value.hasScale = false;
+                    acc.value.hasWeights = false;
+                    _touchedSlots.push_back(slotIndex);
+                }
                 if (transform.hasPosition) {
                     if (acc.posCounter == 0 || weight >= 1.0f) {
                         acc.value.position = transform.position;
@@ -139,14 +198,16 @@ namespace visutwin::canvas
         // A component composing several layers takes the pose here and writes nothing
         // itself; see setPoseSink.
         if (_poseSink) {
-            for (const auto& [nodeName, acc] : blended) {
-                _poseSink(nodeName, acc.value);
+            for (const size_t slotIndex : _touchedSlots) {
+                _slots[slotIndex].touched = false;
+                _poseSink(slotIndex, _slotPaths[slotIndex], _slots[slotIndex].value);
             }
             return;
         }
 
-        for (const auto& [nodeName, acc] : blended) {
-            GraphNode* node = _binder->resolve(nodeName);
+        for (const size_t slotIndex : _touchedSlots) {
+            Slot& acc = _slots[slotIndex];
+            GraphNode* node = nodeFor(acc, _slotPaths[slotIndex]);
             if (!node) {
                 continue;
             }
@@ -163,11 +224,13 @@ namespace visutwin::canvas
 
         // Morph weight channels: push blended weights into the target node's
         // morph instances (glTF "weights" animation).
-        for (const auto& [nodeName, acc] : blended) {
+        for (const size_t slotIndex : _touchedSlots) {
+            Slot& acc = _slots[slotIndex];
+            acc.touched = false;
             if (!acc.value.hasWeights) {
                 continue;
             }
-            for (auto* morphInstance : _binder->resolveMorphInstances(nodeName)) {
+            for (auto* morphInstance : morphsFor(acc, _slotPaths[slotIndex])) {
                 if (!morphInstance) {
                     continue;
                 }

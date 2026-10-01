@@ -25,7 +25,8 @@ namespace visutwin::canvas
         /** Normalized progress the clip reaches at `time` (upstream progressForTime). */
         float progressForTime(float time) const;
 
-        void eval(std::unordered_map<std::string, AnimTransform>& transforms) const;
+        /// The track at the clip's time; see AnimTrack::eval.
+        void eval(AnimTransform* out, uint8_t* touched) const;
 
         float time() const { return _time; }
         void setTime(float value) { _time = value; }

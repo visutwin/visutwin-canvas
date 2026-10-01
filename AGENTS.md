@@ -1236,6 +1236,23 @@ present, but the rule below never depends on reading it.
   directly, and a zero-weight layer keeps advancing its clocks (upstream does), it
   just contributes nothing. `tests/animLayerBlendTests.cpp` holds the closed-form
   cases.
+- **Animation evaluation hashes no string per frame.** `AnimTrack::addCurve` gives each
+  curve a `targetIndex` (one per distinct `nodeName`, first-seen order, `targets()`) and
+  a `property` enum, replacing whatever the caller wrote in those two fields; a track
+  evaluates into an array indexed by target. `AnimEvaluator` keeps a persistent SLOT per
+  node path (the blend accumulates there, counters reset on the first contribution of
+  each update) and maps each track's targets onto its slots once, keyed by
+  `AnimTrack::serial()` (a copy gets a new one). The pose sink receives `(slot, path,
+  value)`; `AnimComponent` maps a layer's slot to its target once, caches the binder's
+  node and morph answers per target, and a layer's `drives()` per target against
+  `AnimComponentLayer::maskVersion()`. Both caches are keyed on
+  `AnimBinder::version()`: a binder whose answers can change (an `unresolve`) MUST bump
+  it, or animation keeps writing the node it resolved first. Until 2026-10-01 each update
+  built two path-keyed maps per evaluator and probed one per node in the component —
+  about six hashes and four allocations per animated node per frame: one character's
+  update 0.115 -> 0.052 ms (`anim-stategraph`), 0.216 -> 0.077 (`blend-trees-2d`), poses
+  bit-identical. Only a value's flagged fields (`hasPosition` ...) carry an update's result;
+  the unflagged ones are left over from earlier updates.
 - **A glTF node's identity is its name or `node_<index>`, and an animation target
   is a PATH of those names.** `glbNodeName` in `glbParser.cpp` is the one spelling,
   used by the node payload the container instantiates, the animation channels and
@@ -1564,9 +1581,18 @@ present, but the rule below never depends on reading it.
   run inside someone else's loop over `items()`. A new component type registers the
   same way; `tests/componentInstanceListTests.cpp` holds order, holes and a destroy
   mid-walk. `ElementComponent`'s destructor sweeps the elements for `_maskedBy` only
-  if it was ever handed out as a mask. Still linear per removal: `GraphNode::removeChild`
-  (a find and an erase in the parent's child vector), which is what 20k siblings under
-  the root still pay (415 -> 320 ms).
+  if it was ever handed out as a mask.
+- **A node's `children()` follows the same contract.** Each child knows its slot
+  (`_slotInParent`); `removeChild` (and deleting an attached node) leaves a NULL in the
+  parent's `_children`, popping it outright when it is the last, and `children()` closes
+  the holes in order before returning, so a caller never sees one — except a loop that
+  removes a sibling from inside its own body, which then sees a null under it (never a
+  shift). Such a loop checks for null and does not call `children()` on that node again
+  inside the loop; every loop INSIDE `GraphNode` that can run callbacks (`fireOnHierarchy`,
+  `notifyHierarchyStateChanged`) walks by index and skips holes. Until 2026-10-01
+  `removeChild` was a find and an erase: destroying 20k siblings took 318 ms, 40k took
+  1.2 s; now 7.4 and 14 ms. `tests/graphNodeTests.cpp` holds order, re-removal, deletion
+  while attached and a removal mid-walk.
 - **`Entity::destroy()` is the teardown path, and it does NOT free the node.**
   Descendants first, disable in order, `destroy` event, then each component
   released THROUGH the system that owns it (so `beforeremove` / `remove` fire for
