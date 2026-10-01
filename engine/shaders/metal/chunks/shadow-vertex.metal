@@ -15,7 +15,7 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
                                                     v.instance_line3, v.instance_line4);
     const float4 world = instanceModelMatrix * float4(v.position, 1.0);
     float4 clip = scene.projViewMatrix * world;
-    // DEVIATION: OpenGL NDC z range is [-1,1]; Metal requires [0,1].
+    // GL-style projection (NDC z in [-1,1]) to the [0,1] depth both backends use.
     clip.z = 0.5 * (clip.z + clip.w);
     rd.position = clip;
     rd.worldPos = world.xyz;
@@ -133,7 +133,7 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
 #endif
     const float4 world = model.modelMatrix * float4(localPos, 1.0);
     float4 clip = scene.projViewMatrix * world;
-    // DEVIATION: OpenGL NDC z range is [-1,1]; Metal requires [0,1].
+    // GL-style projection (NDC z in [-1,1]) to the [0,1] depth both backends use.
     // Apply the same conversion as the forward vertex shader.
     clip.z = 0.5 * (clip.z + clip.w);
     rd.position = clip;

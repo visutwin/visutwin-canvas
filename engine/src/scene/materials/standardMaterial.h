@@ -390,6 +390,13 @@ namespace visutwin::canvas
         void setClearCoatGlossInvert(const bool value) { _clearCoatGlossInvert = value; markUniformsDirty(); }
         float clearCoatBumpiness() const { return _clearCoatBumpiness; }
         void setClearCoatBumpiness(const float value) { _clearCoatBumpiness = value; markUniformsDirty(); }
+        /// Channel of the clearcoat map that supplies intensity (upstream clearCoatMapChannel,
+        /// default "g"; KHR_materials_clearcoat stores it in R).
+        MapChannel clearCoatMapChannel() const { return _clearCoatMapChannel; }
+        void setClearCoatMapChannel(const MapChannel value) { _clearCoatMapChannel = value; markUniformsDirty(); }
+        /// Channel of the clearcoat gloss map (upstream clearCoatGlossMapChannel, default "g").
+        MapChannel clearCoatGlossMapChannel() const { return _clearCoatGlossMapChannel; }
+        void setClearCoatGlossMapChannel(const MapChannel value) { _clearCoatGlossMapChannel = value; markUniformsDirty(); }
         Texture* clearCoatMap() const { return _clearCoatMap; }
         void setClearCoatMap(Texture* texture) { _clearCoatMap = texture; markUniformsDirty(); }
         Texture* clearCoatGlossMap() const { return _clearCoatGlossMap; }
@@ -556,6 +563,8 @@ namespace visutwin::canvas
         Texture* _clearCoatMap = nullptr;
         Texture* _clearCoatGlossMap = nullptr;
         Texture* _clearCoatNormalMap = nullptr;
+        MapChannel _clearCoatMapChannel = MapChannel::MAP_CHANNEL_G;
+        MapChannel _clearCoatGlossMapChannel = MapChannel::MAP_CHANNEL_G;
 
         // sheen properties (KHR_materials_sheen).
         Color _sheenColor = Color(0.0f, 0.0f, 0.0f, 1.0f);

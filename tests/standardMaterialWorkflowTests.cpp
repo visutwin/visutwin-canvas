@@ -119,6 +119,14 @@ int main()
         StandardMaterial coated;
         coated.setClearCoat(0.5f);
         check(coated.rendersSpecular(), "clearcoat renders specular (upstream's useSpecular includes clearCoat > 0)");
+        check(near(coated.packedUniforms().clearCoatMapChannels[0], 1.0f) &&
+                near(coated.packedUniforms().clearCoatMapChannels[1], 1.0f),
+            "the clearcoat maps read G by default (upstream clearCoatMapChannel / clearCoatGlossMapChannel)");
+        coated.setClearCoatMapChannel(MapChannel::MAP_CHANNEL_R);
+        coated.setClearCoatGlossMapChannel(MapChannel::MAP_CHANNEL_A);
+        check(near(coated.packedUniforms().clearCoatMapChannels[0], 0.0f) &&
+                near(coated.packedUniforms().clearCoatMapChannels[1], 3.0f),
+            "a clearcoat map channel set on the material reaches the packed block");
 
         const auto specGlossTexture = makeTexture(&device);
         StandardMaterial specGlossMapped;

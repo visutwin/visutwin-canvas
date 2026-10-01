@@ -203,8 +203,9 @@ namespace visutwin::canvas
             return true;
         }
 
-        // DEVIATION: until full Ammo/Bullet integration lands, raycast uses analytic primitive
-        // intersections against current CollisionComponent shapes transformed by entity world matrix.
+        // The CPU fallback for raycastFirst / raycastAll when the application supplies no
+        // PhysicsWorld: analytic intersections against each CollisionComponent's shape in its
+        // entity's space. With a world supplied (Jolt) the queries go to the simulation instead.
         bool intersectCollisionShape(
             const CollisionComponent* collision, const Vector3& start, const Vector3& end,
             float& outT, Vector3& outPoint, Vector3& outNormal)

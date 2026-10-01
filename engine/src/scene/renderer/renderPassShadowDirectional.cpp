@@ -178,10 +178,4 @@ namespace visutwin::canvas
             }
         }
     }
-
-    void RenderPassShadowDirectional::after()
-    {
-        // DEVIATION: VSM post-filtering path is not ported yet.
-        (void)_face;
-    }
 }

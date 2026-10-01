@@ -28,10 +28,10 @@ vec2 applyUvTransform(vec2 uv, vec4 row0, vec4 row1) {
 
 // Distance attenuation: inverse-square with a smooth range window, or linear
 // falloff when coneParams.z != 0 (matches the engine's falloffModeLinear).
+// A range of 0 is clamped as Metal's getFalloffWindow / getFalloffInvSquared and
+// upstream clamp it, so it extinguishes the light instead of removing the limit.
 float distanceAttenuation(float dist, float range, float linearFalloff) {
-    if (range <= 0.0) {
-        return 1.0;
-    }
+    range = max(range, 1e-4);
     float t = clamp(dist / range, 0.0, 1.0);
     if (linearFalloff > 0.5) {
         return clamp(1.0 - t, 0.0, 1.0);

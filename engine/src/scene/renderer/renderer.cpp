@@ -208,7 +208,7 @@ namespace visutwin::canvas
 
     Renderer::Renderer(const std::shared_ptr<GraphicsDevice>& device, const std::shared_ptr<Scene>& scene) : _device(device), _scene(scene)
     {
-        // DEVIATION: startup self-test guards recent attenuation/falloff regressions in this port.
+        // Startup self-test: guards the attenuation and falloff curves against regressions.
         runLightingValidationSelfTest();
 
         _lightTextureAtlas = std::make_unique<LightTextureAtlas>(device);
@@ -2199,7 +2199,6 @@ namespace visutwin::canvas
         // This function runs once per camera x layer x (opaque|transparent), so several
         // times a frame: the entries and the vectors holding them are reused across
         // calls rather than allocated each time. thread_local for the same reason.
-        // DEVIATION: pooled frame-local query objects reduce allocator churn in this native port.
         static thread_local ObjectPool<ForwardDrawEntry> drawEntryPool(256);
         static thread_local std::vector<ForwardDrawEntry*> drawEntries;
         static thread_local ForwardLights lights;

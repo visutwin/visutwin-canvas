@@ -109,7 +109,7 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
         viewPos.xy += scaled;
         clip = params.projection * viewPos;
     }
-    // DEVIATION: OpenGL NDC z range is [-1,1]; Metal requires [0,1].
+    // GL-style projection (NDC z in [-1,1]) to the [0,1] depth both backends use.
     clip.z = 0.5 * (clip.z + clip.w);
 
     // Sprite-sheet frame from particle life (tile 0 = top-left).

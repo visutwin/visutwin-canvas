@@ -200,7 +200,7 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
     const float2 uv = cornerUV[vid];
     clip.xy += (uv.x * v1 + uv.y * v2) * c;
 
-    // DEVIATION: OpenGL NDC z range is [-1,1]; Metal requires [0,1].
+    // GL-style projection (NDC z in [-1,1]) to the [0,1] depth both backends use.
     clip.z = 0.5 * (clip.z + clip.w);
 
     // Keep the splat off the near and far planes (upstream gsplatCenter.js, which

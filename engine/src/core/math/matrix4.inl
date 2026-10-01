@@ -3,6 +3,7 @@
 //
 #pragma once
 
+#include <cmath>
 #include <cstring>
 #include <type_traits>
 
@@ -555,7 +556,15 @@ namespace visutwin::canvas
         const Vector3 n1 = c2.cross(c0);
         const Vector3 n2 = c0.cross(c1);
         const float det = c0.dot(n0);
-        const float invDet = std::abs(det) > 1e-8f ? 1.0f / det : 0.0f;
+        const float invDet = 1.0f / det;
+        // A singular 3x3 (a zero scale on some axis) has no inverse; upstream's
+        // Mat3.invertMat4 returns the identity for it, so the surface keeps its
+        // authored normals and tangents. Only an exact zero (or a determinant so small
+        // its reciprocal overflows) counts: a tiny but valid scale, such as a model in
+        // millimetres scaled by 0.001, keeps its true inverse transpose.
+        if (det == 0.0f || !std::isfinite(invDet)) {
+            return Matrix4();
+        }
         return Matrix4(Vector4(n0 * invDet, 0.0f), Vector4(n1 * invDet, 0.0f), Vector4(n2 * invDet, 0.0f),
             Vector4(0.0f, 0.0f, 0.0f, 1.0f));
     }

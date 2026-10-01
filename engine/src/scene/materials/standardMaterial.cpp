@@ -77,6 +77,8 @@ namespace visutwin::canvas
         _clearCoatMap = nullptr;
         _clearCoatGlossMap = nullptr;
         _clearCoatNormalMap = nullptr;
+        _clearCoatMapChannel = MapChannel::MAP_CHANNEL_G;
+        _clearCoatGlossMapChannel = MapChannel::MAP_CHANNEL_G;
 
         _sheenColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
         _sheenRoughness = 0.0f;
@@ -332,6 +334,8 @@ namespace visutwin::canvas
             const float ccGloss = _clearCoatGlossInvert ? (1.0f - _clearCoatGloss) : _clearCoatGloss;
             uniforms.clearCoatRoughness = 1.0f - ccGloss;
             uniforms.clearCoatBumpiness = _clearCoatBumpiness;
+            uniforms.clearCoatMapChannels[0] = static_cast<float>(_clearCoatMapChannel);
+            uniforms.clearCoatMapChannels[1] = static_cast<float>(_clearCoatGlossMapChannel);
         }
 
         // sheen (KHR_materials_sheen).

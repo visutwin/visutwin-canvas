@@ -27,7 +27,7 @@ namespace visutwin::canvas
             float thickness = 1.0f;
         };
 
-        // DEVIATION: this C++ port exposes a pooled overlay command API for debug instrumentation workflows.
+        // Not in upstream: a pooled overlay line API for debug instrumentation.
         OverlayCommand* addOverlayLine(const Vector3& start, const Vector3& end, const Color& color, float thickness = 1.0f);
 
         const std::vector<OverlayCommand*>& overlays() const { return _overlayCommands; }

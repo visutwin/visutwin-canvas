@@ -24,8 +24,9 @@ namespace visutwin::canvas
             return BoundingSphere(Vector3(0.0f, 0.0f, 0.0f), _radius);
         }
 
-        // DEVIATION: collision shape primitives are approximated from render bounds until dedicated
-        // Ammo/Bullet collision shape generation is ported.
+        // A conservative sphere for the CPU raycast fallback, used only for shape types it
+        // cannot intersect analytically (anything but box, sphere and capsule); the physics
+        // world builds its own shapes. Taken from the render bounds where there are some.
         if (const auto* render = entity()->findComponent<RenderComponent>(); render && !render->meshInstances().empty()) {
             bool hasBounds = false;
             BoundingBox merged;

@@ -579,7 +579,7 @@ them, so the build-time bundle and the runtime composition share one source.
 device virtuals: a shader, up to 8 input textures on fragment slots 0-7, and one
 uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(640; `MaterialUniforms` itself is 528 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(640; `MaterialUniforms` itself is 544 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),

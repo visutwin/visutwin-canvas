@@ -376,7 +376,7 @@ the maps.
 Example: `refraction-example.cpp` (port of upstream `materials/material-refraction`).
 
 ### Material System
-- `Material` base: glTF PBR metallic-roughness, `MaterialUniforms` struct (528 bytes, emitted from `materialUniformFields.h`) matches GPU `MaterialData`
+- `Material` base: glTF PBR metallic-roughness, `MaterialUniforms` struct (544 bytes, emitted from `materialUniformFields.h`) matches GPU `MaterialData`
 - `StandardMaterial`: Full PBR (clearcoat, anisotropy, sheen, iridescence, transmission, parallax)
 - `ShaderMaterial`: Custom Metal shader with user entry points
 

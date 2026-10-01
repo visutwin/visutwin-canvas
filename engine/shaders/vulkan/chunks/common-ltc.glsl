@@ -15,13 +15,10 @@ vec2 ltcUv(vec3 N, vec3 V, float perceptualRoughness) {
 
 // Range window only (upstream getFalloffWindow): a non-punctual light gets its
 // physical distance falloff from the LTC form factor, so only the artist-set
-// range is applied here. DEVIATION from the Metal chunk: range 0 means "no
-// range limit" as everywhere else in this shader, rather than extinguishing
-// the light.
+// range is applied here. Range 0 is clamped, as upstream and the Metal chunk do,
+// so it extinguishes the light rather than lifting the range limit (the renderer
+// never uploads less than 1e-4 anyway).
 float ltcFalloffWindow(float range, vec3 toLight) {
-    if (range <= 0.0) {
-        return 1.0;
-    }
     float sqrDist = dot(toLight, toLight);
     float invRadius = 1.0 / max(range, 1e-4);
     float t = sqrDist * invRadius * invRadius;

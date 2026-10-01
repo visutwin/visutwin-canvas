@@ -327,14 +327,14 @@
     float ccSpecularity = material.clearCoatFactor;
     float ccGlossiness = 1.0 - clamp(material.clearCoatRoughness, 0.0, 1.0);
 
-    // Sample clearcoat intensity map (green channel, upstream convention).
+    // Clearcoat intensity and gloss maps, each from the channel the material names
+    // (upstream clearCoatMapChannel / clearCoatGlossMapChannel, default g).
     if ((material.flags & (1u << 14)) != 0u && clearCoatTexture.get_width() > 0) {
-        ccSpecularity *= clearCoatTexture.sample(defaultSampler, uvBase).g;
+        ccSpecularity *= clearCoatTexture.sample(defaultSampler, uvBase)[int(material.clearCoatMapChannels.x)];
     }
 
-    // Sample clearcoat gloss map (green channel).
     if ((material.flags & (1u << 15)) != 0u && clearCoatGlossTexture.get_width() > 0) {
-        ccGlossiness *= clearCoatGlossTexture.sample(defaultSampler, uvBase).g;
+        ccGlossiness *= clearCoatGlossTexture.sample(defaultSampler, uvBase)[int(material.clearCoatMapChannels.y)];
     }
 
     ccGlossiness += 0.0000001; // prevent divide-by-zero

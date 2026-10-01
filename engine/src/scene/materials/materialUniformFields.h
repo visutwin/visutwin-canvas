@@ -126,7 +126,11 @@
     X(vec4, msdfShadowColor, {0.0f, 0.0f, 0.0f, 1.0f}) \
     /* x = outline thickness (upstream outline_thickness, already x 0.2), yz = shadow */ \
     /* offset in UV (upstream shadow_offset), w = pad */ \
-    X(vec4, msdfOutlineShadow, {0.0f, 0.0f, 0.0f, 0.0f})
+    X(vec4, msdfOutlineShadow, {0.0f, 0.0f, 0.0f, 0.0f}) \
+    /* --- Clearcoat map channels (upstream clearCoatMapChannel / clearCoatGlossMapChannel) --- */ \
+    /* x = channel of the clearcoat intensity map, y = of the clearcoat gloss map */ \
+    /* (0=r,1=g,2=b,3=a; default g as upstream, the glTF parser picks r for intensity), zw = pad */ \
+    X(vec4, clearCoatMapChannels, {1.0f, 1.0f, 0.0f, 0.0f})
 
 namespace visutwin::canvas
 {

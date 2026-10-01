@@ -14,12 +14,6 @@
     return float4(distFromPlane, distFromPlane, distFromPlane, 1.0);
 #endif
 
-    // Placeholders for future chunk ports (deliberately compile-time dead when disabled).
-#if VT_FEATURE_SPEC_GLOSS || VT_FEATURE_OREN_NAYAR || \
-    VT_FEATURE_DETAIL_NORMALS || VT_FEATURE_DISPLACEMENT
-    // DEVIATION: feature chunks are staged behind compile-time toggles and will be ported incrementally.
-#endif
-
 #if VT_FEATURE_SHADOW_CATCHER
     // shadow catcher overrides the normal lighting output.
     // Output the accumulated shadow factor as a grayscale value.

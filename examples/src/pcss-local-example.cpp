@@ -37,9 +37,6 @@
 // engine the directional penumbra is world-space, penumbraSize multiplied by the
 // cascade's caster depth range. At 1 the shadow disappears, at 0.1 it is barely
 // visible, and 0.02 comes closest to upstream's soft but visible shadow.
-// DEVIATION: upstream scales the ground plane (100, 0, 100). This port uses a Y
-// scale of 0.001, because the Metal normal matrix divides by the model
-// determinant and a zero determinant zeroes the plane's normals.
 // DEVIATION: the anim component is driven by a state graph, so upstream's
 // assignAnimation('Idle', ...) becomes a one-state graph. Upstream sets the speed
 // on the component (0.1), and this port does the same.
@@ -111,7 +108,7 @@ protected:
         _planeMaterial->setMetalness(0.7f);
         _planeMaterial->setUseMetalness(true);
         createPrimitive("plane", _planeMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
-            Vector3(100.0f, 0.001f, 100.0f));
+            Vector3(100.0f, 0.0f, 100.0f));
 
         // ------ Robot arm ------
         _armAsset = std::make_unique<Asset>("asset", AssetType::CONTAINER, assetPath("models/robot-arm.glb"));

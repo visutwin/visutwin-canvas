@@ -29,8 +29,8 @@ layout(set = 1, binding = 23) uniform texture2D detailNormalImage;// 23
 layout(set = 1, binding = 24) uniform sampler materialExtraSampler;
 // Clearcoat maps (upstream's clearCoatMap / clearCoatGlossMap / clearCoatNormalMap),
 // on the same slots as the Metal chunks (7/13/14) and gated on flag bits 14/15/16.
-layout(set = 1, binding = 7) uniform texture2D clearCoatImage;        // 7  intensity (G)
-layout(set = 1, binding = 13) uniform texture2D clearCoatGlossImage;  // 13 gloss (G)
+layout(set = 1, binding = 7) uniform texture2D clearCoatImage;        // 7  intensity (clearCoatMapChannels.x)
+layout(set = 1, binding = 13) uniform texture2D clearCoatGlossImage;  // 13 gloss (clearCoatMapChannels.y)
 layout(set = 1, binding = 14) uniform texture2D clearCoatNormalImage; // 14 normal
 #define heightMap       sampler2D(heightMapImage, materialExtraSampler)
 #define detailNormal    sampler2D(detailNormalImage, materialExtraSampler)

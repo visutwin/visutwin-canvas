@@ -24,7 +24,6 @@ namespace visutwin::canvas
             Light* light, Camera* camera, int face);
 
         void execute() override;
-        void after() override;
         void prepareShaders() override;
 
     private:

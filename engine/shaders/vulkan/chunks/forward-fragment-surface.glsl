@@ -399,10 +399,10 @@ void main() {
     // on the binding: an unbound slot holds the white fallback here, but the same
     // gate is what keeps the two backends on one rule.
     if ((material.flags & (1u << 14)) != 0u) {
-        ccSpecularity *= texture(clearCoatMap, uvBase).g;
+        ccSpecularity *= texture(clearCoatMap, uvBase)[int(material.clearCoatMapChannels.x)];
     }
     if ((material.flags & (1u << 15)) != 0u) {
-        ccGlossiness *= texture(clearCoatGloss, uvBase).g;
+        ccGlossiness *= texture(clearCoatGloss, uvBase)[int(material.clearCoatMapChannels.y)];
     }
     ccGlossiness += 0.0000001; // prevent divide-by-zero
     // Clearcoat normal: the shading normal unless a coat normal map overrides it,

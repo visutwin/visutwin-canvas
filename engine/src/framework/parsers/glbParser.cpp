@@ -1733,10 +1733,9 @@ namespace visutwin::canvas
     /**
      * Apply KHR_materials_clearcoat to a StandardMaterial. glTF stores coat
      * roughness while the material stores gloss, so the factor routes through
-     * setClearCoatGloss + setClearCoatGlossInvert(true). DEVIATION: the shader
-     * samples the intensity/roughness maps from the G channel (no per-map
-     * channel selection); glTF puts intensity in R — fine for the common
-     * greyscale masks (e.g. ClearCoatTest.glb), wrong for packed RGB masks.
+     * setClearCoatGloss + setClearCoatGlossInvert(true). The intensity map is
+     * read from R and the roughness map from G, as the extension stores them and
+     * upstream's khr-materials-clearcoat sets the channels.
      */
     static void applyClearcoat(
         const tinygltf::Material& srcMaterial,
@@ -1769,10 +1768,16 @@ namespace visutwin::canvas
         material->setClearCoatGlossInvert(true);
 
         if (const int idx = textureIndex("clearcoatTexture"); idx >= 0) {
-            if (const auto tex = getOrCreateTexture(idx)) material->setClearCoatMap(tex.get());
+            if (const auto tex = getOrCreateTexture(idx)) {
+                material->setClearCoatMap(tex.get());
+                material->setClearCoatMapChannel(MapChannel::MAP_CHANNEL_R);
+            }
         }
         if (const int idx = textureIndex("clearcoatRoughnessTexture"); idx >= 0) {
-            if (const auto tex = getOrCreateTexture(idx)) material->setClearCoatGlossMap(tex.get());
+            if (const auto tex = getOrCreateTexture(idx)) {
+                material->setClearCoatGlossMap(tex.get());
+                material->setClearCoatGlossMapChannel(MapChannel::MAP_CHANNEL_G);
+            }
         }
         if (const int idx = textureIndex("clearcoatNormalTexture"); idx >= 0) {
             if (const auto tex = getOrCreateTexture(idx)) material->setClearCoatNormalMap(tex.get());

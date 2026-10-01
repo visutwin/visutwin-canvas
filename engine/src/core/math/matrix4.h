@@ -406,7 +406,8 @@ namespace visutwin::canvas
          * a zero fourth row, and (0, 0, 0, 1) as column 3. Built from the columns' cross
          * products — column i is (c[i+1] x c[i+2]) / det — which IS the cofactor matrix over
          * the SIGNED determinant, so a mirrored transform flips its normals with its
-         * surface. A near-singular 3x3 (|det| <= 1e-8) returns a zero 3x3 rather than infinities.
+         * surface. A singular 3x3 (det exactly 0, or too small to invert) returns the identity,
+         * as upstream's Mat3.invertMat4 does.
          */
         [[nodiscard]] Matrix4 normalMatrix() const;
 

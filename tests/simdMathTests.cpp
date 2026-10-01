@@ -366,13 +366,16 @@ int main()
         check(near(mirrored.normalMatrix().getElement(0, 0), -0.5f),
             "a mirrored normal matrix keeps the determinant's sign");
         const Matrix4 flat = Matrix4::trs(Vector3(0.0f), Quaternion(), Vector3(1.0f, 0.0f, 1.0f)).normalMatrix();
-        bool zero3x3 = true;
+        bool identity3x3 = true;
         for (int col = 0; col < 3; ++col) {
             for (int row = 0; row < 3; ++row) {
-                zero3x3 = zero3x3 && flat.getElement(col, row) == 0.0f;
+                identity3x3 = identity3x3 && flat.getElement(col, row) == (col == row ? 1.0f : 0.0f);
             }
         }
-        check(zero3x3, "a singular 3x3 gives a zero normal matrix, not infinities");
+        check(identity3x3, "a singular 3x3 gives the identity normal matrix, as upstream");
+        const Matrix4 tiny = Matrix4::trs(Vector3(0.0f), Quaternion(), Vector3(0.001f, 0.001f, 0.001f)).normalMatrix();
+        check(near(tiny.getElement(0, 0), 1000.0f, 0.1f) && tiny.getElement(1, 0) == 0.0f,
+            "a tiny but valid scale keeps its inverse transpose");
 
         float raw[16];
         a.store(raw);

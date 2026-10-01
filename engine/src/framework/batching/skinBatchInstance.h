@@ -11,9 +11,9 @@
 // palette at Metal buffer slot 6; the vertex shader indexes into it via
 // per-vertex boneIndex to transform vertices on the GPU.
 //
-// DEVIATION: Standalone class, not extending SkinInstance (which is an
-// empty stub).  Uses a Metal buffer instead of upstream's RGBA32F bone
-// texture for simpler shader code and idiomatic Metal usage.
+// DEVIATION: a standalone class rather than upstream's SkinInstance subclass:
+// it shares only the palette upload path with SkinInstance (a float4x4 buffer,
+// Metal slot 6, instead of upstream's RGBA32F bone texture), not bones or a skin.
 //
 #pragma once
 

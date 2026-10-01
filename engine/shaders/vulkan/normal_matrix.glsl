@@ -23,6 +23,14 @@ mat3 normalMatrixFrom(mat4 model) {
     // The cofactor matrix's columns, built with three cross products. Its first
     // column doubles as the term the determinant needs, so the sign is nearly free.
     vec3 cof0 = cross(c1, c2);
-    float detSign = dot(c0, cof0) < 0.0 ? -1.0 : 1.0;
+    float det = dot(c0, cof0);
+    // A singular 3x3 (a zero scale on some axis) has no inverse transpose: upstream's
+    // Mat3.invertMat4 and Matrix4::normalMatrix() (Metal) return the identity, and so
+    // does this. The cofactor matrix would still give the right NORMAL there, but it
+    // maps tangents along the flattened axes to zero, which normalize turns into NaN.
+    if (det == 0.0) {
+        return mat3(1.0);
+    }
+    float detSign = det < 0.0 ? -1.0 : 1.0;
     return detSign * mat3(cof0, cross(c2, c0), cross(c0, c1));
 }
