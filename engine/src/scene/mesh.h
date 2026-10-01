@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 #include <core/shape/boundingBox.h>
 #include <core/refCountedObject.h>
@@ -78,6 +79,12 @@ namespace visutwin::canvas
     class Mesh : public RefCountedObject
     {
     public:
+        /// Identity for ordering draws (upstream `mesh.id`): assigned from a
+        /// process-wide counter in creation order, so two runs that build the same
+        /// scene give its meshes the same ids. The forward sort key orders the draws
+        /// of one material on it.
+        uint32_t id() const { return _id; }
+
         int aabbVer() const { return _aabbVer; }
 
         const BoundingBox& aabb() const { return _aabb; }
@@ -129,6 +136,9 @@ namespace visutwin::canvas
 
     private:
         void initGeometryData();
+
+        static uint32_t nextId();
+        uint32_t _id = nextId();
 
         // Internal AABB version counter
         int _aabbVer = 0;

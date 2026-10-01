@@ -1394,6 +1394,12 @@ present, but the rule below never depends on reading it.
   Material
   IDENTITY is what is sorted on, as upstream, because consecutive draws of one
   material skip binding entirely — state similarity cannot deliver that.
+  The mesh field is `Mesh::id()`, a creation-order counter (upstream `mesh.id`), never
+  the mesh's ADDRESS: that field orders the draws of one material, the last of two
+  coplanar surfaces wins the depth test, and an order that follows the heap renders the
+  same scene with different pixels from run to run (`orbit`'s statue: up to 190 pixels).
+  Anything else that orders draws must likewise use an id or the collection order, not
+  a pointer.
 - **A layer carries a sort mode per sublayer** (`Layer::opaqueSortMode` /
   `transparentSortMode`, upstream's SORTMODE_*), defaulting to MATERIALMESH and
   BACK2FRONT. The two pull in opposite

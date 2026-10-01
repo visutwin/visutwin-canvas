@@ -21,8 +21,14 @@ namespace visutwin::canvas
      *                           not disable the early depth test for everything behind
      *   54..32  material ID   — identity, so consecutive draws of ONE material skip
      *                           binding state altogether
-     *   31..0   mesh address  — meshes of one material stay together, which is one
+     *   31..0   mesh ID       — meshes of one material stay together, which is one
      *                           vertex-buffer bind instead of many
+     *
+     * The mesh field is `Mesh::id()`, a creation-order counter, and never the mesh's
+     * ADDRESS. The order of one material's draws decides which of two coplanar
+     * surfaces is drawn last and so wins the LESS_EQUAL depth test; ordered by address
+     * that follows wherever the heap put the meshes, and the same scene renders
+     * different pixels from one run to the next.
      *
      * Every field owns its own bits; never XOR fields into overlapping ranges, or two
      * materials differing in one of them can produce the same key and interleave with
@@ -37,13 +43,12 @@ namespace visutwin::canvas
      * compare and no caller has to remember the second step.
      */
     inline uint64_t makeForwardSortKey(const uint8_t drawBucket, const bool alphaTest,
-        const uint32_t materialId, const uintptr_t meshAddress)
+        const uint32_t materialId, const uint32_t meshId)
     {
         const uint64_t bucket = drawBucket;
         const uint64_t masked = alphaTest ? 1u : 0u;
         const uint64_t material = materialId & 0x7FFFFFu;
-        // The low bits of a pointer are alignment padding and carry no information.
-        const uint64_t mesh = static_cast<uint64_t>(meshAddress >> 4) & 0xFFFFFFFFu;
+        const uint64_t mesh = meshId;
         return (bucket << 56) | (masked << 55) | (material << 32) | mesh;
     }
 }

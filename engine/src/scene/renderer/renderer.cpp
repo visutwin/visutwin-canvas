@@ -137,7 +137,8 @@ namespace visutwin::canvas
                 material && material->alphaMode() == AlphaMode::MASK,
                 // No material means the default one, and they all sort together.
                 material ? material->id() : 0x7FFFFFu,
-                reinterpret_cast<uintptr_t>(meshInstance ? meshInstance->mesh() : nullptr));
+                // The mesh's id, never its address: see sortKey.h.
+                meshInstance && meshInstance->mesh() ? meshInstance->mesh()->id() : 0u);
         }
 
     }

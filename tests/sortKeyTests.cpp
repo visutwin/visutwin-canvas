@@ -13,11 +13,18 @@
 // documented order. A collision sweep stands in for "no field overlaps another",
 // because that is the property, not any particular numeric value.
 //
+// The mesh field is Mesh::id(), a creation-order counter. Ordering one material's draws
+// by the mesh's ADDRESS instead makes the order — and with it which of two coplanar
+// surfaces is drawn last and wins the depth test — follow the heap, so the same scene
+// renders different pixels from run to run. The last block holds the id.
+//
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <set>
 #include <vector>
 
+#include "scene/mesh.h"
 #include "scene/renderer/sortKey.h"
 
 using namespace visutwin::canvas;
@@ -34,9 +41,9 @@ namespace
         }
     }
 
-    // Two mesh addresses far enough apart to survive the >> 4 the key applies.
-    constexpr uintptr_t meshA = 0x1000;
-    constexpr uintptr_t meshB = 0x2000;
+    // Two mesh ids, adjacent: every id is its own key, none are folded together.
+    constexpr uint32_t meshA = 1;
+    constexpr uint32_t meshB = 2;
 }
 
 int main()
@@ -87,7 +94,7 @@ int main()
         for (uint8_t bucket = 0; bucket < 4; ++bucket) {
             for (int alpha = 0; alpha < 2; ++alpha) {
                 for (uint32_t material = 0; material < 8; ++material) {
-                    for (uintptr_t mesh = 0x1000; mesh < 0x1000 + 8 * 0x10; mesh += 0x10) {
+                    for (uint32_t mesh = 0; mesh < 8; ++mesh) {
                         keys.insert(makeForwardSortKey(bucket, alpha != 0, material, mesh));
                         ++generated;
                     }
@@ -109,6 +116,27 @@ int main()
         check(makeForwardSortKey(0, false, 0xFFFFFFFF, meshA)
             < makeForwardSortKey(0, true, 0, meshA),
             "an out-of-range material id cannot reach the alpha-test bit");
+    }
+
+    // ── The mesh field is an id in creation order, not an address ────────────
+    {
+        check(makeForwardSortKey(0, false, 7, 0xFFFFFFFFu) < makeForwardSortKey(0, false, 8, 0),
+            "the largest mesh id stays inside the mesh field");
+
+        // Meshes get ids in the order they are built, wherever the heap puts them: one
+        // is freed in between, so a later mesh may well take its address — which a key
+        // made from the address would follow, and the id does not.
+        const auto first = std::make_unique<Mesh>();
+        auto scratch = std::make_unique<Mesh>();
+        const uint32_t scratchId = scratch->id();
+        scratch.reset();
+        const auto second = std::make_unique<Mesh>();
+        const auto third = std::make_unique<Mesh>();
+        check(first->id() < scratchId && scratchId < second->id() && second->id() < third->id(),
+            "mesh ids follow creation order and are never reused");
+        check(makeForwardSortKey(0, false, 7, first->id()) < makeForwardSortKey(0, false, 7, second->id()) &&
+              makeForwardSortKey(0, false, 7, second->id()) < makeForwardSortKey(0, false, 7, third->id()),
+            "so one material's draws sort in the order their meshes were created");
     }
 
     if (failures == 0) {

@@ -5,8 +5,17 @@
 //
 #include "mesh.h"
 
+#include <atomic>
+
 namespace visutwin::canvas
 {
+    uint32_t Mesh::nextId()
+    {
+        // Atomic: a mesh may be built off the main thread.
+        static std::atomic<uint32_t> next{0};
+        return next.fetch_add(1, std::memory_order_relaxed);
+    }
+
     void Mesh::initGeometryData()
     {
         if (!_geometryData) {
