@@ -30,6 +30,7 @@ namespace visutwin::canvas
     class Entity;
     class GSplatResource;
     class MeshInstance;
+    class SkinInstance;
     class Texture;
 
     struct GlbMeshPayload
@@ -153,6 +154,19 @@ namespace visutwin::canvas
         Entity* instantiateRenderEntity() override;
 
     private:
+        // instantiateRenderEntity()'s stages, in the order it runs them.
+        Entity* instantiateWithoutNodes() const;
+        /// The node's entity with its transform, mesh instances (recorded in
+        /// `meshInstances` for the skin pass), camera, light and splats.
+        Entity* createNodeEntity(const GlbNodePayload& nodePayload, std::vector<MeshInstance*>& meshInstances) const;
+        std::vector<Entity*> collectSceneRoots(const std::vector<Entity*>& nodeEntities) const;
+        void bindSkins(const std::vector<Entity*>& nodeEntities,
+            const std::vector<std::vector<MeshInstance*>>& nodeMeshInstances, Entity* root) const;
+        static std::shared_ptr<SkinInstance> createSkinInstance(const GlbSkinPayload& skinPayload,
+            const std::vector<Entity*>& nodeEntities, Entity* root);
+        void parentNodeEntities(const std::vector<Entity*>& nodeEntities) const;
+        void attachAnimations(Entity* root) const;
+
         std::vector<GlbMeshPayload> _meshPayloads;
         std::vector<GlbNodePayload> _nodePayloads;
         std::vector<GlbSkinPayload> _skinPayloads;
