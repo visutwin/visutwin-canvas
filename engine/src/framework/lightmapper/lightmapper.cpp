@@ -155,17 +155,18 @@ namespace visutwin::canvas
         });
     }
 
-    std::shared_ptr<Texture> Lightmapper::bake(const Mesh& target, const Matrix4& worldTransform,
-        const Options& options)
+    namespace
     {
-        if (!_device) return nullptr;
-
         // Resolution: either fixed, or derived from the target's world-space bounds
         // the way upstream's calculateLightmapSize does. The ceiling is the device's
         // own texture limit — a bounds-derived resolution has no other one.
-        const int maxSize = _device->maxTextureSize();
-        int size = std::clamp(options.lightmapSize, 8, maxSize);
-        if (options.sizeMultiplier > 0.0f) {
+        int resolveLightmapSize(const Mesh& target, const Matrix4& worldTransform,
+            const Lightmapper::Options& options, const int maxSize)
+        {
+            const int size = std::clamp(options.lightmapSize, 8, maxSize);
+            if (options.sizeMultiplier <= 0.0f) {
+                return size;
+            }
             Vector3 bmin(1e30f, 1e30f, 1e30f);
             Vector3 bmax(-1e30f, -1e30f, -1e30f);
             forEachTriangle(target, [&](const Vertex& a, const Vertex& b, const Vertex& c) {
@@ -175,35 +176,141 @@ namespace visutwin::canvas
                     bmax = Vector3::max(bmax, w);
                 }
             });
-            if (bmax.getX() >= bmin.getX()) {
-                // upstream uses the half extents and the three face areas, unit area per axis
-                const Vector3 half = (bmax - bmin) * 0.5f;
-                const float hx = half.getX();
-                const float hy = half.getY();
-                const float hz = half.getZ();
-                const float totalArea = std::sqrt(hy * hz + hx * hz + hx * hy);
-                size = std::clamp(nextPowerOfTwo(static_cast<int>(totalArea * options.sizeMultiplier)),
-                    8, std::clamp(options.maxResolution, 8, maxSize));
+            if (bmax.getX() < bmin.getX()) {
+                return size;   // no triangles
             }
+            // upstream uses the half extents and the three face areas, unit area per axis
+            const Vector3 half = (bmax - bmin) * 0.5f;
+            const float hx = half.getX();
+            const float hy = half.getY();
+            const float hz = half.getZ();
+            const float totalArea = std::sqrt(hy * hz + hx * hz + hx * hy);
+            return std::clamp(nextPowerOfTwo(static_cast<int>(totalArea * options.sizeMultiplier)),
+                8, std::clamp(options.maxResolution, 8, maxSize));
         }
 
-        // 4-wide SIMD BVH over the occluder triangles for shadow/AO any-hit queries
-        // (lightmapperBvh.h).
-        std::vector<BvhTriangle> triangles;
-        triangles.reserve(_occluders.size());
-        for (const auto& t : _occluders) triangles.push_back({t.a, t.b, t.c});
-        LightmapperBvh bvh;
-        bvh.build(triangles);
-        const auto occluded = [&](const Vector3& origin, const Vector3& dir, const float maxDist) {
-            return bvh.anyHit(origin, dir, maxDist);
+        /// The target's texels that its UV1 unwrap covers, each with the world
+        /// surface point and normal it maps to.
+        struct UvSurface
+        {
+            std::vector<Vector3> position;
+            std::vector<Vector3> normal;
+            std::vector<uint8_t> covered;
+            std::vector<uint32_t> texels;   // covered texel indices, in rasterization order
         };
 
-        // Direct + ambient/AO lighting at a world surface point.
-        const auto shade = [&](const Vector3& P, const Vector3& N) -> Color {
-            const Vector3 origin = P + N * 1e-3f;
-            Color lit(0.0f, 0.0f, 0.0f, 1.0f);
+        // Rasterize the target's triangles in UV1 space, recording the world surface
+        // point + normal for each covered texel. The first triangle to reach a texel
+        // keeps it.
+        UvSurface rasterizeUv1(const Mesh& target, const Matrix4& worldTransform, const int size)
+        {
+            const size_t texelCount = static_cast<size_t>(size) * size;
+            UvSurface surface;
+            surface.position.resize(texelCount);
+            surface.normal.resize(texelCount);
+            surface.covered.assign(texelCount, 0);
 
-            for (const auto& light : _lights) {
+            forEachTriangle(target, [&](const Vertex& a, const Vertex& b, const Vertex& c) {
+                const Vector3 wp[3] = {worldTransform.transformPoint(a.pos),
+                                       worldTransform.transformPoint(b.pos),
+                                       worldTransform.transformPoint(c.pos)};
+                const Vector3 wn[3] = {a.nrm.transformNormal(worldTransform).normalized(),
+                                       b.nrm.transformNormal(worldTransform).normalized(),
+                                       c.nrm.transformNormal(worldTransform).normalized()};
+                const float fs = static_cast<float>(size);
+                const float px[3] = {a.u1 * fs, b.u1 * fs, c.u1 * fs};
+                const float py[3] = {a.v1 * fs, b.v1 * fs, c.v1 * fs};
+
+                const int minX = std::max(0, static_cast<int>(std::floor(std::min({px[0], px[1], px[2]}))) - 1);
+                const int maxX = std::min(size - 1, static_cast<int>(std::ceil(std::max({px[0], px[1], px[2]}))) + 1);
+                const int minY = std::max(0, static_cast<int>(std::floor(std::min({py[0], py[1], py[2]}))) - 1);
+                const int maxY = std::min(size - 1, static_cast<int>(std::ceil(std::max({py[0], py[1], py[2]}))) + 1);
+
+                const float area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
+                if (std::fabs(area) < 1e-8f) return;
+                const float invArea = 1.0f / area;
+
+                for (int y = minY; y <= maxY; ++y) {
+                    for (int x = minX; x <= maxX; ++x) {
+                        const float fx = static_cast<float>(x) + 0.5f;
+                        const float fy = static_cast<float>(y) + 0.5f;
+                        // barycentric of the pixel center in the UV-space triangle
+                        const float w0 = ((px[1] - fx) * (py[2] - fy) - (px[2] - fx) * (py[1] - fy)) * invArea;
+                        const float w1 = ((px[2] - fx) * (py[0] - fy) - (px[0] - fx) * (py[2] - fy)) * invArea;
+                        const float w2 = 1.0f - w0 - w1;
+                        constexpr float bias = -0.01f;   // slight conservative expansion
+                        if (w0 < bias || w1 < bias || w2 < bias) continue;
+
+                        const size_t idx = static_cast<size_t>(y) * size + x;
+                        if (surface.covered[idx]) continue;
+                        surface.position[idx] = wp[0] * w0 + wp[1] * w1 + wp[2] * w2;
+                        surface.normal[idx] = (wn[0] * w0 + wn[1] * w1 + wn[2] * w2).normalized();
+                        surface.covered[idx] = 1;
+                        surface.texels.push_back(static_cast<uint32_t>(idx));
+                    }
+                }
+            });
+            return surface;
+        }
+
+        /// Runs fn(begin, end) over [0, count) split into threadCount contiguous chunks,
+        /// on the calling thread when one is enough.
+        template <typename Fn>
+        void parallelFor(const size_t count, const size_t threadCount, const Fn& fn)
+        {
+            if (threadCount <= 1 || count == 0) {
+                fn(size_t{0}, count);
+                return;
+            }
+            std::vector<std::thread> pool;
+            const size_t chunk = (count + threadCount - 1) / threadCount;
+            for (size_t t = 0; t < threadCount; ++t) {
+                const size_t b = t * chunk;
+                const size_t e = std::min(count, b + chunk);
+                if (b < e) pool.emplace_back(fn, b, e);
+            }
+            for (auto& th : pool) th.join();
+        }
+
+        /// Direct + ambient/AO lighting at a world surface point, by ray casting
+        /// against the occluder BVH.
+        class TexelShader
+        {
+        public:
+            TexelShader(const LightmapperBvh& bvh, const std::vector<Lightmapper::Light>& lights,
+                const Lightmapper::Options& options)
+                : _bvh(bvh), _lights(lights), _options(options) {}
+
+            Color shade(const Vector3& P, const Vector3& N) const
+            {
+                const Vector3 origin = P + N * 1e-3f;
+                Color lit(0.0f, 0.0f, 0.0f, 1.0f);
+                for (const auto& light : _lights) {
+                    addDirectLight(light, P, N, origin, lit);
+                }
+
+                // Ambient bake replaces the flat-ambient AO when it is on.
+                float occlusion = 1.0f;
+                if (_options.ambientBake && _options.ambientBakeNumSamples > 0) {
+                    occlusion = ambientBakeOcclusion(origin, N);
+                } else if (_options.ambientOcclusion && _options.aoSamples > 0) {
+                    occlusion = hemisphereOcclusion(origin, N);
+                }
+                lit.r += (_options.ambient.r + _options.skyColor.r) * occlusion;
+                lit.g += (_options.ambient.g + _options.skyColor.g) * occlusion;
+                lit.b += (_options.ambient.b + _options.skyColor.b) * occlusion;
+                return lit;
+            }
+
+        private:
+            bool occluded(const Vector3& origin, const Vector3& dir, const float maxDist) const
+            {
+                return _bvh.anyHit(origin, dir, maxDist);
+            }
+
+            void addDirectLight(const Lightmapper::Light& light, const Vector3& P, const Vector3& N,
+                const Vector3& origin, Color& lit) const
+            {
                 Vector3 L;
                 float atten = 1.0f;
                 if (light.type == LightType::LIGHTTYPE_DIRECTIONAL) {
@@ -211,7 +318,7 @@ namespace visutwin::canvas
                 } else {
                     Vector3 toLight = light.position - P;
                     const float dist = toLight.length();
-                    if (dist < 1e-5f) continue;
+                    if (dist < 1e-5f) return;
                     L = toLight * (1.0f / dist);
                     if (light.range > 0.0f) {
                         const float f = std::clamp(1.0f - dist / light.range, 0.0f, 1.0f);
@@ -225,40 +332,12 @@ namespace visutwin::canvas
                     }
                 }
                 const float ndl = std::max(N.dot(L), 0.0f);
-                if (ndl <= 0.0f || atten <= 0.0f) continue;
+                if (ndl <= 0.0f || atten <= 0.0f) return;
 
                 const float reach = (light.type == LightType::LIGHTTYPE_DIRECTIONAL)
                     ? 1e6f : (light.position - P).length();
-
-                float visibility = 1.0f;
-                if (light.castShadows) {
-                    const bool soft = light.type == LightType::LIGHTTYPE_DIRECTIONAL &&
-                        light.bakeNumSamples > 1 && light.bakeArea > 0.0f;
-                    if (!soft) {
-                        if (occluded(origin, L, reach)) continue;
-                    } else {
-                        // Spread the shadow ray over a bakeArea-degree cone, the same
-                        // spread upstream applies by rotating its virtual lights.
-                        const Vector3 up = std::fabs(L.getY()) < 0.99f ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
-                        const Vector3 tangent = up.cross(L).normalized();
-                        const Vector3 bitangent = L.cross(tangent);
-                        const float spread = std::tan(light.bakeArea * 0.5f *
-                            std::numbers::pi_v<float> / 180.0f);
-                        int unshadowed = 0;
-                        for (int vs = 0; vs < light.bakeNumSamples; ++vs) {
-                            float jx = 0.0f, jy = 0.0f;
-                            if (vs > 0) {
-                                circlePointDeterministic(jx, jy, vs, light.bakeNumSamples);
-                            }
-                            const Vector3 dir = (L + tangent * (jx * spread) +
-                                bitangent * (jy * spread)).normalized();
-                            if (!occluded(origin, dir, reach)) ++unshadowed;
-                        }
-                        visibility = static_cast<float>(unshadowed) /
-                            static_cast<float>(light.bakeNumSamples);
-                        if (visibility <= 0.0f) continue;
-                    }
-                }
+                const float visibility = light.castShadows ? shadowVisibility(light, origin, L, reach) : 1.0f;
+                if (visibility <= 0.0f) return;
 
                 const float s = ndl * atten * light.intensity * visibility;
                 lit.r += light.color.r * s;
@@ -266,19 +345,51 @@ namespace visutwin::canvas
                 lit.b += light.color.b * s;
             }
 
-            if (options.ambientBake && options.ambientBakeNumSamples > 0) {
-                // Upstream bakes ambient as N virtual directional lights spread over the
-                // top `spherePart` of the sphere. Here the same distribution drives N
-                // occlusion rays, weighted by N·L like the virtual lights' own N·L term.
+            /// The unoccluded fraction of the light: 0 or 1 for a hard shadow ray, and
+            /// for a soft directional light the fraction of rays spread over a
+            /// bakeArea-degree cone, the same spread upstream applies by rotating its
+            /// virtual lights.
+            float shadowVisibility(const Lightmapper::Light& light, const Vector3& origin, const Vector3& L,
+                const float reach) const
+            {
+                const bool soft = light.type == LightType::LIGHTTYPE_DIRECTIONAL &&
+                    light.bakeNumSamples > 1 && light.bakeArea > 0.0f;
+                if (!soft) {
+                    return occluded(origin, L, reach) ? 0.0f : 1.0f;
+                }
+                const Vector3 up = std::fabs(L.getY()) < 0.99f ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
+                const Vector3 tangent = up.cross(L).normalized();
+                const Vector3 bitangent = L.cross(tangent);
+                const float spread = std::tan(light.bakeArea * 0.5f *
+                    std::numbers::pi_v<float> / 180.0f);
+                int unshadowed = 0;
+                for (int vs = 0; vs < light.bakeNumSamples; ++vs) {
+                    float jx = 0.0f, jy = 0.0f;
+                    if (vs > 0) {
+                        circlePointDeterministic(jx, jy, vs, light.bakeNumSamples);
+                    }
+                    const Vector3 dir = (L + tangent * (jx * spread) +
+                        bitangent * (jy * spread)).normalized();
+                    if (!occluded(origin, dir, reach)) ++unshadowed;
+                }
+                return static_cast<float>(unshadowed) / static_cast<float>(light.bakeNumSamples);
+            }
+
+            // Upstream bakes ambient as N virtual directional lights spread over the
+            // top `spherePart` of the sphere. Here the same distribution drives N
+            // occlusion rays, weighted by N·L like the virtual lights' own N·L term,
+            // then shaped by upstream's bakeLmEnd curve.
+            float ambientBakeOcclusion(const Vector3& origin, const Vector3& N) const
+            {
                 float weight = 0.0f;
                 float visible = 0.0f;
-                for (int as = 0; as < options.ambientBakeNumSamples; ++as) {
-                    const Vector3 dir = spherePointDeterministic(as, options.ambientBakeNumSamples,
-                        std::clamp(options.ambientBakeSpherePart, 0.01f, 1.0f));
+                for (int as = 0; as < _options.ambientBakeNumSamples; ++as) {
+                    const Vector3 dir = spherePointDeterministic(as, _options.ambientBakeNumSamples,
+                        std::clamp(_options.ambientBakeSpherePart, 0.01f, 1.0f));
                     const float ndl = N.dot(dir);
                     if (ndl <= 0.0f) continue;
                     weight += ndl;
-                    if (!occluded(origin, dir, options.aoRadius)) {
+                    if (!occluded(origin, dir, _options.aoRadius)) {
                         visible += ndl;
                     }
                 }
@@ -286,25 +397,20 @@ namespace visutwin::canvas
 
                 // upstream bakeLmEnd: contrast around 0.5, then brightness, then saturate
                 ambientOcclusion = ((ambientOcclusion - 0.5f) *
-                    std::max(options.ambientBakeOcclusionContrast + 1.0f, 0.0f)) + 0.5f;
-                ambientOcclusion = std::clamp(ambientOcclusion + options.ambientBakeOcclusionBrightness,
-                    0.0f, 1.0f);
-
-                lit.r += (options.ambient.r + options.skyColor.r) * ambientOcclusion;
-                lit.g += (options.ambient.g + options.skyColor.g) * ambientOcclusion;
-                lit.b += (options.ambient.b + options.skyColor.b) * ambientOcclusion;
-                return lit;
+                    std::max(_options.ambientBakeOcclusionContrast + 1.0f, 0.0f)) + 0.5f;
+                return std::clamp(ambientOcclusion + _options.ambientBakeOcclusionBrightness, 0.0f, 1.0f);
             }
 
-            float ao = 1.0f;
-            if (options.ambientOcclusion && options.aoSamples > 0) {
-                // cosine-weighted hemisphere via a low-discrepancy sequence.
+            /// The unoccluded fraction of a cosine-weighted hemisphere, sampled with a
+            /// low-discrepancy sequence.
+            float hemisphereOcclusion(const Vector3& origin, const Vector3& N) const
+            {
                 const Vector3 up = std::fabs(N.getY()) < 0.99f ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
                 const Vector3 tangent = up.cross(N).normalized();
                 const Vector3 bitangent = N.cross(tangent);
                 int unoccluded = 0;
-                for (int s = 0; s < options.aoSamples; ++s) {
-                    const float u1 = (static_cast<float>(s) + 0.5f) / static_cast<float>(options.aoSamples);
+                for (int s = 0; s < _options.aoSamples; ++s) {
+                    const float u1 = (static_cast<float>(s) + 0.5f) / static_cast<float>(_options.aoSamples);
                     const float u2 = radicalInverse2(static_cast<uint32_t>(s) + 1u);
                     const float r = std::sqrt(u1);
                     const float phi = 2.0f * std::numbers::pi_v<float> * u2;
@@ -312,94 +418,23 @@ namespace visutwin::canvas
                     const float y = r * std::sin(phi);
                     const float z = std::sqrt(std::max(0.0f, 1.0f - u1));
                     const Vector3 dir = (tangent * x + bitangent * y + N * z).normalized();
-                    if (!occluded(origin, dir, options.aoRadius)) ++unoccluded;
+                    if (!occluded(origin, dir, _options.aoRadius)) ++unoccluded;
                 }
-                ao = static_cast<float>(unoccluded) / static_cast<float>(options.aoSamples);
+                return static_cast<float>(unoccluded) / static_cast<float>(_options.aoSamples);
             }
-            lit.r += (options.ambient.r + options.skyColor.r) * ao;
-            lit.g += (options.ambient.g + options.skyColor.g) * ao;
-            lit.b += (options.ambient.b + options.skyColor.b) * ao;
-            return lit;
+
+            const LightmapperBvh& _bvh;
+            const std::vector<Lightmapper::Light>& _lights;
+            const Lightmapper::Options& _options;
         };
-
-        std::vector<Vector3> accum(static_cast<size_t>(size) * size, Vector3(0, 0, 0));
-        std::vector<uint8_t> covered(static_cast<size_t>(size) * size, 0);
-
-        // Phase 1 (cheap): rasterize target triangles in UV1 space, recording the
-        // world surface point + normal for each covered texel.
-        std::vector<Vector3> posBuf(static_cast<size_t>(size) * size);
-        std::vector<Vector3> nrmBuf(static_cast<size_t>(size) * size);
-        std::vector<uint32_t> work;   // covered texel indices to shade
-
-        forEachTriangle(target, [&](const Vertex& a, const Vertex& b, const Vertex& c) {
-            const Vector3 wp[3] = {worldTransform.transformPoint(a.pos),
-                                   worldTransform.transformPoint(b.pos),
-                                   worldTransform.transformPoint(c.pos)};
-            const Vector3 wn[3] = {a.nrm.transformNormal(worldTransform).normalized(),
-                                   b.nrm.transformNormal(worldTransform).normalized(),
-                                   c.nrm.transformNormal(worldTransform).normalized()};
-            const float fs = static_cast<float>(size);
-            const float px[3] = {a.u1 * fs, b.u1 * fs, c.u1 * fs};
-            const float py[3] = {a.v1 * fs, b.v1 * fs, c.v1 * fs};
-
-            const int minX = std::max(0, static_cast<int>(std::floor(std::min({px[0], px[1], px[2]}))) - 1);
-            const int maxX = std::min(size - 1, static_cast<int>(std::ceil(std::max({px[0], px[1], px[2]}))) + 1);
-            const int minY = std::max(0, static_cast<int>(std::floor(std::min({py[0], py[1], py[2]}))) - 1);
-            const int maxY = std::min(size - 1, static_cast<int>(std::ceil(std::max({py[0], py[1], py[2]}))) + 1);
-
-            const float area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
-            if (std::fabs(area) < 1e-8f) return;
-            const float invArea = 1.0f / area;
-
-            for (int y = minY; y <= maxY; ++y) {
-                for (int x = minX; x <= maxX; ++x) {
-                    const float fx = static_cast<float>(x) + 0.5f;
-                    const float fy = static_cast<float>(y) + 0.5f;
-                    // barycentric of the pixel center in the UV-space triangle
-                    const float w0 = ((px[1] - fx) * (py[2] - fy) - (px[2] - fx) * (py[1] - fy)) * invArea;
-                    const float w1 = ((px[2] - fx) * (py[0] - fy) - (px[0] - fx) * (py[2] - fy)) * invArea;
-                    const float w2 = 1.0f - w0 - w1;
-                    constexpr float bias = -0.01f;   // slight conservative expansion
-                    if (w0 < bias || w1 < bias || w2 < bias) continue;
-
-                    const size_t idx = static_cast<size_t>(y) * size + x;
-                    if (covered[idx]) continue;
-                    posBuf[idx] = wp[0] * w0 + wp[1] * w1 + wp[2] * w2;
-                    nrmBuf[idx] = (wn[0] * w0 + wn[1] * w1 + wn[2] * w2).normalized();
-                    covered[idx] = 1;
-                    work.push_back(static_cast<uint32_t>(idx));
-                }
-            }
-        });
-
-        // Phase 2 (expensive): shade covered texels in parallel (ray casting).
-        const unsigned hw = std::max(1u, std::thread::hardware_concurrency());
-        const size_t threadCount = std::min<size_t>(hw, std::max<size_t>(1, work.size() / 1024 + 1));
-        const auto shadeRange = [&](const size_t begin, const size_t end) {
-            for (size_t w = begin; w < end; ++w) {
-                const uint32_t idx = work[w];
-                const Color lit = shade(posBuf[idx], nrmBuf[idx]);
-                accum[idx] = Vector3(lit.r, lit.g, lit.b);
-            }
-        };
-        if (threadCount <= 1 || work.empty()) {
-            shadeRange(0, work.size());
-        } else {
-            std::vector<std::thread> pool;
-            const size_t chunk = (work.size() + threadCount - 1) / threadCount;
-            for (size_t t = 0; t < threadCount; ++t) {
-                const size_t b = t * chunk;
-                const size_t e = std::min(work.size(), b + chunk);
-                if (b < e) pool.emplace_back(shadeRange, b, e);
-            }
-            for (auto& th : pool) th.join();
-        }
 
         // Bilateral denoise over the shaded texels (upstream's bilateralDeNoise pass,
         // driven by the same two sigmas: filterRange spatially, filterSmoothness on
         // intensity, so lighting detail survives while ray noise is smoothed away).
-        // Runs before dilation so only real, shaded texels contribute.
-        if (options.filterEnabled && !work.empty()) {
+        // Only covered texels contribute, so it runs before dilation.
+        void bilateralFilter(std::vector<Vector3>& accum, const UvSurface& surface, const int size,
+            const Lightmapper::Options& options, const size_t threadCount)
+        {
             const float sigmaSpace = std::max(options.filterRange, 0.01f);
             const float sigmaValue = std::max(options.filterSmoothness, 0.01f);
             const int radius = std::clamp(static_cast<int>(std::ceil(sigmaSpace)), 1, 7);
@@ -407,9 +442,9 @@ namespace visutwin::canvas
             const float invTwoSigmaValueSq = 1.0f / (2.0f * sigmaValue * sigmaValue);
 
             std::vector<Vector3> filtered = accum;
-            const auto filterRange = [&](const size_t begin, const size_t end) {
+            parallelFor(surface.texels.size(), threadCount, [&](const size_t begin, const size_t end) {
                 for (size_t w = begin; w < end; ++w) {
-                    const uint32_t idx = work[w];
+                    const uint32_t idx = surface.texels[w];
                     const int cx = static_cast<int>(idx % static_cast<size_t>(size));
                     const int cy = static_cast<int>(idx / static_cast<size_t>(size));
                     const Vector3 center = accum[idx];
@@ -423,7 +458,7 @@ namespace visutwin::canvas
                             const int x = cx + dx;
                             if (x < 0 || x >= size) continue;
                             const size_t nIdx = static_cast<size_t>(y) * size + x;
-                            if (!covered[nIdx]) continue;
+                            if (!surface.covered[nIdx]) continue;
 
                             const Vector3 sample = accum[nIdx];
                             const Vector3 delta = sample - center;
@@ -438,70 +473,109 @@ namespace visutwin::canvas
                         filtered[idx] = sum * (1.0f / weightSum);
                     }
                 }
-            };
-            if (threadCount <= 1) {
-                filterRange(0, work.size());
-            } else {
-                std::vector<std::thread> pool;
-                const size_t chunk = (work.size() + threadCount - 1) / threadCount;
-                for (size_t t = 0; t < threadCount; ++t) {
-                    const size_t b = t * chunk;
-                    const size_t e = std::min(work.size(), b + chunk);
-                    if (b < e) pool.emplace_back(filterRange, b, e);
-                }
-                for (auto& th : pool) th.join();
-            }
+            });
             accum.swap(filtered);
         }
 
         // Dilate covered texels outward to fill seams (bilinear sampling at UV
-        // borders otherwise fetches black).
-        for (int iter = 0; iter < options.dilatePixels; ++iter) {
-            std::vector<Vector3> next = accum;
-            std::vector<uint8_t> nextCov = covered;
-            for (int y = 0; y < size; ++y) {
-                for (int x = 0; x < size; ++x) {
-                    const size_t idx = static_cast<size_t>(y) * size + x;
-                    if (covered[idx]) continue;
-                    Vector3 sum(0, 0, 0);
-                    int n = 0;
-                    for (int dy = -1; dy <= 1; ++dy) {
-                        for (int dx = -1; dx <= 1; ++dx) {
-                            const int nx = x + dx, ny = y + dy;
-                            if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
-                            const size_t nidx = static_cast<size_t>(ny) * size + nx;
-                            if (covered[nidx]) { sum = sum + accum[nidx]; ++n; }
+        // borders otherwise fetches black): each pass gives every uncovered texel
+        // the mean of its covered 8-neighbours.
+        void dilateSeams(std::vector<Vector3>& accum, std::vector<uint8_t> covered, const int size,
+            const int iterations)
+        {
+            for (int iter = 0; iter < iterations; ++iter) {
+                std::vector<Vector3> next = accum;
+                std::vector<uint8_t> nextCov = covered;
+                for (int y = 0; y < size; ++y) {
+                    for (int x = 0; x < size; ++x) {
+                        const size_t idx = static_cast<size_t>(y) * size + x;
+                        if (covered[idx]) continue;
+                        Vector3 sum(0, 0, 0);
+                        int n = 0;
+                        for (int dy = -1; dy <= 1; ++dy) {
+                            for (int dx = -1; dx <= 1; ++dx) {
+                                const int nx = x + dx, ny = y + dy;
+                                if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+                                const size_t nidx = static_cast<size_t>(ny) * size + nx;
+                                if (covered[nidx]) { sum = sum + accum[nidx]; ++n; }
+                            }
                         }
+                        if (n > 0) { next[idx] = sum * (1.0f / static_cast<float>(n)); nextCov[idx] = 1; }
                     }
-                    if (n > 0) { next[idx] = sum * (1.0f / static_cast<float>(n)); nextCov[idx] = 1; }
                 }
+                accum.swap(next);
+                covered.swap(nextCov);
             }
-            accum.swap(next);
-            covered.swap(nextCov);
         }
 
-        // Encode sRGB RGBA8 (the shader pow(2.2)-decodes the lightmap).
-        std::vector<uint8_t> pixels(static_cast<size_t>(size) * size * 4);
-        for (size_t i = 0; i < accum.size(); ++i) {
-            pixels[i * 4 + 0] = toLightmapByte(accum[i].getX());
-            pixels[i * 4 + 1] = toLightmapByte(accum[i].getY());
-            pixels[i * 4 + 2] = toLightmapByte(accum[i].getZ());
-            pixels[i * 4 + 3] = 255;
+        std::vector<uint8_t> encodeLightmapPixels(const std::vector<Vector3>& accum)
+        {
+            std::vector<uint8_t> pixels(accum.size() * 4);
+            for (size_t i = 0; i < accum.size(); ++i) {
+                pixels[i * 4 + 0] = toLightmapByte(accum[i].getX());
+                pixels[i * 4 + 1] = toLightmapByte(accum[i].getY());
+                pixels[i * 4 + 2] = toLightmapByte(accum[i].getZ());
+                pixels[i * 4 + 3] = 255;
+            }
+            return pixels;
         }
 
-        TextureOptions texOptions;
-        texOptions.name = "lightmap";
-        texOptions.profilerHint = TexHint::TEXHINT_LIGHTMAP;
-        texOptions.width = static_cast<uint32_t>(size);
-        texOptions.height = static_cast<uint32_t>(size);
-        texOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
-        texOptions.mipmaps = false;
-        texOptions.minFilter = FilterMode::FILTER_LINEAR;
-        texOptions.magFilter = FilterMode::FILTER_LINEAR;
-        auto texture = std::make_shared<Texture>(_device, texOptions);
-        texture->setLevelData(0, pixels.data(), pixels.size());
-        texture->upload();
+        std::shared_ptr<Texture> createLightmapTexture(GraphicsDevice* device, const int size,
+            const std::vector<uint8_t>& pixels)
+        {
+            TextureOptions texOptions;
+            texOptions.name = "lightmap";
+            texOptions.profilerHint = TexHint::TEXHINT_LIGHTMAP;
+            texOptions.width = static_cast<uint32_t>(size);
+            texOptions.height = static_cast<uint32_t>(size);
+            texOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+            texOptions.mipmaps = false;
+            texOptions.minFilter = FilterMode::FILTER_LINEAR;
+            texOptions.magFilter = FilterMode::FILTER_LINEAR;
+            auto texture = std::make_shared<Texture>(device, texOptions);
+            texture->setLevelData(0, pixels.data(), pixels.size());
+            texture->upload();
+            return texture;
+        }
+    }
 
+    std::shared_ptr<Texture> Lightmapper::bake(const Mesh& target, const Matrix4& worldTransform,
+        const Options& options)
+    {
+        if (!_device) return nullptr;
+
+        const int size = resolveLightmapSize(target, worldTransform, options, _device->maxTextureSize());
+
+        // 4-wide SIMD BVH over the occluder triangles for shadow/AO any-hit queries
+        // (lightmapperBvh.h).
+        std::vector<BvhTriangle> triangles;
+        triangles.reserve(_occluders.size());
+        for (const auto& t : _occluders) triangles.push_back({t.a, t.b, t.c});
+        LightmapperBvh bvh;
+        bvh.build(triangles);
+
+        // Cheap: which texels the target covers, and where they are in the world.
+        const UvSurface surface = rasterizeUv1(target, worldTransform, size);
+
+        // Expensive: shade the covered texels in parallel (ray casting).
+        const unsigned hw = std::max(1u, std::thread::hardware_concurrency());
+        const size_t threadCount = std::min<size_t>(hw, std::max<size_t>(1, surface.texels.size() / 1024 + 1));
+        const TexelShader shader(bvh, _lights, options);
+        std::vector<Vector3> accum(static_cast<size_t>(size) * size, Vector3(0, 0, 0));
+        parallelFor(surface.texels.size(), threadCount, [&](const size_t begin, const size_t end) {
+            for (size_t w = begin; w < end; ++w) {
+                const uint32_t idx = surface.texels[w];
+                const Color lit = shader.shade(surface.position[idx], surface.normal[idx]);
+                accum[idx] = Vector3(lit.r, lit.g, lit.b);
+            }
+        });
+
+        if (options.filterEnabled && !surface.texels.empty()) {
+            bilateralFilter(accum, surface, size, options, threadCount);
+        }
+        dilateSeams(accum, surface.covered, size, options.dilatePixels);
+
+        auto texture = createLightmapTexture(_device, size, encodeLightmapPixels(accum));
         spdlog::info("Lightmapper: baked {}x{} lightmap ({} lights, {} occluder tris, AO {})",
             size, size, _lights.size(), _occluders.size(), options.ambientOcclusion);
         return texture;
