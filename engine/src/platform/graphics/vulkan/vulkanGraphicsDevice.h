@@ -410,6 +410,27 @@ namespace visutwin::canvas
         [[nodiscard]] std::optional<uint32_t> allocateUniform(
             const void* data, VkDeviceSize size);
 
+        // startRenderPass()'s stages: describe the attachments (transitioning them
+        // into attachment layouts), begin rendering, then reset the pass state.
+
+        /// The dynamic-rendering attachments one pass begins with.
+        struct PassAttachments
+        {
+            std::vector<VkRenderingAttachmentInfo> colors;
+            VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            VkRenderingAttachmentInfo stencil{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            bool hasDepth = false;
+            bool hasStencil = false;
+            VkExtent2D extent{};
+        };
+        void prepareOffscreenColorAttachments(VkCommandBuffer cmd, VulkanRenderTarget& target,
+            const RenderPass* renderPass, PassAttachments& out);
+        void prepareOffscreenDepthAttachment(VkCommandBuffer cmd, VulkanRenderTarget& target,
+            const RenderPass* renderPass, PassAttachments& out);
+        void prepareSwapchainAttachments(VkCommandBuffer cmd, const RenderPass* renderPass, PassAttachments& out);
+        /// Marks the pass active and gives it a full-target viewport and scissor.
+        void beginPassState(VulkanRenderTarget* offscreen, const PassAttachments& attachments);
+
         // draw()'s stages, in the order it runs them. A bind* stage returns false
         // when the draw has to be skipped (a pipeline or an allocation failed).
 

@@ -37,201 +37,13 @@
 namespace visutwin::canvas
 {
 
-    void VulkanGraphicsDevice::startRenderPass(RenderPass* renderPass)
+    namespace
     {
-        if (!recording()) {
-            return; // frame skipped at acquire — no command buffer is recording
-        }
-
-        VkCommandBuffer cmd = currentCommandBuffer();
-
-        auto* offscreen = renderPass
-            ? dynamic_cast<VulkanRenderTarget*>(renderPass->renderTarget().get())
-            : nullptr;
-
-        // ── Resolve attachment views, formats, extents, and clear ops ──
-        const std::vector<std::shared_ptr<ColorAttachmentOps>> emptyColorOps;
-        const auto& colorArrayOps = renderPass
-            ? renderPass->colorArrayOps()
-            : emptyColorOps;
-        auto dsOps = renderPass ? renderPass->depthStencilOps() : nullptr;
-
-
-        std::vector<VkRenderingAttachmentInfo> colorInfos;
-        VkRenderingAttachmentInfo depthInfo{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        VkRenderingAttachmentInfo stencilInfo{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        bool hasDepth = false;
-        bool hasStencil = false;
-        VkExtent2D extent{};
-
-        if (offscreen) {
-            // Offscreen: transition each attachment from its current layout
-            // (typically SHADER_READ_ONLY from a previous pass, or UNDEFINED
-            // on first use) into the appropriate attachment-optimal layout.
-            extent = offscreen->extent();
-
-            const auto& attachments = offscreen->colorAttachments();
-            for (size_t colorIndex = 0;
-                 colorIndex < attachments.size(); ++colorIndex) {
-                const auto& att = attachments[colorIndex];
-                if (!att.texture) continue;
-                const auto colorOps = colorIndex < colorArrayOps.size()
-                    ? colorArrayOps[colorIndex] : nullptr;
-                const uint32_t mip = static_cast<uint32_t>(offscreen->mipLevel());
-                const uint32_t layer = att.texture->arrayLayers() > 1
-                    ? static_cast<uint32_t>(offscreen->face()) : 0u;
-                const VkImageLayout from = att.texture->layout(mip, layer);
-                if (from != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-                    att.texture->transitionLayout(cmd,
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                        mip, 1, layer, 1);
-                }
-
-                // MSAA: draws go to the multisampled surface and `att.view`
-                // becomes the resolve destination, which is the single-sample
-                // texture every later pass samples.
-                const bool multisampled = att.msaaView != VK_NULL_HANDLE;
-                if (multisampled) {
-                    // Nothing ever samples this surface, so it simply stays in
-                    // attachment layout. Barrier it regardless: the same-layout
-                    // barrier is what orders this pass's writes after the
-                    // previous pass's, exactly as the round trip through
-                    // SHADER_READ_ONLY does for the resolved texture.
-                    vulkanTransitionImageLayout(cmd, att.msaaImage,
-                        att.msaaLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-                    att.msaaLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                }
-
-                VkRenderingAttachmentInfo info{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-                info.imageView = multisampled ? att.msaaView : att.view;
-                info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                if (colorOps && colorOps->clear) {
-                    info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                    info.clearValue.color = {{colorOps->clearValue.r, colorOps->clearValue.g,
-                                              colorOps->clearValue.b, colorOps->clearValue.a}};
-                } else {
-                    info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                }
-                if (multisampled && offscreen->autoResolve() && colorOps && colorOps->resolve) {
-                    info.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-                    info.resolveImageView = att.view;
-                    info.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                }
-                colorInfos.push_back(info);
-            }
-
-            if (offscreen->hasDepthAttachment()) {
-                hasDepth = true;
-                const auto& da = offscreen->depthAttachment();
-                hasStencil = vulkanFormatHasStencil(da.format);
-                const VkImageAspectFlags depthAspect = VK_IMAGE_ASPECT_DEPTH_BIT |
-                    (hasStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
-
-                // Source image + source layout differ between texture-backed
-                // and internally-owned depth.
-                VkImage depthImg = da.texture ? da.texture->image() : da.internalImage;
-                const uint32_t depthMip = static_cast<uint32_t>(offscreen->mipLevel());
-                const uint32_t depthLayer = da.texture && da.texture->arrayLayers() > 1
-                    ? static_cast<uint32_t>(offscreen->face()) : 0u;
-                VkImageLayout fromLayout = da.texture
-                    ? da.texture->layout(depthMip, depthLayer)
-                    : da.currentLayout;
-
-                // A pass that declares depthReadOnly() samples this same depth while
-                // keeping it attached (RenderPassVolumetricFogCombine does exactly
-                // that). Vulkan allows that feedback only with a read-only
-                // attachment, and a COMBINED_IMAGE_SAMPLER may never be updated with
-                // DEPTH_STENCIL_ATTACHMENT_OPTIMAL — binding it was a validation
-                // error with undefined sampled values. Texture-backed only:
-                // internally-owned depth is never sampled.
-                const bool depthReadOnly = renderPass && renderPass->depthReadOnly() &&
-                    da.texture != nullptr;
-                const VkImageLayout depthAttachLayout = depthReadOnly
-                    ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-                    : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-                if (depthImg != VK_NULL_HANDLE && fromLayout != depthAttachLayout) {
-                    // Omni-shadow cubemap depth carves per-face attachment views —
-                    // barrier the face being rendered, not just layer 0 (the
-                    // default), or faces 1-5 render in the wrong layout.
-                    if (da.texture) {
-                        da.texture->transitionLayout(cmd, depthAttachLayout,
-                            depthMip, 1, depthLayer, 1);
-                    } else {
-                        vulkanTransitionImageLayout(cmd, depthImg,
-                            fromLayout, depthAttachLayout,
-                            depthAspect, 0, 1, 0, 1);
-                        // Internal depth — track via the RT itself.
-                        const_cast<VulkanDepthAttachment&>(da).currentLayout =
-                            depthAttachLayout;
-                    }
-                }
-
-                // MSAA depth mirrors the color case, with two differences: the
-                // resolve mode is sample-zero (an averaged depth belongs to no
-                // surface), and a pass that SAMPLES this depth while it is
-                // attached must not also resolve into it — the resolve would be
-                // writing the very texture the pass reads.
-                const bool depthMsaa = da.msaaView != VK_NULL_HANDLE;
-                if (depthMsaa) {
-                    vulkanTransitionImageLayout(cmd, da.msaaImage,
-                        da.msaaLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                        depthAspect);
-                    da.msaaLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-                }
-
-                depthInfo.imageView = depthMsaa ? da.msaaView : da.view;
-                depthInfo.imageLayout = depthMsaa
-                    ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                    : depthAttachLayout;
-                if (depthMsaa && offscreen->autoResolve() && !depthReadOnly &&
-                    dsOps && dsOps->resolveDepth &&
-                    _depthResolveMode != VK_RESOLVE_MODE_NONE) {
-                    depthInfo.resolveMode = _depthResolveMode;
-                    depthInfo.resolveImageView = da.view;
-                    depthInfo.resolveImageLayout = depthAttachLayout;
-                }
-                depthInfo.loadOp = (dsOps && dsOps->clearDepth)
-                    ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-                depthInfo.storeOp = (dsOps && dsOps->storeDepth)
-                    ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
-                depthInfo.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
-
-                if (hasStencil) {
-                    stencilInfo = depthInfo;
-                    stencilInfo.loadOp = (dsOps && dsOps->clearStencil)
-                        ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-                    stencilInfo.storeOp = (dsOps && dsOps->storeStencil)
-                        ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
-                    stencilInfo.clearValue.depthStencil.stencil =
-                        static_cast<uint32_t>(dsOps ? dsOps->clearStencilValue : 0);
-                }
-            }
-        } else {
-            // Swapchain (back-buffer) path.
-            extent = _swapchainExtent;
-            const auto colorOps =
-                colorArrayOps.empty() ? nullptr : colorArrayOps[0];
-
-            if (_swapchainImageLayout != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-                vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
-                    _swapchainImageLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-                _swapchainImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            }
-            // Transition the shared depth image from its tracked layout — a
-            // blanket UNDEFINED source would discard contents even when a
-            // second swapchain pass in the same frame (overlays/gizmos)
-            // requests LOAD_OP_LOAD on depth.
-            if (_depthImageLayout != VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
-                vulkanTransitionImageLayout(cmd, _depthImage,
-                    _depthImageLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                    depthImageAspect());
-                _depthImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            }
-
+        /// A colour attachment that stores, and clears or loads as the pass's ops say.
+        VkRenderingAttachmentInfo colorAttachmentInfo(VkImageView view, const ColorAttachmentOps* colorOps)
+        {
             VkRenderingAttachmentInfo info{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-            info.imageView = _swapchainImageViews[_swapchainImageIndex];
+            info.imageView = view;
             info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             if (colorOps && colorOps->clear) {
@@ -241,39 +53,72 @@ namespace visutwin::canvas
             } else {
                 info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             }
-            colorInfos.push_back(info);
+            return info;
+        }
 
-            hasDepth = true;
-            depthInfo.imageView = _depthImageView;
-            depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            depthInfo.loadOp = (dsOps && !dsOps->clearDepth)
-                ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
-            depthInfo.storeOp = (dsOps && dsOps->storeDepth)
-                ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            depthInfo.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
-
-            // The stencil (UI masks) follows the depth, as on Metal: cleared when either
-            // is, kept when either is, so a mask drawn in a later pass never reads a
-            // stencil the previous pass discarded.
-            if (vulkanFormatHasStencil(_depthFormat)) {
-                hasStencil = true;
-                stencilInfo = depthInfo;
-                stencilInfo.loadOp = (!dsOps || dsOps->clearStencil || dsOps->clearDepth)
-                    ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-                stencilInfo.storeOp = (dsOps && (dsOps->storeStencil || dsOps->storeDepth))
-                    ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
-                stencilInfo.clearValue.depthStencil.stencil =
-                    static_cast<uint32_t>(dsOps ? dsOps->clearStencilValue : 0);
+        // Transitions one offscreen colour attachment from its current layout
+        // (typically SHADER_READ_ONLY from a previous pass, or UNDEFINED on first use)
+        // into COLOR_ATTACHMENT_OPTIMAL, and describes it for the pass.
+        VkRenderingAttachmentInfo prepareOffscreenColorAttachment(VkCommandBuffer cmd,
+            const VulkanRenderTarget& target, const VulkanColorAttachment& att, const ColorAttachmentOps* colorOps)
+        {
+            const uint32_t mip = static_cast<uint32_t>(target.mipLevel());
+            const uint32_t layer = att.texture->arrayLayers() > 1 ? static_cast<uint32_t>(target.face()) : 0u;
+            if (att.texture->layout(mip, layer) != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+                att.texture->transitionLayout(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, mip, 1, layer, 1);
             }
+
+            // MSAA: draws go to the multisampled surface and `att.view`
+            // becomes the resolve destination, which is the single-sample
+            // texture every later pass samples.
+            const bool multisampled = att.msaaView != VK_NULL_HANDLE;
+            if (multisampled) {
+                // Nothing ever samples this surface, so it simply stays in
+                // attachment layout. Barrier it regardless: the same-layout
+                // barrier is what orders this pass's writes after the
+                // previous pass's, exactly as the round trip through
+                // SHADER_READ_ONLY does for the resolved texture.
+                vulkanTransitionImageLayout(cmd, att.msaaImage,
+                    att.msaaLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                att.msaaLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            }
+
+            VkRenderingAttachmentInfo info = colorAttachmentInfo(multisampled ? att.msaaView : att.view, colorOps);
+            if (multisampled && target.autoResolve() && colorOps && colorOps->resolve) {
+                info.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                info.resolveImageView = att.view;
+                info.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            }
+            return info;
+        }
+    }
+
+    void VulkanGraphicsDevice::startRenderPass(RenderPass* renderPass)
+    {
+        if (!recording()) {
+            return; // frame skipped at acquire — no command buffer is recording
+        }
+
+        VkCommandBuffer cmd = currentCommandBuffer();
+        auto* offscreen = renderPass
+            ? dynamic_cast<VulkanRenderTarget*>(renderPass->renderTarget().get())
+            : nullptr;
+
+        PassAttachments attachments;
+        if (offscreen) {
+            prepareOffscreenColorAttachments(cmd, *offscreen, renderPass, attachments);
+            prepareOffscreenDepthAttachment(cmd, *offscreen, renderPass, attachments);
+        } else {
+            prepareSwapchainAttachments(cmd, renderPass, attachments);
         }
 
         VkRenderingInfo renderingInfo{VK_STRUCTURE_TYPE_RENDERING_INFO};
-        renderingInfo.renderArea = {{0, 0}, extent};
+        renderingInfo.renderArea = {{0, 0}, attachments.extent};
         renderingInfo.layerCount = 1;
-        renderingInfo.colorAttachmentCount = static_cast<uint32_t>(colorInfos.size());
-        renderingInfo.pColorAttachments = colorInfos.empty() ? nullptr : colorInfos.data();
-        renderingInfo.pDepthAttachment = hasDepth ? &depthInfo : nullptr;
-        renderingInfo.pStencilAttachment = hasStencil ? &stencilInfo : nullptr;
+        renderingInfo.colorAttachmentCount = static_cast<uint32_t>(attachments.colors.size());
+        renderingInfo.pColorAttachments = attachments.colors.empty() ? nullptr : attachments.colors.data();
+        renderingInfo.pDepthAttachment = attachments.hasDepth ? &attachments.depth : nullptr;
+        renderingInfo.pStencilAttachment = attachments.hasStencil ? &attachments.stencil : nullptr;
 
         // GPU profiler: bracket the pass. The timestamps sit OUTSIDE
         // vkCmdBeginRendering/EndRendering, so the measured span includes the
@@ -285,9 +130,166 @@ namespace visutwin::canvas
         }
 
         vkCmdBeginRendering(cmd, &renderingInfo);
+        beginPassState(offscreen, attachments);
+    }
 
+    void VulkanGraphicsDevice::prepareOffscreenColorAttachments(VkCommandBuffer cmd, VulkanRenderTarget& target,
+        const RenderPass* renderPass, PassAttachments& out)
+    {
+        out.extent = target.extent();
+        static const std::vector<std::shared_ptr<ColorAttachmentOps>> kNoColorOps;
+        const auto& colorArrayOps = renderPass ? renderPass->colorArrayOps() : kNoColorOps;
+        const auto& attachments = target.colorAttachments();
+        for (size_t colorIndex = 0; colorIndex < attachments.size(); ++colorIndex) {
+            const auto& att = attachments[colorIndex];
+            if (!att.texture) continue;
+            const auto colorOps = colorIndex < colorArrayOps.size() ? colorArrayOps[colorIndex] : nullptr;
+            out.colors.push_back(prepareOffscreenColorAttachment(cmd, target, att, colorOps.get()));
+        }
+    }
+
+    void VulkanGraphicsDevice::prepareOffscreenDepthAttachment(VkCommandBuffer cmd, VulkanRenderTarget& target,
+        const RenderPass* renderPass, PassAttachments& out)
+    {
+        if (!target.hasDepthAttachment()) {
+            return;
+        }
+        const auto dsOps = renderPass ? renderPass->depthStencilOps() : nullptr;
+        out.hasDepth = true;
+        const auto& da = target.depthAttachment();
+        out.hasStencil = vulkanFormatHasStencil(da.format);
+        const VkImageAspectFlags depthAspect = VK_IMAGE_ASPECT_DEPTH_BIT |
+            (out.hasStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
+
+        // Source image + source layout differ between texture-backed
+        // and internally-owned depth.
+        VkImage depthImg = da.texture ? da.texture->image() : da.internalImage;
+        const uint32_t depthMip = static_cast<uint32_t>(target.mipLevel());
+        const uint32_t depthLayer = da.texture && da.texture->arrayLayers() > 1
+            ? static_cast<uint32_t>(target.face()) : 0u;
+        const VkImageLayout fromLayout = da.texture
+            ? da.texture->layout(depthMip, depthLayer)
+            : da.currentLayout;
+
+        // A pass that declares depthReadOnly() samples this same depth while
+        // keeping it attached (RenderPassVolumetricFogCombine does exactly
+        // that). Vulkan allows that feedback only with a read-only
+        // attachment, and a COMBINED_IMAGE_SAMPLER may never be updated with
+        // DEPTH_STENCIL_ATTACHMENT_OPTIMAL — binding it was a validation
+        // error with undefined sampled values. Texture-backed only:
+        // internally-owned depth is never sampled.
+        const bool depthReadOnly = renderPass && renderPass->depthReadOnly() && da.texture != nullptr;
+        const VkImageLayout depthAttachLayout = depthReadOnly
+            ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+            : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        if (depthImg != VK_NULL_HANDLE && fromLayout != depthAttachLayout) {
+            // Omni-shadow cubemap depth carves per-face attachment views —
+            // barrier the face being rendered, not just layer 0 (the
+            // default), or faces 1-5 render in the wrong layout.
+            if (da.texture) {
+                da.texture->transitionLayout(cmd, depthAttachLayout, depthMip, 1, depthLayer, 1);
+            } else {
+                vulkanTransitionImageLayout(cmd, depthImg, fromLayout, depthAttachLayout, depthAspect, 0, 1, 0, 1);
+                // Internal depth — track via the RT itself.
+                const_cast<VulkanDepthAttachment&>(da).currentLayout = depthAttachLayout;
+            }
+        }
+
+        // MSAA depth mirrors the color case, with two differences: the
+        // resolve mode is sample-zero (an averaged depth belongs to no
+        // surface), and a pass that SAMPLES this depth while it is
+        // attached must not also resolve into it — the resolve would be
+        // writing the very texture the pass reads.
+        const bool depthMsaa = da.msaaView != VK_NULL_HANDLE;
+        if (depthMsaa) {
+            vulkanTransitionImageLayout(cmd, da.msaaImage,
+                da.msaaLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, depthAspect);
+            da.msaaLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        }
+
+        auto& depthInfo = out.depth;
+        depthInfo.imageView = depthMsaa ? da.msaaView : da.view;
+        depthInfo.imageLayout = depthMsaa ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : depthAttachLayout;
+        if (depthMsaa && target.autoResolve() && !depthReadOnly &&
+            dsOps && dsOps->resolveDepth &&
+            _depthResolveMode != VK_RESOLVE_MODE_NONE) {
+            depthInfo.resolveMode = _depthResolveMode;
+            depthInfo.resolveImageView = da.view;
+            depthInfo.resolveImageLayout = depthAttachLayout;
+        }
+        depthInfo.loadOp = (dsOps && dsOps->clearDepth)
+            ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+        depthInfo.storeOp = (dsOps && dsOps->storeDepth)
+            ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthInfo.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
+
+        if (out.hasStencil) {
+            out.stencil = depthInfo;
+            out.stencil.loadOp = (dsOps && dsOps->clearStencil)
+                ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            out.stencil.storeOp = (dsOps && dsOps->storeStencil)
+                ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            out.stencil.clearValue.depthStencil.stencil =
+                static_cast<uint32_t>(dsOps ? dsOps->clearStencilValue : 0);
+        }
+    }
+
+    void VulkanGraphicsDevice::prepareSwapchainAttachments(VkCommandBuffer cmd, const RenderPass* renderPass,
+        PassAttachments& out)
+    {
+        out.extent = _swapchainExtent;
+        const auto colorOps = renderPass && !renderPass->colorArrayOps().empty()
+            ? renderPass->colorArrayOps()[0] : nullptr;
+        const auto dsOps = renderPass ? renderPass->depthStencilOps() : nullptr;
+
+        if (_swapchainImageLayout != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+            vulkanTransitionImageLayout(cmd, _swapchainImages[_swapchainImageIndex],
+                _swapchainImageLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            _swapchainImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        }
+        // Transition the shared depth image from its tracked layout — a
+        // blanket UNDEFINED source would discard contents even when a
+        // second swapchain pass in the same frame (overlays/gizmos)
+        // requests LOAD_OP_LOAD on depth.
+        if (_depthImageLayout != VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+            vulkanTransitionImageLayout(cmd, _depthImage,
+                _depthImageLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                depthImageAspect());
+            _depthImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        }
+
+        out.colors.push_back(colorAttachmentInfo(_swapchainImageViews[_swapchainImageIndex], colorOps.get()));
+
+        // The back buffer's depth is cleared unless the pass asks to keep it.
+        out.hasDepth = true;
+        out.depth.imageView = _depthImageView;
+        out.depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        out.depth.loadOp = (dsOps && !dsOps->clearDepth)
+            ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+        out.depth.storeOp = (dsOps && dsOps->storeDepth)
+            ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        out.depth.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
+
+        // The stencil (UI masks) follows the depth, as on Metal: cleared when either
+        // is, kept when either is, so a mask drawn in a later pass never reads a
+        // stencil the previous pass discarded.
+        if (vulkanFormatHasStencil(_depthFormat)) {
+            out.hasStencil = true;
+            out.stencil = out.depth;
+            out.stencil.loadOp = (!dsOps || dsOps->clearStencil || dsOps->clearDepth)
+                ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            out.stencil.storeOp = (dsOps && (dsOps->storeStencil || dsOps->storeDepth))
+                ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            out.stencil.clearValue.depthStencil.stencil =
+                static_cast<uint32_t>(dsOps ? dsOps->clearStencilValue : 0);
+        }
+    }
+
+    void VulkanGraphicsDevice::beginPassState(VulkanRenderTarget* offscreen, const PassAttachments& attachments)
+    {
         _activeOffscreenTarget = offscreen;
-        _activeExtent = extent;
+        _activeExtent = attachments.extent;
         _dynamicRenderingActive = true;
         _insideRenderPass = true;
         _currentPipeline = VK_NULL_HANDLE;
@@ -299,12 +301,13 @@ namespace visutwin::canvas
         // orientation, and the negative-height viewport stores the map in
         // exactly that orientation — so the sampling shader needs no V flip.
         // (_depthOnlyPass only drives the white-texture descriptor fallbacks.)
-        _depthOnlyPass = offscreen && colorInfos.empty() && hasDepth;
+        _depthOnlyPass = offscreen && attachments.colors.empty() && attachments.hasDepth;
 
         // Every pass starts with a full-target viewport/scissor — same
         // contract as the Metal backend, which resets both at encoder
         // creation.  Camera rects / gizmo viewports are applied afterwards
         // through the setViewport/setScissor overrides.
+        const VkExtent2D extent = attachments.extent;
         GraphicsDevice::setViewport(0.0f, 0.0f,
             static_cast<float>(extent.width), static_cast<float>(extent.height));
         GraphicsDevice::setScissor(0, 0,
