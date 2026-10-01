@@ -90,6 +90,10 @@ namespace visutwin::canvas
         };
         void appendSplat(const GpuSplat& splat, BoundsAccumulator& bounds);
         void finishBounds(const BoundsAccumulator& bounds, const std::string& source);
+        /// Sets the SH band count and reserves room for `count` splats.
+        void reserveSplats(size_t count, int shBands);
+        /// Appends one splat's 45 SH floats (15 coefficients x RGB).
+        void appendShRow(const float* sh45);
 
         std::vector<GpuSplat> _splats;
         std::vector<float> _centers;

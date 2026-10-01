@@ -10,7 +10,9 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <istream>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 
@@ -104,6 +106,296 @@ namespace visutwin::canvas
                 default: return 0;
             }
         }
+
+        /// SH bands 1-3 per splat, coefficient-major interleaved RGB, zero-padded to 15
+        /// coefficients — the layout the shader reads.
+        using ShRow = std::array<float, 45>;
+
+        // ── Header ───────────────────────────────────────────────────────────
+
+        // Reads the generic ASCII header (multiple elements, mixed types) up to
+        // end_header. Only binary little-endian files with fixed-size properties are
+        // accepted; nullopt (logged) otherwise.
+        std::optional<std::vector<PlyElement>> readPlyHeader(std::istream& file, const std::string& path)
+        {
+            std::string line;
+            if (!std::getline(file, line) || line.rfind("ply", 0) != 0) {
+                spdlog::error("GSplatData: '{}' is not a PLY file", path);
+                return std::nullopt;
+            }
+
+            bool binaryLittleEndian = false;
+            std::vector<PlyElement> elements;
+            bool unsupportedProperty = false;
+            while (std::getline(file, line)) {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                if (line == "end_header") break;
+
+                std::istringstream tokens(line);
+                std::string keyword;
+                tokens >> keyword;
+                if (keyword == "format") {
+                    std::string format;
+                    tokens >> format;
+                    binaryLittleEndian = (format == "binary_little_endian");
+                } else if (keyword == "element") {
+                    PlyElement element;
+                    tokens >> element.name >> element.count;
+                    elements.push_back(std::move(element));
+                } else if (keyword == "property" && !elements.empty()) {
+                    std::string type, name;
+                    tokens >> type >> name;
+                    if (type == "list") {
+                        unsupportedProperty = true;   // PLY lists are not supported
+                        continue;
+                    }
+                    const int size = propertyTypeSize(type);
+                    if (size == 0) {
+                        unsupportedProperty = true;
+                    }
+                    elements.back().properties.push_back({name, size});
+                    elements.back().stride += static_cast<size_t>(size);
+                }
+            }
+
+            if (!binaryLittleEndian || elements.empty() || unsupportedProperty) {
+                spdlog::error("GSplatData: '{}' unsupported PLY header", path);
+                return std::nullopt;
+            }
+            return elements;
+        }
+
+        /// Reads a whole element's binary block; false when the file is short.
+        bool readElementBlock(std::istream& file, const PlyElement& element, std::vector<uint8_t>& out)
+        {
+            out.resize(static_cast<size_t>(element.count) * element.stride);
+            file.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(out.size()));
+            return static_cast<bool>(file);
+        }
+
+        // ── Uncompressed float PLY ───────────────────────────────────────────
+
+        /// The vertex block of a standard 3DGS PLY and the column of each splat field
+        /// in its rows (-1 when absent).
+        struct UncompressedPly
+        {
+            int count = 0;
+            size_t stride = 0;   // floats per row
+            int px = -1, py = -1, pz = -1;
+            int pr = -1, pg = -1, pb = -1;
+            int po = -1;
+            int ps0 = -1, ps1 = -1, ps2 = -1;
+            int pq0 = -1, pq1 = -1, pq2 = -1, pq3 = -1;
+            int shCoeffs = 0;           // per channel
+            std::vector<int> fRest;     // columns of f_rest_0 .. f_rest_(3 * shCoeffs - 1)
+            std::vector<uint8_t> block;
+        };
+
+        std::optional<UncompressedPly> readUncompressedPly(std::istream& file, const PlyElement& vtx,
+            const std::string& path)
+        {
+            if (vtx.name != "vertex") {
+                spdlog::error("GSplatData: '{}' first element is not 'vertex'", path);
+                return std::nullopt;
+            }
+            std::unordered_map<std::string, int> propIndex;
+            for (size_t i = 0; i < vtx.properties.size(); ++i) {
+                if (vtx.properties[i].size != 4) {
+                    spdlog::error("GSplatData: '{}' vertex property '{}' is not float",
+                        path, vtx.properties[i].name);
+                    return std::nullopt;
+                }
+                propIndex[vtx.properties[i].name] = static_cast<int>(i);
+            }
+            const auto prop = [&](const std::string& n) {
+                const auto it = propIndex.find(n);
+                return it != propIndex.end() ? it->second : -1;
+            };
+
+            UncompressedPly ply;
+            ply.count = vtx.count;
+            ply.stride = vtx.properties.size();
+            ply.px = prop("x"); ply.py = prop("y"); ply.pz = prop("z");
+            ply.pr = prop("f_dc_0"); ply.pg = prop("f_dc_1"); ply.pb = prop("f_dc_2");
+            ply.po = prop("opacity");
+            ply.ps0 = prop("scale_0"); ply.ps1 = prop("scale_1"); ply.ps2 = prop("scale_2");
+            ply.pq0 = prop("rot_0"); ply.pq1 = prop("rot_1"); ply.pq2 = prop("rot_2"); ply.pq3 = prop("rot_3");
+            if (ply.px < 0 || ply.py < 0 || ply.pz < 0 || ply.pr < 0 || ply.po < 0 || ply.ps0 < 0 || ply.pq0 < 0) {
+                spdlog::error("GSplatData: '{}' is not a 3DGS PLY (missing splat properties)", path);
+                return std::nullopt;
+            }
+
+            // SH bands from the count of present f_rest_* properties (9/24/45).
+            while (true) {
+                const int column = prop("f_rest_" + std::to_string(ply.fRest.size()));
+                if (column < 0) {
+                    break;
+                }
+                ply.fRest.push_back(column);
+            }
+            ply.shCoeffs = static_cast<int>(ply.fRest.size()) / 3;
+
+            if (!readElementBlock(file, vtx, ply.block)) {
+                spdlog::error("GSplatData: '{}' truncated vertex data", path);
+                return std::nullopt;
+            }
+            return ply;
+        }
+
+        GpuSplat decodeUncompressedSplat(const float* row, const UncompressedPly& ply)
+        {
+            const float pos[3] = {row[ply.px], row[ply.py], row[ply.pz]};
+            const float colorRGB[3] = {
+                0.5f + row[ply.pr] * SH_C0,
+                0.5f + (ply.pg >= 0 ? row[ply.pg] : row[ply.pr]) * SH_C0,
+                0.5f + (ply.pb >= 0 ? row[ply.pb] : row[ply.pr]) * SH_C0
+            };
+            const float alpha = 1.0f / (1.0f + std::exp(-row[ply.po]));
+            const float scale[3] = {
+                std::exp(row[ply.ps0]),
+                std::exp(ply.ps1 >= 0 ? row[ply.ps1] : row[ply.ps0]),
+                std::exp(ply.ps2 >= 0 ? row[ply.ps2] : row[ply.ps0])
+            };
+            return buildSplat(pos, row[ply.pq0], row[ply.pq1], row[ply.pq2], row[ply.pq3], scale, colorRGB, alpha);
+        }
+
+        // f_rest is channel-major: [R(shCoeffs), G(shCoeffs), B(shCoeffs)].
+        // Reorder to coefficient-major interleaved, zero-padded to 15.
+        ShRow decodeUncompressedSh(const float* row, const UncompressedPly& ply)
+        {
+            ShRow sh{};
+            const int n = ply.shCoeffs;
+            for (int k = 0; k < n; ++k) {
+                sh[static_cast<size_t>(k) * 3 + 0] = row[ply.fRest[static_cast<size_t>(0 * n + k)]];
+                sh[static_cast<size_t>(k) * 3 + 1] = row[ply.fRest[static_cast<size_t>(1 * n + k)]];
+                sh[static_cast<size_t>(k) * 3 + 2] = row[ply.fRest[static_cast<size_t>(2 * n + k)]];
+            }
+            return sh;
+        }
+
+        // ── Compressed SuperSplat PLY ────────────────────────────────────────
+
+        /// elements: [0]=chunk (float), [1]=vertex (uint x4), [2]=sh (uchar, optional).
+        /// Every 256 vertices share a chunk holding their min/max boxes.
+        struct CompressedPly
+        {
+            int count = 0;
+            int chunkSize = 0;   // floats per chunk: 12, or 18 with a colour box
+            int shCoeffs = 0;    // per channel, 0 when there is no usable sh element
+            std::vector<uint8_t> chunkBytes, vtxBytes, shBytes;
+        };
+
+        std::optional<CompressedPly> readCompressedPly(std::istream& file, const std::vector<PlyElement>& elements,
+            const std::string& path)
+        {
+            if (elements.size() < 2 || elements[1].name != "vertex") {
+                spdlog::error("GSplatData: '{}' malformed compressed PLY", path);
+                return std::nullopt;
+            }
+            const PlyElement& chunkElem = elements[0];
+            const PlyElement& vtxElem = elements[1];
+            CompressedPly ply;
+            ply.count = vtxElem.count;
+            ply.chunkSize = static_cast<int>(chunkElem.properties.size());
+            if ((ply.chunkSize != 12 && ply.chunkSize != 18) || vtxElem.properties.size() != 4) {
+                spdlog::error("GSplatData: '{}' unexpected compressed layout (chunk={}, vtxProps={})",
+                    path, ply.chunkSize, vtxElem.properties.size());
+                return std::nullopt;
+            }
+            if (!readElementBlock(file, chunkElem, ply.chunkBytes) || !readElementBlock(file, vtxElem, ply.vtxBytes)) {
+                spdlog::error("GSplatData: '{}' truncated compressed data", path);
+                return std::nullopt;
+            }
+            if (elements.size() >= 3 && elements[2].name == "sh") {
+                const int shCoeffs = static_cast<int>(elements[2].properties.size()) / 3;
+                if (shBandsFromCoeffs(shCoeffs) == 0 || !readElementBlock(file, elements[2], ply.shBytes)) {
+                    spdlog::warn("GSplatData: '{}' ignoring unrecognized 'sh' element", path);
+                } else {
+                    ply.shCoeffs = shCoeffs;
+                }
+            }
+            return ply;
+        }
+
+        float unpackUnorm(const uint32_t value, const int bits)
+        {
+            const uint32_t t = (1u << bits) - 1u;
+            return static_cast<float>(value & t) / static_cast<float>(t);
+        }
+
+        float lerp(const float a, const float b, const float t)
+        {
+            return a * (1.0f - t) + b * t;
+        }
+
+        GpuSplat decodeCompressedSplat(const CompressedPly& ply, const int i)
+        {
+            const auto* chunkData = reinterpret_cast<const float*>(ply.chunkBytes.data());
+            const auto* vtxData = reinterpret_cast<const uint32_t*>(ply.vtxBytes.data());
+            const int ci = (i / 256) * ply.chunkSize;
+            const uint32_t pPos = vtxData[static_cast<size_t>(i) * 4 + 0];
+            const uint32_t pRot = vtxData[static_cast<size_t>(i) * 4 + 1];
+            const uint32_t pScale = vtxData[static_cast<size_t>(i) * 4 + 2];
+            const uint32_t pColor = vtxData[static_cast<size_t>(i) * 4 + 3];
+
+            // Position: 11-10-11 unorm lerped into the chunk's min/max box.
+            const float pos[3] = {
+                lerp(chunkData[ci + 0], chunkData[ci + 3], unpackUnorm(pPos >> 21, 11)),
+                lerp(chunkData[ci + 1], chunkData[ci + 4], unpackUnorm(pPos >> 11, 10)),
+                lerp(chunkData[ci + 2], chunkData[ci + 5], unpackUnorm(pPos, 11))
+            };
+
+            // Rotation: 2-bit largest-index + 3x10-bit remaining, scaled by sqrt(2).
+            const float norm = 1.41421356237f;
+            const float ra = (unpackUnorm(pRot >> 20, 10) - 0.5f) * norm;
+            const float rb = (unpackUnorm(pRot >> 10, 10) - 0.5f) * norm;
+            const float rc = (unpackUnorm(pRot, 10) - 0.5f) * norm;
+            const float rm = std::sqrt(std::max(0.0f, 1.0f - (ra * ra + rb * rb + rc * rc)));
+            float qx, qy, qz, qw;
+            switch (pRot >> 30) {
+                case 0:  qx = ra; qy = rb; qz = rc; qw = rm; break;
+                case 1:  qx = rm; qy = rb; qz = rc; qw = ra; break;
+                case 2:  qx = rb; qy = rm; qz = rc; qw = ra; break;
+                default: qx = rb; qy = rc; qz = rm; qw = ra; break;
+            }
+
+            // Scale: 11-10-11 unorm lerped into log-space chunk min/max, then exp.
+            const float scale[3] = {
+                std::exp(lerp(chunkData[ci + 6], chunkData[ci + 9], unpackUnorm(pScale >> 21, 11))),
+                std::exp(lerp(chunkData[ci + 7], chunkData[ci + 10], unpackUnorm(pScale >> 11, 10))),
+                std::exp(lerp(chunkData[ci + 8], chunkData[ci + 11], unpackUnorm(pScale, 11)))
+            };
+
+            // Color: 8888 unorm; rgb lerped into the chunk color box when present.
+            float colorRGB[3] = {
+                unpackUnorm(pColor >> 24, 8),
+                unpackUnorm(pColor >> 16, 8),
+                unpackUnorm(pColor >> 8, 8)
+            };
+            if (ply.chunkSize > 12) {
+                colorRGB[0] = lerp(chunkData[ci + 12], chunkData[ci + 15], colorRGB[0]);
+                colorRGB[1] = lerp(chunkData[ci + 13], chunkData[ci + 16], colorRGB[1]);
+                colorRGB[2] = lerp(chunkData[ci + 14], chunkData[ci + 17], colorRGB[2]);
+            }
+            const float alpha = unpackUnorm(pColor, 8);
+
+            return buildSplat(pos, qw, qx, qy, qz, scale, colorRGB, alpha);
+        }
+
+        // The sh element is channel-major uchar: [R(shCoeffs), G, B]; dequant
+        // val = u8 * (8/255) - 4, reorder to coefficient-major interleaved.
+        ShRow decodeCompressedSh(const CompressedPly& ply, const int i)
+        {
+            const uint8_t* shRow = ply.shBytes.data() + static_cast<size_t>(i) * ply.shCoeffs * 3;
+            ShRow sh{};
+            for (int k = 0; k < ply.shCoeffs; ++k) {
+                for (int c = 0; c < 3; ++c) {
+                    const uint8_t q = shRow[static_cast<size_t>(c) * ply.shCoeffs + k];
+                    sh[static_cast<size_t>(k) * 3 + c] = static_cast<float>(q) * (8.0f / 255.0f) - 4.0f;
+                }
+            }
+            return sh;
+        }
     }
 
     std::unique_ptr<GSplatData> GSplatData::loadPly(const std::string& path)
@@ -113,265 +405,41 @@ namespace visutwin::canvas
             spdlog::error("GSplatData: cannot open '{}'", path);
             return nullptr;
         }
-
-        std::string line;
-        if (!std::getline(file, line) || line.rfind("ply", 0) != 0) {
-            spdlog::error("GSplatData: '{}' is not a PLY file", path);
+        const auto elements = readPlyHeader(file, path);
+        if (!elements) {
             return nullptr;
         }
-
-        // ── Parse the generic ASCII header (multiple elements, mixed types) ──
-        bool binaryLittleEndian = false;
-        std::vector<PlyElement> elements;
-        bool unsupportedProperty = false;
-
-        while (std::getline(file, line)) {
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (line == "end_header") break;
-
-            std::istringstream tokens(line);
-            std::string keyword;
-            tokens >> keyword;
-            if (keyword == "format") {
-                std::string format;
-                tokens >> format;
-                binaryLittleEndian = (format == "binary_little_endian");
-            } else if (keyword == "element") {
-                PlyElement element;
-                tokens >> element.name >> element.count;
-                elements.push_back(std::move(element));
-            } else if (keyword == "property" && !elements.empty()) {
-                std::string type, name;
-                tokens >> type >> name;
-                if (type == "list") {
-                    unsupportedProperty = true;   // PLY lists are not supported
-                    continue;
-                }
-                const int size = propertyTypeSize(type);
-                if (size == 0) {
-                    unsupportedProperty = true;
-                }
-                elements.back().properties.push_back({name, size});
-                elements.back().stride += static_cast<size_t>(size);
-            }
-        }
-
-        if (!binaryLittleEndian || elements.empty() || unsupportedProperty) {
-            spdlog::error("GSplatData: '{}' unsupported PLY header", path);
-            return nullptr;
-        }
-
-        const bool compressed = (elements.front().name == "chunk");
+        const bool compressed = elements->front().name == "chunk";
 
         auto data = std::make_unique<GSplatData>();
         BoundsAccumulator bounds;
-        const auto accumulate = [&](const GpuSplat& splat) { data->appendSplat(splat, bounds); };
-
-        // Read a whole element's binary block into a byte buffer.
-        const auto readBlock = [&](const PlyElement& e, std::vector<uint8_t>& out) -> bool {
-            out.resize(static_cast<size_t>(e.count) * e.stride);
-            file.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(out.size()));
-            return static_cast<bool>(file);
-        };
-
-        if (!compressed) {
-            // ── Uncompressed float PLY ───────────────────────────────────────
-            const PlyElement& vtx = elements.front();
-            if (vtx.name != "vertex") {
-                spdlog::error("GSplatData: '{}' first element is not 'vertex'", path);
+        if (compressed) {
+            const auto ply = readCompressedPly(file, *elements, path);
+            if (!ply) {
                 return nullptr;
             }
-            std::unordered_map<std::string, int> propIndex;
-            for (size_t i = 0; i < vtx.properties.size(); ++i) {
-                if (vtx.properties[i].size != 4) {
-                    spdlog::error("GSplatData: '{}' vertex property '{}' is not float",
-                        path, vtx.properties[i].name);
-                    return nullptr;
-                }
-                propIndex[vtx.properties[i].name] = static_cast<int>(i);
-            }
-            const auto prop = [&](const char* n) {
-                const auto it = propIndex.find(n);
-                return it != propIndex.end() ? it->second : -1;
-            };
-
-            const int px = prop("x"), py = prop("y"), pz = prop("z");
-            const int pr = prop("f_dc_0"), pg = prop("f_dc_1"), pb = prop("f_dc_2");
-            const int po = prop("opacity");
-            const int ps0 = prop("scale_0"), ps1 = prop("scale_1"), ps2 = prop("scale_2");
-            const int pq0 = prop("rot_0"), pq1 = prop("rot_1"), pq2 = prop("rot_2"), pq3 = prop("rot_3");
-            if (px < 0 || py < 0 || pz < 0 || pr < 0 || po < 0 || ps0 < 0 || pq0 < 0) {
-                spdlog::error("GSplatData: '{}' is not a 3DGS PLY (missing splat properties)", path);
-                return nullptr;
-            }
-
-            // SH bands from the count of present f_rest_* properties (9/24/45).
-            int fRestCount = 0;
-            while (prop(("f_rest_" + std::to_string(fRestCount)).c_str()) >= 0) {
-                ++fRestCount;
-            }
-            const int shCoeffs = fRestCount / 3;   // per channel
-            data->_shBands = shBandsFromCoeffs(shCoeffs);
-            std::vector<int> fRest(static_cast<size_t>(fRestCount));
-            for (int i = 0; i < fRestCount; ++i) {
-                fRest[static_cast<size_t>(i)] = prop(("f_rest_" + std::to_string(i)).c_str());
-            }
-
-            std::vector<uint8_t> block;
-            if (!readBlock(vtx, block)) {
-                spdlog::error("GSplatData: '{}' truncated vertex data", path);
-                return nullptr;
-            }
-            const auto* rows = reinterpret_cast<const float*>(block.data());
-            const size_t stride = vtx.properties.size();
-
-            data->_splats.reserve(static_cast<size_t>(vtx.count));
-            data->_centers.reserve(static_cast<size_t>(vtx.count) * 3);
-            if (data->_shBands > 0) {
-                data->_shCoeffs.reserve(static_cast<size_t>(vtx.count) * 45);
-            }
-
-            for (int i = 0; i < vtx.count; ++i) {
-                const float* row = rows + static_cast<size_t>(i) * stride;
-                const float pos[3] = {row[px], row[py], row[pz]};
-                if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2])) {
-                    continue;
-                }
-                const float colorRGB[3] = {
-                    0.5f + row[pr] * SH_C0,
-                    0.5f + (pg >= 0 ? row[pg] : row[pr]) * SH_C0,
-                    0.5f + (pb >= 0 ? row[pb] : row[pr]) * SH_C0
-                };
-                const float alpha = 1.0f / (1.0f + std::exp(-row[po]));
-                const float scale[3] = {
-                    std::exp(row[ps0]),
-                    std::exp(ps1 >= 0 ? row[ps1] : row[ps0]),
-                    std::exp(ps2 >= 0 ? row[ps2] : row[ps0])
-                };
-                accumulate(buildSplat(pos, row[pq0], row[pq1], row[pq2], row[pq3], scale, colorRGB, alpha));
-
+            data->reserveSplats(static_cast<size_t>(ply->count), shBandsFromCoeffs(ply->shCoeffs));
+            for (int i = 0; i < ply->count; ++i) {
+                data->appendSplat(decodeCompressedSplat(*ply, i), bounds);
                 if (data->_shBands > 0) {
-                    // f_rest is channel-major: [R(shCoeffs), G(shCoeffs), B(shCoeffs)].
-                    // Reorder to coefficient-major interleaved, zero-padded to 15.
-                    std::array<float, 45> sh{};
-                    for (int k = 0; k < shCoeffs; ++k) {
-                        sh[static_cast<size_t>(k) * 3 + 0] = row[fRest[static_cast<size_t>(0 * shCoeffs + k)]];
-                        sh[static_cast<size_t>(k) * 3 + 1] = row[fRest[static_cast<size_t>(1 * shCoeffs + k)]];
-                        sh[static_cast<size_t>(k) * 3 + 2] = row[fRest[static_cast<size_t>(2 * shCoeffs + k)]];
-                    }
-                    data->_shCoeffs.insert(data->_shCoeffs.end(), sh.begin(), sh.end());
+                    data->appendShRow(decodeCompressedSh(*ply, i).data());
                 }
             }
         } else {
-            // ── Compressed SuperSplat PLY ────────────────────────────────────
-            // elements: [0]=chunk (float), [1]=vertex (uint x4), [2]=sh (uchar, optional)
-            if (elements.size() < 2 || elements[1].name != "vertex") {
-                spdlog::error("GSplatData: '{}' malformed compressed PLY", path);
+            const auto ply = readUncompressedPly(file, elements->front(), path);
+            if (!ply) {
                 return nullptr;
             }
-            const PlyElement& chunkElem = elements[0];
-            const PlyElement& vtxElem = elements[1];
-            const int chunkSize = static_cast<int>(chunkElem.properties.size());   // 12 or 18
-            if ((chunkSize != 12 && chunkSize != 18) || vtxElem.properties.size() != 4) {
-                spdlog::error("GSplatData: '{}' unexpected compressed layout (chunk={}, vtxProps={})",
-                    path, chunkSize, vtxElem.properties.size());
-                return nullptr;
-            }
-
-            std::vector<uint8_t> chunkBytes, vtxBytes, shBytes;
-            if (!readBlock(chunkElem, chunkBytes) || !readBlock(vtxElem, vtxBytes)) {
-                spdlog::error("GSplatData: '{}' truncated compressed data", path);
-                return nullptr;
-            }
-            const auto* chunkData = reinterpret_cast<const float*>(chunkBytes.data());
-            const auto* vtxData = reinterpret_cast<const uint32_t*>(vtxBytes.data());
-
-            int shCoeffs = 0;
-            if (elements.size() >= 3 && elements[2].name == "sh") {
-                shCoeffs = static_cast<int>(elements[2].properties.size()) / 3;
-                data->_shBands = shBandsFromCoeffs(shCoeffs);
-                if (data->_shBands == 0 || !readBlock(elements[2], shBytes)) {
-                    spdlog::warn("GSplatData: '{}' ignoring unrecognized 'sh' element", path);
-                    data->_shBands = 0;
-                    shCoeffs = 0;
+            data->reserveSplats(static_cast<size_t>(ply->count), shBandsFromCoeffs(ply->shCoeffs));
+            const auto* rows = reinterpret_cast<const float*>(ply->block.data());
+            for (int i = 0; i < ply->count; ++i) {
+                const float* row = rows + static_cast<size_t>(i) * ply->stride;
+                if (!std::isfinite(row[ply->px]) || !std::isfinite(row[ply->py]) || !std::isfinite(row[ply->pz])) {
+                    continue;
                 }
-            }
-            const int shStride = shCoeffs * 3;   // uchar per splat
-
-            const auto unpackUnorm = [](const uint32_t value, const int bits) {
-                const uint32_t t = (1u << bits) - 1u;
-                return static_cast<float>(value & t) / static_cast<float>(t);
-            };
-            const auto lerp = [](const float a, const float b, const float t) { return a * (1.0f - t) + b * t; };
-
-            data->_splats.reserve(static_cast<size_t>(vtxElem.count));
-            data->_centers.reserve(static_cast<size_t>(vtxElem.count) * 3);
-            if (data->_shBands > 0) {
-                data->_shCoeffs.reserve(static_cast<size_t>(vtxElem.count) * 45);
-            }
-
-            for (int i = 0; i < vtxElem.count; ++i) {
-                const int ci = (i / 256) * chunkSize;
-                const uint32_t pPos = vtxData[static_cast<size_t>(i) * 4 + 0];
-                const uint32_t pRot = vtxData[static_cast<size_t>(i) * 4 + 1];
-                const uint32_t pScale = vtxData[static_cast<size_t>(i) * 4 + 2];
-                const uint32_t pColor = vtxData[static_cast<size_t>(i) * 4 + 3];
-
-                // Position: 11-10-11 unorm lerped into the chunk's min/max box.
-                const float pos[3] = {
-                    lerp(chunkData[ci + 0], chunkData[ci + 3], unpackUnorm(pPos >> 21, 11)),
-                    lerp(chunkData[ci + 1], chunkData[ci + 4], unpackUnorm(pPos >> 11, 10)),
-                    lerp(chunkData[ci + 2], chunkData[ci + 5], unpackUnorm(pPos, 11))
-                };
-
-                // Rotation: 2-bit largest-index + 3x10-bit remaining, scaled by sqrt(2).
-                const float norm = 1.41421356237f;
-                const float ra = (unpackUnorm(pRot >> 20, 10) - 0.5f) * norm;
-                const float rb = (unpackUnorm(pRot >> 10, 10) - 0.5f) * norm;
-                const float rc = (unpackUnorm(pRot, 10) - 0.5f) * norm;
-                const float rm = std::sqrt(std::max(0.0f, 1.0f - (ra * ra + rb * rb + rc * rc)));
-                float qx, qy, qz, qw;
-                switch (pRot >> 30) {
-                    case 0:  qx = ra; qy = rb; qz = rc; qw = rm; break;
-                    case 1:  qx = rm; qy = rb; qz = rc; qw = ra; break;
-                    case 2:  qx = rb; qy = rm; qz = rc; qw = ra; break;
-                    default: qx = rb; qy = rc; qz = rm; qw = ra; break;
-                }
-
-                // Scale: 11-10-11 unorm lerped into log-space chunk min/max, then exp.
-                const float scale[3] = {
-                    std::exp(lerp(chunkData[ci + 6], chunkData[ci + 9], unpackUnorm(pScale >> 21, 11))),
-                    std::exp(lerp(chunkData[ci + 7], chunkData[ci + 10], unpackUnorm(pScale >> 11, 10))),
-                    std::exp(lerp(chunkData[ci + 8], chunkData[ci + 11], unpackUnorm(pScale, 11)))
-                };
-
-                // Color: 8888 unorm; rgb lerped into the chunk color box when present.
-                float colorRGB[3] = {
-                    unpackUnorm(pColor >> 24, 8),
-                    unpackUnorm(pColor >> 16, 8),
-                    unpackUnorm(pColor >> 8, 8)
-                };
-                if (chunkSize > 12) {
-                    colorRGB[0] = lerp(chunkData[ci + 12], chunkData[ci + 15], colorRGB[0]);
-                    colorRGB[1] = lerp(chunkData[ci + 13], chunkData[ci + 16], colorRGB[1]);
-                    colorRGB[2] = lerp(chunkData[ci + 14], chunkData[ci + 17], colorRGB[2]);
-                }
-                const float alpha = unpackUnorm(pColor, 8);
-
-                accumulate(buildSplat(pos, qw, qx, qy, qz, scale, colorRGB, alpha));
-
+                data->appendSplat(decodeUncompressedSplat(row, *ply), bounds);
                 if (data->_shBands > 0) {
-                    // sh element is channel-major uchar: [R(shCoeffs), G, B]; dequant
-                    // val = u8 * (8/255) - 4, reorder to coefficient-major interleaved.
-                    const uint8_t* shRow = shBytes.data() + static_cast<size_t>(i) * shStride;
-                    std::array<float, 45> sh{};
-                    for (int k = 0; k < shCoeffs; ++k) {
-                        for (int c = 0; c < 3; ++c) {
-                            const uint8_t q = shRow[static_cast<size_t>(c) * shCoeffs + k];
-                            sh[static_cast<size_t>(k) * 3 + c] = static_cast<float>(q) * (8.0f / 255.0f) - 4.0f;
-                        }
-                    }
-                    data->_shCoeffs.insert(data->_shCoeffs.end(), sh.begin(), sh.end());
+                    data->appendShRow(decodeUncompressedSh(row, *ply).data());
                 }
             }
         }
@@ -386,6 +454,21 @@ namespace visutwin::canvas
         spdlog::info("GSplatData: loaded '{}' — {} splats ({}, SH bands {})",
             path, data->_splats.size(), compressed ? "compressed" : "uncompressed", data->_shBands);
         return data;
+    }
+
+    void GSplatData::reserveSplats(const size_t count, const int shBands)
+    {
+        _shBands = shBands;
+        _splats.reserve(count);
+        _centers.reserve(count * 3);
+        if (shBands > 0) {
+            _shCoeffs.reserve(count * 45);
+        }
+    }
+
+    void GSplatData::appendShRow(const float* sh45)
+    {
+        _shCoeffs.insert(_shCoeffs.end(), sh45, sh45 + 45);
     }
 
     void GSplatData::appendSplat(const GpuSplat& s, BoundsAccumulator& bounds)
@@ -468,12 +551,7 @@ namespace visutwin::canvas
         }
 
         auto data = std::make_unique<GSplatData>();
-        data->_shBands = bands;
-        data->_splats.reserve(count);
-        data->_centers.reserve(count * 3);
-        if (bands > 0) {
-            data->_shCoeffs.reserve(count * 45);
-        }
+        data->reserveSplats(count, bands);
         BoundsAccumulator bounds;
         for (size_t i = 0; i < count; ++i) {
             const float* pos = in.positions.data() + i * 3;
@@ -491,9 +569,9 @@ namespace visutwin::canvas
                 in.opacities[i]), bounds);
             if (bands > 0) {
                 // Already coefficient-major interleaved; pad to the 15 the shader reads.
-                std::array<float, 45> sh{};
+                ShRow sh{};
                 std::copy_n(in.shRest.data() + i * static_cast<size_t>(coeffs) * 3, coeffs * 3, sh.begin());
-                data->_shCoeffs.insert(data->_shCoeffs.end(), sh.begin(), sh.end());
+                data->appendShRow(sh.data());
             }
         }
         if (data->_splats.empty()) {
