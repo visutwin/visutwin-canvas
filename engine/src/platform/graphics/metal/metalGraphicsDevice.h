@@ -220,6 +220,20 @@ namespace visutwin::canvas
         MTL::DepthStencilState* resolveDepthStencilState(const DepthState* depthState,
             StencilParameters* stencilFront, StencilParameters* stencilBack);
 
+        // startRenderPass()'s stages that touch device state; the attachment setup
+        // is free functions in metalGraphicsDevice.cpp.
+
+        /// The frame's drawable, acquired on its first back-buffer pass and reused by
+        /// the rest; false when none could be had.
+        bool acquirePassDrawable();
+        /// (Re)creates the back buffer's depth-stencil texture at the drawable's size.
+        void ensureBackBufferDepthTexture(int width, int height);
+        /// Names the encoder and opens a debug group for frame captures and traces.
+        void labelPassEncoder(RenderPass& renderPass);
+        /// The state every new encoder starts from: cleared caches, default depth
+        /// state and winding, the full-target viewport, and the per-pass buffers.
+        void beginPassEncoderState(const RenderTarget* target);
+
         // draw()'s stages, in the order it runs them.
 
         struct IndexBinding

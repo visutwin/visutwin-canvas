@@ -1506,6 +1506,201 @@ namespace visutwin::canvas
         }
     }
 
+    namespace
+    {
+        MTL::StoreAction storeAction(const bool store, const bool resolve)
+        {
+            if (resolve) {
+                return store ? MTL::StoreActionStoreAndMultisampleResolve : MTL::StoreActionMultisampleResolve;
+            }
+            return store ? MTL::StoreActionStore : MTL::StoreActionDontCare;
+        }
+
+        void applyColorLoad(MTL::RenderPassColorAttachmentDescriptor* attachment, const ColorAttachmentOps* ops)
+        {
+            if (ops && ops->clear) {
+                const auto c = ops->clearValue;
+                attachment->setLoadAction(MTL::LoadActionClear);
+                attachment->setClearColor(MTL::ClearColor::Make(c.r, c.g, c.b, c.a));
+            } else {
+                attachment->setLoadAction(MTL::LoadActionLoad);
+            }
+        }
+
+        void applyDepthLoad(MTL::RenderPassDepthAttachmentDescriptor* attachment, const DepthStencilAttachmentOps* ops)
+        {
+            if (ops && ops->clearDepth) {
+                attachment->setLoadAction(MTL::LoadActionClear);
+                attachment->setClearDepth(ops->clearDepthValue);
+            } else {
+                attachment->setLoadAction(MTL::LoadActionLoad);
+            }
+        }
+
+        /// A memoryless multisampled twin has nowhere to be stored to. The pass that
+        /// asked was built to load this target later; that load will read nothing,
+        /// which is a scene bug rather than a crash — say so, once per kind.
+        void warnDroppedTransientStore(const RenderTarget& target, const char* kind, bool& warned)
+        {
+            if (!warned) {
+                warned = true;
+                spdlog::warn("Render target '{}' asks to STORE a transient multisampled {} "
+                    "attachment; storing is dropped. Create it without transientMultisample "
+                    "if a later pass loads it.", target.name(), kind);
+            }
+        }
+
+        void configureBackBufferAttachments(MTL::RenderPassDescriptor* passDesc, MTL::Texture* drawableTexture,
+            MTL::Texture* depthTexture, const ColorAttachmentOps* colorOps, const DepthStencilAttachmentOps* depthOps)
+        {
+            auto* colorAttachment = passDesc->colorAttachments()->object(0);
+            colorAttachment->setTexture(drawableTexture);
+            applyColorLoad(colorAttachment, colorOps);
+            colorAttachment->setStoreAction(colorOps && colorOps->store ? MTL::StoreActionStore : MTL::StoreActionDontCare);
+
+            if (!depthTexture) {
+                return;
+            }
+            auto* depthAttachment = passDesc->depthAttachment();
+            depthAttachment->setTexture(depthTexture);
+            applyDepthLoad(depthAttachment, depthOps);
+            depthAttachment->setStoreAction(depthOps && depthOps->storeDepth
+                ? MTL::StoreActionStore
+                : MTL::StoreActionDontCare);
+
+            // The stencil shares the texture and follows the depth: cleared when
+            // either is (a pass that starts a fresh depth starts a fresh stencil),
+            // kept when either is kept, so UI masks drawn in a later pass never read
+            // a stencil the previous pass discarded.
+            auto* stencilAttachment = passDesc->stencilAttachment();
+            stencilAttachment->setTexture(depthTexture);
+            if (depthOps && (depthOps->clearStencil || depthOps->clearDepth)) {
+                stencilAttachment->setLoadAction(MTL::LoadActionClear);
+                stencilAttachment->setClearStencil(static_cast<uint32_t>(depthOps->clearStencilValue));
+            } else {
+                stencilAttachment->setLoadAction(MTL::LoadActionLoad);
+            }
+            stencilAttachment->setStoreAction(depthOps && (depthOps->storeStencil || depthOps->storeDepth)
+                ? MTL::StoreActionStore
+                : MTL::StoreActionDontCare);
+        }
+
+        void configureOffscreenColorAttachment(MTL::RenderPassColorAttachmentDescriptor* colorAttachment,
+            const ColorAttachment& attachment, const RenderTarget& target, const ColorAttachmentOps* ops,
+            const bool canResolve)
+        {
+            const bool multisampled = attachment.multisampledBuffer != nullptr;
+            colorAttachment->setTexture(multisampled ? attachment.multisampledBuffer : attachment.texture);
+
+            // A multisample attachment is a single-level texture sized for the
+            // target mip; otherwise render directly into the requested mip.
+            if (!multisampled) {
+                colorAttachment->setLevel(static_cast<NS::UInteger>(target.mipLevel()));
+            }
+
+            // Cubemaps and 2D arrays select their destination through slice.
+            const auto colorTextureType = attachment.texture->textureType();
+            const bool colorHasSlices = colorTextureType == MTL::TextureTypeCube ||
+                colorTextureType == MTL::TextureType2DArray;
+            if (!multisampled && colorHasSlices && target.face() >= 0) {
+                colorAttachment->setSlice(static_cast<NS::UInteger>(target.face()));
+            }
+
+            applyColorLoad(colorAttachment, ops);
+
+            const bool resolve = multisampled && canResolve && ops && ops->resolve;
+            if (resolve) {
+                colorAttachment->setResolveTexture(attachment.texture);
+                colorAttachment->setResolveLevel(static_cast<NS::UInteger>(target.mipLevel()));
+                if (colorHasSlices && target.face() >= 0) {
+                    colorAttachment->setResolveSlice(static_cast<NS::UInteger>(target.face()));
+                }
+            }
+            bool storeColor = ops ? ops->store : true;
+            if (multisampled && storeColor && attachment.multisampledMemoryless) {
+                static bool warned = false;
+                warnDroppedTransientStore(target, "colour", warned);
+                storeColor = false;
+            }
+            colorAttachment->setStoreAction(storeAction(storeColor, resolve));
+        }
+
+        void configureOffscreenDepthAttachment(MTL::RenderPassDescriptor* passDesc, const DepthAttachment& depthData,
+            const RenderTarget& target, const DepthStencilAttachmentOps* depthOps, const bool canResolve)
+        {
+            auto* depthAttachment = passDesc->depthAttachment();
+            const bool depthMsaa = depthData.multisampledDepthBuffer != nullptr;
+            MTL::Texture* depthTex = depthMsaa ? depthData.multisampledDepthBuffer : depthData.depthTexture;
+            depthAttachment->setTexture(depthTex);
+
+            // Cubemap face rendering: when the depth texture is a cubemap, target a
+            // specific face via the slice parameter.  This enables rendering to individual
+            // faces of a point-light shadow cubemap. The same slice mechanism targets an
+            // individual layer of a depth texture2d_array — used by the clustered local
+            // shadow atlas (LightTextureAtlas), where each spot light owns one array slice.
+            if ((depthTex->textureType() == MTL::TextureTypeCube ||
+                 depthTex->textureType() == MTL::TextureType2DArray) && target.face() >= 0) {
+                depthAttachment->setSlice(static_cast<NS::UInteger>(target.face()));
+            }
+
+            applyDepthLoad(depthAttachment, depthOps);
+
+            const bool resolveDepth = depthMsaa && canResolve && depthOps && depthOps->resolveDepth;
+            if (resolveDepth) {
+                depthAttachment->setResolveTexture(depthData.depthTexture);
+                // Sample0 is the only filter guaranteed everywhere; Min/Max need
+                // MTLDevice::supportsDepthResolveFilter and buy nothing here.
+                depthAttachment->setDepthResolveFilter(MTL::MultisampleDepthResolveFilterSample0);
+            }
+            bool storeDepth = depthOps ? depthOps->storeDepth : true;
+            if (depthMsaa && storeDepth && depthData.multisampledMemoryless) {
+                static bool warnedDepth = false;
+                warnDroppedTransientStore(target, "depth", warnedDepth);
+                storeDepth = false;
+            }
+            depthAttachment->setStoreAction(storeAction(storeDepth, resolveDepth));
+
+            if (!depthData.hasStencil) {
+                return;
+            }
+            auto* stencilAttachment = passDesc->stencilAttachment();
+            stencilAttachment->setTexture(depthTex);
+            if (depthOps && depthOps->clearStencil) {
+                stencilAttachment->setLoadAction(MTL::LoadActionClear);
+                stencilAttachment->setClearStencil(depthOps->clearStencilValue);
+            } else {
+                stencilAttachment->setLoadAction(MTL::LoadActionLoad);
+            }
+            stencilAttachment->setStoreAction(depthOps && depthOps->storeStencil &&
+                !(depthMsaa && depthData.multisampledMemoryless) ? MTL::StoreActionStore : MTL::StoreActionDontCare);
+        }
+
+        void configureOffscreenAttachments(MTL::RenderPassDescriptor* passDesc, const MetalRenderTarget& target,
+            const RenderPass* renderPass)
+        {
+            static const std::vector<std::shared_ptr<ColorAttachmentOps>> kNoColorOps;
+            const auto& colorOpsArray = renderPass ? renderPass->colorArrayOps() : kNoColorOps;
+            const auto depthOps = renderPass ? renderPass->depthStencilOps() : nullptr;
+            const bool canResolve = target.samples() > 1 && target.autoResolve();
+
+            const auto& colorAttachments = target.colorAttachments();
+            for (size_t i = 0; i < colorAttachments.size(); ++i) {
+                const auto& attachment = colorAttachments[i];
+                if (!attachment || !attachment->texture) {
+                    continue;
+                }
+                const auto ops = i < colorOpsArray.size() ? colorOpsArray[i] : nullptr;
+                configureOffscreenColorAttachment(passDesc->colorAttachments()->object(static_cast<NS::UInteger>(i)),
+                    *attachment, target, ops.get(), canResolve);
+            }
+
+            const auto& depthData = target.depthAttachment();
+            if (depthData && depthData->depthTexture) {
+                configureOffscreenDepthAttachment(passDesc, *depthData, target, depthOps.get(), canResolve);
+            }
+        }
+    }
+
     void MetalGraphicsDevice::startRenderPass(RenderPass* renderPass)
     {
         _psoFormatKeyValid = false;
@@ -1528,29 +1723,8 @@ namespace visutwin::canvas
         }
 
         _currentDrawable = nullptr;
-        if (isBackBufferPass) {
-            // Reuse the frame's cached drawable so that multiple back-buffer render
-            // passes within one frame write to the same drawable texture.  Metal's
-            // nextDrawable() returns a *different* drawable each call (unlike WebGL's
-            // persistent back buffer), so acquiring one per pass would cause only the
-            // last pass's content to be visible.
-            if (_frameDrawable) {
-                _currentDrawable = _frameDrawable;
-                spdlog::trace("Reusing cached CAMetalDrawable for back-buffer pass");
-            } else {
-                // Under display sync this is where the frame waits for the display, and
-                // it is inside Engine::render(); see displayWaitMilliseconds().
-                {
-                    const DisplayWaitScope waitScope(*this);
-                    _currentDrawable = _metalLayer->nextDrawable();
-                }
-                if (!_currentDrawable) {
-                    spdlog::warn("Failed to acquire CAMetalDrawable");
-                    return;
-                }
-                _frameDrawable = _currentDrawable;
-                spdlog::trace("Acquired new CAMetalDrawable for frame");
-            }
+        if (isBackBufferPass && !acquirePassDrawable()) {
+            return;
         }
 
         _commandBuffer = _commandQueue->commandBuffer();
@@ -1568,253 +1742,129 @@ namespace visutwin::canvas
                 renderPass ? renderPass->name() : std::string("backbuffer"));
         }
 
-        const auto& colorOpsArray = renderPass ? renderPass->colorArrayOps() : std::vector<std::shared_ptr<ColorAttachmentOps>>{};
-        const auto depthOps = renderPass ? renderPass->depthStencilOps() : nullptr;
-        const bool canResolve = activeTarget && activeTarget->samples() > 1 && activeTarget->autoResolve();
-
-        auto resolveColorStoreAction = [](bool store, bool resolve) {
-            if (resolve) {
-                return store ? MTL::StoreActionStoreAndMultisampleResolve : MTL::StoreActionMultisampleResolve;
-            }
-            return store ? MTL::StoreActionStore : MTL::StoreActionDontCare;
-        };
-
         if (isBackBufferPass) {
-            auto* colorAttachment = passDesc->colorAttachments()->object(0);
-            colorAttachment->setTexture(_currentDrawable->texture());
-
+            MTL::Texture* drawableTexture = _currentDrawable->texture();
+            ensureBackBufferDepthTexture(static_cast<int>(drawableTexture->width()),
+                static_cast<int>(drawableTexture->height()));
             const auto colorOps = renderPass ? renderPass->colorOps() : nullptr;
-            if (colorOps && colorOps->clear) {
-                const auto c = colorOps->clearValue;
-                colorAttachment->setLoadAction(MTL::LoadActionClear);
-                colorAttachment->setClearColor(MTL::ClearColor::Make(c.r, c.g, c.b, c.a));
-            } else {
-                colorAttachment->setLoadAction(MTL::LoadActionLoad);
-            }
-            colorAttachment->setStoreAction(colorOps && colorOps->store ? MTL::StoreActionStore : MTL::StoreActionDontCare);
-
-            const auto drawableWidth = static_cast<int>(_currentDrawable->texture()->width());
-            const auto drawableHeight = static_cast<int>(_currentDrawable->texture()->height());
-            if (!_backBufferDepthTexture ||
-                _backBufferDepthWidth != drawableWidth ||
-                _backBufferDepthHeight != drawableHeight) {
-                if (_backBufferDepthTexture) {
-                    _backBufferDepthTexture->release();
-                    _backBufferDepthTexture = nullptr;
-                }
-                _backBufferDepthTexture = createDepthTexture(_device, drawableWidth, drawableHeight);
-                _backBufferDepthWidth = drawableWidth;
-                _backBufferDepthHeight = drawableHeight;
-            }
-
-            if (_backBufferDepthTexture) {
-                auto* depthAttachment = passDesc->depthAttachment();
-                depthAttachment->setTexture(_backBufferDepthTexture);
-                if (depthOps && depthOps->clearDepth) {
-                    depthAttachment->setLoadAction(MTL::LoadActionClear);
-                    depthAttachment->setClearDepth(depthOps->clearDepthValue);
-                } else {
-                    depthAttachment->setLoadAction(MTL::LoadActionLoad);
-                }
-                depthAttachment->setStoreAction(depthOps && depthOps->storeDepth
-                    ? MTL::StoreActionStore
-                    : MTL::StoreActionDontCare);
-
-                // The stencil shares the texture and follows the depth: cleared when
-                // either is (a pass that starts a fresh depth starts a fresh stencil),
-                // kept when either is kept, so UI masks drawn in a later pass never read
-                // a stencil the previous pass discarded.
-                auto* stencilAttachment = passDesc->stencilAttachment();
-                stencilAttachment->setTexture(_backBufferDepthTexture);
-                if (depthOps && (depthOps->clearStencil || depthOps->clearDepth)) {
-                    stencilAttachment->setLoadAction(MTL::LoadActionClear);
-                    stencilAttachment->setClearStencil(static_cast<uint32_t>(depthOps->clearStencilValue));
-                } else {
-                    stencilAttachment->setLoadAction(MTL::LoadActionLoad);
-                }
-                stencilAttachment->setStoreAction(depthOps && (depthOps->storeStencil || depthOps->storeDepth)
-                    ? MTL::StoreActionStore
-                    : MTL::StoreActionDontCare);
-            }
+            const auto depthOps = renderPass ? renderPass->depthStencilOps() : nullptr;
+            configureBackBufferAttachments(passDesc, drawableTexture, _backBufferDepthTexture,
+                colorOps.get(), depthOps.get());
         } else {
-            const auto& colorAttachments = offscreenTarget->colorAttachments();
-            for (size_t i = 0; i < colorAttachments.size(); ++i) {
-                const auto& attachment = colorAttachments[i];
-                if (!attachment || !attachment->texture) {
-                    continue;
-                }
-
-                auto* colorAttachment = passDesc->colorAttachments()->object(static_cast<NS::UInteger>(i));
-                const bool multisampled = attachment->multisampledBuffer != nullptr;
-                colorAttachment->setTexture(multisampled ? attachment->multisampledBuffer : attachment->texture);
-
-                // A multisample attachment is a single-level texture sized for the
-                // target mip; otherwise render directly into the requested mip.
-                if (!multisampled) {
-                    colorAttachment->setLevel(static_cast<NS::UInteger>(activeTarget->mipLevel()));
-                }
-
-                // Cubemaps and 2D arrays select their destination through slice.
-                const auto colorTextureType = attachment->texture->textureType();
-                const bool colorHasSlices = colorTextureType == MTL::TextureTypeCube ||
-                    colorTextureType == MTL::TextureType2DArray;
-                if (!multisampled && colorHasSlices && activeTarget->face() >= 0) {
-                    colorAttachment->setSlice(static_cast<NS::UInteger>(activeTarget->face()));
-                }
-
-                const auto ops = i < colorOpsArray.size() ? colorOpsArray[i] : nullptr;
-                if (ops && ops->clear) {
-                    const auto c = ops->clearValue;
-                    colorAttachment->setLoadAction(MTL::LoadActionClear);
-                    colorAttachment->setClearColor(MTL::ClearColor::Make(c.r, c.g, c.b, c.a));
-                } else {
-                    colorAttachment->setLoadAction(MTL::LoadActionLoad);
-                }
-
-                const bool resolve = multisampled && canResolve && ops && ops->resolve;
-                if (resolve) {
-                    colorAttachment->setResolveTexture(attachment->texture);
-                    colorAttachment->setResolveLevel(static_cast<NS::UInteger>(activeTarget->mipLevel()));
-                    if (colorHasSlices && activeTarget->face() >= 0) {
-                        colorAttachment->setResolveSlice(static_cast<NS::UInteger>(activeTarget->face()));
-                    }
-                }
-                bool storeColor = ops ? ops->store : true;
-                if (multisampled && storeColor && attachment->multisampledMemoryless) {
-                    // A memoryless twin has nowhere to be stored to. The pass that
-                    // asked was built to load this target later; that load will read
-                    // nothing, which is a scene bug rather than a crash — say so.
-                    static bool warned = false;
-                    if (!warned) {
-                        warned = true;
-                        spdlog::warn("Render target '{}' asks to STORE a transient multisampled colour "
-                            "attachment; storing is dropped. Create it without transientMultisample "
-                            "if a later pass loads it.", activeTarget->name());
-                    }
-                    storeColor = false;
-                }
-                colorAttachment->setStoreAction(resolveColorStoreAction(storeColor, resolve));
-            }
-
-            const auto& depthAttachmentData = offscreenTarget->depthAttachment();
-            if (depthAttachmentData && depthAttachmentData->depthTexture) {
-                auto* depthAttachment = passDesc->depthAttachment();
-                const bool depthMsaa = depthAttachmentData->multisampledDepthBuffer != nullptr;
-                MTL::Texture* depthTex = depthMsaa ? depthAttachmentData->multisampledDepthBuffer : depthAttachmentData->depthTexture;
-                depthAttachment->setTexture(depthTex);
-
-                // Cubemap face rendering: when the depth texture is a cubemap, target a
-                // specific face via the slice parameter.  This enables rendering to individual
-                // faces of a point-light shadow cubemap. The same slice mechanism targets an
-                // individual layer of a depth texture2d_array — used by the clustered local
-                // shadow atlas (LightTextureAtlas), where each spot light owns one array slice.
-                if ((depthTex->textureType() == MTL::TextureTypeCube ||
-                     depthTex->textureType() == MTL::TextureType2DArray) && activeTarget->face() >= 0) {
-                    depthAttachment->setSlice(static_cast<NS::UInteger>(activeTarget->face()));
-                }
-
-                if (depthOps && depthOps->clearDepth) {
-                    depthAttachment->setLoadAction(MTL::LoadActionClear);
-                    depthAttachment->setClearDepth(depthOps->clearDepthValue);
-                } else {
-                    depthAttachment->setLoadAction(MTL::LoadActionLoad);
-                }
-
-                const bool resolveDepth = depthMsaa && canResolve && depthOps && depthOps->resolveDepth;
-                if (resolveDepth) {
-                    depthAttachment->setResolveTexture(depthAttachmentData->depthTexture);
-                    // Sample0 is the only filter guaranteed everywhere; Min/Max need
-                    // MTLDevice::supportsDepthResolveFilter and buy nothing here.
-                    depthAttachment->setDepthResolveFilter(MTL::MultisampleDepthResolveFilterSample0);
-                }
-                bool storeDepth = depthOps ? depthOps->storeDepth : true;
-                if (depthMsaa && storeDepth && depthAttachmentData->multisampledMemoryless) {
-                    static bool warnedDepth = false;
-                    if (!warnedDepth) {
-                        warnedDepth = true;
-                        spdlog::warn("Render target '{}' asks to STORE a transient multisampled depth "
-                            "attachment; storing is dropped. Create it without transientMultisample "
-                            "if a later pass loads it.", activeTarget->name());
-                    }
-                    storeDepth = false;
-                }
-                depthAttachment->setStoreAction(resolveColorStoreAction(storeDepth, resolveDepth));
-
-                if (depthAttachmentData->hasStencil) {
-                    auto* stencilAttachment = passDesc->stencilAttachment();
-                    stencilAttachment->setTexture(depthMsaa ? depthAttachmentData->multisampledDepthBuffer : depthAttachmentData->depthTexture);
-                    if (depthOps && depthOps->clearStencil) {
-                        stencilAttachment->setLoadAction(MTL::LoadActionClear);
-                        stencilAttachment->setClearStencil(depthOps->clearStencilValue);
-                    } else {
-                        stencilAttachment->setLoadAction(MTL::LoadActionLoad);
-                    }
-                    stencilAttachment->setStoreAction(depthOps && depthOps->storeStencil &&
-                        !(depthMsaa && depthAttachmentData->multisampledMemoryless) ? MTL::StoreActionStore : MTL::StoreActionDontCare);
-                }
-            }
+            configureOffscreenAttachments(passDesc, *offscreenTarget, renderPass);
         }
 
         _renderPassEncoder = _commandBuffer->renderCommandEncoder(passDesc);
-        if (_renderPassEncoder && renderPass) {
-            // The pass name on the encoder is what Xcode's frame capture and
-            // Instruments' Metal System Trace show per encoder; without it every
-            // pass reads as "Render Command N" and a trace cannot be attributed.
-            // A pass that never set its name gets its type name. The debug group
-            // is what Instruments' GPU timeline actually displays.
-            const std::string label = !renderPass->name().empty()
-                ? renderPass->name() : std::string(typeid(*renderPass).name());
-            NS::String* nsLabel = NS::String::string(label.c_str(), NS::UTF8StringEncoding);
-            _renderPassEncoder->setLabel(nsLabel);
-            _renderPassEncoder->pushDebugGroup(nsLabel);
-            _encoderDebugGroupOpen = true;
-        }
+        passDesc->release();
         if (!_renderPassEncoder) {
             spdlog::error("Failed to create Metal render command encoder");
             _commandBuffer = nullptr;
             _currentDrawable = nullptr;
             _insideRenderPass = false;
-        } else {
-            // A new encoder holds none of the previous one's state.
-            resetEncoderStateCache();
-            if (_defaultDepthStencilState) {
-                _renderPassEncoder->setDepthStencilState(_defaultDepthStencilState);
-                _encoderDepthStencilState = _defaultDepthStencilState;
-            }
-            // glTF (and upstream/WebGL) use counter-clockwise front faces by default, and
-            // nothing draws with the other winding, so it is encoder state set once.
-            _renderPassEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
-            const int targetWidth = activeTarget ? activeTarget->width() : size().first;
-            const int targetHeight = activeTarget ? activeTarget->height() : size().second;
-            _passWidth = std::max(targetWidth, 0);
-            _passHeight = std::max(targetHeight, 0);
-            if (targetWidth > 0 && targetHeight > 0) {
-                setViewport(0.0f, 0.0f, static_cast<float>(targetWidth), static_cast<float>(targetHeight));
-                setScissor(0, 0, targetWidth, targetHeight);
-            }
-
-            // Bind ring buffers once per render pass. Per-draw calls will only
-            // update the offset (setVertexBufferOffset), which is much cheaper
-            // than rebinding the buffer + validating it each time.
-            _renderPassEncoder->setVertexBuffer(_transformRing->buffer(), 0, 2);
-            _renderPassEncoder->setFragmentBuffer(_uniformRing->buffer(), 0, 3);
-            _renderPassEncoder->setVertexBuffer(_uniformRing->buffer(), 0, 3);
-            _renderPassEncoder->setFragmentBuffer(_uniformRing->buffer(), 0, 4);
-            _renderPassEncoder->setVertexBuffer(_paletteRing->buffer(), 0, 6);
-
-            // Bind clustered lighting buffers at fragment slots 7 (lights) and 8 (cells).
-            if (_clusterBuffersSet && _clusterLightBuffer && _clusterCellBuffer) {
-                _renderPassEncoder->setFragmentBuffer(_clusterLightBuffer, 0, 7);
-                _renderPassEncoder->setFragmentBuffer(_clusterCellBuffer, 0, 8);
-            }
-
-            // Reset per-pass deduplication state for uniforms and textures.
-            _uniformBinder.resetPassState();
-            _textureBinder.resetPassState();
-
-            _insideRenderPass = true;
+            return;
         }
-        passDesc->release();
+        if (renderPass) {
+            labelPassEncoder(*renderPass);
+        }
+        beginPassEncoderState(activeTarget.get());
+        _insideRenderPass = true;
+    }
+
+    bool MetalGraphicsDevice::acquirePassDrawable()
+    {
+        // Reuse the frame's cached drawable so that multiple back-buffer render
+        // passes within one frame write to the same drawable texture.  Metal's
+        // nextDrawable() returns a *different* drawable each call (unlike WebGL's
+        // persistent back buffer), so acquiring one per pass would cause only the
+        // last pass's content to be visible.
+        if (_frameDrawable) {
+            _currentDrawable = _frameDrawable;
+            spdlog::trace("Reusing cached CAMetalDrawable for back-buffer pass");
+            return true;
+        }
+        // Under display sync this is where the frame waits for the display, and
+        // it is inside Engine::render(); see displayWaitMilliseconds().
+        {
+            const DisplayWaitScope waitScope(*this);
+            _currentDrawable = _metalLayer->nextDrawable();
+        }
+        if (!_currentDrawable) {
+            spdlog::warn("Failed to acquire CAMetalDrawable");
+            return false;
+        }
+        _frameDrawable = _currentDrawable;
+        spdlog::trace("Acquired new CAMetalDrawable for frame");
+        return true;
+    }
+
+    void MetalGraphicsDevice::ensureBackBufferDepthTexture(const int width, const int height)
+    {
+        // The back buffer's depth-stencil follows the drawable's size.
+        if (_backBufferDepthTexture && _backBufferDepthWidth == width && _backBufferDepthHeight == height) {
+            return;
+        }
+        if (_backBufferDepthTexture) {
+            _backBufferDepthTexture->release();
+            _backBufferDepthTexture = nullptr;
+        }
+        _backBufferDepthTexture = createDepthTexture(_device, width, height);
+        _backBufferDepthWidth = width;
+        _backBufferDepthHeight = height;
+    }
+
+    void MetalGraphicsDevice::labelPassEncoder(RenderPass& renderPass)
+    {
+        // The pass name on the encoder is what Xcode's frame capture and
+        // Instruments' Metal System Trace show per encoder; without it every
+        // pass reads as "Render Command N" and a trace cannot be attributed.
+        // A pass that never set its name gets its type name. The debug group
+        // is what Instruments' GPU timeline actually displays.
+        const std::string label = !renderPass.name().empty()
+            ? renderPass.name() : std::string(typeid(renderPass).name());
+        NS::String* nsLabel = NS::String::string(label.c_str(), NS::UTF8StringEncoding);
+        _renderPassEncoder->setLabel(nsLabel);
+        _renderPassEncoder->pushDebugGroup(nsLabel);
+        _encoderDebugGroupOpen = true;
+    }
+
+    void MetalGraphicsDevice::beginPassEncoderState(const RenderTarget* target)
+    {
+        // A new encoder holds none of the previous one's state.
+        resetEncoderStateCache();
+        if (_defaultDepthStencilState) {
+            _renderPassEncoder->setDepthStencilState(_defaultDepthStencilState);
+            _encoderDepthStencilState = _defaultDepthStencilState;
+        }
+        // glTF (and upstream/WebGL) use counter-clockwise front faces by default, and
+        // nothing draws with the other winding, so it is encoder state set once.
+        _renderPassEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
+        const int targetWidth = target ? target->width() : size().first;
+        const int targetHeight = target ? target->height() : size().second;
+        _passWidth = std::max(targetWidth, 0);
+        _passHeight = std::max(targetHeight, 0);
+        if (targetWidth > 0 && targetHeight > 0) {
+            setViewport(0.0f, 0.0f, static_cast<float>(targetWidth), static_cast<float>(targetHeight));
+            setScissor(0, 0, targetWidth, targetHeight);
+        }
+
+        // Bind ring buffers once per render pass. Per-draw calls will only
+        // update the offset (setVertexBufferOffset), which is much cheaper
+        // than rebinding the buffer + validating it each time.
+        _renderPassEncoder->setVertexBuffer(_transformRing->buffer(), 0, 2);
+        _renderPassEncoder->setFragmentBuffer(_uniformRing->buffer(), 0, 3);
+        _renderPassEncoder->setVertexBuffer(_uniformRing->buffer(), 0, 3);
+        _renderPassEncoder->setFragmentBuffer(_uniformRing->buffer(), 0, 4);
+        _renderPassEncoder->setVertexBuffer(_paletteRing->buffer(), 0, 6);
+
+        // Bind clustered lighting buffers at fragment slots 7 (lights) and 8 (cells).
+        if (_clusterBuffersSet && _clusterLightBuffer && _clusterCellBuffer) {
+            _renderPassEncoder->setFragmentBuffer(_clusterLightBuffer, 0, 7);
+            _renderPassEncoder->setFragmentBuffer(_clusterCellBuffer, 0, 8);
+        }
+
+        // Reset per-pass deduplication state for uniforms and textures.
+        _uniformBinder.resetPassState();
+        _textureBinder.resetPassState();
     }
 
     void MetalGraphicsDevice::endRenderPass(RenderPass* renderPass)
