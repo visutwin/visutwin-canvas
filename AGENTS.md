@@ -43,7 +43,7 @@ visutwin-canvas/
     shaders/vulkan/chunks/  # 20 GLSL fragment chunks, same names (forward.frag #includes them)
     shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
     shaders/vulkan/         # GLSL stages + shared includes compiled to SPIR-V at build time (20 files)
-  examples/        # 68 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 69 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -687,12 +687,17 @@ present, but the rule below never depends on reading it.
   layout it borrowed. The Vulkan path refuses outright while a frame or an offline
   scope is recording: that work is not submitted, so a one-shot read would run
   ahead of the very commands whose output is being asked for.
-- **An offline bake still has to run INSIDE a frame.** `beginOfflineWork` batches
-  the bake's own command buffer, but the per-draw uniform RINGS are frame-scoped —
-  `frameStart` is what hands out the region a quad draw writes its block into.
-  Run with no frame open, every quad draw reads the same unwritten block and an env
-  atlas comes out ONE FLAT COLOUR with its rect layout visibly correct, which reads as
-  a readback problem. `reflection-probe-dynamic` bakes inside its frame.
+- **An offline bake needs the per-draw uniform RINGS, which are frame-scoped, and a bake
+  BEFORE THE FIRST FRAME (an env atlas built at load time, as upstream's examples do) is
+  the special case.** `frameStart` is what advances a ring onto a region of its own. Before
+  the first one, Metal's rings write into region 0 (a frame index of -1 used to put every
+  write at a NEGATIVE offset: a SIGBUS in `MetalUniformRingBuffer::allocate` from inside
+  `generateAtlas`), and `endOfflineWork` WAITS for that work and starts the region over
+  (`resetBeforeFirstFrame`), because frame 0 reuses it. Load time only: once frames run, an
+  offline scope outside a frame is committed and not waited on (`reflection-probe-dynamic`
+  re-bakes every frame in `postRender`). Both backends bake an atlas before the first frame
+  byte-identically to one baked five frames later (`annotations`, read back with
+  `Texture::read`); test a change here the same way.
 - **A Metal quad draw must not key its uniform allocation on the material.**
   `submitPerDrawUniforms` reuses the previous ring offset when the material pointer
   is unchanged, and a quad pass has no material of its own — nothing clears the
@@ -1497,6 +1502,18 @@ present, but the rule below never depends on reading it.
   `CurveSet` still holds one empty curve, and treating that as a zero graph2 halves
   every velocity graph on average. The option defaults are upstream's: scale 1, opaque,
   white, BLEND_NORMAL, rate 1.
+- **A script fires upstream's lifecycle events on ITSELF: `enable` / `disable` and `state`
+  (bool) when `enabled()` changes, and `destroy` once.** `enabled()` is the script's own flag
+  (`setEnabled`) AND its component's active state, so a component or entity switched off fires
+  them too. `ScriptComponent` reports the state it is told (`Script::syncState`) rather than
+  re-reading it, because `Entity::destroy` disables a component while its entity still reads
+  as enabled: a destroyed entity's scripts fire `disable`, then `destroy`. A script created
+  while inactive fires `enable` when it becomes active, BEFORE it initializes (upstream's
+  order). `destroy` fires from `~ScriptComponent`: the entity is alive, its script component
+  is not, so a handler must not reach for `entity()->script()`. And the engine fires
+  `prerender` at the top of `Engine::render`, before the UI elements sync: the last point to
+  move what this frame draws, after every update. `AnnotationManager` is built on all of
+  them; `tests/annotationTests.cpp` holds the events.
 - **A script may create a sibling or destroy its own entity from inside its own
   method, and the component's loops are built for it.** `ScriptComponent::forEachScript`
   walks by INDEX, so a script created mid-pass (appended, possibly reallocating the
@@ -2618,8 +2635,6 @@ What stays HERE is only what bites during UNRELATED work.
   `ui-particle-system` — user-interface/particle-system — and `text-localization`) port
   upstream's CURRENT versions; `text-emojis` is not ported yet (it draws with upstream's
   `CanvasFont`, a system-font rasteriser this port does not have).
-- Annotations (`annotationManager`) still draw through ImGui; with input on elements they
-  could move.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles

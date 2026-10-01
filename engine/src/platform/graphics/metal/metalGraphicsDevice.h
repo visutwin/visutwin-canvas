@@ -362,6 +362,9 @@ namespace visutwin::canvas
         // Between onFrameStart and onFrameEnd. Outside a frame nothing will commit the
         // open buffer by itself, so the scopes that end there flush it.
         bool _insideFrame = false;
+        // False until the first onFrameStart: the per-draw rings have no frame region of
+        // their own yet, and work encoded now borrows region 0 (see endOfflineWork).
+        bool _frameEverStarted = false;
         // What the open buffer holds, for the early commit after a heavy pass.
         uint32_t _openBufferDraws = 0;
         uint64_t _openBufferVertices = 0;

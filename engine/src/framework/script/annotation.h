@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Port of upstream scripts/esm/annotations.mjs (Annotation).
 //
 #pragma once
 
@@ -19,15 +20,15 @@ namespace visutwin::canvas
      * and interaction is handled by an AnnotationManager listening for engine events.
      *
      * Fires the following engine-level events:
-     * - `annotation:add` — when the annotation initializes
-     * - `annotation:remove` — when the annotation is destroyed
+     * - `annotation:add` (Annotation*) — when the annotation post-initializes
+     * - `annotation:remove` (Annotation*) — when the annotation is destroyed
      *
      * Fires the following script-level events (listened to by AnnotationManager):
      * - `label:set` — when label changes
      * - `title:set` — when title changes
      * - `text:set` — when text changes
-     * - `hover` — when hover state changes
-     * - `show` — when tooltip is shown
+     * - `hover` (bool) — when hover state changes
+     * - `show` (Annotation*) — when tooltip is shown
      * - `hide` — when tooltip is hidden
      */
     class Annotation : public Script
@@ -35,9 +36,10 @@ namespace visutwin::canvas
     public:
         SCRIPT_NAME("annotation")
 
-        // Expose entity() as public so AnnotationManager can access the owning entity
+        // Public so the AnnotationManager can reach the owning entity.
         using Script::entity;
 
+        /// The short text displayed on the hotspot circle (e.g. "1", "A").
         const std::string& label() const { return _label; }
         void setLabel(const std::string& value)
         {
@@ -45,6 +47,7 @@ namespace visutwin::canvas
             fire("label:set", value);
         }
 
+        /// The title shown in the tooltip when the hotspot is clicked.
         const std::string& title() const { return _title; }
         void setTitle(const std::string& value)
         {
@@ -52,6 +55,7 @@ namespace visutwin::canvas
             fire("title:set", value);
         }
 
+        /// The description text shown in the tooltip when the hotspot is clicked.
         const std::string& text() const { return _text; }
         void setText(const std::string& value)
         {
@@ -59,12 +63,9 @@ namespace visutwin::canvas
             fire("text:set", value);
         }
 
-        /**
-         * Call after setting label/title/text to register with the AnnotationManager.
-         * Must be called explicitly because properties need to be set before registration
-         * (the hotspot texture is generated from the label at registration time).
-         */
-        void activate();
+        /// Called after every script has initialized, so the AnnotationManager is ready
+        /// to receive the `annotation:add` event.
+        void postInitialize() override;
 
     private:
         std::string _label;

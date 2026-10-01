@@ -593,6 +593,14 @@ target_link_libraries(visutwin-script-lifetime-tests PRIVATE visutwin-canvas)
 
 add_test(NAME script-lifetime COMMAND visutwin-script-lifetime-tests)
 
+add_executable(visutwin-annotation-tests
+    annotationTests.cpp
+)
+
+target_link_libraries(visutwin-annotation-tests PRIVATE visutwin-canvas)
+
+add_test(NAME annotation COMMAND visutwin-annotation-tests)
+
 add_executable(visutwin-script-phase-tests
     scriptPhaseTests.cpp
 )

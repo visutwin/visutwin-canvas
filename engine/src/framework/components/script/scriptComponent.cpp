@@ -12,6 +12,13 @@ namespace visutwin::canvas
 {
     ScriptComponent::~ScriptComponent()
     {
+        // Upstream fires `destroy` on each script as its component removes it. The entity
+        // is alive; this component is not, which is why it is said here and not later.
+        for (const auto& entry : _scripts) {
+            if (entry.instance) {
+                entry.instance->fire("destroy");
+            }
+        }
         if (auto* scriptSystem = dynamic_cast<ScriptComponentSystem*>(system())) {
             scriptSystem->unregisterComponent(this);
         }
@@ -90,6 +97,7 @@ namespace visutwin::canvas
         // 3. Bind ownership context
         script->_entity = _entity;
         script->_enabled = options.enabled;
+        script->_enabledOld = options.enabled && active();
 
         // 4. Store the script instance
         if (const uint8_t gained = script->_phases & ~_phases) {
@@ -168,7 +176,16 @@ namespace visutwin::canvas
         // component becomes active two ways: its own flag, and its ENTITY's. The
         // hook fires for both; setEnabled saw only the first, so a script on an
         // entity that was enabled later never initialized at all.
-        forEachScript([this](Script* script) { initializeScriptInstance(script); });
+        // `enable` before initialize, as upstream's script setter orders them.
+        forEachScript([this](Script* script) {
+            script->syncState(true);
+            initializeScriptInstance(script);
+        });
+    }
+
+    void ScriptComponent::onDisable()
+    {
+        forEachScript([](Script* script) { script->syncState(false); });
     }
 
     void ScriptComponent::initializeScriptInstance(Script* script)

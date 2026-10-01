@@ -123,7 +123,7 @@ that automatically.
 
 ### Examples
 
-The 68 examples are opt-in:
+The 69 examples are opt-in:
 
 ```bash
 cmake --preset examples

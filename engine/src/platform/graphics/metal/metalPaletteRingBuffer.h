@@ -75,6 +75,15 @@ namespace visutwin::canvas
             _frame.beginFrame();
         }
 
+        /// As MetalUniformRingBuffer::resetBeforeFirstFrame: load-time work has completed,
+        /// so region 0 starts over. No-op once frames have begun.
+        void resetBeforeFirstFrame()
+        {
+            if (_frameIndex < 0) {
+                _frame.beginFrame();
+            }
+        }
+
         /**
          * Place palette data in this frame's region.
          *
@@ -104,7 +113,9 @@ namespace visutwin::canvas
                 return SIZE_MAX;
             }
 
-            const size_t absoluteOffset = static_cast<size_t>(_frameIndex) * _frame.regionSize() + *allocation.offset;
+            // Region 0 before the first beginFrame(), as MetalUniformRingBuffer
+            const size_t region = _frameIndex < 0 ? 0 : static_cast<size_t>(_frameIndex);
+            const size_t absoluteOffset = region * _frame.regionSize() + *allocation.offset;
             if (allocation.isNew) {
                 std::memcpy(_basePtr + absoluteOffset, data, size);
             }

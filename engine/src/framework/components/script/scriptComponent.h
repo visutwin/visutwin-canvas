@@ -54,6 +54,8 @@ namespace visutwin::canvas
         /// Fires for both halves of "active": the component's own flag and the
         /// entity's hierarchy state.
         void onEnable() override;
+        /// Tells each script it stopped running (`disable` / `state`).
+        void onDisable() override;
         /// Run initialize() on every script that has not had it, and nothing else.
         /// Separate from postInitialize because the whole point of the second phase
         /// is that it runs after EVERY script in the application has initialized —
@@ -77,6 +79,7 @@ namespace visutwin::canvas
 
     private:
         friend class ScriptComponentSystem;   // sets the creation-order default
+        friend class Script;                  // setEnabled initializes through it
 
         void initializeScriptInstance(Script* script);
 

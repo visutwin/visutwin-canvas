@@ -110,10 +110,10 @@ namespace visutwin::canvas
             ++_requestedDraws;
             if (_drawCount >= _maxDrawsPerFrame) [[unlikely]] {
                 const size_t lastSlot = _maxDrawsPerFrame - 1;
-                return _frameIndex * _regionSize + lastSlot * _alignedSlotSize;
+                return regionIndex() * _regionSize + lastSlot * _alignedSlotSize;
             }
 
-            const size_t offset = _frameIndex * _regionSize + _drawCount * _alignedSlotSize;
+            const size_t offset = regionIndex() * _regionSize + _drawCount * _alignedSlotSize;
             std::memcpy(_basePtr + offset, data, std::min(dataSize, _alignedSlotSize));
             ++_drawCount;
             return offset;
@@ -136,6 +136,19 @@ namespace visutwin::canvas
             });
         }
 
+        /**
+         * Work encoded BEFORE the first frame (an environment bake at load time) writes
+         * into region 0, which frame 0 reuses. The device calls this once that work has
+         * COMPLETED on the GPU, so the next load-time bake, and frame 0, start the region
+         * over rather than piling up in it. No-op once frames have begun.
+         */
+        void resetBeforeFirstFrame()
+        {
+            if (_frameIndex < 0) {
+                _drawCount = 0;
+            }
+        }
+
         [[nodiscard]] MTL::Buffer* buffer() const { return _buffer; }
         [[nodiscard]] size_t alignedSlotSize() const { return _alignedSlotSize; }
         [[nodiscard]] size_t currentDrawCount() const { return _drawCount; }
@@ -143,6 +156,9 @@ namespace visutwin::canvas
         [[nodiscard]] size_t totalSize() const { return _totalSize; }
 
     private:
+        // Region 0 until the first beginFrame() advances the cursor onto it.
+        [[nodiscard]] size_t regionIndex() const { return _frameIndex < 0 ? 0 : static_cast<size_t>(_frameIndex); }
+
         static size_t alignUp(size_t value, size_t alignment)
         {
             return (value + alignment - 1) & ~(alignment - 1);

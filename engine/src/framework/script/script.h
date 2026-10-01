@@ -38,6 +38,14 @@ namespace visutwin::canvas
      * These methods are entirely optional but provide a useful way to manage the lifecycle of a
      * script and perform any necessary setup and cleanup.
      *
+     * A script fires upstream's lifecycle events on itself:
+     * - `enable` / `disable` - when enabled() changes: its own flag, its component's, or its
+     *   entity's (or an ancestor's) hierarchy state. A script disabled by its entity being
+     *   destroyed fires `disable` first.
+     * - `state` (bool) - beside each of those, with the new value.
+     * - `destroy` - once, as its component releases it. The entity is still alive then,
+     *   its component is not: a handler must not reach for entity()->script().
+     *
      * @category Script
      */
     class Script: public EventHandler
@@ -87,7 +95,13 @@ namespace visutwin::canvas
          */
         virtual void resolveClonedReferences(const Script& /*source*/, const CloneNodeMap& /*map*/) {}
 
+        /// The script's own flag AND its component's active state (upstream `enabled`).
         bool enabled() const;
+
+        /// The script's own flag. Enabling a script that has not initialized initializes it
+        /// once its component is active, as upstream's setter does; a change of enabled()
+        /// fires `enable` or `disable`, then `state`.
+        void setEnabled(bool value);
 
         /// The per-frame phases a script can take part in, one bit each.
         enum Phase : uint8_t
@@ -141,7 +155,14 @@ namespace visutwin::canvas
     private:
         friend class ScriptComponent;
 
+        // Fires `enable` / `disable` and `state` when the effective state, the script's
+        // own flag AND `componentActive`, differs from the last one reported (upstream
+        // `_enabledOld`). Passed in rather than read, because a component is told it is
+        // disabled while its entity still reads as enabled (Entity::destroy).
+        void syncState(bool componentActive);
+
         bool _enabled = true;
+        bool _enabledOld = true;
         bool _initialized = false;
         bool _postInitialized = false;
         uint8_t _phases = PHASE_ALL;

@@ -19,4 +19,25 @@ namespace visutwin::canvas
         const auto* component = _entity ? _entity->script() : nullptr;
         return _enabled && component != nullptr && component->active();
     }
+
+    void Script::setEnabled(const bool value)
+    {
+        _enabled = value;
+        auto* component = _entity ? _entity->script() : nullptr;
+        syncState(component != nullptr && component->active());
+        if (component && enabled()) {
+            component->initializeScriptInstance(this);
+        }
+    }
+
+    void Script::syncState(const bool componentActive)
+    {
+        const bool now = _enabled && componentActive;
+        if (now == _enabledOld) {
+            return;
+        }
+        _enabledOld = now;
+        fire(now ? "enable" : "disable");
+        fire("state", now);
+    }
 }

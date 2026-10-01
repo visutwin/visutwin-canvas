@@ -77,6 +77,9 @@ for details.
 ### hdri/ — complete
 - `cannon-2k.hdr` — Cannon outdoor HDRI from Poly Haven (CC-0)
 - `kloofendal-2k.hdr` — Kloofendal partly cloudy HDRI from Poly Haven (CC-0)
+- `shanghai-riverside-4k.hdr` — byte-identical to upstream's example HDRI (by its name
+  Poly Haven's "Shanghai Riverside", CC-0; upstream records no source — see
+  THIRD_PARTY_NOTICES). Used by `annotations`.
 
 ### models/ — complete
 - `a_beautiful_game.glb` — ABeautifulGame chess set from Khronos glTF-Sample-Assets
@@ -119,6 +122,8 @@ Mirrored from the upstream examples (for visual parity):
   webp texture re-encoded to jpeg, see .txt) — this engine has no webp decoder
   (`tools/glb_reencode_webp.py`). Same mesh and exporter otherwise, so that re-encode
   is the only difference from the upstream copy.
+- `jet-fighter.glb` — Mitsubishi F-2 Fighter Jet by bohmerang, Sketchfab (**CC-BY 4.0**,
+  Draco, byte-identical to upstream's, see .txt). Used by `annotations`.
 - `cat.glb` — Egyptian Cat Statue by Ankledot, Sketchfab (**CC-BY 4.0**, webp textures re-encoded to png, see .txt)
 - `tamiya-dt03.compressed.ply` — Tamiya DT-03 by Simon Bethke, SuperSplat
   (**CC-BY 4.0**, see .txt). Used by `gsplat-example`. Downloaded as a 154 MB

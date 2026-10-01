@@ -9,11 +9,20 @@
 
 namespace visutwin::canvas
 {
-    void Annotation::activate()
+    void Annotation::postInitialize()
     {
-        auto* eng = entity()->engine();
-        if (eng) {
-            eng->fire("annotation:add", this);
+        Engine* engine = entity() ? entity()->engine() : nullptr;
+        if (!engine) {
+            return;
         }
+
+        // Notify any listeners that this annotation has been created
+        engine->fire("annotation:add", this);
+
+        // Clean up on destroy. The script outlives neither its entity nor the engine,
+        // and `destroy` fires while both are still alive.
+        once("destroy", [this, engine]() {
+            engine->fire("annotation:remove", this);
+        });
     }
 }

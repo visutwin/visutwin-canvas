@@ -389,6 +389,10 @@ namespace visutwin::canvas
         _renderCompositionCalled = false;
         _frameEndCalled = false;
 
+        // Upstream AppBase.render fires `prerender` first: the last chance to move what
+        // this frame draws, after every update (the camera's included).
+        fire("prerender");
+
         // UI element visuals follow what this frame's update did to their elements.
         if (_elementInput) {
             _elementInput->syncElements();

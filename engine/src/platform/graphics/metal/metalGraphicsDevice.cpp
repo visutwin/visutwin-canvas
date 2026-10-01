@@ -407,6 +407,7 @@ namespace visutwin::canvas
         // callback returns.
         _framePool = NS::AutoreleasePool::alloc()->init();
         _insideFrame = true;
+        _frameEverStarted = true;
 
         // Advance ring buffers to next frame region. This blocks if the GPU
         // hasn't finished with the region we're about to write to.
@@ -693,6 +694,22 @@ namespace visutwin::canvas
         }
         _gpuCullBatchOpen = false;
         if (!_insideFrame) {
+            if (!_frameEverStarted) {
+                // Before the first frame (an environment bake at load time) the per-draw
+                // rings have no region of their own: the bake wrote into region 0, which
+                // frame 0 reuses. Wait for it, then let the next bake and frame 0 start the
+                // region over. Load time only, so the wait costs no frame anything.
+                MTL::CommandBuffer* buffer = _openCommandBuffer ? _openCommandBuffer->retain() : nullptr;
+                flushCommands();
+                if (buffer) {
+                    buffer->waitUntilCompleted();
+                    buffer->release();
+                }
+                _transformRing->resetBeforeFirstFrame();
+                _uniformRing->resetBeforeFirstFrame();
+                _paletteRing->resetBeforeFirstFrame();
+                return;
+            }
             flushCommands();
         }
     }

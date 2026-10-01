@@ -70,6 +70,13 @@ models/house.glb
   Modifications: uv1 channel generated for lightmapping; textures stripped;
                  converted to glb format
 
+models/jet-fighter.glb
+  Original: Mitsubishi F-2 - Fighter Jet - Free, by bohmerang
+  Source:   https://sketchfab.com/3d-models/mitsubishi-f-2-fighter-jet-free-d3d7244554974f499b106e6c11fe3aaf
+  License:  CC-BY 4.0
+  Mirrored byte-for-byte from the upstream example set, which converted it to a
+  Draco-compressed glb. Used by examples/src/annotations-example.cpp.
+
 models/SunglassesKhronos.glb
   PROVENANCE UNCONFIRMED — do not rely on the filename. The Khronos
   glTF-Sample-Assets collection contains NO model called "Sunglasses", so the
@@ -163,6 +170,8 @@ Resolve before a public release:
   models/statue.glb, geometry-camera-light.glb, playcanvas-cube.glb, bitmoji.glb
   textures/playcanvas*.png, snowflake.png, spark.png, particles-numbers.png,
   textures/normal-map.png, animations/bitmoji/*.glb
+  hdri/shanghai-riverside-4k.hdr (by its name Poly Haven's "Shanghai Riverside",
+                                 CC-0, but upstream records no source)
 
 fonts/courier.* was removed on 2026-09-29. It was byte-identical to upstream's courier
 atlas, which upstream removed in #9577: the font matches only a Courier converted with no
