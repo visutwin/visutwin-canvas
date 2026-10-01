@@ -264,6 +264,17 @@ namespace visutwin::canvas
                                                          bool instancingColor = false,
                                                          bool instanceLightmap = false,
                                                          bool screenSpace = false) const;
+        // buildForwardVariantOptions' sources, in the order it applies them.
+        void applyStandardMaterialOptions(ShaderVariantOptions& options, const StandardMaterial& stdMat) const;
+        /// A non-StandardMaterial: its parameters, then its shaderVariantKey bits.
+        static void applyGenericMaterialOptions(ShaderVariantOptions& options, const Material* material,
+            uint64_t variantBits);
+        /// The variant-key bits every material honours.
+        static void applyVariantKeyOptions(ShaderVariantOptions& options, uint64_t variantBits);
+        static void applyDrawOptions(ShaderVariantOptions& options, uint64_t variantBits, bool dynamicBatch,
+            bool skinning, bool morphing, bool instancing, bool instancingColor, bool instanceLightmap);
+        /// The frame-wide switches the renderer sets before the draw loop.
+        void applyFrameOptions(ShaderVariantOptions& options, uint64_t variantBits) const;
         static std::string resolveProgramName(const ShaderVariantOptions& options);
         static ShaderFeatureSet makeFeatureSet(const ShaderVariantOptions& options);
         VariantKey makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;
