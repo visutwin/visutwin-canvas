@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <numbers>
+#include <optional>
 
 #include "lightCamera.h"
 #include "renderPassShadowDirectional.h"
@@ -54,52 +55,211 @@ namespace visutwin::canvas
         distances[numCascades - 1] = farDist;
     }
 
+    namespace
+    {
+        // Shadow camera rotation: align -Z with the light direction. Directional lights
+        // emit along -Y, so upstream applies the light rotation then rotates -90° on X
+        // to map -Y → -Z.
+        Quaternion shadowCameraRotation(const Light& light)
+        {
+            const Quaternion lightRotation = light.node() ? light.node()->rotation() : Quaternion();
+            return lightRotation * Quaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f);
+        }
+
+        /// A cascade's shadow camera, when the light has render data for it.
+        struct CascadeCamera
+        {
+            LightRenderData* renderData = nullptr;
+            Camera* camera = nullptr;
+            GraphNode* node = nullptr;
+        };
+
+        std::optional<CascadeCamera> cascadeCamera(ShadowRenderer& shadowRenderer, Light* light, Camera* camera,
+            const int cascade)
+        {
+            LightRenderData* renderData = shadowRenderer.getLightRenderData(light, camera, cascade);
+            if (!renderData || !renderData->shadowCamera) {
+                return std::nullopt;
+            }
+            Camera* shadowCam = renderData->shadowCamera.get();
+            GraphNode* node = shadowCam->node();
+            if (!node) {
+                return std::nullopt;
+            }
+            return CascadeCamera{renderData, shadowCam, node};
+        }
+
+        /// The world-space bounding sphere of the camera frustum between two depths:
+        /// the corners' centroid, and the farthest corner from it.
+        void frustumSliceSphere(Camera& camera, const Matrix4& cameraWorld, const float nearDist,
+            const float farDist, Vector3& center, float& radius)
+        {
+            auto frustumPoints = camera.getFrustumCorners(nearDist, farDist);
+            center = Vector3(0.0f);
+            for (int i = 0; i < 8; ++i) {
+                frustumPoints[i] = cameraWorld.transformPoint(frustumPoints[i]);
+                center = center + frustumPoints[i];
+            }
+            center = center * (1.0f / 8.0f);
+
+            radius = 0.0f;
+            for (int i = 0; i < 8; ++i) {
+                const float dist = (frustumPoints[i] - center).length();
+                if (dist > radius) {
+                    radius = dist;
+                }
+            }
+        }
+
+        // Pixel-align the shadow camera position to avoid shadow swimming. Mirrors
+        // upstream:
+        //   sizeRatio = 0.25 * shadowResolution / radius
+        // (algebraically equivalent to 0.5 * cascadeRes / radius for the 4-cascade 2×2
+        // atlas layout, since cascadeRes = 0.5·resolution.) Only the lateral position
+        // gets quantised, as in upstream shadow-renderer-directional.js; depth is taken
+        // straight from the centroid.
+        Vector3 snapToShadowTexels(const Vector3& center, const float radius, const int resolution,
+            const Matrix4& shadowRotMat)
+        {
+            if (resolution <= 0 || radius <= 0.0f) {
+                return center;
+            }
+            const float sizeRatio = 0.25f * static_cast<float>(resolution) / radius;
+            const Vector3 right = Vector3(shadowRotMat.getColumn(0));
+            const Vector3 up = Vector3(shadowRotMat.getColumn(1));
+            const Vector3 forward = Vector3(shadowRotMat.getColumn(2));
+            const float x = std::ceil(center.dot(up) * sizeRatio) / sizeRatio;
+            const float y = std::ceil(center.dot(right) * sizeRatio) / sizeRatio;
+            const float z = center.dot(forward);
+            return up * x + right * y + forward * z;
+        }
+
+        // Position the shadow camera far behind the center, looking along the light,
+        // with an orthographic projection that encompasses the cascade's bounding
+        // sphere. upstream positions at center + forward * 1,000,000 initially for
+        // culling, then tightens near/far to the actual caster depth range (see
+        // fitDepthRange).
+        void placeWideShadowCamera(const CascadeCamera& cascade, const Quaternion& rotation,
+            const Vector3& center, const float radius)
+        {
+            cascade.node->setRotation(rotation);
+            cascade.node->setPosition(center);
+            cascade.node->translateLocal(0.0f, 0.0f, 1000000.0f);
+
+            cascade.camera->setProjection(ProjectionType::Orthographic);
+            cascade.camera->setOrthoHeight(radius);
+            cascade.camera->setNearClip(0.01f);
+            cascade.camera->setFarClip(2000000.0f);
+            cascade.camera->setAspectRatio(1.0f);
+        }
+
+        /// The union of the casters' bounds inside the frustum (a caster that is not
+        /// culled always counts); nullopt when none is.
+        std::optional<BoundingBox> casterBounds(const std::vector<MeshInstance*>& casters, const Frustum& frustum)
+        {
+            std::optional<BoundingBox> bounds;
+            for (auto* meshInstance : casters) {
+                const BoundingBox worldAabb = meshInstance->aabb();
+                // The rest of shouldRenderShadowMeshInstance: the frustum, for a
+                // caster that is culled at all.
+                if (meshInstance->cull() && !isVisibleInFrustum(frustum, worldAabb)) {
+                    continue;
+                }
+                if (!bounds) {
+                    bounds = worldAabb;
+                } else {
+                    bounds->add(worldAabb);
+                }
+            }
+            return bounds;
+        }
+
+        // Translate the shadow camera so the near plane sits just behind the nearest
+        // point of the box along the light, and set the far clip to the box's depth span.
+        void fitDepthRange(const CascadeCamera& cascade, const BoundingBox& fitAabb)
+        {
+            const Matrix4 shadowCamView = cascade.node->worldTransform().inverse();
+            const Vector3 c = fitAabb.center();
+            const Vector3 h = fitAabb.halfExtents();
+            float depthMin = 1e30f;
+            float depthMax = -1e30f;
+            for (int i = 0; i < 8; ++i) {
+                const Vector3 corner = c + h * Vector3(
+                    (i & 1) ? 1.0f : -1.0f,
+                    (i & 2) ? 1.0f : -1.0f,
+                    (i & 4) ? 1.0f : -1.0f);
+                const float z = shadowCamView.transformPoint(corner).getZ();
+                if (z < depthMin) depthMin = z;
+                if (z > depthMax) depthMax = z;
+            }
+            cascade.node->translateLocal(0.0f, 0.0f, depthMax + 0.1f);
+            cascade.camera->setFarClip(depthMax - depthMin + 0.2f);
+        }
+
+        // The casters the pass draws, against the FITTED frustum — the test the pass
+        // used to run itself, after collecting the whole scene a second time. Not the
+        // set the sweep found: that one is tested from a camera a million units
+        // back, where the side planes are only good to about a tenth of a unit, and
+        // on a 40k-draw frame the two disagreed about six casters sitting on a
+        // cascade's edge. The fitted camera is close, so this is the exact answer,
+        // and it costs a frustum test per caster rather than a sweep of the scene.
+        void recordFittedCasters(const CascadeCamera& cascade, const std::vector<MeshInstance*>& casters,
+            const int frame)
+        {
+            auto& visibleCasters = cascade.renderData->visibleCasters;
+            visibleCasters.clear();
+            cascade.renderData->visibleCastersFrame = frame;
+            const Frustum fittedFrustum = buildCameraFrustum(cascade.camera, cascade.node);
+            for (auto* meshInstance : casters) {
+                if (meshInstance->cull() && !isVisibleInFrustum(fittedFrustum, meshInstance->aabb())) {
+                    continue;
+                }
+                visibleCasters.push_back(meshInstance);
+            }
+        }
+
+        // The viewport-scaled shadow matrix for this cascade, stored in the light's
+        // matrix palette (column-major, 16 floats per cascade):
+        //   shadowMatrix = viewportMatrix × shadowCamProj × shadowCamView
+        void storeCascadeShadowMatrix(Light& light, const int cascade, const CascadeCamera& cascadeCam)
+        {
+            const Matrix4 shadowView = cascadeCam.node->worldTransform().inverse();
+            const Matrix4 shadowVP = cascadeCam.camera->projectionMatrix() * shadowView;
+
+            const Vector4& vp = light.cascadeViewports()[cascade];
+            // upstream Mat4.setViewport: maps clip coords to the cascade's viewport
+            // sub-region, with the Y scale negated for the top-left texture origin (the
+            // translate stays upstream's, since the viewport rect is already top-left) and
+            // NDC z [-1,1] -> [0,1] baked in because the shader reads the final shadow depth.
+            // LightCamera::viewportProjectionBias is exactly that matrix, the one the
+            // clustered spot rects use too.
+            const Matrix4 shadowMatrix = LightCamera::viewportProjectionBias(vp) * shadowVP;
+
+            // Matrix4 is 64 bytes on all SIMD backends — memcpy directly (same H1 fix
+            // as SkinBatchInstance::updateMatrices).
+            float* palette = light.shadowMatrixPaletteData();
+            std::memcpy(&palette[cascade * 16], &shadowMatrix, 64);
+        }
+    }
+
     void ShadowRendererDirectional::cull(Light* light, Camera* camera)
     {
         if (!light || !camera || !_shadowRenderer || light->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
             return;
         }
 
-        // lines 72-201.
         // Compute split distances for all cascades.
         const float nearDist = camera->nearClip();
         const float farDist = std::min(camera->farClip(), light->shadowDistance());
         generateSplitDistances(light, nearDist, farDist);
 
-        // Get light direction from the light's node. Directional lights emit along -Y.
-        GraphNode* lightNode = light->node();
-        Vector3 lightDir(0.0f, -1.0f, 0.0f);
-        Quaternion lightRotation;
-        if (lightNode) {
-            const auto& lightWorld = lightNode->worldTransform();
-            lightDir = Vector3(lightWorld.getColumn(1)) * -1.0f;
-            if (lightDir.lengthSquared() < 1e-8f) {
-                lightDir = Vector3(0.0f, -1.0f, 0.0f);
-            } else {
-                lightDir = lightDir.normalized();
-            }
-            lightRotation = lightNode->rotation();
-        }
-
-        // Shadow camera rotation: align -Z with lightDir.
-        // upstream applies the light rotation then rotates -90° on X to map -Y → -Z.
-        const Quaternion pitchDown = Quaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f);
-        const Quaternion shadowRotation = lightRotation * pitchDown;
-
-        // Build shadow-camera rotation matrix for pixel alignment calculations.
+        const Quaternion shadowRotation = shadowCameraRotation(*light);
+        // The shadow camera's axes, for pixel alignment.
         const Matrix4 shadowRotMat = Matrix4::trs(Vector3(0.0f), shadowRotation, Vector3(1.0f));
+        const Matrix4 cameraWorldMat = camera->node() ? camera->node()->worldTransform() : Matrix4::identity();
 
-        // Camera world transform for transforming frustum corners to world space.
-        const Matrix4 cameraWorldMat = camera->node()
-            ? camera->node()->worldTransform() : Matrix4::identity();
-
-        const int numCascades = light->numCascades();
+        const int cascadeCount = std::min(light->numCascades(), 4);
         const float* distances = light->shadowCascadeDistances().data();
-        const int resolution = light->shadowResolution();
-
-        // Each cascade's caster box, kept for the second pass below.
-        std::array<BoundingBox, 4> cascadeAabb{};
-        std::array<bool, 4> cascadeAabbValid{};
 
         // The scene's casters for this camera, collected ONCE for all the cascades, with
         // everything that does not depend on a cascade decided here too: what is left
@@ -119,139 +279,36 @@ namespace visutwin::canvas
             return !meshInstance || !meshInstance->visible() ||
                 !shouldRenderShadowMeshInstanceIgnoringVisibility(meshInstance);
         });
-        const int frame = _device ? _device->renderVersion() : -1;
 
-        for (int cascade = 0; cascade < numCascades && cascade < 4; ++cascade) {
-            LightRenderData* lightRenderData = _shadowRenderer->getLightRenderData(light, camera, cascade);
-            if (!lightRenderData || !lightRenderData->shadowCamera) {
+        // ── Pass 1: place each cascade's camera and measure its casters ──────────
+        // The camera covers the cascade's slice of the view frustum, wide in depth.
+        // Its caster box, kept for pass 2, is the union of the casters it sees from
+        // there (orthoHeight = radius, farClip = 2e6: everything laterally inside the
+        // cascade, at any depth — which also catches casters above the slice, such as
+        // wing tips higher than the ground the cascade covers). The caster set is
+        // rotation-invariant for static scenes, so the depth range fitted from it is
+        // identical frame to frame and stored EVSM moments do not drift — what
+        // eliminated the wing-tip flicker the old frustum-corner depth produced.
+        std::array<std::optional<BoundingBox>, 4> cascadeAabb{};
+        for (int cascade = 0; cascade < cascadeCount; ++cascade) {
+            const auto cascadeCam = cascadeCamera(*_shadowRenderer, light, camera, cascade);
+            if (!cascadeCam) {
                 continue;
             }
+            cascadeCam->renderData->shadowViewport = light->cascadeViewports()[cascade];
+            cascadeCam->renderData->shadowScissor = light->cascadeViewports()[cascade];
 
-            Camera* shadowCam = lightRenderData->shadowCamera.get();
-            auto* shadowCamNode = shadowCam->node();
-            if (!shadowCamNode) {
-                continue;
-            }
+            Vector3 center;
+            float radius;
+            frustumSliceSphere(*camera, cameraWorldMat, cascade == 0 ? nearDist : distances[cascade - 1],
+                distances[cascade], center, radius);
+            center = snapToShadowTexels(center, radius, light->shadowResolution(), shadowRotMat);
+            placeWideShadowCamera(*cascadeCam, shadowRotation, center, radius);
 
-            // Set cascade viewport/scissor from the light's cascade layout.
-            lightRenderData->shadowViewport = light->cascadeViewports()[cascade];
-            lightRenderData->shadowScissor = light->cascadeViewports()[cascade];
-
-            // Get frustum corners for this cascade's depth slice.
-            const float frustumNear = (cascade == 0) ? nearDist : distances[cascade - 1];
-            const float frustumFar = distances[cascade];
-            auto frustumPoints = camera->getFrustumCorners(frustumNear, frustumFar);
-
-            // Transform corners to world space and compute bounding sphere center.
-            Vector3 center(0.0f);
-            for (int i = 0; i < 8; ++i) {
-                frustumPoints[i] = cameraWorldMat.transformPoint(frustumPoints[i]);
-                center = center + frustumPoints[i];
-            }
-            center = center * (1.0f / 8.0f);
-
-            // Compute bounding sphere radius (max distance from center to any corner).
-            float radius = 0.0f;
-            for (int i = 0; i < 8; ++i) {
-                const float dist = (frustumPoints[i] - center).length();
-                if (dist > radius) {
-                    radius = dist;
-                }
-            }
-
-            // Pixel-align shadow camera position to avoid shadow swimming.
-            // Mirrors upstream:
-            //   sizeRatio = 0.25 * shadowResolution / radius
-            // (algebraically equivalent to 0.5 * cascadeRes / radius for the
-            // 4-cascade 2×2 atlas layout, since cascadeRes = 0.5·resolution.)
-            if (resolution > 0 && radius > 0.0f) {
-                const float sizeRatio = 0.25f * static_cast<float>(resolution) / radius;
-
-                // Extract shadow camera axes from rotation matrix.
-                const Vector3 right = Vector3(shadowRotMat.getColumn(0));
-                const Vector3 up = Vector3(shadowRotMat.getColumn(1));
-                const Vector3 forward = Vector3(shadowRotMat.getColumn(2));
-
-                // Project center onto shadow camera axes, snap right/up to a
-                // texel grid, leave forward unsnapped. Mirrors upstream
-                // shadow-renderer-directional.js: only the lateral position
-                // gets quantised; depth is taken straight from the centroid.
-                const float x = std::ceil(center.dot(up) * sizeRatio) / sizeRatio;
-                const float y = std::ceil(center.dot(right) * sizeRatio) / sizeRatio;
-                const float z = center.dot(forward);
-
-                center = up * x + right * y + forward * z;
-            }
-
-            // Position shadow camera far behind the center, looking along lightDir.
-            // upstream positions at center + forward * 1,000,000 initially for culling,
-            // then tightens near/far to the actual caster depth range (lines 190-197).
-            shadowCamNode->setRotation(shadowRotation);
-            shadowCamNode->setPosition(center);
-            shadowCamNode->translateLocal(0.0f, 0.0f, 1000000.0f);
-
-            // Set orthographic projection to encompass the cascade's bounding sphere.
-            shadowCam->setProjection(ProjectionType::Orthographic);
-            shadowCam->setOrthoHeight(radius);
-            shadowCam->setNearClip(0.01f);
-            shadowCam->setFarClip(2000000.0f);
-            shadowCam->setAspectRatio(1.0f);
-
-            // Tighten shadow camera near/far to the depth range of the visible
-            // CASTER AABB. The caster set is rotation-invariant for static
-            // scenes, so the resulting depth range is identical from frame to
-            // frame and stored EVSM moments don't drift between frames — this
-            // is what eliminates the wing-tip flicker that the old
-            // frustum-corner depth produced. It also catches casters above the
-            // cascade slice (e.g. wing tips that sit higher than the
-            // ground-area the cascade covers but cast shadows into it).
-            //
-            // Algorithm matches upstream shadow-renderer-directional.js:
-            //   1. cull casters against the wide ortho frustum just set up
-            //      (orthoHeight=radius, farClip=2e6 — captures everything
-            //      laterally inside the cascade and at any depth);
-            //   2. union the AABBs of visible casters;
-            //   3. project the resulting world-space AABB's 8 corners onto the
-            //      shadow camera Z axis to get min/max view-space depth;
-            //   4. translate the shadow camera so the near plane sits just
-            //      behind the nearest caster, set farClip to the depth span.
-            {
-                bool haveAabb = false;
-                BoundingBox visibleSceneAabb;
-                visibleSceneAabb.setCenter(0.0f, 0.0f, 0.0f);
-                visibleSceneAabb.setHalfExtents(0.0f, 0.0f, 0.0f);
-
-                // Build the cascade's frustum once for the whole caster sweep.
-                const Frustum casterFrustum = (shadowCam && shadowCam->node())
-                    ? buildCameraFrustum(shadowCam, shadowCam->node()) : Frustum{};
-
-                for (auto* meshInstance : casters) {
-                    const BoundingBox worldAabb = meshInstance->aabb();
-                    // The rest of shouldRenderShadowMeshInstance: the frustum, for a
-                    // caster that is culled at all.
-                    if (meshInstance->cull() && !isVisibleInFrustum(casterFrustum, worldAabb)) {
-                        continue;
-                    }
-                    if (!haveAabb) {
-                        visibleSceneAabb = worldAabb;
-                        haveAabb = true;
-                    } else {
-                        visibleSceneAabb.add(worldAabb);
-                    }
-                }
-
-                // No visible casters: keep the wide camera as-is. The shadow
-                // pass will be a no-op anyway.
-                // The depth range is NOT applied here any more. PCSS needs every
-                // cascade tightened against the UNION of the cascades' caster boxes,
-                // which cannot be known until they have all been swept, so the fit is
-                // deferred to a second pass below.
-                cascadeAabb[cascade] = visibleSceneAabb;
-                cascadeAabbValid[cascade] = haveAabb;
-            }
+            cascadeAabb[cascade] = casterBounds(casters, buildCameraFrustum(cascadeCam->camera, cascadeCam->node));
         }
 
-        // ── Pass 2: depth-range tightening, then the shadow matrix ───────────────
+        // ── Pass 2: depth-range tightening, then the casters and the shadow matrix ─
         // Split from the sweep above because PCSS needs the UNION of the cascades'
         // caster boxes, which is not known until all of them have been swept.
         //
@@ -265,101 +322,36 @@ namespace visutwin::canvas
         // Only PCSS. The other shadow types never read the range — it is a fit, not a
         // shader input — and they are better off with per-cascade tightening, which
         // buys them depth precision.
-        BoundingBox unionAabb;
-        bool haveUnion = false;
+        std::optional<BoundingBox> unionAabb;
         if (light->shadowType() == ShadowType::SHADOW_PCSS_32F) {
-            for (int cascade = 0; cascade < numCascades && cascade < 4; ++cascade) {
-                if (!cascadeAabbValid[cascade]) {
+            for (int cascade = 0; cascade < cascadeCount; ++cascade) {
+                if (!cascadeAabb[cascade]) {
                     continue;
                 }
-                if (!haveUnion) {
+                if (!unionAabb) {
                     unionAabb = cascadeAabb[cascade];
-                    haveUnion = true;
                 } else {
-                    unionAabb.add(cascadeAabb[cascade]);
+                    unionAabb->add(*cascadeAabb[cascade]);
                 }
             }
         }
 
-        for (int cascade = 0; cascade < numCascades && cascade < 4; ++cascade) {
-            LightRenderData* lightRenderData = _shadowRenderer->getLightRenderData(light, camera, cascade);
-            if (!lightRenderData || !lightRenderData->shadowCamera) {
+        const int frame = _device ? _device->renderVersion() : -1;
+        for (int cascade = 0; cascade < cascadeCount; ++cascade) {
+            const auto cascadeCam = cascadeCamera(*_shadowRenderer, light, camera, cascade);
+            if (!cascadeCam) {
                 continue;
             }
-            Camera* shadowCam = lightRenderData->shadowCamera.get();
-            auto* shadowCamNode = shadowCam->node();
-            if (!shadowCamNode) {
-                continue;
-            }
-
             // The union where PCSS asked for it — note it tightens even a cascade with
             // no casters of its own, which is the point: its range must still be
             // sensible. Otherwise this cascade's own box, and nothing at all when it
-            // has none, leaving the wide camera the sweep set up.
-            const BoundingBox* fitAabb = haveUnion ? &unionAabb
-                : (cascadeAabbValid[cascade] ? &cascadeAabb[cascade] : nullptr);
-            if (fitAabb) {
-                const Matrix4 shadowCamView = shadowCamNode->worldTransform().inverse();
-                const Vector3 c = fitAabb->center();
-                const Vector3 h = fitAabb->halfExtents();
-                float depthMin = 1e30f;
-                float depthMax = -1e30f;
-                for (int i = 0; i < 8; ++i) {
-                    const Vector3 corner = c + h * Vector3(
-                        (i & 1) ? 1.0f : -1.0f,
-                        (i & 2) ? 1.0f : -1.0f,
-                        (i & 4) ? 1.0f : -1.0f);
-                    const float z = shadowCamView.transformPoint(corner).getZ();
-                    if (z < depthMin) depthMin = z;
-                    if (z > depthMax) depthMax = z;
-                }
-                shadowCamNode->translateLocal(0.0f, 0.0f, depthMax + 0.1f);
-                shadowCam->setFarClip(depthMax - depthMin + 0.2f);
+            // has none, leaving the wide camera pass 1 set up (whose shadow pass is
+            // then a no-op anyway).
+            if (const auto& fitAabb = unionAabb ? unionAabb : cascadeAabb[cascade]) {
+                fitDepthRange(*cascadeCam, *fitAabb);
             }
-
-            // The casters the pass draws, against the FITTED frustum — the test the pass
-            // used to run itself, after collecting the whole scene a second time. Not the
-            // set the sweep above found: that one is tested from a camera a million units
-            // back, where the side planes are only good to about a tenth of a unit, and
-            // on a 40k-draw frame the two disagreed about six casters sitting on a
-            // cascade's edge. The fitted camera is close, so this is the exact answer,
-            // and it costs a frustum test per caster rather than a sweep of the scene.
-            {
-                auto& visibleCasters = lightRenderData->visibleCasters;
-                visibleCasters.clear();
-                lightRenderData->visibleCastersFrame = frame;
-                const Frustum fittedFrustum = buildCameraFrustum(shadowCam, shadowCamNode);
-                for (auto* meshInstance : casters) {
-                    if (meshInstance->cull() && !isVisibleInFrustum(fittedFrustum, meshInstance->aabb())) {
-                        continue;
-                    }
-                    visibleCasters.push_back(meshInstance);
-                }
-            }
-
-            // Build the viewport-scaled shadow matrix for this cascade:
-            // shadowMatrix = viewportMatrix × shadowCamProj × shadowCamView
-            // The viewport matrix maps NDC to the cascade's sub-region of the atlas.
-            const Matrix4 shadowView = shadowCamNode->worldTransform().inverse();
-            const Matrix4 shadowVP = shadowCam->projectionMatrix() * shadowView;
-
-            const Vector4& vp = light->cascadeViewports()[cascade];
-            // upstream Mat4.setViewport: maps clip coords to the cascade's viewport
-            // sub-region, with the Y scale negated for the top-left texture origin (the
-            // translate stays upstream's, since the viewport rect is already top-left) and
-            // NDC z [-1,1] -> [0,1] baked in because the shader reads the final shadow depth.
-            // LightCamera::viewportProjectionBias is exactly that matrix, the one the
-            // clustered spot rects use too.
-            const Matrix4 viewportMatrix = LightCamera::viewportProjectionBias(vp);
-
-            const Matrix4 shadowMatrix = viewportMatrix * shadowVP;
-
-            // Store in the light's matrix palette (column-major, 16 floats per cascade).
-            //_shadowMatrixPalette.set(data, face * 16).
-            // Matrix4 is 64 bytes on all SIMD backends — memcpy directly (same H1 fix
-            // as SkinBatchInstance::updateMatrices).
-            float* palette = light->shadowMatrixPaletteData();
-            std::memcpy(&palette[cascade * 16], &shadowMatrix, 64);
+            recordFittedCasters(*cascadeCam, casters, frame);
+            storeCascadeShadowMatrix(*light, cascade, *cascadeCam);
         }
     }
 
