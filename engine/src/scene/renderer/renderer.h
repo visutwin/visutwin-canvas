@@ -29,6 +29,7 @@ namespace visutwin::canvas
     class MeshInstance;
     class RenderTarget;
     class Layer;
+    class ProgramLibrary;
 
     /*
      * The base renderer functionality to allow implementation of specialized renderers
@@ -228,6 +229,25 @@ namespace visutwin::canvas
         /// Binds this layer's grid, or ZEROES the grid params when it has no lights —
         /// every layer, since each may be on a different grid.
         void bindLayerClusters(const WorldClusters* clusters);
+
+        /// Builds (or shares) the grid for this layer's clustered lights and binds it
+        /// with the clustered shadow atlas.
+        void bindLayerClusterLights(const std::vector<ClusterLightData>& lights,
+            const std::vector<const void*>& lightSetMembers);
+
+        // renderForwardLayer's stages that need the renderer's own state; the rest
+        // are free functions in renderer.cpp.
+
+        /// Sets the frame-wide shader feature switches (lights, sky, SSAO, probes,
+        /// atmosphere) for this camera, and binds the area-light LUTs and atmosphere
+        /// uniforms they imply.
+        void configureForwardShaderFeatures(ProgramLibrary& programLibrary, const Camera& camera,
+            bool clusteredEnabled);
+
+        void resolveClusterConfig();
+
+        /// The camera the directional cascades were fitted for this frame.
+        Camera* directionalShadowFitCamera(Camera* camera) const;
 
         // Frame statistics are counted into GraphicsDevice::frameCounters(), which the
         // shadow passes and depth-only draws reach too; see frameCounters.h.
