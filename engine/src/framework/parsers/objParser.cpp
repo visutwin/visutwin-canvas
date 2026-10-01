@@ -81,6 +81,18 @@ namespace visutwin::canvas
             }
         };
 
+        /// Start offset of each face in mesh.indices.
+        std::vector<size_t> faceOffsets(const tinyobj::mesh_t& mesh)
+        {
+            std::vector<size_t> offsets(mesh.num_face_vertices.size());
+            size_t offset = 0;
+            for (size_t f = 0; f < offsets.size(); ++f) {
+                offsets[f] = offset;
+                offset += mesh.num_face_vertices[f];
+            }
+            return offsets;
+        }
+
         // ── Smooth normal generation ────────────────────────────────────
 
         void generateSmoothNormals(
@@ -110,23 +122,15 @@ namespace visutwin::canvas
 
             std::unordered_map<SmoothKey, Vector3, SmoothKeyHash> accum;
 
-            // Pre-compute face offsets for O(1) access
             const size_t faceCount = mesh.num_face_vertices.size();
-            std::vector<size_t> faceOffsets(faceCount);
-            {
-                size_t offset = 0;
-                for (size_t f = 0; f < faceCount; ++f) {
-                    faceOffsets[f] = offset;
-                    offset += mesh.num_face_vertices[f];
-                }
-            }
+            const std::vector<size_t> offsets = faceOffsets(mesh);
 
             // Pass 1: accumulate face normals
             for (size_t f = 0; f < faceCount; ++f) {
                 const unsigned int fv = mesh.num_face_vertices[f];
                 if (fv < 3) continue;
 
-                const size_t base = faceOffsets[f];
+                const size_t base = offsets[f];
                 const unsigned int sg = (f < mesh.smoothing_group_ids.size())
                     ? mesh.smoothing_group_ids[f] : 0;
 
@@ -190,7 +194,7 @@ namespace visutwin::canvas
             // Pass 2: normalize accumulated normals and write to output
             for (size_t f = 0; f < faceCount; ++f) {
                 const unsigned int fv = mesh.num_face_vertices[f];
-                const size_t base = faceOffsets[f];
+                const size_t base = offsets[f];
                 const unsigned int sg = (f < mesh.smoothing_group_ids.size())
                     ? mesh.smoothing_group_ids[f] : 0;
 
@@ -402,6 +406,309 @@ namespace visutwin::canvas
             return material;
         }
 
+        // ── Shapes to meshes ────────────────────────────────────────────
+
+        std::shared_ptr<Material> createDefaultObjMaterial()
+        {
+            // Default gray material when no MTL file
+            auto mat = std::make_shared<StandardMaterial>();
+            mat->setName("obj-default");
+            mat->setDiffuse(Color(0.8f, 0.8f, 0.8f, 1.0f));
+            mat->setBaseColorFactor(Color(0.8f, 0.8f, 0.8f, 1.0f));
+            mat->setMetalness(0.0f);
+            mat->setMetallicFactor(0.0f);
+            mat->setGloss(0.5f);
+            mat->setRoughnessFactor(0.5f);
+            mat->setUseMetalness(true);
+            return mat;
+        }
+
+        std::vector<std::shared_ptr<Material>> convertMaterials(
+            const std::vector<tinyobj::material_t>& materials,
+            GraphicsDevice* device,
+            const std::filesystem::path& basedir,
+            std::vector<std::shared_ptr<Texture>>& ownedTextures)
+        {
+            std::vector<std::shared_ptr<Material>> converted;
+            if (materials.empty()) {
+                converted.push_back(createDefaultObjMaterial());
+                return converted;
+            }
+            std::unordered_map<std::string, std::shared_ptr<Texture>> texCache;
+            for (const auto& mtl : materials) {
+                converted.push_back(convertMtlMaterial(mtl, device, basedir, texCache, ownedTextures));
+            }
+            return converted;
+        }
+
+        /// Everything a face corner is read against.
+        struct ObjSource
+        {
+            const tinyobj::attrib_t& attrib;
+            const ObjParserConfig& config;
+            bool hasNormals;
+            bool hasTexcoords;
+        };
+
+        /// (x, y, z) -> (x, z, -y): Z-up CAD to Y-up.
+        Vector3 swapYZ(const Vector3& v)
+        {
+            return Vector3(v.getX(), v.getZ(), -v.getY());
+        }
+
+        bool cornerHasFileNormal(const ObjSource& source, const tinyobj::index_t& corner)
+        {
+            return source.hasNormals && corner.normal_index >= 0;
+        }
+
+        Vector3 cornerPosition(const ObjSource& source, const tinyobj::index_t& corner)
+        {
+            Vector3 pos = Vector3::load(&source.attrib.vertices[3 * corner.vertex_index]) * source.config.uniformScale;
+            return source.config.flipYZ ? swapYZ(pos) : pos;
+        }
+
+        /// The file's normal, or the generated one for this face-vertex, or +Y.
+        Vector3 cornerNormal(const ObjSource& source, const tinyobj::index_t& corner,
+            const std::vector<float>& generatedNormals, const size_t faceVertex)
+        {
+            if (cornerHasFileNormal(source, corner)) {
+                Vector3 n = Vector3::load(&source.attrib.normals[3 * corner.normal_index]);
+                if (source.config.flipYZ) {
+                    n = swapYZ(n);
+                }
+                // Re-normalize
+                const float len = n.length();
+                return len > 1e-8f ? n * (1.0f / len) : n;
+            }
+            if (generatedNormals.empty()) {
+                return Vector3(0.0f, 1.0f, 0.0f);
+            }
+            Vector3 n = Vector3::load(&generatedNormals[faceVertex * 3]);
+            if (source.config.flipYZ) {
+                n = swapYZ(n);
+            }
+            // Derived from the FILE's winding, which flipWinding reverses:
+            // the normal follows the triangles it now belongs to. (A file's
+            // own normals are left as the file says.)
+            return source.config.flipWinding ? n * -1.0f : n;
+        }
+
+        /// UV0 flipped to a top-left origin (OBJ's is bottom-left); (0, 0) without texcoords.
+        void cornerUv(const ObjSource& source, const tinyobj::index_t& corner, float& u, float& v)
+        {
+            u = 0.0f;
+            v = 0.0f;
+            if (source.hasTexcoords && corner.texcoord_index >= 0) {
+                u = source.attrib.texcoords[2 * corner.texcoord_index + 0];
+                v = 1.0f - source.attrib.texcoords[2 * corner.texcoord_index + 1];
+            }
+        }
+
+        /// The deduplication key of a corner. A generated normal joins the key (see
+        /// VertexKey::gn), so corners with different generated normals stay apart.
+        VertexKey cornerKey(const ObjSource& source, const tinyobj::index_t& corner,
+            const std::vector<float>& generatedNormals, const size_t faceVertex, const unsigned int smoothingGroup)
+        {
+            VertexKey key{corner.vertex_index, corner.normal_index, corner.texcoord_index};
+            if (cornerHasFileNormal(source, corner) || generatedNormals.empty()) {
+                return key;
+            }
+            if (smoothingGroup == 0) {
+                // Flat: keyed on the normal itself, quantized, so the
+                // triangles of one planar polygon still share corners.
+                const auto q = [](const float c) {
+                    return static_cast<int64_t>(std::lround(std::clamp(c, -1.0f, 1.0f) * 32767.0f)) + 32768;
+                };
+                const float* g = &generatedNormals[faceVertex * 3];
+                key.gn = 1 + ((q(g[0]) << 32) | (q(g[1]) << 16) | q(g[2]));
+            } else {
+                key.gn = -static_cast<int64_t>(smoothingGroup);
+            }
+            return key;
+        }
+
+        /// A shape's faces grouped by material id; an unknown id falls back to material 0.
+        std::unordered_map<int, std::vector<size_t>> groupFacesByMaterial(const tinyobj::mesh_t& mesh,
+            const size_t materialCount)
+        {
+            std::unordered_map<int, std::vector<size_t>> groups;
+            for (size_t f = 0; f < mesh.num_face_vertices.size(); ++f) {
+                int matId = (f < mesh.material_ids.size()) ? mesh.material_ids[f] : -1;
+                if (matId < 0 || matId >= static_cast<int>(materialCount)) matId = 0;
+                groups[matId].push_back(f);
+            }
+            return groups;
+        }
+
+        struct GroupGeometry
+        {
+            std::vector<PackedVertex> vertices;
+            std::vector<uint32_t> indices;
+            Vector3 minPos{std::numeric_limits<float>::max()};
+            Vector3 maxPos{std::numeric_limits<float>::lowest()};
+        };
+
+        /// The deduplicated vertices and the triangles of one material group of a shape.
+        GroupGeometry buildGroupGeometry(const ObjSource& source, const tinyobj::mesh_t& mesh,
+            const std::vector<size_t>& offsets, const std::vector<size_t>& faceIndices,
+            const std::vector<float>& generatedNormals)
+        {
+            GroupGeometry geometry;
+            std::unordered_map<VertexKey, uint32_t, VertexKeyHash> vertexMap;
+
+            for (const size_t fi : faceIndices) {
+                const size_t base = offsets[fi];
+                const unsigned int fv = mesh.num_face_vertices[fi];
+                const unsigned int sg = fi < mesh.smoothing_group_ids.size() ? mesh.smoothing_group_ids[fi] : 0;
+
+                for (unsigned int j = 0; j < fv; ++j) {
+                    const size_t idx = base + j;
+                    const auto& corner = mesh.indices[idx];
+
+                    const VertexKey key = cornerKey(source, corner, generatedNormals, idx, sg);
+                    if (const auto it = vertexMap.find(key); it != vertexMap.end()) {
+                        geometry.indices.push_back(it->second);
+                        continue;
+                    }
+
+                    const Vector3 pos = cornerPosition(source, corner);
+                    const Vector3 n = cornerNormal(source, corner, generatedNormals, idx);
+                    float u, v;
+                    cornerUv(source, corner, u, v);
+
+                    // Tangent placeholder (will be overwritten by generateTangents if UVs exist)
+                    float tx, ty, tz, tw;
+                    tangentFromNormal(n.getX(), n.getY(), n.getZ(), tx, ty, tz, tw);
+
+                    PackedVertex vert{};
+                    vert.px = pos.getX(); vert.py = pos.getY(); vert.pz = pos.getZ();
+                    vert.nx = n.getX(); vert.ny = n.getY(); vert.nz = n.getZ();
+                    vert.u = u;   vert.v = v;
+                    vert.tx = tx; vert.ty = ty; vert.tz = tz; vert.tw = tw;
+                    vert.u1 = u;  vert.v1 = v;  // UV1 = UV0 for OBJ
+
+                    const auto newIdx = static_cast<uint32_t>(geometry.vertices.size());
+                    geometry.vertices.push_back(vert);
+                    vertexMap[key] = newIdx;
+                    geometry.indices.push_back(newIdx);
+
+                    geometry.minPos = Vector3::min(geometry.minPos, pos);
+                    geometry.maxPos = Vector3::max(geometry.maxPos, pos);
+                }
+
+                // Flip winding if requested (triangulated, so always 3 verts)
+                if (source.config.flipWinding && fv == 3) {
+                    const size_t last = geometry.indices.size();
+                    std::swap(geometry.indices[last - 2], geometry.indices[last - 1]);
+                }
+            }
+
+            // Generate proper tangents from UVs if available
+            if (!geometry.vertices.empty() && source.hasTexcoords && source.config.generateTangents) {
+                generateTangents(geometry.vertices, geometry.indices);
+            }
+            return geometry;
+        }
+
+        /// GPU buffers, one triangle-list primitive and the bounds for one group.
+        std::shared_ptr<Mesh> createObjMesh(GraphicsDevice& device, const std::shared_ptr<VertexFormat>& vertexFormat,
+            const GroupGeometry& geometry)
+        {
+            const int vertexCount = static_cast<int>(geometry.vertices.size());
+            std::vector<uint8_t> vertexBytes(geometry.vertices.size() * sizeof(PackedVertex));
+            std::memcpy(vertexBytes.data(), geometry.vertices.data(), vertexBytes.size());
+
+            VertexBufferOptions vbOpts;
+            vbOpts.usage = BUFFER_STATIC;
+            vbOpts.data = std::move(vertexBytes);
+            auto vb = device.createVertexBuffer(vertexFormat, vertexCount, vbOpts);
+
+            const int indexCount = static_cast<int>(geometry.indices.size());
+            // Use uint16 for small meshes, uint32 for large
+            const IndexFormat idxFmt = (vertexCount <= 65535) ? INDEXFORMAT_UINT16 : INDEXFORMAT_UINT32;
+
+            std::vector<uint8_t> indexBytes;
+            if (idxFmt == INDEXFORMAT_UINT16) {
+                indexBytes.resize(geometry.indices.size() * sizeof(uint16_t));
+                auto* dst = reinterpret_cast<uint16_t*>(indexBytes.data());
+                for (size_t i = 0; i < geometry.indices.size(); ++i) {
+                    dst[i] = static_cast<uint16_t>(geometry.indices[i]);
+                }
+            } else {
+                indexBytes.resize(geometry.indices.size() * sizeof(uint32_t));
+                std::memcpy(indexBytes.data(), geometry.indices.data(), indexBytes.size());
+            }
+            auto ib = device.createIndexBuffer(idxFmt, indexCount, indexBytes);
+
+            auto meshResource = std::make_shared<Mesh>();
+            meshResource->setVertexBuffer(vb);
+            meshResource->setIndexBuffer(ib, 0);
+
+            Primitive prim;
+            prim.type = PRIMITIVE_TRIANGLES;
+            prim.base = 0;
+            prim.baseVertex = 0;
+            prim.count = indexCount;
+            prim.indexed = true;
+            meshResource->setPrimitive(prim, 0);
+
+            BoundingBox bounds;
+            bounds.setCenter((geometry.minPos + geometry.maxPos) * 0.5f);
+            bounds.setHalfExtents((geometry.maxPos - geometry.minPos) * 0.5f);
+            meshResource->setAabb(bounds);
+            return meshResource;
+        }
+
+        /// Adds one mesh payload per material group of the shape and returns their
+        /// payload indices.
+        std::vector<size_t> addShapeMeshes(GlbContainerResource& container, GraphicsDevice& device,
+            const ObjSource& source, const tinyobj::mesh_t& mesh,
+            const std::vector<std::shared_ptr<Material>>& materials,
+            const std::shared_ptr<VertexFormat>& vertexFormat)
+        {
+            // Generate smooth normals if OBJ has none
+            std::vector<float> generatedNormals;
+            if (!source.hasNormals && source.config.generateNormals) {
+                generateSmoothNormals(source.attrib, mesh, generatedNormals);
+            }
+
+            const std::vector<size_t> offsets = faceOffsets(mesh);
+            std::vector<size_t> payloadIndices;
+            for (const auto& [matId, faceIndices] : groupFacesByMaterial(mesh, materials.size())) {
+                const GroupGeometry geometry = buildGroupGeometry(source, mesh, offsets, faceIndices, generatedNormals);
+                if (geometry.vertices.empty()) continue;
+
+                GlbMeshPayload payload;
+                payload.mesh = createObjMesh(device, vertexFormat, geometry);
+                const int safeMat = std::clamp(matId, 0, static_cast<int>(materials.size()) - 1);
+                payload.material = materials[static_cast<size_t>(safeMat)];
+                payloadIndices.push_back(container.meshPayloads().size());
+                container.addMeshPayload(payload);
+            }
+            return payloadIndices;
+        }
+
+        // OBJ is flat (no hierarchy): one node per shape holding its material
+        // sub-meshes, or a single root node named after the file for one shape.
+        void addNodePayloads(GlbContainerResource& container, const std::vector<tinyobj::shape_t>& shapes,
+            const std::filesystem::path& objPath, const std::vector<std::vector<size_t>>& shapePayloads)
+        {
+            for (size_t shapeIdx = 0; shapeIdx < shapes.size(); ++shapeIdx) {
+                GlbNodePayload node;
+                if (shapes.size() == 1) {
+                    node.name = objPath.stem().string();
+                } else {
+                    node.name = shapes[shapeIdx].name.empty()
+                        ? "shape_" + std::to_string(shapeIdx)
+                        : shapes[shapeIdx].name;
+                }
+                node.scale = Vector3(1.0f, 1.0f, 1.0f);
+                node.meshPayloadIndices = shapePayloads[shapeIdx];
+                container.addNodePayload(node);
+                container.addRootNodeIndex(static_cast<int>(shapeIdx));
+            }
+        }
+
     } // anonymous namespace
 
     // ── ObjParser::parse ────────────────────────────────────────────────
@@ -439,10 +746,7 @@ namespace visutwin::canvas
 
         const auto& attrib = reader.GetAttrib();
         const auto& shapes = reader.GetShapes();
-        const auto& materials = reader.GetMaterials();
-
-        const bool hasNormals = !attrib.normals.empty();
-        const bool hasTexcoords = !attrib.texcoords.empty();
+        const ObjSource source{attrib, config, !attrib.normals.empty(), !attrib.texcoords.empty()};
 
         spdlog::info("OBJ loaded [{}]: {} vertices, {} normals, {} texcoords, "
                      "{} shapes, {} materials",
@@ -451,283 +755,22 @@ namespace visutwin::canvas
             attrib.normals.size() / 3,
             attrib.texcoords.size() / 2,
             shapes.size(),
-            materials.size());
-
-        // ── Convert materials ───────────────────────────────────────────
+            reader.GetMaterials().size());
 
         auto container = std::make_unique<GlbContainerResource>();
-        std::unordered_map<std::string, std::shared_ptr<Texture>> texCache;
         std::vector<std::shared_ptr<Texture>> ownedTextures;
-
-        std::vector<std::shared_ptr<Material>> objMaterials;
-        if (materials.empty()) {
-            // Default gray material when no MTL file
-            auto mat = std::make_shared<StandardMaterial>();
-            mat->setName("obj-default");
-            mat->setDiffuse(Color(0.8f, 0.8f, 0.8f, 1.0f));
-            mat->setBaseColorFactor(Color(0.8f, 0.8f, 0.8f, 1.0f));
-            mat->setMetalness(0.0f);
-            mat->setMetallicFactor(0.0f);
-            mat->setGloss(0.5f);
-            mat->setRoughnessFactor(0.5f);
-            mat->setUseMetalness(true);
-            objMaterials.push_back(mat);
-        } else {
-            for (const auto& mtl : materials) {
-                objMaterials.push_back(
-                    convertMtlMaterial(mtl, device.get(), basedir, texCache, ownedTextures));
-            }
-        }
-
-        // ── Process shapes ──────────────────────────────────────────────
+        const auto materials = convertMaterials(reader.GetMaterials(), device.get(), basedir, ownedTextures);
 
         constexpr int BYTES_PER_VERTEX = static_cast<int>(sizeof(PackedVertex));  // 56
-        auto vertexFormat = std::make_shared<VertexFormat>(
+        const auto vertexFormat = std::make_shared<VertexFormat>(
             BYTES_PER_VERTEX, VertexFormat::standardElements(), true, false);
 
-        size_t meshPayloadIndex = 0;
-
-        for (size_t shapeIdx = 0; shapeIdx < shapes.size(); ++shapeIdx) {
-            const auto& shape = shapes[shapeIdx];
-            const auto& mesh = shape.mesh;
-
-            // Pre-compute face offsets (prefix sum) for O(1) access
-            const size_t faceCount = mesh.num_face_vertices.size();
-            std::vector<size_t> faceOffsets(faceCount);
-            {
-                size_t offset = 0;
-                for (size_t f = 0; f < faceCount; ++f) {
-                    faceOffsets[f] = offset;
-                    offset += mesh.num_face_vertices[f];
-                }
-            }
-
-            // Generate smooth normals if OBJ has none
-            std::vector<float> generatedNormals;
-            if (!hasNormals && config.generateNormals) {
-                generateSmoothNormals(attrib, mesh, generatedNormals);
-            }
-
-            // Group faces by material_id
-            std::unordered_map<int, std::vector<size_t>> materialFaceGroups;
-            for (size_t f = 0; f < faceCount; ++f) {
-                int matId = (f < mesh.material_ids.size()) ? mesh.material_ids[f] : -1;
-                if (matId < 0 || matId >= static_cast<int>(objMaterials.size())) matId = 0;
-                materialFaceGroups[matId].push_back(f);
-            }
-
-            // For each material group, build vertex/index buffers
-            for (auto& [matId, faceIndices] : materialFaceGroups) {
-                std::unordered_map<VertexKey, uint32_t, VertexKeyHash> vertexMap;
-                std::vector<PackedVertex> vertices;
-                std::vector<uint32_t> indices;
-                Vector3 minPos(std::numeric_limits<float>::max());
-                Vector3 maxPos(std::numeric_limits<float>::lowest());
-
-                for (size_t fi : faceIndices) {
-                    const size_t base = faceOffsets[fi];
-                    const unsigned int fv = mesh.num_face_vertices[fi];
-
-                    for (unsigned int j = 0; j < fv; ++j) {
-                        const size_t idx = base + j;
-                        const auto& objIdx = mesh.indices[idx];
-
-                        // Position: apply config transforms
-                        Vector3 pos = Vector3::load(&attrib.vertices[3 * objIdx.vertex_index]) * config.uniformScale;
-                        if (config.flipYZ) {
-                            // (x, y, z) -> (x, z, -y)
-                            pos = Vector3(pos.getX(), pos.getZ(), -pos.getY());
-                        }
-
-                        // Normal
-                        Vector3 n(0.0f, 1.0f, 0.0f);
-                        if (hasNormals && objIdx.normal_index >= 0) {
-                            n = Vector3::load(&attrib.normals[3 * objIdx.normal_index]);
-                            if (config.flipYZ) {
-                                n = Vector3(n.getX(), n.getZ(), -n.getY());
-                            }
-                            // Re-normalize
-                            const float len = n.length();
-                            if (len > 1e-8f) {
-                                n = n * (1.0f / len);
-                            }
-                        } else if (!generatedNormals.empty()) {
-                            n = Vector3::load(&generatedNormals[idx * 3]);
-                            if (config.flipYZ) {
-                                n = Vector3(n.getX(), n.getZ(), -n.getY());
-                            }
-                            // Derived from the FILE's winding, which flipWinding reverses:
-                            // the normal follows the triangles it now belongs to. (A file's
-                            // own normals are left as the file says.)
-                            if (config.flipWinding) {
-                                n = n * -1.0f;
-                            }
-                        }
-
-                        // Texcoord
-                        float u = 0.0f, vt = 0.0f;
-                        if (hasTexcoords && objIdx.texcoord_index >= 0) {
-                            u = attrib.texcoords[2 * objIdx.texcoord_index + 0];
-                            vt = attrib.texcoords[2 * objIdx.texcoord_index + 1];
-                            // Metal uses top-left origin; OBJ uses bottom-left
-                            vt = 1.0f - vt;
-                        }
-
-                        // Vertex deduplication
-                        VertexKey key{objIdx.vertex_index, objIdx.normal_index, objIdx.texcoord_index};
-                        if (!(hasNormals && objIdx.normal_index >= 0) && !generatedNormals.empty()) {
-                            const unsigned int sg = fi < mesh.smoothing_group_ids.size()
-                                ? mesh.smoothing_group_ids[fi] : 0;
-                            if (sg == 0) {
-                                // Flat: keyed on the normal itself, quantized, so the
-                                // triangles of one planar polygon still share corners.
-                                const auto q = [](const float c) {
-                                    return static_cast<int64_t>(std::lround(std::clamp(c, -1.0f, 1.0f) * 32767.0f)) + 32768;
-                                };
-                                const float* g = &generatedNormals[idx * 3];
-                                key.gn = 1 + ((q(g[0]) << 32) | (q(g[1]) << 16) | q(g[2]));
-                            } else {
-                                key.gn = -static_cast<int64_t>(sg);
-                            }
-                        }
-                        auto it = vertexMap.find(key);
-                        if (it != vertexMap.end()) {
-                            indices.push_back(it->second);
-                        } else {
-                            uint32_t newIdx = static_cast<uint32_t>(vertices.size());
-
-                            // Tangent placeholder (will be overwritten by generateTangents if UVs exist)
-                            float tx, ty, tz, tw;
-                            tangentFromNormal(n.getX(), n.getY(), n.getZ(), tx, ty, tz, tw);
-
-                            PackedVertex vert{};
-                            vert.px = pos.getX(); vert.py = pos.getY(); vert.pz = pos.getZ();
-                            vert.nx = n.getX(); vert.ny = n.getY(); vert.nz = n.getZ();
-                            vert.u = u;   vert.v = vt;
-                            vert.tx = tx; vert.ty = ty; vert.tz = tz; vert.tw = tw;
-                            vert.u1 = u;  vert.v1 = vt;  // UV1 = UV0 for OBJ
-
-                            vertices.push_back(vert);
-                            vertexMap[key] = newIdx;
-                            indices.push_back(newIdx);
-
-                            minPos = Vector3::min(minPos, pos);
-                            maxPos = Vector3::max(maxPos, pos);
-                        }
-                    }
-
-                    // Flip winding if requested (triangulated, so always 3 verts)
-                    if (config.flipWinding && fv == 3) {
-                        size_t last = indices.size();
-                        std::swap(indices[last - 2], indices[last - 1]);
-                    }
-                }
-
-                if (vertices.empty()) continue;
-
-                // Generate proper tangents from UVs if available
-                if (hasTexcoords && config.generateTangents) {
-                    generateTangents(vertices, indices);
-                }
-
-                // ── Create GPU buffers ──────────────────────────────────
-
-                const int vertexCount = static_cast<int>(vertices.size());
-                std::vector<uint8_t> vertexBytes(vertices.size() * sizeof(PackedVertex));
-                std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
-
-                VertexBufferOptions vbOpts;
-                vbOpts.usage = BUFFER_STATIC;
-                vbOpts.data = std::move(vertexBytes);
-                auto vb = device->createVertexBuffer(vertexFormat, vertexCount, vbOpts);
-
-                const int indexCount = static_cast<int>(indices.size());
-                // Use uint16 for small meshes, uint32 for large
-                IndexFormat idxFmt = (vertexCount <= 65535) ? INDEXFORMAT_UINT16 : INDEXFORMAT_UINT32;
-
-                std::vector<uint8_t> indexBytes;
-                if (idxFmt == INDEXFORMAT_UINT16) {
-                    indexBytes.resize(indices.size() * sizeof(uint16_t));
-                    auto* dst = reinterpret_cast<uint16_t*>(indexBytes.data());
-                    for (size_t i = 0; i < indices.size(); ++i) {
-                        dst[i] = static_cast<uint16_t>(indices[i]);
-                    }
-                } else {
-                    indexBytes.resize(indices.size() * sizeof(uint32_t));
-                    std::memcpy(indexBytes.data(), indices.data(), indexBytes.size());
-                }
-                auto ib = device->createIndexBuffer(idxFmt, indexCount, indexBytes);
-
-                auto meshResource = std::make_shared<Mesh>();
-                meshResource->setVertexBuffer(vb);
-                meshResource->setIndexBuffer(ib, 0);
-
-                Primitive prim;
-                prim.type = PRIMITIVE_TRIANGLES;
-                prim.base = 0;
-                prim.baseVertex = 0;
-                prim.count = indexCount;
-                prim.indexed = true;
-                meshResource->setPrimitive(prim, 0);
-
-                BoundingBox bounds;
-                bounds.setCenter((minPos + maxPos) * 0.5f);
-                bounds.setHalfExtents((maxPos - minPos) * 0.5f);
-                meshResource->setAabb(bounds);
-
-                // ── Add payload ─────────────────────────────────────────
-
-                GlbMeshPayload payload;
-                payload.mesh = meshResource;
-                int safeMat = std::clamp(matId, 0, static_cast<int>(objMaterials.size()) - 1);
-                payload.material = objMaterials[static_cast<size_t>(safeMat)];
-                container->addMeshPayload(payload);
-                ++meshPayloadIndex;
-            }
+        std::vector<std::vector<size_t>> shapePayloads;
+        shapePayloads.reserve(shapes.size());
+        for (const auto& shape : shapes) {
+            shapePayloads.push_back(addShapeMeshes(*container, *device, source, shape.mesh, materials, vertexFormat));
         }
-
-        // ── Build node structure ────────────────────────────────────────
-        // OBJ is flat (no hierarchy), so create one node per shape with all
-        // its material sub-meshes, or a single root node if only one shape.
-
-        if (shapes.size() == 1) {
-            // Single shape: all mesh payloads go into one root node
-            GlbNodePayload rootNode;
-            rootNode.name = objPath.stem().string();
-            rootNode.scale = Vector3(1.0f, 1.0f, 1.0f);
-            for (size_t i = 0; i < meshPayloadIndex; ++i) {
-                rootNode.meshPayloadIndices.push_back(i);
-            }
-            container->addNodePayload(rootNode);
-            container->addRootNodeIndex(0);
-        } else {
-            // Multiple shapes: one node per shape, with mesh indices distributed
-            size_t payloadCursor = 0;
-            for (size_t shapeIdx = 0; shapeIdx < shapes.size(); ++shapeIdx) {
-                const auto& shape = shapes[shapeIdx];
-                const auto& mesh = shape.mesh;
-
-                // Count how many material groups this shape has
-                std::unordered_map<int, bool> matGroups;
-                for (size_t f = 0; f < mesh.num_face_vertices.size(); ++f) {
-                    int matId = (f < mesh.material_ids.size()) ? mesh.material_ids[f] : 0;
-                    if (matId < 0 || matId >= static_cast<int>(objMaterials.size())) matId = 0;
-                    matGroups[matId] = true;
-                }
-                size_t groupCount = matGroups.size();
-
-                GlbNodePayload node;
-                node.name = shape.name.empty()
-                    ? "shape_" + std::to_string(shapeIdx)
-                    : shape.name;
-                node.scale = Vector3(1.0f, 1.0f, 1.0f);
-                for (size_t i = 0; i < groupCount && payloadCursor < meshPayloadIndex; ++i) {
-                    node.meshPayloadIndices.push_back(payloadCursor++);
-                }
-                container->addNodePayload(node);
-                container->addRootNodeIndex(static_cast<int>(shapeIdx));
-            }
-        }
+        addNodePayloads(*container, shapes, objPath, shapePayloads);
 
         // Transfer texture ownership
         for (auto& tex : ownedTextures) {
@@ -735,7 +778,7 @@ namespace visutwin::canvas
         }
 
         spdlog::info("OBJ parse complete [{}]: {} mesh payloads, {} materials, {} textures",
-            path, meshPayloadIndex, objMaterials.size(), ownedTextures.size());
+            path, container->meshPayloads().size(), materials.size(), ownedTextures.size());
 
         return container;
     }
