@@ -653,6 +653,17 @@ namespace visutwin::canvas
         };
         std::unordered_map<int, ComputePipelineResources> _computePipelines;
 
+        // computeDispatch()'s stages for one Compute.
+        /// Resolves the compute's bindings, then builds, writes and queues one dispatch.
+        void enqueueComputeDispatch(Compute& compute);
+        /// The cached pipeline for this shader, built on first use for these descriptor
+        /// types; null when it cannot be built or the shader was built for other types.
+        const ComputePipelineResources* computePipelineFor(const VulkanShader& shader,
+            const std::vector<VkDescriptorType>& types, const std::string& computeName);
+        /// A mapped uniform buffer holding `data`; false when it cannot be allocated.
+        bool createComputeUniformBuffer(const std::vector<uint8_t>& data, VkBuffer& buffer,
+            VmaAllocation& allocation);
+
         std::shared_ptr<VertexBuffer> _pendingParticleBuffer;
         std::array<uint8_t, sizeof(GpuParticleRenderParams)> _pendingParticleParams{};
         size_t _pendingParticleParamsSize = 0;
