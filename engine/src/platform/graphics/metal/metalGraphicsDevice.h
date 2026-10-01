@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 #include <Metal/Metal.hpp>
 #include <Foundation/NSAutoreleasePool.hpp>
@@ -218,6 +219,40 @@ namespace visutwin::canvas
         int submitVertexBuffer(const std::shared_ptr<VertexBuffer>& vertexBuffer, int slot);
         MTL::DepthStencilState* resolveDepthStencilState(const DepthState* depthState,
             StencilParameters* stencilFront, StencilParameters* stencilBack);
+
+        // draw()'s stages, in the order it runs them.
+
+        struct IndexBinding
+        {
+            MTL::Buffer* buffer = nullptr;   // null for a non-indexed draw
+            MTL::IndexType type = MTL::IndexTypeUInt16;
+        };
+        /// The bytes that go in the per-draw material slot.
+        struct UniformBlock
+        {
+            const void* data = nullptr;
+            size_t size = 0;
+        };
+        /// Submits the vertex and instance buffers and sets the pipeline for the bound
+        /// state; false when no pipeline could be made and the draw must be skipped.
+        bool bindDrawPipeline(MTL::RenderCommandEncoder* passEncoder, const Primitive& primitive,
+            const std::shared_ptr<IndexBuffer>& indexBuffer);
+        /// The native buffer and index type; nullopt when the draw must be skipped.
+        std::optional<IndexBinding> resolveIndexBinding(const std::shared_ptr<IndexBuffer>& indexBuffer);
+        void applyEncoderCullMode(MTL::RenderCommandEncoder* passEncoder);
+        /// Binds the material's textures when they changed and returns its uniform block.
+        UniformBlock bindMaterialTextures(MTL::RenderCommandEncoder* passEncoder, const Material* boundMaterial);
+        /// A quad pass's inputs, or the scene-wide textures (shadows, env, cookies ...).
+        void bindPassTextures(MTL::RenderCommandEncoder* passEncoder);
+        void updateReflectionUniforms();
+        void submitDrawUniforms(MTL::RenderCommandEncoder* passEncoder, const Material* boundMaterial,
+            const UniformBlock& uniforms);
+        void bindDrawSampler(MTL::RenderCommandEncoder* passEncoder);
+        void applyDepthStencilState(MTL::RenderCommandEncoder* passEncoder);
+        /// The one-shot palette, morph, particle and splat bindings, consumed here.
+        void bindPendingDrawResources(MTL::RenderCommandEncoder* passEncoder);
+        void encodeDraw(MTL::RenderCommandEncoder* passEncoder, const Primitive& primitive,
+            const IndexBinding& index, int numInstances, int indirectSlot);
 
         // Sentinel null shared_ptr used as a const-ref return for empty VB slots,
         // avoiding shared_ptr copy when checking _vertexBuffers boundaries.

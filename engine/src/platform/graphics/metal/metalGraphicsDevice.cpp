@@ -1121,8 +1121,45 @@ namespace visutwin::canvas
         MTL::RenderCommandEncoder* passEncoder = _renderPassEncoder;
         assert(passEncoder != nullptr);
 
-        MTL::RenderPipelineState* pipelineState = _pipelineState;
+        if (first && !bindDrawPipeline(passEncoder, primitive, indexBuffer)) {
+            return;
+        }
+        const auto indexBinding = resolveIndexBinding(indexBuffer);
+        if (!indexBinding) {
+            return;
+        }
+        if (_cullMode == CullMode::CULLFACE_FRONTANDBACK) {
+            return;
+        }
+        applyEncoderCullMode(passEncoder);
 
+        const Material* boundMaterial = material();
+        UniformBlock uniforms = bindMaterialTextures(passEncoder, boundMaterial);
+        // A quad pass has no material, so its own uniform block takes the material
+        // slot. Set after the material branch so it cannot disturb that path.
+        if (quadRenderActive() && !quadUniformData().empty()) {
+            uniforms = {quadUniformData().data(), quadUniformData().size()};
+        }
+        bindPassTextures(passEncoder);
+        updateReflectionUniforms();
+        submitDrawUniforms(passEncoder, boundMaterial, uniforms);
+        bindDrawSampler(passEncoder);
+        applyDepthStencilState(passEncoder);
+        bindPendingDrawResources(passEncoder);
+
+        encodeDraw(passEncoder, primitive, *indexBinding, numInstances, indirectSlot);
+        recordDraw(primitive, numInstances);
+
+        if (last) {
+            // Clear the vertex buffer array. What the ENCODER holds stays as it is: the
+            // next draw compares against it (_pipelineState, _encoderVertexBuffer0 ...).
+            clearVertexBuffer();
+        }
+    }
+
+    bool MetalGraphicsDevice::bindDrawPipeline(MTL::RenderCommandEncoder* passEncoder, const Primitive& primitive,
+        const std::shared_ptr<IndexBuffer>& indexBuffer)
+    {
         // Get vertex buffers — use const references to avoid shared_ptr refcount churn.
         const auto& vb0 = _vertexBuffers.size() > 0 ? _vertexBuffers[0] : _nullVertexBuffer;
         const auto& vb1 = _vertexBuffers.size() > 1 ? _vertexBuffers[1] : _nullVertexBuffer;
@@ -1138,180 +1175,182 @@ namespace visutwin::canvas
             }
         }
 
-        if (first) {
-            // Submit vertex buffers
-            if (vb0) {
-                int vbSlot = submitVertexBuffer(vb0, 0);
-                if (vb1) {
-                    //validateVBLocations(vb0, vb1);
-                    submitVertexBuffer(vb1, vbSlot);
-                }
-            }
-
-            // Submit instancing vertex buffer at slot 5 for vertex descriptor layout(5).
-            if (instancingVBPtr) {
-                submitVertexBuffer(*instancingVBPtr, 5);
-            }
-
-            // Validate attributes
-            //validateAttributes(_shader, vb0, vb1);
-
-            // Get or create a render pipeline (includes instancing format for perInstance step function)
-            const int ibFormat = indexBuffer ? indexBuffer->format() : -1;
-            const auto instFmt = instancingVBPtr ? (*instancingVBPtr)->format() : nullptr;
-            pipelineState = _renderPipeline->get(primitive, vb0 != nullptr ? vb0->format() : nullptr,
-                vb1 != nullptr ? vb1->format() : nullptr,
-                ibFormat, _shader, _renderTarget, _bindGroupFormats, _blendState, _depthState,
-                _cullMode, _stencilEnabled, _stencilFront, _stencilBack, instFmt,
-                renderTargetFormatKey());
-            if (!pipelineState) {
-                spdlog::error("Draw skipped: failed to create/render pipeline state");
-                return;
-            }
-
-            // Set the pipeline state if changed. _pipelineState is what the encoder
-            // holds and lives until the pass ends (resetEncoderStateCache): it used to be
-            // cleared after every draw, which made this test always true.
-            // NOTE: _pipelineState is a non-owning (borrowing) pointer — the render
-            // pipeline cache (_renderPipeline) owns pipeline states and releases them
-            // in its destructor.  Do NOT call release() here; the previous code did
-            // so and caused a double-release (cache destructor also releases).
-            if (_pipelineState != pipelineState) {
-                _pipelineState = pipelineState;
-                passEncoder->setRenderPipelineState(pipelineState);
+        if (vb0) {
+            const int vbSlot = submitVertexBuffer(vb0, 0);
+            if (vb1) {
+                submitVertexBuffer(vb1, vbSlot);
             }
         }
 
-        MTL::Buffer* ibBuffer = nullptr;
-        MTL::IndexType indexType = MTL::IndexTypeUInt16;
-        if (indexBuffer) {
-            ibBuffer = static_cast<MTL::Buffer*>(indexBuffer->nativeBuffer());
-            if (!ibBuffer) {
-                spdlog::warn("Draw skipped: index buffer has no native Metal buffer");
-                return;
-            }
-            switch (indexBuffer->format()) {
-            case INDEXFORMAT_UINT16:
-                indexType = MTL::IndexTypeUInt16;
-                break;
-            case INDEXFORMAT_UINT32:
-                indexType = MTL::IndexTypeUInt32;
-                break;
-            case INDEXFORMAT_UINT8:
-                // Metal does not support uint8 indices directly.
-                spdlog::warn("Draw skipped: uint8 index buffers are not supported on Metal");
-                return;
-            default:
-                indexType = MTL::IndexTypeUInt16;
-                break;
-            }
+        // Submit instancing vertex buffer at slot 5 for vertex descriptor layout(5).
+        if (instancingVBPtr) {
+            submitVertexBuffer(*instancingVBPtr, 5);
         }
 
-        // ── Common setup (always runs) ───────────────────────────────
-
-        if (_cullMode == CullMode::CULLFACE_FRONTANDBACK) {
-            return;
+        // Get or create a render pipeline (includes instancing format for perInstance step function)
+        const int ibFormat = indexBuffer ? indexBuffer->format() : -1;
+        const auto instFmt = instancingVBPtr ? (*instancingVBPtr)->format() : nullptr;
+        MTL::RenderPipelineState* pipelineState = _renderPipeline->get(primitive,
+            vb0 != nullptr ? vb0->format() : nullptr,
+            vb1 != nullptr ? vb1->format() : nullptr,
+            ibFormat, _shader, _renderTarget, _bindGroupFormats, _blendState, _depthState,
+            _cullMode, _stencilEnabled, _stencilFront, _stencilBack, instFmt,
+            renderTargetFormatKey());
+        if (!pipelineState) {
+            spdlog::error("Draw skipped: failed to create/render pipeline state");
+            return false;
         }
+
+        // Set the pipeline state if changed. _pipelineState is what the encoder
+        // holds and lives until the pass ends (resetEncoderStateCache): it used to be
+        // cleared after every draw, which made this test always true.
+        // NOTE: _pipelineState is a non-owning (borrowing) pointer — the render
+        // pipeline cache (_renderPipeline) owns pipeline states and releases them
+        // in its destructor.  Do NOT call release() here; the previous code did
+        // so and caused a double-release (cache destructor also releases).
+        if (_pipelineState != pipelineState) {
+            _pipelineState = pipelineState;
+            passEncoder->setRenderPipelineState(pipelineState);
+        }
+        return true;
+    }
+
+    std::optional<MetalGraphicsDevice::IndexBinding> MetalGraphicsDevice::resolveIndexBinding(
+        const std::shared_ptr<IndexBuffer>& indexBuffer)
+    {
+        IndexBinding binding;
+        if (!indexBuffer) {
+            return binding;
+        }
+        binding.buffer = static_cast<MTL::Buffer*>(indexBuffer->nativeBuffer());
+        if (!binding.buffer) {
+            spdlog::warn("Draw skipped: index buffer has no native Metal buffer");
+            return std::nullopt;
+        }
+        switch (indexBuffer->format()) {
+        case INDEXFORMAT_UINT16:
+            binding.type = MTL::IndexTypeUInt16;
+            break;
+        case INDEXFORMAT_UINT32:
+            binding.type = MTL::IndexTypeUInt32;
+            break;
+        case INDEXFORMAT_UINT8:
+            // Metal does not support uint8 indices directly.
+            spdlog::warn("Draw skipped: uint8 index buffers are not supported on Metal");
+            return std::nullopt;
+        default:
+            binding.type = MTL::IndexTypeUInt16;
+            break;
+        }
+        return binding;
+    }
+
+    void MetalGraphicsDevice::applyEncoderCullMode(MTL::RenderCommandEncoder* passEncoder)
+    {
         // The winding is set once per pass (startRenderPass); the cull mode when it changes.
         if (const int cullMode = static_cast<int>(_cullMode); cullMode != _encoderCullMode) {
             passEncoder->setCullMode(toMetalCullMode(_cullMode));
             _encoderCullMode = cullMode;
         }
+    }
 
+    MetalGraphicsDevice::UniformBlock MetalGraphicsDevice::bindMaterialTextures(
+        MTL::RenderCommandEncoder* passEncoder, const Material* boundMaterial)
+    {
         // The block a draw with no material carries: every such draw's is this one, so
         // it is built once and the binder uploads it once per pass.
         static const MaterialUniforms defaultMaterialUniforms{};
-        const auto* boundMaterial = material();
 
         // Uniform data: use customUniformData() if available (e.g., globe tiles
-        // with extended uniforms), otherwise fall back to standard updateUniforms().
-        const void* uniformData = &defaultMaterialUniforms;
-        size_t uniformSize = sizeof(MaterialUniforms);
+        // with extended uniforms), otherwise the material's packed block.
+        UniformBlock uniforms{&defaultMaterialUniforms, sizeof(MaterialUniforms)};
 
-        if (boundMaterial) {
-            // isMaterialChanged mirrors submitPerDrawUniforms' dedup condition:
-            // for an unchanged material the ring offset is reused and the packed
-            // data ignored, so skip the packing too — updateUniforms costs ~35
-            // string-map lookups plus transcendentals per call, which dominated
-            // the draw loop when run for every draw.
-            const bool materialChanged = _uniformBinder.isMaterialChanged(boundMaterial);
-
-            size_t customSize = 0;
-            const void* customData = boundMaterial->customUniformData(customSize);
-            if (customData && customSize > 0) {
-                uniformData = customData;
-                uniformSize = customSize;
-            } else if (materialChanged) {
-                // Packed once per edit and reused across binds — see packedUniforms().
-                uniformData = &boundMaterial->packedUniforms();
-            }
-
-            // Skip texture rebinding when same material is still bound — unless the
-            // mesh instance's own lightmap changed, which rides in the material's
-            // lightmap slot: two meshes sharing a material each bring their own.
-            if (materialChanged || instanceLightMap() != _boundInstanceLightMap) {
-                // Reused: this runs on every material switch, and the slot list is
-                // consumed immediately by bindMaterialTextures.
-                static thread_local std::vector<TextureSlot> textureSlots;
-                textureSlots.clear();
-                boundMaterial->getTextureSlots(textureSlots);
-                applyInstanceLightMap(textureSlots, instanceLightMap());
-                _textureBinder.bindMaterialTextures(passEncoder, textureSlots);
-                _boundInstanceLightMap = instanceLightMap();
-            }
-        } else {
-            // A quad binds all eight of its slots itself just below.
+        if (!boundMaterial) {
+            // A quad binds all eight of its slots itself (bindPassTextures).
             if (!quadRenderActive()) {
                 _textureBinder.clearMaterialSlots(passEncoder);
             }
             _boundInstanceLightMap = nullptr;
+            return uniforms;
         }
 
-        // A quad pass has no material, so its own uniform block takes the material
-        // slot. Set after the material branch so it cannot disturb that path.
-        if (quadRenderActive() && !quadUniformData().empty()) {
-            uniformData = quadUniformData().data();
-            uniformSize = quadUniformData().size();
+        // isMaterialChanged mirrors submitPerDrawUniforms' dedup condition:
+        // for an unchanged material the ring offset is reused and the packed
+        // data ignored, so skip the packing too — updateUniforms costs ~35
+        // string-map lookups plus transcendentals per call, which dominated
+        // the draw loop when run for every draw.
+        const bool materialChanged = _uniformBinder.isMaterialChanged(boundMaterial);
+
+        size_t customSize = 0;
+        const void* customData = boundMaterial->customUniformData(customSize);
+        if (customData && customSize > 0) {
+            uniforms = {customData, customSize};
+        } else if (materialChanged) {
+            // Packed once per edit and reused across binds — see packedUniforms().
+            uniforms.data = &boundMaterial->packedUniforms();
         }
 
+        // Skip texture rebinding when same material is still bound — unless the
+        // mesh instance's own lightmap changed, which rides in the material's
+        // lightmap slot: two meshes sharing a material each bring their own.
+        if (materialChanged || instanceLightMap() != _boundInstanceLightMap) {
+            // Reused: this runs on every material switch, and the slot list is
+            // consumed immediately by bindMaterialTextures.
+            static thread_local std::vector<TextureSlot> textureSlots;
+            textureSlots.clear();
+            boundMaterial->getTextureSlots(textureSlots);
+            applyInstanceLightMap(textureSlots, instanceLightMap());
+            _textureBinder.bindMaterialTextures(passEncoder, textureSlots);
+            _boundInstanceLightMap = instanceLightMap();
+        }
+        return uniforms;
+    }
+
+    void MetalGraphicsDevice::bindPassTextures(MTL::RenderCommandEncoder* passEncoder)
+    {
         if (quadRenderActive()) {
             _textureBinder.bindQuadTextures(passEncoder, quadTextureBindings());
-        } else {
-            _textureBinder.bindSceneTextures(passEncoder,
-                _uniformBinder.envAtlasTexture(), _uniformBinder.shadowTexture(),
-                sceneDepthMap(), _uniformBinder.skyboxCubeMapTexture(),
-                reflectionMap(), reflectionDepthMap(), ssaoForwardTexture(),
-                _areaLightLut1, _areaLightLut2, sceneColorMap(),
-                _uniformBinder.reflectionProbeCubeTexture(), sceneDepthGrabMap());
-            // The second directional shadow slot's map. The shader gates on the
-            // slot's flag, not on the texture: an unbound Metal texture still reports
-            // a width and samples zero.
-            _textureBinder.bindCached(passEncoder, 35, _uniformBinder.shadowTexture1());
-            _textureBinder.bindLocalShadowTextures(passEncoder,
-                _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
-            _textureBinder.bindOmniShadowTextures(passEncoder,
-                _uniformBinder.omniShadowCube0(), _uniformBinder.omniShadowCube1());
-            _textureBinder.bindCookieTextures(passEncoder,
-                _uniformBinder.cookieTexture2D0(), _uniformBinder.cookieTexture2D1(),
-                _uniformBinder.cookieTextureCube0(), _uniformBinder.cookieTextureCube1());
-            // Clustered spot-shadow atlas (depth texture2d_array) at slot 26.
-            if (_clusterShadowAtlas) {
-                _textureBinder.bindCached(passEncoder, 26, _clusterShadowAtlas);
-            }
+            return;
         }
+        _textureBinder.bindSceneTextures(passEncoder,
+            _uniformBinder.envAtlasTexture(), _uniformBinder.shadowTexture(),
+            sceneDepthMap(), _uniformBinder.skyboxCubeMapTexture(),
+            reflectionMap(), reflectionDepthMap(), ssaoForwardTexture(),
+            _areaLightLut1, _areaLightLut2, sceneColorMap(),
+            _uniformBinder.reflectionProbeCubeTexture(), sceneDepthGrabMap());
+        // The second directional shadow slot's map. The shader gates on the
+        // slot's flag, not on the texture: an unbound Metal texture still reports
+        // a width and samples zero.
+        _textureBinder.bindCached(passEncoder, 35, _uniformBinder.shadowTexture1());
+        _textureBinder.bindLocalShadowTextures(passEncoder,
+            _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
+        _textureBinder.bindOmniShadowTextures(passEncoder,
+            _uniformBinder.omniShadowCube0(), _uniformBinder.omniShadowCube1());
+        _textureBinder.bindCookieTextures(passEncoder,
+            _uniformBinder.cookieTexture2D0(), _uniformBinder.cookieTexture2D1(),
+            _uniformBinder.cookieTextureCube0(), _uniformBinder.cookieTextureCube1());
+        // Clustered spot-shadow atlas (depth texture2d_array) at slot 26.
+        if (_clusterShadowAtlas) {
+            _textureBinder.bindCached(passEncoder, 26, _clusterShadowAtlas);
+        }
+    }
 
-        // Pack screen inverse resolution for planar reflection screen-space UV.
+    void MetalGraphicsDevice::updateReflectionUniforms()
+    {
+        // Screen inverse resolution for planar reflection screen-space UV.
         _uniformBinder.setScreenResolution(vw(), vh());
 
-        // Pack blurred planar reflection parameters.
-        {
-            const auto& rbp = reflectionBlurParams();
-            _uniformBinder.setReflectionBlurParams(
-                rbp.intensity, rbp.blurAmount, rbp.fadeStrength, rbp.angleFade,
-                rbp.fadeColor.r, rbp.fadeColor.g, rbp.fadeColor.b);
-            _uniformBinder.setReflectionDepthParams(rbp.planeDistance, rbp.heightRange);
-        }
+        // Blurred planar reflection parameters.
+        const auto& rbp = reflectionBlurParams();
+        _uniformBinder.setReflectionBlurParams(
+            rbp.intensity, rbp.blurAmount, rbp.fadeStrength, rbp.angleFade,
+            rbp.fadeColor.r, rbp.fadeColor.g, rbp.fadeColor.b);
+        _uniformBinder.setReflectionDepthParams(rbp.planeDistance, rbp.heightRange);
+    }
 
+    void MetalGraphicsDevice::submitDrawUniforms(MTL::RenderCommandEncoder* passEncoder,
+        const Material* boundMaterial, const UniformBlock& uniforms)
+    {
         // A quad draw supplies its own block in the material slot, so it must not
         // be keyed on the material for the ring's reuse check: nothing clears the
         // bound material for an offline bake, so consecutive quad draws would all
@@ -1327,14 +1366,17 @@ namespace visutwin::canvas
                 : MetalUniformBinder::sharedDefaultBlockKey();
         }
         _uniformBinder.submitPerDrawUniforms(passEncoder, _uniformRing.get(),
-            uniformKey, uniformData, uniformSize, hdrPass());
+            uniformKey, uniforms.data, uniforms.size, hdrPass());
 
         // Bind atmosphere uniforms at fragment slot 9 for skybox draws when atmosphere is enabled.
         if (atmosphereEnabled() && boundMaterial && boundMaterial->isSkybox()) {
             const auto& atmoUniforms = _uniformBinder.atmosphereUniforms();
             passEncoder->setFragmentBytes(&atmoUniforms, sizeof(atmoUniforms), 9);
         }
+    }
 
+    void MetalGraphicsDevice::bindDrawSampler(MTL::RenderCommandEncoder* passEncoder)
+    {
         // A quad pass is a screen-space post pass and needs the post sampler:
         // linear, clamp-to-edge, no mip/aniso. The scene sampler REPEATS, so a
         // kernel that taps past [0,1] wraps to the opposite edge — visible as
@@ -1348,7 +1390,10 @@ namespace visutwin::canvas
         // After the first draw in a pass has established all texture/sampler state,
         // subsequent draws can rely on the cache for deduplication.
         _textureBinder.markClean();
+    }
 
+    void MetalGraphicsDevice::applyDepthStencilState(MTL::RenderCommandEncoder* passEncoder)
+    {
         // Depth/stencil state is dynamic Metal encoder state. The exact
         // depth-test/depth-write combination is RESOLVED on every draw, so state from a
         // prior draw or a specialized pass cannot leak into this one, and issued when it
@@ -1373,19 +1418,21 @@ namespace visutwin::canvas
                 _encoderStencilReferenceValid = true;
             }
         }
+    }
 
-        // ── Dynamic batch palette binding (slot 6) ─────────────────────
-        // Update the palette ring buffer offset for this draw call.
-        // The buffer itself is bound once per render pass in startRenderPass();
-        // here we only update the offset (cheap, no validation).
-        // Uses Metal buffer (slot 6) for bone data.
+    void MetalGraphicsDevice::bindPendingDrawResources(MTL::RenderCommandEncoder* passEncoder)
+    {
+        // Each binding is one-shot: consumed by this draw and cleared.
+
+        // Dynamic batch / skinning palette (slot 6). The buffer itself is bound once
+        // per render pass in startRenderPass(); here only the offset changes.
         if (_pendingPaletteOffset != SIZE_MAX) {
             passEncoder->setVertexBufferOffset(_pendingPaletteOffset, 6);
             _pendingPaletteOffset = SIZE_MAX;
         }
 
-        // ── Morph target binding (slots 9/10) ──────────────────────────
-        // Delta buffer is static per Morph; params are small per-draw bytes.
+        // Morph targets (slots 9/10). Delta buffer is static per Morph; params are
+        // small per-draw bytes.
         if (_pendingMorphDeltaBuffer) {
             passEncoder->setVertexBuffer(_pendingMorphDeltaBuffer, 0, 9);
             passEncoder->setVertexBytes(_pendingMorphParams.data(), _pendingMorphParamsSize, 10);
@@ -1393,7 +1440,7 @@ namespace visutwin::canvas
             _pendingMorphParamsSize = 0;
         }
 
-        // ── Particle emitter binding (slots 7/11) ──────────────────────
+        // Particle emitter (slots 7/11).
         if (_pendingParticleBuffer) {
             passEncoder->setVertexBuffer(_pendingParticleBuffer, 0, 7);
             passEncoder->setVertexBytes(_pendingParticleParams.data(), _pendingParticleParamsSize, 11);
@@ -1401,7 +1448,7 @@ namespace visutwin::canvas
             _pendingParticleParamsSize = 0;
         }
 
-        // ── Gaussian splat binding (slots 7/8/12/11) ───────────────────
+        // Gaussian splats (slots 7/8/12/11).
         if (_pendingGSplatBuffer && _pendingGSplatOrderBuffer) {
             passEncoder->setVertexBuffer(_pendingGSplatBuffer, 0, 7);
             passEncoder->setVertexBuffer(_pendingGSplatOrderBuffer, 0, 8);
@@ -1414,54 +1461,48 @@ namespace visutwin::canvas
             _pendingGSplatShBuffer = nullptr;
             _pendingGSplatParamsSize = 0;
         }
+    }
 
-        // ── Draw dispatch (branch: indirect vs direct) ────────────────
-
+    void MetalGraphicsDevice::encodeDraw(MTL::RenderCommandEncoder* passEncoder, const Primitive& primitive,
+        const IndexBinding& index, const int numInstances, const int indirectSlot)
+    {
         const auto primitiveType = toMetalPrimitiveType(primitive.type);
 
         if (indirectSlot >= 0 && _indirectDrawBuffer) {
             // GPU-driven indirect draw: instance count comes from the GPU.
             const auto indirectOffset = static_cast<NS::UInteger>(indirectSlot * INDIRECT_ENTRY_BYTE_SIZE);
-            if (indexBuffer) {
+            if (index.buffer) {
                 passEncoder->drawIndexedPrimitives(
-                    primitiveType, indexType, ibBuffer, 0,
+                    primitiveType, index.type, index.buffer, 0,
                     _indirectDrawBuffer, indirectOffset);
             } else {
                 passEncoder->drawPrimitives(
                     primitiveType, _indirectDrawBuffer, indirectOffset);
             }
             _indirectDrawBuffer = nullptr;  // Consumed
-        } else {
-            // Direct draw (standard path)
-            if (indexBuffer) {
-                const auto indexElementSize = (indexType == MTL::IndexTypeUInt32) ? 4 : 2;
-                const auto indexBufferOffset = static_cast<NS::UInteger>(primitive.base * indexElementSize);
-                passEncoder->drawIndexedPrimitives(
-                    primitiveType,
-                    static_cast<NS::UInteger>(primitive.count),
-                    indexType,
-                    ibBuffer,
-                    indexBufferOffset,
-                    static_cast<NS::UInteger>(numInstances),
-                    static_cast<NS::Integer>(primitive.baseVertex),
-                    0
-                );
-            } else {
-                passEncoder->drawPrimitives(
-                    primitiveType,
-                    static_cast<NS::UInteger>(primitive.base),
-                    static_cast<NS::UInteger>(primitive.count),
-                    static_cast<NS::UInteger>(numInstances)
-                );
-            }
+            return;
         }
 
-        recordDraw(primitive, numInstances);
-
-        if (last) {
-            // Clear the vertex buffer array. What the ENCODER holds stays as it is: the
-            // next draw compares against it (_pipelineState, _encoderVertexBuffer0 ...).
-            clearVertexBuffer();
+        if (index.buffer) {
+            const auto indexElementSize = (index.type == MTL::IndexTypeUInt32) ? 4 : 2;
+            const auto indexBufferOffset = static_cast<NS::UInteger>(primitive.base * indexElementSize);
+            passEncoder->drawIndexedPrimitives(
+                primitiveType,
+                static_cast<NS::UInteger>(primitive.count),
+                index.type,
+                index.buffer,
+                indexBufferOffset,
+                static_cast<NS::UInteger>(numInstances),
+                static_cast<NS::Integer>(primitive.baseVertex),
+                0
+            );
+        } else {
+            passEncoder->drawPrimitives(
+                primitiveType,
+                static_cast<NS::UInteger>(primitive.base),
+                static_cast<NS::UInteger>(primitive.count),
+                static_cast<NS::UInteger>(numInstances)
+            );
         }
     }
 

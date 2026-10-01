@@ -479,117 +479,154 @@ namespace visutwin::canvas
         auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(_shader);
         if (!vulkanShader || vulkanShader->vertexModule() == VK_NULL_HANDLE) return;
 
+        const DrawResources resources = takePendingDrawResources();
+
+        if (first && !bindDrawPipeline(cmd, primitive, vulkanShader)) {
+            return;
+        }
+        applyStencilReference(cmd);
+        flushPushConstants(cmd);
+        syncHdrPassFlag();
+
+        // Descriptor sets 0-6. Any failed allocation skips the draw.
+        if (!bindLightingSet(cmd) ||
+            !bindMaterialUniformSet(cmd) ||
+            !bindMaterialTextureSet(cmd) ||
+            !bindSceneTextureSet(cmd) ||
+            !bindGeometrySet(cmd, *vulkanShader, resources) ||
+            !bindClusterSet(cmd) ||
+            !bindGpuDrivenSet(cmd, resources)) {
+            return;
+        }
+
+        issueDraw(cmd, primitive, indexBuffer, numInstances, indirectSlot);
+        recordDraw(primitive, numInstances);
+
+        if (last) {
+            clearVertexBuffer();
+            _currentPipeline = VK_NULL_HANDLE;
+        }
+    }
+
+    VulkanGraphicsDevice::DrawResources VulkanGraphicsDevice::takePendingDrawResources()
+    {
         // Geometry bindings are deliberately one-shot, matching Metal. Move
         // them into draw-local state before any fallible pipeline/descriptor
         // work so an aborted draw cannot leak stale deformation state.
-        const auto paletteOffset = _pendingPaletteOffset;
-        const VkDeviceSize paletteSize = _pendingPaletteSize;
-        auto morphDeltaBuffer = std::move(_pendingMorphDeltaBuffer);
-        const auto morphParamsOffset = _pendingMorphParamsOffset;
-        const VkDeviceSize morphParamsSize = _pendingMorphParamsSize;
+        DrawResources resources;
+        resources.paletteOffset = _pendingPaletteOffset;
+        resources.paletteSize = _pendingPaletteSize;
+        resources.morphDeltaBuffer = std::move(_pendingMorphDeltaBuffer);
+        resources.morphParamsOffset = _pendingMorphParamsOffset;
+        resources.morphParamsSize = _pendingMorphParamsSize;
         _pendingPaletteOffset.reset();
         _pendingPaletteSize = 0;
         _pendingMorphParamsOffset.reset();
         _pendingMorphParamsSize = 0;
-        auto particleBuffer = std::move(_pendingParticleBuffer);
-        const auto particleParams = _pendingParticleParams;
-        const size_t particleParamsSize = _pendingParticleParamsSize;
+        resources.particleBuffer = std::move(_pendingParticleBuffer);
+        resources.particleParams = _pendingParticleParams;
+        resources.particleParamsSize = _pendingParticleParamsSize;
         _pendingParticleParamsSize = 0;
-        auto splatBuffer = std::move(_pendingGSplatBuffer);
-        auto splatOrderBuffer = std::move(_pendingGSplatOrderBuffer);
-        auto splatShBuffer = std::move(_pendingGSplatShBuffer);
-        const auto splatParams = _pendingGSplatParams;
-        const size_t splatParamsSize = _pendingGSplatParamsSize;
+        resources.splatBuffer = std::move(_pendingGSplatBuffer);
+        resources.splatOrderBuffer = std::move(_pendingGSplatOrderBuffer);
+        resources.splatShBuffer = std::move(_pendingGSplatShBuffer);
+        resources.splatParams = _pendingGSplatParams;
+        resources.splatParamsSize = _pendingGSplatParamsSize;
         _pendingGSplatParamsSize = 0;
+        return resources;
+    }
 
-        if (first) {
-            auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
+    bool VulkanGraphicsDevice::bindDrawPipeline(VkCommandBuffer cmd, const Primitive& primitive,
+        const std::shared_ptr<VulkanShader>& shader)
+    {
+        auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
 
-            // Hardware instancing: the renderer binds the per-instance buffer
-            // at engine slot 5 with an isInstancing() format (same contract
-            // as the Metal backend).  Scan the upper slots for it.
-            const VulkanVertexBuffer* instancingVB = nullptr;
-            for (size_t i = 1; i < _vertexBuffers.size(); ++i) {
-                if (_vertexBuffers[i] && _vertexBuffers[i]->format() &&
-                    _vertexBuffers[i]->format()->isInstancing()) {
-                    instancingVB = static_cast<VulkanVertexBuffer*>(_vertexBuffers[i].get());
-                    break;
-                }
+        // Hardware instancing: the renderer binds the per-instance buffer
+        // at engine slot 5 with an isInstancing() format (same contract
+        // as the Metal backend).  Scan the upper slots for it.
+        const VulkanVertexBuffer* instancingVB = nullptr;
+        for (size_t i = 1; i < _vertexBuffers.size(); ++i) {
+            if (_vertexBuffers[i] && _vertexBuffers[i]->format() &&
+                _vertexBuffers[i]->format()->isInstancing()) {
+                instancingVB = static_cast<VulkanVertexBuffer*>(_vertexBuffers[i].get());
+                break;
             }
-            const auto instanceFormat = instancingVB ? instancingVB->format() : nullptr;
+        }
+        const auto instanceFormat = instancingVB ? instancingVB->format() : nullptr;
 
-            // Resolve attachment formats for pipeline creation.  The pipeline
-            // is keyed on these — a mismatch with the actual VkRenderingInfo
-            // attachments at draw-time is rejected by validation as
-            // VUID-vkCmdDrawIndexed-dynamicRenderingUnusedAttachments-08910.
-            std::vector<VkFormat> colorFormats{_swapchainFormat};
-            VkFormat depthFmt = _depthFormat;
-            // The swapchain is always single-sample (as it is on Metal); only an
-            // offscreen target can be multisampled, and the pipeline's raster
-            // sample count has to match what the pass attached.
-            VkSampleCountFlagBits rasterSamples = VK_SAMPLE_COUNT_1_BIT;
-            if (_activeOffscreenTarget) {
-                const auto& colors = _activeOffscreenTarget->colorAttachments();
-                colorFormats.clear();
-                colorFormats.reserve(colors.size());
-                for (const auto& color : colors) {
-                    colorFormats.push_back(color.format);
-                }
-                depthFmt = _activeOffscreenTarget->hasDepthAttachment()
-                    ? _activeOffscreenTarget->depthAttachment().format
-                    : VK_FORMAT_UNDEFINED;
-                rasterSamples = _activeOffscreenTarget->sampleCountFlag();
+        // Resolve attachment formats for pipeline creation.  The pipeline
+        // is keyed on these — a mismatch with the actual VkRenderingInfo
+        // attachments at draw-time is rejected by validation as
+        // VUID-vkCmdDrawIndexed-dynamicRenderingUnusedAttachments-08910.
+        std::vector<VkFormat> colorFormats{_swapchainFormat};
+        VkFormat depthFmt = _depthFormat;
+        // The swapchain is always single-sample (as it is on Metal); only an
+        // offscreen target can be multisampled, and the pipeline's raster
+        // sample count has to match what the pass attached.
+        VkSampleCountFlagBits rasterSamples = VK_SAMPLE_COUNT_1_BIT;
+        if (_activeOffscreenTarget) {
+            const auto& colors = _activeOffscreenTarget->colorAttachments();
+            colorFormats.clear();
+            colorFormats.reserve(colors.size());
+            for (const auto& color : colors) {
+                colorFormats.push_back(color.format);
             }
+            depthFmt = _activeOffscreenTarget->hasDepthAttachment()
+                ? _activeOffscreenTarget->depthAttachment().format
+                : VK_FORMAT_UNDEFINED;
+            rasterSamples = _activeOffscreenTarget->sampleCountFlag();
+        }
 
-            // The skybox is an inward-facing shell whose authored winding,
-            // combined with our negative-height (Y-flipped) viewport, makes
-            // its CULLFACE_FRONT cull the visible inner faces.  Render it with
-            // no culling so the environment shell is always drawn, and select
-            // the depth-pin skybox vertex stage. Derive this from the shader
-            // variant, not mutable material binding state: material-less passes
-            // such as shadows can otherwise inherit the previous frame's skybox
-            // material and accidentally render every caster with the sky vertex
-            // stage at the far plane.
-            const bool isSkybox =
-                vulkanShader->features().test(ShaderFeature::Skybox);
-            CullMode cullMode = isSkybox ? CullMode::CULLFACE_NONE : _cullMode;
+        // The skybox is an inward-facing shell whose authored winding,
+        // combined with our negative-height (Y-flipped) viewport, makes
+        // its CULLFACE_FRONT cull the visible inner faces.  Render it with
+        // no culling so the environment shell is always drawn, and select
+        // the depth-pin skybox vertex stage. Derive this from the shader
+        // variant, not mutable material binding state: material-less passes
+        // such as shadows can otherwise inherit the previous frame's skybox
+        // material and accidentally render every caster with the sky vertex
+        // stage at the far plane.
+        const bool isSkybox = shader->features().test(ShaderFeature::Skybox);
+        const CullMode cullMode = isSkybox ? CullMode::CULLFACE_NONE : _cullMode;
 
-            VkPipeline pipeline = _renderPipeline->get(primitive,
-                vf ? vf->format() : nullptr,
-                instanceFormat,
-                vulkanShader, _blendState, _depthState, cullMode,
-                _stencilEnabled, _stencilFront, _stencilBack,
-                colorFormats, depthFmt, rasterSamples, isSkybox);
+        VkPipeline pipeline = _renderPipeline->get(primitive,
+            vf ? vf->format() : nullptr,
+            instanceFormat,
+            shader, _blendState, _depthState, cullMode,
+            _stencilEnabled, _stencilFront, _stencilBack,
+            colorFormats, depthFmt, rasterSamples, isSkybox);
 
-            if (pipeline == VK_NULL_HANDLE) {
-                spdlog::error("VulkanGraphicsDevice: draw skipped because pipeline creation failed");
-                return;
-            }
-            if (pipeline != _currentPipeline) {
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                _currentPipeline = pipeline;
-                _pushConstantsDirty = true;
-            }
+        if (pipeline == VK_NULL_HANDLE) {
+            spdlog::error("VulkanGraphicsDevice: draw skipped because pipeline creation failed");
+            return false;
+        }
+        if (pipeline != _currentPipeline) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            _currentPipeline = pipeline;
+            _pushConstantsDirty = true;
+        }
 
-            // Bind vertex buffer
-            if (vf) {
-                auto* vb = static_cast<VulkanVertexBuffer*>(vf.get());
-                if (vb->buffer() != VK_NULL_HANDLE) {
-                    VkBuffer buf = vb->buffer();
-                    VkDeviceSize offset = 0;
-                    vkCmdBindVertexBuffers(cmd, 0, 1, &buf, &offset);
-                }
-            }
-
-            // Bind per-instance buffer at binding 1 (matches the pipeline's
-            // VK_VERTEX_INPUT_RATE_INSTANCE binding).
-            if (instancingVB && instancingVB->buffer() != VK_NULL_HANDLE) {
-                VkBuffer instBuf = instancingVB->buffer();
+        if (vf) {
+            auto* vb = static_cast<VulkanVertexBuffer*>(vf.get());
+            if (vb->buffer() != VK_NULL_HANDLE) {
+                VkBuffer buf = vb->buffer();
                 VkDeviceSize offset = 0;
-                vkCmdBindVertexBuffers(cmd, 1, 1, &instBuf, &offset);
+                vkCmdBindVertexBuffers(cmd, 0, 1, &buf, &offset);
             }
         }
 
+        // Bind per-instance buffer at binding 1 (matches the pipeline's
+        // VK_VERTEX_INPUT_RATE_INSTANCE binding).
+        if (instancingVB && instancingVB->buffer() != VK_NULL_HANDLE) {
+            VkBuffer instBuf = instancingVB->buffer();
+            VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 1, 1, &instBuf, &offset);
+        }
+        return true;
+    }
+
+    void VulkanGraphicsDevice::applyStencilReference(VkCommandBuffer cmd)
+    {
         if (_stencilEnabled && (_stencilFront || _stencilBack)) {
             const auto& effectiveFront = _stencilFront ? _stencilFront : _stencilBack;
             const auto& effectiveBack = _stencilBack ? _stencilBack : _stencilFront;
@@ -604,29 +641,35 @@ namespace visutwin::canvas
             // on state left by an earlier draw or frame.
             vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
         }
+    }
 
-        // Push constants (transforms)
+    void VulkanGraphicsDevice::flushPushConstants(VkCommandBuffer cmd)
+    {
         if (_pushConstantsDirty) {
             vkCmdPushConstants(cmd, _renderPipeline->pipelineLayout(),
                 VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &_pushConstants);
             _pushConstantsDirty = false;
         }
+    }
 
+    void VulkanGraphicsDevice::syncHdrPassFlag()
+    {
         // HDR pass flag (bit 5): under CameraFrame the forward pass outputs linear
         // HDR and the compose pass owns exposure/tonemap/gamma. Metal has always
         // set this; Vulkan never did, so its forward shader tonemapped and
         // gamma-encoded, and compose did it AGAIN — a double gamma, which is why
         // every camera-frame scene rendered washed out on this backend.
-        {
-            const uint32_t hdrBit = 1u << 5;
-            const uint32_t flags = hdrPass() ? (_lightingUbo.flagsAndPad[0] | hdrBit)
-                                             : (_lightingUbo.flagsAndPad[0] & ~hdrBit);
-            if (flags != _lightingUbo.flagsAndPad[0]) {
-                _lightingUbo.flagsAndPad[0] = flags;
-                _lightingNeedsUpload = true;
-            }
+        const uint32_t hdrBit = 1u << 5;
+        const uint32_t flags = hdrPass() ? (_lightingUbo.flagsAndPad[0] | hdrBit)
+                                         : (_lightingUbo.flagsAndPad[0] & ~hdrBit);
+        if (flags != _lightingUbo.flagsAndPad[0]) {
+            _lightingUbo.flagsAndPad[0] = flags;
+            _lightingNeedsUpload = true;
         }
+    }
 
+    bool VulkanGraphicsDevice::bindLightingSet(VkCommandBuffer cmd)
+    {
         // Set 2: per-pass lighting UBO.  Packed once per frame (or whenever
         // setLightingUniforms changed it) into the ring; every draw binds the
         // same descriptor set with the cached dynamic offset.
@@ -634,7 +677,7 @@ namespace visutwin::canvas
             const auto lightingOffset =
                 allocateUniform(&_lightingUbo, sizeof(VulkanLightingUBO));
             if (!lightingOffset) {
-                return;
+                return false;
             }
             _lightingSlotOffset = *lightingOffset;
             _lightingNeedsUpload = false;
@@ -642,525 +685,545 @@ namespace visutwin::canvas
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             _renderPipeline->pipelineLayout(), 2, 1, &_lightingDescriptorSet,
             1, &_lightingSlotOffset);
+        return true;
+    }
 
+    bool VulkanGraphicsDevice::bindMaterialUniformSet(VkCommandBuffer cmd)
+    {
         // Set 0: per-draw material UBO.  Pack MaterialUniforms (or the
         // material's custom uniform block) into the ring and bind via the
         // dynamic offset.  The shader's MaterialData block is statically used,
         // so it MUST be bound (VUID-vkCmdDrawIndexed-None-08600).
-        {
-            MaterialUniforms materialUniforms;
-            const void* uniformData = &materialUniforms;
-            const Material* reusableMaterial = nullptr;
-            size_t uniformSize = sizeof(MaterialUniforms);
-            // A quad pass has no material, so its own uniform block takes this slot.
-            if (quadRenderActive() && !quadUniformData().empty()) {
-                uniformData = quadUniformData().data();
-                uniformSize = quadUniformData().size();
-            } else if (_material) {
-                size_t customSize = 0;
-                const void* customData = _material->customUniformData(customSize);
-                if (customData && customSize > 0) {
-                    uniformData = customData;
-                    uniformSize = customSize;
-                } else {
-                    // The material's cached pack, as Metal uses it: it re-packs only
-                    // after a setter dirtied it, instead of once per draw.
-                    uniformData = &_material->packedUniforms();
-                    reusableMaterial = _material;
-                }
-            }
-            // Every draw of a material whose pack has not changed this frame shares one
-            // ring slot (Metal's binder reuses the slot for consecutive draws). The version is read
-            // AFTER packedUniforms(), and is unique across materials, so a dirtied or a
-            // different material at a reused address never matches. Quad and custom
-            // blocks are never reused: nothing versions them.
-            // A draw with NO material and no quad block (every opaque shadow and prepass
-            // caster) uploads the default block, which never changes: it takes one slot
-            // a frame too, under a key no material can have.
-            static const char kDefaultBlockKey = 0;
-            const bool defaultBlock = !_material && uniformData == &materialUniforms;
-            const void* reuseKey = reusableMaterial ? static_cast<const void*>(reusableMaterial)
-                : (defaultBlock ? static_cast<const void*>(&kDefaultBlockKey) : nullptr);
-            const uint64_t reuseVersion = reusableMaterial ? reusableMaterial->uniformsVersion() : 0;
-            std::optional<uint32_t> matOffset;
-            const auto reuse = reuseKey ? _materialUniformSlots.find(reuseKey) : _materialUniformSlots.end();
-            if (reuse != _materialUniformSlots.end() && reuse->second.version == reuseVersion) {
-                matOffset = reuse->second.offset;
+        MaterialUniforms materialUniforms;
+        const void* uniformData = &materialUniforms;
+        const Material* reusableMaterial = nullptr;
+        size_t uniformSize = sizeof(MaterialUniforms);
+        // A quad pass has no material, so its own uniform block takes this slot.
+        if (quadRenderActive() && !quadUniformData().empty()) {
+            uniformData = quadUniformData().data();
+            uniformSize = quadUniformData().size();
+        } else if (_material) {
+            size_t customSize = 0;
+            const void* customData = _material->customUniformData(customSize);
+            if (customData && customSize > 0) {
+                uniformData = customData;
+                uniformSize = customSize;
             } else {
-                // The descriptor's range is kPerDrawUniformCapacity, so the allocation
-                // must be that large whatever the payload is — otherwise the descriptor
-                // would read past the bytes actually written.
-                std::array<uint8_t, kPerDrawUniformCapacity> perDrawBlock{};
-                std::memcpy(perDrawBlock.data(), uniformData,
-                    std::min(uniformSize, perDrawBlock.size()));
-                matOffset = allocateUniform(perDrawBlock.data(), perDrawBlock.size());
-                if (matOffset && reuseKey) {
-                    _materialUniformSlots[reuseKey] = {reuseVersion, *matOffset};
-                }
+                // The material's cached pack, as Metal uses it: it re-packs only
+                // after a setter dirtied it, instead of once per draw.
+                uniformData = &_material->packedUniforms();
+                reusableMaterial = _material;
             }
-            if (!matOffset) {
-                return;
-            }
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                _renderPipeline->pipelineLayout(), 0, 1, &_materialDescriptorSet,
-                1, &*matOffset);
         }
+        // Every draw of a material whose pack has not changed this frame shares one
+        // ring slot (Metal's binder reuses the slot for consecutive draws). The version is read
+        // AFTER packedUniforms(), and is unique across materials, so a dirtied or a
+        // different material at a reused address never matches. Quad and custom
+        // blocks are never reused: nothing versions them.
+        // A draw with NO material and no quad block (every opaque shadow and prepass
+        // caster) uploads the default block, which never changes: it takes one slot
+        // a frame too, under a key no material can have.
+        static const char kDefaultBlockKey = 0;
+        const bool defaultBlock = !_material && uniformData == &materialUniforms;
+        const void* reuseKey = reusableMaterial ? static_cast<const void*>(reusableMaterial)
+            : (defaultBlock ? static_cast<const void*>(&kDefaultBlockKey) : nullptr);
+        const uint64_t reuseVersion = reusableMaterial ? reusableMaterial->uniformsVersion() : 0;
+        std::optional<uint32_t> matOffset;
+        const auto reuse = reuseKey ? _materialUniformSlots.find(reuseKey) : _materialUniformSlots.end();
+        if (reuse != _materialUniformSlots.end() && reuse->second.version == reuseVersion) {
+            matOffset = reuse->second.offset;
+        } else {
+            // The descriptor's range is kPerDrawUniformCapacity, so the allocation
+            // must be that large whatever the payload is — otherwise the descriptor
+            // would read past the bytes actually written.
+            std::array<uint8_t, kPerDrawUniformCapacity> perDrawBlock{};
+            std::memcpy(perDrawBlock.data(), uniformData,
+                std::min(uniformSize, perDrawBlock.size()));
+            matOffset = allocateUniform(perDrawBlock.data(), perDrawBlock.size());
+            if (matOffset && reuseKey) {
+                _materialUniformSlots[reuseKey] = {reuseVersion, *matOffset};
+            }
+        }
+        if (!matOffset) {
+            return false;
+        }
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _renderPipeline->pipelineLayout(), 0, 1, &_materialDescriptorSet,
+            1, &*matOffset);
+        return true;
+    }
 
+    bool VulkanGraphicsDevice::bindMaterialTextureSet(VkCommandBuffer cmd)
+    {
         // Set 1: material textures. Cache identical image/sampler tuples for
         // the lifetime of this frame slot instead of allocating per draw.
-        {
-            // The separate images (parallax, detail normal, displacement and the
-            // three clearcoat maps) read through the shared sampler at 24, so the
-            // descriptor for each carries only the half it owns.
-            constexpr auto& materialSlots = kMaterialTextureBindings;
-            const auto isSeparateImageSlot = [](const int slot) {
-                return vulkanMaterialBindingIsSeparateImage(static_cast<uint32_t>(slot));
-            };
-            constexpr int kExtraSampler = static_cast<int>(kMaterialExtraSamplerBinding);
-            std::array<VkDescriptorImageInfo, materialSlots.size()> imageInfos{};
-            for (size_t i = 0; i < imageInfos.size(); ++i) {
-                const int slot = materialSlots[i];
-                imageInfos[i].sampler = (slot == kExtraSampler) ? _materialExtraSampler
-                    : (isSeparateImageSlot(slot) ? VK_NULL_HANDLE : _defaultSampler);
-                imageInfos[i].imageView =
-                    (slot == kExtraSampler) ? VK_NULL_HANDLE : _whiteImageView;
-                imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            }
+        std::array<VkDescriptorImageInfo, kMaterialTextureBindings.size()> imageInfos{};
+        writeDefaultMaterialTextureInfos(imageInfos);
+        writeMaterialTextureInfos(imageInfos);
+        writeQuadTextureInfos(imageInfos);
 
-            if (_material) {
-                // Reused, not reallocated per draw: getTextureSlots appends.
-                thread_local std::vector<TextureSlot> texSlots;
-                texSlots.clear();
-                _material->getTextureSlots(texSlots);
-                // The mesh instance's own lightmap goes over the material's.
-                applyInstanceLightMap(texSlots, instanceLightMap());
-                for (const auto& ts : texSlots) {
-                    // The displacement map arrives on the >=100 sentinel slot
-                    // that routes it to the vertex stage (mirrors Metal).
-                    const int slot = (ts.slot >= 100) ? 25 : ts.slot;
-                    const auto slotIt = std::find(
-                        materialSlots.begin(), materialSlots.end(), slot);
-                    if (slotIt == materialSlots.end() || ts.texture == nullptr) {
-                        continue;
-                    }
-                    auto* vkTex =
-                        static_cast<gpu::VulkanTexture*>(ts.texture->impl());
-                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
-                        const size_t descriptorIndex =
-                            static_cast<size_t>(slotIt - materialSlots.begin());
-                        imageInfos[descriptorIndex].imageView = vkTex->imageView();
-                        // Separate images must leave the sampler half null; they
-                        // read through the shared sampler at binding 24.
-                        if (!isSeparateImageSlot(slot) &&
-                            vkTex->sampler() != VK_NULL_HANDLE) {
-                            imageInfos[descriptorIndex].sampler = vkTex->sampler();
-                        }
-                    }
-                }
-            }
-
-            // Quad passes (bloom downsample, compose, outline extend/blend) carry no
-            // material — their inputs arrive through setQuadTextureBinding, on
-            // fragment slots 0..7 as on Metal. Here quad slot i is the i-th binding of
-            // kMaterialTextureBindings: slots 0-5 are set-1 bindings 0-5, slot 6 is
-            // binding 17 and slot 7 is binding 19. It used to take the slot NUMBER as
-            // the binding, which left 6 and 7 with no binding at all: a quad shader
-            // declaring (set = 1, binding = 6) referenced a binding outside the
-            // pipeline layout and MoltenVK's translation lost the samplers of OTHER
-            // textures too ("use of undeclared identifier _NSmplr", compose-quad,
-            // 2026-09-19). Binding 17 is a SEPARATE image in this layout, so a quad
-            // shader declares slot 6 as `texture2D` and samples it through the extra
-            // sampler at binding 24; slot 7 (19) is an ordinary sampler2D.
-            for (size_t slotIndex = 0; slotIndex < materialSlots.size(); ++slotIndex) {
-                if (slotIndex >= quadTextureBindings().size()) {
-                    break;
-                }
-                const int binding = materialSlots[slotIndex];
-                Texture* quadTexture = quadTextureBinding(slotIndex);
-                if (!quadTexture) {
-                    continue;
-                }
-                auto* vkTex = static_cast<gpu::VulkanTexture*>(quadTexture->impl());
-                if (!vkTex || vkTex->imageView() == VK_NULL_HANDLE) {
-                    continue;
-                }
-                imageInfos[slotIndex].imageView = vkTex->imageView();
-                if (!isSeparateImageSlot(binding) && vkTex->sampler() != VK_NULL_HANDLE) {
-                    imageInfos[slotIndex].sampler = vkTex->sampler();
-                }
-                if (vkTex->isDepth()) {
-                    // Point-sample depth. A quad pass reconstructs positions from
-                    // it, and a bilinear tap straddling a silhouette returns a
-                    // depth belonging to NEITHER surface. Whether the hardware
-                    // filters a depth format at all is a per-format capability, so
-                    // leaving it to the texture's own sampler made SSAO read
-                    // linearly here and point-sampled there; the shadow sampler is
-                    // already nearest, clamp-to-edge and mip-less, which is exactly
-                    // what this tap wants.
-                    imageInfos[slotIndex].sampler = _shadowSampler;
-                    // Depth reaches a quad pass in whichever read-only layout its
-                    // producer left it in: endRenderPass leaves a texture-backed
-                    // depth attachment in SHADER_READ_ONLY_OPTIMAL, grabSceneDepth
-                    // leaves its copy in DEPTH_STENCIL_READ_ONLY_OPTIMAL. Declaring
-                    // the wrong one is a validation error and the sampled values are
-                    // undefined. Same rule the post-process path already follows.
-                    const VkImageLayout tracked = vkTex->layout(0, 0);
-                    imageInfos[slotIndex].imageLayout =
-                        tracked == VK_IMAGE_LAYOUT_UNDEFINED
-                            ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-                            : tracked;
-                }
-            }
-
-            const VkDescriptorSet texSet = getOrCreateImageDescriptorSet(
-                _renderPipeline->textureSetLayout(), imageInfos);
-            if (texSet == VK_NULL_HANDLE) {
-                return;
-            }
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                _renderPipeline->pipelineLayout(), 1, 1, &texSet, 0, nullptr);
+        const VkDescriptorSet texSet = getOrCreateImageDescriptorSet(
+            _renderPipeline->textureSetLayout(), imageInfos);
+        if (texSet == VK_NULL_HANDLE) {
+            return false;
         }
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _renderPipeline->pipelineLayout(), 1, 1, &texSet, 0, nullptr);
+        return true;
+    }
 
-        // Set 3: scene textures.  Binding 0 = environment atlas (or white
-        // fallback) read through the dedicated clamp-to-edge env sampler.
-        {
-            // These set-3 slots are declared sampler2D, so their view must be a plain
-            // 2D view; anything else falls back to white, which keeps the slot valid.
-            auto resolveView = [this](Texture* tex) -> VkImageView {
-                if (tex) {
-                    auto* vkTex =
-                        static_cast<gpu::VulkanTexture*>(tex->impl());
-                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE &&
-                        vkTex->arrayLayers() <= 1) {
-                        return vkTex->imageView();
-                    }
-                }
-                return _whiteImageView;
-            };
-
-            // Resolve a cube view, falling back to the white cubemap so an
-            // unbound omni slot reads fully lit (and never mixes a 2D view
-            // into a samplerCube descriptor, which is invalid).
-            auto resolveCubeView = [this](Texture* tex) -> VkImageView {
-                if (tex) {
-                    auto* vkTex =
-                        static_cast<gpu::VulkanTexture*>(tex->impl());
-                    if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
-                        return vkTex->imageView();
-                    }
-                }
-                return _whiteCubeImageView;
-            };
-
-            // During a shadow render the shadow map is the attachment being
-            // written, so bind white fallbacks instead of creating feedback.
-            bool shadowIsActiveAttachment = false;
-            if (_activeOffscreenTarget && !_activeOffscreenTarget->colorAttachments().empty()) {
-                const auto* attachment = _activeOffscreenTarget->colorAttachments()[0].texture;
-                for (Texture* shadowMap : {_shadowMapTexture, _shadowMapTexture1}) {
-                    shadowIsActiveAttachment = shadowIsActiveAttachment || (shadowMap &&
-                        attachment == static_cast<gpu::VulkanTexture*>(shadowMap->impl()));
-                }
-            }
-            const bool hideShadowMaps =
-                _depthOnlyPass || shadowIsActiveAttachment;
-
-            // Same hazard, generalized: a texture that is a colour attachment of
-            // the ACTIVE pass must not also be bound as a sampled image. The
-            // planar reflection maps hit this because they are device-level
-            // state bound for every pass — including the reflection cameras'
-            // own passes, which render into them. The descriptor claims
-            // SHADER_READ_ONLY while the image is still COLOR_ATTACHMENT_OPTIMAL,
-            // which is a layout mismatch (and reads a target being written).
-            //
-            // Unbind rather than skip: descriptor state persists from the
-            // previous pass, so leaving the binding alone would keep the
-            // hazardous texture attached.
-            auto isActiveColorAttachment = [this](Texture* tex) {
-                if (!tex || !_activeOffscreenTarget) {
-                    return false;
-                }
-                auto* vkTex = static_cast<gpu::VulkanTexture*>(tex->impl());
-                if (!vkTex) {
-                    return false;
-                }
-                for (const auto& att : _activeOffscreenTarget->colorAttachments()) {
-                    if (att.texture == vkTex) {
-                        return true;
-                    }
-                }
-                return false;
-            };
-
-
-            std::array<VkDescriptorImageInfo, kSceneTextureBindingCount> sceneInfos{};
-            sceneInfos[0].sampler = _envSampler;
-            sceneInfos[0].imageView = resolveView(_envAtlasTexture);
-
-            // Bindings 1 and 22: the two directional shadow maps, SEPARATE images
-            // read through the shared samplers at 12 (linear, for EVSM moments) and
-            // 13 (nearest, for depth) — the filter each map's own sampler had.
-            sceneInfos[1].imageView = hideShadowMaps
-                ? _whiteImageView : resolveView(_shadowMapTexture);
-            sceneInfos[22].imageView = hideShadowMaps
-                ? _whiteImageView : resolveView(_shadowMapTexture1);
-            sceneInfos[2].sampler = _shadowSampler;
-            sceneInfos[2].imageView = _depthOnlyPass
-                ? _whiteImageView : resolveView(_localShadowTexture0);
-            sceneInfos[3].sampler = _shadowSampler;
-            sceneInfos[3].imageView = _depthOnlyPass
-                ? _whiteImageView : resolveView(_localShadowTexture1);
-            sceneInfos[4].sampler = _shadowSampler;
-            sceneInfos[4].imageView = _depthOnlyPass
-                ? _whiteCubeImageView : resolveCubeView(_omniShadowCube0);
-            sceneInfos[5].sampler = _shadowSampler;
-            sceneInfos[5].imageView = _depthOnlyPass
-                ? _whiteCubeImageView : resolveCubeView(_omniShadowCube1);
-            // Bindings 6-11 are separate images (no sampler in the descriptor);
-            // they read through the two shared samplers written at 12-13.
-            sceneInfos[6].imageView = resolveCubeView(_skyboxCubeTexture);
-            sceneInfos[7].imageView = resolveCubeView(_reflectionProbeTexture);
-            sceneInfos[8].imageView = resolveView(_areaLightLut1);
-            sceneInfos[9].imageView = resolveView(_areaLightLut2);
-            sceneInfos[10].imageView = resolveView(sceneColorMap());
-            sceneInfos[11].imageView = resolveView(sceneDepthGrabMap());
-            // Binding 14: clustered shadow atlas, one packed 2D depth texture.
-            // Hidden during a depth-only pass because that is exactly when this
-            // atlas is the attachment being written — sampling it there would be
-            // feedback.
-            sceneInfos[14].imageView = _depthOnlyPass
-                ? _whiteImageView : resolveView(_clusterShadowAtlas);
-            // Bindings 15/16: planar reflection colour + distance-from-plane.
-            // Both are ordinary offscreen colour targets rendered by the
-            // reflection cameras earlier in the frame graph. Metal gates on
-            // get_width() > 0; here the white fallback would pass that test and
-            // paint the surface white, so availability rides
-            // reflectionDepthParams.zw instead (same pattern as the grab flags).
-            sceneInfos[15].imageView = isActiveColorAttachment(reflectionMap())
-                ? _whiteImageView : resolveView(reflectionMap());
-            sceneInfos[16].imageView = isActiveColorAttachment(reflectionDepthMap())
-                ? _whiteImageView : resolveView(reflectionDepthMap());
-            // Bindings 17-20: light cookies. The white fallback is the identity
-            // mask, so an unbound slot leaves its light unmodulated — matching
-            // the Metal path, where the cookie branch is simply not compiled in.
-            sceneInfos[17].imageView = resolveView(_cookieTexture2D0);
-            sceneInfos[18].imageView = resolveView(_cookieTexture2D1);
-            sceneInfos[19].imageView = resolveCubeView(_cookieTextureCube0);
-            sceneInfos[20].imageView = resolveCubeView(_cookieTextureCube1);
-            // Binding 21: lighting-mode SSAO. White when no SSAO pass published
-            // one, which reads as fully unoccluded — the shader samples it only
-            // under VT_FEATURE_SSAO, which the renderer enables from this same
-            // texture being non-null.
-            sceneInfos[21].imageView = resolveView(ssaoForwardTexture());
-            for (auto& sceneInfo : sceneInfos) {
-                sceneInfo.imageLayout =
-                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            }
-            // Sampler-only descriptors: linear clamp for the LUTs/cubes/color
-            // grab, nearest clamp for the depth copy.
-            sceneInfos[12] = {};
-            sceneInfos[12].sampler = _envSampler;
-            sceneInfos[13] = {};
-            sceneInfos[13].sampler = _shadowSampler;
-
-            const VkDescriptorSet sceneSet = getOrCreateImageDescriptorSet(
-                _renderPipeline->sceneSetLayout(), sceneInfos);
-            if (sceneSet == VK_NULL_HANDLE) {
-                return;
-            }
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
+    void VulkanGraphicsDevice::writeDefaultMaterialTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const
+    {
+        // The separate images (parallax, detail normal, displacement and the
+        // three clearcoat maps) read through the shared sampler at 24, so the
+        // descriptor for each carries only the half it owns.
+        constexpr int kExtraSampler = static_cast<int>(kMaterialExtraSamplerBinding);
+        for (size_t i = 0; i < imageInfos.size(); ++i) {
+            const int slot = kMaterialTextureBindings[i];
+            imageInfos[i].sampler = (slot == kExtraSampler) ? _materialExtraSampler
+                : (vulkanMaterialBindingIsSeparateImage(static_cast<uint32_t>(slot)) ? VK_NULL_HANDLE : _defaultSampler);
+            imageInfos[i].imageView =
+                (slot == kExtraSampler) ? VK_NULL_HANDLE : _whiteImageView;
+            imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
+    }
 
+    void VulkanGraphicsDevice::writeMaterialTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const
+    {
+        if (!_material) {
+            return;
+        }
+        constexpr auto& materialSlots = kMaterialTextureBindings;
+        // Reused, not reallocated per draw: getTextureSlots appends.
+        thread_local std::vector<TextureSlot> texSlots;
+        texSlots.clear();
+        _material->getTextureSlots(texSlots);
+        // The mesh instance's own lightmap goes over the material's.
+        applyInstanceLightMap(texSlots, instanceLightMap());
+        for (const auto& ts : texSlots) {
+            // The displacement map arrives on the >=100 sentinel slot
+            // that routes it to the vertex stage (mirrors Metal).
+            const int slot = (ts.slot >= 100) ? 25 : ts.slot;
+            const auto slotIt = std::find(
+                materialSlots.begin(), materialSlots.end(), slot);
+            if (slotIt == materialSlots.end() || ts.texture == nullptr) {
+                continue;
+            }
+            auto* vkTex =
+                static_cast<gpu::VulkanTexture*>(ts.texture->impl());
+            if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                const size_t descriptorIndex =
+                    static_cast<size_t>(slotIt - materialSlots.begin());
+                imageInfos[descriptorIndex].imageView = vkTex->imageView();
+                // Separate images must leave the sampler half null; they
+                // read through the shared sampler at binding 24.
+                if (!vulkanMaterialBindingIsSeparateImage(static_cast<uint32_t>(slot)) &&
+                    vkTex->sampler() != VK_NULL_HANDLE) {
+                    imageInfos[descriptorIndex].sampler = vkTex->sampler();
+                }
+            }
+        }
+    }
+
+    void VulkanGraphicsDevice::writeQuadTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const
+    {
+        // Quad passes (bloom downsample, compose, outline extend/blend) carry no
+        // material — their inputs arrive through setQuadTextureBinding, on
+        // fragment slots 0..7 as on Metal. Here quad slot i is the i-th binding of
+        // kMaterialTextureBindings: slots 0-5 are set-1 bindings 0-5, slot 6 is
+        // binding 17 and slot 7 is binding 19. It used to take the slot NUMBER as
+        // the binding, which left 6 and 7 with no binding at all: a quad shader
+        // declaring (set = 1, binding = 6) referenced a binding outside the
+        // pipeline layout and MoltenVK's translation lost the samplers of OTHER
+        // textures too ("use of undeclared identifier _NSmplr", compose-quad,
+        // 2026-09-19). Binding 17 is a SEPARATE image in this layout, so a quad
+        // shader declares slot 6 as `texture2D` and samples it through the extra
+        // sampler at binding 24; slot 7 (19) is an ordinary sampler2D.
+        const size_t quadSlots = std::min(imageInfos.size(), quadTextureBindings().size());
+        for (size_t slotIndex = 0; slotIndex < quadSlots; ++slotIndex) {
+            const int binding = kMaterialTextureBindings[slotIndex];
+            Texture* quadTexture = quadTextureBinding(slotIndex);
+            if (!quadTexture) {
+                continue;
+            }
+            auto* vkTex = static_cast<gpu::VulkanTexture*>(quadTexture->impl());
+            if (!vkTex || vkTex->imageView() == VK_NULL_HANDLE) {
+                continue;
+            }
+            imageInfos[slotIndex].imageView = vkTex->imageView();
+            if (!vulkanMaterialBindingIsSeparateImage(static_cast<uint32_t>(binding)) &&
+                vkTex->sampler() != VK_NULL_HANDLE) {
+                imageInfos[slotIndex].sampler = vkTex->sampler();
+            }
+            if (vkTex->isDepth()) {
+                // Point-sample depth. A quad pass reconstructs positions from
+                // it, and a bilinear tap straddling a silhouette returns a
+                // depth belonging to NEITHER surface. Whether the hardware
+                // filters a depth format at all is a per-format capability, so
+                // leaving it to the texture's own sampler made SSAO read
+                // linearly here and point-sampled there; the shadow sampler is
+                // already nearest, clamp-to-edge and mip-less, which is exactly
+                // what this tap wants.
+                imageInfos[slotIndex].sampler = _shadowSampler;
+                // Depth reaches a quad pass in whichever read-only layout its
+                // producer left it in: endRenderPass leaves a texture-backed
+                // depth attachment in SHADER_READ_ONLY_OPTIMAL, grabSceneDepth
+                // leaves its copy in DEPTH_STENCIL_READ_ONLY_OPTIMAL. Declaring
+                // the wrong one is a validation error and the sampled values are
+                // undefined. Same rule the post-process path already follows.
+                const VkImageLayout tracked = vkTex->layout(0, 0);
+                imageInfos[slotIndex].imageLayout =
+                    tracked == VK_IMAGE_LAYOUT_UNDEFINED
+                        ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                        : tracked;
+            }
+        }
+    }
+
+    VkImageView VulkanGraphicsDevice::sceneTextureView(Texture* texture) const
+    {
+        // These set-3 slots are declared sampler2D, so their view must be a plain
+        // 2D view; anything else falls back to white, which keeps the slot valid.
+        if (texture) {
+            auto* vkTex = static_cast<gpu::VulkanTexture*>(texture->impl());
+            if (vkTex && vkTex->imageView() != VK_NULL_HANDLE && vkTex->arrayLayers() <= 1) {
+                return vkTex->imageView();
+            }
+        }
+        return _whiteImageView;
+    }
+
+    VkImageView VulkanGraphicsDevice::sceneCubeView(Texture* texture) const
+    {
+        // Falls back to the white cubemap so an unbound omni slot reads fully lit
+        // (and never mixes a 2D view into a samplerCube descriptor, which is invalid).
+        if (texture) {
+            auto* vkTex = static_cast<gpu::VulkanTexture*>(texture->impl());
+            if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
+                return vkTex->imageView();
+            }
+        }
+        return _whiteCubeImageView;
+    }
+
+    bool VulkanGraphicsDevice::isActiveColorAttachment(Texture* texture) const
+    {
+        if (!texture || !_activeOffscreenTarget) {
+            return false;
+        }
+        auto* vkTex = static_cast<gpu::VulkanTexture*>(texture->impl());
+        if (!vkTex) {
+            return false;
+        }
+        for (const auto& att : _activeOffscreenTarget->colorAttachments()) {
+            if (att.texture == vkTex) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool VulkanGraphicsDevice::bindSceneTextureSet(VkCommandBuffer cmd)
+    {
+        // Set 3: scene textures.
+
+        // During a shadow render the shadow map is the attachment being
+        // written, so bind white fallbacks instead of creating feedback.
+        bool shadowIsActiveAttachment = false;
+        if (_activeOffscreenTarget && !_activeOffscreenTarget->colorAttachments().empty()) {
+            const auto* attachment = _activeOffscreenTarget->colorAttachments()[0].texture;
+            for (Texture* shadowMap : {_shadowMapTexture, _shadowMapTexture1}) {
+                shadowIsActiveAttachment = shadowIsActiveAttachment || (shadowMap &&
+                    attachment == static_cast<gpu::VulkanTexture*>(shadowMap->impl()));
+            }
+        }
+        const bool hideShadowMaps = _depthOnlyPass || shadowIsActiveAttachment;
+
+        std::array<VkDescriptorImageInfo, kSceneTextureBindingCount> sceneInfos{};
+        // Binding 0 = environment atlas (or white fallback) read through the
+        // dedicated clamp-to-edge env sampler.
+        sceneInfos[0].sampler = _envSampler;
+        sceneInfos[0].imageView = sceneTextureView(_envAtlasTexture);
+
+        // Bindings 1 and 22: the two directional shadow maps, SEPARATE images
+        // read through the shared samplers at 12 (linear, for EVSM moments) and
+        // 13 (nearest, for depth) — the filter each map's own sampler had.
+        sceneInfos[1].imageView = hideShadowMaps
+            ? _whiteImageView : sceneTextureView(_shadowMapTexture);
+        sceneInfos[22].imageView = hideShadowMaps
+            ? _whiteImageView : sceneTextureView(_shadowMapTexture1);
+        sceneInfos[2].sampler = _shadowSampler;
+        sceneInfos[2].imageView = _depthOnlyPass
+            ? _whiteImageView : sceneTextureView(_localShadowTexture0);
+        sceneInfos[3].sampler = _shadowSampler;
+        sceneInfos[3].imageView = _depthOnlyPass
+            ? _whiteImageView : sceneTextureView(_localShadowTexture1);
+        sceneInfos[4].sampler = _shadowSampler;
+        sceneInfos[4].imageView = _depthOnlyPass
+            ? _whiteCubeImageView : sceneCubeView(_omniShadowCube0);
+        sceneInfos[5].sampler = _shadowSampler;
+        sceneInfos[5].imageView = _depthOnlyPass
+            ? _whiteCubeImageView : sceneCubeView(_omniShadowCube1);
+        // Bindings 6-11 are separate images (no sampler in the descriptor);
+        // they read through the two shared samplers written at 12-13.
+        sceneInfos[6].imageView = sceneCubeView(_skyboxCubeTexture);
+        sceneInfos[7].imageView = sceneCubeView(_reflectionProbeTexture);
+        sceneInfos[8].imageView = sceneTextureView(_areaLightLut1);
+        sceneInfos[9].imageView = sceneTextureView(_areaLightLut2);
+        sceneInfos[10].imageView = sceneTextureView(sceneColorMap());
+        sceneInfos[11].imageView = sceneTextureView(sceneDepthGrabMap());
+        // Binding 14: clustered shadow atlas, one packed 2D depth texture.
+        // Hidden during a depth-only pass because that is exactly when this
+        // atlas is the attachment being written — sampling it there would be
+        // feedback.
+        sceneInfos[14].imageView = _depthOnlyPass
+            ? _whiteImageView : sceneTextureView(_clusterShadowAtlas);
+        // Bindings 15/16: planar reflection colour + distance-from-plane.
+        // Both are ordinary offscreen colour targets rendered by the
+        // reflection cameras earlier in the frame graph. Metal gates on
+        // get_width() > 0; here the white fallback would pass that test and
+        // paint the surface white, so availability rides
+        // reflectionDepthParams.zw instead (same pattern as the grab flags).
+        //
+        // A texture that is a colour attachment of the ACTIVE pass must not also
+        // be bound as a sampled image. The planar reflection maps hit this because
+        // they are device-level state bound for every pass — including the
+        // reflection cameras' own passes, which render into them. The descriptor
+        // claims SHADER_READ_ONLY while the image is still COLOR_ATTACHMENT_OPTIMAL,
+        // which is a layout mismatch (and reads a target being written). Unbind
+        // rather than skip: descriptor state persists from the previous pass, so
+        // leaving the binding alone would keep the hazardous texture attached.
+        sceneInfos[15].imageView = isActiveColorAttachment(reflectionMap())
+            ? _whiteImageView : sceneTextureView(reflectionMap());
+        sceneInfos[16].imageView = isActiveColorAttachment(reflectionDepthMap())
+            ? _whiteImageView : sceneTextureView(reflectionDepthMap());
+        // Bindings 17-20: light cookies. The white fallback is the identity
+        // mask, so an unbound slot leaves its light unmodulated — matching
+        // the Metal path, where the cookie branch is simply not compiled in.
+        sceneInfos[17].imageView = sceneTextureView(_cookieTexture2D0);
+        sceneInfos[18].imageView = sceneTextureView(_cookieTexture2D1);
+        sceneInfos[19].imageView = sceneCubeView(_cookieTextureCube0);
+        sceneInfos[20].imageView = sceneCubeView(_cookieTextureCube1);
+        // Binding 21: lighting-mode SSAO. White when no SSAO pass published
+        // one, which reads as fully unoccluded — the shader samples it only
+        // under VT_FEATURE_SSAO, which the renderer enables from this same
+        // texture being non-null.
+        sceneInfos[21].imageView = sceneTextureView(ssaoForwardTexture());
+        for (auto& sceneInfo : sceneInfos) {
+            sceneInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        }
+        // Sampler-only descriptors: linear clamp for the LUTs/cubes/color
+        // grab, nearest clamp for the depth copy.
+        sceneInfos[12] = {};
+        sceneInfos[12].sampler = _envSampler;
+        sceneInfos[13] = {};
+        sceneInfos[13].sampler = _shadowSampler;
+
+        const VkDescriptorSet sceneSet = getOrCreateImageDescriptorSet(
+            _renderPipeline->sceneSetLayout(), sceneInfos);
+        if (sceneSet == VK_NULL_HANDLE) {
+            return false;
+        }
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
+        return true;
+    }
+
+    bool VulkanGraphicsDevice::bindGeometrySet(VkCommandBuffer cmd, const VulkanShader& shader,
+        const DrawResources& resources)
+    {
         // Set 4: deformation data selected by the shared feature set.
-        const ShaderFeatureSet& shaderFeatures = vulkanShader->features();
+        const ShaderFeatureSet& shaderFeatures = shader.features();
         const bool usesPalette =
             shaderFeatures.test(ShaderFeature::Skinning) ||
             shaderFeatures.test(ShaderFeature::DynamicBatch);
         const bool usesMorph = shaderFeatures.test(ShaderFeature::Morphing);
-        if (usesPalette || usesMorph) {
-            if ((usesPalette && (!paletteOffset || paletteSize == 0)) ||
-                (usesMorph && (!morphDeltaBuffer || !morphParamsOffset ||
-                               morphParamsSize == 0))) {
-                spdlog::error(
-                    "VulkanGraphicsDevice: draw skipped because required "
-                    "palette/morph geometry state was not supplied");
-                return;
-            }
-
-            const VkDescriptorSet geometrySet = allocateFrameDescriptorSet(
-                _renderPipeline->geometrySetLayout());
-            if (geometrySet == VK_NULL_HANDLE) {
-                return;
-            }
-
-            std::array<VkDescriptorBufferInfo, 3> infos{};
-            std::array<VkWriteDescriptorSet, 3> writes{};
-            uint32_t writeCount = 0;
-            auto appendBuffer = [&](const uint32_t binding,
-                                    const VkDescriptorType type,
-                                    const VkBuffer buffer,
-                                    const VkDeviceSize offset,
-                                    const VkDeviceSize range) {
-                infos[writeCount] = {buffer, offset, range};
-                auto& write = writes[writeCount];
-                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write.dstSet = geometrySet;
-                write.dstBinding = binding;
-                write.descriptorType = type;
-                write.descriptorCount = 1;
-                write.pBufferInfo = &infos[writeCount];
-                ++writeCount;
-            };
-            if (usesPalette) {
-                appendBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                    _uniformRing->buffer(), *paletteOffset, paletteSize);
-            }
-            if (usesMorph) {
-                auto* morphBuffer =
-                    static_cast<VulkanVertexBuffer*>(morphDeltaBuffer.get());
-                appendBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                    morphBuffer->buffer(), 0, VK_WHOLE_SIZE);
-                appendBuffer(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    _uniformRing->buffer(), *morphParamsOffset,
-                    morphParamsSize);
-            }
-            vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                _renderPipeline->pipelineLayout(), 4, 1, &geometrySet, 0, nullptr);
+        if (!usesPalette && !usesMorph) {
+            return true;
+        }
+        if ((usesPalette && (!resources.paletteOffset || resources.paletteSize == 0)) ||
+            (usesMorph && (!resources.morphDeltaBuffer || !resources.morphParamsOffset ||
+                           resources.morphParamsSize == 0))) {
+            spdlog::error(
+                "VulkanGraphicsDevice: draw skipped because required "
+                "palette/morph geometry state was not supplied");
+            return false;
         }
 
-        {
-            // Specialization constants do not remove statically-declared
-            // descriptors from SPIR-V, so set 5 must be valid for every
-            // forward draw. Non-clustered draws bind tiny zero sentinels.
-            if (_clusterSentinelFrame != _frameSerial) {
-                // Once a frame, not once per draw: the zero blocks never change.
-                std::array<uint8_t, 144> emptyLight{};
-                const uint32_t emptyCell = 0;
-                _clusterSentinelLightOffset = allocateUniform(emptyLight.data(), emptyLight.size());
-                _clusterSentinelCellOffset = allocateUniform(&emptyCell, sizeof(emptyCell));
-                _clusterSentinelFrame = _frameSerial;
-            }
-            const auto lightOffset = _clusterLightOffset ? _clusterLightOffset : _clusterSentinelLightOffset;
-            const auto cellOffset = _clusterCellOffset ? _clusterCellOffset : _clusterSentinelCellOffset;
-            if (!lightOffset || !cellOffset) return;
-            const VkDeviceSize lightSize = _clusterLightOffset ? _clusterLightSize : 144;
-            const VkDeviceSize cellSize = _clusterCellOffset ? _clusterCellSize : sizeof(uint32_t);
-            // One set per distinct cluster binding per frame: the layer's cluster
-            // buffers stay put for all its draws.
-            VkDescriptorSet clusterSet = VK_NULL_HANDLE;
-            if (_clusterSetReuse.frame == _frameSerial && _clusterSetReuse.lightOffset == *lightOffset &&
-                _clusterSetReuse.cellOffset == *cellOffset && _clusterSetReuse.lightSize == lightSize &&
-                _clusterSetReuse.cellSize == cellSize) {
-                clusterSet = _clusterSetReuse.set;
-            } else {
-                clusterSet = allocateFrameDescriptorSet(_renderPipeline->clusterSetLayout());
-                if (clusterSet == VK_NULL_HANDLE) return;
-                std::array<VkDescriptorBufferInfo, 2> infos{{
-                    {_uniformRing->buffer(), *lightOffset, lightSize},
-                    {_uniformRing->buffer(), *cellOffset, cellSize},
-                }};
-                std::array<VkWriteDescriptorSet, 2> writes{};
-                for (uint32_t i = 0; i < writes.size(); ++i) {
-                    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    writes[i].dstSet = clusterSet;
-                    writes[i].dstBinding = i;
-                    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                    writes[i].descriptorCount = 1;
-                    writes[i].pBufferInfo = &infos[i];
-                }
-                vkUpdateDescriptorSets(_device, writes.size(), writes.data(), 0, nullptr);
-                _clusterSetReuse = {*lightOffset, *cellOffset, lightSize, cellSize, _frameSerial, clusterSet};
-            }
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                _renderPipeline->pipelineLayout(), 5, 1, &clusterSet, 0, nullptr);
+        const VkDescriptorSet geometrySet = allocateFrameDescriptorSet(
+            _renderPipeline->geometrySetLayout());
+        if (geometrySet == VK_NULL_HANDLE) {
+            return false;
         }
 
-        // Set 6: dedicated GPU-driven render resources. The state is one-shot
-        // and was moved above, so failed draws cannot leak it to later meshes.
-        if (particleBuffer || splatBuffer) {
-            const bool particleDraw = particleBuffer != nullptr;
-            const void* paramsData = particleDraw
-                ? static_cast<const void*>(particleParams.data())
-                : static_cast<const void*>(splatParams.data());
-            const size_t paramsSize = particleDraw
-                ? particleParamsSize : splatParamsSize;
-            auto paramsOffset = allocateUniform(paramsData, paramsSize);
-            auto primary = std::dynamic_pointer_cast<VulkanVertexBuffer>(
-                particleDraw ? particleBuffer : splatBuffer);
-            auto order = std::dynamic_pointer_cast<VulkanVertexBuffer>(splatOrderBuffer);
-            auto sh = std::dynamic_pointer_cast<VulkanVertexBuffer>(splatShBuffer);
-            if (!paramsOffset || !primary || !primary->buffer() ||
-                (!particleDraw && (!order || !order->buffer()))) {
-                return;
-            }
-            const VkDescriptorSet gpuSet = allocateFrameDescriptorSet(
-                _renderPipeline->gpuDrivenSetLayout());
-            if (gpuSet == VK_NULL_HANDLE) return;
-            std::array<VkDescriptorBufferInfo, 4> infos{};
-            infos[0] = {primary->buffer(), 0, VK_WHOLE_SIZE};
-            if (order) infos[1] = {order->buffer(), 0, VK_WHOLE_SIZE};
-            if (sh) infos[2] = {sh->buffer(), 0, VK_WHOLE_SIZE};
-            infos[3] = {_uniformRing->buffer(), *paramsOffset, paramsSize};
-            std::array<VkWriteDescriptorSet, 4> writes{};
-            uint32_t writeCount = 0;
-            const auto addWrite = [&](uint32_t binding, VkDescriptorType type) {
-                auto& write = writes[writeCount++];
-                write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                write.dstSet = gpuSet;
-                write.dstBinding = binding;
-                write.descriptorCount = 1;
-                write.descriptorType = type;
-                write.pBufferInfo = &infos[binding];
-            };
-            addWrite(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-            if (!particleDraw) {
-                addWrite(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                // Current Vulkan splat variant evaluates SH0 color. Keep the
-                // SH buffer in state so higher-band evaluation can be enabled
-                // without changing the public binding contract.
-                if (sh) addWrite(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-            }
-            addWrite(3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-            vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                _renderPipeline->pipelineLayout(), 6, 1, &gpuSet, 0, nullptr);
+        std::array<VkDescriptorBufferInfo, 3> infos{};
+        std::array<VkWriteDescriptorSet, 3> writes{};
+        uint32_t writeCount = 0;
+        auto appendBuffer = [&](const uint32_t binding,
+                                const VkDescriptorType type,
+                                const VkBuffer buffer,
+                                const VkDeviceSize offset,
+                                const VkDeviceSize range) {
+            infos[writeCount] = {buffer, offset, range};
+            auto& write = writes[writeCount];
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = geometrySet;
+            write.dstBinding = binding;
+            write.descriptorType = type;
+            write.descriptorCount = 1;
+            write.pBufferInfo = &infos[writeCount];
+            ++writeCount;
+        };
+        if (usesPalette) {
+            appendBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                _uniformRing->buffer(), *resources.paletteOffset, resources.paletteSize);
         }
+        if (usesMorph) {
+            auto* morphBuffer =
+                static_cast<VulkanVertexBuffer*>(resources.morphDeltaBuffer.get());
+            appendBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                morphBuffer->buffer(), 0, VK_WHOLE_SIZE);
+            appendBuffer(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                _uniformRing->buffer(), *resources.morphParamsOffset,
+                resources.morphParamsSize);
+        }
+        vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _renderPipeline->pipelineLayout(), 4, 1, &geometrySet, 0, nullptr);
+        return true;
+    }
 
-        // Draw
+    bool VulkanGraphicsDevice::bindClusterSet(VkCommandBuffer cmd)
+    {
+        // Specialization constants do not remove statically-declared
+        // descriptors from SPIR-V, so set 5 must be valid for every
+        // forward draw. Non-clustered draws bind tiny zero sentinels.
+        if (_clusterSentinelFrame != _frameSerial) {
+            // Once a frame, not once per draw: the zero blocks never change.
+            std::array<uint8_t, 144> emptyLight{};
+            const uint32_t emptyCell = 0;
+            _clusterSentinelLightOffset = allocateUniform(emptyLight.data(), emptyLight.size());
+            _clusterSentinelCellOffset = allocateUniform(&emptyCell, sizeof(emptyCell));
+            _clusterSentinelFrame = _frameSerial;
+        }
+        const auto lightOffset = _clusterLightOffset ? _clusterLightOffset : _clusterSentinelLightOffset;
+        const auto cellOffset = _clusterCellOffset ? _clusterCellOffset : _clusterSentinelCellOffset;
+        if (!lightOffset || !cellOffset) return false;
+        const VkDeviceSize lightSize = _clusterLightOffset ? _clusterLightSize : 144;
+        const VkDeviceSize cellSize = _clusterCellOffset ? _clusterCellSize : sizeof(uint32_t);
+        // One set per distinct cluster binding per frame: the layer's cluster
+        // buffers stay put for all its draws.
+        VkDescriptorSet clusterSet = VK_NULL_HANDLE;
+        if (_clusterSetReuse.frame == _frameSerial && _clusterSetReuse.lightOffset == *lightOffset &&
+            _clusterSetReuse.cellOffset == *cellOffset && _clusterSetReuse.lightSize == lightSize &&
+            _clusterSetReuse.cellSize == cellSize) {
+            clusterSet = _clusterSetReuse.set;
+        } else {
+            clusterSet = allocateFrameDescriptorSet(_renderPipeline->clusterSetLayout());
+            if (clusterSet == VK_NULL_HANDLE) return false;
+            std::array<VkDescriptorBufferInfo, 2> infos{{
+                {_uniformRing->buffer(), *lightOffset, lightSize},
+                {_uniformRing->buffer(), *cellOffset, cellSize},
+            }};
+            std::array<VkWriteDescriptorSet, 2> writes{};
+            for (uint32_t i = 0; i < writes.size(); ++i) {
+                writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[i].dstSet = clusterSet;
+                writes[i].dstBinding = i;
+                writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                writes[i].descriptorCount = 1;
+                writes[i].pBufferInfo = &infos[i];
+            }
+            vkUpdateDescriptorSets(_device, writes.size(), writes.data(), 0, nullptr);
+            _clusterSetReuse = {*lightOffset, *cellOffset, lightSize, cellSize, _frameSerial, clusterSet};
+        }
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _renderPipeline->pipelineLayout(), 5, 1, &clusterSet, 0, nullptr);
+        return true;
+    }
+
+    bool VulkanGraphicsDevice::bindGpuDrivenSet(VkCommandBuffer cmd, const DrawResources& resources)
+    {
+        // Set 6: dedicated GPU-driven render resources (particles or splats).
+        if (!resources.particleBuffer && !resources.splatBuffer) {
+            return true;
+        }
+        const bool particleDraw = resources.particleBuffer != nullptr;
+        const void* paramsData = particleDraw
+            ? static_cast<const void*>(resources.particleParams.data())
+            : static_cast<const void*>(resources.splatParams.data());
+        const size_t paramsSize = particleDraw
+            ? resources.particleParamsSize : resources.splatParamsSize;
+        auto paramsOffset = allocateUniform(paramsData, paramsSize);
+        auto primary = std::dynamic_pointer_cast<VulkanVertexBuffer>(
+            particleDraw ? resources.particleBuffer : resources.splatBuffer);
+        auto order = std::dynamic_pointer_cast<VulkanVertexBuffer>(resources.splatOrderBuffer);
+        auto sh = std::dynamic_pointer_cast<VulkanVertexBuffer>(resources.splatShBuffer);
+        if (!paramsOffset || !primary || !primary->buffer() ||
+            (!particleDraw && (!order || !order->buffer()))) {
+            return false;
+        }
+        const VkDescriptorSet gpuSet = allocateFrameDescriptorSet(
+            _renderPipeline->gpuDrivenSetLayout());
+        if (gpuSet == VK_NULL_HANDLE) return false;
+        std::array<VkDescriptorBufferInfo, 4> infos{};
+        infos[0] = {primary->buffer(), 0, VK_WHOLE_SIZE};
+        if (order) infos[1] = {order->buffer(), 0, VK_WHOLE_SIZE};
+        if (sh) infos[2] = {sh->buffer(), 0, VK_WHOLE_SIZE};
+        infos[3] = {_uniformRing->buffer(), *paramsOffset, paramsSize};
+        std::array<VkWriteDescriptorSet, 4> writes{};
+        uint32_t writeCount = 0;
+        const auto addWrite = [&](uint32_t binding, VkDescriptorType type) {
+            auto& write = writes[writeCount++];
+            write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            write.dstSet = gpuSet;
+            write.dstBinding = binding;
+            write.descriptorCount = 1;
+            write.descriptorType = type;
+            write.pBufferInfo = &infos[binding];
+        };
+        addWrite(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        if (!particleDraw) {
+            addWrite(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            // Current Vulkan splat variant evaluates SH0 color. Keep the
+            // SH buffer in state so higher-band evaluation can be enabled
+            // without changing the public binding contract.
+            if (sh) addWrite(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        }
+        addWrite(3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _renderPipeline->pipelineLayout(), 6, 1, &gpuSet, 0, nullptr);
+        return true;
+    }
+
+    void VulkanGraphicsDevice::issueDraw(VkCommandBuffer cmd, const Primitive& primitive,
+        const std::shared_ptr<IndexBuffer>& indexBuffer, const int numInstances, const int indirectSlot)
+    {
+        // An indirect draw consumes the indirect buffer: it applies to one draw only.
+        const bool indirect = indirectSlot >= 0 && _indirectDrawBuffer != VK_NULL_HANDLE;
         if (indexBuffer) {
             auto* ib = static_cast<VulkanIndexBuffer*>(indexBuffer.get());
-            if (ib->buffer() != VK_NULL_HANDLE) {
-                vkCmdBindIndexBuffer(cmd, ib->buffer(), 0, ib->indexType());
-                if (indirectSlot >= 0 && _indirectDrawBuffer != VK_NULL_HANDLE) {
-                    vkCmdDrawIndexedIndirect(cmd, _indirectDrawBuffer,
-                        static_cast<VkDeviceSize>(indirectSlot) *
-                            sizeof(VkDrawIndexedIndirectCommand),
-                        1, sizeof(VkDrawIndexedIndirectCommand));
-                    _indirectDrawBuffer = VK_NULL_HANDLE;
-                } else {
-                    vkCmdDrawIndexed(cmd, primitive.count, numInstances,
-                        primitive.base, primitive.baseVertex, 0);
-                }
+            if (ib->buffer() == VK_NULL_HANDLE) {
+                return;
             }
-        } else {
-            if (indirectSlot >= 0 && _indirectDrawBuffer != VK_NULL_HANDLE) {
-                vkCmdDrawIndirect(cmd, _indirectDrawBuffer,
-                    static_cast<VkDeviceSize>(indirectSlot) *
-                        sizeof(VkDrawIndirectCommand),
-                    1, sizeof(VkDrawIndirectCommand));
+            vkCmdBindIndexBuffer(cmd, ib->buffer(), 0, ib->indexType());
+            if (indirect) {
+                vkCmdDrawIndexedIndirect(cmd, _indirectDrawBuffer,
+                    static_cast<VkDeviceSize>(indirectSlot) * sizeof(VkDrawIndexedIndirectCommand),
+                    1, sizeof(VkDrawIndexedIndirectCommand));
                 _indirectDrawBuffer = VK_NULL_HANDLE;
             } else {
-                vkCmdDraw(cmd, primitive.count, numInstances, primitive.base, 0);
+                vkCmdDrawIndexed(cmd, primitive.count, numInstances,
+                    primitive.base, primitive.baseVertex, 0);
             }
-        }
-
-        recordDraw(primitive, numInstances);
-
-        if (last) {
-            clearVertexBuffer();
-            _currentPipeline = VK_NULL_HANDLE;
+        } else if (indirect) {
+            vkCmdDrawIndirect(cmd, _indirectDrawBuffer,
+                static_cast<VkDeviceSize>(indirectSlot) * sizeof(VkDrawIndirectCommand),
+                1, sizeof(VkDrawIndirectCommand));
+            _indirectDrawBuffer = VK_NULL_HANDLE;
+        } else {
+            vkCmdDraw(cmd, primitive.count, numInstances, primitive.base, 0);
         }
     }
 

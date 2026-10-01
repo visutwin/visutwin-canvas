@@ -32,6 +32,7 @@ namespace visutwin::canvas
 {
     class VulkanRenderPipeline;
     class VulkanRenderTarget;
+    class VulkanShader;
     class VulkanUniformRingBuffer;
 
     class VulkanGraphicsDevice : public GraphicsDevice
@@ -394,6 +395,59 @@ namespace visutwin::canvas
 
         [[nodiscard]] std::optional<uint32_t> allocateUniform(
             const void* data, VkDeviceSize size);
+
+        // draw()'s stages, in the order it runs them. A bind* stage returns false
+        // when the draw has to be skipped (a pipeline or an allocation failed).
+
+        /// The one-shot geometry bindings a draw consumes (palette, morph, particle,
+        /// splat). draw() moves them out of the device before any fallible work, so
+        /// an aborted draw cannot leak them into the next one.
+        struct DrawResources
+        {
+            std::optional<uint32_t> paletteOffset;
+            VkDeviceSize paletteSize = 0;
+            std::shared_ptr<VertexBuffer> morphDeltaBuffer;
+            std::optional<uint32_t> morphParamsOffset;
+            VkDeviceSize morphParamsSize = 0;
+            std::shared_ptr<VertexBuffer> particleBuffer;
+            std::array<uint8_t, sizeof(GpuParticleRenderParams)> particleParams{};
+            size_t particleParamsSize = 0;
+            std::shared_ptr<VertexBuffer> splatBuffer;
+            std::shared_ptr<VertexBuffer> splatOrderBuffer;
+            std::shared_ptr<VertexBuffer> splatShBuffer;
+            std::array<uint8_t, 256> splatParams{};
+            size_t splatParamsSize = 0;
+        };
+        DrawResources takePendingDrawResources();
+        /// Binds the pipeline for the bound state and the vertex and instance buffers.
+        [[nodiscard]] bool bindDrawPipeline(VkCommandBuffer cmd, const Primitive& primitive,
+            const std::shared_ptr<VulkanShader>& shader);
+        void applyStencilReference(VkCommandBuffer cmd);
+        void flushPushConstants(VkCommandBuffer cmd);
+        void syncHdrPassFlag();
+        [[nodiscard]] bool bindLightingSet(VkCommandBuffer cmd);           // set 2
+        [[nodiscard]] bool bindMaterialUniformSet(VkCommandBuffer cmd);    // set 0
+        [[nodiscard]] bool bindMaterialTextureSet(VkCommandBuffer cmd);    // set 1
+        [[nodiscard]] bool bindSceneTextureSet(VkCommandBuffer cmd);       // set 3
+        [[nodiscard]] bool bindGeometrySet(VkCommandBuffer cmd, const VulkanShader& shader,
+            const DrawResources& resources);                               // set 4
+        [[nodiscard]] bool bindClusterSet(VkCommandBuffer cmd);            // set 5
+        [[nodiscard]] bool bindGpuDrivenSet(VkCommandBuffer cmd,
+            const DrawResources& resources);                               // set 6
+        void issueDraw(VkCommandBuffer cmd, const Primitive& primitive,
+            const std::shared_ptr<IndexBuffer>& indexBuffer, int numInstances, int indirectSlot);
+
+        // Set-1 descriptor contents: the white/default fallbacks, then the bound
+        // material's textures, then a quad pass's inputs over them.
+        void writeDefaultMaterialTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const;
+        void writeMaterialTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const;
+        void writeQuadTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const;
+        /// A set-3 view for a sampler2D slot, or white when the texture has none.
+        [[nodiscard]] VkImageView sceneTextureView(Texture* texture) const;
+        /// A set-3 view for a samplerCube slot, or the white cubemap.
+        [[nodiscard]] VkImageView sceneCubeView(Texture* texture) const;
+        /// True when the texture is a colour attachment of the pass being recorded.
+        [[nodiscard]] bool isActiveColorAttachment(Texture* texture) const;
 
         SDL_Window* _window = nullptr;
         bool _validationEnabled = false;
