@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <array>
 #include "Metal/Metal.hpp"
 #include "metalGraphicsDevice.h"
 #include "metalPipeline.h"
@@ -74,12 +75,22 @@ namespace visutwin::canvas
         // Temporary array for hash lookups
         std::vector<uint32_t> _lookupHashes;
 
-        // The previous lookup and its answer. Consecutive draws nearly always ask for the
-        // same pipeline, and comparing fifteen words against the last key is cheaper than
-        // hashing them and walking the cache. The cache never evicts, so the answer stays
+        // The last few lookups and their answers. Consecutive draws nearly always ask for
+        // the same pipeline, or alternate between two or three (a UI draws image, text,
+        // image, text), and comparing fifteen words against a recent key is cheaper than
+        // hashing them and walking the cache. The cache never evicts, so an answer stays
         // valid for as long as this object lives.
-        std::vector<uint32_t> _lastLookupHashes;
-        MTL::RenderPipelineState* _lastPipeline = nullptr;
+        static constexpr size_t kLookupKeyWords = 15;
+        static constexpr size_t kRecentLookups = 4;
+        struct RecentLookup
+        {
+            std::array<uint32_t, kLookupKeyWords> key{};
+            MTL::RenderPipelineState* pipeline = nullptr;
+        };
+        void rememberLookup(MTL::RenderPipelineState* pipeline);
+        std::array<RecentLookup, kRecentLookups> _recentLookups;
+        // The most recent entry, tried first; the next write goes to the one after it.
+        size_t _recentLookup = 0;
 
         // The cache of render pipelines
         std::unordered_map<uint32_t, std::vector<std::shared_ptr<CacheEntry>>> _cache;

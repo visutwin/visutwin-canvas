@@ -334,6 +334,9 @@ namespace visutwin::canvas
         }
 
 
+        // Whatever was encoded and never reached a frame end still runs.
+        flushCommands();
+
         if (_framePool) {
             _framePool->release();
             _framePool = nullptr;
@@ -403,6 +406,7 @@ namespace visutwin::canvas
         // autorelease pool pops the nested canvas pool when the delegate
         // callback returns.
         _framePool = NS::AutoreleasePool::alloc()->init();
+        _insideFrame = true;
 
         // Advance ring buffers to next frame region. This blocks if the GPU
         // hasn't finished with the region we're about to write to.
@@ -467,16 +471,26 @@ namespace visutwin::canvas
 
     void MetalGraphicsDevice::onFrameEnd()
     {
-        // Always commit an end-of-frame command buffer with ring buffer completion
-        // handlers so the dispatch semaphores are signaled.  If no back-buffer pass
-        // occurred this frame (e.g. post-processing toggled off with stale render
-        // actions), _frameDrawable may be null.  We must still signal the semaphores
-        // — otherwise beginFrame() blocks forever after kMaxInflightFrames.
-        auto* endBuffer = _commandQueue ? _commandQueue->commandBuffer() : nullptr;
+        // A capture reads the finished drawable back through a buffer of its own, so
+        // everything that draws into it has to be committed first. It runs BEFORE the
+        // frame's last buffer is committed so the copy is ordered ahead of the present,
+        // not after it (a presented drawable may be recycled). Blocking here is
+        // acceptable: it happens on the single frame a capture was asked for.
+        if (screenshotPending() && _frameDrawable) {
+            flushCommands();
+            captureDrawable(_frameDrawable);
+        }
+
+        // The frame's LAST command buffer: the open one, which holds whatever has not
+        // been committed yet, or an empty one when everything already was. It carries
+        // the ring completion handlers and the present, and one is committed every
+        // frame whatever happened — with no back-buffer pass (post-processing toggled
+        // off with stale render actions) _frameDrawable is null, and the semaphores
+        // still have to be signalled or beginFrame() blocks for good after
+        // kMaxInflightFrames.
+        auto* endBuffer = openCommandBuffer();
         if (endBuffer) {
-            // Register ring buffer completion handlers on this command buffer.
-            // This is the LAST command buffer committed per frame, so the
-            // semaphore signals correctly track whole-frame GPU completion.
+            // The semaphore signals track whole-frame GPU completion.
             _transformRing->endFrame(endBuffer);
             _uniformRing->endFrame(endBuffer);
             _paletteRing->endFrame(endBuffer);
@@ -484,11 +498,10 @@ namespace visutwin::canvas
             if (_frameDrawable) {
                 // Present only after this buffer — and therefore every prior
                 // command buffer on the queue — has COMPLETED on the GPU.
-                // presentDrawable() fires when the buffer is merely SCHEDULED;
-                // because the engine renders a frame through several separately
-                // committed back-buffer command buffers and presents from this
-                // empty end-of-frame buffer, a scheduled-time present can scan
-                // out a partially rendered drawable when the layer takes the
+                // presentDrawable() fires when the buffer is merely SCHEDULED; a frame
+                // can be committed in more than one buffer (an early commit after a
+                // heavy pass), and a scheduled-time present can then scan out a
+                // partially rendered drawable when the layer takes the
                 // direct-to-display path (visible as flashing patches of the
                 // earlier passes' content; screen captures never show it since
                 // compositing reads the surface after completion).
@@ -499,18 +512,7 @@ namespace visutwin::canvas
                     presentedDrawable->release();
                 });
             }
-            // Backbuffer capture. This is the only point in the frame where the
-            // drawable holds the finished image and is still reachable —
-            // _frameDrawable is cleared immediately below. It runs BEFORE
-            // endBuffer is committed so the copy is ordered ahead of the
-            // present, not after it (a presented drawable may be recycled).
-            // Blocking here is acceptable: it happens on the single frame a
-            // capture was asked for.
-            if (screenshotPending() && _frameDrawable) {
-                captureDrawable(_frameDrawable);
-            }
-
-            endBuffer->commit();
+            flushCommands();
         } else {
             // Balance the beginFrame() waits even if Metal cannot allocate the
             // sentinel command buffer. Otherwise the fourth such frame deadlocks.
@@ -519,6 +521,8 @@ namespace visutwin::canvas
             _uniformRing->endFrame(nullptr);
             _paletteRing->endFrame(nullptr);
         }
+
+        _insideFrame = false;
 
         // The drawable has either been retained by the completion handler above or
         // was never acquired. Do not expose an autoreleased pointer after the frame
@@ -675,23 +679,22 @@ namespace visutwin::canvas
 
     void MetalGraphicsDevice::beginGpuCullBatch()
     {
-        if (_gpuCullBatchCommandBuffer) {
-            return; // already batching
-        }
-        _gpuCullBatchCommandBuffer = _commandQueue ? _commandQueue->commandBuffer() : nullptr;
+        // The dispatches encode into the open command buffer, ahead of the rendering
+        // that consumes the compacted buffers and indirect arguments. Cull parameters
+        // and resets are encoder-owned/GPU-side, so no CPU wait is needed to protect
+        // resources reused by the following frame.
+        _gpuCullBatchOpen = true;
     }
 
     void MetalGraphicsDevice::endGpuCullBatch()
     {
-        if (!_gpuCullBatchCommandBuffer) {
+        if (!_gpuCullBatchOpen) {
             return;
         }
-        // Rendering is submitted to the same serial queue, so it consumes the
-        // compacted buffers and indirect arguments after this compute batch.
-        // Cull parameters and resets are encoder-owned/GPU-side, so no CPU wait
-        // is needed to protect resources reused by the following frame.
-        _gpuCullBatchCommandBuffer->commit();
-        _gpuCullBatchCommandBuffer = nullptr;
+        _gpuCullBatchOpen = false;
+        if (!_insideFrame) {
+            flushCommands();
+        }
     }
 
     void MetalGraphicsDevice::beginOfflineWork()
@@ -704,39 +707,47 @@ namespace visutwin::canvas
         if (_envBatchDepth > 0 && --_envBatchDepth > 0) {
             return;  // inner scope of a nested batch
         }
-        if (_envBatchCommandBuffer) {
-            // Committed, NOT waited on: in-engine callers only sample the result
-            // from later GPU work on the same queue, which is already ordered, and
-            // reflection-probe-dynamic re-bakes every frame — a stall there would
-            // serialise CPU and GPU for nothing. Vulkan's side waits because it
-            // must, to reuse frame-scoped resources safely, not because callers
-            // need completion.
-            _envBatchCommandBuffer->commit();
-            _envBatchCommandBuffer = nullptr;
+        // The work is in the open command buffer. Inside a frame it is committed with
+        // the frame, in order; outside one it is committed here. NOT waited on either
+        // way: in-engine callers only sample the result from later GPU work on the
+        // same queue, which is already ordered, and reflection-probe-dynamic re-bakes
+        // every frame — a stall there would serialise CPU and GPU for nothing.
+        // Vulkan's side waits because it must, to reuse frame-scoped resources safely,
+        // not because callers need completion.
+        if (!_insideFrame) {
+            flushCommands();
         }
     }
 
-    MTL::CommandBuffer* MetalGraphicsDevice::acquireEnvCommandBuffer()
+    MTL::CommandBuffer* MetalGraphicsDevice::openCommandBuffer()
     {
-        if (!_commandQueue) {
+        if (!_commandQueue || _renderPassEncoder) {
             return nullptr;
         }
-        if (_envBatchDepth <= 0) {
-            return _commandQueue->commandBuffer();
+        if (!_openCommandBuffer) {
+            // Autoreleased, and it may outlive the pool it was made in (work encoded
+            // before the frame starts stays open into it), so it is retained.
+            _openCommandBuffer = _commandQueue->commandBuffer();
+            if (_openCommandBuffer) {
+                _openCommandBuffer->retain();
+            }
+            _openBufferDraws = 0;
+            _openBufferVertices = 0;
         }
-        if (!_envBatchCommandBuffer) {
-            _envBatchCommandBuffer = _commandQueue->commandBuffer();
-        }
-        return _envBatchCommandBuffer;
+        return _openCommandBuffer;
     }
 
-    void MetalGraphicsDevice::submitEnvCommandBuffer(MTL::CommandBuffer* buffer)
+    bool MetalGraphicsDevice::flushCommands()
     {
-        // While batching, the buffer stays open so later operations encode into it;
-        // endOfflineWork does the single commit.
-        if (buffer && buffer != _envBatchCommandBuffer) {
-            buffer->commit();
+        if (_renderPassEncoder) {
+            return false;
         }
+        if (_openCommandBuffer) {
+            _openCommandBuffer->commit();
+            _openCommandBuffer->release();
+            _openCommandBuffer = nullptr;
+        }
+        return true;
     }
 
     std::shared_ptr<IndexBuffer> MetalGraphicsDevice::createIndexBuffer(const IndexFormat format, const int numIndices,
@@ -766,7 +777,10 @@ namespace visutwin::canvas
             return;
         }
 
-        auto* commandBuffer = _commandQueue->commandBuffer();
+        // Into the open command buffer, in order with the passes around it. A buffer
+        // per dispatch runs the queue out of buffers: a scene with a few hundred
+        // particle emitters blocked in commandBuffer() every frame.
+        auto* commandBuffer = openCommandBuffer();
         if (!commandBuffer) {
             spdlog::warn("Failed to allocate command buffer for compute dispatch");
             return;
@@ -849,7 +863,9 @@ namespace visutwin::canvas
         }
 
         encoder->endEncoding();
-        commandBuffer->commit();
+        // Left in the open command buffer even outside a frame — a simulation steps in
+        // the update, before the frame starts — and submitted with the next frame, as
+        // the Vulkan backend queues a dispatch for its frame's command buffer.
     }
 
 
@@ -1053,10 +1069,10 @@ namespace visutwin::canvas
             return;
         }
 
-        // Its own command buffer: render passes each commit their own, so in-order
-        // queue submission keeps this after the pass that produced the source and
-        // before the one that samples the copy.
-        auto* commandBuffer = _commandQueue->commandBuffer();
+        // In the open command buffer, after the pass that produced the source and
+        // before the one that samples the copy, because that is the order they are
+        // encoded in.
+        auto* commandBuffer = openCommandBuffer();
         auto* blitEncoder = commandBuffer ? commandBuffer->blitCommandEncoder() : nullptr;
         if (!blitEncoder) {
             return;
@@ -1069,7 +1085,9 @@ namespace visutwin::canvas
         if (doColor) blit(colorSource, colorTarget);
         if (doDepth) blit(depthSource, depthTarget);
         blitEncoder->endEncoding();
-        commandBuffer->commit();
+        if (!_insideFrame) {
+            flushCommands();
+        }
     }
 
     void MetalGraphicsDevice::generateMipmaps(Texture* texture)
@@ -1082,14 +1100,17 @@ namespace visutwin::canvas
         if (!raw || raw->mipmapLevelCount() <= 1) {
             return;
         }
-        auto* commandBuffer = acquireEnvCommandBuffer();
+        auto* commandBuffer = openCommandBuffer();
         auto* blitEncoder = commandBuffer ? commandBuffer->blitCommandEncoder() : nullptr;
         if (!blitEncoder) {
             return;
         }
         blitEncoder->generateMipmaps(raw);
         blitEncoder->endEncoding();
-        submitEnvCommandBuffer(commandBuffer);
+        // Inside a frame or an offline scope it is submitted with that; alone, here.
+        if (!_insideFrame && _envBatchDepth <= 0) {
+            flushCommands();
+        }
     }
 
     uint32_t MetalGraphicsDevice::renderTargetFormatKey()
@@ -1146,6 +1167,10 @@ namespace visutwin::canvas
 
         encodeDraw(passEncoder, primitive, *indexBinding, numInstances, indirectSlot);
         recordDraw(primitive, numInstances);
+        // What the open command buffer holds, for endRenderPass's early commit.
+        ++_openBufferDraws;
+        _openBufferVertices += static_cast<uint64_t>(primitive.count) *
+            static_cast<uint64_t>(std::max(numInstances, 1));
 
         if (last) {
             // Clear the vertex buffer array. What the ENCODER holds stays as it is: the
@@ -1722,7 +1747,8 @@ namespace visutwin::canvas
             return;
         }
 
-        _commandBuffer = _commandQueue->commandBuffer();
+        // The pass encodes into the open command buffer; it gets no buffer of its own.
+        _commandBuffer = openCommandBuffer();
         if (!_commandBuffer) {
             spdlog::error("Failed to create Metal command buffer");
             _currentDrawable = nullptr;
@@ -1905,21 +1931,23 @@ namespace visutwin::canvas
             }
         }
 
-        if (_commandBuffer) {
-            // DEVIATION: in WebGL/WebGPU, the back buffer persists across
-            // render passes within a frame and is presented once at frame end (swap).
-            // In Metal, each back-buffer render pass gets a separate command buffer.
-            // We defer presentDrawable() to onFrameEnd() so that only the final
-            // back-buffer command buffer presents the drawable.  Calling it here would
-            // cause the compose pass to present before the after-pass finishes.
-            spdlog::trace("Committing Metal command buffer (present deferred to frame end)");
-            _commandBuffer->commit();
-        } else {
+        if (!_commandBuffer) {
             spdlog::warn("Render pass ended without a valid command buffer");
         }
-
         _commandBuffer = nullptr;
         _currentDrawable = nullptr;
+
+        // The pass stays in the open command buffer, which the frame's end commits
+        // (and presents from: the drawable is presented once, from the last buffer).
+        // Unless it holds a lot of work: then it is committed now, so the GPU starts on
+        // a heavy shadow or scene pass while the rest of the frame is still being
+        // encoded instead of idling until the frame ends. A pass of a few draws is not
+        // worth a buffer of its own; the commit costs about what fifty draws do.
+        constexpr uint32_t kEarlyCommitDraws = 256;
+        constexpr uint64_t kEarlyCommitVertices = 300'000;
+        if (_openBufferDraws >= kEarlyCommitDraws || _openBufferVertices >= kEarlyCommitVertices) {
+            flushCommands();
+        }
     }
 
     void MetalGraphicsDevice::setResolution(int width, int height)

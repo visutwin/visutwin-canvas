@@ -52,9 +52,9 @@ namespace visutwin::canvas
         }
     }
 
-    std::vector<uint32_t> LayoutGroupComponent::gatherInputs() const
+    void LayoutGroupComponent::gatherInputs(std::vector<uint32_t>& inputs) const
     {
-        std::vector<uint32_t> inputs;
+        inputs.clear();
         const auto push = [&inputs](const float value) { inputs.push_back(std::bit_cast<uint32_t>(value)); };
         const auto pushSerial = [&inputs](const uint64_t serial) {
             inputs.push_back(static_cast<uint32_t>(serial));
@@ -110,16 +110,15 @@ namespace visutwin::canvas
                 push(layoutChild->fitHeightProportion());
             }
         }
-        return inputs;
     }
 
     bool LayoutGroupComponent::reflowIfChanged()
     {
-        auto inputs = gatherInputs();
-        if (inputs == _lastInputs) {
+        gatherInputs(_currentInputs);
+        if (_currentInputs == _lastInputs) {
             return false;
         }
-        _lastInputs = std::move(inputs);
+        _lastInputs.swap(_currentInputs);
         reflow();
         return true;
     }
@@ -189,7 +188,7 @@ namespace visutwin::canvas
         // The inputs as the layout left them (it reset the anchors): upstream ignores what its
         // own reflow changes (`_isPerformingReflow`), but not what a `reflow` handler changes,
         // such as the group's size, which the next pass then sees differ.
-        _lastInputs = gatherInputs();
+        gatherInputs(_lastInputs);
         fire("reflow", layout.bounds);
     }
 }

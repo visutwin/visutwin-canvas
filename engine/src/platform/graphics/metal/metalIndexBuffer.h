@@ -18,6 +18,7 @@ namespace visutwin::canvas
         MetalIndexBuffer(GraphicsDevice* graphicsDevice, IndexFormat format, int numIndices);
 
         bool setData(const std::vector<uint8_t>& data) override;
+        bool writeRange(size_t offset, const void* data, size_t size) override;
 
         [[nodiscard]] MTL::Buffer* raw() const { return gpu::MetalBuffer::raw(); }
 

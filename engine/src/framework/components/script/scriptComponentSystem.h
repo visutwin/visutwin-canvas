@@ -5,6 +5,9 @@
 //
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 #include "core/sortedLoopArray.h"
 #include "scriptComponent.h"
 #include "framework/components/componentSystem.h"
@@ -19,11 +22,10 @@ namespace visutwin::canvas
     public:
         ScriptComponentSystem(Engine* engine)
             : ComponentSystem(engine, "script"),
-              _components(SortedLoopArrayOptions<ScriptComponent*>{
-                  .keyExtractor = [](ScriptComponent* component) {
-                      return component ? static_cast<float>(component->executionOrder()) : 0.0f;
-                  }
-              })
+              _components(executionOrderKey),
+              _phaseComponents{SortedLoopArray<ScriptComponent*>(executionOrderKey),
+                               SortedLoopArray<ScriptComponent*>(executionOrderKey),
+                               SortedLoopArray<ScriptComponent*>(executionOrderKey)}
         {
         }
 
@@ -46,11 +48,36 @@ namespace visutwin::canvas
         void unregisterComponent(ScriptComponent* component)
         {
             _components.remove(component);
+            for (int phase = 0; phase < kPhaseCount; ++phase) {
+                if ((component->_phases & (1u << phase)) != 0) {
+                    _phaseComponents[phase].remove(component);
+                }
+            }
         }
 
-        /// Re-sort the update list after a component's execution order changed. The
-        /// list keeps its running loop index pointing at the same component.
-        void sortComponents() { _components.sort(); }
+        /// A component gained its first script implementing each phase in `gained`
+        /// (Script::Phase bits): it joins those phases' lists, in execution order. The
+        /// phase loops walk only these lists, so a component none of whose scripts
+        /// implements a phase is not even read in it. Joining mid-loop is safe, as
+        /// insert() keeps the loop index on the component being run.
+        void componentGainedPhases(ScriptComponent* component, const uint8_t gained)
+        {
+            for (int phase = 0; phase < kPhaseCount; ++phase) {
+                if ((gained & (1u << phase)) != 0) {
+                    _phaseComponents[phase].insert(component);
+                }
+            }
+        }
+
+        /// Re-sort the lists after a component's execution order changed. Each keeps
+        /// its running loop index pointing at the same component.
+        void sortComponents()
+        {
+            _components.sort();
+            for (auto& list : _phaseComponents) {
+                list.sort();
+            }
+        }
 
         /// Application-wide initialize phase, fired once from Engine::start(). Every
         /// script initializes before any script post-initializes, which is the
@@ -84,9 +111,9 @@ namespace visutwin::canvas
 
         void fixedUpdate(float fixedDt)
         {
-            for (_components.loopIndex = 0; _components.loopIndex < static_cast<int>(_components.length); _components.loopIndex++) {
-                auto* component = _components.items[_components.loopIndex];
-                if (component) {
+            auto& list = _phaseComponents[kFixedUpdateList];
+            for (list.loopIndex = 0; list.loopIndex < static_cast<int>(list.length); list.loopIndex++) {
+                if (auto* component = list.items[list.loopIndex]) {
                     component->fixedUpdateScripts(fixedDt);
                 }
             }
@@ -94,9 +121,9 @@ namespace visutwin::canvas
 
         void update(float dt)
         {
-            for (_components.loopIndex = 0; _components.loopIndex < static_cast<int>(_components.length); _components.loopIndex++) {
-                auto* component = _components.items[_components.loopIndex];
-                if (component) {
+            auto& list = _phaseComponents[kUpdateList];
+            for (list.loopIndex = 0; list.loopIndex < static_cast<int>(list.length); list.loopIndex++) {
+                if (auto* component = list.items[list.loopIndex]) {
                     component->updateScripts(dt);
                 }
             }
@@ -104,16 +131,43 @@ namespace visutwin::canvas
 
         void postUpdate(float dt)
         {
-            for (_components.loopIndex = 0; _components.loopIndex < static_cast<int>(_components.length); _components.loopIndex++) {
-                auto* component = _components.items[_components.loopIndex];
-                if (component) {
+            auto& list = _phaseComponents[kPostUpdateList];
+            for (list.loopIndex = 0; list.loopIndex < static_cast<int>(list.length); list.loopIndex++) {
+                if (auto* component = list.items[list.loopIndex]) {
                     component->postUpdateScripts(dt);
                 }
             }
         }
 
+        /// How many components the phase's loop visits (Script::Phase bit).
+        [[nodiscard]] size_t phaseComponentCount(const uint8_t phase) const
+        {
+            for (int index = 0; index < kPhaseCount; ++index) {
+                if (phase == (1u << index)) {
+                    return _phaseComponents[index].length;
+                }
+            }
+            return 0;
+        }
+
     private:
+        static float executionOrderKey(ScriptComponent* const& component)
+        {
+            return component ? static_cast<float>(component->executionOrder()) : 0.0f;
+        }
+
+        // One list per Script::Phase bit, indexed by the bit's position.
+        static constexpr int kPhaseCount = 3;
+        static constexpr int kUpdateList = 0;
+        static constexpr int kPostUpdateList = 1;
+        static constexpr int kFixedUpdateList = 2;
+        static_assert(Script::PHASE_UPDATE == 1u << kUpdateList && Script::PHASE_POST_UPDATE == 1u << kPostUpdateList &&
+            Script::PHASE_FIXED_UPDATE == 1u << kFixedUpdateList);
+
+        // Every component, for the initialize phases.
         SortedLoopArray<ScriptComponent*> _components;
+        // The components with a script implementing each phase.
+        SortedLoopArray<ScriptComponent*> _phaseComponents[kPhaseCount];
         int _executionCounter = 0;
     };
 }

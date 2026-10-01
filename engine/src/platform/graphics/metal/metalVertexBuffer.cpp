@@ -29,4 +29,14 @@ namespace visutwin::canvas
     {
         MetalBuffer::unlock(static_cast<MetalGraphicsDevice*>(_device), _storage);
     }
+
+    void MetalVertexBuffer::uploadRange(const size_t offset, const size_t size)
+    {
+        if (!raw() || offset + size > MetalBuffer::size()) {
+            unlock();   // not allocated yet: the whole buffer, which allocates it
+            return;
+        }
+        // Shared storage: the bytes are the GPU's as soon as they are copied.
+        write(offset, _storage.data() + offset, size);
+    }
 }

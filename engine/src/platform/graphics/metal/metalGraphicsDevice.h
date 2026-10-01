@@ -100,6 +100,39 @@ namespace visutwin::canvas
         [[nodiscard]] MTL::CommandQueue* commandQueue() const { return _commandQueue; }
         [[nodiscard]] CA::MetalDrawable* frameDrawable() const { return _frameDrawable; }
 
+        /**
+         * The ONE command buffer the device is encoding into. Render passes, in-frame
+         * copies and mipmap generation, compute dispatches and the culling batch all
+         * encode into it, in the order they are issued, and it is committed when the
+         * frame ends — not a buffer per pass and per dispatch. A buffer costs a creation
+         * and a commit (about as much CPU as fifty draws), a frame has dozens of passes,
+         * and the queue hands out only 64 buffers at a time: the 65th `commandBuffer()`
+         * BLOCKS until the GPU finishes one, which a scene with a few hundred particle
+         * emitters ran into every frame.
+         *
+         * Returns the open buffer, creating it if there is none, or null while an
+         * encoder is open on it (Metal allows one at a time). Do not commit it: call
+         * flushCommands(). A compute dispatch issued outside a frame stays in it until
+         * the next frame ends (or a flush), as the Vulkan backend queues one for its
+         * frame; the other operations commit it themselves when no frame is open.
+         *
+         * Code that makes its own buffer from commandQueue() and commits it runs BEFORE
+         * whatever is still in the open buffer. That is right for work nothing in the
+         * frame feeds (a texture upload, a kernel on its own data) and wrong for
+         * anything that reads what the frame has rendered: that has to flush first, as
+         * the texture readback does.
+         */
+        [[nodiscard]] MTL::CommandBuffer* openCommandBuffer();
+
+        /**
+         * Commits the open command buffer, so the GPU starts on it and any buffer
+         * committed afterwards is ordered behind it. Called when a frame ends, after a
+         * pass that encoded a lot of work (the GPU should not sit idle while the rest of
+         * the frame is encoded), and before anything that waits for or reads back GPU
+         * results. False, with nothing committed, while an encoder is open.
+         */
+        bool flushCommands();
+
         std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
             const std::string& sourceCode = "") override;
 
@@ -134,7 +167,12 @@ namespace visutwin::canvas
         void endGpuCullBatch() override;
         void beginOfflineWork() override;
         void endOfflineWork() override;
-        [[nodiscard]] MTL::CommandBuffer* gpuCullBatchCommandBuffer() const { return _gpuCullBatchCommandBuffer; }
+        /// The buffer the culling dispatches of an open batch encode into: the open
+        /// command buffer. Null when no batch is open.
+        [[nodiscard]] MTL::CommandBuffer* gpuCullBatchCommandBuffer()
+        {
+            return _gpuCullBatchOpen ? openCommandBuffer() : nullptr;
+        }
 
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) override;
@@ -313,21 +351,20 @@ namespace visutwin::canvas
 
         MTL::Buffer* _indirectDrawBuffer = nullptr;  // Set by setIndirectDrawBuffer(), consumed by draw()
 
-        // Live between beginGpuCullBatch/endGpuCullBatch (autoreleased).
-        MTL::CommandBuffer* _gpuCullBatchCommandBuffer = nullptr;
+        // Between beginGpuCullBatch and endGpuCullBatch.
+        bool _gpuCullBatchOpen = false;
 
-        // Shared command buffer for batched environment operations, plus the nesting
-        // depth so that begin/end pairs compose. Null when not batching, in which
-        // case each operation submits its own buffer as before.
-        MTL::CommandBuffer* _envBatchCommandBuffer = nullptr;
+        // Nesting depth of beginOfflineWork/endOfflineWork.
         int _envBatchDepth = 0;
 
-        /// The command buffer an environment operation should encode into: the shared
-        /// batch buffer when one is open, otherwise a fresh one.
-        MTL::CommandBuffer* acquireEnvCommandBuffer();
-
-        /// Commit `buffer` unless it belongs to an open batch, which commits at endOfflineWork.
-        void submitEnvCommandBuffer(MTL::CommandBuffer* buffer);
+        // openCommandBuffer(): retained while open, released when committed.
+        MTL::CommandBuffer* _openCommandBuffer = nullptr;
+        // Between onFrameStart and onFrameEnd. Outside a frame nothing will commit the
+        // open buffer by itself, so the scopes that end there flush it.
+        bool _insideFrame = false;
+        // What the open buffer holds, for the early commit after a heavy pass.
+        uint32_t _openBufferDraws = 0;
+        uint64_t _openBufferVertices = 0;
 
         // Dynamic batch palette: ring-buffer offset for slot 6.
         // Set by setDynamicBatchPalette() → allocate from _paletteRing,

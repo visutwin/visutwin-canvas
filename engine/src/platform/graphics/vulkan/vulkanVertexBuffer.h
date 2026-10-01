@@ -31,6 +31,9 @@ namespace visutwin::canvas
 
         [[nodiscard]] VkBuffer buffer() const { return _buffer; }
 
+    protected:
+        void uploadRange(size_t offset, size_t size) override;
+
     private:
         VkBuffer _buffer = VK_NULL_HANDLE;
         VmaAllocation _allocation = VK_NULL_HANDLE;

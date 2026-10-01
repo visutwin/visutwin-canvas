@@ -6,6 +6,7 @@
 #include "vertexBuffer.h"
 
 #include <assert.h>
+#include <cstring>
 #include <spdlog/spdlog.h>
 
 #include "graphicsDevice.h"
@@ -78,6 +79,16 @@ namespace visutwin::canvas
         adjustVramSizeTracking(_device->_vram, -_numBytes);
         _storageUse = true;
         adjustVramSizeTracking(_device->_vram, _numBytes);
+    }
+
+    bool VertexBuffer::writeRange(const size_t offset, const void* data, const size_t size)
+    {
+        if (!data || size == 0 || offset + size > _storage.size()) {
+            return false;
+        }
+        std::memcpy(_storage.data() + offset, data, size);
+        uploadRange(offset, size);
+        return true;
     }
 
     bool VertexBuffer::setData(const std::vector<uint8_t>& data)

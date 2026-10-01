@@ -47,40 +47,6 @@ namespace visutwin::canvas
 {
     namespace
     {
-        /// A triangle list in the 14-float layout every UI visual uses: position(3)
-        /// normal(3) uv0(2) tangent(4) uv1(2).
-        std::shared_ptr<Mesh> makeUiMesh(const std::shared_ptr<GraphicsDevice>& gd, const std::vector<float>& vertices,
-                                         const std::vector<uint32_t>& indices, const BoundingBox& bounds)
-        {
-            if (!gd || vertices.empty() || indices.empty()) {
-                return nullptr;
-            }
-            const int vertexCount = static_cast<int>(vertices.size() / 14u);
-            std::vector<uint8_t> vbData(vertices.size() * sizeof(float));
-            std::memcpy(vbData.data(), vertices.data(), vbData.size());
-            VertexBufferOptions vbOpts;
-            vbOpts.data = std::move(vbData);
-            auto vertexFormat = std::make_shared<VertexFormat>(
-                14 * static_cast<int>(sizeof(float)), VertexFormat::standardElements(), true, false);
-            auto vb = gd->createVertexBuffer(vertexFormat, vertexCount, vbOpts);
-
-            std::vector<uint8_t> ibData(indices.size() * sizeof(uint32_t));
-            std::memcpy(ibData.data(), indices.data(), ibData.size());
-            auto ib = gd->createIndexBuffer(INDEXFORMAT_UINT32, static_cast<int>(indices.size()), ibData);
-
-            auto mesh = std::make_shared<Mesh>();
-            mesh->setVertexBuffer(vb);
-            mesh->setIndexBuffer(ib, 0);
-            Primitive prim;
-            prim.type = PRIMITIVE_TRIANGLES;
-            prim.base = 0;
-            prim.count = static_cast<int>(indices.size());
-            prim.indexed = true;
-            mesh->setPrimitive(prim, 0);
-            mesh->setAabb(bounds);
-            return mesh;
-        }
-
         /// `#rrggbb` or `#rrggbbaa`, sRGB (upstream Color.fromString); null otherwise.
         std::optional<Color> parseHexColor(const std::string& text)
         {
@@ -158,32 +124,35 @@ namespace visutwin::canvas
             return buffer;
         }
 
-        struct TextMeshes
+        struct TextRuns
         {
             struct Run
             {
                 std::pair<int, int> key;   // (page, style)
-                std::shared_ptr<Mesh> mesh;
+                /// 14 floats a vertex, four vertices a glyph; indices relative to the run.
+                std::vector<float> vertices;
+                std::vector<uint32_t> indices;
                 /// The symbol (code point index) of each quad, ascending: what a draw range
                 /// narrows the index range by.
                 std::vector<uint32_t> quadSymbols;
             };
             /// One per (page, style), in key order.
-            std::vector<Run> meshes;
+            std::vector<Run> runs;
             /// Style 0 is the element's own, read live each frame; the rest come from tags.
             std::vector<ElementInput::TextStyle> styles;
+            BoundingBox bounds;
         };
 
-        /// The text's geometry, one mesh per (atlas page, style) run: each page is its own
+        /// The text's geometry, one run per (atlas page, style): each page is its own
         /// texture, and each markup style its own material. DEVIATION: upstream draws a page
         /// in ONE mesh with the style in vertex attributes; here glyphs of different styles
         /// are separate draws, which can order two overlapping neighbours' outlines or
         /// shadows differently from upstream's glyph order.
-        TextMeshes buildTextMeshes(const std::shared_ptr<GraphicsDevice>& gd, const ElementComponent* element)
+        TextRuns buildTextRuns(const ElementComponent* element)
         {
-            TextMeshes result;
+            TextRuns result;
             const FontResource* font = element ? element->fontResource() : nullptr;
-            if (!gd || !font || element->textCodePoints().empty()) {
+            if (!font || element->textCodePoints().empty()) {
                 return result;
             }
             const std::u32string& symbols = element->textCodePoints();
@@ -238,21 +207,29 @@ namespace visutwin::canvas
 
             const float boxW = element->calculatedWidth();
             const float boxH = element->calculatedHeight();
-            BoundingBox bounds;
-            bounds.setCenter(Vector3(0.0f, 0.0f, 0.0f));
-            bounds.setHalfExtents(Vector3(std::max(boxW * 0.5f, 1.0f), std::max(boxH * 0.5f, 1.0f), 1.0f));
+            result.bounds.setCenter(Vector3(0.0f, 0.0f, 0.0f));
+            result.bounds.setHalfExtents(Vector3(std::max(boxW * 0.5f, 1.0f), std::max(boxH * 0.5f, 1.0f), 1.0f));
             for (auto& [key, b] : runs) {
-                if (auto mesh = makeUiMesh(gd, b.vertices, b.indices, bounds)) {
-                    result.meshes.push_back({key, std::move(mesh), std::move(b.symbols)});
+                if (!b.vertices.empty() && !b.indices.empty()) {
+                    result.runs.push_back({key, std::move(b.vertices), std::move(b.indices), std::move(b.symbols)});
                 }
             }
             return result;
         }
 
-        std::shared_ptr<Mesh> buildImageMesh(const std::shared_ptr<GraphicsDevice>& gd, const ElementComponent* element,
-                                             Texture*& outTexture)
+        struct ImageMeshData
         {
-            outTexture = nullptr;
+            std::vector<float> vertices;
+            std::vector<uint32_t> indices;
+            BoundingBox bounds;
+            /// The texture the geometry's UVs address: the sprite's atlas, or the element's.
+            Texture* texture = nullptr;
+        };
+
+        ImageMeshData buildImageMeshData(const ElementComponent* element)
+        {
+            ImageMeshData result;
+            Texture*& outTexture = result.texture;
             const Vector2 pivot = element->pivot();
             const float w = element->calculatedWidth();
             const float h = element->calculatedHeight();
@@ -285,7 +262,7 @@ namespace visutwin::canvas
                 outTexture = texture;
             }
 
-            std::vector<float> vertices;
+            std::vector<float>& vertices = result.vertices;
             vertices.reserve(geometry.vertices.size() * 14u);
             float minX = geometry.vertices.empty() ? 0.0f : geometry.vertices[0].x;
             float maxX = minX;
@@ -300,10 +277,10 @@ namespace visutwin::canvas
                 minY = std::min(minY, v.y);
                 maxY = std::max(maxY, v.y);
             }
-            BoundingBox bounds;
-            bounds.setCenter(Vector3((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, 0.0f));
-            bounds.setHalfExtents(Vector3((maxX - minX) * 0.5f, (maxY - minY) * 0.5f, 0.001f));
-            return makeUiMesh(gd, vertices, geometry.indices, bounds);
+            result.bounds.setCenter(Vector3((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, 0.0f));
+            result.bounds.setHalfExtents(Vector3((maxX - minX) * 0.5f, (maxY - minY) * 0.5f, 0.001f));
+            result.indices = std::move(geometry.indices);
+            return result;
         }
     }
 
@@ -328,6 +305,16 @@ namespace visutwin::canvas
             releaseVisual(visual);
         }
         _visuals.clear();
+        // The records the elements hold point into the map just cleared. Through the live
+        // list, not the map's keys: a key may be an element that is already gone.
+        for (auto* element : ElementComponent::instances()) {
+            if (element && element->drawRecord(this)) {
+                element->setDrawRecord(this, nullptr);
+            }
+        }
+        _materials.clear();
+        _geometry.reset();
+        _masksApplied = false;
         for (auto& [_, handle] : _watched) {
             handle->off();
         }
@@ -348,7 +335,7 @@ namespace visutwin::canvas
         /// image's alpha comes through the diffuse map, where upstream reads an opacity
         /// map, which is Metal-only here; setting the same texture as the opacity map as
         /// well would multiply it in twice on Metal.
-        std::shared_ptr<StandardMaterial> makeElementMaterial(const bool worldSpace)
+        std::shared_ptr<StandardMaterial> makeBaseElementMaterial(const bool worldSpace)
         {
             auto material = std::make_shared<StandardMaterial>();
             material->setUseLighting(false);
@@ -404,6 +391,232 @@ namespace visutwin::canvas
         return entry;
     }
 
+    bool ElementInput::MaterialKey::operator==(const MaterialKey& other) const
+    {
+        // Spelled out so it inlines: this runs for every part of every element each frame.
+        const auto same = [](const Color& a, const Color& b) {
+            return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+        };
+        return kind == other.kind && worldSpace == other.worldSpace && texture == other.texture &&
+            same(color, other.color) && opacity == other.opacity && pxRange == other.pxRange &&
+            intensity == other.intensity && same(outlineColor, other.outlineColor) &&
+            outlineThickness == other.outlineThickness && same(shadowColor, other.shadowColor) &&
+            shadowUvOffset.x == other.shadowUvOffset.x && shadowUvOffset.y == other.shadowUvOffset.y;
+    }
+
+    bool ElementInput::MaterialKey::sameBuild(const MaterialKey& other) const
+    {
+        return kind == other.kind && worldSpace == other.worldSpace && texture == other.texture &&
+            pxRange == other.pxRange && intensity == other.intensity;
+    }
+
+    size_t ElementInput::MaterialKeyHash::operator()(const MaterialKey& key) const
+    {
+        // FNV-1a over the fields, one by one: the struct has padding, and 0.0f == -0.0f
+        // must hash alike since they compare equal.
+        uint64_t hash = 1469598103934665603ull;
+        const auto mix = [&hash](const uint64_t value) {
+            hash = (hash ^ value) * 1099511628211ull;
+        };
+        const auto mixFloat = [&mix](const float value) {
+            uint32_t bits = 0;
+            const float canonical = value == 0.0f ? 0.0f : value;
+            std::memcpy(&bits, &canonical, sizeof(bits));
+            mix(bits);
+        };
+        const auto mixColor = [&mixFloat](const Color& c) {
+            mixFloat(c.r);
+            mixFloat(c.g);
+            mixFloat(c.b);
+            mixFloat(c.a);
+        };
+        mix(static_cast<uint64_t>(key.kind) | (key.worldSpace ? 0x100u : 0u));
+        mix(reinterpret_cast<uintptr_t>(key.texture));
+        mixColor(key.color);
+        mixFloat(key.opacity);
+        if (key.kind == MaterialKey::Kind::MsdfText) {
+            mixFloat(key.pxRange);
+            mixFloat(key.intensity);
+            mixColor(key.outlineColor);
+            mixFloat(key.outlineThickness);
+            mixColor(key.shadowColor);
+            mixFloat(key.shadowUvOffset.x);
+            mixFloat(key.shadowUvOffset.y);
+        }
+        return static_cast<size_t>(hash);
+    }
+
+    namespace
+    {
+        /// What changes when an element is restyled: colour, opacity and, for MSDF text,
+        /// its outline and shadow.
+        void writeMaterialStyle(StandardMaterial& material, const ElementInput::MaterialKey& key)
+        {
+            material.setEmissive(key.color);
+            material.setOpacity(key.opacity);
+            if (key.kind == ElementInput::MaterialKey::Kind::MsdfText) {
+                material.setMsdfOutline(key.outlineColor, key.outlineThickness);
+                material.setMsdfShadow(key.shadowColor, key.shadowUvOffset);
+            }
+        }
+
+        std::shared_ptr<StandardMaterial> makeElementMaterial(const ElementInput::MaterialKey& key)
+        {
+            using Kind = ElementInput::MaterialKey::Kind;
+            auto material = makeBaseElementMaterial(key.worldSpace);
+            switch (key.kind) {
+            case Kind::MsdfText:
+                material->setMsdfMap(key.texture);
+                material->setMsdfFont(key.pxRange, key.intensity);
+                break;
+            case Kind::BitmapText:
+                material->setDiffuseMap(key.texture);   // coverage in alpha
+                break;
+            case Kind::Image:
+            case Kind::ImageMask:
+                // An image multiplies its texture into the colour and takes its alpha.
+                material->setDiffuseMap(key.texture);
+                material->setEmissiveMap(key.texture);
+                break;
+            }
+            if (key.kind == Kind::ImageMask) {
+                // Upstream's mask material: into the stencil alone, every colour
+                // channel off, and only where the image is fully opaque (alpha test 1),
+                // which is what lets a sprite's transparent corners shape the mask.
+                // setAlphaMode resets the blend, the depth state and transparency,
+                // so it goes first and the element's own depth state and sublayer (the
+                // transparent one, sorted by draw order) are put back after it.
+                const auto depthState = material->depthState();
+                material->setAlphaMode(AlphaMode::MASK);
+                material->setAlphaCutoff(1.0f);
+                material->setDepthState(depthState);
+                material->setTransparent(true);
+                auto blend = std::make_shared<BlendState>(BlendState::alphaBlend());
+                blend->setRedWrite(false);
+                blend->setGreenWrite(false);
+                blend->setBlueWrite(false);
+                blend->setAlphaWrite(false);
+                material->setBlendState(blend);
+            }
+            writeMaterialStyle(*material, key);
+            return material;
+        }
+    }
+
+    ElementInput::MaterialKey ElementInput::materialKeyFor(const ElementVisual& visual, const VisualPart& part,
+                                                           const ElementComponent* element)
+    {
+        MaterialKey key;
+        key.worldSpace = visual.worldSpace;
+        key.texture = part.texture;
+        key.opacity = element->opacity();
+        if (visual.type != ElementType::Text) {
+            key.kind = element->mask() ? MaterialKey::Kind::ImageMask : MaterialKey::Kind::Image;
+            key.color = element->color();
+            return key;
+        }
+
+        // Style 0 is the element's own, read live (a pulsing colour or a changed outline
+        // needs no rebuild); a markup style is what its tags resolved to.
+        const bool own = part.style == 0 || part.style >= static_cast<int>(visual.styles.size());
+        const FontResource* font = element->fontResource();
+        key.color = own ? element->color() : visual.styles[static_cast<size_t>(part.style)].color;
+        if (!font || !font->msdf) {
+            key.kind = MaterialKey::Kind::BitmapText;
+            return key;
+        }
+        key.kind = MaterialKey::Kind::MsdfText;
+        key.pxRange = font->pxRange;
+        key.intensity = font->intensity;
+        const TextStyle style = own
+            ? TextStyle{element->color(), element->outlineColor(), element->outlineThickness(),
+                        element->shadowColor(), element->shadowOffset()}
+            : visual.styles[static_cast<size_t>(part.style)];
+        // Upstream's editor units: thickness x 0.2, offset x 0.005 of the page.
+        key.outlineColor = style.outlineColor;
+        key.outlineThickness = 0.2f * style.outlineThickness;
+        key.shadowColor = style.shadowColor;
+        key.shadowUvOffset = msdfShadowUvOffset(style.shadowOffset, part.texture, visual.markupStyles);
+        return key;
+    }
+
+    void ElementInput::applyPartMaterial(VisualPart& part, const MaterialKey& key, MeshInstance* unmask)
+    {
+        if (part.material && part.materialKey == key) {
+            return;
+        }
+
+        std::shared_ptr<StandardMaterial> next;
+        if (const auto it = _materials.find(key); it != _materials.end()) {
+            next = it->second.lock();
+        }
+        if (!next) {
+            if (part.material && part.material.use_count() == 1 && key.sameBuild(part.materialKey)) {
+                // Nobody else draws with this part's material: restyle it, under its new
+                // key, rather than build one. An element whose colour animates lands here
+                // every frame.
+                _materials.erase(part.materialKey);
+                next = part.material;
+                writeMaterialStyle(*next, key);
+            } else {
+                next = makeElementMaterial(key);
+            }
+            _materials.insert_or_assign(key, next);
+            if (_materials.size() >= _materialPruneAt) {
+                std::erase_if(_materials, [](const auto& entry) { return entry.second.expired(); });
+                _materialPruneAt = std::max<size_t>(64, _materials.size() * 2);
+            }
+        }
+
+        part.material = std::move(next);
+        part.materialKey = key;
+        if (part.meshInstance) {
+            part.meshInstance->setMaterial(part.material.get());
+        }
+        if (unmask) {
+            unmask->setMaterial(part.material.get());
+        }
+    }
+
+    void ElementInput::styleParts(ElementVisual& visual, const ElementComponent* element)
+    {
+        for (auto& part : visual.parts) {
+            if (part.meshInstance) {
+                part.meshInstance->setDrawOrder(element->drawOrder());
+            }
+            if (part.customMaterial) {   // a custom material styles itself
+                continue;
+            }
+            applyPartMaterial(part, materialKeyFor(visual, part, element),
+                &part == &visual.parts.front() ? visual.unmask : nullptr);
+        }
+    }
+
+    bool ElementInput::setPartGeometry(VisualPart& part, const std::vector<float>& vertices,
+                                       const std::vector<uint32_t>& indices, const BoundingBox& bounds)
+    {
+        auto block = _geometry ? _geometry->allocate(vertices, indices) : nullptr;
+        if (!block) {
+            return false;
+        }
+        if (!part.mesh) {
+            part.mesh = std::make_shared<Mesh>();
+        }
+        part.mesh->setVertexBuffer(block->vertexBuffer());
+        part.mesh->setIndexBuffer(block->indexBuffer(), 0);
+        Primitive primitive;
+        primitive.type = PRIMITIVE_TRIANGLES;
+        primitive.base = static_cast<int>(block->firstIndex());
+        primitive.count = static_cast<int>(block->indexCount());
+        primitive.indexed = true;
+        part.mesh->setPrimitive(primitive, 0);
+        part.mesh->setAabb(bounds);
+        // The block this replaces goes back to the arena, which keeps it out of use until
+        // no frame in flight can still be drawing it.
+        part.geometry = std::move(block);
+        return true;
+    }
+
     void ElementInput::syncMasks()
     {
         // Upstream getMaskOffset: how far past its last descendant an unmask draws, from
@@ -437,55 +650,58 @@ namespace visutwin::canvas
             }
             return last;
         };
-        const auto setPartsStencil = [this](ElementComponent* element, const std::shared_ptr<StencilParameters>& sp) {
-            const auto it = _visuals.find(element);
-            if (it == _visuals.end()) {
-                return;
-            }
-            for (auto& part : it->second.parts) {
-                if (part.meshInstance) {
-                    part.meshInstance->setStencil(sp, sp);
+        const auto visualOf = [this](const ElementComponent* element) {
+            return static_cast<ElementVisual*>(element->drawRecord(this));
+        };
+        const auto setPartsStencil = [&visualOf](ElementComponent* element, const std::shared_ptr<StencilParameters>& sp) {
+            if (ElementVisual* visual = visualOf(element)) {
+                for (auto& part : visual->parts) {
+                    if (part.meshInstance) {
+                        part.meshInstance->setStencil(sp, sp);
+                    }
                 }
             }
         };
         std::unordered_map<const ElementComponent*, uint32_t> maskRefs;
+        bool anyMask = false;
 
         // Upstream _updateMask: depth-first, each element tested against the mask above it,
         // and each mask written (the outermost with REPLACE, a nested one with INCREMENT
         // inside its parent's value) and unmasked after its last descendant.
-        std::function<void(ElementComponent*, ElementComponent*, uint32_t)> update =
-            [&](ElementComponent* element, ElementComponent* currentMask, uint32_t depth) {
-                element->setMaskedBy(currentMask);
-                const uint32_t parentRef = currentMask ? maskRefs[currentMask] : 0u;
+        const auto update = [&](auto&& self, ElementComponent* element, ElementComponent* currentMask,
+                                uint32_t depth) -> void {
+            element->setMaskedBy(currentMask);
+            const uint32_t parentRef = currentMask ? maskRefs[currentMask] : 0u;
+            const bool isMask = element->mask() && element->type() == ElementType::Image;
+            if (!isMask) {
                 setPartsStencil(element, currentMask
                     ? stencilParameters(StencilCompareFunction::Equal, StencilOperation::Keep, parentRef) : nullptr);
-
-                const bool isMask = element->mask() && element->type() == ElementType::Image;
-                if (isMask) {
-                    setPartsStencil(element, currentMask
-                        ? stencilParameters(StencilCompareFunction::Equal, StencilOperation::IncrementClamp, parentRef)
-                        : stencilParameters(StencilCompareFunction::Always, StencilOperation::Replace, depth));
-                    maskRefs[element] = depth;
-                    if (const auto it = _visuals.find(element); it != _visuals.end() && it->second.unmask) {
-                        // Back to the parent's value: where the stencil holds this mask's
-                        // (parentRef + 1), decrement it (upstream _setStencil).
-                        const auto sp = stencilParameters(StencilCompareFunction::Equal,
-                                                          StencilOperation::DecrementClamp, parentRef + 1u);
-                        it->second.unmask->setStencil(sp, sp);
-                        ElementComponent* last = lastDescendant(element);
-                        it->second.unmask->setDrawOrder(last
-                            ? static_cast<double>(last->drawOrder()) + maskOffset(last)
-                            : static_cast<double>(element->drawOrder()) + maskOffset(element));
-                    }
-                    ++depth;
-                    currentMask = element;
+            } else {
+                anyMask = true;
+                setPartsStencil(element, currentMask
+                    ? stencilParameters(StencilCompareFunction::Equal, StencilOperation::IncrementClamp, parentRef)
+                    : stencilParameters(StencilCompareFunction::Always, StencilOperation::Replace, depth));
+                maskRefs[element] = depth;
+                if (ElementVisual* visual = visualOf(element); visual && visual->unmask) {
+                    // Back to the parent's value: where the stencil holds this mask's
+                    // (parentRef + 1), decrement it (upstream _setStencil).
+                    const auto sp = stencilParameters(StencilCompareFunction::Equal,
+                                                      StencilOperation::DecrementClamp, parentRef + 1u);
+                    visual->unmask->setStencil(sp, sp);
+                    ElementComponent* last = lastDescendant(element);
+                    visual->unmask->setDrawOrder(last
+                        ? static_cast<double>(last->drawOrder()) + maskOffset(last)
+                        : static_cast<double>(element->drawOrder()) + maskOffset(element));
                 }
-                for (const auto& child : element->entity()->children()) {
-                    if (ElementComponent* childElement = elementOf(child.get())) {
-                        update(childElement, currentMask, depth);
-                    }
+                ++depth;
+                currentMask = element;
+            }
+            for (const auto& child : element->entity()->children()) {
+                if (ElementComponent* childElement = elementOf(child.get())) {
+                    self(self, childElement, currentMask, depth);
                 }
-            };
+            }
+        };
 
         // Every element tree: an element whose parent entity has none (upstream starts from
         // the element directly under a screen, or at the root).
@@ -496,13 +712,27 @@ namespace visutwin::canvas
             if (elementOf(element->entity()->parent())) {
                 continue;
             }
-            update(element, nullptr, 1u);
+            update(update, element, nullptr, 1u);
         }
+        _masksApplied = anyMask;
     }
 
     ElementInput::ElementVisual& ElementInput::visualFor(ElementComponent* element)
     {
-        auto& visual = _visuals[element];
+        auto* known = static_cast<ElementVisual*>(element->drawRecord(this));
+        if (!known) {
+            const auto [it, inserted] = _visuals.try_emplace(element);
+            if (!inserted) {
+                // An entry under this address already: it belongs to an element destroyed
+                // since the last sync, whose memory this new element was given. Nothing of
+                // it applies here.
+                releaseVisual(it->second);
+                it->second = ElementVisual{};
+            }
+            known = &it->second;
+            element->setDrawRecord(this, known);
+        }
+        auto& visual = *known;
         if (visual.entity && visual.type != element->type()) {
             // The element changed type: its visual is built for the other kind.
             releaseVisual(visual);
@@ -510,6 +740,12 @@ namespace visutwin::canvas
         }
         if (visual.entity) {
             return visual;
+        }
+        if (!visual.parts.empty() || visual.destroyHandle) {
+            // The entity was destroyed from outside and took its mesh instances with it;
+            // what was built for it is rebuilt with the new one.
+            releaseVisual(visual);
+            visual = ElementVisual{};
         }
 
         visual.type = element->type();
@@ -521,11 +757,15 @@ namespace visutwin::canvas
         visual.entity = new Entity();
         visual.entity->setEngine(_engine.get());
         visual.entity->setLocalPosition(0.0f, 0.0f, 0.0f);
+        // The element's clone gets a visual of its own from the next sync; a copy of this
+        // one would draw this element's geometry beside it.
+        visual.entity->setExcludedFromClone(true);
         // The visual lives under its element, so destroying the element frees it: forget
         // it then, rather than touching freed memory when the element leaves the list.
         visual.destroyHandle = visual.entity->on("destroy", [&visual]() {
             visual.entity = nullptr;
             visual.render = nullptr;
+            visual.unmask = nullptr;
             for (auto& part : visual.parts) {
                 part.meshInstance = nullptr;
             }
@@ -549,36 +789,50 @@ namespace visutwin::canvas
         if (!_engine || !_engine->graphicsDevice()) {
             return;
         }
-
-        for (auto& [_, visual] : _visuals) {
-            visual.activeFrame = false;
+        if (!_geometry) {
+            _geometry = UiGeometryArena::create(_engine->graphicsDevice().get());
         }
+        _geometry->beginFrame();
+        ++_syncSerial;
 
+        size_t seen = 0;
+        bool anyMask = false;
         for (auto* element : ElementComponent::instances()) {
-            if (!element || !element->entity()) {
+            if (!element) {
                 continue;
             }
             const bool isText = element->type() == ElementType::Text && element->fontResource() &&
                 element->fontResource()->texture && !element->text().empty();
             const bool isImage = element->type() == ElementType::Image;
-            if (!isText && !isImage) {
+            if (!element->entity() || (!isText && !isImage)) {
+                // Nothing to draw. If it had a visual, that goes now, while the element is
+                // here to be told.
+                if (auto* stale = static_cast<ElementVisual*>(element->drawRecord(this))) {
+                    releaseVisual(*stale);
+                    element->setDrawRecord(this, nullptr);
+                    _visuals.erase(element);
+                }
                 continue;
             }
 
             auto& visual = visualFor(element);
-            visual.activeFrame = true;
+            visual.syncSerial = _syncSerial;
+            ++seen;
             if (!visual.entity) {
                 continue;
             }
+            anyMask = anyMask || (isImage && element->mask());
 
-            // The element's own layers, or the element system's choice.
-            std::vector<int> layers = element->layers();
-            if (layers.empty()) {
-                layers = {element->screen() ? LAYERID_UI : LAYERID_WORLD};
-            }
-            if (visual.render && visual.layers != layers) {
-                visual.render->setLayers(layers);
-                visual.layers = std::move(layers);
+            // The element's own layers, or the element system's choice. Compared in place:
+            // a copy here is an allocation per element per frame.
+            const std::vector<int>& ownLayers = element->layers();
+            const int fallbackLayer = element->screen() ? LAYERID_UI : LAYERID_WORLD;
+            const bool layersCurrent = ownLayers.empty()
+                ? visual.layers.size() == 1 && visual.layers.front() == fallbackLayer
+                : visual.layers == ownLayers;
+            if (visual.render && !layersCurrent) {
+                visual.layers = ownLayers.empty() ? std::vector<int>{fallbackLayer} : ownLayers;
+                visual.render->setLayers(visual.layers);
             }
 
             const bool sizeChanged =
@@ -587,7 +841,9 @@ namespace visutwin::canvas
                 std::abs(visual.cachedWidth - element->calculatedWidth()) > 1e-4f ||
                 std::abs(visual.cachedHeight - element->calculatedHeight()) > 1e-4f;
 
-            bool rebuild = sizeChanged || visual.parts.empty();
+            // What changed decides how much is rebuilt: `rebuild` makes the parts again,
+            // while a change of size alone only gives the existing parts new geometry.
+            bool rebuild = visual.parts.empty();
             if (isText) {
                 // Every text input marks the element dirty (and re-measures it).
                 rebuild = rebuild || element->textDirty();
@@ -598,72 +854,74 @@ namespace visutwin::canvas
                     visual.cachedImageVersion != element->imageVersion() ||
                     visual.cachedSprite != sprite ||
                     visual.cachedSpriteVersion != (sprite ? sprite->version() : 0) ||
-                    visual.cachedAtlasVersion != atlasVersion;
+                    visual.cachedAtlasVersion != atlasVersion ||
+                    visual.parts.front().customMaterial != element->material();
+            }
+
+            bool rangeStale = false;
+            if (!rebuild && sizeChanged) {
+                // Same parts, new geometry: each part's mesh instance and material stay.
+                if (isText) {
+                    TextRuns text = buildTextRuns(element);
+                    bool sameRuns = text.runs.size() == visual.parts.size();
+                    for (size_t i = 0; sameRuns && i < text.runs.size(); ++i) {
+                        sameRuns = text.runs[i].key == std::pair<int, int>{visual.parts[i].page, visual.parts[i].style};
+                    }
+                    if (sameRuns) {
+                        for (size_t i = 0; i < text.runs.size(); ++i) {
+                            setPartGeometry(visual.parts[i], text.runs[i].vertices, text.runs[i].indices, text.bounds);
+                            visual.parts[i].quadSymbols = std::move(text.runs[i].quadSymbols);
+                        }
+                        rangeStale = true;
+                    } else {
+                        rebuild = true;
+                    }
+                } else {
+                    const ImageMeshData image = buildImageMeshData(element);
+                    if (image.texture != visual.parts.front().texture ||
+                        !setPartGeometry(visual.parts.front(), image.vertices, image.indices, image.bounds)) {
+                        rebuild = true;
+                    }
+                }
             }
 
             if (rebuild) {
                 if (visual.render) {
                     visual.render->clearMeshInstances();
                 }
+                // The old parts stay until the new ones have their materials, so a part
+                // that comes back the same finds its material still alive to share.
+                std::vector<VisualPart> previous = std::move(visual.parts);
                 visual.parts.clear();
                 visual.unmask = nullptr;
                 if (isText) {
                     const FontResource* font = element->fontResource();
-                    TextMeshes text = buildTextMeshes(_engine->graphicsDevice(), element);
-                    for (auto& run : text.meshes) {
+                    TextRuns text = buildTextRuns(element);
+                    for (auto& run : text.runs) {
                         const auto [page, style] = run.key;
                         VisualPart part;
-                        part.mesh = std::move(run.mesh);
+                        if (!setPartGeometry(part, run.vertices, run.indices, text.bounds)) {
+                            continue;
+                        }
                         part.quadSymbols = std::move(run.quadSymbols);
+                        part.page = page;
                         part.style = style;
                         part.texture = page < static_cast<int>(font->pages.size())
                             ? font->pages[static_cast<size_t>(page)] : font->texture;
-                        part.material = makeElementMaterial(visual.worldSpace);
-                        if (font->msdf) {
-                            part.material->setMsdfMap(part.texture);
-                            part.material->setMsdfFont(font->pxRange, font->intensity);
-                        } else {
-                            part.material->setDiffuseMap(part.texture);   // coverage in alpha
-                        }
                         visual.parts.push_back(std::move(part));
                     }
                     visual.styles = std::move(text.styles);
                     visual.markupStyles = !element->markupTags().empty();
                     element->clearTextDirty();
                 } else {
+                    const ImageMeshData image = buildImageMeshData(element);
                     VisualPart part;
-                    part.mesh = buildImageMesh(_engine->graphicsDevice(), element, part.texture);
-                    if (element->material()) {
-                        // Upstream: a custom material draws the quad, and owns what the
-                        // element's own material would have done with its colour and texture.
-                        part.customMaterial = element->material();
-                    } else {
-                        part.material = makeElementMaterial(visual.worldSpace);
-                        // An image multiplies its texture into the colour and takes its alpha.
-                        part.material->setDiffuseMap(part.texture);
-                        part.material->setEmissiveMap(part.texture);
-                    }
-                    if (element->mask() && part.material) {
-                        // Upstream's mask material: into the stencil alone, every colour
-                        // channel off, and only where the image is fully opaque (alpha test 1),
-                        // which is what lets a sprite's transparent corners shape the mask.
-                        // setAlphaMode resets the blend, the depth state and transparency,
-                        // so it goes first and the element's own depth state and sublayer (the
-                        // transparent one, sorted by draw order) are put back after it.
-                        const auto depthState = part.material->depthState();
-                        part.material->setAlphaMode(AlphaMode::MASK);
-                        part.material->setAlphaCutoff(1.0f);
-                        part.material->setDepthState(depthState);
-                        part.material->setTransparent(true);
-                        auto blend = std::make_shared<BlendState>(BlendState::alphaBlend());
-                        blend->setRedWrite(false);
-                        blend->setGreenWrite(false);
-                        blend->setBlueWrite(false);
-                        blend->setAlphaWrite(false);
-                        part.material->setBlendState(blend);
-                    }
+                    part.texture = image.texture;
+                    // Upstream: a custom material draws the quad, and owns what the
+                    // element's own material would have done with its colour and texture.
+                    part.customMaterial = element->material();
                     visual.cachedMask = element->mask();
-                    if (part.mesh) {
+                    if (setPartGeometry(part, image.vertices, image.indices, image.bounds)) {
                         visual.parts.push_back(std::move(part));
                     }
                     const Sprite* sprite = element->sprite().get();
@@ -672,10 +930,9 @@ namespace visutwin::canvas
                     visual.cachedSpriteVersion = sprite ? sprite->version() : 0;
                     visual.cachedAtlasVersion = sprite && sprite->atlas() ? sprite->atlas()->version() : 0;
                 }
-                visual.cachedWidth = element->calculatedWidth();
-                visual.cachedHeight = element->calculatedHeight();
-                visual.cachedPivot = element->pivot();
 
+                // Materials before the mesh instances that are created with them.
+                styleParts(visual, element);
                 if (visual.render) {
                     for (auto& part : visual.parts) {
                         Material* material = part.customMaterial ? part.customMaterial.get() : part.material.get();
@@ -692,11 +949,17 @@ namespace visutwin::canvas
                         visual.render->addMeshInstance(std::move(unmask));
                     }
                 }
+                rangeStale = true;
+            }
+            if (rebuild || sizeChanged) {
+                visual.cachedWidth = element->calculatedWidth();
+                visual.cachedHeight = element->calculatedHeight();
+                visual.cachedPivot = element->pivot();
             }
 
             // Upstream _updateRenderRange: draw only the symbols in [rangeStart, rangeEnd), by
             // narrowing each part's index range to its quads inside it — no new layout.
-            if (isText && (rebuild || visual.cachedRangeVersion != element->rangeVersion())) {
+            if (isText && (rangeStale || visual.cachedRangeVersion != element->rangeVersion())) {
                 const auto start = static_cast<uint32_t>(element->rangeStart());
                 const auto end = static_cast<uint32_t>(element->rangeEnd());
                 for (auto& part : visual.parts) {
@@ -705,7 +968,8 @@ namespace visutwin::canvas
                     const auto last = static_cast<int>(std::lower_bound(q.begin(), q.end(), end) - q.begin());
                     Primitive primitive;
                     primitive.type = PRIMITIVE_TRIANGLES;
-                    primitive.base = first * 6;
+                    // within the part's own run of the shared index buffer
+                    primitive.base = static_cast<int>(part.geometry->firstIndex()) + first * 6;
                     primitive.count = std::max(last - first, 0) * 6;
                     primitive.indexed = true;
                     part.mesh->setPrimitive(primitive, 0);
@@ -717,59 +981,26 @@ namespace visutwin::canvas
                 visual.cachedRangeVersion = element->rangeVersion();
             }
 
-            for (auto& part : visual.parts) {
-                if (!part.material) {   // a custom material styles itself
-                    if (part.meshInstance) {
-                        part.meshInstance->setDrawOrder(element->drawOrder());
-                    }
-                    continue;
-                }
-                const bool msdf = isText && element->fontResource()->msdf;
-                // Style 0 is the element's own, read live (a pulsing colour or a changed
-                // outline needs no rebuild); a markup style is what its tags resolved to.
-                const TextStyle style = (!isText || part.style == 0 || part.style >= static_cast<int>(visual.styles.size()))
-                    ? TextStyle{element->color(), element->outlineColor(), element->outlineThickness(),
-                                element->shadowColor(), element->shadowOffset()}
-                    : visual.styles[static_cast<size_t>(part.style)];
-                if (!part.styled || !(part.color == style.color) || part.opacity != element->opacity()) {
-                    part.material->setEmissive(style.color);
-                    part.material->setOpacity(element->opacity());
-                    part.color = style.color;
-                    part.opacity = element->opacity();
-                }
-                if (msdf && (!part.styled || !(part.outlineColor == style.outlineColor) ||
-                             part.outlineThickness != style.outlineThickness ||
-                             !(part.shadowColor == style.shadowColor) ||
-                             part.shadowOffset.x != style.shadowOffset.x ||
-                             part.shadowOffset.y != style.shadowOffset.y)) {
-                    // Upstream's editor units: thickness x 0.2, offset x 0.005 of the page.
-                    part.material->setMsdfOutline(style.outlineColor, 0.2f * style.outlineThickness);
-                    part.material->setMsdfShadow(style.shadowColor,
-                        msdfShadowUvOffset(style.shadowOffset, part.texture, visual.markupStyles));
-                    part.outlineColor = style.outlineColor;
-                    part.outlineThickness = style.outlineThickness;
-                    part.shadowColor = style.shadowColor;
-                    part.shadowOffset = style.shadowOffset;
-                }
-                part.styled = true;
-                if (part.meshInstance) {
-                    part.meshInstance->setDrawOrder(element->drawOrder());
-                }
-            }
+            styleParts(visual, element);
             visual.entity->setEnabled(element->enabled() && element->entity()->enabled());
         }
 
-        syncMasks();
-
-        std::vector<ElementComponent*> toRemove;
-        for (auto& [element, visual] : _visuals) {
-            if (!visual.activeFrame) {
-                releaseVisual(visual);
-                toRemove.push_back(element);
-            }
+        // With no mask anywhere, now or at the last walk, there is no stencil state and no
+        // `maskedBy` to maintain, and the walk over every element tree is skipped.
+        if (anyMask || _masksApplied) {
+            syncMasks();
         }
-        for (auto* element : toRemove) {
-            _visuals.erase(element);
+
+        // A visual this sync did not see belongs to an element that is gone. Looked for
+        // only when the counts say there is one.
+        if (seen != _visuals.size()) {
+            std::erase_if(_visuals, [this](auto& entry) {
+                if (entry.second.syncSerial == _syncSerial) {
+                    return false;
+                }
+                releaseVisual(entry.second);
+                return true;
+            });
         }
     }
 }

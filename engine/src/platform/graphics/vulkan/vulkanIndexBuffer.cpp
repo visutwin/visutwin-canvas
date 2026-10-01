@@ -97,7 +97,21 @@ namespace visutwin::canvas
         return true;
     }
 
-    bool VulkanIndexBuffer::uploadStaging(const void* data, size_t size)
+    bool VulkanIndexBuffer::writeRange(const size_t offset, const void* data, const size_t size)
+    {
+        // A uint8 buffer is widened on upload, so its device bytes are not the caller's.
+        if (format() == INDEXFORMAT_UINT8 || !data || size == 0 || !_allocator || !_buffer ||
+            offset + size > _storage.size()) {
+            return false;
+        }
+        if (!uploadStaging(data, size, offset)) {
+            return false;
+        }
+        std::memcpy(_storage.data() + offset, data, size);
+        return true;
+    }
+
+    bool VulkanIndexBuffer::uploadStaging(const void* data, size_t size, const size_t destinationOffset)
     {
         auto* vkDev = static_cast<VulkanGraphicsDevice*>(_device);
 
@@ -127,7 +141,7 @@ namespace visutwin::canvas
         vmaUnmapMemory(_allocator, stagingAlloc);
 
         const VkBuffer destinationBuffer = _buffer;
-        vkDev->enqueueUpload([destinationBuffer, stagingBuffer, size](VkCommandBuffer cmd) {
+        vkDev->enqueueUpload([destinationBuffer, stagingBuffer, size, destinationOffset](VkCommandBuffer cmd) {
             // Queue-wide ordering: prior in-flight frames finish their index
             // reads before the copy; later reads see the copied data.
             VkBufferMemoryBarrier2 pre{
@@ -147,6 +161,7 @@ namespace visutwin::canvas
             vkCmdPipelineBarrier2(cmd, &dependency);
 
             VkBufferCopy copy{};
+            copy.dstOffset = destinationOffset;
             copy.size = size;
             vkCmdCopyBuffer(cmd, stagingBuffer, destinationBuffer, 1, &copy);
 

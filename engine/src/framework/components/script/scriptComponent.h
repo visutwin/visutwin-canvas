@@ -96,8 +96,11 @@ namespace visutwin::canvas
         // Outlives the component while a loop is running over it. The destructor
         // clears `alive` and, when a loop is in progress, hands the scripts to
         // `retired` instead of freeing them — the script whose method destroyed the
-        // entity is still executing — and they are freed when the last loop lets go
-        // of this state, after that method has returned.
+        // entity is still executing — and lets go of the state without freeing it; the
+        // outermost loop frees it, and with it the scripts, once it has unwound past
+        // that method. Owned by hand rather than shared: a loop runs for every
+        // component in every phase, and a shared pointer copied per loop is two atomic
+        // operations each time for a case that almost never happens.
         struct RunState
         {
             int depth = 0;
@@ -105,10 +108,17 @@ namespace visutwin::canvas
             std::vector<std::unique_ptr<Script>> retired;
         };
 
+        // Calls the phase's method on each script that implements it; a component none
+        // of whose scripts do returns at once, before it touches its entity.
+        template <typename Call>
+        void runPhase(uint8_t phase, Call&& call);
+
         std::unordered_map<std::string, size_t> _scriptsIndex;
 
         std::vector<ScriptEntry> _scripts;
-        std::shared_ptr<RunState> _run = std::make_shared<RunState>();
+        std::unique_ptr<RunState> _run = std::make_unique<RunState>();
+        // The phases any script of this component implements (Script::Phase bits).
+        uint8_t _phases = 0;
         int _executionOrder = 0;
     };
 }

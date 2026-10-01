@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -40,6 +42,18 @@ namespace visutwin::canvas
         // Copies data into vertex buffer's memor
         bool setData(const std::vector<uint8_t>& data);
 
+        /**
+         * Overwrites `size` bytes at byte `offset`, in the CPU copy and on the GPU, and
+         * leaves the rest of the buffer alone: what a buffer shared by many small meshes
+         * (UiGeometryArena) is filled through, where setData would re-send all of it.
+         *
+         * The caller owns the hazard any CPU write into a drawn buffer has: on Metal the
+         * bytes land in memory the GPU reads directly, so a range that a frame still in
+         * flight draws must not be rewritten (GraphicsDevice::maxFramesInFlight).
+         * Returns false, writing nothing, when the range does not fit.
+         */
+        bool writeRange(size_t offset, const void* data, size_t size);
+
         // Notifies the graphics engine that the client side copy of the vertex buffer's memory can be
         // returned to the control of the graphics driver.
         virtual void unlock() = 0;
@@ -64,6 +78,10 @@ namespace visutwin::canvas
         /// The _storage vector remains empty — the GPU buffer is set via the subclass.
         VertexBuffer(GraphicsDevice* device, std::shared_ptr<VertexFormat> format,
             int numVertices, int numBytes);
+
+        /// Sends bytes [offset, offset + size) of `_storage` to the GPU. A backend that
+        /// can send a part overrides it; the default sends the whole buffer.
+        virtual void uploadRange(size_t /*offset*/, size_t /*size*/) { unlock(); }
 
         GraphicsDevice* _device;
 

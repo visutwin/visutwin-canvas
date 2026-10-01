@@ -17,7 +17,7 @@
         struct ScriptReg_##Line { \
             ScriptReg_##Line() { \
                 ::visutwin::canvas::ScriptFactories::instance().registerFactory( \
-                    Name, [] { return std::make_unique<Type>(); } \
+                    Name, [] { return ::visutwin::canvas::Script::make<Type>(); } \
                 ); \
             } \
         }; \
@@ -71,7 +71,7 @@ namespace visutwin::canvas
 
         template<typename T>
         void registerType() {
-            registerType(T::scriptName(), [] { return std::make_unique<T>(); });
+            registerType(T::scriptName(), [] { return Script::make<T>(); });
         }
 
     private:

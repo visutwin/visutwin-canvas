@@ -347,6 +347,19 @@ namespace visutwin::canvas
         /// entity there). Worked out by ElementInput before each frame; a hit test on this
         /// element must also hit it.
         ElementComponent* maskedBy() const { return _maskedBy; }
+
+        /// The record whoever draws this element keeps for it (ElementInput's visual),
+        /// so the drawer reaches it without a lookup per element per frame. Tagged with
+        /// its owner — another drawer reads null — and never copied by a clone.
+        [[nodiscard]] void* drawRecord(const void* owner) const
+        {
+            return _drawRecordOwner == owner ? _drawRecord : nullptr;
+        }
+        void setDrawRecord(const void* owner, void* record)
+        {
+            _drawRecordOwner = record ? owner : nullptr;
+            _drawRecord = record;
+        }
         void setMaskedBy(ElementComponent* value)
         {
             _maskedBy = value;
@@ -498,6 +511,8 @@ namespace visutwin::canvas
         bool _mask = false;
         std::shared_ptr<Material> _customMaterial;
         ElementComponent* _maskedBy = nullptr;
+        const void* _drawRecordOwner = nullptr;
+        void* _drawRecord = nullptr;
         // Set once some element's _maskedBy has pointed here; the destructor then clears
         // those pointers (see ~ElementComponent).
         bool _wasUsedAsMask = false;

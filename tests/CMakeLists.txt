@@ -593,6 +593,22 @@ target_link_libraries(visutwin-script-lifetime-tests PRIVATE visutwin-canvas)
 
 add_test(NAME script-lifetime COMMAND visutwin-script-lifetime-tests)
 
+add_executable(visutwin-script-phase-tests
+    scriptPhaseTests.cpp
+)
+
+target_link_libraries(visutwin-script-phase-tests PRIVATE visutwin-canvas)
+
+add_test(NAME script-phases COMMAND visutwin-script-phase-tests)
+
+add_executable(visutwin-ui-visual-sharing-tests
+    uiVisualSharingTests.cpp
+)
+
+target_link_libraries(visutwin-ui-visual-sharing-tests PRIVATE visutwin-canvas)
+
+add_test(NAME ui-visual-sharing COMMAND visutwin-ui-visual-sharing-tests)
+
 add_executable(visutwin-picker-tests
     pickerTests.cpp
 )

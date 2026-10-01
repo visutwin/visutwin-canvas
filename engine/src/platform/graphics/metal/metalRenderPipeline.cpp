@@ -61,7 +61,7 @@ namespace visutwin::canvas
 
     MetalRenderPipeline::MetalRenderPipeline(const MetalGraphicsDevice* device): MetalPipeline(device)
     {
-        _lookupHashes.resize(15, 0);
+        _lookupHashes.resize(kLookupKeyWords, 0);
         _pipeline = nullptr;
     }
 
@@ -155,6 +155,15 @@ namespace visutwin::canvas
         pipelineDescriptor->release();
     }*/
 
+    void MetalRenderPipeline::rememberLookup(MTL::RenderPipelineState* pipeline)
+    {
+        // Over the oldest entry: the one after the most recent.
+        _recentLookup = (_recentLookup + 1) % kRecentLookups;
+        RecentLookup& slot = _recentLookups[_recentLookup];
+        std::copy(_lookupHashes.begin(), _lookupHashes.end(), slot.key.begin());
+        slot.pipeline = pipeline;
+    }
+
     MTL::RenderPipelineState* MetalRenderPipeline::get(const Primitive& primitive, const std::shared_ptr<VertexFormat>& vertexFormat0,
             const std::shared_ptr<VertexFormat>& vertexFormat1, int ibFormat, const std::shared_ptr<Shader>& shader,
             const std::shared_ptr<RenderTarget>& renderTarget,
@@ -207,9 +216,14 @@ namespace visutwin::canvas
         _lookupHashes[14] = (instancingFormat && instancingFormat->isInstancing())
             ? instancingFormat->renderingHash() : 0;
 
-        // The same key as the previous lookup: the same pipeline.
-        if (_lastPipeline && _lookupHashes == _lastLookupHashes) {
-            return _lastPipeline;
+        // The same key as a recent lookup: the same pipeline. The latest first.
+        for (size_t i = 0; i < kRecentLookups; ++i) {
+            const size_t index = (_recentLookup + kRecentLookups - i) % kRecentLookups;
+            const RecentLookup& recent = _recentLookups[index];
+            if (recent.pipeline && std::equal(recent.key.begin(), recent.key.end(), _lookupHashes.begin())) {
+                _recentLookup = index;
+                return recent.pipeline;
+            }
         }
 
         uint32_t hash = hash32Fnv1a(_lookupHashes.data(), _lookupHashes.size());
@@ -221,8 +235,7 @@ namespace visutwin::canvas
             // Find an exact match in case of hash collision
             for (auto& entry : cacheEntries) {
                 if (std::equal(entry->hashes.begin(), entry->hashes.end(), _lookupHashes.begin())) {
-                    _lastLookupHashes = _lookupHashes;
-                    _lastPipeline = entry->pipeline;
+                    rememberLookup(entry->pipeline);
                     return entry->pipeline;
                 }
             }
@@ -254,8 +267,7 @@ namespace visutwin::canvas
             _cache[hash] = { cacheEntry };
         }
 
-        _lastLookupHashes = _lookupHashes;
-        _lastPipeline = cacheEntry->pipeline;
+        rememberLookup(cacheEntry->pipeline);
         return cacheEntry->pipeline;
     }
 

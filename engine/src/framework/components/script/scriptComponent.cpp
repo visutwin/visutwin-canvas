@@ -17,20 +17,23 @@ namespace visutwin::canvas
         }
         // Destroyed from inside one of our own loops — a script destroyed its
         // entity. Keep every script alive until that loop has unwound out of the
-        // running one; the loop sees `alive` false and touches nothing of ours.
+        // running one; the loop sees `alive` false and touches nothing of ours, and
+        // frees the state (forEachScript) when it is done with it.
         _run->alive = false;
         if (_run->depth > 0) {
             for (auto& entry : _scripts) {
                 _run->retired.push_back(std::move(entry.instance));
             }
+            (void)_run.release();
         }
     }
 
     template <typename Call>
     void ScriptComponent::forEachScript(Call&& call)
     {
-        // A local copy: it keeps the state alive if `this` is destroyed below.
-        const std::shared_ptr<RunState> run = _run;
+        // The state by its own address: if `this` is destroyed below, the destructor
+        // leaves it to this loop (see RunState).
+        RunState* run = _run.get();
         ++run->depth;
         for (size_t i = 0;; ++i) {
             // `alive` first: once it is false, `this` is gone and so is _scripts.
@@ -41,7 +44,27 @@ namespace visutwin::canvas
                 call(script);
             }
         }
-        --run->depth;
+        if (--run->depth == 0 && !run->alive) {
+            delete run;
+        }
+    }
+
+    template <typename Call>
+    void ScriptComponent::runPhase(const uint8_t phase, Call&& call)
+    {
+        // Before anything else, and without reading the entity: most components have
+        // no script in most phases.
+        if ((_phases & phase) == 0 || !active()) {
+            return;
+        }
+        forEachScript([this, phase, &call](Script* script) {
+            // The script's own flag and the component's active state, which is what
+            // Script::enabled() is — re-read for each script, since the one before may
+            // have disabled the entity.
+            if ((script->_phases & phase) != 0 && script->_initialized && script->_enabled && active()) {
+                call(script);
+            }
+        });
     }
 
     Script* ScriptComponent::create(const std::string& name, const ScriptCreateOptions& options)
@@ -69,6 +92,12 @@ namespace visutwin::canvas
         script->_enabled = options.enabled;
 
         // 4. Store the script instance
+        if (const uint8_t gained = script->_phases & ~_phases) {
+            _phases |= gained;
+            if (auto* scripts = dynamic_cast<ScriptComponentSystem*>(system())) {
+                scripts->componentGainedPhases(this, gained);
+            }
+        }
         _scripts.push_back({ name, std::move(instance) });
         _scriptsIndex[name] = _scripts.size() - 1;
 
@@ -193,40 +222,16 @@ namespace visutwin::canvas
 
     void ScriptComponent::fixedUpdateScripts(const float fixedDt)
     {
-        if (!active()) {
-            return;
-        }
-
-        forEachScript([fixedDt](Script* script) {
-            if (script->_initialized && script->enabled()) {
-                script->fixedUpdate(fixedDt);
-            }
-        });
+        runPhase(Script::PHASE_FIXED_UPDATE, [fixedDt](Script* script) { script->fixedUpdate(fixedDt); });
     }
 
     void ScriptComponent::updateScripts(const float dt)
     {
-        if (!active()) {
-            return;
-        }
-
-        forEachScript([dt](Script* script) {
-            if (script->_initialized && script->enabled()) {
-                script->update(dt);
-            }
-        });
+        runPhase(Script::PHASE_UPDATE, [dt](Script* script) { script->update(dt); });
     }
 
     void ScriptComponent::postUpdateScripts(const float dt)
     {
-        if (!active()) {
-            return;
-        }
-
-        forEachScript([dt](Script* script) {
-            if (script->_initialized && script->enabled()) {
-                script->postUpdate(dt);
-            }
-        });
+        runPhase(Script::PHASE_POST_UPDATE, [dt](Script* script) { script->postUpdate(dt); });
     }
 }

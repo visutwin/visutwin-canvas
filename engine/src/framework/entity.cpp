@@ -260,9 +260,11 @@ namespace visutwin::canvas
             raw->setEnabled(srcComponent->enabled());
         }
 
-        // Only Entity children are copied, as upstream.
+        // Only Entity children are copied, as upstream; and not one its owner rebuilds
+        // for itself (setExcludedFromClone).
         for (const auto& child : children()) {
-            if (const auto* childEntity = dynamic_cast<const Entity*>(child.get())) {
+            if (const auto* childEntity = dynamic_cast<const Entity*>(child.get());
+                childEntity && !childEntity->_excludedFromClone) {
                 cloned->addChild(childEntity->cloneRecursively(map));
             }
         }

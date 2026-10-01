@@ -338,7 +338,10 @@ namespace visutwin::canvas
             ca->setLoadAction(MTL::LoadActionLoad);
             ca->setStoreAction(MTL::StoreActionStore);
 
-            auto* cmdBuf = metalDevice->commandQueue()->commandBuffer();
+            // The device's open command buffer, so the overlay is drawn after the
+            // frame's passes: a buffer of its own, committed here, would run before
+            // whatever the frame has not committed yet and be drawn over.
+            auto* cmdBuf = metalDevice->openCommandBuffer();
             if (!cmdBuf) {
                 desc->release();
                 return;
@@ -354,7 +357,6 @@ namespace visutwin::canvas
             ImGui_ImplMetal_RenderDrawData(drawData, cmdBuf, encoder);
 
             encoder->endEncoding();
-            cmdBuf->commit();
 
             desc->release();
 #endif

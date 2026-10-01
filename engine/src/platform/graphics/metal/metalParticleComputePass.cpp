@@ -301,7 +301,7 @@ kernel void advectParticles(
         auto* particleBuffer = currentBuffer_ == 0 ? particleBufferA_ : particleBufferB_;
 
         // ── Encode compute command ──────────────────────────────────
-        auto* commandBuffer = device_->_commandQueue->commandBuffer();
+        auto* commandBuffer = device_->openCommandBuffer();
         if (!commandBuffer) {
             spdlog::warn("[MetalParticleComputePass] Failed to allocate command buffer");
             return;
@@ -338,7 +338,8 @@ kernel void advectParticles(
 
         encoder->popDebugGroup();
         encoder->endEncoding();
-        commandBuffer->commit();
+        // Submitted with the frame, like any compute dispatch
+        // (MetalGraphicsDevice::openCommandBuffer).
 
         // We don't swap buffers since we advect in-place.
         // If double-buffering is needed for overlapping frames,

@@ -18,7 +18,9 @@
 #include "core/math/color.h"
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
+#include "core/shape/boundingBox.h"
 #include "framework/components/element/elementComponent.h"
+#include "framework/input/uiGeometryArena.h"
 #include "platform/graphics/stencilParameters.h"
 #include "platform/input/inputConstants.h"
 
@@ -161,29 +163,66 @@ namespace visutwin::canvas
         void syncElements();
 
     private:
-        /// One mesh instance of a visual: an image has one, text one per atlas page it
-        /// uses (each page is its own texture, so its own material).
+    public:
+        /// Everything an element material is built from. Two parts with equal keys draw
+        /// with ONE material (upstream shares its element materials the same way): the
+        /// renderer skips the material bind between consecutive draws of one material,
+        /// and a screen of labels in one font and colour packs one uniform block, not one
+        /// per label. All values are the ones the material is given, already converted
+        /// (outline thickness x 0.2, shadow offset in atlas UV).
+        struct MaterialKey
+        {
+            enum class Kind : uint8_t { Image, ImageMask, BitmapText, MsdfText };
+
+            Kind kind = Kind::Image;
+            bool worldSpace = false;
+            Texture* texture = nullptr;
+            Color color;
+            float opacity = 1.0f;
+            // MSDF text only; left at these defaults otherwise.
+            float pxRange = 0.0f;
+            float intensity = 0.0f;
+            Color outlineColor;
+            float outlineThickness = 0.0f;
+            Color shadowColor;
+            Vector2 shadowUvOffset;
+
+            bool operator==(const MaterialKey& other) const;
+            /// Whether a material built for `other` becomes this one by restyling it
+            /// (colour, opacity, outline, shadow) rather than by building another.
+            [[nodiscard]] bool sameBuild(const MaterialKey& other) const;
+        };
+
+        struct MaterialKeyHash
+        {
+            size_t operator()(const MaterialKey& key) const;
+        };
+
+    private:
+        /// One mesh instance of a visual: an image has one, text one per (atlas page,
+        /// markup style) run.
         struct VisualPart
         {
+            /// The part's own Mesh object; its buffers and index range are `geometry`'s.
             std::shared_ptr<Mesh> mesh;
+            /// Where the geometry lives in the shared UI buffers. Replaced, not rewritten,
+            /// when the element is resized.
+            std::unique_ptr<UiGeometryArena::Block> geometry;
+            /// Shared with every part whose key equals `materialKey`; null for a custom
+            /// material.
             std::shared_ptr<StandardMaterial> material;
+            MaterialKey materialKey;
             /// An image element's own `material()`, drawn instead of `material` (which is then
             /// null): its colour, opacity and texture are its own affair.
             std::shared_ptr<Material> customMaterial;
             MeshInstance* meshInstance = nullptr;
             Texture* texture = nullptr;
+            /// Text: the atlas page this run draws from.
+            int page = 0;
             /// Index into ElementVisual::styles; 0 is the element's own, read live.
             int style = 0;
             /// Text: the symbol of each quad, ascending, for the draw range.
             std::vector<uint32_t> quadSymbols;
-            // What the material was last given, so an unchanged element repacks nothing.
-            bool styled = false;
-            Color color;
-            float opacity = 1.0f;
-            Color outlineColor;
-            float outlineThickness = 0.0f;
-            Color shadowColor;
-            Vector2 shadowOffset;
         };
 
         struct ElementVisual
@@ -197,7 +236,8 @@ namespace visutwin::canvas
             /// convention, which differs from the uniform one (see msdfShadowUvOffset).
             bool markupStyles = false;
             ElementType type = ElementType::Group;
-            bool activeFrame = false;
+            /// The sync that last saw the element (ElementInput::_syncSerial).
+            uint64_t syncSerial = 0;
             // Decided once, when the visual is created: an element on a screen-space
             // screen is drawn in screen space (depth test off, over whatever layer it is
             // on); any other is world geometry that simply follows its entity.
@@ -238,6 +278,19 @@ namespace visutwin::canvas
 
         ElementVisual& visualFor(ElementComponent* element);
         void releaseVisual(ElementVisual& visual);
+        /// Puts the geometry in the shared buffers and points the part's mesh at it. False,
+        /// leaving the part as it was, when there is nothing to draw.
+        bool setPartGeometry(VisualPart& part, const std::vector<float>& vertices, const std::vector<uint32_t>& indices,
+                             const BoundingBox& bounds);
+        /// The key of the material this part should draw with right now.
+        static MaterialKey materialKeyFor(const ElementVisual& visual, const VisualPart& part,
+                                          const ElementComponent* element);
+        /// Gives the part (and `unmask`, a mask's second draw) the material for `key`: the
+        /// one another part already has, its own restyled when nothing shares it, or a new
+        /// one. Nothing happens while the key is unchanged.
+        void applyPartMaterial(VisualPart& part, const MaterialKey& key, MeshInstance* unmask);
+        /// Every part's material and draw order from the element's current state.
+        void styleParts(ElementVisual& visual, const ElementComponent* element);
 
         void onElementMouseEvent(const char* eventType, float x, float y, MouseButton button, int wheelDelta,
                                  const KeyModifiers& modifiers);
@@ -253,6 +306,16 @@ namespace visutwin::canvas
 
         std::shared_ptr<Engine> _engine;
         std::unordered_map<ElementComponent*, ElementVisual> _visuals;
+        /// The buffers every visual's geometry lives in; made by the first sync.
+        std::shared_ptr<UiGeometryArena> _geometry;
+        /// The element materials alive right now, by what they are. Weak: the parts own
+        /// them, and the last part to let go of one frees it.
+        std::unordered_map<MaterialKey, std::weak_ptr<StandardMaterial>, MaterialKeyHash> _materials;
+        size_t _materialPruneAt = 64;
+        /// Counts syncElements calls; a visual whose stamp is older was not seen.
+        uint64_t _syncSerial = 0;
+        /// The last syncMasks run left stencil state or `maskedBy` set somewhere.
+        bool _masksApplied = false;
         std::unordered_map<uint64_t, std::shared_ptr<StencilParameters>> _stencilCache;
 
         bool _enabled = true;

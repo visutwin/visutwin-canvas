@@ -431,7 +431,9 @@ already some example's binding.
   from `postrender`, and the overlay's shutdown still needs the device, because the
   Vulkan path waits the device idle before freeing ImGui's font texture and pipeline.
 - The two backends reach the back buffer differently, and only the overlay knows it.
-  Metal makes and commits a command buffer of its own against the frame drawable.
+  Metal encodes into the device's open command buffer (`openCommandBuffer()`), after
+  the frame's passes and before the present; a buffer of its own, committed, would run
+  ahead of the frame and be drawn over.
   Vulkan records into the frame's command buffer, which is still OPEN at
   `postrender`, through `VulkanGraphicsDevice::beginOverlayRendering()` — a command
   buffer of its own could not work, since `frameEnd` transitions the swapchain image
@@ -497,6 +499,12 @@ already rendered in front of it.
 - **18 component types:** Camera, Render, Light, Script, Animation, Anim (state
   graph), Screen, Element, Button, LayoutGroup, LayoutChild, Scrollbar, ScrollView,
   Collision, RigidBody, Joint, GSplat, ParticleSystem
+- **Script phases.** `update`, `postUpdate` and `fixedUpdate` each walk their own
+  execution-ordered list of script components — the ones with a script that overrides
+  that method, decided per script TYPE at compile time (`Script::phasesOf<T>()`) and
+  stamped on the instance by the registries' factories (`Script::make<T>()`). `initialize`
+  and `postInitialize` walk every component. A script from a hand-written factory that
+  does not use `Script::make` is treated as implementing every phase.
 - **Component systems are supplied by the APPLICATION**, not by the engine:
   `Engine` registers whatever `AppOptions::componentSystems` carries. The examples
   harness registers Render, Camera, Light and Script; anything else is one
@@ -573,9 +581,23 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
   DEVIATION for the last, upstream's default is UI for both). On a screen-space screen
   the mesh instance is `setScreenSpace`, so the vertex stage writes world xy straight
   to clip, with no depth test. The material is emissive-only (colour x texture, alpha
-  from the texture), and the mesh is rebuilt only when its inputs change: size and
-  pivot, the text fields, or the image's `imageVersion` plus its sprite's and atlas's
-  versions.
+  from the texture), and the visual is rebuilt only when its inputs change: the text
+  fields, or the image's `imageVersion` plus its sprite's and atlas's versions; a change
+  of size or pivot alone gives the existing parts new geometry and keeps their mesh
+  instances and materials.
+- **What visuals share.** Geometry: every part's vertices and indices are a run inside
+  the `UiGeometryArena`'s shared buffers (`framework/input/uiGeometryArena.h`; chunks of
+  2,048 vertices doubling to 65,536, a `RangeAllocator` per chunk for each of vertices
+  and indices, indices stored absolute as 32 bits), written through
+  `VertexBuffer::writeRange` / `IndexBuffer::writeRange`; a run given back is reusable
+  after `maxFramesInFlight` frames. Materials: parts whose `ElementInput::MaterialKey`
+  (kind, space, texture, colour, opacity, MSDF range, outline, shadow) are equal draw
+  with one `StandardMaterial`, held weakly in a map by key; a part alone with its
+  material restyles it in place. So consecutive UI draws keep the same buffers bound,
+  and the renderer skips the material bind between draws of one material. Each element
+  carries its visual's record (`drawRecord`), so the per-frame pass does no lookup and,
+  for an element nothing changed on, no allocation. The visual entity is excluded from
+  `Entity::clone`.
 - **Images.** `setTexture` + `setRect` (x, y from the bottom, w, h as fractions), or
   `setSprite` + `setSpriteFrame`; each clears the other, as upstream. `setFitMode`
   (stretch, contain, cover) shrinks the quad about the pivot. A `Sprite`
@@ -634,7 +656,8 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
   element makes it write the stencil instead of colour: its material keeps alpha test 1
   (`AlphaMode::MASK`, cutoff 1.0, so a sprite's transparent texels are outside the mask),
   turns every colour write off and draws in the transparent sublayer without depth
-  write. `ElementInput::syncMasks` walks each element tree depth-first every frame: a
+  write. `ElementInput::syncMasks` walks each element tree depth-first, every frame in
+  which some element is a mask and once more after the last one goes: a
   mask under no other mask draws ALWAYS / REPLACE with its depth as the reference
   (starting at 1), a nested one EQUAL parent / INCREMENT_CLAMP, and every element below a
   mask EQUAL / KEEP against it (`maskedBy()`). Each mask gets a second mesh instance on
@@ -733,6 +756,18 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
 - Per-pass texture/uniform binding deduplication
 - Pipeline state caching via `MetalRenderPipeline` / `VulkanRenderPipeline`
   (+ `MetalComputePipeline`)
+- **Command buffers.** Both backends record a frame into one command buffer. Vulkan's
+  is the frame's; Metal's is `MetalGraphicsDevice::openCommandBuffer()`, created on
+  demand and shared by render passes, blits, mip generation, compute dispatches, the
+  particle simulation and the HUD, committed at frame end with the present attached —
+  and earlier, without waiting, after a pass that leaves 256 draws or 300,000 vertices
+  in it, so the GPU can start on them. Anything that reads a result back or submits a
+  buffer of its own calls `flushCommands()` first. A compute dispatch made outside a
+  frame waits in the open buffer for the next frame end on both backends.
+- **Ranged buffer writes.** `VertexBuffer::writeRange(offset, data, size)` and
+  `IndexBuffer::writeRange` overwrite part of a buffer, CPU copy and GPU: Metal copies
+  into the shared storage, Vulkan stages just that range. `setData` re-sends the whole
+  buffer. The UI geometry arena is the user.
 - **Capability queries.** One list, on the base class, so both backends answer the
   same questions and a caller never guesses. Dimensions: `maxTextureSize()` and
   `maxCubeMapSize()` (Metal derives them from the GPU family — 16384 from Apple3 /
@@ -821,8 +856,7 @@ written once over `QuadRender` in `scene/graphics/envBake.h`, `envReproject.h` a
 backends run the same importance-sampled convolution over a sample table passed as
 an input texture. It runs inside `GraphicsDevice::beginOfflineWork` /
 `endOfflineWork`, which is what lets ordinary render passes execute outside the
-frame loop: Metal batches the work into one command buffer and commits without
-waiting, Vulkan records a one-shot buffer and waits so the frame-scoped uniform ring
+frame loop: Metal encodes it into its open command buffer and never waits, Vulkan records a one-shot buffer and waits so the frame-scoped uniform ring
 and descriptor pools can be reused. A bake still has to run inside a frame, because
 the per-draw uniform rings are handed out by `frameStart` (see AGENTS.md). The
 effect-pass migration off the device vtable is complete; `copyRenderTarget` and

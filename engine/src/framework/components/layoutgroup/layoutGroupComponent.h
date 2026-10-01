@@ -74,10 +74,14 @@ namespace visutwin::canvas
         /// Everything a reflow reads, as bits so the comparison is exact (NaN included): the
         /// options, the group's size, and each child's identity, state, size, pivot, anchors
         /// and layout-child settings.
-        std::vector<uint32_t> gatherInputs() const;
+        /// Written into `inputs`, which keeps its capacity: this runs for every group
+        /// after every update, and must not allocate when nothing changed.
+        void gatherInputs(std::vector<uint32_t>& inputs) const;
 
         inline static ComponentInstanceList<LayoutGroupComponent> _instanceList;
         LayoutOptions _options;
         std::vector<uint32_t> _lastInputs;
+        // Scratch for the comparison; swapped with _lastInputs when they differ.
+        std::vector<uint32_t> _currentInputs;
     };
 }

@@ -25,12 +25,13 @@ namespace visutwin::canvas
 
         void* nativeBuffer() const override { return reinterpret_cast<void*>(_buffer); }
         bool setData(const std::vector<uint8_t>& data) override;
+        bool writeRange(size_t offset, const void* data, size_t size) override;
 
         [[nodiscard]] VkBuffer buffer() const { return _buffer; }
         [[nodiscard]] VkIndexType indexType() const { return _indexType; }
 
     private:
-        bool uploadStaging(const void* data, size_t size);
+        bool uploadStaging(const void* data, size_t size, size_t destinationOffset = 0);
 
         VkBuffer _buffer = VK_NULL_HANDLE;
         // Vulkan's core index types are uint16 and uint32. Public uint8 index

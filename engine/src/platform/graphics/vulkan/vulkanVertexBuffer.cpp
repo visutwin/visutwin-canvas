@@ -79,10 +79,15 @@ namespace visutwin::canvas
 
     void VulkanVertexBuffer::unlock()
     {
-        if (_storage.empty() || !_allocator || !_buffer) return;
+        uploadRange(0, _storage.size());
+    }
+
+    void VulkanVertexBuffer::uploadRange(const size_t offset, const size_t size)
+    {
+        if (_storage.empty() || !_allocator || !_buffer || size == 0 || offset + size > _storage.size()) return;
 
         auto* vkDev = static_cast<VulkanGraphicsDevice*>(_device);
-        size_t dataSize = _storage.size();
+        const size_t dataSize = size;
 
         // Create staging buffer
         VkBuffer stagingBuffer;
@@ -107,11 +112,11 @@ namespace visutwin::canvas
             vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);
             return;
         }
-        memcpy(mapped, _storage.data(), dataSize);
+        memcpy(mapped, _storage.data() + offset, dataSize);
         vmaUnmapMemory(_allocator, stagingAlloc);
 
         const VkBuffer destinationBuffer = _buffer;
-        vkDev->enqueueUpload([destinationBuffer, stagingBuffer, dataSize](VkCommandBuffer cmd) {
+        vkDev->enqueueUpload([destinationBuffer, stagingBuffer, dataSize, offset](VkCommandBuffer cmd) {
             // Pipeline barriers order queue-wide in submission order: the
             // pre-barrier makes already-submitted frames finish reading the
             // buffer before the copy overwrites it; the post-barrier orders
@@ -138,6 +143,7 @@ namespace visutwin::canvas
             vkCmdPipelineBarrier2(cmd, &dependency);
 
             VkBufferCopy copy{};
+            copy.dstOffset = offset;
             copy.size = dataSize;
             vkCmdCopyBuffer(cmd, stagingBuffer, destinationBuffer, 1, &copy);
 

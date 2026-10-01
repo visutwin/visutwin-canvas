@@ -30,5 +30,8 @@ namespace visutwin::canvas
         [[nodiscard]] MTL::Buffer* raw() const { return gpu::MetalBuffer::raw(); }
 
         void* nativeBuffer() const override { return raw(); }
+
+    protected:
+        void uploadRange(size_t offset, size_t size) override;
     };
 }

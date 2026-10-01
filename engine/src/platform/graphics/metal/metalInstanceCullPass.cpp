@@ -291,6 +291,11 @@ kernel void writeIndirectArgs(
         // dispatch loop in begin/endGpuCullBatch), encode into the shared
         // command buffer and submit it asynchronously before rendering.
         MTL::CommandBuffer* batchBuffer = device_->gpuCullBatchCommandBuffer();
+        // Standalone, the dispatch is waited for below; the open buffer goes first so
+        // it runs after whatever was encoded before it.
+        if (!batchBuffer) {
+            device_->flushCommands();
+        }
         auto* commandBuffer = batchBuffer ? batchBuffer : device_->_commandQueue->commandBuffer();
         if (!commandBuffer) {
             spdlog::warn("[MetalInstanceCullPass] Failed to create command buffer");
@@ -385,6 +390,11 @@ kernel void writeIndirectArgs(
         if (!indirectArgsBuffer_) return 0;
         // Batched culling is normally asynchronous. Diagnostics that explicitly
         // request a CPU value pay the synchronization cost here, off the hot path.
+        // The batch may still be in the device's open command buffer: commit it, or
+        // there is nothing to wait for.
+        if (pendingReadback_) {
+            device_->flushCommands();
+        }
         if (pendingReadback_ && pendingReadback_->status() != MTL::CommandBufferStatusNotEnqueued) {
             pendingReadback_->waitUntilCompleted();
             pendingReadback_->release();

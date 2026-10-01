@@ -186,6 +186,13 @@ namespace visutwin::canvas
          */
         Entity* clone() const;
 
+        /// A child that clone() leaves out: one its owner builds for itself and can
+        /// build again, such as the entity an element is drawn through. Copied, it
+        /// would draw the SOURCE's geometry from under the clone, beside the visual
+        /// the clone's own owner then makes.
+        void setExcludedFromClone(const bool value) { _excludedFromClone = value; }
+        [[nodiscard]] bool excludedFromClone() const { return _excludedFromClone; }
+
         /**
          * Access the component type map (for iteration during clone).
          */
@@ -205,6 +212,7 @@ namespace visutwin::canvas
         Engine* _engine = nullptr;
 
         bool _destroying = false;
+        bool _excludedFromClone = false;
 
         // Component map for generic access
         std::unordered_map<ComponentTypeID, Component*> _components;

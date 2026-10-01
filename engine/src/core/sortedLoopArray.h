@@ -48,7 +48,20 @@ namespace visutwin::canvas
 
         void remove(const T& item)
         {
-            const auto it = std::find(items.begin(), items.end(), item);
+            // The list is sorted by key, so the item is in the run of its own key:
+            // found by bisection, where a scan from the front makes removing K of N
+            // items cost K x N. A list that is not sorted right now (append(), or a key
+            // changed before sort()) falls back to the scan.
+            const float key = _keyExtractor(item);
+            auto it = std::lower_bound(items.begin(), items.end(), key, [&](const T& candidate, const float value) {
+                return _keyExtractor(candidate) < value;
+            });
+            while (it != items.end() && *it != item && _keyExtractor(*it) == key) {
+                ++it;
+            }
+            if (it == items.end() || *it != item) {
+                it = std::find(items.begin(), items.end(), item);
+            }
             if (it == items.end()) {
                 return;
             }

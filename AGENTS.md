@@ -34,7 +34,7 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (300 .h + 226 .cpp = 526 files)
+  engine/          # Core 3D engine (328 .h + 235 .cpp + 1 .mm = 564 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
@@ -607,10 +607,10 @@ spelling.
 **Offline (out-of-frame) work** goes through `GraphicsDevice::beginOfflineWork` /
 `endOfflineWork`. Between them the ordinary render-pass and draw API is usable, so
 a bake is written once over QuadRender. The two backends differ deliberately:
-Metal only batches the work into one command buffer and commits WITHOUT waiting
-(its `startRenderPass` already makes a command buffer per pass, and
-`reflection-probe-dynamic` re-bakes every frame, where a stall would serialise CPU
-and GPU); Vulkan records into a one-shot buffer and WAITS, because that is what
+Metal encodes the bake into its open command buffer like any other pass and never
+WAITS (inside a frame it is submitted with the frame, outside one it is committed
+when the scope ends; `reflection-probe-dynamic` re-bakes every frame, where a stall
+would serialise CPU and GPU); Vulkan records into a one-shot buffer and WAITS, because that is what
 makes reusing the frame-scoped uniform ring and descriptor pools safe. A bake must
 also set its own blend, depth and cull state — nothing outside the frame graph
 has — and `beginOfflineWork` flushes pending uploads first, because a texture
@@ -783,13 +783,13 @@ present, but the rule below never depends on reading it.
   imageblock, interpolation limiters, occupancy, partial renders, sampled every 10
   us — join to the intervals by time). The trace holds EVERY process's GPU work,
   and the process name sits at the end of each interval's label, "(name (pid))" —
-  filter on it FIRST. This engine submits ONE command buffer per pass, so its frame
-  is a run of one-encoder buffers, "Command Buffer N:Render Command 0" with N =
-  0 prepass, 1 SSAO, 2 blur H, 3 blur V, 4 forward, 5 compose, 6 overlay; an
-  encoder's fragment work is split into several rows (depth 1, 2) when another
-  process's work preempts it, so SUM the rows per command buffer. A browser
-  running upstream's example shows one seven-encoder buffer per frame; do not mistake
-  that buffer for ours. Encoder labels and debug groups set on the encoder do NOT
+  filter on it FIRST. This engine submits a frame as ONE command buffer with an encoder
+  per pass, in pass order (`ambient-occlusion`: prepass, SSAO, blur H, blur V, forward,
+  compose, overlay), split in two or three where a pass with many draws committed early
+  (see the open command buffer below); an encoder's fragment work is split into several
+  rows (depth 1, 2) when another process's work preempts it, so SUM the rows per
+  encoder. A browser running upstream's example shows one seven-encoder buffer per frame
+  as well, so the process name is the only thing that tells the two apart. Encoder labels and debug groups set on the encoder do NOT
   reach the export's labels; only Xcode's own capture shows them. Before recording,
   `pgrep -fl visutwin` — a stray instance of the example inflates every duration in
   the trace with its overlapping passes.
@@ -1500,13 +1500,32 @@ present, but the rule below never depends on reading it.
 - **A script may create a sibling or destroy its own entity from inside its own
   method, and the component's loops are built for it.** `ScriptComponent::forEachScript`
   walks by INDEX, so a script created mid-pass (appended, possibly reallocating the
-  vector) runs in the same pass; and a shared `RunState` outlives the component, so when
+  vector) runs in the same pass; and a `RunState` outlives the component, so when
   a script's `entity()->destroy()` frees the component mid-loop, the destructor hands the
-  scripts to `RunState::retired` instead of freeing the one still executing, and the
-  loop checks `alive` before touching the component again. A loop that range-iterates
+  scripts to `RunState::retired` instead of freeing the one still executing and lets go
+  of the state WITHOUT freeing it, and the outermost loop, which checks `alive` before
+  touching the component again, frees it on the way out. The state is owned by hand, not
+  by a `shared_ptr` copied per loop: that is two atomic operations per component per
+  phase for a case that almost never happens. A loop that range-iterates
   `_scripts` makes both cases undefined behaviour that usually still works.
   `tests/scriptLifetimeTests.cpp` holds both, and under the `sanitize` preset a
   range-iterating loop aborts with a heap use-after-free.
+- **A script is visited only in the phases its TYPE overrides.** `Script::phasesOf<T>()`
+  decides at compile time which of `update`, `postUpdate` and `fixedUpdate` T (or a base
+  between it and `Script`) overrides — `&T::update` names `Script`'s own member exactly
+  when nothing did; a member that cannot be named (overloaded, inaccessible) counts as
+  overridden, which is always safe. `Script::make<T>()` stamps the result on the instance,
+  and `REGISTER_SCRIPT` and `ScriptRegistry::registerType<T>()` build through it. A
+  HAND-WRITTEN factory (`registerType(name, [] { return std::make_unique<T>(); })`) gets
+  `PHASE_ALL` and is visited in every phase: correct, only slower, so write
+  `Script::make<T>()` there too. The script system keeps one execution-ordered component
+  list PER PHASE; a component joins a list when it gains its first script implementing
+  that phase (`componentGainedPhases`, safe mid-loop) and leaves them all when destroyed,
+  so a component none of whose scripts implements a phase is not even read in it. With
+  every script visited in all three phases, 50,000 scripts that override nothing cost
+  4 ms of update a frame; now nothing. `SortedLoopArray::remove` finds its item by
+  bisection on the key. `tests/scriptPhaseTests.cpp` holds the trait, the lists, order,
+  disabled scripts and a phase gained mid-loop.
 - **An entity built from a container outlives the Asset's `unload()`.** A mesh instance
   co-owns its mesh and material, and every material a `GlbContainerResource` hands out
   keeps the container's texture list alive (`Material::retainResource`), because a
@@ -1847,8 +1866,31 @@ present, but the rule below never depends on reading it.
   there through `setVertexBytes`). A call site that clears `_pipelineState` per draw
   (passing `first = true, last = true`) makes each draw re-issue all of it and the
   driver re-emit its render state per draw. `MetalRenderPipeline::get` also answers a
-  repeat of the previous key from a
-  one-entry memo.
+  repeat of one of the last FOUR keys from a memo, since a UI alternates between two
+  pipelines (image, text, image, text) and a one-entry memo misses every draw of it.
+- **Metal encodes into ONE open command buffer, and whatever must run before it, or
+  needs its results, flushes it first.** `MetalGraphicsDevice::openCommandBuffer()` is
+  the buffer every render pass, blit, mip generation, compute dispatch, particle
+  simulation and the HUD encode into, in the order they are called; it is created on
+  demand, is null while a render encoder is open (Metal allows one encoder at a time),
+  and `flushCommands()` commits it. `onFrameEnd` attaches the present and the ring
+  semaphores' completion handlers to whatever buffer is open then and commits it. A
+  command buffer per pass and per dispatch cost a third of `post-processing`'s render
+  CPU, and 200 particle emitters blocked in `commandBuffer()` once 64 buffers were
+  uncommitted or in flight. Four rules follow. (1) A STANDALONE buffer committed on its
+  own runs AHEAD of everything still in the open buffer, so code that reads a result
+  back or waits (`MetalTexture::read`, the staging blit of a private texture write, the
+  waited GPU-cull path) calls `flushCommands()` first, and code that draws over the
+  frame (the ImGui overlay) encodes into the open buffer instead of committing its own,
+  or the frame is drawn over it. (2) Work encoded OUTSIDE a frame — a compute dispatch
+  from `Engine::update`, where the particle systems simulate — stays in the open buffer
+  until the next frame end, as Vulkan queues its dispatches; `copyRenderTarget`,
+  `generateMipmaps` and an offline scope flush when no frame is open. (3) A pass that
+  ends with at least 256 draws or 300,000 vertices in the open buffer commits it
+  (`kEarlyCommitDraws` / `kEarlyCommitVertices` in `endRenderPass`), so the GPU starts
+  on the shadow passes while the CPU encodes the forward pass; never wait on that
+  commit. (4) Nothing may hold the pointer across a call that can flush: ask for it
+  again.
 - **Vulkan's `draw()` does the same: it binds only what differs from the draw before it,
   and it is the ONLY writer of that state.** `BoundDrawState` (`_bound`) remembers, for
   the command buffer being recorded, the descriptor set and dynamic offset at each of
@@ -2027,7 +2069,42 @@ present, but the rule below never depends on reading it.
   `_isPerformingReflow`) while a size a `reflow` handler sets does (the scroll view's content
   sizes itself that way); and a child is identified by `ElementComponent::serial()`, never its
   address, which a new element can reuse after a freed one and would then never be placed.
-  It costs a few floats per child per frame and nothing more while nothing changes.
+  It costs a few floats per child per frame and nothing more while nothing changes: the
+  inputs are gathered into a buffer the group keeps (`_currentInputs`, swapped with
+  `_lastInputs` when they differ), so the comparison allocates nothing.
+- **UI visuals SHARE their buffers and their materials; nothing reached through an
+  element's mesh instance is that element's alone.** `ElementInput::syncElements` builds
+  each element's visual, and three things about it are shared. (1) GEOMETRY lives in
+  `UiGeometryArena` (`framework/input/uiGeometryArena.h`): a few large vertex and index
+  buffers in which each visual part has a run, indices stored absolute. A part's `Mesh`
+  is its own object, but its buffers are the arena's and its primitive's `base` is the
+  run's first index — add `part.geometry->firstIndex()` to anything that narrows the
+  range (the text draw range does). A resize takes a NEW run and gives the old one back;
+  the arena keeps a returned run out of use for `maxFramesInFlight` frames
+  (`beginFrame`, once a sync), because on Metal a frame in flight still reads it. A
+  buffer pair per element costs a vertex and index rebind and two driver resource-list
+  entries per draw, and a resized element a pair of GPU buffers per frame. (2) The
+  MATERIAL is found by value: `MaterialKey` (kind, space, texture, colour, opacity, and
+  for MSDF the font range, outline and shadow) names everything the material is built
+  from, and parts with equal keys draw with one material, as upstream shares its element
+  materials. A part whose key changes takes the material another part already has for
+  the new key, restyles its own in place when nothing shares it (`use_count() == 1`,
+  re-keyed), or builds one. So never mutate a material taken from a UI mesh instance: it
+  is every equal element's. A custom `element->material()` is outside all of this.
+  (3) `VertexBuffer::writeRange` / `IndexBuffer::writeRange` overwrite a byte range and
+  leave the rest: Metal copies into the shared storage, Vulkan stages just the range. The
+  per-frame pass is kept cheap by three more things: each element holds its visual's
+  record (`ElementComponent::drawRecord`, tagged with the drawer, never cloned), so there
+  is no map lookup per element; the layers are compared in place rather than copied; and
+  the mask walk (`syncMasks`, every element tree) runs only while some element is a mask,
+  plus ONCE after the last one goes, to clear the stencil state and `maskedBy` it left.
+  A change of SIZE alone gives the existing parts new geometry — the mesh instances and
+  materials stay — while a change of text, image, sprite or mask rebuilds the parts. The
+  visual's entity is `setExcludedFromClone(true)`: `Entity::clone` copying it would leave
+  the clone drawing the SOURCE's geometry beside the visual its own sync then makes. A
+  stale record under a reused element address is discarded when the new element is first
+  seen. `tests/uiVisualSharingTests.cpp` holds the allocator, the arena's reuse delay,
+  sharing and restyling, the resize path, the mask skip and the clone.
 - **An element's corners are only as current as its entity's world transform, which is
   LAZY here.** Upstream syncs the whole hierarchy every frame; this engine computes a world
   transform when something asks for it, and that sync is what marks the corners dirty. So

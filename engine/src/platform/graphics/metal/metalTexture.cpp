@@ -361,6 +361,8 @@ namespace visutwin::canvas::gpu
             spdlog::warn("Texture upload skipped: private texture with no device to stage through");
             return;
         }
+        // After what has been encoded so far, which may read the texture as it is now.
+        metalDevice->flushCommands();
         const size_t size = static_cast<size_t>(bytesPerRow) * region.size.height;
         MTL::Buffer* staging = device->newBuffer(data, size, MTL::ResourceStorageModeShared);
         MTL::CommandBuffer* buffer = staging ? queue->commandBuffer() : nullptr;
@@ -493,6 +495,12 @@ namespace visutwin::canvas::gpu
         if (!metalDevice || !_metalTexture) {
             return false;
         }
+        // The read goes through a buffer of its own and waits for it; what the frame
+        // has encoded so far has to be committed ahead of it, or the read returns the
+        // texture as it was before any of that drew into it. (Inside an open render
+        // pass nothing can be committed, and the read sees the passes before the last
+        // commit only.)
+        metalDevice->flushCommands();
         return readMetalTexture(metalDevice->raw(), metalDevice->commandQueue(),
             _metalTexture, region, pixelFormatBytesPerPixel(_texture->format()),
             out, outSize);

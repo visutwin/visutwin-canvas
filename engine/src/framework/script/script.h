@@ -5,6 +5,10 @@
 //
 #pragma once
 
+#include <concepts>
+#include <cstdint>
+#include <memory>
+
 #include <core/eventHandler.h>
 
 #include "framework/components/component.h"
@@ -85,6 +89,52 @@ namespace visutwin::canvas
 
         bool enabled() const;
 
+        /// The per-frame phases a script can take part in, one bit each.
+        enum Phase : uint8_t
+        {
+            PHASE_UPDATE = 1,
+            PHASE_POST_UPDATE = 2,
+            PHASE_FIXED_UPDATE = 4,
+            PHASE_ALL = PHASE_UPDATE | PHASE_POST_UPDATE | PHASE_FIXED_UPDATE
+        };
+
+        /// The phases T OVERRIDES — itself or through a base between it and Script —
+        /// decided at compile time: `&T::update` names Script's own member exactly when
+        /// nothing overrode it. A script is only visited in a phase it implements, as
+        /// upstream keeps a script out of its update list when it defines no `update`;
+        /// calling every script in all three phases is three sweeps of every script in
+        /// the application for scripts that mostly implement one. Where the member
+        /// cannot be named (it is overloaded, or not accessible) the phase counts as
+        /// implemented, which is always safe.
+        template <typename T>
+        static constexpr uint8_t phasesOf()
+        {
+            uint8_t phases = 0;
+            if (!requires { requires std::same_as<decltype(&T::update), void (Script::*)(float)>; }) {
+                phases |= PHASE_UPDATE;
+            }
+            if (!requires { requires std::same_as<decltype(&T::postUpdate), void (Script::*)(float)>; }) {
+                phases |= PHASE_POST_UPDATE;
+            }
+            if (!requires { requires std::same_as<decltype(&T::fixedUpdate), void (Script::*)(float)>; }) {
+                phases |= PHASE_FIXED_UPDATE;
+            }
+            return phases;
+        }
+
+        /// A new T that knows its phases. What the registries' factories call; a script
+        /// made any other way keeps PHASE_ALL and is visited in every phase.
+        template <typename T>
+        static std::unique_ptr<Script> make()
+        {
+            std::unique_ptr<Script> script = std::make_unique<T>();
+            script->_phases = phasesOf<T>();
+            return script;
+        }
+
+        /// The phases this script is visited in (see phasesOf).
+        uint8_t phases() const { return _phases; }
+
     protected:
         Entity* entity() const { return _entity; }
 
@@ -94,6 +144,7 @@ namespace visutwin::canvas
         bool _enabled = true;
         bool _initialized = false;
         bool _postInitialized = false;
+        uint8_t _phases = PHASE_ALL;
         Entity* _entity = nullptr;
     };
 }

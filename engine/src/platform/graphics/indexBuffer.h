@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <vector>
 
 namespace visutwin::canvas
@@ -56,6 +57,12 @@ namespace visutwin::canvas
         virtual void* nativeBuffer() const { return nullptr; }
 
         virtual bool setData(const std::vector<uint8_t>& data) { (void)data; return false; }
+
+        /// Overwrites `size` bytes at byte `offset` and leaves the rest alone
+        /// (VertexBuffer::writeRange, with the same hazard). The buffer must already hold
+        /// data — setData allocates it — and the bytes are in the buffer's own index
+        /// format. False when the backend cannot, or the range does not fit.
+        virtual bool writeRange(size_t /*offset*/, const void* /*data*/, size_t /*size*/) { return false; }
 
         /** CPU-side index data. Used by BatchManager to read indices for merging. */
         const std::vector<uint8_t>& storage() const { return _storage; }

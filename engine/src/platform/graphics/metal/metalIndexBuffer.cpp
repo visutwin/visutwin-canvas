@@ -5,6 +5,8 @@
 //
 #include "metalIndexBuffer.h"
 
+#include <cstring>
+
 #include "metalGraphicsDevice.h"
 
 namespace visutwin::canvas
@@ -40,6 +42,16 @@ namespace visutwin::canvas
 
         _storage = data;
         MetalBuffer::unlock(static_cast<MetalGraphicsDevice*>(_device), _storage);
+        return true;
+    }
+
+    bool MetalIndexBuffer::writeRange(const size_t offset, const void* data, const size_t size)
+    {
+        if (!raw() || !data || size == 0 || offset + size > _storage.size() || offset + size > MetalBuffer::size()) {
+            return false;
+        }
+        std::memcpy(_storage.data() + offset, data, size);
+        write(offset, data, size);
         return true;
     }
 } 
