@@ -209,10 +209,18 @@ namespace visutwin::canvas
         // Screen-space post passes (TAA/SSAO/CoC/DOF/blur/compose) must NOT use
         // the repeat-mode scene sampler: their kernels tap past [0,1] at frame
         // borders and repeat wraps to the opposite edge (wrong occlusion/color
-        // at screen edges). Single-mip render targets also don't need mip/aniso.
+        // at screen edges). No anisotropy: these are screen-aligned quads.
+        //
+        // The mip filter IS linear, as Vulkan's quad path samples through each texture's
+        // own sampler: a single-mip render target is unaffected, but a pass that reads a
+        // mip chain needs it. Metal's default (not mipmapped) samples level 0 whatever
+        // level() asks for, so the environment bake's Lambert convolution — 2048 taps at
+        // LOD 4.5 and up — read the full-resolution cube and the atlas's ambient rect came
+        // out noise that matched Vulkan's at a correlation of 0.35.
         auto* postDesc = MTL::SamplerDescriptor::alloc()->init();
         postDesc->setMinFilter(MTL::SamplerMinMagFilterLinear);
         postDesc->setMagFilter(MTL::SamplerMinMagFilterLinear);
+        postDesc->setMipFilter(MTL::SamplerMipFilterLinear);
         postDesc->setSAddressMode(MTL::SamplerAddressModeClampToEdge);
         postDesc->setTAddressMode(MTL::SamplerAddressModeClampToEdge);
         _postSampler = _device->newSamplerState(postDesc);
@@ -1417,7 +1425,7 @@ namespace visutwin::canvas
     void MetalGraphicsDevice::bindDrawSampler(MTL::RenderCommandEncoder* passEncoder)
     {
         // A quad pass is a screen-space post pass and needs the post sampler:
-        // linear, clamp-to-edge, no mip/aniso. The scene sampler REPEATS, so a
+        // linear (mips included), clamp-to-edge, no aniso. The scene sampler REPEATS, so a
         // kernel that taps past [0,1] wraps to the opposite edge — visible as
         // wrong pixels along the frame border (CAS in compose does exactly this).
         // So every quad pass (bloom downsample and outline included) gets it.

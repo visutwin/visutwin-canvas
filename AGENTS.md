@@ -582,8 +582,14 @@ set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapac
 (640; `MaterialUniforms` itself is 528 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
-fullscreen TRIANGLE and bind `_postSampler` (linear, clamp, no mip), not the scene
-sampler.
+fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
+not the scene sampler; Vulkan samples a quad input through the texture's own sampler.
+**Both must reach a texture's MIPS**: Metal's post sampler has a linear mip filter because
+Metal's default ("not mipmapped") samples level 0 whatever `level()` asks for. Without it the
+env bake's Lambert convolution (LOD 4.5 and up) read the full-resolution cube, and an atlas
+baked from one HDR had an ambient rect matching Vulkan's at a correlation of 0.35 (now
+0.9999, and 1.0 for the reflection levels). Single-mip render targets cannot tell the
+difference; the golden images stayed bit-identical.
 
 Migrated: VSM blur, volumetric fog, CoC, DOF blur, depth-aware blur, compose,
 SSAO, TAA, the whole env family (equirect-to-cube, reproject, convolve, atlas —
