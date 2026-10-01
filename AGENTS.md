@@ -109,7 +109,8 @@ ctest --preset default
   external 1x monitor, or a sleeping display that comes back at 1x). A density with no set
   SKIPS its cases; `--update` writes the set for the density it runs at, so a rendering change
   that is intended needs re-capturing at BOTH densities, on two displays. Both backends reproduce every reference bit for bit run to run, and
-  a 1.03 factor on every lit colour fails all eight original cases, so a failure is real. When a
+  a 1.03 factor on every lit colour fails all eight original cases, so a failure is
+  real. When a
   rendering change is intended, look at the images it writes to
   `<examples-dir>/golden-failures`, then re-capture with `--update` and commit the new
   references with the change. The script needs numpy and Pillow: CMake checks
@@ -395,7 +396,8 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   `Quaternion::fromMatrix4` negates the X axis of a mirrored basis, and two negative
   scale factors read as a 180-degree turn. Written back as the world rotation it would
   turn the entity on its first step (negative local Y, Y and Z, or a mirrored parent; a
-  lone negative X is exactly what the extraction undoes and is right either way). The delta is
+  lone negative X is exactly what the extraction undoes and is right either way). The
+  delta is
   applied to the LOCAL rotation, expressed in the parent's space and reflected through
   YZ under a mirrored parent. `tests/mirroredBodyTests.cpp` drives it with a world
   that holds bodies still or turns them by a known rotation.
@@ -439,7 +441,8 @@ ComposePassParams.
   in-focus part of the frame must come back bit-identical.
 - **The CAS uniform is NEGATIVE.** `RenderPassCompose` remaps the user
   sharpness to upstream's `lerp(-0.125, -0.2, s)` and the shaders gate on `< 0`;
-  a positive weight turns the same kernel into a 5-tap blur. Verify a sharpness change with gradient energy over
+  a positive weight turns the same kernel into a 5-tap blur. Verify a sharpness change
+  with gradient energy over
   a static crop, not by eye.
 - Fringing (chromatic aberration, user intensity /1024) **must stay BEFORE
   bloom**: it re-samples the scene texture for R and B, so running it after bloom
@@ -607,7 +610,8 @@ the first `RenderTarget` over such a texture RECREATES its image
 (`Texture::setRenderTargetUse`), which for a bake happens inside the scope, and the
 new image's queued transition must land ahead of the barriers recorded against its
 tracker; landing after them, every env bake renders, mips and samples a cube the GPU
-still has UNDEFINED (VUID-vkCmdDraw-None-09600 in the smoke test). Any new one-shot or offline submit owes the
+still has UNDEFINED (VUID-vkCmdDraw-None-09600 in the smoke test). Any new one-shot or
+offline submit owes the
 same flush immediately before `vkQueueSubmit`.
 
 ## Examples
@@ -820,7 +824,8 @@ present, but the rule below never depends on reading it.
   that end (upstream's `ditherShadowCascadeIndex`, its hash included), and fades the
   shadow to lit by `smoothstep(cascadeBlend x distance, distance, depth)`; beyond
   the shadow distance nothing is sampled. It is not a WIDTH in world units (read that
-  way, `shadow-cascades`' 0.1 is a 0.1-unit cross-fade, i.e. none). Note upstream's own JSDoc says 0.1 fades "the last 10%" while its
+  way, `shadow-cascades`' 0.1 is a 0.1-unit cross-fade, i.e. none). Note upstream's own
+  JSDoc says 0.1 fades "the last 10%" while its
   shader, which the port follows, fades from 10% of the distance on. A dithered
   cascade pick must look the same whichever cascade a pixel lands in; if it shows
   as noise, force the pick to always and never switch and compare the three.
@@ -859,7 +864,8 @@ present, but the rule below never depends on reading it.
 - **A clustered OMNI receiver's normal offset is scaled by (1 - NdotL) and by the
   DISTANCE to the light** — upstream's `normalOffsetPointShadow`, on the GEOMETRIC
   normal; a clustered spot keeps the flat `N * normalBias`
-  (`getShadowCoordPerspZbufferNormalOffset`). A torch mounted on its own wall lights that wall
+  (`getShadowCoordPerspZbufferNormalOffset`). A torch mounted on its own wall lights
+  that wall
   at ~90 degrees from tens of units away, where the flat 0.2 units is ~30x short of
   upstream's; the non-clustered omni path still applies NO receiver offset.
 - **The X of dark wedges around each `ambient-occlusion` torch is the torch mesh's
@@ -942,7 +948,8 @@ present, but the rule below never depends on reading it.
   (+ `setGlossInvert`) / `setBumpiness`; `setBaseColorFactor` / `setMetallicFactor`
   / `setRoughnessFactor` / `setNormalScale` on a StandardMaterial never reach the
   GPU. That holds with a base-colour texture bound too, so a GLB material — the parser
-  binds its texture on the base Material — takes every later scalar edit. The parsers write both sets, and `tests/standardMaterialWorkflowTests.cpp`
+  binds its texture on the base Material — takes every later scalar edit. The parsers
+  write both sets, and `tests/standardMaterialWorkflowTests.cpp`
   pins the scalars applying with a texture bound.
 - **A default `StandardMaterial` is in upstream's SPECULAR workflow and renders NO
   specular.** `useMetalness` defaults to false, `metalness` to 1 (read only once
@@ -971,7 +978,8 @@ present, but the rule below never depends on reading it.
   map is Metal only too; the clearcoat intensity/gloss/normal maps are on BOTH
   backends (Vulkan reads them as separate images through the shared material
   sampler, gated on flag bits 14/15/16 as Metal is). DEVIATIONS kept on purpose,
-  marked at the code: `refractionIndex` and `iridescenceIOR` are IORs where upstream stores eta, and
+  marked at the code: `refractionIndex` and `iridescenceIOR` are IORs where upstream
+  stores eta, and
   sheen is colour + roughness where upstream has `sheenGloss` + `useSheen`.
 - **Ambient occlusion occludes the AMBIENT diffuse by default, the direct diffuse
   and a lightmap only under `occludeDirect`, and the specular through
@@ -1169,7 +1177,8 @@ present, but the rule below never depends on reading it.
   `AnimComponentLayer::maskVersion()`. Both caches are keyed on
   `AnimBinder::version()`: a binder whose answers can change (an `unresolve`) MUST bump
   it, or animation keeps writing the node it resolved first. Do not reintroduce
-  path-keyed maps on the per-frame path. Only a value's flagged fields (`hasPosition` ...) carry an update's result;
+  path-keyed maps on the per-frame path. Only a value's flagged fields (`hasPosition`
+  ...) carry an update's result;
   the unflagged ones are left over from earlier updates.
 - **A glTF node's identity is its name or `node_<index>`, and an animation target
   is a PATH of those names.** `glbNodeName` in `glbParser.cpp` is the one spelling,
@@ -1223,7 +1232,8 @@ present, but the rule below never depends on reading it.
   from the wrong side, not as an error. The sphere, capsule and cone emit NO
   triangle that collapses to a line at a pole or tip, and each pole or tip vertex has its u
   centred on the one triangle that uses it (upstream #9597); their caps index from
-  the vertices made so far, so a zero height or a zero radius does not index past them. Change a primitive's UVs and
+  the vertices made so far, so a zero height or a zero radius does not index past them.
+  Change a primitive's UVs and
   the frame follows; the test checks every corner against its triangle's UV
   gradient. `DEBUGPASS_WORLDNORMAL` on a normal-mapped box beside a plane wall shows
   a wrong frame in one frame: matching faces must match in colour. The frame is not
@@ -1319,7 +1329,8 @@ present, but the rule below never depends on reading it.
   standing in for a limit (a clamp to 4096 is a quarter of what either backend
   actually allows) and the SAME limit spelled differently per backend (a hard-coded
   16x anisotropy on one, a queried one on the other). The float-renderable pair
-  defaults to FALSE and the dimensions to 4096, so a backend that answers nothing degrades instead of
+  defaults to FALSE and the dimensions to 4096, so a backend that answers nothing
+  degrades instead of
   allocating a target the driver refuses. `supportsTimestampQuery` is derived from
   `gpuProfiler()` rather than stored, since both backends build the profiler only
   after finding timestamp support and a second flag could only disagree with it.
@@ -1485,7 +1496,8 @@ present, but the rule below never depends on reading it.
   and a shift per removal — would make destroying K of N components cost K x N. Two
   rules follow. Every loop over `instances()` checks each entry for null — the list
   never hands out a hole, but a component destroyed during the loop becomes one under
-  it (where an erase would shift the survivors and the loop skip one). And a destructor or teardown hook that
+  it (where an erase would shift the survivors and the loop skip one). And a destructor
+  or teardown hook that
   walks its own type's list uses `forEachLive`, which does not compact, because it may
   run inside someone else's loop over `items()`. A new component type registers the
   same way; `tests/componentInstanceListTests.cpp` holds order, holes and a destroy
@@ -1499,7 +1511,8 @@ present, but the rule below never depends on reading it.
   shift). Such a loop checks for null and does not call `children()` on that node again
   inside the loop; every loop INSIDE `GraphNode` that can run callbacks (`fireOnHierarchy`,
   `notifyHierarchyStateChanged`) walks by index and skips holes. A `removeChild` that
-  finds and erases is quadratic over many siblings. `tests/graphNodeTests.cpp` holds order, re-removal, deletion
+  finds and erases is quadratic over many siblings. `tests/graphNodeTests.cpp` holds
+  order, re-removal, deletion
   while attached and a removal mid-walk.
 - **`Entity::destroy()` is the teardown path, and it does NOT free the node.**
   Descendants first, disable in order, `destroy` event, then each component
@@ -1647,7 +1660,8 @@ present, but the rule below never depends on reading it.
   under all its targets at once, negative deltas summed toward the min and positive
   toward the max (upstream `_initBoneAabbs`, in the GLB parser here). Without either,
   culling, light culling and the shadow fit read rest-pose bounds and a mesh morphed
-  outward can be culled on screen. Like upstream this is the one-target-at-a-time case, not every
+  outward can be culled on screen. Like upstream this is the one-target-at-a-time case,
+  not every
   target stacked at full weight. No render shows it unless a morph carries a mesh across
   a frustum edge (`mesh-morph` is bit-identical); `tests/morphBoundsTests.cpp` holds the
   numbers.
@@ -1669,7 +1683,8 @@ present, but the rule below never depends on reading it.
   (`viewport.xy * (P[0][0], P[1][1])`, upstream #9486/#9490, both backends). One focal
   from the width for both axes squashes every splat whenever the viewport's pixel
   aspect differs from the projection's (a manual camera aspect, a side-by-side stereo
-  target); with square pixels the two agree. Under an ORTHOGRAPHIC camera the spherical harmonics are
+  target); with square pixels the two agree. Under an ORTHOGRAPHIC camera the spherical
+  harmonics are
   evaluated along the camera forward, not from the camera position to the splat
   (`GpuGSplatParams::cameraOrtho`, upstream #9531): ortho rays all run parallel, and a
   direction from the camera position changes a splat's colour as the camera pans while
@@ -1715,7 +1730,8 @@ present, but the rule below never depends on reading it.
 - **GPU instance culling has ONE output per mesh instance and runs once a frame, before
   anything draws.** With exactly one camera drawing, it culls to that camera's frustum;
   with more, it keeps every instance so each view is complete. Culled per camera into
-  the one output, every view would draw the LAST camera's set. A per-camera output is the open item
+  the one output, every view would draw the LAST camera's set. A per-camera output is
+  the open item
   if multi-camera scenes need the saving.
 - **An `ASPECT_AUTO` camera's aspect is resolved BEFORE culling**
   (`Renderer::resolveAutoAspectRatio` at the top of the graph build); the draw-time
@@ -1773,7 +1789,8 @@ present, but the rule below never depends on reading it.
   draw skips a bind it needed. Slot 1 is deliberately not cached (the scene block goes
   there through `setVertexBytes`). A call site that clears `_pipelineState` per draw
   (passing `first = true, last = true`) makes each draw re-issue all of it and the
-  driver re-emit its render state per draw. `MetalRenderPipeline::get` also answers a repeat of the previous key from a
+  driver re-emit its render state per draw. `MetalRenderPipeline::get` also answers a
+  repeat of the previous key from a
   one-entry memo.
 - **A camera frame's depth prepass RENDERS only where something reads the depth before
   the scene pass, or under MSAA** (`RenderPassCameraFrame::prepassRenders`).
@@ -1848,7 +1865,8 @@ present, but the rule below never depends on reading it.
   `tests/msdfTextTests.cpp` holds the pages, the per-page split, kerning, the glyph-bounds
   extent and upstream's outline (x 0.2) and shadow (x 0.005, y by MINUS the page aspect,
   upstream's uniform as is) scaling. Upstream's own thumbnail puts the shadow below the
-  text; a sign "derived" from upstream's v-up glyph UVs flips it above. Settle a direction on upstream's pixels — count which side of the glyph the rim
+  text; a sign "derived" from upstream's v-up glyph UVs flips it above. Settle a
+  direction on upstream's pixels — count which side of the glyph the rim
   falls on — not on a reading of its UV code, and not on a centroid of the visible rim,
   which the glyph covers.
   Text layout lives in `textLayout.h` (pure: measure, then place) and runs SYNCHRONOUSLY
@@ -1864,7 +1882,8 @@ present, but the rule below never depends on reading it.
   Text is laid out on upstream's METRICS: glyphs scale by fontSize / 32 (the fonts' em),
   lines step by fontSize, and the block is aligned by the glyph `bounds` extent with
   vertical alignment 0.5 by default. Scaling by fontSize over the 64-pixel atlas cell
-  draws EVERY text at half its size. Compare text size with upstream's thumbnail as a ratio to a
+  draws EVERY text at half its size. Compare text size with upstream's thumbnail as a
+  ratio to a
   neighbouring element (a name to its bar), which survives the thumbnail's other aspect.
 - **The BACK BUFFER's depth attachment carries STENCIL, on both backends, and the
   stencil follows the depth.** UI masks write it (ARCHITECTURE.md, UI masks). Metal's is
@@ -1900,7 +1919,7 @@ present, but the rule below never depends on reading it.
   LAZY here.** Upstream syncs the whole hierarchy every frame; this engine computes a world
   transform when something asks for it, and that sync is what marks the corners dirty. So
   `screenCorners` / `canvasCorners` / `worldCorners` sync the entity FIRST; testing the
-  dirty flag first hits an element moved since the last render where it used to be. No
+  dirty flag first hits an element moved since the last render where it was before. No
   example shows it — every example renders between a move and the next press — so the
   drag helper's test is what holds it.
 - **A text element's default font size is 32, as upstream** (`text-element.js`); a
@@ -1914,7 +1933,8 @@ present, but the rule below never depends on reading it.
   `resizeCanvas` takes points, as upstream's takes CSS pixels. The default is uncapped (a
   DEVIATION from upstream's browser default of 1), and `ExampleApp` caps it at 2 as upstream's
   examples do. Metal shrinks the layer's `drawableSize` and Core Animation scales it to the
-  window. Vulkan builds its swapchain ITSELF (`initSwapchain`, not vk-bootstrap, which always
+  window. Vulkan builds its swapchain ITSELF (`initSwapchain`, not vk-bootstrap, which
+  always
   takes the surface's current extent) at an extent clamped into
   the surface's [min, max]: MoltenVK allows 1..16384 and scales, and where min = max = current
   (X11, Windows) the clamp falls back to the window. A SUBOPTIMAL present rebuilds the swapchain
@@ -2138,7 +2158,8 @@ present, but the rule below never depends on reading it.
   re-resolves the kept request (`requestedShadowType`), as upstream's type setter
   does. Upstream falls back for omni too; for a spot it is a DEVIATION, since upstream
   shadows spots with VSM. A local light kept on VSM gets an RGBA16F moments map no
-  pass writes and no forward path samples, and casts NO shadow. Porting local VSM means moments in the local
+  pass writes and no forward path samples, and casts NO shadow. Porting local VSM means
+  moments in the local
   shadow passes, the blur, and a sampling path in both forward chunks.
 - **A shadow pass must not take its variant from a scene-wide switch set by the
   FORWARD pass.** `renderForwardLayer` sets ProgramLibrary's feature switches (VSM,
@@ -2147,7 +2168,8 @@ present, but the rule below never depends on reading it.
   VSM shadow any light renders would use the depth-only variant and write no moments; a
   realtime shadow is right one frame later, a ONE-SHOT one stays blank for good —
   zeros on Vulkan, uninitialised private memory on Metal, so the backends disagree. The
-  caller passes `vsm` from the light it renders (`DepthOnlyShaders::vsm`). Anything a shadow or depth pass compiles must
+  caller passes `vsm` from the light it renders (`DepthOnlyShaders::vsm`). Anything a
+  shadow or depth pass compiles must
   come from its own light or pass, never from state the forward pass leaves behind.
   Diagnose this class by reading the map back (`Texture::read`) on frame 1 and after a
   one-shot re-arm at frame 2: a map that is only right the SECOND time is a first-use
@@ -2171,7 +2193,8 @@ present, but the rule below never depends on reading it.
   is unusable with more than one: the receiver picks its cascade by VIEW depth, so
   moving the camera carries the scene into cascades whose maps were fitted once to the
   near slices of the original view — zooming into a multi-cascade `ambient-occlusion`
-  loses every directional shadow and zooming out brings them back. A scene that wants cascades sets them, and then must not use one-shot
+  loses every directional shadow and zooming out brings them back. A scene that wants
+  cascades sets them, and then must not use one-shot
   directional shadows with a moving camera (upstream has the same limit).
 - **`shadowDistance` sets the shadow TEXEL, and a smeared or popping character
   shadow is a texel problem before it is a bias problem.** The one default cascade
@@ -2194,31 +2217,29 @@ present, but the rule below never depends on reading it.
 - **A directional receiver's shadow depth is SATURATED, never range-tested.** The
   shadow camera's near and far are fitted to the CASTERS every frame, so a
   receiver that is not a caster — a ground plane, or any surface further along the
-  light than the last caster — projects to z > 1. Both backends used to reject
-  that and light the fragment, which (a) left a receiver-only ground with no
-  shadow at all, the rule that used to stand here ("ground planes must stay
-  casters"), and (b) where the fit ended INSIDE a shadow, cut it off along a
-  straight line that moved with the casters' bounds: the fly demo's body shadow
-  ended in a hard edge that flickered with every wing beat. Clamping z to [0, 1]
+  light than the last caster — projects to z > 1. Rejecting that z and lighting the
+  fragment (a) leaves a receiver-only ground with no shadow at all, and (b) where the
+  fit ends INSIDE a shadow, cuts it off along a straight line that moves with the
+  casters' bounds — a hard edge that flickers as an animated caster moves (the fly
+  demo's body shadow). Clamping z to [0, 1]
   is upstream's `getShadowSampleCoord` for an ortho light: 1 compares lit against
   the cleared map and shadowed against any caster in front, and EVSM's cleared
-  texels already synthesise lit moments. Keep the UV test. A ground plane may now
+  texels already synthesise lit moments. Keep the UV test. A ground plane may
   be receiver-only, which it should be: a huge caster inflates the fitted range
   into whole-plane acne (PCF) or blown-up penumbras (PCSS). Diagnose a suspected
   recurrence by the shape — a shadow with a STRAIGHT edge that is not any
   caster's silhouette is the far plane.
-  The other half of the fly demo's shadows was `setShadowNormalBias`, which is in
-  WORLD units and was 0.1 on a 0.3 m subject: every floor receiver was lifted 6 cm
-  and the leg shadows started away from the feet. Size it to about one shadow
+  `setShadowNormalBias` is in WORLD units: 0.1 on a 0.3 m subject lifts every floor
+  receiver 6 cm and starts the leg shadows away from the feet. Size it to about one shadow
   texel of the scene.
 
 ## Measuring a backend divergence
 
 Whole-frame mean luminance is a BAD signal: scenes animate, content differs, and
 the tonemap compresses whatever you are chasing. A mean over a symmetric REGION is
-just as bad in a different way — it is invariant under a mirror, which is how a
-horizontally flipped Vulkan sky measured 0.9999 against Metal for as long as the
-backend has existed. Split every region you measure into halves, and when two
+just as bad in a different way — it is invariant under a mirror, so a horizontally
+flipped sky measures 0.9999 against the correct one. Split every region you measure
+into halves, and when two
 halves diverge in opposite directions, test the mirror before theorising. Instead:
 
 1. Split the frame with `Camera::setDebugShaderPass` — `DEBUGPASS_ALBEDO` and
@@ -2236,7 +2257,7 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
    (`<stem>_<frame><ext>`). A flicker is a difference between two frames of one run;
    two runs differ anyway (see the fly demo's 46k-pixel noise floor).
    `VISUTWIN_SCREENSHOT_TIME=s` arms by seconds since the first frame instead of by
-   frame: an animated example's frame index is not a clock — the same frame landed
+   frame: an animated example's frame index is not a clock — the same frame can land
    1 s into one run's state and 2 s past it in the next run of the same binary.
 7. `VISUTWIN_SSR_FLOOR=y,size[,ssr[,pole[,gloss]]]` lays a MIRROR plane under any example with
    screen-space reflections on it (third field 0 for the control) and requests the
@@ -2245,7 +2266,7 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
    start at its base row, run its full height and stay collinear with it
    (`scratchpad`-style check: fit the pillar's centre line, measure the reflection's
    deviation from it). A test floor must be a real mirror — a metal's reflectance is
-   its albedo, and a dark metal reflects at a tenth, which "lost" the pillar once. The
+   its albedo, and a dark metal reflects at a tenth, which can "lose" the pillar. The
    fifth field lowers the floor's gloss to watch the roughness cone blur the
    reflection while the pillar stays sharp.
 8. `VISUTWIN_FILL_LIGHT=pitch,yaw,intensity[,shadows]` adds a second, white
@@ -2281,22 +2302,21 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     the renderer's per-phase frame statistics (cull, sort, forward, shadow, skin and morph,
     clusters). `VISUTWIN_NO_VSYNC=1` turns off Metal's display sync for such a run; Vulkan
     always presents FIFO. The HUD costs 0.03-0.06 ms a frame (`MiniStats::draw`, timed
-    directly); the "1.6 ms" recorded on 2026-09-26 came from ONE HUD-on and ONE HUD-off
-    run and was retracted on 2026-09-29. Trust the PHASE timers over the whole-render
+    directly); one HUD-on run against one HUD-off run says nothing. Trust the PHASE
+    timers over the whole-render
     figure: a GPU-bound frame's render time swings 1.0-3.2 ms between identical runs
     (back-pressure outside the recorded display wait), while forward and shadow hold to a
     few hundredths. A CPU claim needs the before and after binaries run
-    ALTERNATELY, three times each, as a GPU claim does, and a profile before a change: on
-    2026-09-26 the queued "hot" items (the culling sweep, graph-build churn) measured
-    under 0.1 ms, while `sample <pid> 5` found the real costs in one minute. Sort its
+    ALTERNATELY, three times each, as a GPU claim does, and a profile before a change:
+    suspected "hot" items often measure under 0.1 ms, while `sample <pid> 5` finds the
+    real costs in one minute. Sort its
     output by inclusive samples per engine function; a function that owns most of the
     main thread but sits in `nextDrawable` (Metal) is waiting on the display, not working.
     On Vulkan look one level deeper: `vkQueueSubmit2` under `onFrameEnd` is where MoltenVK
     ENCODES the frame into Metal (work) as well as where it takes the drawable (a wait).
-    Until 2026-09-30 the whole submit was recorded as display wait, so Vulkan's render
-    time left out the encode — at 20k draws 40% of the main thread, reported as 8.6 ms
-    where the thread worked 11.4 — and every Metal/Vulkan CPU comparison before that date
-    flattered Vulkan. `GraphicsDevice::DisplayWaitScope` now records a call's wall time
+    Recording the whole submit as display wait leaves the encode out of Vulkan's render
+    time (40% of the main thread at 20k draws), so Metal/Vulkan CPU figures taken that
+    way flatter Vulkan. `GraphicsDevice::DisplayWaitScope` records a call's wall time
     less the thread's CPU time inside it; any new call that can block on the display
     goes through it.
 
@@ -2324,8 +2344,8 @@ What stays HERE is only what bites during UNRELATED work.
 ## Open items
 
 - **The VRAM figure is a LOWER BOUND, and a storage buffer is counted as `sb`, not `vb`.**
-  All five buckets are live: `tex`, `vb` and `ib` since 2026-09-16 (before that the texture
-  side was dead code), `ub` and `sb` since 2026-09-30. `ub` is the uniform memory a backend
+  All five buckets (`tex`, `vb`, `ib`, `ub`, `sb`) are live. `ub` is the uniform memory
+  a backend
   owns — its per-frame rings, every frame in flight included — which each backend reports at
   frame start (`GraphicsDevice::setBackendBufferVram`), since a ring only grows there. `sb`
   is every `VertexBuffer` once it is bound as STORAGE (`VertexBuffer::markStorageUse`: a
@@ -2340,8 +2360,8 @@ What stays HERE is only what bites during UNRELATED work.
   the sum `VRAM`, as upstream labels its `vram.totalUsed`, and it is that same
   lower bound; the detailed view spells the parts out.
 
-  The `texShadow` / `texAsset` / `texLightmap` SPLIT is live as of 2026-09-16 too,
-  and the three sub-buckets DELIBERATELY DO NOT SUM to `tex`. A texture joins one
+  The `texShadow` / `texAsset` / `texLightmap` SPLIT is live too, and the three
+  sub-buckets DELIBERATELY DO NOT SUM to `tex`. A texture joins one
   only where its creation site sets `TextureOptions::profilerHint`: the parsers
   (glb/obj/assimp), the four texture-asset paths in `asset.cpp` and the font atlas
   are ASSET; `ShadowMap::create` (depth map and VSM blur temp) and the clustered
@@ -2354,53 +2374,51 @@ What stays HERE is only what bites during UNRELATED work.
 - **Under MSAA the sampleable scene depth is the PREPASS's texture, not an
   attachment of the scene target, so a resize has to resize it by hand.**
   `RenderPassCameraFrame::frameUpdate` resizes the scene target from the device
-  size; until 2026-09-17 that left `_sceneDepthTexture` at the original window
-  size while the prepass target was rebuilt around it, so SSAO sampled a 900x700
-  depth at full-window coordinates — the whole frame turned dark and streaked as
-  soon as the window grew wide enough (fine at 1600 wide, broken from ~1900).
-  A window STARTED at the large size was always right; that difference is the
-  test for any resize bug: resize at frame 30 and diff against a run started at
+  size and must resize `_sceneDepthTexture` with it: left at the original window size
+  while the prepass target is rebuilt around it, SSAO samples a small depth at
+  full-window coordinates and the whole frame turns dark and streaked once the window
+  grows wide enough. A window STARTED at the large size is always right; that
+  difference is the test for any resize bug: resize at frame 30 and diff against a run
+  started at
   that size, expecting zero differing pixels. Log the sizes every pass sees
   (target, source texture, device) rather than reasoning about which object a
   resize reaches.
 - **The SSR march samples the colour grab at LOD 0, point-samples the depth,
   bisects to the crossing and reaches 0.4 of the camera range.** All four in both
-  chunks, found 2026-09-19 with the pillar oracle. The colour grab is MIPMAPPED and
-  the fetch sits behind a data-dependent loop, so an implicit LOD took undefined
-  derivatives and read the coarsest mips: every reflection was the scene's average,
-  which turned boxes into blobs and erased a thin pillar (the light-cookie trap
-  again). The depth tap is a silhouette test and must be nearest (Vulkan's head
-  already bound `nearestClampSampler`; Metal sampled it linearly). A hit accepted at
-  the coarse sample sat up to a step past the intersection, so the crossing is
+  chunks. The colour grab is MIPMAPPED and the fetch sits behind a data-dependent
+  loop, so an implicit LOD takes undefined derivatives and reads the coarsest mips:
+  every reflection becomes the scene's average, boxes turn into blobs and a thin
+  pillar vanishes (the light-cookie trap again). The depth tap is a silhouette test
+  and must be nearest (Vulkan's head binds `nearestClampSampler`). A hit accepted at
+  the coarse sample sits up to a step past the intersection, so the crossing is
   bisected six times and the thickness judged at the refined point, with a rejected
-  silhouette jump continuing the march instead of ending it. The reach was a fixed
-  60 world units, which cut a 60-unit pillar's reflection to a quarter of its height
-  and could reflect nothing across a 500-unit hall; it is 0.4 x (far - near) in 48
-  steps, thickness 1.25 steps. Measured: the pillar's reflection went from 35 rows to
-  140 of 140 on both backends, contiguous at the base, mean sideways deviation under
-  a pixel. A ROUGHNESS CONE picks the colour mip: the GGX lobe's half-angle is taken
+  silhouette jump continuing the march instead of ending it. A fixed reach in world
+  units cuts a tall pillar's reflection short and reflects nothing across a large
+  hall; the reach is 0.4 x (far - near) in 48 steps, thickness 1.25 steps. With the
+  pillar oracle the reflection runs the pillar's full height on both backends,
+  contiguous at the base, mean sideways deviation under a pixel. A ROUGHNESS CONE picks
+  the colour mip: the GGX lobe's half-angle is taken
   as roughness^2, its footprint at the hit is tan(cone) x hit distance, converted to
   grab pixels by the focal length (the view-projection's clip-y row length x half the
   grab height, since V's rows are unit) over the hit's depth, and log2 of that is the
   LOD — so a rough floor blurs its reflection instead of fading it, and only
-  roughness above 0.7 fades. Measured with the pillar on the mirror floor at gloss
-  0.98 / 0.8 / 0.6: floor high-pass energy 4.4 / 3.4 / 2.4 while the pillar's own
-  stays put, Metal and Vulkan within 3%. Still true: objects thinner than a step can
-  be skipped.
+  roughness above 0.7 fades. Reference, the pillar on the mirror floor at gloss
+  0.98 / 0.8 / 0.6: floor high-pass energy about 4.4 / 3.4 / 2.4 while the pillar's
+  own stays put, Metal and Vulkan within 3%. Still true: objects thinner than a step
+  can be skipped.
 - **A camera frame owns BOTH grabs.** `CameraFrameOptions::sceneDepthMap` (from
   `CameraComponent::requestSceneDepthMap`) gives the frame a `RenderPassDepthGrab`
   with an explicit source, its offscreen scene target, placed beside the colour
   grab; either request splits the scene pass at the grab layer. Under MSAA the scene
   target's depth is an internal multisampled buffer no copy can read, so the frame
   publishes its PREPASS depth texture as the grab map instead, which needs the
-  prepass (TAA, SSAO, DOF or fog) — without one it warns and SSR has no depth. Until
-  2026-09-19 the frame had no depth grab at all and SSR under any post-processing
-  did nothing on either backend (the Metal shader read an unbound texture, the
-  Vulkan gate saw no map). The standalone `RenderPassDepthGrab` still publishes the
-  scene depth in `before()` for the depth-layer flow; with a source set it only
-  copies. Verified on `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR
-  on/off difference went from 0 pixels to ~10.8k on both backends and both paths,
-  and Metal and Vulkan agree on the floor mean to 0.1.
+  prepass (TAA, SSAO, DOF or fog) — without one it warns and SSR has no depth.
+  Without a depth grab in the frame, SSR under any post-processing does nothing on
+  either backend. The standalone `RenderPassDepthGrab` publishes the scene depth in
+  `before()` for the depth-layer flow; with a source set it only copies. Check on
+  `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR on/off difference is
+  ~10.8k pixels on both backends and both paths, and Metal and Vulkan agree on the
+  floor mean to 0.1.
 - **UI not ported yet**: right-to-left text, XR select events and grapheme clusters (emoji
   sequences are several symbols). The twenty-two UI examples
   (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,
@@ -2417,49 +2435,37 @@ What stays HERE is only what bites during UNRELATED work.
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles
   diffuse, normal and AO detail maps and only NORMAL exists here), fog of any
   type, or sheen. The last two mean a change to those paths has to be driven
-  deliberately to be seen at all. Iridescence is driven since 2026-09-25:
+  deliberately to be seen at all. Iridescence is driven:
   `reflection-planar-blurred`'s lenses (`SunglassesKhronos.glb`) carry it, and match
   upstream's thumbnail.
 - **The cluster loop owes every material term the main light loop has.** With clustered
   lighting the default, every spot and omni light is shaded in
-  `forward-fragment-clustered.*`, not the main loop. The Vulkan cluster loop had GGX and
-  anisotropy only — no clearcoat, sheen, Oren-Nayar or iridescence — until 2026-09-23,
-  and Vulkan's direct clearcoat everywhere used the base normal and the material's flat
-  coat roughness where Metal uses `ccNormalW` and the gloss-mapped `ccAlpha2`. Measured on
-  `clearcoat` with `VISUTWIN_LOCAL_LIGHT=6,2,1,3,15`: the light's contribution now matches
-  Metal to 0.00 counts on average over 592k lit pixels (0.28 before), and the frame
-  without it fell from 56 to 15 pixels over 8 counts. Sheen, iridescence and Oren-Nayar
+  `forward-fragment-clustered.*`, not the main loop. Direct clearcoat uses `ccNormalW`
+  and the gloss-mapped `ccAlpha2` on both backends, not the base normal and the
+  material's flat coat roughness. Check with `VISUTWIN_LOCAL_LIGHT=6,2,1,3,15` on
+  `clearcoat`: the light's contribution matches between backends to 0.00 counts on
+  average. Sheen, iridescence and Oren-Nayar
   under a local light are ported line for line from the main loop but no example drives
   them. When a term lands in one light loop, add it to the other three (main, area,
   cluster) on both backends.
-- **The clearcoat indirect gap is CLOSED (2026-09-19).** `clearcoat` on Vulkan
-  now reads a mean absolute difference of 0.002 counts against Metal on the
-  whole 900x700 frame, with 12 pixels above 8 counts — isolated specular glints,
-  the same level the rows without maps already had. The 0.986 it used to read
-  was three things stacked: Vulkan had no clearcoat IBL reflection and added the
-  coat's direct specular on top of the base instead of upstream's
-  energy-conserving `lit * (1 - Fc * cc) + (ccDirect + ccReflection) * cc`
-  composition (whole-frame 0.999-1.002 once ported); the three clearcoat MAPS
-  were Metal only, so the "Partial coating" row read 1.3x and the coat-normal
-  rows 0.85-0.95x (ported as separate images, ~1,900 pixels left differing);
-  and the shared sampler those images read through had NO anisotropy where
-  Metal's default sampler and Vulkan's per-texture samplers use the device
-  ratio, which moved only the ribbed coat normal map (the parallax height map,
-  which read through it all along, is too smooth to show it). Direct lighting
-  was already done: `parallax-mapping` reads 1.0003 since the shared BRDF.
-  A SEPARATE image read through a shared sampler must be filtered EXACTLY as the
-  per-texture sampler would filter it — check anisotropy, not just filter and
-  wrap — or every oblique surface diverges by backend.
-- **Queued after the 2026-09-25 triage — none a correctness bug:** component `_instances`
+- **Clearcoat composes as upstream's energy-conserving
+  `lit * (1 - Fc * cc) + (ccDirect + ccReflection) * cc`, with a clearcoat IBL
+  reflection, on both backends**, and the three clearcoat maps are on both. A SEPARATE
+  image read through a shared sampler must be filtered EXACTLY as the per-texture
+  sampler would filter it — check anisotropy, not just filter and wrap — or every
+  oblique surface diverges by backend (a smooth map such as the parallax height map
+  hides it; a ribbed coat normal map shows it). Reference: `clearcoat` on Vulkan reads
+  a mean absolute difference of 0.002 counts against Metal on the whole 900x700 frame,
+  with 12 pixels above 8 counts — isolated specular glints.
+- **Queued — none a correctness bug:** component `_instances`
   lists are process-global (two engines in one process see each other's components; NOT a
   simple move to per-engine lists, because entities instantiated from a glTF container have
   no engine when their RenderComponents are constructed — see the 2026-09-30 log entry); the
-  binding footprint exceeds WebGPU's defaults (Metal 36 texture slots, Vulkan 7 sets). Done
-  on 2026-09-30: the lighting derivation (`deriveLighting`), the parsers' one
-  `generateTangents` / `tangentFromNormal` (`packedVertex.h`, same sign rule as before,
-  opposite to `calculateTangents`), and glTF animation tracks in file order
-  (`AnimTrackList`). MEASURED
-  and dropped on 2026-09-26 (`VISUTWIN_CPU_STATS` plus `sample`): the per-(camera, layer)
+  binding footprint exceeds WebGPU's defaults (Metal 36 texture slots, Vulkan 7 sets). The
+  parsers derive tangents through one `generateTangents` / `tangentFromNormal`
+  (`packedVertex.h`), whose sign rule is opposite to `calculateTangents`; glTF animation
+  tracks keep file order (`AnimTrackList`). Measured
+  and dropped (`VISUTWIN_CPU_STATS` plus `sample`): the per-(camera, layer)
   culling sweep is at most 0.1 ms a frame even at 2,173 draws; `renderForwardLayer`'s own
   per-sublayer work is under 2% of the main thread; the graph build and its allocations
   do not register; Vulkan's set 4 per skinned draw and a variant-sorted caster list
@@ -2468,10 +2474,7 @@ What stays HERE is only what bites during UNRELATED work.
 - **The ambient diffuse is scaled by `(1 - specularity)` on both backends**, right
   where upstream's `litForwardBackend` does it after `addAmbient`: per channel, F0 in
   either workflow, only when the material renders specular, and only on the ambient
-  irradiance (a lightmap that replaces it is not scaled, nor is direct light). Added
-  2026-09-19 after living here as an open item: on `clearcoat` it moves the lit
-  objects by 1-2% (max 3 counts), identically on Metal and Vulkan
-  (after/before 0.988 / 0.993 / 0.982 vs 0.988 / 0.992 / 0.981).
+  irradiance (a lightmap that replaces it is not scaled, nor is direct light).
 
 ## Reference kept elsewhere
 

@@ -201,9 +201,10 @@ protected:
 
         // -----------------------------------------------------------------------
         // The dynamic cubemap. Constructed BEFORE the main camera: its six face
-        // cameras render as ordinary cameras and layer composition renders cameras in
-        // construction order, so building it later would leave the main camera
-        // sampling the previous frame's cube (upstream orders it with priority -1).
+        // cameras render as ordinary cameras, and cameras of equal priority (all 0
+        // here) render in construction order, so building it later would leave the
+        // main camera sampling the previous frame's cube (upstream orders it with
+        // priority -1).
         //
         // Upstream's camera-on-the-ball renders the World and Skybox layers only.
         // -----------------------------------------------------------------------

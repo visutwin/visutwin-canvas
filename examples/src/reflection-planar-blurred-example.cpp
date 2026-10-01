@@ -123,10 +123,11 @@ protected:
 
         // -----------------------------------------------------------------------
         // Reflection render targets, sized to the backbuffer (upstream resolution 1.0).
-        // Both reflection cameras are created BEFORE the main camera: this engine has
-        // no camera priority (upstream uses -2 / -1 / 0), and layer composition renders
-        // cameras in construction order — built after, the main camera would sample the
-        // previous frame's reflection maps.
+        // Both reflection cameras are created BEFORE the main camera. Cameras render in
+        // priority order (upstream gives these -2 / -1 / 0) and equal priorities keep
+        // construction order, so with every priority left at 0 the creation order is
+        // what renders the reflections first — built after, the main camera would
+        // sample the previous frame's reflection maps.
         // -----------------------------------------------------------------------
         const auto [deviceWidth, deviceHeight] = device()->size();
         const int rtWidth = std::max(1, deviceWidth);

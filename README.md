@@ -15,14 +15,14 @@ built for applications that need a physically based renderer they can embed.
 
 Originally derived from the [PlayCanvas](https://playcanvas.com/) engine's
 architecture, rebuilt in C++23 and substantially extended — with a Vulkan
-backend, volumetric fog, lightmap baking, dynamic reflection probes, and
-geospatial and scientific-visualization layers that have no upstream
-equivalent.
+backend, volumetric fog, a ray-traced lightmap baker, instanced wide lines, a
+pluggable physics seam with a Jolt backend, and geospatial and
+scientific-visualization layers that have no upstream equivalent.
 
-> **Status: Alpha.** The engine renders the scenes shown here and ships 46
-> working examples, but the API is not stable and changes without notice.
-> [FEATURES.md](FEATURES.md) lists what is implemented, module by module, along
-> with the known gaps.
+> **Status: Alpha.** The engine renders the scenes shown here and ships 68
+> working examples, most of them ports of upstream's own examples, but the API is
+> not stable and changes without notice. [FEATURES.md](FEATURES.md) lists what is
+> implemented, module by module, along with the known gaps.
 
 ## Why this exists
 
@@ -33,14 +33,39 @@ overlap:
 - **Native and embeddable** — a C++ library you link into an application, not a
   runtime you ship a project into or a browser you render inside.
 - **Physically based, without a game engine attached** — modern PBR, shadows,
-  and post-processing without an editor, a scripting VM, or an asset pipeline.
-- **Built for instrumented scenes** — an ImGui/ImPlot overlay, 3D-anchored
-  labels, and immediate-mode debug rendering are first-class, because digital
-  twins are mostly data drawn on top of geometry.
-- **Two backends, one feature contract** — Metal and Vulkan resolve the same 51
-  shader features, so a scene behaves the same on either.
+  and post-processing without an editor or a scripting VM. Scripts are C++
+  classes, and assets load from glTF/GLB, OBJ, STL, PLY and KTX2 files directly.
+- **Built for instrumented scenes** — screen- and world-space UI, 3D-anchored
+  labels, an ImGui/ImPlot overlay and immediate-mode debug rendering are
+  first-class, because digital twins are mostly data drawn on top of geometry.
+- **Two backends, one feature contract** — Metal and Vulkan compile the same 60
+  shader features from one declaration, and nine golden-image scenes are
+  checked against reference images on each. A few paths are still Metal-only; FEATURES.md
+  lists them.
 - **Readable by design** — an established engine architecture ported
   deliberately, with deviations from upstream documented in the code.
+
+## What's inside
+
+- **Rendering:** forward PBR on a frame graph; StandardMaterial with clearcoat,
+  sheen, iridescence, anisotropy, transmission and refraction, parallax and
+  spec-gloss; image-based lighting, SH light probes and reflection probes;
+  screen-space reflections; GPU instancing with GPU culling; dynamic batching;
+  MSAA.
+- **Lighting and shadows:** clustered lighting with a shadow atlas, LTC area
+  lights, cascaded directional shadows (PCF, EVSM and PCSS), spot and omni
+  shadows, light cookies, volumetric fog, and two lightmap bakers (GPU UV-space
+  and CPU ray-traced).
+- **Post-processing:** TAA, SSAO, bloom, multi-pass depth of field, colour
+  grading and 3D LUTs, tone mapping, planar reflections, Nishita atmosphere.
+- **Animation and simulation:** GPU skinning, morph targets, an animation state
+  graph with blend trees and per-node layer blending, Gaussian splatting with
+  spherical harmonics, GPU particles, and rigid bodies with joints through Jolt.
+- **UI and input:** anchored elements, MSDF text with markup, buttons, masks,
+  layout groups, scroll views and localization; keyboard, mouse, touch and
+  gamepad devices fed from the application's event loop.
+
+[FEATURES.md](FEATURES.md) has the full inventory and the known gaps.
 
 ## Gallery
 
@@ -56,20 +81,30 @@ and [OpenTopoMap](https://opentopomap.org/) (CC-BY-SA).
 
 ## Getting started
 
-Runs on macOS (Apple Silicon and Intel) via Metal or Vulkan, and on Linux and
-Windows via Vulkan 1.3. Requires CMake 3.28+, a C++23 compiler (Clang 16+ /
-Apple Clang 15+), [vcpkg](https://vcpkg.io/), and Ninja.
+Runs on macOS on Apple Silicon (Metal or Vulkan through MoltenVK) and on Linux
+(Vulkan 1.3). Windows is not supported yet. Requires CMake 3.28+, a C++23
+compiler (Apple Clang from a current Xcode on macOS, GCC 14 on Linux),
+[vcpkg](https://vcpkg.io/), and Ninja. The `vulkan` preset also needs a system
+Vulkan loader: the Vulkan SDK on macOS, `libvulkan-dev` on Ubuntu.
 
 ```bash
 export VCPKG_ROOT=/path/to/vcpkg
 
 cmake --preset default
-cmake --build build
+cmake --build --preset default
+ctest --preset default
 ```
 
-Presets are `default` (Debug), `release`, `examples`, and `vulkan`. On macOS
-`default` selects Metal and `vulkan` selects Vulkan; either can be forced with
-`VISUTWIN_BACKEND_METAL=ON|OFF` and `VISUTWIN_BACKEND_VULKAN=ON|OFF`.
+| Preset | Builds |
+|---|---|
+| `default` | Debug, Metal (`build/`) |
+| `release` | Release |
+| `examples` | Debug with every example (`build-examples/`) |
+| `vulkan` | Debug, Vulkan (`build-vulkan/`) |
+| `sanitize` | Debug under AddressSanitizer and UndefinedBehaviorSanitizer (`build-sanitize/`) |
+
+The backends can also be chosen explicitly with `VISUTWIN_BACKEND_METAL=ON|OFF`
+and `VISUTWIN_BACKEND_VULKAN=ON|OFF`; at least one must be on.
 
 The Metal backend uses Apple's header-only metal-cpp, carried in
 `engine/lib/metal-cpp` and installed to
@@ -86,7 +121,9 @@ cmake -S . -B build -DVISUTWIN_SIM_ENABLE_METAL=ON \
 copy can live anywhere. Keep the copies in step when upgrading; nothing checks
 that automatically.
 
-The 47 examples are opt-in:
+### Examples
+
+The 68 examples are opt-in:
 
 ```bash
 cmake --preset examples
@@ -95,15 +132,30 @@ open build-examples/examples/visutwin-taa.app
 ```
 
 Any application built on the engine honours `VISUTWIN_BACKEND` (`metal` or
-`vulkan`), `VISUTWIN_SCREENSHOT` (write a PNG of the backbuffer), and
-`VISUTWIN_SCREENSHOT_FRAME` — so an example can be switched or captured without
-recompiling.
+`vulkan`) and `VISUTWIN_SCREENSHOT` (write a PNG of the back buffer, with
+`VISUTWIN_SCREENSHOT_FRAME`, `_TIME` or `_COUNT` choosing when and how many),
+so an application can be switched or captured without recompiling. The examples
+add their own measurement hooks — `VISUTWIN_FIXED_DT` for deterministic
+animation, `VISUTWIN_MAX_PIXEL_RATIO`, `VISUTWIN_CPU_STATS` and others — listed
+in [AGENTS.md](AGENTS.md).
+
+### Tests
+
+`ctest --preset default` runs the unit tests (also under the `sanitize` and
+`vulkan` presets). Two GPU suites need a window and run locally:
+`ctest --preset vulkan-smoke` runs the Vulkan backend under the validation
+layers, and `ctest --preset golden` compares nine deterministic examples against
+reference images. CI builds the Metal preset with every example, runs the unit
+tests on macOS (also under the sanitizers) and on Linux with Vulkan, and checks
+the SIMD math on each backend.
 
 ## Docs
 
 - [FEATURES.md](FEATURES.md) — full feature inventory and per-module status
-- [examples/](examples/README.md) — all 47 examples, grouped and described
+- [examples/](examples/README.md) — the examples, grouped and described
 - [CONTRIBUTING.md](CONTRIBUTING.md) — layout, tests, and shader workflow
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how each subsystem works and where it deviates from upstream
+- [AGENTS.md](AGENTS.md) — the rules, contracts and known traps for anyone changing the code
 - [canvas.visutwin.com](https://canvas.visutwin.com) — project home page
 
 ## Related projects
@@ -118,7 +170,7 @@ Separate CMake projects built on this engine:
 VisuTwin Canvas derives its architecture, class hierarchy, and core rendering
 algorithms from the [PlayCanvas engine](https://github.com/playcanvas/engine),
 used under the MIT License. Work built on that foundation — the Vulkan backend,
-volumetric fog, the lightmap baker, dynamic reflection probes, and the
+volumetric fog, the CPU lightmap baker, the physics integration, and the
 geospatial and scientific-visualization layers — is original and licensed under
 Apache-2.0. Deviations from upstream behaviour are marked with `DEVIATION:`
 comments in the source. See [NOTICE](NOTICE) for full attribution.

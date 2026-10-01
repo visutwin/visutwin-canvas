@@ -30,10 +30,10 @@ namespace visutwin::canvas
      * This replaces the hand-authored / static cubemap the probe otherwise needs.
      *
      * The six face cameras are ordinary `CameraComponent`s pointed along
-     * ±X/±Y/±Z (reusing `LightCamera::pointLightRotations`). Because the layer
-     * composition renders cameras in construction order, **construct the probe
-     * BEFORE the main camera** so its faces are captured before the main camera
-     * samples the probe.
+     * ±X/±Y/±Z (reusing `LightCamera::pointLightRotations`). They must render
+     * before the main camera samples the probe. Cameras render in priority order and
+     * equal priorities (the default 0) keep construction order, so **construct the
+     * probe BEFORE the main camera**, or give the main camera a higher priority.
      *
      * The captured faces hold tonemapped/gamma-encoded LDR (the normal forward
      * output), which the probe shader sRGB-decodes — matching the existing
