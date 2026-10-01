@@ -175,7 +175,7 @@ namespace visutwin::canvas
         // keeping it attached (RenderPassVolumetricFogCombine does exactly
         // that). Vulkan allows that feedback only with a read-only
         // attachment, and a COMBINED_IMAGE_SAMPLER may never be updated with
-        // DEPTH_STENCIL_ATTACHMENT_OPTIMAL — binding it was a validation
+        // DEPTH_STENCIL_ATTACHMENT_OPTIMAL — binding it so is a validation
         // error with undefined sampled values. Texture-backed only:
         // internally-owned depth is never sampled.
         const bool depthReadOnly = renderPass && renderPass->depthReadOnly() && da.texture != nullptr;
@@ -658,10 +658,9 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::syncHdrPassFlag()
     {
         // HDR pass flag (bit 5): under CameraFrame the forward pass outputs linear
-        // HDR and the compose pass owns exposure/tonemap/gamma. Metal has always
-        // set this; Vulkan never did, so its forward shader tonemapped and
-        // gamma-encoded, and compose did it AGAIN — a double gamma, which is why
-        // every camera-frame scene rendered washed out on this backend.
+        // HDR and the compose pass owns exposure/tonemap/gamma. Without it the
+        // forward shader would tonemap and gamma-encode and compose would do it
+        // again (a double gamma, a washed-out frame).
         const uint32_t hdrBit = 1u << 5;
         const uint32_t flags = hdrPass() ? (_lightingUbo.flagsAndPad[0] | hdrBit)
                                          : (_lightingUbo.flagsAndPad[0] & ~hdrBit);
@@ -834,12 +833,11 @@ namespace visutwin::canvas
         // material — their inputs arrive through setQuadTextureBinding, on
         // fragment slots 0..7 as on Metal. Here quad slot i is the i-th binding of
         // kMaterialTextureBindings: slots 0-5 are set-1 bindings 0-5, slot 6 is
-        // binding 17 and slot 7 is binding 19. It used to take the slot NUMBER as
-        // the binding, which left 6 and 7 with no binding at all: a quad shader
-        // declaring (set = 1, binding = 6) referenced a binding outside the
-        // pipeline layout and MoltenVK's translation lost the samplers of OTHER
-        // textures too ("use of undeclared identifier _NSmplr", compose-quad,
-        // 2026-09-19). Binding 17 is a SEPARATE image in this layout, so a quad
+        // binding 17 and slot 7 is binding 19. The slot NUMBER is not the binding:
+        // slots 6 and 7 have no binding of that number, and a quad shader declaring
+        // (set = 1, binding = 6) would reference one outside the pipeline layout,
+        // which makes MoltenVK's translation drop the samplers of OTHER textures
+        // too ("use of undeclared identifier _NSmplr"). Binding 17 is a SEPARATE image in this layout, so a quad
         // shader declares slot 6 as `texture2D` and samples it through the extra
         // sampler at binding 24; slot 7 (19) is an ordinary sampler2D.
         const size_t quadSlots = std::min(imageInfos.size(), quadTextureBindings().size());
@@ -1238,9 +1236,8 @@ namespace visutwin::canvas
 
         VkCommandBuffer cmd = currentCommandBuffer();
 
-        // One copy, parameterised by aspect. The colour and depth grabs used to be
-        // two near-identical functions here; the only real differences are the
-        // aspect mask, which surface stands in for a missing attachment, and the
+        // One copy, parameterised by aspect. The only real differences between the
+        // colour and depth grabs are the aspect mask, which surface stands in for a missing attachment, and the
         // layout the source is returned to.
         const auto copyAspect = [&](Texture* sourceTexture, Texture* destination,
                                     const VkImageAspectFlags aspect,
@@ -1418,9 +1415,9 @@ namespace visutwin::canvas
         // caller's block copies straight in. A short block writes only its
         // prefix and leaves the remaining defaults, matching the Metal binder.
         // Sized from the block's own span (first member through last), NOT from
-        // "offset to end of struct" — that was only equivalent while atmosphere
-        // was the final member, and silently would have started copying over
-        // whatever got appended after it.
+        // "offset to end of struct" — that is equivalent only while atmosphere
+        // is the final member, and would silently copy over whatever gets
+        // appended after it.
         constexpr size_t kAtmosphereBytes =
             offsetof(VulkanLightingUBO, atmoCameraAltitudeAndParams) +
             sizeof(VulkanLightingUBO::atmoCameraAltitudeAndParams) -

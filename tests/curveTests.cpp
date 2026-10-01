@@ -4,12 +4,11 @@
 // Curve::closest and the CurveType numbers, as upstream's curve.test.mjs has them since
 // 2.23.0-beta.20 (#9543, #9544).
 //
-// closest() started its search at a distance of 2 and fell back to the FIRST key, so a
-// curve whose first key sat more than 2 from the time answered with that first key
-// even when another key matched exactly; and without clamping, a time far beyond the
-// curve rounds every key to one distance and the tie-break walks to the last key. The
-// type numbers are upstream's (SPLINE 4, STEP 5) so curve data authored there reads
-// the same here; they used to be 2 and 3.
+// A closest() that starts its search at a distance of 2 and falls back to the FIRST key
+// answers with that first key whenever it sits more than 2 from the time, even when
+// another key matches exactly; and without clamping, a time far beyond the curve rounds
+// every key to one distance and the tie-break walks to the last key. The type numbers
+// are upstream's (SPLINE 4, STEP 5) so curve data authored there reads the same here.
 
 #include <cmath>
 #include <iostream>

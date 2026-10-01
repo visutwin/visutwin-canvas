@@ -4,12 +4,11 @@
 // The parsers' interleaved static vertex: position, normal, uv0, tangent (+ handedness)
 // and uv1, 14 floats. ONE definition: the glTF, OBJ, STL and Assimp parsers write it and
 // BatchManager merges by reinterpreting a source vertex buffer as it
-// (formatIsPackedVertexLayout in batchSplit.h is the guard on that cast). Five private
-// copies of it used to have to agree by convention.
+// (formatIsPackedVertexLayout in batchSplit.h is the guard on that cast), so the writers
+// and the merge cannot disagree about it.
 //
-// The tangent helpers the parsers share live here too, for the same reason: the glTF, OBJ
-// and Assimp parsers each carried a private copy of generateTangents, and those three plus
-// the STL parser a copy of tangentFromNormal.
+// The tangent helpers the parsers share (generateTangents, tangentFromNormal) live here too,
+// for the same reason.
 //
 #pragma once
 

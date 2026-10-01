@@ -67,10 +67,9 @@ namespace visutwin::canvas
         // cookie pass all gate on Light::enabled(), so the scene Light has to know
         // about a disabled ENTITY too, not only a disabled component.
         _light->setEnabled(active());
-        // visibleThisFrame is NOT set here. It used to be forced true on every sync,
-        // which runs once a frame, so the two things that read it — the shadow passes
-        // and the cookie pass — saw every light as visible and no light was ever
-        // culled. Renderer::cullLights owns it now.
+        // visibleThisFrame is NOT set here: Renderer::cullLights owns it. This sync runs
+        // once a frame, so setting it here would make the shadow passes and the cookie
+        // pass see every light as visible and no light would ever be culled.
         _light->setCastShadows(_castShadows);
         _light->setMask(static_cast<MaskType>(_mask));
         _light->setShadowDistance(_shadowDistance);

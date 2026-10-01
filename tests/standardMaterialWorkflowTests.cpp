@@ -4,16 +4,15 @@
 // StandardMaterial's workflow and scalar packing, pinned against upstream.
 //
 // A default upstream StandardMaterial is in the SPECULAR workflow (useMetalness
-// false) with a black specular colour, so it renders no specular at all; this port
-// used to default to metalness 0, a dielectric with reflections. A render cannot say
+// false) with a black specular colour, so it renders no specular at all, where a
+// metalness-0 default would be a dielectric with reflections. A render cannot say
 // which default a scene got — the difference is a faint grazing highlight — so the
 // defaults and the rule that decides whether specular renders are checked here.
 //
 // Also pinned: StandardMaterial's own scalars must apply even when a base-colour
 // texture is bound on the base Material, which is how the GLB parser binds it.
-// They used to be packed only when a diffuse map was set or no base-colour texture
-// was, so setOpacity / setMetalness / setGloss / setBumpiness on a loaded model
-// silently did nothing.
+// Packed only when a diffuse map is set or no base-colour texture is, setOpacity /
+// setMetalness / setGloss / setBumpiness on a loaded model silently do nothing.
 
 #include <cmath>
 #include <cstdio>
@@ -189,9 +188,9 @@ int main()
     }
 
     // A mesh instance's own lightmap (what a lightmapper bakes) goes over the
-    // material's lightmap slot, and leaves the material itself untouched. The bakers
-    // used to write into the shared material, so meshes sharing one showed a single
-    // bake; upstream gave the mesh instance its own slot in 0cd268478.
+    // material's lightmap slot, and leaves the material itself untouched. A baker that
+    // writes into the shared material makes meshes sharing one show a single bake;
+    // upstream gave the mesh instance its own slot in 0cd268478.
     {
         const auto assigned = makeTexture(&device);
         const auto baked = makeTexture(&device);

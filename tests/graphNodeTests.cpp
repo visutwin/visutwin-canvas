@@ -320,10 +320,10 @@ int main()
             "a parent rotation invalidates the child's cached world rotation");
     }
 
-    // Removing a child leaves a hole that children() closes in order (2026-10-01); it
-    // used to find and erase, a scan and a shift per removal. The order of the rest, the
-    // removal of a child that is no longer there, a child deleted while still attached,
-    // and a removal made while walking the parent are what must not change.
+    // Removing a child leaves a hole that children() closes in order, instead of a find
+    // and erase (a scan and a shift per removal). The order of the rest, the removal of
+    // a child that is no longer there, a child deleted while still attached, and a
+    // removal made while walking the parent are what the holes must not break.
     {
         auto parent = std::make_unique<GraphNode>("holes-parent");
         std::vector<GraphNode*> kids;

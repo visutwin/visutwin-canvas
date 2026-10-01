@@ -2,9 +2,9 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // Picker::getWorldPoint casts its ray through the CENTRE of the pixel it reads, as
-// upstream's getWorldPointAsync does since 5cc6269d5. Through the integer coordinate
-// it passed the pixel's top-left corner, so every picked point sat half a pick-buffer
-// pixel off the surface point that pixel shows.
+// upstream's getWorldPointAsync does since 5cc6269d5. A ray through the integer
+// coordinate passes the pixel's top-left corner, so every picked point sits half a
+// pick-buffer pixel off the surface point that pixel shows.
 //
 // The check needs no access to the picker's internals: a camera looking straight at a
 // centred box over an EVEN buffer puts pixels 49 and 50 either side of the screen
@@ -12,9 +12,9 @@
 // through pixel centres. Corner rays put pixel 50 exactly on the axis and pixel 49 a
 // whole pixel to the left.
 //
-// It also caught the ray running BACKWARDS: built from the far plane toward the camera
-// (NDC z 1 taken for the near plane under a GL-style projection), so the nearest hit
-// was the far side of the object.
+// It also catches a ray running BACKWARDS: built from the far plane toward the camera
+// (NDC z 1 taken for the near plane under a GL-style projection), the nearest hit is
+// the far side of the object.
 
 #include <cmath>
 #include <iostream>
@@ -136,8 +136,8 @@ int main()
             "and rows 49 and 50 do too");
         // The picker intersects bounding SPHERES (a recorded deviation), here the one
         // around the box's world AABB: centre 0, radius |(2, 2, 0.5)|. The hit must be
-        // on its CAMERA side; the ray used to run from the far plane back toward the
-        // camera and hit the far side (z = -2.87).
+        // on its CAMERA side; a ray run from the far plane back toward the camera hits
+        // the far side (z = -2.87) instead.
         const float radius = std::sqrt(2.0f * 2.0f + 2.0f * 2.0f + 0.5f * 0.5f);
         const float x = right->getX();
         const float y = right->getY();

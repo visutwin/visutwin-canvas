@@ -5,10 +5,10 @@
 //
 // Its ORDER is a contract — creation order is the order draws of equal sort key keep,
 // lights take their slots in and scripts run in — and nothing on screen shows a list that
-// quietly reordered itself, so it is held here. Until 2026-09-30 a removal was std::erase
-// on a plain vector: a scan and a shift per component, so destroying K of N cost K x N.
-// It is now a slot lookup that leaves a hole, closed in order on the next read. Three
-// things that change must not break:
+// quietly reordered itself, so it is held here. A removal is a slot lookup that leaves a
+// hole, closed in order on the next read, rather than std::erase on a plain vector (a
+// scan and a shift per component, so destroying K of N costs K x N). Three things the
+// hole scheme must not break:
 //
 //  - the survivors keep their creation order whatever order the others went in;
 //  - a component destroyed WHILE the list is being walked shows as a null entry, never as
@@ -116,7 +116,7 @@ int main()
         }
 
         // The walker destroys the component AFTER the one it is on, then the LAST one.
-        // The old erase shifted the rest down: the walk skipped a live component and ran
+        // An erase that shifts the rest down makes the walk skip a live component and run
         // one slot past the new end.
         std::vector<int> visited;
         int nulls = 0;

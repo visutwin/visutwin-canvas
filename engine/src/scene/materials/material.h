@@ -315,13 +315,9 @@ namespace visutwin::canvas
         /**
          * Identity, not state — a per-process counter, as upstream's Material.id.
          *
-         * The sort key used to be a HASH of the material's state, XORed together from
-         * overlapping bit ranges: the depth key and the emissive-texture bit both sat
-         * at bit 4, the alpha mode and the occlusion bit both at bit 3, so materials
-         * differing in one could produce the same key and interleave. Worse, the one
-         * caller shifted the whole 64-bit result left by 32 and discarded the top
-         * half, which is where the SHADER VARIANT lived — the most expensive state
-         * change of all was contributing nothing to the order.
+         * The sort key takes this rather than a hash of the material's state: a hash
+         * XORed from bit ranges lets materials that differ produce the same key and
+         * interleave.
          *
          * Identity is what upstream sorts on and what this renderer actually wants:
          * consecutive draws of the SAME material skip binding entirely (see the

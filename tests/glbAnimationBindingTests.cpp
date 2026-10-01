@@ -4,13 +4,13 @@
 // glTF animation binding: node IDENTITY has to survive from the parser to the
 // instantiated entity and into the evaluator.
 //
-// Two holes this pins, both found by review on 2026-09-19:
-//   - an UNNAMED animated node. The parser skipped its channels ("can't bind
-//     unnamed nodes") and the container instantiated it with an empty name, so
-//     it never moved. Upstream names such a node `node_<index>` in both places.
+// Two holes this pins:
+//   - an UNNAMED animated node. A parser that skips its channels ("can't bind
+//     unnamed nodes"), or a container that instantiates it with an empty name,
+//     leaves it never moving. Upstream names such a node `node_<index>` in both places.
 //   - two nodes with the SAME name in different branches (a left and a right
-//     "Wheel"). Bound by bare name, both channels resolved to whichever
-//     findByName met first, so one entity took both animations and the other
+//     "Wheel"). Bound by bare name, both channels resolve to whichever
+//     findByName meets first, so one entity takes both animations and the other
 //     none. Upstream binds a PATH of names from the root down.
 //
 // The model is built in memory with tinygltf: no meshes, so the stub device

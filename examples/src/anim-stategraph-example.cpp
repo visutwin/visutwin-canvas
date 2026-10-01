@@ -231,18 +231,18 @@ protected:
         if (auto* keyLightComp = keyLight->findComponent<LightComponent>()) {
             keyLightComp->setShadowResolution(2048);
             // Upstream's shadowDistance 16, shadowBias 0.2, normalOffsetBias 0.05.
-            // This was max(radius * 4, 100): the one cascade then spans the camera
-            // frustum out to 100 m, a 10 cm shadow texel on a 1.8 m character —
-            // its shadow was a smear whose limbs popped in and out as it moved,
-            // which reads as flicker. At 16 m the texel is under 2 cm.
+            // The one cascade spans the camera frustum out to the shadow distance, so
+            // at 100 m the texel would be 10 cm on a 1.8 m character — a smeared
+            // shadow whose limbs pop in and out as it moves, which reads as flicker.
+            // At 16 m the texel is under 2 cm.
             keyLightComp->setShadowDistance(16.0f);
             keyLightComp->setShadowBias(0.2f);
             keyLightComp->setShadowNormalBias(0.05f);
-            // One cascade, as upstream. A second was tried (2026-09-19) and made the
-            // character's shadow SOFTER: two cascades split the 2048 atlas into 1024
-            // quadrants, and with distribution 0.5 the split lands at 4 m, so the
-            // character at 5 m fell into the far cascade with a 3 cm texel against
-            // the single cascade's 1.7 cm. Cascades pay off only when the far one
+            // One cascade, as upstream. A second would make the character's shadow
+            // SOFTER: two cascades split the 2048 atlas into 1024 quadrants, and with
+            // distribution 0.5 the split lands at 4 m, so the character at 5 m falls
+            // into the far cascade with a 3 cm texel against the single cascade's
+            // 1.7 cm. Cascades pay off only when the far one
             // has to reach far beyond the subject, and nothing here does.
         }
 

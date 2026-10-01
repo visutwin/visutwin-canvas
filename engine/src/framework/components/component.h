@@ -65,9 +65,8 @@ namespace visutwin::canvas
          *
          * Any loop that gathers components for a frame must test THIS, not
          * enabled(): enabled() is the component's own flag and says nothing about
-         * a parent that was switched off. Every light-gathering loop tested
-         * enabled() alone until 2026-09-11, so a light on a disabled entity went
-         * on lighting the scene.
+         * a parent that was switched off: a light gathered by enabled() alone would
+         * go on lighting the scene from a disabled entity.
          */
         [[nodiscard]] bool active() const;
 

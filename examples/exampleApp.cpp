@@ -77,9 +77,8 @@ namespace visutwin::canvas
         // the scene, which switches every forward variant to VT_FEATURE_LIGHT_PROBES
         // without touching the example. A uniform probe is the one whose diffuse is
         // known exactly (a flat ambient of r,g,b — the SH constants are folded in),
-        // so what it isolates is everything ELSE the probe path changes: no example
-        // in the tree sets probes, and this is how the Vulkan chunk was shown to drop
-        // the environment specular under them (2026-09-19).
+        // so what it isolates is everything ELSE the probe path changes (the
+        // environment specular must survive it). No example in the tree sets probes.
         if (const char* sh = std::getenv("VISUTWIN_AMBIENT_SH"); sh && *sh) {
             float r = 0.0f, g = 0.0f, b = 0.0f;
             if (std::sscanf(sh, "%f,%f,%f", &r, &g, &b) == 3) {
@@ -97,9 +96,7 @@ namespace visutwin::canvas
         // depth grabs, with screen-space reflections on the plane unless the third
         // field is 0. No upstream example drives SSR, so this is how the path is
         // exercised: the same scene with the third field 0 is the control, and the
-        // difference between the two frames is the reflection alone. Found the camera
-        // frame's missing depth grab on 2026-09-19 (SSR under post-processing did
-        // nothing on either backend).
+        // difference between the two frames is the reflection alone.
         if (const char* floor = std::getenv("VISUTWIN_SSR_FLOOR"); floor && *floor) {
             float y = 0.0f, size = 100.0f;
             int ssr = 1;
@@ -117,8 +114,7 @@ namespace visutwin::canvas
                 material->setName("ssr-floor");
                 // A MIRROR: a metal's reflectance is its base colour, so a dark metal
                 // reflects at a tenth and hides anything but the brightest emitters
-                // (the first version of this floor had albedo 0.1 and "lost" a test
-                // pillar that the march was hitting all along).
+                // (a test pillar the march does hit can look "lost" on a dark floor).
                 material->setDiffuse(Color(0.95f, 0.95f, 0.95f));
                 material->setGloss(std::clamp(gloss, 0.0f, 1.0f));
                 material->setMetalness(1.0f);
@@ -217,8 +213,7 @@ namespace visutwin::canvas
         // directional light aimed by those Euler angles (degrees). Aim it like the key
         // light and the difference from a run without it is the fill alone:
         //   - shadows=0: it must be as bright inside the key light's shadow as outside
-        //     it (this found Vulkan shadowing a shadowless fill with the key light's
-        //     map, 2026-09-23);
+        //     it (a shadowless fill must never be shadowed with the key light's map);
         //   - shadows=1: it takes the second directional shadow slot and casts its
         //     OWN shadow. It copies the shadow settings of the scene's shadowed
         //     directional light (distance, resolution, type, cascades, biases): the
@@ -261,8 +256,7 @@ namespace visutwin::canvas
         // main light array. No example puts a local light on a clearcoat, sheen,
         // iridescent or Oren-Nayar material, so this is how that loop's material terms
         // are driven; a run without it is the control, and the difference between the
-        // two frames is the light's contribution alone. Found the Vulkan cluster loop
-        // missing all four terms (2026-09-23).
+        // two frames is the light's contribution alone.
         if (const char* local = std::getenv("VISUTWIN_LOCAL_LIGHT"); local && *local) {
             float x = 0.0f, y = 0.0f, z = 0.0f, intensity = 1.0f, range = 10.0f;
             if (std::sscanf(local, "%f,%f,%f,%f,%f", &x, &y, &z, &intensity, &range) == 5) {

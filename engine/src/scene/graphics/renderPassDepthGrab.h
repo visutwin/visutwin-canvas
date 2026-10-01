@@ -24,8 +24,8 @@ namespace visutwin::canvas
      *     scene depth map from that target;
      *   - inside a RenderPassCameraFrame, with setSource(): the source is the frame's
      *     offscreen scene target and the frame publishes the scene depth itself, so this
-     *     pass only produces the copy. Until 2026-09-19 a camera frame had no depth
-     *     grab at all, so SSR under any post-processing read an unbound texture.
+     *     pass only produces the copy. Without it, SSR under any post-processing
+     *     would read an unbound texture.
      */
     class RenderPassDepthGrab : public RenderPass
     {

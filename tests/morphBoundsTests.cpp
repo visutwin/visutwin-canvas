@@ -3,10 +3,9 @@
 //
 // A morph moves vertices past the rest pose, so the bounds that culling, light
 // culling and the shadow fit read must grow by how far its targets reach — or a
-// mesh whose targets push it outward is culled while still on screen. Until
-// 2026-09-23 the expansion was a commented-out TODO in MeshInstance::aabb and the
-// GLB bone boxes ignored morph targets altogether. Nothing in a render shows it
-// unless a morph carries a mesh across a frustum edge, so these pin the numbers:
+// mesh whose targets push it outward is culled while still on screen; the same holds
+// for GLB bone boxes that ignore morph targets. Nothing in a render shows it unless a
+// morph carries a mesh across a frustum edge, so these pin the numbers:
 //   - Morph::aabb is the union of every target's DELTA bounds and the origin
 //     (upstream Morph.aabb);
 //   - a morphed mesh instance's local bounds grow by it (upstream _expand), and

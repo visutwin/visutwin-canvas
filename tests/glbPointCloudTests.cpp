@@ -2,11 +2,11 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // A glTF POINTS primitive is a point cloud: position plus COLOR_0, drawn unlit with
-// vertex colours. Until 2026-09-24 only the synchronous parse() knew that. The two
-// asynchronous paths (createFromModel, and prepareFromModel + createFromPrepared,
-// which is what loadAsync uses) pushed POINTS through the triangle layout, with no
-// colours and no point variant, because each path carried its own copy of the
-// vertex extraction. All three now run one pipeline, and this pins what it builds:
+// vertex colours, on every load path: the synchronous parse() and the two
+// asynchronous ones (createFromModel, and prepareFromModel + createFromPrepared,
+// which is what loadAsync uses). A path with its own copy of the vertex extraction
+// pushes POINTS through the triangle layout, with no colours and no point variant.
+// All three run one pipeline, and this pins what it builds:
 //   - without animations, every cloud is baked into WORLD space and merged into ONE
 //     draw under a synthetic root node, and a leaf node that held only points is
 //     skipped;

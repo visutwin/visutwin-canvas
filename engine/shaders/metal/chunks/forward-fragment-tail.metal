@@ -18,7 +18,6 @@
 #if VT_FEATURE_SPEC_GLOSS || VT_FEATURE_OREN_NAYAR || \
     VT_FEATURE_DETAIL_NORMALS || VT_FEATURE_DISPLACEMENT
     // DEVIATION: feature chunks are staged behind compile-time toggles and will be ported incrementally.
-    // NOTE: VT_FEATURE_VERTEX_COLORS, VT_FEATURE_CLEARCOAT, VT_FEATURE_LIGHT_CLUSTERING, VT_FEATURE_PARALLAX, VT_FEATURE_ANISOTROPY, VT_FEATURE_TRANSMISSION, VT_FEATURE_SSAO, VT_FEATURE_SHEEN, VT_FEATURE_IRIDESCENCE, VT_FEATURE_ATMOSPHERE, VT_FEATURE_SKINNING, VT_FEATURE_MORPHS removed — now fully implemented.
 #endif
 
 #if VT_FEATURE_SHADOW_CATCHER
@@ -143,10 +142,9 @@
         // Volume transmittance (KHR_materials_volume Beer's law, upstream
         // material_attenuation/material_invAttenuationDistance); distance 0 transmits
         // everything. Then the diffuse ALBEDO, once: upstream mixes the refraction into
-        // dDiffuseLight and combineColor multiplies that by the albedo. This used to
-        // tint by baseColor^(thickness + 1) instead, which for an orange base texture
-        // (linear ~[0.35, 0.14, 0.05]) and thickness 0.9 darkened the refraction by a
-        // further albedo^0.9 - several times over in green and blue.
+        // dDiffuseLight and combineColor multiplies that by the albedo. Not
+        // baseColor^(thickness + 1): that would darken a coloured refraction by a
+        // further albedo^thickness, several times over in the weak channels.
         const float attDistance = material.attenuationParams.w;
         if (attDistance > 0.0) {
             const float3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
@@ -187,9 +185,10 @@
 
         if (refractionFactor > 0.0 && refracts) {
             // Same lookup as the specular IBL in forward-fragment-ambient (upstream
-            // calcReflection). This used to blend shiny mips 0 and 1 by the ROUGHNESS
-            // level, so a surface at gloss 0.9 read the half-resolution shiny rect
-            // instead of blending toward the first prefiltered level.
+            // calcReflection). Shiny mips 0 and 1 are blended by the SCREEN-SPACE level,
+            // not the roughness level, which would make a surface at gloss 0.9 read the
+            // half-resolution shiny rect instead of blending toward the first
+            // prefiltered level.
             const float refrLevel = saturate(1.0 - gloss) * 5.0;
             const float refrILevel = floor(refrLevel);
             float3 linear0;
@@ -217,8 +216,8 @@
             // The diffuse albedo TWICE, as upstream: refractionCube mixes
             // refraction * albedo into dDiffuseLight and combineColor multiplies that
             // by the albedo again (the dynamic path, upstream's and ours, applies it
-            // once). This used to be baseColor^(thickness + 1), which is neither, and
-            // ignored metalness. No Fresnel weight: upstream's cube path has none.
+            // once). Not baseColor^(thickness + 1), which is neither and ignores
+            // metalness. No Fresnel weight: upstream's cube path has none.
             refrColor *= diffuseColor * diffuseColor;
 
             // Blend: replace surface diffuse with refracted view, keep specular.
@@ -395,17 +394,15 @@
 
 #if VT_FEATURE_FOG
     // Fog. The three curves are upstream's (fog.js): LINEAR over [start, end], EXP
-    // on density, EXP2 on density squared. This backend used to run one of them and
-    // the other backend a different one, because the type was never uploaded — the
-    // slot only ever held 0 or 1 — so EXP and EXP2 were unreachable in both.
+    // on density, EXP2 on density squared, chosen by the type uploaded in
+    // fogStartEndType.z (0 is off).
     //
     // DEVIATION: depth is the LINEAR view-space depth (clip.w), where upstream uses
     // gl_FragCoord.z / gl_FragCoord.w. That quantity is an old GL convenience: it
     // reaches 0 at the near plane rather than the near distance. Both backends here
     // take clip.w so they agree exactly and the falloff is metric. It is NOT the
-    // radial distance to the camera, which is what this used to be: at a wide field
-    // of view that fogged the edges of the frame harder than the centre, by
-    // 1/cos(fov/2).
+    // radial distance to the camera: at a wide field of view that would fog the edges
+    // of the frame harder than the centre, by 1/cos(fov/2).
     //
     // rd.position.w is 1 / clip.w for a fragment-stage [[position]] input, the same
     // as gl_FragCoord.w, so its reciprocal is the view depth without a new varying.

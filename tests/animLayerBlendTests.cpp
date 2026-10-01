@@ -3,8 +3,8 @@
 //
 // Animation layer blending: a layer's weight is a CONTRIBUTION, composed per node
 // across layers the way upstream's AnimTargetValue composes it, not an on/off
-// switch. Until 2026-09-19 every layer with weight > 0 wrote the nodes in turn and
-// the last one won, so a 0.25 layer was a full overwrite.
+// switch. A blend where every layer with weight > 0 writes the nodes in turn lets
+// the last one win, so a 0.25 layer becomes a full overwrite; these cases fail it.
 //
 // The scenes here are two layers driving one node "Bone" (rest position (1, 2, 3))
 // with constant translation tracks, A = (10, 0, 0) on the base layer and

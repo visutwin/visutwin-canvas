@@ -94,8 +94,8 @@ namespace visutwin::canvas
     // This is checked in isolation because the dual-source factors have no end-to-end
     // coverage yet: nothing on the Vulkan side can emit a second colour output while
     // ShaderMaterial remains MSL-only, so a wrong mapping would not show up in any
-    // rendered frame. It previously did not: the SRC1_* factors were unmapped and fell
-    // through to VK_BLEND_FACTOR_ONE, blending plausibly but incorrectly.
+    // rendered frame. An unmapped SRC1_* factor falls through to VK_BLEND_FACTOR_ONE,
+    // blending plausibly but incorrectly.
     bool checkBlendFactorMapping()
     {
         const std::pair<int, VkBlendFactor> expected[] = {
@@ -302,9 +302,8 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             vkQueueWaitIdle(device->graphicsQueue());
         }
 
-        // The GPU particle emitter's simulation step. It used to be a
-        // GraphicsDevice virtual with a kernel per backend and now runs over the
-        // same Compute seam as the block above, so what needs covering is that its
+        // The GPU particle emitter's simulation step. It runs over the same
+        // Compute seam as the block above, so what needs covering is that its
         // bindings still line up: the kernel declares the storage buffer at 0 and
         // the parameter block at 1, which is what Compute's name-order contract
         // produces for one buffer plus a uniform block. A mismatch shows up as a
@@ -904,9 +903,9 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             cocPass.init(cocTarget);
             device->frameStart();
             device->startRenderPass(&cocPass);
-            // The CoC effect no longer lives on the device — it is a QuadRender
-            // pass above it. Drive the same descriptor path (set 0 uniform block +
-            // set 1 texture) directly, which is what every migrated effect uses.
+            // The CoC effect is a QuadRender pass above the device. Drive the same
+            // descriptor path (set 0 uniform block + set 1 texture) directly, which
+            // is what every QuadRender effect uses.
             {
                 static constexpr const char* quadSource = R"(
 #version 450
@@ -1001,11 +1000,11 @@ void main() { fragColor = texture(src, vUv) * u.a.x + u.b; }
 
             // A render target over a mipmapped texture must regenerate the chain
             // when its pass ends, and hand every level back SHADER_READ_ONLY. Two
-            // defects hid this: RenderTarget::hasMipmaps() was false for every
-            // target built from a colour buffer, so no pass generated mips and
-            // levels 1+ sampled uninitialised memory (solid magenta on MoltenVK);
-            // and the mip-0 attachment reused the texture's all-level view, which
-            // put levels 1+ in COLOR_ATTACHMENT behind the layout tracker. A clear
+            // defects fail this: a RenderTarget::hasMipmaps() that is false for a
+            // target built from a colour buffer, so no pass generates mips and
+            // levels 1+ sample uninitialised memory (solid magenta on MoltenVK);
+            // and a mip-0 attachment that reuses the texture's all-level view, which
+            // puts levels 1+ in COLOR_ATTACHMENT behind the layout tracker. A clear
             // alone is enough: every generated level must read back the clear
             // colour. Placed after the descriptor-pool recycling check, which
             // counts frames from the stress frame.
@@ -1290,8 +1289,8 @@ void main() { color0 = vec4(1.0, 1.0, 1.0, 1.0); }
             // So the contract is:  stored gl_FragCoord.z  ==  0.5*gl_ndc_z + 0.5.
             //
             // Ortho is linear, so ndc z = 0 sits at the MIDPOINT of [near, far]:
-            // a caster in the near half has negative GL ndc z. Before the remap it
-            // was clipped outright (nothing stored); with the remap it stores
+            // a caster in the near half has negative GL ndc z. Without the remap it
+            // is clipped outright (nothing stored); with the remap it stores
             // exactly the value the receiver side expects. Both halves are checked.
             const Matrix4 shadowOrtho = Matrix4::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 100.0f);
 
@@ -1487,7 +1486,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 return depthValue;
             };
 
-            // Near half (GL ndc z < 0 — the range the missing remap used to clip)
+            // Near half (GL ndc z < 0 — the range a missing remap clips)
             // and far half, against what the receiver side computes on the CPU.
             for (const float viewDepth : {25.0f, 75.0f}) {
                 const Vector4 clip = shadowOrtho * Vector4(0.0f, 0.0f, -viewDepth, 1.0f);
@@ -1629,9 +1628,9 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
 
             const auto shadedLuminance = [&](const bool castShadows) -> float {
                 // Built through the real WorldClusters so this covers the engine's
-                // own GPU packing — including the shadow-matrix transpose, which
-                // is where this feature was actually broken. Hand-packing the
-                // struct here would have let that bug through.
+                // own GPU packing — including the shadow-matrix transpose, the
+                // step most likely to go wrong. Hand-packing the struct here
+                // would let a transpose bug through.
                 ClusterLightData light;
                 light.position = Vector3(0.0f, 0.0f, 0.0f);
                 light.direction = Vector3(0.0f, 0.0f, -1.0f);   // toward receiver
@@ -1650,8 +1649,8 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 light.shadowIntensity = 1.0f;
 
                 WorldClusters clusters;
-                // The grid sizes itself from the lights; it no longer takes a camera
-                // bound, which used to pad it to a 100-unit cube around the viewer.
+                // The grid sizes itself from the lights alone; it takes no camera
+                // bound.
                 clusters.update({light});
 
                 TextureOptions colorOpts{};

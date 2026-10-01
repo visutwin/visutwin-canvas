@@ -8,10 +8,10 @@
 // lightmap as light leaking through an occluder, and nothing in a bake would
 // point at the BVH as the cause.
 //
-// The binary BVH this replaced stored only a node's LEFT child and assumed the
-// right one was left + 1. Children are built depth-first, so that holds only when
-// the left child is a leaf: every right subtree below an internal left child was
-// silently skipped. The architectural scene below is the shape that exposed it.
+// A BVH that stores only a node's LEFT child and assumes the right one is left + 1
+// fails here. Children are built depth-first, so that holds only when the left child
+// is a leaf: every right subtree below an internal left child is silently skipped.
+// The architectural scene below is a shape that exposes it.
 //
 // The slab test is also checked directly against its scalar form, bit for bit, on
 // the inputs that break a naive SIMD port: zero direction components (0 * inf =

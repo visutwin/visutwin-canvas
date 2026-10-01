@@ -47,9 +47,9 @@ namespace visutwin::canvas
             __m128 mul = _mm_mul_ps(a, b);
             // SSE2 reduction for x*x + y*y. One swap-and-add is the whole sum, because
             // lanes 2 and 3 are zero: shuffle(2,3,0,1) puts lane 1 into lane 0, so
-            // sums[0] == mul[0] + mul[1]. A second add of lane 1 (which holds the same
-            // sum) used to be folded in here, which returned 2 * (x*ox + y*oy) and made
-            // Vector2::length() a factor of sqrt(2) too large on this backend.
+            // sums[0] == mul[0] + mul[1]. Do not add lane 1 as well: it holds the same
+            // sum, so the result would be 2 * (x*ox + y*oy) and Vector2::length() a
+            // factor of sqrt(2) too large on this backend.
             __m128 shuf = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 3, 0, 1));
             __m128 sums = _mm_add_ps(mul, shuf);
             return _mm_cvtss_f32(sums);

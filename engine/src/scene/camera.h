@@ -136,8 +136,8 @@ namespace visutwin::canvas
         void setClearColor(const Color& value) { _clearColor = value; }
 
         // Per-camera tone mapping (upstream CameraComponent::toneMapping). TONEMAP_INHERIT
-        // keeps the scene-wide Scene::toneMapping value, which is what cameras did before
-        // this existed; any other value overrides it for everything this camera renders.
+        // keeps the scene-wide Scene::toneMapping value; any other value overrides it for
+        // everything this camera renders.
         // The HDR camera-frame path has its own setting in CameraComponent::RenderingSettings.
         int toneMapping() const { return _toneMapping; }
         void setToneMapping(const int value) { _toneMapping = value; }

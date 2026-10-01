@@ -2,14 +2,13 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // FrameGraph::compile on a stub device: the load/store contract it derives between
-// passes that share a target, pass merging, before-pass ordering, and — since
-// 2026-09-25 — that its edits to a PERSISTENT pass's attachment flags last one frame.
+// passes that share a target, pass merging, before-pass ordering, and that its edits
+// to a PERSISTENT pass's attachment flags last one frame.
 //
-// Passes persist across frames while the graph is rebuilt every frame. compile() used
-// to raise a store or drop a cubemap mip generation and never put it back, so one
-// frame's adjacency stuck to a pass for good (audit 2026-09-23 renderer N13). It now
-// records each edit and undoes it at the next compile, leaving alone any flag the pass
-// changed itself.
+// Passes persist across frames while the graph is rebuilt every frame. A compile() that
+// raises a store or drops a cubemap mip generation and never puts it back makes one
+// frame's adjacency stick to a pass for good. compile() records each edit and undoes it
+// at the next compile, leaving alone any flag the pass changed itself.
 
 #include <iostream>
 #include <memory>

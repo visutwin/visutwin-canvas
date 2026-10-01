@@ -7,22 +7,11 @@
 //
 // Ramp matches upstream's coc.js: a dead zone of +/- focusRange/2 around the
 // focus distance, then a ramp over the full focusRange, output as
-// (cocFar, cocNear). Before the passes were unified the two backends disagreed
-// here — Metal ramped straight from the focus distance, Vulkan had the dead zone
-// but ramped over the HALF range with the channels swapped — and BOTH disagreed
-// with applyDofSinglePass in composeShaders.h, which already followed upstream.
-// All three now agree.
+// (cocFar, cocNear). The same ramp as applyDofSinglePass in composeShaders.h (the
+// compose fallback when no CoC texture is bound), so the two DOF paths agree.
 //
-//
-// CURRENTLY UNREACHABLE. RenderPassCameraFrame::setupDofPass() only does
-// `_dofPass.reset()`, so RenderPassDof — and with it this pass and
-// RenderPassDofBlur — is never constructed: the multi-pass DOF pipeline
-// (CoC -> Downsample -> Blur) is disabled because the parent RenderPassDof has
-// no render target, which corrupted the Metal encoder state and produced a black
-// screen. Depth of field runs through applyDofSinglePass in the compose shader
-// instead, reading the depth buffer directly. Anything "verified" about this
-// pass by screenshotting an example is therefore vacuous — it did not run.
-// Reviving the multi-pass path means giving RenderPassDof a render target first.
+// Part of the multi-pass DOF pipeline (CoC -> far downsample -> bokeh blur ->
+// applyDof in compose) that RenderPassCameraFrame::setupDofPass() builds.
 //
 #include "renderPassCoC.h"
 

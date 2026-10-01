@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Entity lifecycle ordering. All three of these were unheld before 2026-09-06 and
-// none of them is visible in a rendered frame, which is why they need a test:
+// Entity lifecycle ordering. None of these is visible in a rendered frame, which
+// is why they need a test:
 //
 //  - enable/disable dispatched in Component::order(), lowest first, disable in
-//    reverse. It used to iterate an unordered_map, so a rigid body could be
-//    enabled after a component that moves it, in an order that varied per run.
+//    reverse. Iterating an unordered_map instead could enable a rigid body after
+//    a component that moves it, in an order that varies per run.
 //  - Entity::destroy() tears down descendants first, then disables in order, then
-//    releases components in the reverse of creation. The destructor was empty, so
-//    components died in container order with no disable pass at all.
-//  - onPostStateChange() runs after every component has seen the state change.
-//    It was declared and never called.
+//    releases components in the reverse of creation. Without it, components die
+//    in container order with no disable pass at all.
+//  - onPostStateChange() runs after every component has seen the state change;
+//    a hook that is declared and never called fails it.
 
 #include <iostream>
 #include <memory>
@@ -217,8 +217,8 @@ int main()
     }
 
     // Destroying an entity must announce each component through the system that
-    // owns it. Teardown used to clear the containers directly, so a system caching
-    // its components heard nothing until the component's destructor ran.
+    // owns it. A teardown that clears the containers directly leaves a system caching
+    // its components hearing nothing until the component's destructor runs.
     {
         events.clear();
         OwnedSystem system;

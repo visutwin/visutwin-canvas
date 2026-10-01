@@ -2,10 +2,10 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // ComponentSystemRegistry keeps three containers in step: an owning vector and two
-// lookup maps. Before 2026-09-06 `add` wrote the maps unconditionally, so
-// registering a second system under an existing id left the FIRST one alive and
-// owned — and still subscribed to whatever engine events it had registered for —
-// behind an id that no longer resolved to it. That is the same shape as the bug
+// lookup maps. An `add` that writes the maps unconditionally, on a second system
+// under an existing id, leaves the FIRST one alive and owned — and still subscribed
+// to whatever engine events it had registered for — behind an id that no longer
+// resolves to it, so `add` rejects the duplicate. That is the same shape as the bug
 // upstream's `registry.remove` had, where the list entry outlived the map entry,
 // which is why `remove` here erases from all three or from none.
 

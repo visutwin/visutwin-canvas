@@ -6,9 +6,9 @@
 // hit padding, touches and the touch click brake) and ButtonComponent's visual states, with
 // upstream's button component.test.mjs ported.
 //
-// Until 2026-09-29 ElementInput delivered one event, a "click" on mouse DOWN over the
-// front-most screen-space element's bounding box; nothing hovered, released, bubbled or hit
-// a world-space element, and a button only held an image entity.
+// An ElementInput that delivers only a "click" on mouse DOWN over the front-most
+// screen-space element's bounding box fails nearly every case here: nothing hovers,
+// releases, bubbles or hits a world-space element.
 //
 // Input is invisible in a screenshot, so this is the test that says it works. A real engine
 // on a stub device: with no window the canvas is the device's 300x150, y down.

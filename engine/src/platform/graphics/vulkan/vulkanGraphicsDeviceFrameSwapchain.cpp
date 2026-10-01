@@ -960,7 +960,7 @@ namespace visutwin::canvas
     {
         // Runs once per skipped frame, so log the first occurrence and then
         // only occasionally — a wedged device would otherwise emit thousands of
-        // lines per second, which is how this failure mode used to hide.
+        // lines per second and bury this failure mode.
         constexpr uint64_t kRepeatInterval = 600;
         ++_swapchainDeferredFrames;
         if (_swapchainDeferredFrames != 1 &&

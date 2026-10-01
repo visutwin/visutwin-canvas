@@ -7,8 +7,8 @@
 // scene. Neither reads as an obvious defect in a render — the first looks like a
 // falloff, the second like nothing at all — so the property is checked here.
 //
-// A spot used to be bounded by its whole range SPHERE. At a 20-degree cone that is
-// about thirty times the volume the light can light, and the grid paid for all of it.
+// A spot bounded by its whole range SPHERE instead of its cone is, at a 20-degree cone,
+// about thirty times the volume the light can light, and the grid pays for all of it.
 //
 #include <cmath>
 #include <cstdio>

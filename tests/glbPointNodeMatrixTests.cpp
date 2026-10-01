@@ -5,11 +5,10 @@
 //
 // GlbParser::parse bakes every static POINTS primitive into one world-space
 // buffer, composing each node's local matrix from either its TRS triple or its
-// explicit `matrix`. The matrix branch used to write the sixteen column-major
-// values through setElement with (row, col) swapped, so a point-cloud node
-// authored as a matrix landed TRANSPOSED — its rotation inverted — while the
-// same node authored as TRS was right. Found on 2026-09-22 by an audit of
-// hand-written matrix code.
+// explicit `matrix`. A matrix branch that writes the sixteen column-major
+// values through setElement with (row, col) swapped lands a point-cloud node
+// authored as a matrix TRANSPOSED — its rotation inverted — while the same
+// node authored as TRS stays right.
 //
 // The model is built in memory with tinygltf, written as a GLB to a temporary
 // file (only the file-based parse reaches the merge), and parsed twice: once

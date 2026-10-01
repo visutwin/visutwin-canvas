@@ -5,11 +5,10 @@
 // camera and one shadow-casting directional light, rendered by the real engine on a
 // stub device whose draw() records what it was asked to draw, as the backends' do.
 //
-// Until 2026-09-25 fifteen of these counters had no write site: stats.cameras,
-// materials, shaders, triangles, cullTime, shadowDrawCalls and every per-phase time read
-// zero whatever was drawn, and the one time that was written (sort) was truncated to
-// whole milliseconds and measured from the top of the forward pass. Nothing on screen
-// reads them, which is how that lasted; only a count against a known scene shows it.
+// A counter with no write site — stats.cameras, materials, shaders, triangles, cullTime,
+// shadowDrawCalls, any per-phase time — reads zero whatever was drawn, and a time
+// truncated to whole milliseconds or measured from the wrong point reads plausibly wrong.
+// Nothing on screen reads them; only a count against a known scene shows it.
 
 #include <iostream>
 #include <memory>
@@ -209,8 +208,8 @@ int main()
     }
 
     // The camera's layers are culled in ONE sweep of the scene, and a directional
-    // cascade's pass draws the caster list its fit kept. Both replaced per-layer and
-    // per-pass sweeps on 2026-09-30; what each must still answer is counted here.
+    // cascade's pass draws the caster list its fit kept. Each must still answer what a
+    // per-layer or per-pass sweep would; that is counted here.
     std::cout << "\nlayers and the frustum\n";
     {
         auto& s = const_cast<ApplicationStats&>(stats);

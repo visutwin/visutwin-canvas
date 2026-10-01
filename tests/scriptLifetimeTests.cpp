@@ -2,12 +2,11 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // A script may, from inside its own update, create another script on the same
-// component or destroy its own entity. Until 2026-09-24 the component's loops
-// range-iterated its script vector, so the first reallocated the vector under the
-// loop and the second freed the component — and the running script — mid-loop:
-// both undefined behaviour that usually still "worked". The sanitizer build (CI's
-// macos-sanitize job) turns either into a hard failure; the checks here pin what
-// must happen instead:
+// component or destroy its own entity. Loops that range-iterate the script vector
+// let the first reallocate the vector under the loop and the second free the
+// component — and the running script — mid-loop: both undefined behaviour that
+// usually still "works". The sanitizer build (CI's macos-sanitize job) turns either
+// into a hard failure; the checks here pin what must happen instead:
 //   - a script created mid-update runs in the same pass, and the scripts after it
 //     are still updated;
 //   - after a script destroys its entity, no later script on it runs, and the

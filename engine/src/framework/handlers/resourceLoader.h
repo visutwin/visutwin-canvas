@@ -239,8 +239,8 @@ namespace visutwin::canvas
         /// `ktx2TargetFormat` is the block-compressed format a Basis/KTX2 payload is
         /// transcoded to. It is decided ONCE here, on the main thread, from
         /// GraphicsDevice::preferredCompressedRgbaFormat(): load() runs on the worker
-        /// thread and must not ask the device itself. Until 2026-09-06 this was a
-        /// hard-coded ASTC 4x4, which no desktop Vulkan GPU can create.
+        /// thread and must not ask the device itself. Never hard-code it: ASTC, for one,
+        /// cannot be created by any desktop Vulkan GPU.
         explicit TextureResourceHandler(PixelFormat ktx2TargetFormat)
             : _ktx2TargetFormat(ktx2TargetFormat) {}
 

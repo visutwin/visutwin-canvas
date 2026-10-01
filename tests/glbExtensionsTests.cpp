@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The glTF extensions added on 2026-09-25, checked through BOTH halves of the load
-// pipeline on a model built in memory:
+// These glTF extensions, checked through BOTH halves of the load pipeline on a model
+// built in memory:
 //
 //  - KHR_materials_sheen / _specular / _iridescence / _anisotropy land on the
 //    StandardMaterial, and the two uniforms they feed pack as the shaders expect:
 //    the metalness workflow's non-metal F0 (upstream getSpecularModulate) and the
 //    anisotropy direction (cos, sin). The defaults must pack to EXACTLY 0.04 and
-//    (1, 0), the constants the shaders used before, or every existing frame moves.
+//    (1, 0), the constants they stand in for, or every frame without them moves.
 //  - EXT_mesh_gpu_instancing: one TRS matrix per instance, in the NODE's space, so
 //    the instanced bounds follow the node.
 //  - KHR_materials_variants: names, apply, unmapped primitives untouched, reset.
 //  - KHR_gaussian_splatting: splat primitives become a GSplatComponent, with the
 //    activated values packed as the PLY loader packs its own.
-//
-// Before these existed the parser read none of the four extensions.
 
 #include <tiny_gltf.h>
 

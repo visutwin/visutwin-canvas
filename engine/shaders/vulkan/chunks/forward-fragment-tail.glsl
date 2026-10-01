@@ -153,17 +153,15 @@
     }
 
     // Fog. The three curves are upstream's (fog.js): LINEAR over [start, end], EXP
-    // on density, EXP2 on density squared. This backend used to run one of them and
-    // the other backend a different one, because the type was never uploaded — the
-    // slot only ever held 0 or 1 — so EXP and EXP2 were unreachable in both.
+    // on density, EXP2 on density squared, chosen by the type uploaded in
+    // fogStartEndType.z (0 is off).
     //
     // DEVIATION: depth is the LINEAR view-space depth (clip.w), where upstream uses
     // gl_FragCoord.z / gl_FragCoord.w. That quantity is an old GL convenience: it
     // reaches 0 at the near plane rather than the near distance. Both backends here
     // take clip.w so they agree exactly and the falloff is metric. It is NOT the
-    // radial distance to the camera, which is what this used to be: at a wide field
-    // of view that fogged the edges of the frame harder than the centre, by
-    // 1/cos(fov/2).
+    // radial distance to the camera: at a wide field of view that would fog the edges
+    // of the frame harder than the centre, by 1/cos(fov/2).
     //
     // fragViewDepth is gl_Position.w from the vertex stage — see forward.vert.
     uint fogType = vtFeatureEnabled(VT_FEATURE_FOG_BIT)

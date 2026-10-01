@@ -80,10 +80,9 @@
                     cl.colorIntensity.w * atten;
                 // Oren-Nayar, iridescence, clearcoat and sheen below are the main
                 // loop's terms (forward-fragment-lights.glsl), and the Metal twin has
-                // all four. This loop had none of them until 2026-09-23 — and with
-                // clustered lighting the default, it is the loop EVERY spot and omni
-                // light goes through, so a coated, sheened, rough-diffuse or
-                // iridescent material lost that term under every local light.
+                // all four. With clustered lighting the default, this is the loop
+                // EVERY spot and omni light goes through, so a term missing here is
+                // missing under every local light.
                 float diffuseTerm = 1.0;
                 if (vtFeatureEnabled(VT_FEATURE_OREN_NAYAR_BIT)) {
                     float sigma2 = roughness * roughness;

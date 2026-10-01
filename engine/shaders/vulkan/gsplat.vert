@@ -98,10 +98,9 @@ void main() {
     // Limit the kernel to the smaller viewport dimension (upstream gsplatCorner.js,
     // and the twin of the vmin clamp in gsplat-render.metal). Without it the
     // perspective Jacobian, which divides by view.z, blows the footprint up without
-    // bound as a splat centre approaches the camera. That used to be invisible here
-    // because such a splat's centre also left the depth range and the whole quad was
-    // clipped away; clamping clip.z below keeps it, so the size clamp is what stops
-    // it covering the screen. A camera inside a cloud went entirely flat without this.
+    // bound as a splat centre approaches the camera. Clamping clip.z below keeps such
+    // a splat instead of clipping its whole quad away, so the size clamp is what stops
+    // it covering the screen — without it a camera inside a cloud goes entirely flat.
     float vmin=min(1024.0,min(params.viewport.x,params.viewport.y));
     float l1=2.0*min(sqrt(2.0*lambda1),vmin), l2=2.0*min(sqrt(2.0*lambda2),vmin);
     if(max(l1,l2)<0.5)return;

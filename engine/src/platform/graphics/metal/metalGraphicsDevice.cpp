@@ -135,18 +135,15 @@ namespace visutwin::canvas
         // dt shows as animation judder even at high fps).
         //  - displaySync must be forced ON: SDL's renderer (whose layer we
         //    borrow) may have disabled it, letting presents outrun the
-        //    refresh rate entirely (measured 140+ fps on a 120 Hz panel).
+        //    refresh rate entirely.
         //    That is also what stops the CPU bursting frames ahead and then
         //    stalling a whole vsync (dt alternating ~2 ms / ~33 ms): with sync
-        //    on, three drawables pace exactly like two (measured 2026-09-17 on
-        //    ambient-occlusion and area-picker: median 16.7 ms, p5 16.0, p95
-        //    17.3, no frame under 10 ms or over 25 ms with either count).
+        //    on, three drawables pace exactly like two.
         //  - Three drawables, the layer's default, NOT two. In a fullscreen
         //    space the display holds one drawable through the next flip, so
-        //    with only two the loop waits two intervals per frame: 2560x1440
-        //    ran at 33 ms per frame with 5 ms of GPU work, and every click
-        //    arrived a third of a second late. Windowed mode, composited by
-        //    the WindowServer, never showed it.
+        //    with only two the loop waits two intervals per frame: half the
+        //    frame rate, and input lands late. Windowed mode, composited by
+        //    the WindowServer, does not show it.
         // vsync=false leaves sync off and keeps three drawables for
         // maximum CPU/GPU overlap (uncapped-fps benchmarking).
         _metalLayer->setDisplaySyncEnabled(options.vsync);
@@ -159,7 +156,7 @@ namespace visutwin::canvas
 
         // Highest MSAA sample count this GPU accepts, used to clamp
         // RenderTargetOptions::samples. Left at the base-class default of 1 the clamp
-        // silently disabled every multisampled target.
+        // would silently disable every multisampled target.
         for (const int candidate : {8, 4, 2}) {
             if (_device->supportsTextureSampleCount(static_cast<NS::UInteger>(candidate))) {
                 setMaxSamples(candidate);
@@ -179,9 +176,9 @@ namespace visutwin::canvas
 
         // Metal's sampler ratio is 1..16 on every family, so this is a constant
         // here rather than a query — but it is published so the sampler below and
-        // Vulkan's per-texture samplers read ONE number. The two used to be a
-        // hard-coded 16 and a queried device limit, which agree on Apple hardware
-        // and would diverge in silence anywhere else.
+        // Vulkan's per-texture samplers read ONE number. A hard-coded 16 on one side
+        // and a queried device limit on the other agree on Apple hardware and would
+        // diverge in silence anywhere else.
         setMaxAnisotropy(16.0f);
 
         // Half- and full-float colour attachments are renderable on every Metal
@@ -1202,12 +1199,12 @@ namespace visutwin::canvas
         }
 
         // Set the pipeline state if changed. _pipelineState is what the encoder
-        // holds and lives until the pass ends (resetEncoderStateCache): it used to be
-        // cleared after every draw, which made this test always true.
+        // holds and lives until the pass ends (resetEncoderStateCache); clearing it per
+        // draw would make this test always true.
         // NOTE: _pipelineState is a non-owning (borrowing) pointer — the render
         // pipeline cache (_renderPipeline) owns pipeline states and releases them
-        // in its destructor.  Do NOT call release() here; the previous code did
-        // so and caused a double-release (cache destructor also releases).
+        // in its destructor.  Do NOT call release() here: the cache destructor
+        // releases it too, so that would be a double release.
         if (_pipelineState != pipelineState) {
             _pipelineState = pipelineState;
             passEncoder->setRenderPipelineState(pipelineState);
@@ -1381,9 +1378,7 @@ namespace visutwin::canvas
         // linear, clamp-to-edge, no mip/aniso. The scene sampler REPEATS, so a
         // kernel that taps past [0,1] wraps to the opposite edge — visible as
         // wrong pixels along the frame border (CAS in compose does exactly this).
-        // Every dedicated post pass bound _postSampler itself; effects lifted onto
-        // QuadRender have to keep that, and effects that were already quad passes
-        // (bloom downsample, outline) get the same correction.
+        // So every quad pass (bloom downsample and outline included) gets it.
         _textureBinder.bindSamplerCached(passEncoder,
             quadRenderActive() ? _postSampler : _defaultSampler);
 
@@ -1956,7 +1951,7 @@ namespace visutwin::canvas
             // Clamped to the pass's attachments, as Vulkan's applyScissor does and
             // upstream does on WebGPU (#9516): a camera rect reaching past the target
             // makes the scissor do the same, and Metal requires the rect to lie within
-            // the attachments. A negative x or y used to wrap to an enormous
+            // the attachments. Unclamped, a negative x or y would wrap to an enormous
             // NS::UInteger rather than clip.
             const int64_t left = std::clamp<int64_t>(x, 0, _passWidth);
             const int64_t top = std::clamp<int64_t>(y, 0, _passHeight);

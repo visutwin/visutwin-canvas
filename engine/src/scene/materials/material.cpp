@@ -228,8 +228,8 @@ namespace visutwin::canvas
         if (_uniformsDirty) {
             updateUniforms(_cachedUniforms);
             // Cleared after packing, so a pack that somehow dirtied the material would
-            // leave it dirty. No packer writes to its material any more (StandardMaterial
-            // used to push its UV transforms back through a const_cast).
+            // leave it dirty. Packers must not write to their material: StandardMaterial's
+            // UV transforms go straight into the block.
             _uniformsDirty = false;
         }
 
@@ -311,7 +311,7 @@ namespace visutwin::canvas
         uniforms.occludeSpecularIntensity = _occludeSpecularIntensity;
         uniforms.flags = 0u;
 
-        // Allow custom parameter overrides (same alias chains as the original inline code).
+        // Allow custom parameter overrides (upstream and short alias names alike).
         applyParameterOverrides(uniforms);
 
         // Flag bits — matches MaterialData.flags layout in common.metal.
@@ -375,8 +375,8 @@ namespace visutwin::canvas
         readFloat(getParam(this, {"material_iridescenceIntensity", "iridescenceIntensity"}), uniforms.iridescenceParams[0]);
         readFloat(getParam(this, {"material_iridescenceIOR", "iridescenceIOR"}), uniforms.iridescenceParams[1]);
         readFloat(getParam(this, {"material_iridescenceThicknessMax", "iridescenceThicknessMax"}), uniforms.iridescenceParams[3]);
-        // No sheen or iridescence map parameters: neither backend ever sampled them, and
-        // flag bits 18-20 now mean skybox-off and hasOpacityMap on a StandardMaterial,
+        // No sheen or iridescence map parameters: neither backend samples such maps, and
+        // flag bits 18-20 mean skybox-off and hasOpacityMap on a StandardMaterial,
         // so a stray texture parameter must not be able to set them.
 
         // Spec-Gloss: parameter overrides (KHR_materials_pbrSpecularGlossiness).

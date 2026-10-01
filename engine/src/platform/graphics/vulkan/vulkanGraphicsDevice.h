@@ -783,7 +783,7 @@ namespace visutwin::canvas
         // start and invalidates all of it). Consecutive draws of one material with an
         // unchanged pack share its ring slot, as Metal's binder does; draws with the same
         // cluster buffers share one set 5; the zero sentinels a non-clustered draw binds
-        // are allocated once a frame. Each used to be allocated per draw.
+        // are allocated once a frame.
         uint64_t _frameSerial = 0;
         struct MaterialUniformSlot
         {

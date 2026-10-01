@@ -27,8 +27,8 @@ namespace visutwin::canvas::env_shaders
     };
     static_assert(sizeof(EquirectToCubeUniforms) == 16);
 
-    // The face mapping matches the CPU faceUvToDir helper this replaced, so the
-    // cubemap layout stays compatible with the convolve pass's X flip.
+    // The face mapping is the one the convolve pass's X flip expects; keep the
+    // two in step.
     constexpr const char* EQUIRECT_TO_CUBE_MSL = R"(
 #include <metal_stdlib>
 using namespace metal;

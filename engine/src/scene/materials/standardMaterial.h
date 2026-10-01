@@ -243,8 +243,7 @@ namespace visutwin::canvas
             markUniformsDirty();
         }
         // --- Vertex color routing (upstream diffuseVertexColor / emissiveVertexColor) ---
-        // A mesh's vertex colors modulate the diffuse lane by default, which is how
-        // every vertex-colored material in this engine behaved before these existed.
+        // A mesh's vertex colors modulate the diffuse lane by default.
         // Route them to emissive instead for additive stamps like decals, where the
         // color has to survive an unlit, black-diffuse material.
         bool diffuseVertexColor() const { return _diffuseVertexColor; }
@@ -298,7 +297,7 @@ namespace visutwin::canvas
         void setAnisotropy(const float value) { _anisotropy = value; markUniformsDirty(); }
         /// Upstream `anisotropyRotation`, in DEGREES: turns the anisotropy direction from
         /// the tangent toward the bitangent. A negative `anisotropy` (upstream's
-        /// deprecated setter) adds 90 on top, as it always did.
+        /// deprecated setter) adds 90 on top.
         float anisotropyRotation() const { return _anisotropyRotation; }
         void setAnisotropyRotation(const float degrees) { _anisotropyRotation = degrees; markUniformsDirty(); }
         // --- Transmission / Refraction ---
@@ -326,8 +325,7 @@ namespace visutwin::canvas
         // The AO map and the base Material's occlusion texture are ONE slot (4) and one
         // shader feature; the GLB parser fills the base property, upstream code and the
         // examples talk to aoMap. Keep the two in step here, or `setAoMap(nullptr)` on a
-        // loaded material clears nothing (the ambient-occlusion example did exactly that
-        // and rendered with its baked AO all along).
+        // loaded material clears nothing.
         Texture* aoMap() const { return _aoMap ? _aoMap : occlusionTexture(); }
         void setAoMap(Texture* texture)
         {

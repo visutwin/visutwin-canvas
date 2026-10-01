@@ -9,8 +9,8 @@ namespace visutwin::canvas
 {
     // masks (to only keep relevant bits)
     const uint32_t opMask = 0b111;
-    // 5 bits: the dual-source factors run up to BLENDMODE_ONE_MINUS_SRC1_ALPHA (16), which no
-    // longer fits the 4 bits this used to be. Widening shifts every field that follows.
+    // 5 bits: the dual-source factors run up to BLENDMODE_ONE_MINUS_SRC1_ALPHA (16), which does
+    // not fit in 4. The width sets the shift of every field that follows.
     const uint32_t factorMask = 0b11111;
 
     // Shifts values to where individual parts are stored

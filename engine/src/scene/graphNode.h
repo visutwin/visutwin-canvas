@@ -118,10 +118,9 @@ namespace visutwin::canvas
 
         /**
          * The children in order, with no gaps. A removal leaves a hole in the list where
-         * the child was (so removing is O(1) and moves nobody: removeChild used to find
-         * the child and erase it, a scan and a shift, and destroying 20k children of one
-         * node took 320 ms), and this closes the holes in one ordered pass before
-         * returning. A child removed DURING a loop over this list therefore shows as a
+         * the child was (so removing is O(1) and moves nobody, where a find-and-erase
+         * would make destroying K of N children cost K x N), and this closes the holes in
+         * one ordered pass before returning. A child removed DURING a loop over this list therefore shows as a
          * null entry under that loop — never a shift past the loop — so a loop whose body
          * can remove a sibling checks for null, and does not call children() again on
          * the same node inside the loop.

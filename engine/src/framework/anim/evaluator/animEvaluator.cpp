@@ -105,10 +105,8 @@ namespace visutwin::canvas
         // accumulation. Only clips with weight > 0 advance their time.
         //
         // Per node the accumulation lives in a persistent SLOT, and each clip's track
-        // evaluates into a reused array indexed by its own targets. Until 2026-10-01
-        // every update built two unordered_maps keyed by the full node path — about six
-        // path hashes and four allocations per animated node per frame, the largest
-        // per-frame cost of an animated character.
+        // evaluates into a reused array indexed by its own targets, so an update hashes
+        // no node path and allocates nothing per animated node.
         _touchedSlots.clear();
 
         for (const auto& clip : _clips) {
@@ -146,7 +144,7 @@ namespace visutwin::canvas
                 const size_t slotIndex = binding.slots[t];
                 Slot& acc = _slots[slotIndex];
                 if (!acc.touched) {
-                    // The first contribution this update: what a fresh map entry was.
+                    // The first contribution this update: reset the slot's counters and flags.
                     acc.touched = true;
                     acc.posCounter = acc.rotCounter = acc.sclCounter = acc.wgtCounter = 0;
                     acc.value.hasPosition = acc.value.hasRotation = acc.value.hasScale = false;

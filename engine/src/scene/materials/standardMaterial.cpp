@@ -140,8 +140,8 @@ namespace visutwin::canvas
     void StandardMaterial::packMapTransforms(MaterialUniforms& uniforms) const
     {
         // StandardMaterial's per-map UV transforms replace the base ones in the packed
-        // block. They used to be WRITTEN into the base fields through a const_cast on
-        // every pack, which re-dirtied the material from inside its own packer.
+        // block. They go into the block, never into the base fields: writing the material
+        // from inside its own packer would re-dirty it on every pack.
         packTextureTransform({_diffuseMapTiling, _diffuseMapOffset, _diffuseMapRotation},
             uniforms.baseColorTransform0, uniforms.baseColorTransform1);
         packTextureTransform({_normalMapTiling, _normalMapOffset, _normalMapRotation},
@@ -160,10 +160,9 @@ namespace visutwin::canvas
 
     void StandardMaterial::packSurface(MaterialUniforms& uniforms) const
     {
-        // StandardMaterial's own scalars ALWAYS win. This used to apply only when a
-        // diffuse map was set or no base-colour texture was, so a GLB material — the
-        // parser binds its texture on the base Material — silently ignored every later
-        // setOpacity / setMetalness / setGloss / setBumpiness. The parsers write these
+        // StandardMaterial's own scalars ALWAYS win, whatever textures are bound: a GLB
+        // material binds its texture on the base Material, and a later setOpacity /
+        // setMetalness / setGloss / setBumpiness must still apply. The parsers write these
         // scalars alongside the base-Material factors, so nothing loaded depends on
         // the base factors surviving.
         uniforms.baseColor[0] = _diffuse.r;
@@ -246,8 +245,8 @@ namespace visutwin::canvas
     {
         // anisotropic specular. The strength goes up as a MAGNITUDE and the direction as
         // (cos, sin) of the rotation; the deprecated negative strength is rotation + 90.
-        // Quarter turns are written exactly, so a material that only ever used the old
-        // sign picks the tangent or bitangent bit for bit as the shader did before.
+        // Quarter turns are written exactly, so a material that only uses the deprecated
+        // sign picks exactly the tangent or the bitangent.
         uniforms.anisotropy = std::abs(_anisotropy);
 
         double degrees = std::fmod(static_cast<double>(_anisotropyRotation) + (_anisotropy < 0.0f ? 90.0 : 0.0), 360.0);
@@ -278,7 +277,7 @@ namespace visutwin::canvas
         // Metalness workflow: the non-metal F0 (upstream getSpecularModulate), from the
         // IOR, tinted by the specular colour when asked and scaled by the specularity
         // factor. In DOUBLE so the default IOR of 1.5 lands on exactly 0.04f, the
-        // constant both shaders used before this field existed.
+        // standard dielectric F0.
         const double ior = static_cast<double>(_refractionIndex);
         double f0 = (ior - 1.0) / (ior + 1.0);
         f0 *= f0;
@@ -314,7 +313,7 @@ namespace visutwin::canvas
         uniforms.dispersionParams[0] = _dispersion;
 
         // Decoupled dither strength. Negative means "unset", which the shaders read as
-        // "fall back to opacity" — the coupled behaviour every material had before.
+        // "fall back to opacity" — opacity then drives both the blend and the dither.
         uniforms.dispersionParams[1] = _alphaDither;
     }
 
@@ -344,8 +343,8 @@ namespace visutwin::canvas
         // iridescence (KHR_materials_iridescence).
         uniforms.iridescenceParams[0] = _iridescenceIntensity;
         uniforms.iridescenceParams[1] = _iridescenceIOR;
-        // z was the minimum thickness, which only a thickness map interpolates towards;
-        // neither backend read it and the map no longer exists.
+        // z (minimum thickness) is unused: only a thickness map would interpolate towards
+        // it, and there is no iridescence thickness map.
         uniforms.iridescenceParams[2] = 0.0f;
         uniforms.iridescenceParams[3] = _iridescenceThicknessMax;
 
@@ -381,8 +380,7 @@ namespace visutwin::canvas
         // environment atlas for this material; SH probes and the flat ambient remain.
         if (!_useSkybox)    flags |= (1u << 18);
         // bit 19: hasOpacityMap (slot 34, METAL ONLY — see ProgramLibrary's warning).
-        // The flags word was full; bits 18-20 came free when the sheen and iridescence
-        // map bits, which neither backend ever read, were removed.
+        // Bit 20 is the only free flag bit.
         if (_opacityMap)    flags |= (1u << 19);
         if (_specGlossMap)  flags |= (1u << 21);      // bit 21: hasSpecGlossMap
         if (_detailNormalMap) flags |= (1u << 22);    // bit 22: hasDetailNormalMap
@@ -439,7 +437,7 @@ namespace visutwin::canvas
         overrideSlot(3, _specGlossMap);
         // Detail normal overlay at slot 23.
         overrideSlot(23, _detailNormalMap);
-        // Scalar maps. Slots 0-30 were all taken, so these extend the range.
+        // Scalar maps. Slots 0-30 are all taken, so these extend the range.
         overrideSlot(31, _glossMap);
         overrideSlot(32, _thicknessMap);
         overrideSlot(33, _refractionMap);

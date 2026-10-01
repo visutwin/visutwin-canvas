@@ -3,10 +3,9 @@
 // "Production Friendly Microfacet Sheen BRDF". Fabric and velvet: a much wider,
 // softer lobe than GGX, brightest at grazing angles.
 //
-// This backend used to approximate the whole thing as
-// `pow(1 - NdotH, mix(2, 8, sheenRoughness))`, a velvet term with no
-// distribution, no visibility, no image-based lighting and no energy taken from
-// the base layer — which is to say it was not sheen, it just looked soft.
+// A `pow(1 - NdotH, mix(2, 8, sheenRoughness))` velvet term is not a substitute:
+// it has no distribution, no visibility, no image-based lighting and takes no
+// energy from the base layer — it looks soft, but it is not sheen.
 
 // Charlie sheen distribution — an inverted Gaussian rather than GGX.
 float sheenDistribution(float NoH, float roughness) {

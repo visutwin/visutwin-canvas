@@ -43,10 +43,10 @@ namespace visutwin::canvas
     void RenderPassDepthGrab::execute()
     {
         // Copy the post-opaque depth into a sampleable texture for screen-space
-        // reflections. No mip chain — depth cannot be averaged. The copy used to sit
-        // in before(); RenderPass::render runs before() and execute() back to back for
-        // a pass with no target of its own, so the timing is the same, and execute()
-        // is where the colour grab does its copy too.
+        // reflections. No mip chain — depth cannot be averaged. The copy is in
+        // execute(), as the colour grab's is; RenderPass::render runs before() and
+        // execute() back to back for a pass with no target of its own, so it lands at
+        // the same point either way.
         const auto device = this->device();
         if (!device) {
             return;

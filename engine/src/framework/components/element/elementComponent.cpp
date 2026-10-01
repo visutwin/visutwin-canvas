@@ -50,7 +50,7 @@ namespace visutwin::canvas
         // An element masked by this one must not keep a pointer to it until the next frame
         // works the masks out again: a hit test in between would follow it. Only an element
         // that was ever handed out as a mask can be pointed at, so every other element's
-        // destructor skips the sweep — it used to run for each, which made destroying N
+        // destructor skips the sweep; running it for each would make destroying N
         // elements cost N x N.
         if (_wasUsedAsMask) {
             _instanceList.forEachLive([this](ElementComponent* element) {

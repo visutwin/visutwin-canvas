@@ -318,8 +318,8 @@ namespace visutwin::canvas
             meshInstance->setMask(MASK_AFFECT_LIGHTMAPPED);
             // The bake belongs to the MESH INSTANCE (upstream 0cd268478): meshes that
             // share one material each keep their own, and the material's lightMap is
-            // left alone. It used to be written into the shared material, so every
-            // mesh using it showed whichever target was baked last.
+            // left alone. Written into a shared material, every mesh using it would show
+            // whichever target was baked last.
             meshInstance->setLightMap(_lightmaps[i]);
         }
 

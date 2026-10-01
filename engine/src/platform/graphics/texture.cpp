@@ -85,9 +85,7 @@ namespace visutwin::canvas
 
     Texture::~Texture()
     {
-        // Release this texture's share of the tracked VRAM. Empty until 2026-09-16,
-        // which — together with _gpuSize never being assigned — is why the whole
-        // texture side of DeviceVRAM read zero for as long as it existed.
+        // Release this texture's share of the tracked VRAM.
         if (_gpuSize > 0) {
             adjustVramSizeTracking(_device->_vram, -static_cast<int64_t>(_gpuSize));
             _gpuSize = 0;

@@ -79,7 +79,7 @@ namespace visutwin::canvas
 
         // A camera that renders through a frame does its own grabbing, from the
         // offscreen scene target rather than the back buffer: the camera frame owns
-        // BOTH grabs, the scene colour copy and, since 2026-09-19, the post-opaque
+        // BOTH grabs, the scene colour copy and the post-opaque
         // depth copy SSR marches against (CameraFrameOptions::sceneDepthMap, from
         // requestSceneDepthMap), plus the scene depth publication from its own
         // attachment or prepass texture. Any other camera that asked for a grab gets
@@ -117,7 +117,7 @@ namespace visutwin::canvas
         }
 
         // Drop the frame's grid assignments; the pooled grids themselves survive.
-        // A grid is built per DISTINCT light set now, not once for the whole frame.
+        // A grid is built per DISTINCT light set, not once for the whole frame.
         resetClusters();
 
         cullDirectionalShadowsAndInstances(*layerComposition);
@@ -135,9 +135,9 @@ namespace visutwin::canvas
         }
 
         // Every shadow pass this frame will have has now been added, so a one-shot
-        // request can be retired — and only now. Retiring it while the passes were
-        // still being decided is what made the predicate impure, and a culled light
-        // would have lost the shadow it asked for.
+        // request can be retired — and only now. Retiring it while the passes are
+        // still being decided would make the predicate impure, and a culled light
+        // would lose the shadow it asked for.
         consumeOneShotShadows();
     }
 
@@ -145,19 +145,16 @@ namespace visutwin::canvas
     {
         // Mesh-instance culling, once per (camera, layer) for the whole frame.
         // The frame graph asks for the pairs it will actually render, and the batch
-        // fills a cache both sublayer passes then read. Before this, each call of
-        // renderForwardLayer swept every RenderComponent in the scene and ran the
-        // frustum test itself — so a layer with an opaque and a transparent sublayer
-        // paid for the whole scene twice and threw half of each pass away. Culling
-        // per batch is also what gives the precull and postcull events upstream's
+        // fills a cache both sublayer passes then read, rather than each sublayer
+        // sweeping the whole scene and throwing away the half that belongs to the
+        // other. Culling per batch is also what gives the precull and postcull events upstream's
         // contract, once per camera rather than once per layer.
         const auto& actions = layerComposition.renderActions();
 
         // ASPECT_AUTO before anything reads a camera's projection: the cull below,
-        // and the shadow fit after it. It used to be resolved only at DRAW time, so
-        // the cull saw last frame's aspect (the frustum-compare re-cull in the cull
-        // cache caught the first frame); renderForwardLayer still sets it from the
-        // target it actually draws to, which normally agrees.
+        // and the shadow fit after it; resolved only at DRAW time, the cull would see
+        // last frame's aspect. renderForwardLayer still sets it from the target it
+        // actually draws to, which normally agrees.
         for (Camera* cam : uniqueCameras(actions)) {
             resolveAutoAspectRatio(cam);
         }
@@ -177,10 +174,9 @@ namespace visutwin::canvas
     {
         // Light visibility, before anything is built from it. Every shadow and cookie
         // pass is created only for a light some camera can reach, so this has to come
-        // first. It was tempting to fold it into the per-camera loop that culls
-        // shadow maps and dispatches GPU instance culling — but that loop runs AFTER
-        // the local shadow passes are built, so the passes would have been built from
-        // the PREVIOUS frame's visibility. A frame-late cull is worse than none: it
+        // first. Do not fold it into the per-camera loop that culls shadow maps and
+        // dispatches GPU instance culling: that loop runs AFTER the local shadow passes
+        // are built, so the passes would be built from the PREVIOUS frame's visibility. A frame-late cull is worse than none: it
         // renders the shadow of a light that has just left the view and skips one
         // that has just entered.
         //
@@ -344,10 +340,10 @@ namespace visutwin::canvas
         // A camera that grabs through standalone passes ends a block at its depth
         // layer, and the block before it, so the grab runs between the two. A camera
         // frame must NOT be split there: it has to receive every render action of the
-        // camera. Splitting there handed it only the actions after the grab - the
-        // opaque world and the sky went straight to the back buffer and compose then
-        // overwrote them with a target holding just the transparent tail, which is a
-        // black frame for any camera that asked for a grab and for any
+        // camera. Splitting there would hand it only the actions after the grab - the
+        // opaque world and the sky would go straight to the back buffer and compose
+        // would overwrite them with a target holding just the transparent tail, which is
+        // a black frame for any camera that asked for a grab and for any
         // post-processing at the same time.
         const bool isGrabPass = isDepthLayerAction(action) && usesStandaloneGrabs(action);
         const bool isNextLayerDepth = !next->useCameraPasses && isDepthLayerAction(*next);
@@ -474,9 +470,9 @@ namespace visutwin::canvas
         // The actions keep the COMPOSITION's firstCameraUse / lastCameraUse: whether
         // this is the camera's first / last action of the whole frame, which is what
         // prerender / postrender and the directional-shadow split mean (upstream copies
-        // them into a render step and never mutates the action). They used to be
-        // rewritten here per block, so a camera split into blocks fired its events once
-        // per block and the next frame's split read the rewritten flag.
+        // them into a render step and never mutates the action). Do not rewrite them
+        // here per block: a camera split into blocks would fire its events once per
+        // block, and the next frame's split would read the rewritten flag.
         for (int i = startIndex; i <= endIndex; ++i) {
             auto* ra = renderActions[i];
             if (!ra) {

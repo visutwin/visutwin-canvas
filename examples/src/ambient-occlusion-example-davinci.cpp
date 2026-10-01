@@ -306,14 +306,8 @@ protected:
             // tone mapping + color finishing (fringing, grading, enhance, 3D LUT)
             auto rendering = _cameraComp->rendering();
             rendering.toneMapping = TONEMAP_NEUTRAL;
-            // Values retuned 2026-08-22. They were originally picked while the
-            // camera-frame rebuild silently dropped fringing/grading/enhance/LUT
-            // after frame 1 (fixed in ff60028), so nothing below was ever actually
-            // on screen when it was chosen — 40 fringing over a 0.8 LUT turned the
-            // scene into magenta halos on a teal-orange cast.
-            //
             // Fringing stays OFF here, and that is not just a taste call: compose
-            // runs CAS -> SSAO -> DOF -> fringing, and applyFringing REPLACES the red
+            // runs CAS -> DOF -> SSAO -> fringing, and applyFringing REPLACES the red
             // and blue channels with fresh samples of the raw scene texture. That
             // discards the SSAO multiply for two of the three channels, so every
             // occluded pixel keeps a darkened green over full-strength red and blue —

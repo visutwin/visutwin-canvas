@@ -11,7 +11,7 @@
 //
 // Textures (quad slots, both backends): 0 scene, 1 bloom, 2 ssao, 3 depth,
 // 4 colorLUT, 5 colorLUT2, 6 coc, 7 dof blur (the last two only with the
-// multi-pass DOF pipeline, live since 2026-09-19; dofMultipass says which).
+// multi-pass DOF pipeline; dofMultipass says which).
 //
 #pragma once
 
@@ -40,8 +40,8 @@ namespace visutwin::canvas::compose_shaders
         float dofCameraFar = 100.0f;
         // How many source texels across map to one output pixel: the camera
         // frame's render target scale. One means the scene was rendered at the
-        // output resolution. Occupies what used to be alignment padding, so the
-        // block is the same size it always was.
+        // output resolution. Sits where alignment padding would otherwise be, so it
+        // costs the block no size.
         float sceneDownscale = 1.0f;
         // Vignette
         uint32_t vignetteEnabled = 0u;
@@ -485,11 +485,11 @@ float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
 //
 // One output pixel covers `scale` x `scale` source texels. A single bilinear tap
 // averages a 2x2 block, which is exactly the footprint at a scale of two and only
-// a corner of it above that — so a scale of three or four used to throw away most
-// of the detail it had just paid to render, and aliased for it. Take a grid of
-// bilinear taps instead, each centred on its own 2x2 block, so the whole
-// footprint is covered whatever the scale. At scale one and two the arithmetic
-// collapses back to the single centred tap this replaced.
+// a corner of it above that — so at a scale of three or four one tap would throw
+// away most of the detail just paid for, and alias. Take a grid of bilinear taps
+// instead, each centred on its own 2x2 block, so the whole footprint is covered
+// whatever the scale. At scale one and two the arithmetic collapses to a single
+// centred tap.
 float3 sampleSceneReduced(texture2d<float> sceneTexture, sampler s, float2 uv,
                           float2 invRes, float scale) {
     const float span = max(scale, 1.0);

@@ -9,10 +9,10 @@
 // NOT each decide for themselves is what goes into it: the sRGB-to-linear decode of every
 // colour, which light goes into which cookie slot, what an unused shadow or cookie slot holds,
 // the omni shadow's near plane and relative bias, and when a directional slot counts as active.
-// Those used to be written once per backend and had drifted: an absent view-projection was
-// identity on Metal and zeros on Vulkan, and a directional slot was active on Metal whenever it
-// was counted but on Vulkan only when it also had a map. They are decided once, here, and each
-// backend's setLightingUniforms only copies the result into its layout.
+// Decided once per backend, they drift apart (an absent view-projection becoming identity on one
+// and zeros on the other, a directional slot active on one whenever it is counted and on the
+// other only when it also has a map). They are decided once, here, and each backend's
+// setLightingUniforms only copies the result into its layout.
 //
 #pragma once
 

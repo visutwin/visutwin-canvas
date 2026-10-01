@@ -3,16 +3,14 @@
 //
 // THE per-draw material uniform block, declared once.
 //
-// This block used to be written out by hand in four places that had to stay in
-// lockstep — the C++ struct, the MSL `MaterialData`, the GLSL block in
-// forward-fragment-head, and a verbatim copy in forward.vert (MoltenVK
-// miscompiles a UBO whose member list differs between stages). Adding a field
-// meant editing all four, and a mismatch shifts every field after it, which
-// shows up as silent corruption rather than a compile error.
-//
-// Now there is one list. The C++ struct expands from it, and the MSL and GLSL
-// declarations are emitted from it — at runtime by ProgramLibrary, and at build
-// time by tools/generate_vulkan_shader_bundle.py for the SPIR-V bundle.
+// Four declarations have to agree on this block — the C++ struct, the MSL
+// `MaterialData`, the GLSL block in forward-fragment-head, and the same GLSL block
+// in forward.vert (MoltenVK miscompiles a UBO whose member list differs between
+// stages) — and a mismatch shifts every field after it, which shows up as silent
+// corruption rather than a compile error. So there is one list: the C++ struct
+// expands from it, and the MSL and GLSL declarations are emitted from it — at
+// runtime by ProgramLibrary, and at build time by
+// tools/generate_vulkan_shader_bundle.py for the SPIR-V bundle.
 //
 // Field types are SHADER types (vec4 / float / uint); the C++ side maps vec4 to
 // float[4] and uint to uint32_t. Scalars pack at 4-byte offsets in both MSL and
@@ -96,13 +94,13 @@
     /* the gloss / thickness / refraction map to read (0=r,1=g,2=b,3=a). A NEGATIVE */ \
     /* channel means "no map bound": presence rides in the sign because the flags */ \
     /* word was full when these were added (25-27 and 29-31 carry the two dither */ \
-    /* modes). Bits 18-19 now mean useSkybox-off and hasOpacityMap on a */ \
+    /* modes). Bits 18-19 mean useSkybox-off and hasOpacityMap on a */ \
     /* StandardMaterial; bit 20 is the only free bit. */ \
     X(vec4, mapChannelParams, {1.0f, -1.0f, -1.0f, -1.0f}) \
     /* --- Parallax occlusion mapping --- */ \
     /* x = height-map base: the map value that sits at the level of the geometry, so */ \
     /* anything above it stands proud and anything below sinks in. 1 keeps the whole */ \
-    /* map below the surface (what this port did before the field existed); 0.5, the */ \
+    /* map below the surface; 0.5, the */ \
     /* default, pivots the relief around mid-grey as upstream does. */ \
     /* y = self-shadow strength (0 = off); the directional light marches the height */ \
     /* field and darkens texels its ray passes over. zw = pad. */ \
@@ -116,7 +114,7 @@
     X(vec4, anisotropyParams, {1.0f, 0.0f, 0.0f, 0.0f}) \
     /* --- Ambient tint (upstream material_ambient, the litArgs_ambient of #9538) --- */ \
     /* rgb = StandardMaterial::ambient, linear; multiplies the AMBIENT diffuse only */ \
-    /* (not a lightmap, not direct light). White leaves every frame as it was. w = pad. */ \
+    /* (not a lightmap, not direct light). White (the default) packs exactly 1. w = pad. */ \
     X(vec4, ambientTint, {1.0f, 1.0f, 1.0f, 1.0f}) \
     /* --- MSDF text (upstream msdf.js), read only under VT_FEATURE_MSDF --- */ \
     /* x = font_pxrange, y = font_sdfIntensity, zw = the atlas page's size in texels */ \

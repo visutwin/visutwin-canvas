@@ -47,10 +47,10 @@ namespace visutwin::canvas
     Light::Light(GraphicsDevice* graphicsDevice)
         : _device(graphicsDevice)
     {
-        // From the same table the setter uses. The member's initializer used to be the
-        // FOUR-cascade 2x2 layout while the count defaulted to one, and setNumCascades(1)
-        // returns early on an unchanged count, so every default directional shadow drew
-        // into one quadrant of its map: half the resolution upstream's has.
+        // From the same table the setter uses. setNumCascades returns early on an
+        // unchanged count, so it never runs for the default; a layout that disagreed with
+        // the default count (say the four-cascade 2x2 grid for one cascade) would draw
+        // every default directional shadow into one quadrant of its map.
         _cascadeViewports = directionalCascadeLayout(_numCascades);
     }
 
@@ -67,10 +67,8 @@ namespace visutwin::canvas
         _castShadows = value;
 
         // Turning shadows off frees the map, and turning them back on gets a fresh
-        // one. Without this the texture outlived the only thing that read it, for as
-        // long as the light lived — a directional light's default 1024 map across
-        // four cascades is not a rounding error, and nothing in a frame would ever
-        // have pointed at it.
+        // one. Without this the texture would outlive the only thing that reads it,
+        // for as long as the light lives, with nothing in a frame pointing at it.
         //
         // The early-out above is not an optimisation. LightComponent::syncToLight
         // replays every property onto this Light once per frame, so an unconditional
@@ -118,7 +116,7 @@ namespace visutwin::canvas
     void Light::setShadowResolution(int value)
     {
         value = std::max(value, 1);
-        // Upstream's clamp, now that the device publishes the limits. A Light
+        // Upstream's clamp, against the limits the device publishes. A Light
         // built without a device (nothing does today, but the constructor still
         // takes a null one) keeps the authored value and is caught by the same
         // clamp in ShadowMap::create instead.
@@ -152,17 +150,16 @@ namespace visutwin::canvas
         // VSM renders its EVSM moments into an RGBA16F COLOUR attachment, which is
         // an optional capability. Without it the type cannot be rendered at all, so
         // fall back to PCF3 rather than hand the backend a target it will refuse —
-        // upstream's `light.js` fallback, which had nothing to key on until the
-        // device published textureHalfFloatRenderable().
+        // upstream's `light.js` fallback, keyed on textureHalfFloatRenderable().
         if (requested == SHADOW_VSM_16F && _device && !_device->textureHalfFloatRenderable()) {
             spdlog::warn("Light: VSM_16F needs half-float render targets, which this "
                 "device lacks — falling back to PCF3");
             return SHADOW_PCF3_32F;
         }
         // VSM is rendered and sampled for DIRECTIONAL lights only. A spot or omni
-        // light left at VSM got an RGBA16F moments map that no pass wrote (the local
-        // shadow passes use the depth-only shader) and no forward path sampled, so it
-        // came out UNSHADOWED without a word. Upstream falls back to PCF3 for an omni
+        // light left at VSM would get an RGBA16F moments map that no pass writes (the
+        // local shadow passes use the depth-only shader) and no forward path samples,
+        // so it would come out UNSHADOWED without a word. Upstream falls back to PCF3 for an omni
         // light too (`light.js`: VSM is not supported for omni). DEVIATION for a spot
         // light, which upstream does shadow with VSM.
         if (requested == SHADOW_VSM_16F && _type != LightType::LIGHTTYPE_DIRECTIONAL) {

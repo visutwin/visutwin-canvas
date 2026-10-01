@@ -4,9 +4,9 @@
 // Texture orientation of the built-in primitives. A texture's row 0 is the TOP of
 // the image on both backends (loaded images are stored unflipped, render targets
 // have a top origin), so v = 0 must sit where the top of the picture belongs.
-// Upstream writes `(u, 1 - v)` for every primitive and gets that; the plane here
-// wrote plain `v`, so every image on a plane — and render-to-texture's tv — came
-// out upside down. A checkerboard cannot show this, and neither can a render of
+// Upstream writes `(u, 1 - v)` for every primitive and gets that; a plane that
+// writes plain `v` puts every image on it — and render-to-texture's tv — upside
+// down. A checkerboard cannot show this, and neither can a render of
 // the plane lying flat unless the image is asymmetric, so the convention is held
 // here instead.
 //
@@ -14,9 +14,9 @@
 // cross(n, t) * w as the forward shaders build it, toward decreasing v — the image's
 // top row, which is where a normal map's green channel points. That is upstream's
 // derivative TBN (it negates the dP/dv axis), the frame every upstream primitive is
-// actually shaded with. Before these frames were derived from the UVs, the box wrote
-// (1, 0, 0) on every face (parallel to the normal on +/-X) and the sphere and capsule
-// caps had both tangent and bitangent reversed.
+// actually shaded with. Hand-written frames fail it: a box with (1, 0, 0) on every
+// face (parallel to the normal on +/-X), or sphere and capsule caps with tangent and
+// bitangent both reversed.
 
 #include <algorithm>
 #include <array>
@@ -238,10 +238,10 @@ int main()
     }
 
     // UV1 is the LIGHTMAP unwrap. The box, cylinder, cone and capsule carry upstream's
-    // (every face or part in its own padded cell); until 2026-09-23 every primitive
-    // copied UV0 into UV1, so a baked box wrote all six faces into one square and each
-    // face showed a blend of them. A part's cell must lie inside [0, 1] and overlap no
-    // other part's cell, or two surfaces share lightmap texels.
+    // (every face or part in its own padded cell). A primitive that copies UV0 into
+    // UV1 bakes all six faces of a box into one square, and each face shows a blend of
+    // them. A part's cell must lie inside [0, 1] and overlap no other part's cell, or
+    // two surfaces share lightmap texels.
     {
         struct Rect { float minU = 2.0f, minV = 2.0f, maxU = -1.0f, maxV = -1.0f; };
         const auto grow = [](Rect& r, const float u, const float v) {

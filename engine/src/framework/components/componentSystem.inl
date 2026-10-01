@@ -12,9 +12,8 @@ namespace visutwin::canvas
     {
         std::unique_ptr<ComponentType> component = std::make_unique<ComponentType>(this, entity);
 
-        // NOTE: DataType is not instantiated. It used to be heap-allocated here and
-        // dropped on the next line — initializeComponentData() takes no arguments, so
-        // nothing could ever reach it.
+        // NOTE: DataType is not instantiated: initializeComponentData() takes no
+        // arguments, so nothing could reach an instance created here.
 
         component->initializeComponentData();
 

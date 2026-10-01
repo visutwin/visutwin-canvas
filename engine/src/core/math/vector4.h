@@ -228,10 +228,10 @@ namespace visutwin::canvas
             __m128 dot = _mm_mul_ps(xyz, xyz);
 
             // SSE2 reduction over xyz. The second step must bring lane 2 (z*z) down into
-            // lane 0 — shuffle(1,0,3,2) — exactly as Vector4::dot does. It used to
-            // broadcast lane 1, which re-added x*x + y*y and dropped z*z, so the result
-            // was 2*(x*x + y*y): a plane whose normal is close to world Z normalised to
-            // (0,0,0,0) and then culled nothing. Frustum::create is the only caller.
+            // lane 0 — shuffle(1,0,3,2) — exactly as Vector4::dot does. Broadcasting
+            // lane 1 instead would re-add x*x + y*y and drop z*z, giving 2*(x*x + y*y):
+            // a plane whose normal is close to world Z would normalise to (0,0,0,0) and
+            // cull nothing. Frustum::create is the only caller.
             __m128 shuf = _mm_shuffle_ps(dot, dot, _MM_SHUFFLE(2, 3, 0, 1));
             __m128 sums = _mm_add_ps(dot, shuf);
             __m128 lengthSq = _mm_add_ss(sums, _mm_shuffle_ps(sums, sums, _MM_SHUFFLE(1, 0, 3, 2)));

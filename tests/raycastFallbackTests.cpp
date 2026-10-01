@@ -2,10 +2,10 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // With no PhysicsWorld supplied, RigidBodyComponentSystem::raycastFirst/raycastAll
-// sweep the collision bounds on the CPU. That sweep tested the components' own
-// enabled() flags and never the entity, so a collider on a DISABLED entity — or under
-// a disabled parent — was still hit (fixed 2026-09-24). It must answer the same
-// question every gathering loop does: Component::active().
+// sweep the collision bounds on the CPU. A sweep that tests the components' own
+// enabled() flags and never the entity still hits a collider on a DISABLED entity —
+// or under a disabled parent. It must answer the same question every gathering loop
+// does: Component::active().
 
 #include <iostream>
 #include <memory>

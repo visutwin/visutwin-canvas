@@ -212,9 +212,8 @@ namespace visutwin::canvas
         /// Non-null when the camera has to render through an offscreen frame rather
         /// than straight to its target. Every effect that reads the scene back needs
         /// one, and so do the two settings that describe the scene target itself:
-        /// multisampling and a render scale have nowhere to live without it, and
-        /// asking for either used to be silently ignored on an otherwise plain
-        /// camera.
+        /// multisampling and a render scale have nowhere to live without it, so asking
+        /// for either alone must also produce a frame.
         void* onPostprocessing() const
         {
             const bool needsSceneTarget =
@@ -280,11 +279,9 @@ namespace visutwin::canvas
          * Render order across cameras: a SMALLER value renders first, and the
          * default is 0 (upstream CameraComponent.priority).
          *
-         * The composition used to render cameras in the order their components were
-         * constructed, which made a correct scene depend on the order its setup code
-         * happened to run in — a dynamic reflection probe, whose six face cameras must
-         * render before the camera that samples the result, worked only if it was
-         * built first. Say it with a priority instead.
+         * Say ordering dependencies with a priority rather than relying on construction
+         * order: a dynamic reflection probe's six face cameras must render before the
+         * camera that samples the result, whatever order the setup code ran in.
          *
          * The sort is STABLE and everything defaults to 0, so a scene that sets no
          * priority keeps exactly the construction order it had.

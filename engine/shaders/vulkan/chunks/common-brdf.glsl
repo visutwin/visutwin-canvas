@@ -1,8 +1,6 @@
 // ── BRDF terms, the GLSL twin of common-brdf.metal ──
 //
-// These used to live in three places and disagree with Metal in two of them: the
-// distribution here, a separable UE4 Smith term and a plain F90 = 1 Schlick in
-// common-atmosphere.glsl, and a gloss-aware Fresnel used only by the IBL paths.
+// Every GLSL path takes these terms from here, never from a local copy.
 // A shading edit has to land in this file and its Metal twin together; anything
 // that only touches one of the two is a backend divergence by construction.
 //
@@ -22,9 +20,8 @@ float distributionGGX(float NdotH, float roughness) {
 // Height-correlated Smith visibility. This is a VISIBILITY term, not a separable
 // geometry term: the 1/(4 NdotL NdotV) denominator is folded in, so the caller
 // writes `D * Vis * F` with no further division. The separable Schlick-GGX form
-// this replaces (k = (roughness + 1)^2 / 8, then an explicit /(4 NdotV NdotL))
-// is a different BRDF, and it was the largest single reason this backend did not
-// match Metal on direct specular.
+// (k = (roughness + 1)^2 / 8, then an explicit /(4 NdotV NdotL)) is a different
+// BRDF and would not match Metal on direct specular.
 float getVisibilitySmithGGX(float NdotV, float NdotL, float roughness) {
     float a = roughness * roughness;
     float a2 = a * a;          // the distribution's alpha

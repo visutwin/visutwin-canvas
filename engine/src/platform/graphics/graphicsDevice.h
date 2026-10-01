@@ -45,8 +45,8 @@ namespace visutwin::canvas
      * MaterialUniforms: quad effects ride the same slot and some carry more —
      * volumetric fog's block is 512 bytes. On Vulkan this is the dynamic
      * descriptor's range, and the allocation behind it is padded to match, so a
-     * shader can never read past its own allocation. 640 since 2026-09-29, when the
-     * MSDF text fields took MaterialUniforms to 528 bytes.
+     * shader can never read past its own allocation. MaterialUniforms itself is
+     * 528 bytes.
      */
     inline constexpr size_t kPerDrawUniformCapacity = 640;
 
@@ -451,8 +451,7 @@ namespace visutwin::canvas
         bool atmosphereEnabled() const { return _atmosphereEnabled; }
 
         /// Source language this device's createShader() accepts for engine-supplied
-        /// shader source. Metal is the default because MSL was the only language
-        /// before the Vulkan backend existed.
+        /// shader source. Metal is the default; the Vulkan backend overrides it.
         [[nodiscard]] virtual ShaderLanguage shaderLanguage() const
         {
             return ShaderLanguage::Msl;
@@ -529,8 +528,8 @@ namespace visutwin::canvas
         const std::shared_ptr<GpuProfiler>& gpuProfiler() const { return _gpuProfiler; }
 
 
-        // The three state setters below are NOT migration debt, and were left when
-        // the effect passes moved to QuadRender. They bind per-draw resources at
+        // The three state setters below are NOT migration debt awaiting a move to
+        // QuadRender. They bind per-draw resources at
         // fixed slots, which is the same job as setVertexBuffer / setIndexBuffer and
         // belongs to the device. They are kept separate rather than folded into one
         // generic call because they differ in arity and in which slots they own
@@ -755,8 +754,8 @@ namespace visutwin::canvas
         /// Tracked GPU memory in bytes. `tex` (with its `texShadow` / `texAsset` /
         /// `texLightmap` split), `vb` and `ib` are LIVE: textures, vertex buffers and
         /// index buffers each account themselves as they are created and released.
-        /// `ub` and `sb` are always zero — the backends' uniform and storage pools
-        /// were never wired to this at all.
+        /// `ub` is the uniform memory each backend owns and `sb` its own storage
+        /// buffers plus every VertexBuffer bound as storage (setBackendBufferVram).
         ///
         /// The three texture sub-buckets DO NOT SUM to `tex`, by design. A texture
         /// lands in one only if its creation site set `TextureOptions::profilerHint`,
@@ -817,7 +816,7 @@ namespace visutwin::canvas
          * the device has no anisotropic filtering. Both backends filter at this
          * ratio — Metal through the one default sampler it binds for every scene
          * texture, Vulkan through each texture's own sampler — so a device that
-         * reports less than 16 no longer leaves one backend filtering harder than
+         * reports less than 16 does not leave one backend filtering harder than
          * the other. A hard-coded 16 on one side and a queried limit on the other
          * is a divergence nothing in a frame would announce.
          */
@@ -828,8 +827,7 @@ namespace visutwin::canvas
          * here, which is a separate capability from sampling one. VSM shadows
          * render EVSM moments into an RGBA16F attachment, so a device without
          * half-float render targets cannot run them at all and `Light` falls the
-         * type back to PCF3 — upstream's documented VSM_16F fallback, which until
-         * now had nothing to key on.
+         * type back to PCF3 — upstream's documented VSM_16F fallback.
          *
          * Both default to FALSE, so a backend that never answers loses the feature
          * rather than allocating a target the driver rejects. That is the same
@@ -902,9 +900,6 @@ namespace visutwin::canvas
         /// reflections are both expressed with it, with the caching and
         /// publishing policy living in their passes instead of here. A null
         /// destination skips that aspect; a null source means the back buffer.
-        ///
-        /// This replaced grabSceneColor/grabSceneDepth, which were the same copy
-        /// twice per backend with the effect's policy baked in.
         virtual void copyRenderTarget(RenderTarget* source, Texture* colorDestination,
             Texture* depthDestination)
         {
@@ -1086,11 +1081,10 @@ namespace visutwin::canvas
          * vkQueueSubmit2 on MoltenVK is the one that does not: it ENCODES the recorded
          * command buffer into Metal there, and it also takes the drawable there, so under
          * display sync it holds both the frame's largest single piece of CPU work and its
-         * pacing wait. Timed by the wall clock the encode went into the wait and out of
-         * the render time — at 20k draws 40% of the main thread, missing from
-         * VISUTWIN_CPU_STATS, until 2026-09-30. A thread asleep uses no CPU time, so the
-         * difference is the wait. Where the platform has no per-thread CPU clock the whole
-         * call counts, as before.
+         * pacing wait. Timed by the wall clock, the encode would go into the wait and out
+         * of the render time — a large share of the main thread at high draw counts. A
+         * thread asleep uses no CPU time, so the difference is the wait. Where the platform
+         * has no per-thread CPU clock the whole call counts.
          */
         class DisplayWaitScope
         {
@@ -1154,8 +1148,8 @@ namespace visutwin::canvas
         uint64_t _screenshotEnvCount = 1;
         // VISUTWIN_SCREENSHOT_TIME: arm by seconds since the first frame instead of by
         // frame number (negative = unused). Frame counts are a poor clock for an
-        // animated scene: the same frame index landed 1 s into one run's state and
-        // 2 s past it in the next, because the two runs did not share a frame rate.
+        // animated scene: two runs that do not share a frame rate reach the same frame
+        // index at different scene times.
         double _screenshotEnvTime = -1.0;
         std::chrono::steady_clock::time_point _firstFrameTime{};
         bool _firstFrameSeen = false;
@@ -1166,7 +1160,7 @@ namespace visutwin::canvas
         friend class RenderPass;
         friend class VertexBuffer;
         // Same grant, same reason: IndexBuffer adjusts _vram as it is created and
-        // released. Index memory went uncounted entirely until 2026-09-16.
+        // released.
         friend class IndexBuffer;
         friend class Texture;
 
@@ -1220,9 +1214,8 @@ namespace visutwin::canvas
 
         int _maxSamples = 1;
 
-        // The dimension limits default to the 4096 that five call sites used to
-        // spell as a literal; the float-renderable flags default to false so an
-        // unanswered capability degrades rather than allocates.
+        // The dimension limits default to a conservative 4096 and the float-renderable
+        // flags to false, so an unanswered capability degrades rather than allocates.
         int _maxTextureSize = 4096;
         int _maxCubeMapSize = 4096;
         float _maxAnisotropy = 1.0f;

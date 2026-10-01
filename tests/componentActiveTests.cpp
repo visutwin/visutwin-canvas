@@ -2,11 +2,11 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // A component contributes to a frame only when it is enabled AND its entity is
-// enabled in the hierarchy. Component::enabled() answers only the first half, and
-// every light-gathering loop tested it alone until 2026-09-11 — so a light on a
-// disabled entity, or under a disabled parent, went on lighting the scene while
-// mesh instances on the same entity correctly disappeared. These hold the
-// predicate those loops now share, and the state it writes into the scene Light.
+// enabled in the hierarchy. Component::enabled() answers only the first half; a
+// light-gathering loop that tests it alone keeps a light on a disabled entity, or
+// under a disabled parent, lighting the scene while mesh instances on the same
+// entity correctly disappear. These hold the predicate those loops share, and the
+// state it writes into the scene Light.
 
 #include <iostream>
 #include <memory>
@@ -124,9 +124,9 @@ int main()
 
     std::cout << "\nscript component\n";
 
-    // Scripts run their update phases only while the component is active. They
-    // used to gate on the component's own flag, so a script on a disabled entity
-    // kept initializing and updating every frame; the phases test active() now.
+    // Scripts run their update phases only while the component is active. Phases
+    // gated on the component's own flag would keep a script on a disabled entity
+    // initializing and updating every frame.
     {
         auto root = makeRoot();
         auto* scripts = static_cast<ScriptComponent*>(
@@ -145,10 +145,10 @@ int main()
 
     std::cout << "\ncamera component\n";
 
-    // A camera on a disabled entity must render nothing. The composition built its
-    // render actions from Component::enabled() until 2026-09-23, so switching the
-    // ENTITY off left the camera rendering every frame, and the change fingerprint
-    // that decides when to rebuild did not see the switch either.
+    // A camera on a disabled entity must render nothing. A composition that builds
+    // its render actions from Component::enabled() leaves the camera rendering every
+    // frame when the ENTITY is switched off, and a change fingerprint on the same
+    // flag does not see the switch to rebuild either.
     {
         auto root = makeRoot();
         auto* camera = static_cast<CameraComponent*>(

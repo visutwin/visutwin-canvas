@@ -332,14 +332,13 @@ namespace visutwin::canvas
         // one the previous draw uploaded (consecutive draws sharing a material carry
         // identical data), or the default block a material-less draw of this pass already
         // uploaded: every opaque shadow caster and prepass draw carries that same block,
-        // and each used to take a ring slot of its own.
+        // and need not take a ring slot of its own.
         //
         // A null key is NOT a cache key: a quad pass has no material and puts its own
         // block in this slot, so every quad draw would compare equal to the last and
         // silently reuse the FIRST draw's uniforms. That is invisible while a pass draws
-        // one quad, which every effect did until the environment bakes started drawing a
-        // rect list in one pass — there the convolve draws read the reproject block and
-        // produced nothing.
+        // one quad, but a pass drawing a rect list (the environment bakes) would have every
+        // draw after the first read the first one's block.
         size_t materialOffset;
         if (materialKey != nullptr && _materialBoundThisPass && materialKey == _lastMaterialKey) {
             materialOffset = _lastMaterialOffset;
@@ -377,9 +376,9 @@ namespace visutwin::canvas
         // LightingUniforms at slot 4: reuse the previous upload when the block is
         // unchanged, which is nearly every draw — the renderer sets it once per layer.
         // "Unchanged" is a VERSION every writer of the block bumps, so a draw costs one
-        // integer compare. It was a memcmp of the whole ~2.6 KB block per draw (and
-        // before that an FNV-1a hash of it): 8-12% of the frame's CPU at 10-20k draws,
-        // 17% of a shadow pass, whose draws never read lighting at all. The block is
+        // integer compare. A memcmp (let alone a hash) of the whole ~2.6 KB block per draw
+        // is a large share of the frame's CPU at high draw counts, and pure waste in a
+        // shadow pass, whose draws never read lighting at all. The block is
         // still compared exactly when the version HAS moved, so a writer that put the
         // same values back (the per-layer setLightingUniforms of a second sublayer)
         // costs one compare rather than an upload.

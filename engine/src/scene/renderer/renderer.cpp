@@ -362,8 +362,8 @@ namespace visutwin::canvas
     void Renderer::bindLayerClusters(const WorldClusters* clusters)
     {
         // Bind cluster GPU buffers. EVERY layer binds, because every layer may be
-        // on a different grid — the old code bound only on the frame's first
-        // layer and left the rest reading whatever was still bound.
+        // on a different grid; binding only on the frame's first layer would leave
+        // the rest reading whatever was still bound.
         if (clusters->lightCount() > 0) {
             _device->setClusterBuffers(
                 clusters->lightData(), clusters->lightDataSize(),
@@ -557,7 +557,7 @@ namespace visutwin::canvas
             }
 
             // A skybox is drawn around the camera and has no meaningful bounds, so it
-            // is never culled — the same exception the per-draw path used to make.
+            // is never culled.
             if (!material->isSkybox() && hasCameraFrustum && meshInstance->cull() &&
                 !isVisibleInFrustum(cameraFrustum, meshInstance->aabb())) {
                 return Bucket::None;
@@ -570,12 +570,11 @@ namespace visutwin::canvas
             (bucket == Bucket::Transparent ? outs[i]->transparent : outs[i]->opaque).push_back(meshInstance);
         };
 
-        // ONE sweep of the components for all of the camera's layers. It used to be one
-        // sweep per layer — five for a default camera (World, Depth, Skybox, UI,
-        // Immediate), four of which found nearly nothing — and at 20k instances the
-        // culling was a quarter of the frame. The order inside each bucket is what the
-        // per-layer sweeps produced: components in creation order, then the layer's own
-        // instances.
+        // ONE sweep of the components for all of the camera's layers, rather than one
+        // per layer — five for a default camera (World, Depth, Skybox, UI, Immediate),
+        // four of which find nearly nothing. The order inside each bucket is what a
+        // per-layer sweep would produce: components in creation order, then the layer's
+        // own instances.
         for (auto* renderComponent : RenderComponent::instances()) {
             // active() covers both halves: the component's own flag and the owning
             // entity's hierarchy state.
@@ -1061,9 +1060,9 @@ namespace visutwin::canvas
 
                 const auto worldBounds = meshInstance->aabb();
                 if (meshInstance->node() && !entry->material->isSkybox()) {
-                    // Signed view-axis depth, as upstream's _calculateSortDistances. This
-                    // used to be the squared radial distance, which ranked an off-axis
-                    // transparent surface behind a centred one at the same depth.
+                    // Signed view-axis depth, as upstream's _calculateSortDistances. A
+                    // radial distance would rank an off-axis transparent surface behind a
+                    // centred one at the same depth.
                     const auto& customDistance = meshInstance->calculateSortDistance();
                     entry->sortDistance = customDistance
                         ? customDistance(*meshInstance, view.position, view.forward)
@@ -1078,8 +1077,8 @@ namespace visutwin::canvas
         // Upstream's Layer.sortVisible: the mode is a per-layer, per-sublayer
         // property, because the two sublayers want opposite things — the opaque pass
         // wants the fewest state changes, the transparent pass has to composite
-        // back-to-front whatever that costs. The defaults reproduce exactly what this
-        // renderer did before the modes existed.
+        // back-to-front whatever that costs. The defaults are MATERIALMESH and
+        // BACK2FRONT respectively.
         void sortDrawEntries(std::vector<ForwardDrawEntry*>& entries, const Layer& layer, const bool transparent)
         {
             const SortMode sortMode = transparent ? layer.transparentSortMode() : layer.opaqueSortMode();
@@ -1173,9 +1172,8 @@ namespace visutwin::canvas
                         // column upstream's LTC width axis comes from (it transforms (-0.5, 0, 0)
                         // by the world matrix; the sign is immaterial here because the shader
                         // derives up as cross(direction, right) and the quad is symmetric).
-                        // This read ROW 0 until 2026-09-22, which is the X component of all
-                        // three axes: right for an unrotated light, a vector outside the light's
-                        // own plane for any rotated one.
+                        // (Row 0 would be the X component of all three axes: right only for an
+                        // unrotated light, a vector outside the light's own plane otherwise.)
                         const auto& wt = lightComponent.entity()->worldTransform();
                         Vector3 right(wt.getColumn(0));
                         if (right.lengthSquared() > 1e-8f) {
@@ -1221,8 +1219,7 @@ namespace visutwin::canvas
         // index as its shadowMapIndex; the shaders gate the cascade lookup on the
         // light's own flag and index, so a light without a slot must be told it
         // casts nothing or it would be darkened by ANOTHER light's shadow — a
-        // shadowless fill light carrying the key light's shadows, which is what
-        // Vulkan did until 2026-09-23. The filter (PCF, PCSS, VSM) is chosen per
+        // shadowless fill light carrying the key light's shadows. The filter (PCF, PCSS, VSM) is chosen per
         // shader variant, so every slot must share the first slot's shadow type.
         //
         // `fitCamera` is the camera the cascades were fitted for (see
@@ -1482,8 +1479,7 @@ namespace visutwin::canvas
                 out.local.push_back(dispatchEntry);
             }
 
-            // The main light array holds eight, and until now the eight were whichever
-            // components happened to come first. Rank by apparent size so that when a
+            // The main light array holds eight. Rank by apparent size so that when a
             // scene has more visible local lights than slots, the ones covering most of
             // the picture get them — authoring order decides nothing about that.
             // Stable, so an exact tie keeps authoring order and the choice stays
@@ -1690,10 +1686,10 @@ namespace visutwin::canvas
 #endif
             // The output stage: a splat carries a GAMMA-space colour, so it owes
             // the target the fog, exposure, tone mapping and encode the forward
-            // tail applies to lit colour (upstream gsplatOutput). Until 2026-09-24
-            // both backends decoded to linear and stopped, which was right only
-            // under a camera frame: on a gamma target the splats were written
-            // linear, untonemapped and unfogged beside tonemapped meshes.
+            // tail applies to lit colour (upstream gsplatOutput). Decoding to linear
+            // and stopping is right only under a camera frame: on a gamma target the
+            // splats would be written linear, untonemapped and unfogged beside
+            // tonemapped meshes.
             const FogParams fogParams = ctx.scene ? ctx.scene->fog() : FogParams{};
             GpuGSplatParams splatParams = gsplat.gpuParams();
             splatParams.cameraOrtho = view.camera->projection() == ProjectionType::Orthographic ? 1u : 0u;
@@ -1851,9 +1847,9 @@ namespace visutwin::canvas
 
             // The lighting block depends on the DRAW only through its light mask and
             // receiveShadow; everything else in it is the layer's. Set it on the layer's
-            // first draw and when either changes — it used to be set for every draw,
-            // which repacked ~2.8 KB per draw on Metal and made Vulkan allocate and
-            // upload a fresh copy per draw (setLightingUniforms flags an upload).
+            // first draw and when either changes, not per draw: each set repacks ~2.8 KB
+            // on Metal and makes Vulkan allocate and upload a fresh copy
+            // (setLightingUniforms flags an upload).
             bool lightingSet = false;
             uint32_t lightingSetMask = 0;
             bool lightingSetReceivesShadow = true;
@@ -2051,16 +2047,13 @@ namespace visutwin::canvas
         const std::vector<const void*>& lightSetMembers)
     {
         // The light list is per (camera, layer) — the gather filters on
-        // LightComponent::rendersLayer — so the grid has to be too. This used to
-        // build ONE grid from whichever layer rendered first and bind it for every
-        // layer after: a layer whose lights differed was lit by another layer's
-        // cells, and a layer with no clustered lights at all kept the previous
-        // layer's buffers bound and stayed lit by them.
+        // LightComponent::rendersLayer — so the grid has to be too. One grid for the
+        // frame would light a layer whose lights differ by another layer's cells, and
+        // leave a layer with no clustered lights lit by the previous layer's buffers.
         //
         // Grids are keyed on the light set, so two layers that see the same lights
-        // still share one and it is still built once. The grid is sized from the
-        // lights alone (it used to be unioned with the camera padded by 50 units,
-        // a 100-unit cube however small the lit region was).
+        // still share one and it is built once. The grid is sized from the lights
+        // alone (see WorldClusters::computeGridBounds).
         WorldClusters* clusters = clustersForLightSet(lightSetHash(lightSetMembers), lights);
 
         // Bind the clustered shadow atlas for this frame.

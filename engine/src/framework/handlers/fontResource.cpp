@@ -148,8 +148,8 @@ namespace visutwin::canvas
             int h = 0;
             int channels = 0;
             // Glyph rects are top-left origin, so the atlas must NOT be flipped. Clearing
-            // only stb's global flag here was overridden by the GLB parser's thread-local
-            // one, and a font loaded after any GLB drew every glyph upside down.
+            // only stb's global flag would be overridden by the GLB parser's thread-local
+            // one, and a font loaded after any GLB would draw every glyph upside down.
             stbi_uc* pixels = nullptr;
             {
                 const StbVerticalFlipScope flipScope(false);
@@ -377,9 +377,9 @@ namespace visutwin::canvas
                                     q = r2 + 1;
                                     continue;
                                 }
-                                // The value follows this key's own colon. Searching for the key
-                                // from its CLOSING quote missed the key itself, so no font's
-                                // kerning ever loaded until 2026-09-29.
+                                // The value follows this key's own colon, so the search for it
+                                // starts at the key's closing quote (r2); searching for the key
+                                // itself from there would miss it and load no kerning at all.
                                 float value = 0.0f;
                                 const size_t colon = sub.find(':', r2);
                                 if (colon != std::string::npos) {

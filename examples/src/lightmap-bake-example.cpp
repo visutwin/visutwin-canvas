@@ -355,7 +355,7 @@ private:
             }
             mi->setMask(MASK_AFFECT_LIGHTMAPPED);
             // Each mesh instance owns its bake (upstream 0cd268478), so submeshes that
-            // share one material no longer collide with the last bake winning.
+            // share one material each show their own bake.
             mi->setLightMap(lightmap);
             _bakedLightmaps[i] = std::move(lightmap);
             ++baked;

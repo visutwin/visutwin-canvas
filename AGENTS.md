@@ -82,17 +82,15 @@ ctest --preset default
   preset WITH every example (`-DVISUTWIN_BUILD_EXAMPLES=ON`, built not run) and runs
   its tests; `macos-sanitize` builds the `sanitize` preset and runs the unit tests
   under AddressSanitizer and UndefinedBehaviorSanitizer; `linux-vulkan` builds the
-  `vulkan` preset with GCC 14 and runs its unit tests. All are gating; `linux-vulkan`
-  was verified on an Ubuntu 24.04-based machine with the same presets and packages
-  before it was. The examples are built on macOS only — building them on Linux wants
-  the same verification on a Linux machine first.
+  `vulkan` preset with GCC 14 and runs its unit tests. All are gating. The examples
+  are built on macOS only — building them on Linux wants verifying on a Linux machine
+  with the same presets and packages first.
 - **`VISUTWIN_SANITIZE` (the `sanitize` preset: `address;undefined`) instruments this
   project's own targets, not vcpkg's**, and undefined behaviour aborts rather than
   printing and carrying on. A lifetime bug rarely changes a test's RESULT — a freed
   joint or batch source read back still looks plausible, which is how the tests for
   those were written to check the contract instead — so the sanitizer build is what
-  catches the rest. Its first run found one: a test whose locals were declared after
-  the object whose destructor wrote them.
+  catches the rest.
 - **The tree builds with ZERO warnings under `-Wall -Wextra`** (`VISUTWIN_WARNINGS`, on
   by default; `-Wmissing-field-initializers` is off because `Desc{name}` partial
   aggregate init is an idiom here). The macOS CI jobs add
@@ -101,9 +99,6 @@ ctest --preset default
   parameter a virtual default ignores by commenting its NAME out, not by `(void)`; a
   variable only an `assert` reads needs `[[maybe_unused]]` or an `#ifndef NDEBUG`,
   because Release drops the assert and a Release build warns where Debug does not.
-  The first pass found `RenderPass` and `Texture` with virtual methods and no virtual
-  destructor, a dead Metal vertex-layout stub, and a dozen settings stored and never
-  read.
 - **Golden images are LOCAL ONLY** (`tools/golden_images.py`, `ctest --preset golden`
   on the `examples` build for Metal; the script with `--backend vulkan` on a Release
   Vulkan examples build — a Debug one runs the validation layer and is far slower). Nine
@@ -114,7 +109,7 @@ ctest --preset default
   external 1x monitor, or a sleeping display that comes back at 1x). A density with no set
   SKIPS its cases; `--update` writes the set for the density it runs at, so a rendering change
   that is intended needs re-capturing at BOTH densities, on two displays. Both backends reproduce every reference bit for bit run to run, and
-  a 1.03 factor on every lit colour failed all eight original cases, so a failure is real. When a
+  a 1.03 factor on every lit colour fails all eight original cases, so a failure is real. When a
   rendering change is intended, look at the images it writes to
   `<examples-dir>/golden-failures`, then re-capture with `--update` and commit the new
   references with the change. The script needs numpy and Pillow: CMake checks
@@ -123,7 +118,7 @@ ctest --preset default
 - **`VISUTWIN_EXPECT_SIMD_BACKEND=sse|neon|apple|scalar` makes the SIMD test FAIL
   unless that backend is the one `defines.h` selected.** Only one backend compiles
   per build, and a missing flag falls through to another backend silently and
-  still passes — testing the wrong code. Two traps it has already caught: Apple's
+  still passes — testing the wrong code. Two traps it catches: Apple's
   x86-64 default baseline includes SSE4.1, so an x86 build meant to be scalar is
   SSE on macOS; and any x86 build on macOS without SSE4.1 selects the APPLE
   backend, so a scalar build cannot be produced on macOS at all.
@@ -156,19 +151,18 @@ ctest --preset default
 - **Apple's libc++ hides missing standard includes; GCC's libstdc++ does not.**
   libc++ pulls `<cmath>`, `<cstdint>` and `<array>` in transitively, so a header
   that uses `std::sqrt`, `uint32_t` or `std::array` without including them builds
-  on macOS and fails on Linux. The first Linux build found eight such headers, and
-  one of them cascaded into fifty failed files. Include what you use; the Linux CI
-  job is what catches it now.
+  on macOS and fails on Linux, and one such header can cascade into dozens of failed
+  files. Include what you use; the Linux CI job is what catches it.
 - **The Metal compiler's path changes when the system remounts its toolchain.** It lives
   under `/var/run/com.apple.security.cryptexd/mnt/...MetalToolchain-<ver>.<random>/`, and
-  the random suffix changed on 2026-09-26 with the version unchanged; every configured
-  tree then failed to regenerate ("not a full path to an existing compiler tool"), because
+  the random suffix can change with the version unchanged; every configured tree then
+  fails to regenerate ("not a full path to an existing compiler tool"), because
   `enable_language(Metal)` records the compiler once in
-  `CMakeFiles/<cmake version>/CMakeMetalCompiler.cmake`. `engine/CMakeLists.txt` now deletes
+  `CMakeFiles/<cmake version>/CMakeMetalCompiler.cmake`. `engine/CMakeLists.txt` deletes
   that record when the path it names is gone, so detection runs again. A worktree checked
-  out at an older commit lacks the guard: delete the file by hand. The same morning the
-  default build's cache came back without the vcpkg toolchain's variables (spdlog "not
-  found" with the package installed); `cmake --preset default --fresh` rebuilt it.
+  out at an older commit lacks the guard: delete the file by hand. If the default build's
+  cache comes back without the vcpkg toolchain's variables (spdlog "not found" with the
+  package installed), `cmake --preset default --fresh` rebuilds it.
 - `vcpkg.json` qualifies ImGui's `metal-binding` feature to `osx`. The port
   declares it macOS-only, and an unqualified feature makes the whole manifest
   unresolvable on Linux.
@@ -235,8 +229,8 @@ field is one line.**
 
 The GLSL block is `#include`d by BOTH `forward-fragment-head.glsl` and
 `forward.vert`: MoltenVK miscompiles a UBO whose member list differs between
-stages. There is no `static_assert(sizeof(...) == 400)` any more; what is asserted
-is the real invariant, that the size is a multiple of 16. The struct is a plain
+stages. What is asserted is the real invariant, that the size is a multiple of 16,
+not a fixed size. The struct is a plain
 aggregate so `alignof` is 4, not 16 — the layout works because every `vec4` in the
 list lands 16-aligned by construction.
 
@@ -255,10 +249,8 @@ sRGB decode of ambient, light and fog colours, the SH and view-projection packin
 area-light up axis, the local shadow slots (spot matrix, omni near / far / RELATIVE bias,
 the unused-slot defaults), the cookie slots and when a directional slot counts as
 active — and each backend's `setLightingUniforms` only lays the result out. A new
-lighting value is decided there, then copied by both binders. Until 2026-09-30 each
-backend derived it all itself, and the two had drifted (an absent view-projection was
-identity on Metal and zeros on Vulkan; a directional slot was active on Metal whenever it
-was counted, on Vulkan only when it also had a map).
+lighting value is decided there, then copied by both binders; a value derived inside
+one binder lets the two backends drift apart.
 
 ### Adding a shader feature
 
@@ -294,15 +286,14 @@ the layout, the descriptor writes and the draw binding all call it, and the bund
 validator's expected table (`generate_vulkan_shader_bundle.py`) has to name the
 binding too. APPEND a new binding to the list, never insert it in numeric order:
 a quad pass's texture slot i is the i-th entry, so an insertion moves every quad
-input after it. The list used to be duplicated across layout creation, the
-binding loop and the descriptor writes, and adding a slot to two of the three
-wrote every binding to the wrong index.
+input after it. Do not copy the list into layout creation, the binding loop or the
+descriptor writes: with copies, adding a slot to two of the three writes every
+binding to the wrong index.
 
 Set 3 (per-pass scene textures) is sized by `kSceneTextureBindingCount` and typed by
 `vulkanSceneDescriptorType`: the layout, the descriptor writes and the pipeline's
-reflection check all read those two, and the reflection check now compares each
-scene binding's KIND, not just its number — it used to accept any kind below a
-hand-written bound. The bundle validator's table in
+reflection check all read those two, and the reflection check compares each
+scene binding's KIND, not just its number. The bundle validator's table in
 `generate_vulkan_shader_bundle.py` is the one other place to update.
 
 ### Metal buffer slots
@@ -350,7 +341,7 @@ The engine owns the input DEVICES; the application owns the event loop.
   `TouchDevice::setWindowSize` converts to pixels and Engine keeps it current from
   the resize event. Without it every touch lands in the top-left corner.
 - Examples must not poll SDL for input. `CameraControls` reads the engine's
-  keyboard and mouse; the old six-key `platform/input.h` sink is gone.
+  keyboard and mouse; there is no `platform/input.h` key sink.
 
 ## Physics
 
@@ -383,12 +374,11 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   `Engine::fixedDeltaTime()`; `RigidBodyComponentSystem::step(dt)` is public for
   driving the simulation from another clock, and `setTimeScale(0)` pauses it
   (nothing steps, nothing is written back) while the rest of the engine runs on.
-- **The CPU raycast fallback skips colliders that are not `active()`.** It tested only
-  the components' own `enabled()` until 2026-09-24, so a collider on a disabled
-  entity, or under a disabled parent, was still hit; `tests/raycastFallbackTests.cpp`.
-- **`raycastAll` returns hits NEAREST FIRST on both paths.** It used to sort only
-  on the CPU fallback, so the order depended on whether a physics world had been
-  supplied.
+- **The CPU raycast fallback skips colliders that are not `active()`.** Testing the
+  components' own `enabled()` alone would still hit a collider on a disabled entity,
+  or under a disabled parent; `tests/raycastFallbackTests.cpp`.
+- **`raycastAll` returns hits NEAREST FIRST on both paths**, so the order does not
+  depend on whether a physics world has been supplied.
 - **A joint lets go of its constraint BEFORE the world frees it.** The world destroys
   every joint touching a body it destroys, so `RigidBodyComponent` calls
   `JointComponent::bodyWillBeDestroyed(entity)` before each `destroyBody` (a setter
@@ -396,16 +386,16 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   drops its constraint and is rebuilt against the new body. A joint also watches its
   ends' `destroy` events: a destroyed end drops the joint and clears the reference, and
   the joint stays gone until an end is set again rather than re-pinning that end to the
-  world. Until 2026-09-23 the component kept the freed pointer and called `isBroken()`
+  world. Without it the component would keep the freed pointer and call `isBroken()`
   on it every update. `tests/jointLifetimeTests.cpp` runs the components against a world
   that never frees its joints and counts every call on a dead one.
 - **A dynamic body on a MIRRORED entity writes back the rotation it turned through,
   not a world rotation** (`RigidBodyComponent::setMirroredTransform`, upstream #9500).
   The rotation read from a mirrored world transform is not the entity's: 
   `Quaternion::fromMatrix4` negates the X axis of a mirrored basis, and two negative
-  scale factors read as a 180-degree turn. Written back as the world rotation it turned
-  the entity on its first step (negative local Y, Y and Z, or a mirrored parent; a lone
-  negative X is exactly what the extraction undoes and was always right). The delta is
+  scale factors read as a 180-degree turn. Written back as the world rotation it would
+  turn the entity on its first step (negative local Y, Y and Z, or a mirrored parent; a
+  lone negative X is exactly what the extraction undoes and is right either way). The delta is
   applied to the LOCAL rotation, expressed in the parent's space and reflected through
   YZ under a mirrored parent. `tests/mirroredBodyTests.cpp` drives it with a world
   that holds bodies still or turns them by a known rotation.
@@ -423,8 +413,7 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
 - **Constraints are built as (B, A), not (A, B).** The backend measures a
   constraint's angle and travel from body 1 toward body 2, so the ANCHOR has to go
   first for a positive motor speed or limit to move end A the way the caller
-  means. Built the other way round a slider told to run at +1.5 travels at -1.5,
-  which is what the unit test caught.
+  means. Built the other way round a slider told to run at +1.5 travels at -1.5.
 - **Two body locks cannot be taken separately.** Jolt asserts on the deadlock
   risk; `BodyLockMultiWrite` takes both and orders them itself. Without a Jolt
   assert handler installed this arrives as a bare SIGTRAP with nothing on stderr,
@@ -450,8 +439,7 @@ ComposePassParams.
   in-focus part of the frame must come back bit-identical.
 - **The CAS uniform is NEGATIVE.** `RenderPassCompose` remaps the user
   sharpness to upstream's `lerp(-0.125, -0.2, s)` and the shaders gate on `< 0`;
-  a positive weight turns the same kernel into a 5-tap blur, which is what the
-  pass did until 2026-09-06. Verify a sharpness change with gradient energy over
+  a positive weight turns the same kernel into a 5-tap blur. Verify a sharpness change with gradient energy over
   a static crop, not by eye.
 - Fringing (chromatic aberration, user intensity /1024) **must stay BEFORE
   bloom**: it re-samples the scene texture for R and B, so running it after bloom
@@ -463,7 +451,7 @@ ComposePassParams.
   threshold) compiled into the FIRST bloom downsample only while the threshold is
   above zero, applied to the Karis-filtered result rather than per tap. It is in
   scene-referred units, before exposure. Crossing zero rebuilds the bloom chain; at 0
-  no variant exists and the frame is bit-identical to a build without it (verified
+  no variant exists and the frame is bit-identical to a build without it (check it
   on `post-processing`, both backends, driven by `VISUTWIN_BLOOM_THRESHOLD`).
 - The 3D LUT is a 256x16 Unreal strip with dual-LUT blend; the port loads it
   non-sRGB so the sample is pow(2.2)-decoded in-shader. Test asset:
@@ -477,8 +465,8 @@ of their own and must not displace the real draw pass in that map. **The graph's
 to a pass last ONE frame**: passes persist while the graph is rebuilt every frame, so
 `compile()` records each store it raises and each cubemap mip generation it drops
 (`RenderPass::setAttachmentFlagByGraph`) and undoes them at the next compile before
-deriving them afresh, restoring only a flag that still holds the graph's value. They
-used to be one-way, so one frame's adjacency stuck to a pass for good. A pass that must
+deriving them afresh, restoring only a flag that still holds the graph's value; a
+one-way edit would let one frame's adjacency stick to a pass for good. A pass that must
 keep its target for a LATER frame (history, persistent accumulation) sets its own store:
 the graph only sees one frame. `tests/frameGraphTests.cpp` holds propagation, merging,
 before-pass order and the undo; `tests/shaderCompositionTests.cpp` holds `forward.frag`'s
@@ -496,20 +484,17 @@ Set scene-wide with `Scene::setToneMapping` or per camera with
 **Tone mapping NONE applies NEITHER curve NOR exposure**, as upstream's
 `tonemappingNone`. On Vulkan exposure is applied inside the dispatch
 (`toneMapExposed` in `common-tonemap.glsl`, the twin of Metal's `toneMap(color,
-exposure, mode)`); the forward callers used to multiply first, so NONE was exposed on
-Vulkan alone — 31.5 counts brighter than Metal on `clearcoat` at exposure 2. The
-compose pass already had it right in both languages.
+exposure, mode)`); a forward caller that multiplies by exposure first exposes NONE
+on Vulkan alone. The compose pass does the same in both languages.
 
 **Under CameraFrame the forward pass must output LINEAR HDR** and leave exposure,
 tonemap and gamma to compose. The gate is bit 5 of `LightingData::flagsAndPad[0]`,
 kept in step with `hdrPass()`. Every shader path that returns early — the tail,
 all three sky paths and the unlit path — has to check it, or compose applies gamma a
-second time. Vulkan's UNLIT return missed it until 2026-09-29, invisible until
-`post-processing`'s World-layer label (an unlit HDR emissive) went through the camera
-frame: it rendered grey and did not bloom on Vulkan alone. The same path also sampled its
-emissive map without the sRGB decode that Metal's unlit path and Vulkan's lit path apply,
-which is what `area-picker` differed by (6,350 pixels over 8 counts between backends, 0
-after).
+second time. The UNLIT return is the easy one to miss: without the check an unlit HDR
+emissive under a camera frame (`post-processing`'s World-layer label) renders grey and
+does not bloom. The unlit path also sRGB-decodes its emissive map, as the lit path does,
+on both backends (`area-picker` shows a missing decode).
 
 ## Shader System
 
@@ -534,8 +519,7 @@ them, so the build-time bundle and the runtime composition share one source.
 - `forward-vertex`, `shadow-vertex` and `shadow` have no chunked GLSL form and are
   Metal-only; overriding them on Vulkan logs a warning.
 - **Fog has a TYPE** (`FogParams::type`, `Scene::setFogType`): NONE/LINEAR/EXP/
-  EXP2, uploaded in `fogStartEndType.z`, where 0 also means off. It used to be a
-  0/1 flag, which made EXP and EXP2 unreachable on both backends. Fog depth is
+  EXP2, uploaded in `fogStartEndType.z`, where 0 also means off. Fog depth is
   the LINEAR VIEW DEPTH (`fragViewDepth` on Vulkan, `1 / rd.position.w` on
   Metal), not the radial distance to the camera. No example uses fog, so a change
   here has to be driven deliberately to be seen at all.
@@ -549,33 +533,30 @@ them, so the build-time bundle and the runtime composition share one source.
   passes, which is indistinguishable from writing it, and the quad texture
   bindings are not known at `startRenderPass` because passes set them in
   `execute()`.
-- **Verify the measurement before believing the finding.** Two "bugs" were
-  diagnosed, documented and withdrawn on 2026-09-06 that did not exist, both from
-  a bad experiment rather than bad code. Three rules, each of which would have
-  caught one: capture the reference and the change from ONE source state (a
+- **Verify the measurement before believing the finding.** A bad experiment, not bad
+  code, can produce a "bug" that does not exist. Three rules, each of which catches
+  one: capture the reference and the change from ONE source state (a
   screenshot taken before an example was instrumented reads every unrelated
   difference as a regression); check the STIMULUS actually reached the code (a
   test hook placed above the example's own setter was overwritten every run); and
   prefer a one-line `spdlog` of what the binder receives over a shader probe,
   which puts a transfer curve and a bundle rebuild between you and the answer.
-  A fourth, added 2026-09-22: when a change moves a LOT of pixels by very LITTLE (a few
-  percent of the frame at one count, with a thin tail at silhouettes), suspect something
-  that moved the CAMERA or the geometry, not the shading — and when two targeted reverts
-  each change the count by nothing, stop guessing and BISECT. Revert every changed file in
-  a scratch clone, confirm that build reproduces the reference EXACTLY (0 pixels; without
-  that check the bisection proves nothing), then add the files back in halves. That is how
-  a whole-frame difference in `ambient-occlusion` was traced to one line in
-  `cameraControls.cpp` — a camera forward vector rebuilt through a quaternion agreed with
-  the trig it replaced only to 3.6e-7, which is enough to shift every pixel by a count.
+  A fourth: when a change moves a LOT of pixels by very LITTLE (a few percent of the
+  frame at one count, with a thin tail at silhouettes), suspect something that moved the
+  CAMERA or the geometry, not the shading — and when two targeted reverts each change the
+  count by nothing, stop guessing and BISECT. Revert every changed file in a scratch
+  clone, confirm that build reproduces the reference EXACTLY (0 pixels; without that
+  check the bisection proves nothing), then add the files back in halves. For example, a
+  camera forward vector rebuilt through a quaternion that agrees with the trig it
+  replaced only to 3.6e-7 is enough to shift every pixel by a count.
 - **`common-brdf.glsl` is the twin of `common-brdf.metal` and both must change
   together.** It owns `distributionGGX`, `getVisibilitySmithGGX` (a VISIBILITY
   term — the `1/(4 NdotL NdotV)` is folded in, so call sites write `D * Vis * F`
   with no division), `getFresnel` (gloss-aware, DIRECTIONAL lights only —
   punctual lights take bare specularity), `getFresnelCC` and
   `getVisibilityKelemen`. A shading edit that lands in one language only is a
-  backend divergence by construction; that is how a separable UE4 Smith term and
-  an `F90 = 1` Schlick lived in `common-atmosphere.glsl` while the IBL paths used
-  a third, correct spelling.
+  backend divergence by construction, and a private copy of a BRDF term in another
+  chunk is the same divergence inside one language.
 - Keep each GLSL chunk a self-contained override target. The material-flag
   constants and `applyUvTransform` live in `common-material-flags`, not in
   `common-tonemap`, so a minimal tonemap override does not drop them.
@@ -592,7 +573,7 @@ sampler.
 
 Migrated: VSM blur, volumetric fog, CoC, DOF blur, depth-aware blur, compose,
 SSAO, TAA, the whole env family (equirect-to-cube, reproject, convolve, atlas —
-see `scene/graphics/envBake.h`), and the GPU particle simulation, which now runs
+see `scene/graphics/envBake.h`), and the GPU particle simulation, which runs
 over the generic `Compute` seam from `scene/particles/particleSimShaders.h`.
 **The effect-pass migration is DONE.**
 
@@ -625,9 +606,8 @@ AGAIN before submitting, as the frame path does before its own submit: building
 the first `RenderTarget` over such a texture RECREATES its image
 (`Texture::setRenderTargetUse`), which for a bake happens inside the scope, and the
 new image's queued transition must land ahead of the barriers recorded against its
-tracker. Until 2026-09-24 it landed after them, so every env bake rendered, mipped
-and sampled a cube the GPU still had UNDEFINED (the smoke test's 10
-VUID-vkCmdDraw-None-09600 errors). Any new one-shot or offline submit owes the
+tracker; landing after them, every env bake renders, mips and samples a cube the GPU
+still has UNDEFINED (VUID-vkCmdDraw-None-09600 in the smoke test). Any new one-shot or offline submit owes the
 same flush immediately before `vkQueueSubmit`.
 
 ## Examples
@@ -650,11 +630,10 @@ present, but the rule below never depends on reading it.
 - **The SPIR-V bundle depends on EVERY file under `engine/shaders/vulkan/`**
   (`file(GLOB_RECURSE ... CONFIGURE_DEPENDS)` in `engine/CMakeLists.txt`), so a
   chunk or header edit regenerates it in any build that reaches the engine target,
-  and a new chunk file joins without a reconfigure. Until 2026-09-19 the rule
-  listed only the top-level stages by hand: a chunk edit did not regenerate the
-  bundle even in a full build (two false conclusions in one session came from
-  measuring the previous binary), and the list had drifted from the generator's
-  (`shadow.frag` was compiled but not listed). Do not go back to a hand list.
+  and a new chunk file joins without a reconfigure. Do not go back to a hand list:
+  one that names only the top-level stages leaves a chunk edit unregenerated even in
+  a full build (so you measure the previous binary), and it drifts from the
+  generator's own list.
   Note the bundle is one header included by many engine sources, and Ninja
   rebuilds by mtime, so a comment-only chunk edit still recompiles those files.
 - **Depth of field is the MULTI-PASS pipeline, and a Vulkan quad slot is an INDEX
@@ -663,27 +642,23 @@ present, but the rule below never depends on reading it.
   downsamples the scene premultiplied by the far CoC, a bokeh blur over upstream's
   concentric kernel (generated in the shader; the radius is a fraction of a 540-row
   reference frame), and `applyDof` in compose mixing by the CoC sum, with a 3x3
-  CoC-weighted upsample at low quality. It sat dead until 2026-09-19 behind a note
-  that it black-screened, which predated the frame graph's handling of a targetless
-  orchestrator pass (`RenderPass::render` skips an uninitialised target and the
-  graph recurses into its before-passes). The compose keeps `applyDofSinglePass` only
-  as the fallback when no CoC texture is bound; it has no near blur. Two things it
-  cost: the box downsample never implemented `premultiplyTexture` (added as a
-  variant keyed on the channel), and on Vulkan the quad path mapped a quad slot to
-  the set-1 binding of the SAME NUMBER, so slots 6 and 7 had no binding — a quad
-  shader declaring `(set = 1, binding = 6)` made MoltenVK's translation drop the
-  samplers of OTHER textures ("undeclared identifier _NSmplr" on bloom). Now quad
-  slot i is `kMaterialTextureBindings[i]`: 0-5 are bindings 0-5, slot 6 is binding
-  17 (a SEPARATE image — declare `texture2D` and sample through the extra sampler at
-  24) and slot 7 is binding 19 (`sampler2D`). Also: `textureSize()` on a combined
-  sampler does not survive the MSL translation either; pass sizes as uniforms.
-  Under TAA the blur must read the TAA OUTPUT, which alternates between two history textures:
-  the camera frame retargets the half-resolution copy and, since 2026-09-30 (upstream #9591),
-  the high-quality far pass (`RenderPassDof::setSceneTexture`) every frame; the far pass used to
-  keep blurring the raw jittered frame, which shimmers with a static camera.
-  Verified on `depth-of-field` (nearBlur on): high-pass energy near lamps 2.25 ->
-  1.73 (near blur exists now), far windows 3.29 -> 0.96, cat 7.60 -> 6.93; Metal
-  and Vulkan agree on 786k of 786k pixels but 16.
+  CoC-weighted upsample at low quality. It relies on the frame graph's handling of a
+  targetless orchestrator pass (`RenderPass::render` skips an uninitialised target and
+  the graph recurses into its before-passes). The compose keeps `applyDofSinglePass`
+  only as the fallback when no CoC texture is bound; it has no near blur. The box
+  downsample implements `premultiplyTexture` as a variant keyed on the channel. On
+  Vulkan quad slot i is `kMaterialTextureBindings[i]`: 0-5 are bindings 0-5, slot 6 is
+  binding 17 (a SEPARATE image — declare `texture2D` and sample through the extra
+  sampler at 24) and slot 7 is binding 19 (`sampler2D`). Mapping a quad slot to the
+  set-1 binding of the SAME NUMBER leaves slots 6 and 7 with no binding, and a quad
+  shader declaring `(set = 1, binding = 6)` makes MoltenVK's translation drop the
+  samplers of OTHER textures ("undeclared identifier _NSmplr" on bloom). Also:
+  `textureSize()` on a combined sampler does not survive the MSL translation either;
+  pass sizes as uniforms.
+  Under TAA the blur must read the TAA OUTPUT, which alternates between two history
+  textures: the camera frame retargets the half-resolution copy and (upstream #9591) the
+  high-quality far pass (`RenderPassDof::setSceneTexture`) every frame; a far pass that
+  blurs the raw jittered frame shimmers with a static camera.
 - **Reading a texture back goes through `Texture::read`, and reading one the GPU
   wrote means reading it through STAGING.** The seam is `Texture::read` →
   `gpu::HardwareTexture::read`: Metal blits into a shared-storage texture, Vulkan
@@ -691,8 +666,7 @@ present, but the rule below never depends on reading it.
   Reaching past it for the native handle is the trap, because neither backend
   reports the mistake — `MTL::Texture::getBytes` on a device-private render target
   does not fail, it answers with whatever is mapped, and what comes back is
-  plausible rather than blank. `tools/generate-env-atlas` did exactly that and
-  wrote a wrong PNG for as long as it existed. Round-trip a known pattern to tell
+  plausible rather than blank. Round-trip a known pattern to tell
   a working readback from a convincing one; `tests/vulkanSmoke.cpp` does, under
   validation, which also checks that the read hands the subresource back in the
   layout it borrowed. The Vulkan path refuses outright while a frame or an offline
@@ -701,38 +675,35 @@ present, but the rule below never depends on reading it.
 - **An offline bake still has to run INSIDE a frame.** `beginOfflineWork` batches
   the bake's own command buffer, but the per-draw uniform RINGS are frame-scoped —
   `frameStart` is what hands out the region a quad draw writes its block into.
-  `tools/generate-env-atlas` ran the whole env bake with no frame open, so every
-  quad draw read the same unwritten block and the atlas came out ONE FLAT COLOUR
-  with its rect layout visibly correct, which is why it read for so long as a
-  readback problem. `reflection-probe-dynamic`, the only other caller, bakes
-  inside its frame and was never affected.
+  Run with no frame open, every quad draw reads the same unwritten block and an env
+  atlas comes out ONE FLAT COLOUR with its rect layout visibly correct, which reads as
+  a readback problem. `reflection-probe-dynamic` bakes inside its frame.
 - **A Metal quad draw must not key its uniform allocation on the material.**
   `submitPerDrawUniforms` reuses the previous ring offset when the material pointer
   is unchanged, and a quad pass has no material of its own — nothing clears the
-  bound material for an offline bake either — so every quad draw after the first in
-  a pass silently shared ONE uniform block. Invisible while a pass drew a single
-  quad, which every effect did until the env atlas started drawing a rect list in
-  one pass: the convolve draws read the reproject block and wrote nothing. `draw()`
+  bound material for an offline bake either — so keyed on the material, every quad
+  draw after the first in a pass silently shares ONE uniform block. That is invisible
+  while a pass draws a single quad and breaks a pass that draws a rect list (the env
+  atlas: its convolve draws would read the reproject block). `draw()`
   passes a null KEY whenever the quad block is in use. A key is what the material-slot
   block came from: the material, null for a block nothing may share, or
   `MetalUniformBinder::sharedDefaultBlockKey()` for a draw with no material at all, whose
   default block is uploaded once a pass (every opaque shadow caster and prepass draw
-  carries it; each took a ring slot of its own until 2026-09-30).
+  carries it).
 - **A shader that exists in MSL and GLSL is only shared by CONVENTION.** The two
   bodies in a `*Shaders.h` sit in separate raw strings, and a migration that
-  unified the uniform BLOCK does not unify the code. Compose carried three stages
-  whose GLSL was an older, cruder implementation — colour enhance, colour grading
-  and the 3D LUT — for as long as the file has existed. Before blaming a backend's
+  unified the uniform BLOCK does not unify the code: one language can carry an older,
+  cruder implementation of a stage unnoticed. Before blaming a backend's
   lighting for a brightness gap, read the two bodies of the shader that produced
   the pixel side by side.
 - **stb_image's vertical-flip flag is set ONLY through `StbVerticalFlipScope`**
   (`framework/assets/stbImageFlip.h`). stb keeps a global flag and a thread-local
   one, and once the thread-local flag is set on a thread it overrides the global
   one there for good — stb cannot unset it. The GLB parser decodes flipped through
-  the thread-local flag, so any loader that cleared only the GLOBAL flag was
-  ignored after a GLB on the same thread: first the environment atlas came out
-  upside down, later every glyph of a bitmap font loaded after a GLB, and the OBJ
-  parser's global "flip" was silently a no-op. The scope sets the thread-local flag
+  the thread-local flag, so a loader that clears only the GLOBAL flag is ignored
+  after a GLB on the same thread: an environment atlas comes out upside down, a
+  bitmap font's glyphs flip, and an OBJ "flip" through the global flag is silently a
+  no-op. The scope sets the thread-local flag
   and restores the enclosing value on exit, so a flip cannot leak into the next
   decode. Never call `stbi_set_flip_vertically_on_load*` directly, and never
   include `stb_image.h` from a header: stb guards its declarations but not its
@@ -740,49 +711,42 @@ present, but the rule below never depends on reading it.
   an asymmetric atlas through the font path after a leaked flip.
 - **`atan2(0, 0)` is undefined, and a normal of exactly +/-Y hits it** — which is
   every fragment of an unrotated ground plane, the most common surface there is.
-  Metal returned an out-of-range azimuth, so `mapAmbientUv` mapped outside its
-  rect and the plane read its irradiance from the ROUGHNESS column instead: a
-  ground plane lit by a blue sky came back dark navy. Both `toSphericalUv` and
-  `dirToEquirect` now pick azimuth 0 at the pole. Any new direction-to-equirect
+  Metal returns an out-of-range azimuth, so `mapAmbientUv` maps outside its rect
+  and the plane reads its irradiance from the ROUGHNESS column instead: a ground
+  plane lit by a blue sky comes back dark navy. Both `toSphericalUv` and
+  `dirToEquirect` pick azimuth 0 at the pole. Any new direction-to-equirect
   code owes the same guard.
 - **A Metal texture is SHARED unless it is a render target created without host
-  data, which is PRIVATE.** Shared storage is what `replaceRegion` uploads need,
-  and what every texture got until 2026-09-17 — render targets included, which on
-  Apple GPUs forgoes lossless framebuffer compression. `RenderTarget`'s
+  data, which is PRIVATE.** Shared storage is what `replaceRegion` uploads need; a
+  render target in shared storage forgoes lossless framebuffer compression on Apple
+  GPUs. `RenderTarget`'s
   constructor marks its attachments (`Texture::renderTargetUse`); the GPU object
   already exists by then (the texture constructor creates it), so the mark
   RECREATES one that holds no host data, and a later CPU write into a private
-  texture stages through a blit (`MetalTexture::writeRegion`). Two traps met on
-  the way: `Texture::hasLevels()` is true for EVERY texture (the constructor sizes
-  the level table) — `hasHostData()` is the "created empty" test; and
-  `replaceRegion` on a private texture is a Metal assertion, not an error, which
-  is how the first attempt died on the env atlas upload.
+  texture stages through a blit (`MetalTexture::writeRegion`). Two traps:
+  `Texture::hasLevels()` is true for EVERY texture (the constructor sizes the level
+  table) — `hasHostData()` is the "created empty" test; and `replaceRegion` on a
+  private texture is a Metal assertion, not an error.
 - **A GPU-time claim needs both builds in ONE session, run interleaved.** This
   machine's GPU clock state moves ambient-occlusion's frame by a millisecond
   between days and by half of one between consecutive runs, which is the whole
-  size of most effects worth chasing. Single-run ablations on 2026-09-16 "found"
-  1 ms in the depth resolve and 0.7 in texture storage; the same changes measured
-  0.0 the next day with the previous commit copied out as a second binary and the
-  two alternated three times each. Keep the old binary, alternate, take medians.
+  size of most effects worth chasing. Single-run ablations "find" a millisecond that
+  measures 0.0 once the previous commit is copied out as a second binary and the two
+  are alternated three times each. Keep the old binary, alternate, take medians.
   Better still, alternate INSIDE ONE PROCESS: a setting that can change at runtime
   (MSAA sample count through `setRendering`, a shader option) toggled every 120
   frames shares one clock state by construction, and the passes the setting
-  cannot touch are the control that says the windows are aligned. That is how the
-  "1.3 ms fixed MSAA cost" recorded on 2026-09-17 was retracted the same day: in
-  one process 4x MSAA costs the forward pass about 0.05 ms (1.46 vs 1.41 ms,
-  within that run's noise) at 900x700, and the hardware counters show the same
-  limiter mix at both counts.
-  Separate 4x and 1x recordings had put the SSAO pass 1.5x slower under MSAA too,
-  a pass MSAA cannot touch — the signature of a clock-state difference.
+  cannot touch are the control that says the windows are aligned (measured that way,
+  4x MSAA costs the forward pass about 0.05 ms at 900x700, with the same limiter mix
+  at both counts). A pass the setting cannot touch reading slower between separate
+  recordings — SSAO under MSAA, say — is the signature of a clock-state difference.
 - **Our HUD's GPU figure and upstream's are not comparable as read, for three reasons
-  that are not the profiler.** Verified 2026-09-23 on `ambient-occlusion` (HUD 4-5 ms vs
-  upstream ~1 ms) with `xctrace` per-encoder intervals, which both profilers reproduce
-  within 10%. (1) PIXELS: `ExampleApp` opens 900x700 POINTS under
+  that are not the profiler** (both profilers reproduce `xctrace` per-encoder intervals
+  within 10%). (1) PIXELS: `ExampleApp` opens 900x700 POINTS under
   `SDL_WINDOW_HIGH_PIXEL_DENSITY`, a 1800x1400 drawable on a Retina display, while
   upstream's `GraphicsDevice` caps `maxPixelRatio` at 1, so its 900x700 canvas is 900x700
-  pixels — four times fewer. Resize the browser tab to 1800x1400 (upstream then reads 2.7
-  ms), or run ours with `VISUTWIN_MAX_PIXEL_RATIO=1` (since 2026-09-30), before reading either
-  number. (2) CLOCK: the
+  pixels — four times fewer. Resize the browser tab to 1800x1400, or run ours with
+  `VISUTWIN_MAX_PIXEL_RATIO=1`, before reading either number. (2) CLOCK: the
   `gpu-performance-state-intervals` table shows the GPU in its MINIMUM state 55-88% of the
   time under either engine, and every pass costs 2-3x more there than at Maximum; bucket
   per-frame costs by state, or run both engines at once so they share one clock. (3) A
@@ -790,8 +754,7 @@ present, but the rule below never depends on reading it.
   composites a 29-encoder buffer every frame at 120 Hz INSIDE our forward pass's interval,
   and the hardware counters show the forward window as ~1 ms of shading followed by ~1.4 ms
   at zero utilization with the GPU still "Active" — a stall, not our work — which is why
-  the forward pass reads 0.90 ms at 900x700 and 0.93 at 1800x1400. At matched pixels and
-  one clock, ours is 1.5x upstream per frame, all of it in the forward pass. Two traps in
+  the forward pass's interval barely changes between 900x700 and 1800x1400. Two traps in
   the measurement itself: `xctrace record --launch` leaves a SECOND instance of the example
   running after its time limit (start the binary yourself and record `--all-processes`;
   `pgrep -fl visutwin-ambient` before every recording), and a browser's frames must be
@@ -810,31 +773,27 @@ present, but the rule below never depends on reading it.
   0 prepass, 1 SSAO, 2 blur H, 3 blur V, 4 forward, 5 compose, 6 overlay; an
   encoder's fragment work is split into several rows (depth 1, 2) when another
   process's work preempts it, so SUM the rows per command buffer. A browser
-  running upstream's example shows one seven-encoder buffer per frame, and on
-  2026-09-17 that buffer was mistaken for ours for a whole analysis. Encoder labels
-  and debug groups set on the encoder do NOT reach the export's labels; only
-  Xcode's own capture shows them. Before recording, `pgrep -fl visutwin` — two
-  extra instances of the example were rendering that day and every duration in the
-  trace was inflated by their overlapping passes.
+  running upstream's example shows one seven-encoder buffer per frame; do not mistake
+  that buffer for ours. Encoder labels and debug groups set on the encoder do NOT
+  reach the export's labels; only Xcode's own capture shows them. Before recording,
+  `pgrep -fl visutwin` — a stray instance of the example inflates every duration in
+  the trace with its overlapping passes.
 - **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
   Apple GPUs. Every optional texture sample must be gated on its flags bit or its
-  runtime enable (`setEnvAtlasEnabled`, `hasSpecGlossMap` bit 21). This has bitten
-  three times.
+  runtime enable (`setEnvAtlasEnabled`, `hasSpecGlossMap` bit 21).
 - **Depth taps in a quad pass must be POINT sampled, and neither backend does it
   for free.** A quad pass reconstructs view-space positions from depth, and a
   bilinear tap straddling a silhouette returns a depth belonging to neither
   surface — a position in mid-air the kernel then treats as an occluder. Whether
   hardware filters a depth format at all is a per-format capability, so leaving it
-  to the texture's own sampler gave SSAO linear taps on Metal and part-nearest
-  taps on Vulkan. Vulkan now binds `_shadowSampler` (nearest, clamp, mip-less) for
-  any depth texture in the quad path and the MSL passes declare their own point
-  sampler — SSAO, the depth-aware blur and SSR from the start, and TAA, CoC,
-  volumetric fog (march and combine) and compose's single-pass DOF fallback since
-  2026-09-23 (`depthPointSampler`; they read depth through the pass's LINEAR sampler
-  before). On the shipped scenes that moved `taa` by at most 1 count and
-  `depth-of-field` not at all, because their taps land on depth texel centres; it
-  matters where a tap does not, as in the fog upsample's offset taps, which no example
-  drives. Establish this kind of thing by making the shader REPORT it: sample at
+  to the texture's own sampler gives linear taps on Metal and part-nearest taps on
+  Vulkan. Vulkan binds `_shadowSampler` (nearest, clamp, mip-less) for any depth
+  texture in the quad path and the MSL passes declare their own point sampler
+  (`depthPointSampler`) — SSAO, the depth-aware blur, SSR, TAA, CoC, volumetric fog
+  (march and combine) and compose's single-pass DOF fallback; none reads depth through
+  the pass's LINEAR sampler. A tap that lands on a depth texel centre barely notices;
+  it matters where a tap does not, as in the fog upsample's offset taps, which no
+  example drives. Establish this kind of thing by making the shader REPORT it: sample at
   a texel centre, one texel across, and exactly halfway, then check whether the
   halfway tap is the average. Reading the sampler-creation code is not enough.
 - **A pass that reconstructs a position from a depth tap must SNAP the tap's UV to
@@ -842,42 +801,34 @@ present, but the rule below never depends on reading it.
   bodies). Point sampling returns the texel's depth, but an unsnapped UV places
   the reconstructed point up to half a texel away from where that depth was
   rendered — a plane comes back as a staircase and the SSAO kernel occludes a flat
-  surface with ITSELF. Upstream added the snap on 2026-07-24 (#9112), after this
-  port's SSAO was written. Measured on `ambient-occlusion`: the raw SSAO factor
-  was 0.54 on the outer wall and 0.88 on the floor, where a plane must read 1.0,
-  carrying a dither that the depth-aware blur turned into 3-4 px stripes across
-  every flat wall and the floor; snapped, the floor reads exactly 1.000. Read the
-  RAW factor, not the frame: divide a combine-mode capture with blur off by one
-  with SSAO off over a flat region — a plane must return 1.0 with zero variance,
-  while the stripes in the finished image are under one count and read as shadow
-  acne. Neither shadow light was involved: switching each off left the pattern.
+  surface with ITSELF (upstream #9112). Unsnapped, the raw factor on a flat wall or
+  floor falls well below 1.0 and carries a dither that the depth-aware blur turns into
+  3-4 px stripes across every flat surface. Read the RAW factor, not the frame: divide
+  a combine-mode capture with blur off by one with SSAO off over a flat region — a
+  plane must return 1.0 with zero variance, while the stripes in the finished image
+  are under one count and read as shadow acne.
 - **Screen-space derivatives are undefined inside the per-light loop**, which sits
   behind fragment-varying `continue`s. An undefined mip LOD reads a fully averaged
-  mip — a heart-shaped cookie became a flat wash of its own average. Sample with
-  an explicit LOD 0 (`level(0)` / `textureLod`). That includes EVERY shadow tap,
-  on both backends, since 2026-09-23: the cascade dither puts neighbouring pixels
-  in different atlas quadrants, and Vulkan's implicit-LOD `texture()` under an
-  anisotropic sampler then averaged other cascades into the tap, so each dithered
-  pixel came out darker than either cascade alone. Metal's taps were implicit too
-  and happened to be immune (no mips, no anisotropy); adding `level(0)` there
-  changed no pixel.
+  mip — a cookie becomes a flat wash of its own average. Sample with an explicit
+  LOD 0 (`level(0)` / `textureLod`). That includes EVERY shadow tap, on both
+  backends: the cascade dither puts neighbouring pixels in different atlas
+  quadrants, and an implicit-LOD `texture()` under an anisotropic sampler (Vulkan)
+  then averages other cascades into the tap, so each dithered pixel comes out darker
+  than either cascade alone.
 - **`cascadeBlend` is a FRACTION, as upstream, and 0 turns off both of its jobs.**
   It dithers the cascade pick from `cascadeBlend x` each cascade's end distance to
   that end (upstream's `ditherShadowCascadeIndex`, its hash included), and fades the
   shadow to lit by `smoothstep(cascadeBlend x distance, distance, depth)`; beyond
-  the shadow distance nothing is sampled. Until 2026-09-23 the port read it as a
-  WIDTH in world units — so `shadow-cascades`' 0.1 was a 0.1-unit cross-fade, i.e.
-  none — sampled two cascades to blend, and always faded over the last 10% whatever
-  the blend. Note upstream's own JSDoc says 0.1 fades "the last 10%" while its
+  the shadow distance nothing is sampled. It is not a WIDTH in world units (read that
+  way, `shadow-cascades`' 0.1 is a 0.1-unit cross-fade, i.e. none). Note upstream's own JSDoc says 0.1 fades "the last 10%" while its
   shader, which the port follows, fades from 10% of the distance on. A dithered
   cascade pick must look the same whichever cascade a pixel lands in; if it shows
   as noise, force the pick to always and never switch and compare the three.
 - **Under clustered lighting NO local light enters the main light array.** Every
   spot and omni is in the cluster grid and its shadow comes from the
   LightTextureAtlas; the main-array allocation clears `castShadows` when its two
-  slots run out, which is how clustered spot shadows were once capped at
-  `ShadowParams::kMaxLocalShadows` and clustered omni shadows at two for as long as
-  omnis went through the array. Clustered lighting is ON by default, as upstream,
+  slots run out, so a clustered light routed through the array would lose its shadow
+  past `ShadowParams::kMaxLocalShadows`. Clustered lighting is ON by default, as upstream,
   so a scene that needs the non-clustered path (PCSS local shadows, cookies) has to
   say `setClusteredLightingEnabled(false)`.
 - **The clustered shadow atlas follows `LightingParams::shadowAtlasResolution` LIVE.**
@@ -886,10 +837,8 @@ present, but the rule below never depends on reading it.
   RESIZES the atlas texture and target in place (the ShadowMap wrapper the lights
   hold and the raw pointer the device binds stay valid, and each backend retires the
   old GPU image itself), bumps the version so every light is re-slotted, and re-arms
-  the one-shot shadows for one render. Until 2026-09-19 the renderer configured the
-  atlas ONCE and the atlas ignored a later resolution anyway, behind a TODO that
-  recreating it "hangs the renderer"; 940 resizes in three seconds, toggling 512 and
-  2048 every five frames, hang neither backend. Configure it where it updates, not
+  the one-shot shadows for one render. Resizing is safe: toggling 512 and 2048 every
+  five frames hangs neither backend. Configure it where it updates, not
   later in the frame: the first update creates the texture from whatever was
   recorded, and a configure that runs afterwards costs a 2048 allocation on frame
   one and a resize on frame two.
@@ -910,19 +859,17 @@ present, but the rule below never depends on reading it.
 - **A clustered OMNI receiver's normal offset is scaled by (1 - NdotL) and by the
   DISTANCE to the light** — upstream's `normalOffsetPointShadow`, on the GEOMETRIC
   normal; a clustered spot keeps the flat `N * normalBias`
-  (`getShadowCoordPerspZbufferNormalOffset`). Both clustered chunks used the flat
-  form for omnis until 2026-09-17. A torch mounted on its own wall lights that wall
+  (`getShadowCoordPerspZbufferNormalOffset`). A torch mounted on its own wall lights that wall
   at ~90 degrees from tens of units away, where the flat 0.2 units is ~30x short of
   upstream's; the non-clustered omni path still applies NO receiver offset.
 - **The X of dark wedges around each `ambient-occlusion` torch is the torch mesh's
   OWN shadow, not an atlas seam.** The light sits at the mesh's aabb centre, as
-  upstream places it, and a live upstream frame shows the same four sectors
-  (2026-09-17). They appeared "with the atlas" only because the cubemap path
-  shadowed two omnis at most, so three torches had no shadow at all. Diagnose a
-  suspected seam by making the shader REPORT it — force the visibility to 1, then
-  to 0, within a fraction of the face edge and see whether the artefact follows the
-  zone (it did not: the sectors extend to ~20% of the face) — and a suspected
-  caster by turning off `castShadows` on that mesh alone (the X vanished). The
+  upstream places it, and a live upstream frame shows the same four sectors.
+  Diagnose a suspected seam by making the shader REPORT it — force the visibility
+  to 1, then to 0, within a fraction of the face edge and see whether the artefact
+  follows the zone (this X does not: its sectors extend to ~20% of the face) — and a
+  suspected caster by turning off `castShadows` on that mesh alone (the X vanishes).
+  The
   omni shadow term of a frame is the ratio of a capture with omni shadows on to one
   with them off, the same trick that recovers the raw SSAO texture.
 - **One cluster grid per DISTINCT LIGHT SET, not one for the frame.** The local
@@ -934,42 +881,39 @@ present, but the rule below never depends on reading it.
   because the cell buffers are too big to reallocate per frame. EVERY layer binds its
   own grid and params.
 
-  What this replaced built ONE grid from whichever layer rendered first and skipped
-  the whole block, BINDING INCLUDED, for every layer after — so a layer with a
-  different light set was lit by another layer's cells, and a layer with NO clustered
-  lights never reached the branch that zeroes the params and stayed lit by the
-  previous layer's buffers. Both `clustered-lighting` and `clustered-spot-shadows`
-  have exactly that shape: two distinct sets per frame, one of them empty.
+  ONE grid built from whichever layer renders first, with the whole block — BINDING
+  INCLUDED — skipped for every layer after, lights a layer with a different light set
+  by another layer's cells, and leaves a layer with NO clustered lights (which never
+  reaches the branch that zeroes the params) lit by the previous layer's buffers. Both
+  `clustered-lighting` and `clustered-spot-shadows` have exactly that shape: two
+  distinct sets per frame, one of them empty.
   `Renderer::lightSetHash` is the key and `bindLayerClusters` the per-layer bind;
   `tests/clusterGridSharingTests.cpp` holds sharing, the pool and the zeroing, and fails
-  six checks with the grid shared frame-wide.
+  with the grid shared frame-wide.
 - **The cluster grid is sized from the LIGHTS alone, and a spot is bounded by its
   CONE.** `WorldClusters::update` takes no camera: the bounds are the union of the
-  light AABBs, as upstream's `evaluateBounds` does. They used to start from the camera
-  padded by 50 units on every axis, so the grid was a 100-unit cube around the viewer
-  wherever the lights actually were, and the cells came out coarse with most of them
-  empty. Shrinking it loses no lighting — the shader ignores any fragment outside the
+  light AABBs, as upstream's `evaluateBounds` does. Bounds started from the camera
+  (padded on every axis) make the grid a cube around the viewer wherever the lights
+  actually are, with coarse cells and most of them empty. Bounding by the lights loses
+  no lighting — the shader ignores any fragment outside the
   grid, and a fragment outside the union of every light's bound is outside every
   light's range by construction, which is exactly what `lightBounds.h`'s containment
   property guarantees.
 
   `spotConeAabb` is the exact bound of the spherical sector, from its support
   function, and is a DEVIATION in the tighter direction from upstream's transformed
-  box. The old range-sphere approximation was about thirty times the volume at a
-  20-degree cone. Measured against sphere bounds in one process: the grid falls to
-  0.16 of its volume on `clustered-spot-shadows` and 0.40 on `clustered-lighting`.
+  box. A range-sphere bound is about thirty times the volume at a 20-degree cone.
   `tests/lightBoundsTests.cpp` holds containment, tightness and monotonicity —
   a bound that is too small drops lighting and reads as a falloff, one that is too
   large reads as nothing at all, so neither is visible in a render.
 - **Spot cone falloff is a SMOOTHSTEP between the two cone cosines**, and local
   inverse-squared falloff is `16 / (d^2 + 1)`, not `1 / d^2`. Upstream's `spot.js`
-  and `getFalloffInvSquared` define both and the Metal chunks follow them; Vulkan
-  had a squared linear ramp for the cone (half the light at the middle of the
-  penumbra, agreeing only at the two ends) and a bare inverse square (a light at
-  four units read a fifteenth of upstream). Both fixed 2026-09-05. Vulkan carried
-  THREE spellings of the cone — non-clustered, clustered, and none shared — so
-  `getSpotEffect` now lives beside `distanceAttenuation` in `common-material-flags`
-  and both call sites use it.
+  and `getFalloffInvSquared` define both and both backends follow them. A squared
+  linear ramp for the cone gives half the light at the middle of the penumbra,
+  agreeing only at the two ends, and a bare inverse square makes a light at four units
+  read a fifteenth of upstream. `getSpotEffect` lives beside `distanceAttenuation` in
+  `common-material-flags` and both Vulkan call sites (non-clustered and clustered) use
+  it; do not spell the cone a second time.
 - **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
   shadow and cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
   again in `renderer.cpp` or `worldClusters.cpp`.
@@ -989,17 +933,16 @@ present, but the rule below never depends on reading it.
 - **A StandardMaterial MAP setter writes through to the base slot, and its getter falls
   back to the base texture** — `setDiffuseMap`, `setNormalMap`, `setMetalnessMap`,
   `setEmissiveMap` and `setAoMap`. A glTF material binds the BASE slots, so a setter that
-  only stored its own pointer made `setDiffuseMap(nullptr)` on a loaded material clear
-  nothing. Packing never writes back to the material either: StandardMaterial's UV
+  only stored its own pointer would make `setDiffuseMap(nullptr)` on a loaded material
+  clear nothing. Packing never writes back to the material either: StandardMaterial's UV
   transforms go straight into the block (`Material::packTextureTransform`), and both
-  backends draw from the cached `Material::packedUniforms()` (Vulkan re-packed per draw).
+  backends draw from the cached `Material::packedUniforms()`.
 - **`StandardMaterial` overwrites the base-Material factors, ALWAYS.** Set surface
   properties with `setDiffuse` / `setOpacity` / `setMetalness` / `setGloss`
   (+ `setGlossInvert`) / `setBumpiness`; `setBaseColorFactor` / `setMetallicFactor`
   / `setRoughnessFactor` / `setNormalScale` on a StandardMaterial never reach the
-  GPU. This used to hold only when no base-colour texture was bound, so a GLB
-  material — the parser binds its texture on the base Material — ignored every later
-  scalar edit. The parsers write both sets, and `tests/standardMaterialWorkflowTests.cpp`
+  GPU. That holds with a base-colour texture bound too, so a GLB material — the parser
+  binds its texture on the base Material — takes every later scalar edit. The parsers write both sets, and `tests/standardMaterialWorkflowTests.cpp`
   pins the scalars applying with a texture bound.
 - **A default `StandardMaterial` is in upstream's SPECULAR workflow and renders NO
   specular.** `useMetalness` defaults to false, `metalness` to 1 (read only once
@@ -1013,49 +956,42 @@ present, but the rule below never depends on reading it.
   the GLB parser does it for every metallic-roughness material, as upstream's
   `createMaterial` does. The specular workflow runs through `VT_FEATURE_SPEC_GLOSS`
   with `metallicFactor` packed 0 and F0 = the specular colour, authored sRGB and
-  uploaded linear. The old `setSpecularColor` / `setGlossiness` / `setUseSpecGloss`
-  duplicates are gone; a KHR spec-gloss asset uses `setSpecular` (gamma-encoded) and
+  uploaded linear. There is no `setSpecularColor` / `setGlossiness` / `setUseSpecGloss`;
+  a KHR spec-gloss asset uses `setSpecular` (gamma-encoded) and
   `setGloss`. There is no `(1 - max(specular))` diffuse scale on either backend.
-- **Material flags bits 18 and 19 are `useSkybox` OFF and `hasOpacityMap`.** Both
-  came free when the sheen and iridescence map bits, which no shader ever read, were
-  removed with their setters; bit 20 is the only free bit. Bit 18 is stored inverted
+- **Material flags bits 18 and 19 are `useSkybox` OFF and `hasOpacityMap`.** Bit 20
+  is the only free bit. Bit 18 is stored inverted
   so a zero flags word keeps the scene environment, and it drops only the env atlas
   (SH probes and the flat ambient remain), as upstream's `useSceneEnv` does. The
   opacity map is METAL ONLY (slot 34, multiplied into the forward and shadow alpha
   with the base-colour UV); Vulkan logs one warning per process. It multiplies ON TOP
-  of the base-colour map's alpha, so a material that sets ONE texture as both — the
-  text element material did until the opacity map was wired — gets alpha squared on
-  Metal only, which thins every anti-aliased edge while Vulkan stays unchanged. Set
-  the opacity map only when it is a different texture. The spec-gloss map is
-  Metal only too; the clearcoat intensity/gloss/normal maps are on BOTH backends
-  as of 2026-09-19 (Vulkan reads them as separate images through the shared
-  material sampler, gated on flag bits 14/15/16 as Metal is). DEVIATIONS kept on
-  purpose, marked at the
-  code: `refractionIndex` and `iridescenceIOR` are IORs where upstream stores eta, and
+  of the base-colour map's alpha, so a material that sets ONE texture as both gets
+  alpha squared on Metal only, which thins every anti-aliased edge while Vulkan stays
+  unchanged. Set the opacity map only when it is a different texture. The spec-gloss
+  map is Metal only too; the clearcoat intensity/gloss/normal maps are on BOTH
+  backends (Vulkan reads them as separate images through the shared material
+  sampler, gated on flag bits 14/15/16 as Metal is). DEVIATIONS kept on purpose,
+  marked at the code: `refractionIndex` and `iridescenceIOR` are IORs where upstream stores eta, and
   sheen is colour + roughness where upstream has `sheenGloss` + `useSheen`.
 - **Ambient occlusion occludes the AMBIENT diffuse by default, the direct diffuse
   and a lightmap only under `occludeDirect`, and the specular through
   `occludeSpecular` mode and intensity.** That is upstream's split and both
   chunks follow it. `StandardMaterial::aoMap` and `Material::occlusionTexture`
   are one texture slot and one shader feature; the GLB parser fills the base
-  property and `setAoMap` writes through to it. Clearing only one of them used
-  to clear nothing, which is how the ambient-occlusion example rendered with
-  its "disabled" baked AO for as long as it existed.
+  property and `setAoMap` writes through to it, so clearing either one clears the AO.
 - **`StandardMaterial::ambient` tints the AMBIENT diffuse and nothing else** (upstream
   `material_ambient`, which #9538 routes through `litArgs_ambient`): authored sRGB, packed
   linear into `MaterialUniforms::ambientTint`, multiplied right after the ambient is added
   and scaled by `(1 - specularity)` and before occlusion, on both backends. A lightmap
   replaces the tinted term, and a lightmap BAKE keeps its ambient untinted. White, the
   default, packs exactly 1, so a material that never sets it renders bit-identically.
-  Until 2026-09-26 the port had no such property, and `lights`' ground (upstream
-  `Color.GRAY`) took its full ambient.
+  `lights`' ground uses it (upstream `Color.GRAY`).
 - **SH light probes replace the ambient DIFFUSE only; the environment atlas
   still supplies the SPECULAR.** That is upstream's split (ambient and reflections
-  are separate decisions) and the Metal chunk's; the Vulkan chunk put probes and
-  atlas in one `if / else if` until 2026-09-19, so a scene carrying both lost every
-  environment reflection the moment its probes were enabled (clearcoat's panels
-  went black, the frame fell to 0.91 of Metal from 0.985). No example in the tree
-  sets probes, which is why it lived: `VISUTWIN_AMBIENT_SH=r,g,b` in the examples
+  are separate decisions), on both backends. Probes and atlas in one `if / else if`
+  would make a scene carrying both lose every environment reflection the moment its
+  probes are enabled. No example in the tree sets probes, so drive them:
+  `VISUTWIN_AMBIENT_SH=r,g,b` in the examples
   harness puts a UNIFORM probe on any example's scene, whose diffuse is known
   exactly (a flat ambient of r,g,b), so the probes-on frame isolates everything
   else the probe path changes. Verify a change here with probes OFF bit-identical
@@ -1065,44 +1001,33 @@ present, but the rule below never depends on reading it.
   colour FACTOR is decoded in the shader, while `setEmissive` is pre-linearised by
   `updateUniforms`, so the emissive factor is NOT. Every TEXTURE is authored in
   sRGB and is decoded, base colour and emissive alike. Getting one half wrong is
-  invisible until a scene leans on it: a missing emissive-map decode left the
-  `depth-of-field` room 1.6x too bright on Vulkan while every other scene looked
-  fine, because only that scene has large emissive surfaces.
+  invisible until a scene leans on it: a missing emissive-map decode shows only in a
+  scene with large emissive surfaces, such as `depth-of-field`.
 - **An example asset standing in for upstream's must match its PIXELS, not just
-  its subject.** `textures/checkboard.png` was a generated 16px checker of
-  200/255 while upstream's is a 1024px 4x4 checker of 45/51 grey — thirty times
-  the linear albedo. `render-to-texture` multiplies it by diffuse (3,4,2), so its
-  ground rendered WHITE instead of green on both backends and read as a lighting
-  bug; `world-to-screen`'s checker was light where upstream's is dark. Before
-  chasing a brightness gap that is identical on Metal and Vulkan, compare the
-  example's textures against upstream's (`md5`, then mean pixel value) — an
-  engine bug is rarely backend-identical. The asset is regenerated to upstream's
-  exact pixels. It happened AGAIN on 2026-09-16, and not through brightness:
-  `seaside-rocks01-gloss.jpg` was a 2048px ambientCG encode averaging 130/255
-  (0.51, max 0.73) where upstream's is 1024px averaging 191/255 (0.75, max 1.0).
-  Gloss picks the environment-atlas MIP — `level = (1 - gloss) * 5` — so 0.51 read
-  a heavily prefiltered level and `refraction`'s capsules came out a flat opaque
-  wash, while upstream's 0.75 keeps them glassy. Proved by setting a CONSTANT gloss
-  on both sides: at 0.51 upstream goes flat too, at 0.9 ours turns to glass. A
-  substituted texture therefore breaks parity through any channel the shader
-  READS, not just albedo; the whole seaside-rocks01 set is now upstream's bytes.
+  its subject.** A stand-in with the wrong pixel values reads as a lighting bug that
+  is identical on both backends. Before chasing a brightness gap that is identical on
+  Metal and Vulkan, compare the example's textures against upstream's (`md5`, then
+  mean pixel value) — an engine bug is rarely backend-identical. A substituted
+  texture breaks parity through any channel the shader READS, not just albedo: gloss
+  picks the environment-atlas MIP — `level = (1 - gloss) * 5` — so a gloss map that
+  averages 0.51 where upstream's averages 0.75 reads a heavily prefiltered level and
+  turns `refraction`'s capsules into a flat opaque wash. Settle it by setting a
+  CONSTANT value on both sides. `textures/checkboard.png` and the whole seaside-rocks01
+  set (`seaside-rocks01-gloss.jpg` included) are upstream's exact bytes.
 - **Metal frame pacing is display sync ON with THREE drawables.** Display sync
   is what gives an even dt (SDL's renderer, whose layer the device borrows, may
   have switched it off); the drawable count does not affect pacing once sync is
-  on. Two drawables — the setting from 2026-08 — halve the frame rate in a
-  fullscreen space, where the display holds a drawable through the next flip:
-  2560x1440 ran at 33 ms a frame with 5 ms of GPU work and clicks landed a third
-  of a second late, while windowed mode never showed it. Measure pacing as the
+  on. Two drawables halve the frame rate in a fullscreen space, where the display
+  holds a drawable through the next flip, and input lags with it, while windowed
+  mode never shows it. Measure pacing as the
   frame-dt distribution (median, p5, p95, counts under 10 and over 25 ms), and
   measure it in fullscreen as well as windowed before touching either setting.
-- **The scissor is clamped to the pass's attachments on BOTH backends.** Vulkan always
-  did (`applyScissor`); Metal took the rect as given until 2026-09-24, so a camera rect
-  reaching past the target wrapped a negative x to a huge `NS::UInteger` or left the
-  attachment, which Metal forbids (upstream #9516 fixed the same on WebGPU).
+- **The scissor is clamped to the pass's attachments on BOTH backends** (Vulkan in
+  `applyScissor`). Unclamped on Metal, a camera rect reaching past the target wraps a
+  negative x to a huge `NS::UInteger` or leaves the attachment, which Metal forbids
+  (upstream #9516 fixed the same on WebGPU).
 - **TAA clamps and mixes in PREMULTIPLIED space and writes the CURRENT alpha**
-  (upstream `taaResolve.js`); both backends used the history alpha before 2026-09-24.
-  Opaque content moves by at most 1 count (the Catmull-Rom history's alpha is not
-  exactly 1), about 30k pixels on `taa`.
+  (upstream `taaResolve.js`), not the history alpha.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.
@@ -1122,18 +1047,18 @@ present, but the rule below never depends on reading it.
   binds NO sampler state to a compute kernel: an MSL kernel that filters declares
   its own `constexpr sampler`.
 - **Only ONE SIMD backend compiles per target, so a defect in another one is
-  invisible here.** Apple silicon selects the Apple backend; the SSE path is now
-  gated on `__SSE4_1__` (it uses `_mm_dp_ps` / `_mm_insert_ps`, so `__SSE__`
-  alone could not compile) and x86 without SSE4.1 falls through to scalar. Two
-  wrong SSE horizontal sums lived in `Vector2::dot` and
-  `Vector4::planeNormalize` for as long as the files existed. When you touch one
+  invisible here.** Apple silicon selects the Apple backend; the SSE path is gated
+  on `__SSE4_1__` (it uses `_mm_dp_ps` / `_mm_insert_ps`, so `__SSE__` alone could
+  not compile) and x86 without SSE4.1 falls through to scalar. A wrong SSE
+  horizontal sum (in `Vector2::dot`, say, or `Vector4::planeNormalize`) passes every
+  test on an Apple build. When you touch one
   backend, check the same function in the other three, and add the contract to
   `tests/simdMathTests.cpp` — which only covers the backend the build selected,
   so an x86 CI build is what would actually guard the SSE path.
 - **GCC and clang both fuse `a * b + c` into FMA by default**, and GCC does it even
   in strict C++ mode once `-mfma` is on — which Jolt's exported flags turn on for
-  every x86 engine target. Verified with objdump on Apple clang (arm64) and GCC 14
-  (x86). A fused scalar expression rounds differently from the same arithmetic in
+  every x86 engine target (objdump shows it on Apple clang arm64 and GCC 14 x86). A
+  fused scalar expression rounds differently from the same arithmetic in
   SIMD intrinsics, so a scalar path can silently stop matching its SIMD twin. The
   engine's FMA-fused scalar code is not a bug; comparing it bit for bit against
   anything is.
@@ -1141,27 +1066,26 @@ present, but the rule below never depends on reading it.
   and nowhere else.** Each is written once per backend in `quaternion.inl` (SSE
   `_mm_dp_ps`, Apple `simd_dot`, NEON pairwise sum, scalar), so a caller that spells
   `ax*bx + ay*by + ...` out of `getX()..getW()` leaves the backend and can round
-  differently from `lengthSquared()`, which is now `dot(*this)`. Until 2026-09-19
-  `AnimEvaluator`, `AnimTrack` and `Skeleton` each carried their own scalar
-  `slerpQuat` and `lerpVec3`; the header even advertised a SIMD slerp that did not
-  exist. `Vector3::lerp` is the vector twin. Contracts for all of them are in
+  differently from `lengthSquared()`, which is `dot(*this)`. No private scalar
+  `slerpQuat` or `lerpVec3` belongs anywhere (`AnimEvaluator`, `AnimTrack` and
+  `Skeleton` included). `Vector3::lerp` is the vector twin. Contracts for all of them are in
   `tests/simdMathTests.cpp`, which is per-backend by construction.
 - **The same rule holds for component-wise vector work: use the core, not
-  `getX()..getZ()`.** As of 2026-09-22 `Vector3` and `Vector4` carry `min`, `max`,
+  `getX()..getZ()`.** `Vector3` and `Vector4` carry `min`, `max`,
   `abs`, component-wise divide and multiply, `floor`, `clamp`, `minComponent` /
   `maxComponent`, `operator[]`, `lerp`, exact `==`, `perspectiveDivide` (a true
   division, so it rounds as `x / w` does) and `load` / `store` to raw floats;
   `Matrix4` has `load` / `store` (sixteen column-major floats), `normalMatrix`,
-  `determinant3x3`, `translation(Vector3)` and a SIMD `mulAffine`. An audit that day
-  found some forty files spelling these out by hand, most of them AABB accumulation
-  and 16-element `getElement` copies into uniform blocks. `min` / `max` answer
+  `determinant3x3`, `translation(Vector3)` and a SIMD `mulAffine`. AABB accumulation
+  and 16-element `getElement` copies into uniform blocks are where hand-spelled
+  versions turn up. `min` / `max` answer
   EXACTLY `std::min` / `std::max` per lane on every backend, NaN included — `(b < a)
   ? b : a` — because the native instructions disagree (NEON's `vminq` propagates a
   NaN, Apple's `simd_min` drops it) and an AABB grown over a NaN position must not
   depend on the backend; each backend therefore selects on a comparison rather than
-  calling its min instruction. `Matrix4` is trivially copyable (its old hand-written
-  copy assignment was removed), so a `memcpy` of one is well-defined; prefer
-  `store`. `Vector2` is two plain floats and its new operators are scalar on purpose.
+  calling its min instruction. `Matrix4` is trivially copyable, so a `memcpy` of one
+  is well-defined; prefer `store`. `Vector2` is two plain floats and its operators
+  are scalar on purpose.
   To check all four backends of `tests/simdMathTests.cpp` from a Mac: Apple and NEON
   (`-DUSE_SIMD_PREFER_NEON`) build natively, scalar builds if the standard headers
   are included first and `__APPLE__` / `__ARM_NEON` are then undefined, and SSE
@@ -1179,48 +1103,45 @@ present, but the rule below never depends on reading it.
   `USE_SIMD_*`, so on Apple silicon the maths classes use the Apple backend while
   the kernels use NEON; `VISUTWIN_EXPECT_KERNEL_BACKEND` makes their tests fail on a
   silent fall-through, as `VISUTWIN_EXPECT_SIMD_BACKEND` does for the maths. Two
-  traps the slab test had to avoid: a zero direction component gives
+  traps: a zero direction component in the slab test gives
   `0 * inf = NaN`, which `std::min` / `std::max` IGNORE and NEON's `vminq` /
   `vmaxq` PROPAGATE, so the SIMD form selects on comparisons instead; and splat
   depths must be clamped to the bin range before any integer conversion, because
-  the unclamped negative-to-`uint32_t` cast is undefined — x86 wrapped a splat
+  the unclamped negative-to-`uint32_t` cast is undefined — x86 wraps a splat
   nearer than the nearest bound corner to the FARTHEST key.
 - **A baked lightmap belongs to the MESH INSTANCE, not the material.**
   `MeshInstance::setLightMap` owns it (a `shared_ptr`); the renderer hands it to the
   device per draw (`GraphicsDevice::setInstanceLightMap`, cleared after the draw loop),
   both backends bind it OVER the material's slot (`applyInstanceLightMap`, slot
   `kLightMapTextureSlot`), and it switches the lightmap variant on by itself. Upstream
-  0cd268478. Until 2026-09-23 both bakers wrote into the SHARED material, so meshes
-  sharing one showed whichever bake was applied last, and a material shared with an
-  unbaked mesh carried the bake onto it — `lightmap-sources` shows all of it. Two
-  things came with it: a bake variant never samples a lightmap (a previous bake still
-  attached used to be written back into the new one as its indirect light), and Metal
+  0cd268478. Written into a SHARED material, meshes sharing it show whichever bake was
+  applied last, and an unbaked mesh sharing it carries the bake — `lightmap-sources`
+  shows all of it. Two more rules: a bake variant never samples a lightmap (otherwise
+  a previous bake still attached is written back into the new one as its indirect
+  light), and Metal
   rebinds the material textures when only the instance lightmap changed, since its
   "same material, skip binding" shortcut would otherwise keep the last mesh's bake.
   A lightmap is sampled through UV1, and the built-in box, cylinder, cone and capsule
   carry upstream's UV1 unwrap: every face or part in its own cell, padded by 8/64 of
-  it (`PrimitiveGeometry::uvs1`; the plane and sphere use UV0, as upstream). Until
-  2026-09-23 every primitive copied UV0 into UV1, so a baked box wrote all six faces
-  into one square and showed their blend; `tests/primitiveGeometryTests.cpp` holds the
-  cells disjoint.
-- **The CPU lightmapper's BVH skipped most of every tree until 2026-09-13.** It
-  stored only a node's left child and walked `left` and `left + 1`, but children
-  are built depth-first, so `left + 1` is the right sibling only when the left child
-  is a leaf. On a 24,800-triangle scene it answered every ray that should have hit
-  as a miss: no shadows and no AO. `LightmapperBvh` stores both children, and
-  `tests/lightmapperBvhTests.cpp` checks any-hit against brute force over every
-  triangle — the only oracle that cannot share a tree bug. Nothing visual caught
-  it because `lightmap-bake` starts with the GPU bake; the CPU bake runs only when
-  C is pressed, so a default screenshot proves nothing about the CPU path.
+  it (`PrimitiveGeometry::uvs1`; the plane and sphere use UV0, as upstream). Copying
+  UV0 into UV1 would write all six faces of a baked box into one square and show
+  their blend; `tests/primitiveGeometryTests.cpp` holds the cells disjoint.
+- **The CPU lightmapper's BVH stores BOTH children of a node.** Children are built
+  depth-first, so `left + 1` is the right sibling only when the left child is a
+  leaf; a walk of `left` and `left + 1` skips most of the tree and answers rays that
+  should hit as misses (no shadows, no AO). `LightmapperBvh` stores both children,
+  and `tests/lightmapperBvhTests.cpp` checks any-hit against brute force over every
+  triangle — the only oracle that cannot share a tree bug. `lightmap-bake` starts
+  with the GPU bake; the CPU bake runs only when C is pressed, so a default
+  screenshot proves nothing about the CPU path.
 - **A glTF attribute is not always float, and refusing a quantised one drops the
   whole primitive in silence.** `TEXCOORD_n` and `COLOR_n` may be normalized
   byte/short in CORE glTF, and `KHR_mesh_quantization` extends that to `POSITION`,
   `NORMAL` and `TANGENT`. One `decodeComponent` in `glbParser.cpp` does the spec's
   de-quantisation for every reader, sparse overrides included, so a new reader
-  should go through `readElement` rather than casting to `const float*`. The gate
-  that actually rejected such a file was not the readers: FOUR per-primitive guards
-  tested `componentType != FLOAT` and `continue`d, so the mesh simply was not there
-  and nothing was logged. Verify a change here by rendering the quantised asset
+  should go through `readElement` rather than casting to `const float*`. Never gate a
+  primitive on `componentType != FLOAT`: a guard that `continue`s drops the mesh with
+  nothing logged. Verify a change here by rendering the quantised asset
   against the same geometry written as floats — they must agree to rounding.
 - **An animation layer's weight is a CONTRIBUTION, composed per node across layers;
   nothing but the component writes an animated node.** Each layer's `AnimEvaluator`
@@ -1230,8 +1151,8 @@ present, but the rule below never depends on reading it.
   (captured the first time a layer drives that property) scaled by it, a mask
   restricts a layer to listed node paths, and `setNormalizeWeights` divides by the
   total and drops the layers beneath the topmost OVERWRITE one, all as upstream's
-  `AnimTargetValue`. Until 2026-09-19 every layer with weight > 0 wrote the nodes
-  itself and the last one won, so a 0.25 layer was a full overwrite. Two consequences
+  `AnimTargetValue`; a layer that wrote the nodes itself would make a 0.25 layer a
+  full overwrite whenever it ran last. Two consequences
   for new code: an evaluator used OUTSIDE a component (no sink) still writes nodes
   directly, and a zero-weight layer keeps advancing its clocks (upstream does), it
   just contributes nothing. `tests/animLayerBlendTests.cpp` holds the closed-form
@@ -1247,11 +1168,8 @@ present, but the rule below never depends on reading it.
   node and morph answers per target, and a layer's `drives()` per target against
   `AnimComponentLayer::maskVersion()`. Both caches are keyed on
   `AnimBinder::version()`: a binder whose answers can change (an `unresolve`) MUST bump
-  it, or animation keeps writing the node it resolved first. Until 2026-10-01 each update
-  built two path-keyed maps per evaluator and probed one per node in the component —
-  about six hashes and four allocations per animated node per frame: one character's
-  update 0.115 -> 0.052 ms (`anim-stategraph`), 0.216 -> 0.077 (`blend-trees-2d`), poses
-  bit-identical. Only a value's flagged fields (`hasPosition` ...) carry an update's result;
+  it, or animation keeps writing the node it resolved first. Do not reintroduce
+  path-keyed maps on the per-frame path. Only a value's flagged fields (`hasPosition` ...) carry an update's result;
   the unflagged ones are left over from earlier updates.
 - **A glTF node's identity is its name or `node_<index>`, and an animation target
   is a PATH of those names.** `glbNodeName` in `glbParser.cpp` is the one spelling,
@@ -1261,10 +1179,10 @@ present, but the rule below never depends on reading it.
   `Root/Arm/Wheel`, upstream's `constructNodePath`, and `DefaultAnimBinder` walks
   the path from the bound entity (as its children, as itself, or anchored deeper)
   before falling back to the leaf name, so two "Wheel"s in different branches
-  animate their own entity. Until 2026-09-19 the parser SKIPPED every channel whose
-  node had no name and bound the rest by bare `findByName`; an exporter that names
-  only meshes and bones lost its animation in silence, and duplicate names drove
-  the first match twice. `tests/glbAnimationBindingTests.cpp` builds the model in
+  animate their own entity. Skipping a channel whose node has no name, or binding by
+  bare `findByName`, silently loses the animation of an exporter that names only
+  meshes and bones, and drives the first of two duplicate names twice.
+  `tests/glbAnimationBindingTests.cpp` builds the model in
   memory and holds both. Hand-authored tracks keep working with bare names.
 - **`KHR_texture_transform` cannot be copied from upstream, because this parser
   flips V into the vertex and upstream does not.** The composed transform is
@@ -1278,19 +1196,18 @@ present, but the rule below never depends on reading it.
 - **A texture's row 0 is the TOP of the image, and v = 0 samples it — for loaded
   images AND render targets, on both backends.** That is upstream's
   RENDERTARGET_ORIGIN_TOP, and it is the only origin here, so there is no `flipY`
-  on `RenderTargetOptions` (it was stored and never read). Every built-in primitive
-  writes upstream's `(u, 1 - v)`, putting v = 0 at the TOP: +Y on the box sides,
-  sphere and cone bodies, -Z on the plane. The plane wrote plain `v` until
-  2026-09-15, so every image on a plane was upside down against upstream — seen
-  only as render-to-texture's tv showing its sky at the bottom, because a lying
-  plane with a checkerboard or a rock texture does not look wrong either way.
+  on `RenderTargetOptions`. Every built-in primitive writes upstream's `(u, 1 - v)`,
+  putting v = 0 at the TOP: +Y on the box sides, sphere and cone bodies, -Z on the
+  plane. A flipped plane hides well: a lying plane with a checkerboard or a rock
+  texture does not look wrong either way, and only render-to-texture's tv shows it
+  (its sky at the bottom).
   `tests/primitiveGeometryTests.cpp` pins the orientation; test anything new here
   with an ASYMMETRIC image, never a checker.
 - **The CPU picker's ray goes through the pixel CENTRE, from the NEAR plane out.**
   `Picker::getWorldPoint` adds 0.5 to the pixel coordinate (upstream 5cc6269d5) and
   unprojects NDC z -1 as near and +1 as far — the GL-style projection this engine
-  uses. Until 2026-09-24 it passed the pixel's corner and built the ray from the far
-  plane back toward the camera, so the nearest hit was the FAR side of the object.
+  uses. A ray built from the far plane back toward the camera makes the nearest hit
+  the FAR side of the object.
   DEVIATION kept: it intersects bounding spheres, not a depth readback.
   `tests/pickerTests.cpp` holds both halves.
 - **Primitive tangents are DERIVED from the UVs, never written by hand, and the
@@ -1300,23 +1217,23 @@ present, but the rule below never depends on reading it.
   handedness, which is a DEVIATION from upstream's own `calculateTangents` (it
   points toward +v) but matches what upstream actually shades primitives with: its
   primitive cache builds them WITHOUT tangents, and its derivative TBN negates the
-  dP/dv axis. Until 2026-09-15 the box wrote (1, 0, 0) on every face (parallel to
-  the normal on +/-X, which rendered those faces black), and the sphere and capsule
-  had tangent AND bitangent reversed — a 180-degree turn of the normal map that
-  reads as light from the wrong side, not as an error. The sphere, capsule and cone emit NO
+  dP/dv axis. A hand-written tangent fails two ways: (1, 0, 0) on every box face is
+  parallel to the normal on +/-X and renders those faces black, and a reversed
+  tangent AND bitangent is a 180-degree turn of the normal map that reads as light
+  from the wrong side, not as an error. The sphere, capsule and cone emit NO
   triangle that collapses to a line at a pole or tip, and each pole or tip vertex has its u
-  centred on the one triangle that uses it (upstream #9597, 2026-09-30); their caps index from
-  the vertices made so far, so a zero height or a zero radius no longer indexes past them. Change a primitive's UVs and
+  centred on the one triangle that uses it (upstream #9597); their caps index from
+  the vertices made so far, so a zero height or a zero radius does not index past them. Change a primitive's UVs and
   the frame follows; the test checks every corner against its triangle's UV
   gradient. `DEBUGPASS_WORLDNORMAL` on a normal-mapped box beside a plane wall shows
   a wrong frame in one frame: matching faces must match in colour. The frame is not
   only a normal-map concern: Metal's anisotropic IBL bends the reflection toward the
-  bitangent, so its SIGN picks sky or ground, and the `anisotropy` spheres changed
-  on Metal while Vulkan (a roughness-only approximation) stayed bit-identical.
+  bitangent, so its SIGN picks sky or ground: the `anisotropy` spheres on Metal move
+  with it, while Vulkan (a roughness-only approximation) does not.
 - **A glTF material property must be written to the STANDARDMATERIAL slot, not the
   base Material one.** `StandardMaterial::updateUniforms` pushes its own per-map
   tiling/offset/rotation into `Material`'s `TextureTransform` fields on every pack,
-  so `setBaseColorTransform` from the parser was overwritten before it ever reached
+  so `setBaseColorTransform` from the parser is overwritten before it ever reaches
   the GPU — the same trap as `setDiffuse` versus `setBaseColorFactor`, one field
   further out. The parser writes `setDiffuseMapTiling` and its four siblings.
 - **A glTF file loads through ONE pipeline, whatever the entry point.** `parse()` and
@@ -1324,11 +1241,9 @@ present, but the rule below never depends on reading it.
   `prepareFromModel()` + `createFromPrepared()` on the calling thread; `loadAsync` runs
   the same two halves with the first on a worker. Materials come from
   `createGltfMaterial`, textures from `createPreparedTexture`, vertices from
-  `extractTrianglePrimitive`, point clouds from `appendPointVertices`. Until 2026-09-24
-  the three paths each carried their own copy, and the async copies had drifted: no
-  occlusion or emissive texture, no metallic-roughness UV set, no `KHR_materials_unlit`,
-  and POINTS primitives drawn as triangles with no colours or merge. No example loads
-  asynchronously, which is how it lived. `tests/glbMaterialPathsTests.cpp` and
+  `extractTrianglePrimitive`, point clouds from `appendPointVertices`. A per-entry-point
+  copy drifts, and no example loads asynchronously, so a drifted async path goes
+  unseen. `tests/glbMaterialPathsTests.cpp` and
   `tests/glbPointCloudTests.cpp` build models in memory and check both halves. A new
   glTF feature goes into the shared step, never into one entry point.
 - **glTF cameras and `KHR_lights_punctual` lights are imported DISABLED**, as upstream's
@@ -1344,7 +1259,6 @@ present, but the rule below never depends on reading it.
   shutter or sensitivity, so set the matching `Scene::setExposure` yourself (the
   `glb-loader` example does). Anything that reads a light's strength for rendering goes
   through `LightComponent::renderIntensity(physicalUnits)`, not `intensity()`.
-  Until 2026-09-24 the parser read neither, and `glb-loader` parsed the JSON itself.
   `tests/glbCameraLightTests.cpp` checks both load paths.
 - **The four remaining glTF extensions are FACTORS-ONLY where they touch materials.**
   `KHR_materials_sheen`, `_specular`, `_iridescence` and `_anisotropy` apply their
@@ -1367,29 +1281,29 @@ present, but the rule below never depends on reading it.
 - **An instance matrix places the instance in its NODE's space, as upstream
   (`matrix_model * instance`).** The renderer uploads the node's world matrix for every
   instanced draw — forward, GPU-culled and depth-only — and both vertex stages compose
-  it; until 2026-09-25 it uploaded identity, so instances were WORLD transforms and an
-  instanced mesh ignored its entity (every shipped example keeps it at the origin, which
-  is why nothing showed). Two things follow the same rule: the instancing bounds are a
+  it; uploading identity would make instances WORLD transforms that ignore their entity,
+  which no shipped example shows because every one keeps it at the origin. Two things
+  follow the same rule: the instancing bounds are a
   LOCAL union (`_instancingLocalAabb` behind `_customAabb`) that `aabb()` carries through
   the node each time, and the GPU culler gets the frustum planes carried INTO the node's
   space (`M^T * plane`, which keeps world distances, with the sphere radius scaled by
   the node's largest axis), so its kernel is unchanged.
 - **The metalness workflow's non-metal F0 is `f0(IOR) x specular colour x specularity
   factor`** (upstream `getSpecularModulate`), packed on the CPU into
-  `MaterialUniforms::metalnessSpecular` and read by both surface chunks where a
-  literal 0.04 used to be. It is computed in DOUBLE so the default IOR of 1.5 lands on
-  exactly 0.04f and every frame without the new inputs stays bit-identical. The
-  colour applies only under `setUseMetalnessSpecularColor(true)`
-  (KHR_materials_specular sets it). Expect a frame to move wherever a metallic-rough
-  material carries `KHR_materials_ior` or a black specular colour: `procedural-sky`'s
-  sand (`specularColorFactor [0,0,0]` — no specular at all, as upstream) moved 4.8
-  counts on average, `refraction` (IOR 1.33) and `post-processing`'s amber (1.55) less.
+  `MaterialUniforms::metalnessSpecular` and read by both surface chunks. It is computed
+  in DOUBLE so the default IOR of 1.5 lands on exactly 0.04f and a frame without those
+  inputs is bit-identical to a literal 0.04. The colour applies only under
+  `setUseMetalnessSpecularColor(true)` (KHR_materials_specular sets it). A frame
+  differs from a literal 0.04 wherever a metallic-rough material carries
+  `KHR_materials_ior` or a black specular colour: `procedural-sky`'s sand
+  (`specularColorFactor [0,0,0]` — no specular at all, as upstream), `refraction`
+  (IOR 1.33) and `post-processing`'s amber (1.55).
 - **Anisotropy has a DIRECTION** (`StandardMaterial::setAnisotropyRotation`, degrees,
   upstream `material_anisotropyRotation`): `T' = cos r * T + sin r * B` in both
   chunks, packed as `anisotropyParams`. The strength goes up as a magnitude; the
   deprecated negative strength is folded in as rotation + 90, with quarter turns
   written exactly, so a material that only ever used the sign picks the tangent or
-  bitangent bit for bit as before (`anisotropy` came back identical).
+  bitangent bit for bit.
 - **`extensionsRequired` is consulted, and the list of what the parser supports
   lives in `warnUnsupportedRequiredExtensions`.** Add an extension there when you
   implement it, or a file that needs it keeps warning; leave it out when you only
@@ -1401,12 +1315,11 @@ present, but the rule below never depends on reading it.
   `maxFramesInFlight`, `supportsCompressedFormat`, `supportsDualSourceBlending`,
   `supportsCompute`, `supportsGpuInstanceCulling` and `supportsTimestampQuery` are
   the whole list; a new one goes there rather than into a backend header, or only
-  one backend can be asked. Two failure shapes this closes, both silent: a LITERAL
-  standing in for a limit — five call sites clamped to 4096, which is a quarter of
-  what either backend actually allows — and the SAME limit spelled differently per
-  backend, which is what a hard-coded 16x anisotropy on Metal and a queried one on
-  Vulkan were. The float-renderable pair defaults to FALSE and the dimensions to
-  the 4096 they replaced, so a backend that answers nothing degrades instead of
+  one backend can be asked. Two failure shapes this prevents, both silent: a LITERAL
+  standing in for a limit (a clamp to 4096 is a quarter of what either backend
+  actually allows) and the SAME limit spelled differently per backend (a hard-coded
+  16x anisotropy on one, a queried one on the other). The float-renderable pair
+  defaults to FALSE and the dimensions to 4096, so a backend that answers nothing degrades instead of
   allocating a target the driver refuses. `supportsTimestampQuery` is derived from
   `gpuProfiler()` rather than stored, since both backends build the profiler only
   after finding timestamp support and a second flag could only disagree with it.
@@ -1427,9 +1340,9 @@ present, but the rule below never depends on reading it.
   — and every one of them already holds the device. Each backend's `draw()` calls
   `recordDraw(primitive, instances)`, which is what `stats.triangles` and
   `otherPrimitives` come from, and `setShader` counts a switch when the shader
-  changes. Until 2026-09-25 fifteen of these had no write site and read zero; the
-  fills also reset them, so `start()`'s tick followed by the examples' manual
-  update/render counted two renders into the first frame. A new counter needs a writer
+  changes. A second reset site (in the fills, say) would let `start()`'s tick followed
+  by the examples' manual update/render count two renders into the first frame. A new
+  counter needs a writer
   AND a line in `tests/frameStatsTests.cpp`, which renders a known scene through the
   real engine on a stub device — nothing on screen reads these, so nothing else will
   notice a dead one.
@@ -1438,8 +1351,8 @@ present, but the rule below never depends on reading it.
   triangles; a file's own OBJ normals are left as the file says. Smoothing weights each
   face by its CORNER ANGLE, so a quad smooths the same whichever diagonal it was split
   on. And an OBJ corner's dedup key carries the generated normal: without it a flat
-  (`s off`) cube with no normals welded to 8 vertices and lit two faces of every corner
-  with the third's normal. Nothing in the examples loads OBJ or STL, so
+  (`s off`) cube with no normals welds to 8 vertices and lights two faces of every
+  corner with the third's normal. Nothing in the examples loads OBJ or STL, so
   `tests/objStlRoundTripTests.cpp` is the only thing that sees these.
 - **`pixelFormatInfo` is a map the `PixelFormat` enum does not enforce.** An
   enumerator with no entry makes `pixelFormatBytesPerPixel()` return 0, which
@@ -1448,17 +1361,16 @@ present, but the rule below never depends on reading it.
   there when you add one to the enum.
 - **The forward sort key packs its fields; it must never XOR them.** The layout is
   in `scene/renderer/sortKey.h` — draw bucket, alpha test, material ID, mesh — each
-  owning its own bits, and `tests/sortKeyTests.cpp` holds it. The key it replaced
-  XORed overlapping ranges (the depth-state key and the emissive-texture bit both at
-  bit 4, the alpha mode and the occlusion bit both at bit 3), so two materials
-  differing in one of those hashed equal and interleaved; and its one caller shifted
-  the result left by 32 and discarded the half holding the shader variant key, so the
-  most expensive state change in a frame contributed nothing to the order. Material
+  owning its own bits, and `tests/sortKeyTests.cpp` holds it. XORing overlapping
+  ranges makes two materials that differ in one of the colliding fields hash equal and
+  interleave, and a caller that shifts the key and discards a half can drop the
+  shader variant key — the most expensive state change in a frame — from the order.
+  Material
   IDENTITY is what is sorted on, as upstream, because consecutive draws of one
   material skip binding entirely — state similarity cannot deliver that.
 - **A layer carries a sort mode per sublayer** (`Layer::opaqueSortMode` /
   `transparentSortMode`, upstream's SORTMODE_*), defaulting to MATERIALMESH and
-  BACK2FRONT, which is what the renderer always did. The two pull in opposite
+  BACK2FRONT. The two pull in opposite
   directions on purpose: opaque wants the fewest state changes, transparent has to
   composite back to front. SORTMODE_CUSTOM with a null callback leaves the order
   ALONE rather than falling back to a mode nobody asked for.
@@ -1477,11 +1389,10 @@ present, but the rule below never depends on reading it.
 - **A loop that gathers components for a frame must test `Component::active()`,
   not `enabled()`.** `enabled()` is the component's OWN flag and says nothing
   about an entity — or a parent entity — that was switched off; `active()` is both
-  halves, and it is the same condition `onEnable` / `onDisable` fire on. Every one
-  of the ten light-gathering loops tested `enabled()` alone until 2026-09-11, so a
-  light on a disabled entity went on lighting the scene and casting its shadow
-  while the mesh instances on that same entity correctly vanished (the render loop
-  had been patched for this hole by hand; lights had not). `LightComponent` also
+  halves, and it is the same condition `onEnable` / `onDisable` fire on. Gathered on
+  `enabled()` alone, a light on a disabled entity goes on lighting the scene and
+  casting its shadow while the mesh instances on that same entity vanish.
+  `LightComponent` also
   syncs `active()` into its backing `Light`, because `shadowRenderer`,
   `shadowRendererLocal` and the cookie pass gate on `Light::enabled()` rather than
   on the component. Two sweeps deliberately take EVERY instance and say so in a
@@ -1489,33 +1400,33 @@ present, but the rule below never depends on reading it.
   even if that light is switched off mid-bake, and the camera's render-data purge,
   where a disabled light is exactly the one holding a stale pointer.
 
-  CAMERAS had it too until 2026-09-23: `LayerComposition` built its render actions
-  from `enabled()` and fingerprinted the same flag, so a camera on a disabled entity
-  kept rendering and switching the entity did not even trigger a rebuild. The
-  fingerprint now also carries the camera's clear flags, because `setupClears`
-  COPIES them into the actions and a runtime change was otherwise ignored.
-  `tests/componentActiveTests.cpp` holds both.
+  CAMERAS too: `LayerComposition` builds its render actions from the camera's active
+  state and fingerprints it, since built and fingerprinted from `enabled()` a camera on
+  a disabled entity keeps rendering and switching the entity does not even trigger a
+  rebuild. The fingerprint also carries the camera's clear flags, because
+  `setupClears` COPIES them into the actions and a runtime change would otherwise be
+  ignored. `tests/componentActiveTests.cpp` holds both.
 
-  SCRIPTS had the same hole and the same fix: every phase — initialize,
+  SCRIPTS likewise: every phase — initialize,
   postInitialize, fixedUpdate, update, postUpdate — gates on `active()`, and
   `Script::enabled()` folds in its component's active state, so a script on a
   disabled entity stops running rather than merely stopping being drawn.
   `ScriptComponent::onEnable` is what initializes a script created while the
-  component was inactive; that logic used to live in its `setEnabled` override,
-  which saw only the component's own flag, so a script created on an entity that
-  was enabled LATER never initialized at all.
+  component was inactive; in a `setEnabled` override, which sees only the
+  component's own flag, a script created on an entity that is enabled LATER would
+  never initialize at all.
 
-  PARTICLE SYSTEMS were the last loop found with it (2026-09-25): their update
-  tested the component's and its own entity's `enabled()`, so an emitter under a
-  disabled PARENT kept simulating.
+  PARTICLE SYSTEMS too: testing the component's and its own entity's `enabled()`
+  keeps an emitter under a disabled PARENT simulating.
 - **A particle's clock is upstream's, and `rate` is the seconds between births, so 0 is a
   BURST.** Particle i starts at life `-i * rate`; a life <= 0 is unborn and re-spawned every
   step; reaching the lifetime wraps the life back by `max(lifetime, numParticles * rate)`,
   showing the particle again when the emitter loops and HIDING it (flag in `rotSeedSize.w`)
   when it does not; `stop()` clears the loop and hides the unborn, and `play()` restores it,
-  bringing hidden particles back at their next wrap. Until 2026-09-30 `rate` 0 meant "auto,
-  lifetime / numParticles", `stop()` froze and cleared the pool, and every quad was HALF
-  upstream's size (`scaleGraph` is a half-extent, as upstream's +/-1 quad times scale). A
+  bringing hidden particles back at their next wrap. `rate` 0 does not mean "auto,
+  lifetime / numParticles", and `stop()` neither freezes nor clears the pool.
+  `scaleGraph` is a half-extent, as upstream's +/-1 quad times scale; read as a full
+  extent, every quad is HALF upstream's size. A
   screen-space emitter (`screenSpace`, a child of a screen-space element) takes the node's
   world transform as CLIP space with no view or projection, sizes in viewport heights with
   the quad's x scaled by height / width (upstream #9570), and a screen puts it in the UI draw
@@ -1524,12 +1435,12 @@ present, but the rule below never depends on reading it.
   the colour map is decoded from sRGB, multiplied by the colour graph, then tone-mapped with
   the scene's exposure and gamma-encoded, or left linear on a camera frame's HDR scene
   (`ParticleEmitter::setOutput`, filled per draw by the renderer like the splats' tail).
-  Until 2026-09-30 the billboard wrote `tex x ramp` raw, so every mid-tone of a colour graph
-  was darker than upstream's. The kernel's randomness is an INTEGER hash (PCG of the particle
-  index and a step counter), identical in MSL and GLSL; the `fract(sin(x) * 43758)` it
-  replaced was not uniform on the GPU (a spark fountain 10% narrower than upstream) and not
-  the same on the two backends. An unset graph is a CurveSet whose curves have NO KEYS — a
-  default `CurveSet` still holds one empty curve, and treating that as a zero graph2 halved
+  A billboard that writes `tex x ramp` raw draws every mid-tone of a colour graph darker
+  than upstream's. The kernel's randomness is an INTEGER hash (PCG of the particle
+  index and a step counter), identical in MSL and GLSL; `fract(sin(x) * 43758)` is not
+  uniform on the GPU (a spark fountain 10% narrower than upstream) and not the same on
+  the two backends. An unset graph is a CurveSet whose curves have NO KEYS — a default
+  `CurveSet` still holds one empty curve, and treating that as a zero graph2 halves
   every velocity graph on average. The option defaults are upstream's: scale 1, opaque,
   white, BLEND_NORMAL, rate 1.
 - **A script may create a sibling or destroy its own entity from inside its own
@@ -1538,45 +1449,43 @@ present, but the rule below never depends on reading it.
   vector) runs in the same pass; and a shared `RunState` outlives the component, so when
   a script's `entity()->destroy()` frees the component mid-loop, the destructor hands the
   scripts to `RunState::retired` instead of freeing the one still executing, and the
-  loop checks `alive` before touching the component again. Until 2026-09-24 the loops
-  range-iterated `_scripts`: both cases were undefined behaviour that usually still
-  worked. `tests/scriptLifetimeTests.cpp` holds both, and under the `sanitize` preset
-  the old code aborts with a heap use-after-free.
+  loop checks `alive` before touching the component again. A loop that range-iterates
+  `_scripts` makes both cases undefined behaviour that usually still works.
+  `tests/scriptLifetimeTests.cpp` holds both, and under the `sanitize` preset a
+  range-iterating loop aborts with a heap use-after-free.
 - **An entity built from a container outlives the Asset's `unload()`.** A mesh instance
   co-owns its mesh and material, and every material a `GlbContainerResource` hands out
   keeps the container's texture list alive (`Material::retainResource`), because a
   material holds its textures as RAW pointers. All four parsers (glb, obj, stl, assimp)
-  build that container. Until 2026-09-24 unloading the asset freed the textures under a
+  build that container. Without it, unloading the asset would free the textures under a
   live entity's materials. Still borrowed: a `Texture*` from a TEXTURE asset set on a
   material by hand — that asset must outlive the material.
 - **Component lifecycle runs in `Component::order()`, not container order.**
   Lowest first on enable, reverse on disable, creation order as the tiebreak;
   `RigidBodyComponent` returns -1 so its body exists before anything can move or
   query it. `onPostStateChange()` then runs over every component, which is where
-  one wires itself to a sibling that had to exist first. This used to iterate an
-  `unordered_map`, so the order varied per run.
+  one wires itself to a sibling that had to exist first. Never iterate an
+  `unordered_map` here: the order would vary per run.
 - **Component systems emit `add` / `beforeremove` / `remove`, and
   `removeComponent(Entity*)` is the way to take a component away.** A system that
   needs its own bookkeeping on destruction must not declare an overload named
   `removeComponent` — that hides the virtual (`ScriptComponentSystem` calls its
   one `unregisterComponent` for exactly this reason).
 - **`ComponentSystemRegistry::add` REJECTS a duplicate id, or a second system for
-  the same component type, and keeps the first.** It used to overwrite the lookup
-  maps while leaving the original alive, owned and still subscribed behind an id
-  that no longer resolved to it. `remove` erases from the owning vector and both
+  the same component type, and keeps the first.** Overwriting the lookup maps would
+  leave the original alive, owned and still subscribed behind an id that no longer
+  resolves to it. `remove` erases from the owning vector and both
   maps together — partial erasure is the bug this pairing exists to prevent.
 - **A component type's `instances()` list keeps CREATION order, and a destroyed
   component leaves a NULL in it until the list is next read**
   (`framework/components/componentInstanceList.h`). Every component type registers in a
   `ComponentInstanceList<T>` from its constructor and leaves it from its destructor;
   removal finds the slot by binary search on a creation serial and nulls it, and
-  `items()` closes the holes in one ordered pass. It used to be `std::erase` on a
-  vector — a scan and a shift per removal — so destroying K of N components cost K x N:
-  20k entities under one parent took 98 ms to destroy, 40k took 306 ms (7.6 us each),
-  and after it 24 and 47 ms (1.2 us each). Two rules follow. Every loop over
-  `instances()` checks each entry for null — the list never hands out a hole, but a
-  component destroyed during the loop becomes one under it (where the old erase shifted
-  the survivors and the loop skipped one). And a destructor or teardown hook that
+  `items()` closes the holes in one ordered pass. A `std::erase` on a vector — a scan
+  and a shift per removal — would make destroying K of N components cost K x N. Two
+  rules follow. Every loop over `instances()` checks each entry for null — the list
+  never hands out a hole, but a component destroyed during the loop becomes one under
+  it (where an erase would shift the survivors and the loop skip one). And a destructor or teardown hook that
   walks its own type's list uses `forEachLive`, which does not compact, because it may
   run inside someone else's loop over `items()`. A new component type registers the
   same way; `tests/componentInstanceListTests.cpp` holds order, holes and a destroy
@@ -1589,9 +1498,8 @@ present, but the rule below never depends on reading it.
   removes a sibling from inside its own body, which then sees a null under it (never a
   shift). Such a loop checks for null and does not call `children()` on that node again
   inside the loop; every loop INSIDE `GraphNode` that can run callbacks (`fireOnHierarchy`,
-  `notifyHierarchyStateChanged`) walks by index and skips holes. Until 2026-10-01
-  `removeChild` was a find and an erase: destroying 20k siblings took 318 ms, 40k took
-  1.2 s; now 7.4 and 14 ms. `tests/graphNodeTests.cpp` holds order, re-removal, deletion
+  `notifyHierarchyStateChanged`) walks by index and skips holes. A `removeChild` that
+  finds and erases is quadratic over many siblings. `tests/graphNodeTests.cpp` holds order, re-removal, deletion
   while attached and a removal mid-walk.
 - **`Entity::destroy()` is the teardown path, and it does NOT free the node.**
   Descendants first, disable in order, `destroy` event, then each component
@@ -1607,18 +1515,14 @@ present, but the rule below never depends on reading it.
   `setMaterial` swaps the instance's material IN PLACE, as upstream, instead of
   rebuilding the primitive. So nothing may modify a mesh reached through a primitive
   component — it is every such component's mesh; per-instance state (material,
-  lightmap, mask, stencil, shadow flags) lives on the MeshInstance and now survives a
+  lightmap, mask, stencil, shadow flags) lives on the MeshInstance and survives a
   material change. A batched source's material change tears its group down
-  (`sourcesLeaving`) as the rebuild used to. DEVIATION: the cache holds meshes WEAKLY —
+  (`sourcesLeaving`). DEVIATION: the cache holds meshes WEAKLY —
   the components co-own them (`_ownedMeshes`) and the last one to go frees the mesh —
   because the device fires no "destroy" a strong cache could clear on, and a mesh freed
-  at static destruction would release its buffers into a device already gone. Until
-  2026-09-30 every component built its own geometry and GPU buffers (190 KB for a
-  sphere), creating a primitive entity took 9.5 us on Metal and 30 on Vulkan (0.36
-  after, both), and draws of one material each bound their own vertex buffer: 20k boxes
-  rendered in 6.9 ms of CPU on Metal, 4.0 after. Boxes of one material now tie in the
-  sort key's mesh field and keep collection order, where they used to order by mesh
-  address. `tests/primitiveMeshSharingTests.cpp` counts the buffers.
+  at static destruction would release its buffers into a device already gone. Boxes
+  of one material tie in the sort key's mesh field and keep collection order.
+  `tests/primitiveMeshSharingTests.cpp` counts the buffers.
 - **`Entity::clone` is TWO passes, and a new component owes both.** The first builds
   the copy — node state and tags, then each component in CREATION order through
   `Component::cloneFrom` — and the second, once the whole subtree exists, calls
@@ -1633,17 +1537,17 @@ present, but the rule below never depends on reading it.
   `MeshInstance::cloneFor` (shared mesh and material ownership, its own morph and skin
   instance, no lightmap or instancing) and CO-OWNS a primitive mesh, and skips
   instances a splat, emitter or wide line attached; those owners rebuild their own.
-  Until 2026-09-24 only render and light had a `cloneFrom`: every other component came
-  back default-constructed, nothing was remapped, and a cloned box borrowed its mesh
-  from the source. `tests/entityCloneTests.cpp` fails 19 checks on that behaviour.
-- **`Tags::add` / `remove` with a string literal recursed until the stack ran out**
-  (the variadic template re-deduced itself for the vector it built), so nothing could
-  tag a node until 2026-09-24. They forward through a const reference now.
+  A component without its own `cloneFrom` comes back default-constructed.
+  `tests/entityCloneTests.cpp` fails when a component comes back default-constructed,
+  a reference is not remapped, or a cloned box borrows its mesh from the source.
+- **`Tags::add` / `remove` forward through a const reference.** With a string literal
+  the variadic template would otherwise re-deduce itself for the vector it builds and
+  recurse until the stack runs out.
 - **`Engine::start()` must be called AFTER the scene exists.** It fires the
   initialize phase (`start`, then systems `initialize` / `postInitialize`, then
   the app's `initialize` / `postinitialize`) and then ticks. `ExampleApp` starts
   the engine in `run()` once `create()` has returned, for exactly this reason —
-  starting it in `initEngine()` initialized an empty world and rendered an empty
+  starting it in `initEngine()` initializes an empty world and renders an empty
   first frame. Every script initializes before any script post-initializes.
 - **The per-draw uniform rings GROW, and the growth is why an overflow is only
   ever one bad frame.** Both backends size a frame region for a draw count, count
@@ -1683,21 +1587,16 @@ present, but the rule below never depends on reading it.
   sublayers read.** `ForwardRenderer::buildFrameGraph` registers the pairs it will
   render (`Renderer::requestMeshInstanceCull`) and culls them in one batch
   (`executeMeshInstanceCull`), which is where the `precull` and `postcull` events
-  fire — once per camera, upstream's contract, which a lazy per-layer cull could not
-  give. `renderForwardLayer` then reads its own bucket. It used to sweep every
-  `RenderComponent` in the scene and run the frustum test itself, for the OPAQUE
-  sublayer and then again for the TRANSPARENT one, each discarding the half that
-  belonged to the other.
+  fire — once per camera, upstream's contract, which a lazy per-layer cull cannot
+  give. `renderForwardLayer` then reads its own bucket; it does not sweep the scene
+  or run the frustum test itself.
 
   **All of a camera's layers are culled in ONE sweep of the scene**
   (`Renderer::cullMeshInstances`): each component's layers are matched against the
   requested ones as a bitmask, and an instance is tested once and pushed into every
-  requested layer's bucket it belongs to. Until 2026-09-30 each (camera, layer) pair
-  swept every component itself — five sweeps for a default camera (World, Depth,
-  Skybox, UI, Immediate), four of which found almost nothing — and at 20k instances
-  culling was a quarter of the frame (2.4 -> 1.1 ms after). Each bucket's ORDER is
-  what the per-layer sweep produced (components in creation order, then the layer's
-  own instances); keep it, since equal sort keys keep it too. The cache keeps each
+  requested layer's bucket it belongs to. Each bucket's ORDER is components in
+  creation order, then the layer's own instances; keep it, since equal sort keys keep
+  it too. The cache keeps each
   pair's vectors across frames and drops a pair not culled the frame before.
   `dispatchGpuInstanceCulling` returns at once when no mesh instance has GPU culling
   on (`MeshInstance::gpuCulledInstanceCount`) instead of sweeping the scene to find none.
@@ -1715,7 +1614,8 @@ present, but the rule below never depends on reading it.
   `Camera::cullingMask` is ANDed with `MeshInstance::mask()` here. Verify a change to
   any of this by running the OLD sweep inline alongside the new one and comparing the
   two sets in one process — the animated examples cannot be screenshot-diffed, and
-  that comparison found the aspect-ratio hole above, which no screenshot did.
+  that comparison catches what no screenshot does, such as the aspect-ratio hole
+  above.
 - **Lights are CULLED per frame, and `Light::visibleThisFrame` answers a different
   question from the per-camera light list.** `visibleThisFrame` is a UNION over every
   camera — "does this light's shadow map and cookie need rendering at all" — cleared
@@ -1729,10 +1629,10 @@ present, but the rule below never depends on reading it.
   its result — the obvious home, the per-camera loop further down that already culls
   shadow maps, is AFTER the local shadow passes are built, and a frame-late cull is
   worse than none. A directional light is never culled, having no bounds to test.
-  And `ShadowRenderer::needsShadowRendering` is PURE: it used to consume a
-  `SHADOWUPDATE_THISFRAME` request, which was survivable only while every light was
-  visible, and with culling live it answered "no" and consumed the request in the
-  same breath, losing the shadow the caller asked for. `Renderer::consumeOneShotShadows`
+  And `ShadowRenderer::needsShadowRendering` is PURE: were it to consume a
+  `SHADOWUPDATE_THISFRAME` request, a culled light would answer "no" and consume the
+  request in the same breath, losing the shadow the caller asked for.
+  `Renderer::consumeOneShotShadows`
   does that after the frame graph is built.
 
   The eight-slot main light array is ranked by `Camera::screenSize`, not by component
@@ -1745,10 +1645,9 @@ present, but the rule below never depends on reading it.
   and `MeshInstance::aabb` adds its min to the rest-pose min and its max to the max
   (upstream `_expand`); a skinned, morphed glTF's bone boxes take each vertex's reach
   under all its targets at once, negative deltas summed toward the min and positive
-  toward the max (upstream `_initBoneAabbs`, in the GLB parser here). Until 2026-09-23
-  the first was a commented-out TODO and the second ignored targets, so culling, light
-  culling and the shadow fit all read rest-pose bounds and a mesh morphed outward could
-  be culled on screen. Like upstream this is the one-target-at-a-time case, not every
+  toward the max (upstream `_initBoneAabbs`, in the GLB parser here). Without either,
+  culling, light culling and the shadow fit read rest-pose bounds and a mesh morphed
+  outward can be culled on screen. Like upstream this is the one-target-at-a-time case, not every
   target stacked at full weight. No render shows it unless a morph carries a mesh across
   a frustum edge (`mesh-morph` is bit-identical); `tests/morphBoundsTests.cpp` holds the
   numbers.
@@ -1767,27 +1666,27 @@ present, but the rule below never depends on reading it.
   The default gsplat example pose cannot see a bounds change at all — the cloud is
   wholly in view, so culling never fires and the frame must come back bit-identical.
 - **A splat's footprint takes its focal length PER AXIS and keeps the SIGNS**
-  (`viewport.xy * (P[0][0], P[1][1])`, upstream #9486/#9490, both backends since
-  2026-09-24). One focal from the width for both axes squashed every splat whenever the
-  viewport's pixel aspect differed from the projection's (a manual camera aspect, a
-  side-by-side stereo target); with square pixels the two agree, and the golden
-  `gsplat` case did not move. Under an ORTHOGRAPHIC camera the spherical harmonics are
+  (`viewport.xy * (P[0][0], P[1][1])`, upstream #9486/#9490, both backends). One focal
+  from the width for both axes squashes every splat whenever the viewport's pixel
+  aspect differs from the projection's (a manual camera aspect, a side-by-side stereo
+  target); with square pixels the two agree. Under an ORTHOGRAPHIC camera the spherical harmonics are
   evaluated along the camera forward, not from the camera position to the splat
-  (`GpuGSplatParams::cameraOrtho`, upstream #9531): ortho rays all run parallel, and the
-  old direction changed a splat's colour as the camera panned while the image stayed put.
+  (`GpuGSplatParams::cameraOrtho`, upstream #9531): ortho rays all run parallel, and a
+  direction from the camera position changes a splat's colour as the camera pans while
+  the image stays put.
   No shipped asset has SH bands, so no render shows it.
 - **A splat's clip z is CLAMPED to the depth range, and that only works because
   its screen-space kernel is clamped too.** A gaussian splat is a quad built around
   ONE projected centre, so the whole quad carries that centre's depth: an unclamped
   centre crossing the near plane clips the entire splat away while its footprint
   still covers visible pixels, and the surface nearest the camera pops out whole as
-  you walk into a cloud. Upstream's `gsplatCenter.js` clamps, and both backends now
-  do (to `[0, clip.w]`, after the GL-to-[0,1] remap). The catch is that the same
+  you walk into a cloud. Upstream's `gsplatCenter.js` clamps, and both backends do
+  (to `[0, clip.w]`, after the GL-to-[0,1] remap). The catch is that the same
   near-plane splats are the ones whose perspective Jacobian — it divides by view.z —
-  blows their footprint up without bound, and the z clip was silently hiding that:
-  clamp z without `gsplatCorner.js`'s `vmin = min(1024, viewport)` kernel clamp and
-  the frustum x/y cull, and ONE splat covers the screen. Vulkan had neither and went
-  entirely flat; it has all three now. Do not port one of these without the others.
+  blows their footprint up without bound, and the z clip silently hides that: clamp z
+  without `gsplatCorner.js`'s `vmin = min(1024, viewport)` kernel clamp and the
+  frustum x/y cull, and ONE splat covers the screen. Both backends have all three. Do
+  not port one of these without the others.
   The default gsplat example pose cannot see any of it — nothing there straddles a
   plane, and the frame must come back bit-identical, which is the control that says
   a change here is confined to the splats that actually cross.
@@ -1796,11 +1695,10 @@ present, but the rule below never depends on reading it.
   a linear target needs linear, fog at the view depth, tone map with exposure, and
   encode back for a gamma target. The renderer fills the tail of `GpuGSplatParams`
   (fog, exposure, tone-mapping mode, linear-HDR target from `GraphicsDevice::hdrPass()`)
-  per draw, and both splat vertex shaders apply it (`gsplatPrepareOutput`). Until
-  2026-09-24 both decoded to linear and stopped, which is right only under a camera
-  frame: on a gamma target the splats were written linear, untonemapped and unfogged
-  beside tonemapped meshes — `gsplat-example` (ACES) read ~2.5 counts darker on
-  average with 640k pixels off by up to 97. The tone-mapping curves are the forward
+  per draw, and both splat vertex shaders apply it (`gsplatPrepareOutput`). Decoding to
+  linear and stopping is right only under a camera frame: on a gamma target the splats
+  would be written linear, untonemapped and unfogged beside tonemapped meshes. The
+  tone-mapping curves are the forward
   pass's own, not a copy: Metal splices the `common-tonemap` chunk into the splat source
   at creation, and `gsplat.vert` includes `chunks/common-tonemap.glsl` under
   `VT_TONEMAP_OPERATORS_ONLY` and calls `toneMapByMode`. Growing `GpuGSplatParams` means
@@ -1810,24 +1708,21 @@ present, but the rule below never depends on reading it.
   them and the directional-shadow block split reads them, as upstream. The camera frame's
   clones get them re-marked across its scene, transparent and after passes
   (`RenderPassCameraFrame::updateCameraUseFlags`, upstream's), and
-  `RenderPassForward::validateRenderActionOrder` works out block-local spans itself. Until
-  2026-09-25 both `addMainRenderPass` and every forward pass rewrote them per block: a
-  camera frame fired both events twice a frame, and a grab-pass split fed on the rewritten
-  flag the next frame (`refraction`: twice in 241 of 583 frames).
+  `RenderPassForward::validateRenderActionOrder` works out block-local spans itself.
+  Rewriting them per block (in `addMainRenderPass` or a forward pass) makes a camera
+  frame fire both events twice a frame and feeds a grab-pass split the rewritten flag
+  the next frame.
 - **GPU instance culling has ONE output per mesh instance and runs once a frame, before
   anything draws.** With exactly one camera drawing, it culls to that camera's frustum;
-  with more, it keeps every instance so each view is complete. It used to cull per
-  camera, so every view drew the LAST camera's set. A per-camera output is the open item
+  with more, it keeps every instance so each view is complete. Culled per camera into
+  the one output, every view would draw the LAST camera's set. A per-camera output is the open item
   if multi-camera scenes need the saving.
 - **An `ASPECT_AUTO` camera's aspect is resolved BEFORE culling**
   (`Renderer::resolveAutoAspectRatio` at the top of the graph build); the draw-time
   assignment from the actual target stays and the cull cache's frustum compare still
   catches a disagreement. It changes FIRST-FRAME work only, which a one-shot shadow keeps:
-  `ambient-occlusion`'s directional shadow used to be fitted on frame one with the default
-  16:9 aspect instead of the window's, and now is fitted to the real frustum (15k pixels at
-  1x, all on shadow edges); `taa`'s first history frame moves by 1-4 counts. The
-  `ambient-occlusion` golden reference was re-captured on 2026-09-29 with the cascade-rect
-  fix.
+  resolved later, `ambient-occlusion`'s directional shadow would be fitted on frame one
+  with the default 16:9 aspect instead of the window's.
 - **A raw `Entity*` an object keeps must follow the entity's `destroy` event**: subscribe
   when set, clear the pointer in the handler, and `off()` the handle in the owner's
   destructor (a handler that outlives its owner is a use-after-free the sanitizer build
@@ -1841,9 +1736,7 @@ present, but the rule below never depends on reading it.
   light mask or `receiveShadow` differs from the previous draw's — the only two
   inputs to that block that depend on the draw. Anything genuinely per draw must go
   in the model or material block, never in the lighting block, or every draw after
-  the first reads the first one's value. It used to be set for every draw: Metal
-  repacked ~2.8 KB and Vulkan allocated and uploaded a fresh UBO each time (60-95
-  calls a frame on the shipped scenes, now 2-3; frames bit-identical).
+  the first reads the first one's value.
 - **Vulkan reuses per-draw uploads WITHIN A FRAME, keyed on what they came from.** Every
   draw of a material whose pack is unchanged shares one ring slot
   (`_materialUniformSlots`, keyed on the material and `Material::uniformsVersion()` — a
@@ -1853,17 +1746,14 @@ present, but the rule below never depends on reading it.
   zero cluster sentinels are allocated once a frame. `_frameSerial`, bumped in
   `onFrameStart` where the ring and the pools are rewound, invalidates all of it. Quad and
   custom uniform blocks are never reused — nothing versions them. So a MUTATOR THAT SKIPS
-  `markUniformsDirty()` now leaves Vulkan drawing the old block for the rest of the frame
-  as well as the cache (Debug builds' re-pack comparison reports it). Measured 2026-09-25:
-  ring allocations per frame 231 -> 23 (`clustered-spot-shadows`), descriptor-set
-  allocations 228 -> 6 and writes 224 -> 2, CPU time in `draw()` -15%.
-- **A per-draw deduplication must not HASH the block it deduplicates.** Metal's binder
-  hashed the whole ~2.8 KB lighting block with FNV-1a on every draw to find it unchanged:
-  a serial 700-step multiply chain, about a microsecond a draw, and on a 2,000-draw frame
-  the largest CPU cost in the engine. From 2026-09-26 it kept a copy of the last upload
-  and `memcmp`ed against it: vectorised, and exact where a hash can collide and reuse the
-  wrong block — and still 8-12% of the frame at 10-20k draws (17% of a shadow pass, whose
-  draws never read lighting). Since 2026-09-30 a draw compares a VERSION: every writer of
+  `markUniformsDirty()` leaves Vulkan drawing the old block for the rest of the frame
+  as well as the cache (Debug builds' re-pack comparison reports it).
+- **A per-draw deduplication must not HASH the block it deduplicates.** Hashing the
+  whole ~2.8 KB lighting block with FNV-1a on every draw is a serial 700-step multiply
+  chain, about a microsecond a draw; a `memcmp` against a copy of the last upload is
+  vectorised and exact (a hash can collide and reuse the wrong block) but still a large
+  share of a 10-20k-draw frame, much of it in shadow passes whose draws never read
+  lighting. So on Metal a draw compares a VERSION: every writer of
   `_lightingUniforms` calls `markLightingChanged()`, the three setters `draw()` itself
   calls per draw go through `writeLightingIfChanged` (an unconditional bump there would
   make every draw a lighting change), and the block is compared exactly only when the
@@ -1871,10 +1761,7 @@ present, but the rule below never depends on reading it.
   lighting block; Debug builds assert on it in `submitPerDrawUniforms`.
   Vulkan's image descriptor sets likewise remember the last set handed out per
   layout, with the exact image infos (`LastImageDescriptorSet`, tied to `_frameSerial`),
-  before falling back to the hashed per-frame cache. Measured 2026-09-26 on `taa` by the
-  phase timers: Metal forward 0.84 -> 0.38 ms and shadow 0.88 -> 0.71 ms; Vulkan forward
-  0.40 -> 0.28 ms and shadow 0.39 -> 0.27 ms (Vulkan's whole render, stable run to run
-  there, 1.41 -> 1.02 ms). Bit-identical frames.
+  before falling back to the hashed per-frame cache.
 - **Metal's `draw()` issues encoder state only when it differs from what the encoder
   holds, and it is the ONLY writer of that state.** The pipeline, the vertex buffers at
   slots 0 and 5, the cull mode, the depth-stencil state, the stencil reference and the
@@ -1884,23 +1771,18 @@ present, but the rule below never depends on reading it.
   `resetPassState`) and sets the front-face winding once. Code that sets any of these on
   `_renderPassEncoder` from anywhere else must update or reset the cache, or the next
   draw skips a bind it needed. Slot 1 is deliberately not cached (the scene block goes
-  there through `setVertexBytes`). Until 2026-09-30 every call site passed
-  `first = true, last = true` and `last` cleared `_pipelineState`, so each draw re-issued
-  all of it and the driver re-emitted its render state per draw. Measured that day, old
-  and new binaries alternated three times (stress scene: N boxes on `orbit`): 20k boxes
-  render 11.4 -> 8.2 ms (forward 8.3 -> 5.5); 10k boxes under one shadow cascade 10.8 ->
-  7.6 ms (shadow 6.1 -> 3.3); `taa` 1.77 -> 1.11 ms, which includes the prepass below.
-  All 68 examples on both backends came back identical or inside their own run-to-run
-  noise. `MetalRenderPipeline::get` also answers a repeat of the previous key from a
+  there through `setVertexBytes`). A call site that clears `_pipelineState` per draw
+  (passing `first = true, last = true`) makes each draw re-issue all of it and the
+  driver re-emit its render state per draw. `MetalRenderPipeline::get` also answers a repeat of the previous key from a
   one-entry memo.
 - **A camera frame's depth prepass RENDERS only where something reads the depth before
   the scene pass, or under MSAA** (`RenderPassCameraFrame::prepassRenders`).
   `prepassEnabled` means "there is a depth consumer" (TAA, SSAO, DOF, fog). Under MSAA
   the prepass is the only sampleable depth, so any consumer renders it; single-sampled
   the scene pass clears and rewrites the shared depth texture, so only lighting-mode
-  SSAO, which samples the depth BEFORE the scene pass, needs one. Until 2026-09-30 it
-  rendered for every consumer at any sample count: on `taa` a third of the draws
-  (2173 -> 1455) for depth erased before anything sampled it. The split is upstream's.
+  SSAO, which samples the depth BEFORE the scene pass, needs one. Rendered for every
+  consumer at any sample count, it spends draws (a third of `taa`'s) on depth erased
+  before anything samples it. The split is upstream's.
   A new consumer that reads scene depth inside or before the scene pass has to be added
   to that predicate; `tests/cameraFrameStopTests.cpp` holds the table.
 - **A UI element on a screen OWNS its entity's transform** (upstream's patched `_sync`,
@@ -1918,8 +1800,8 @@ present, but the rule below never depends on reading it.
   A screen-space element's world transform is CLIP SPACE: its visuals set
   `MeshInstance::setScreenSpace`, which compiles `VT_FEATURE_SCREEN_SPACE` (vertex clip =
   world xy, z 0.5), skips culling, shadows and depth-only passes, and lets ANY camera draw
-  it on whatever layer the element names — no separate orthographic UI camera, which
-  every UI example used to need. A screen-space screen's resolution is
+  it on whatever layer the element names — no separate orthographic UI camera. A
+  screen-space screen's resolution is
   `Engine::canvasSize()`, window POINTS (the space mouse events arrive in), polled by the
   screen system each update since nothing fires upstream's `resizecanvas`.
   `tests/elementLayoutTests.cpp` ports upstream's element tests.
@@ -1934,7 +1816,7 @@ present, but the rule below never depends on reading it.
   (`input-events` demonstrates it). Keys and gamepads always get everything.
   An element on a screen of EITHER kind defaults to LAYERID_UI (manual draw-order sort, as
   upstream); one on no screen to WORLD. On WORLD a world-space screen's coplanar elements
-  sorted by distance and a panel covered its own buttons.
+  sort by distance and a panel covers its own buttons.
   Text is laid out per CODE POINT (`decodeUtf8` in `textLayout.h`); the fonts' glyph ids
   are code points, so "…" is one glyph. `markupTags()` is indexed by code point.
   A component's `onEnable` does NOT run when it is added to a live entity here, only on a
@@ -1943,9 +1825,9 @@ present, but the rule below never depends on reading it.
   Text and image elements are DRAWN by `ElementInput::syncElements`, which
   `Engine::render` calls before the frame (no example calls it). The visual's material is
   upstream's: EMISSIVE-only, colour times the image texture, alpha from the texture, black
-  diffuse. Until 2026-09-29 text set the colour as diffuse AND emissive, so the unlit
-  path's `base + emissive` drew every glyph at twice its linear colour (white clipped and
-  hid it; `post-processing`'s HDR label bloomed twice as hard). A screen assigns its
+  diffuse. Setting the colour as diffuse AND emissive makes the unlit path's
+  `base + emissive` draw every glyph at twice its linear colour (white clips and hides
+  it; an HDR label such as `post-processing`'s blooms twice as hard). A screen assigns its
   elements' `drawOrder` depth-first (priority in the top 8 bits) on the update after a
   hierarchy change, and the UI layer sorts its transparent sublayer MANUALLY by it, as
   upstream; a new UI visual must copy `drawOrder` onto its mesh instance or it draws in
@@ -1960,14 +1842,13 @@ present, but the rule below never depends on reading it.
   skips it and the unlit path reads it as distances (median of RGB, upstream's
   `applyMsdf`, outline and shadow composited in linear). Using that slot is deliberate —
   Vulkan's fragment stage is at MoltenVK's sampler limit. A font's pages are separate
-  textures, so text is one mesh instance and material PER PAGE. The loader used to bake
-  the field into alpha at a fixed ramp with nearest filtering, which blurred text up close
-  and aliased it small; a page is now kept raw and sampled bilinearly.
+  textures, so text is one mesh instance and material PER PAGE. A page is kept raw and
+  sampled bilinearly; baking the field into alpha at a fixed ramp with nearest filtering
+  blurs text up close and aliases it small.
   `tests/msdfTextTests.cpp` holds the pages, the per-page split, kerning, the glyph-bounds
   extent and upstream's outline (x 0.2) and shadow (x 0.005, y by MINUS the page aspect,
-  upstream's uniform as is) scaling. The shadow's sign was first "derived" from upstream's
-  v-up glyph UVs and flipped, which drew it above the text; upstream's own thumbnail puts
-  it below. Settle a direction on upstream's pixels — count which side of the glyph the rim
+  upstream's uniform as is) scaling. Upstream's own thumbnail puts the shadow below the
+  text; a sign "derived" from upstream's v-up glyph UVs flips it above. Settle a direction on upstream's pixels — count which side of the glyph the rim
   falls on — not on a reading of its UV code, and not on a centroid of the visible rim,
   which the glyph covers.
   Text layout lives in `textLayout.h` (pure: measure, then place) and runs SYNCHRONOUSLY
@@ -1982,9 +1863,8 @@ present, but the rule below never depends on reading it.
   the uniform one on a square page; reproduced, not fixed.
   Text is laid out on upstream's METRICS: glyphs scale by fontSize / 32 (the fonts' em),
   lines step by fontSize, and the block is aligned by the glyph `bounds` extent with
-  vertical alignment 0.5 by default. Until 2026-09-29 the scale was fontSize over the
-  64-pixel atlas cell, so EVERY text was drawn at half its size, and the kerning parser
-  never loaded a pair; compare text size with upstream's thumbnail as a ratio to a
+  vertical alignment 0.5 by default. Scaling by fontSize over the 64-pixel atlas cell
+  draws EVERY text at half its size. Compare text size with upstream's thumbnail as a ratio to a
   neighbouring element (a name to its bar), which survives the thumbnail's other aspect.
 - **The BACK BUFFER's depth attachment carries STENCIL, on both backends, and the
   stencil follows the depth.** UI masks write it (ARCHITECTURE.md, UI masks). Metal's is
@@ -2000,8 +1880,7 @@ present, but the rule below never depends on reading it.
   is PER DRAW from the mesh instance (`MeshInstance::setStencil`); the renderer resets it
   after each layer's loop, so a draw that sets none tests nothing. Note also that
   `Material::setAlphaMode` RESETS the blend, the depth state and the transparent flag —
-  set it first and the rest after, or they are silently lost (the mask material's first
-  version was).
+  set it first and the rest after, or they are silently lost.
 - **A layout group reflows when its INPUTS differ, not on events** (DEVIATION from upstream's
   dozen reflow-triggering events, several of which this port does not fire —
   `enableelement`, `element:add`, `layoutchild:add`). After every update the layout group
@@ -2011,7 +1890,7 @@ present, but the rule below never depends on reading it.
   depth), and repeats until none does, giving up after upstream's 100 passes. The calculator
   (`layoutCalculator.h`) is a pure function, so the layouts are upstream's;
   `tests/layoutCalculatorTests.cpp` ports all 36 of upstream's cases. Two things the
-  comparison had to get right: the inputs are RECORDED AFTER the layout is applied and before
+  comparison gets right: the inputs are RECORDED AFTER the layout is applied and before
   `reflow` fires, so the anchors a reflow resets do not reflow it again (upstream's
   `_isPerformingReflow`) while a size a `reflow` handler sets does (the scroll view's content
   sizes itself that way); and a child is identified by `ElementComponent::serial()`, never its
@@ -2020,12 +1899,12 @@ present, but the rule below never depends on reading it.
 - **An element's corners are only as current as its entity's world transform, which is
   LAZY here.** Upstream syncs the whole hierarchy every frame; this engine computes a world
   transform when something asks for it, and that sync is what marks the corners dirty. So
-  `screenCorners` / `canvasCorners` / `worldCorners` sync the entity FIRST; until 2026-09-30
-  they tested the dirty flag first, and an element moved since the last render was hit where
-  it used to be. Found by the drag helper's test, not by any example: every example renders
-  between a move and the next press.
-- **A text element's default font size is 32, as upstream** (`text-element.js`); it was 16
-  until 2026-09-30, so every text that set no size drew at half upstream's (`layout-group`'s
+  `screenCorners` / `canvasCorners` / `worldCorners` sync the entity FIRST; testing the
+  dirty flag first hits an element moved since the last render where it used to be. No
+  example shows it — every example renders between a move and the next press — so the
+  drag helper's test is what holds it.
+- **A text element's default font size is 32, as upstream** (`text-element.js`); a
+  default of 16 draws every text that sets no size at half upstream's (`layout-group`'s
   and `scroll-view`'s titles). A scroll view, scrollbar and button look for their elements and
   scrollbars after each update (`refreshBindings`), since nothing fires `element:add` or
   `scrollbar:add` here; the mouse wheel reaches the scroll view as a browser's pixel deltas,
@@ -2034,9 +1913,9 @@ present, but the rule below never depends on reading it.
   min(`maxPixelRatio`, the window's pixel density), upstream's `maxPixelRatio`.
   `resizeCanvas` takes points, as upstream's takes CSS pixels. The default is uncapped (a
   DEVIATION from upstream's browser default of 1), and `ExampleApp` caps it at 2 as upstream's
-  examples do, so nothing moved by default. Metal shrinks the layer's `drawableSize` and Core
-  Animation scales it to the window. Vulkan builds its swapchain ITSELF (`initSwapchain`, no
-  longer vk-bootstrap, which always takes the surface's current extent) at an extent clamped into
+  examples do. Metal shrinks the layer's `drawableSize` and Core Animation scales it to the
+  window. Vulkan builds its swapchain ITSELF (`initSwapchain`, not vk-bootstrap, which always
+  takes the surface's current extent) at an extent clamped into
   the surface's [min, max]: MoltenVK allows 1..16384 and scales, and where min = max = current
   (X11, Windows) the clamp falls back to the window. A SUBOPTIMAL present rebuilds the swapchain
   only when the target size changed (`swapchainExtentStale`), since a deliberately small swapchain
@@ -2051,19 +1930,18 @@ present, but the rule below never depends on reading it.
 - **`Matrix4::getElement` takes (col, row)**, not (row, col). Reading an AXIS with it is
   where this bites: `getElement(0,0), getElement(1,0), getElement(2,0)` is ROW 0 — the X
   components of all three axes — not the X axis, and the two agree only for an unrotated
-  node. That spelling gave every rotated rect or disk light an LTC quad outside its own
-  plane until 2026-09-22 (`makeGpuLight`, now `getColumn(0)`). Use `getColumn`. It is also a full
+  node. That spelling puts a rotated rect or disk light's LTC quad outside its own plane
+  (`makeGpuLight` reads `getColumn(0)`). Use `getColumn`. It is also a full
   16-byte store and reload per call on the SSE and NEON backends (free only on
   Apple's), so a loop of them is the slow way to read a matrix: use `getColumn`,
   `store`, or a whole-matrix operation.
 - **A hand-built sphere's triangle winding has to be counter-clockwise seen from
   OUTSIDE**, or its normals face inward. A mirror ball HIDES this — it still
-  reflects something — so the inverted winding in a reflection-probe example went
-  unnoticed until the same generator was reused with a diffuse material in
-  mesh-morph and came out black. `DEBUGPASS_WORLDNORMAL` says it in one frame: a
+  reflects something — and the same sphere with a diffuse material comes out black.
+  `DEBUGPASS_WORLDNORMAL` says it in one frame: a
   correct sphere is blue in the middle, an inverted one is not.
 - **A normal is carried by the INVERSE TRANSPOSE of the model matrix, and both
-  backends now compute it.** Under non-uniform scale the bare 3x3 and the inverse
+  backends compute it.** Under non-uniform scale the bare 3x3 and the inverse
   transpose differ, and lighting reads the difference directly: a flattened sphere
   shades as if it were still round. Metal uploads the matrix per draw, built by
   `Matrix4::normalMatrix()`: column i is the cross product of the other two model
@@ -2074,7 +1952,7 @@ present, but the rule below never depends on reading it.
   equal by construction — a cofactor matrix is the inverse transpose times the
   determinant, and the shader normalizes, so the magnitude cancels and the sign is
   all that has to be put back. Do not "simplify" either side to `mat3(model)`:
-  that is the defect this replaced, and it is invisible in any scene whose scales
+  that defect is invisible in any scene whose scales
   are uniform or whose surfaces are axis-aligned (a scaled plane or box keeps its
   normals either way — only curved or rotated surfaces show it). The INSTANCED and
   DYNAMIC BATCH paths deliberately keep the bare 3x3 on both backends, as upstream
@@ -2088,16 +1966,15 @@ present, but the rule below never depends on reading it.
   is what the glTF specification asks of a renderer — reverse the winding when the
   node's global transform has a negative determinant, and transform normals by the
   inverse transpose — and it is upstream's behaviour. Flipping one half alone
-  lights a mirrored mesh INSIDE OUT, which is what both backends did until
-  2026-09-11: Metal cancelled the sign with a `normalSign` uniform (now deleted)
-  and Vulkan had no sign to cancel. Assets really do carry such nodes — one node
+  lights a mirrored mesh INSIDE OUT; nothing (no `normalSign` uniform) may cancel the
+  determinant's sign. Assets really do carry such nodes — one node
   of `leonardo_da_vinci.glb` is mirrored, and it is the only place a shipped
   example shows this at all.
 - **A batch is one vertex layout, one primitive type and ONE pair of shadow
   flags.** `BatchManager` merges by reinterpreting a source vertex buffer as the
   parsers' 56-byte packed vertex, so a mesh instance that is not exactly that
   layout may never enter a batch: a skinned mesh (88 bytes) or a point cloud (28)
-  tagged into a batch group used to merge as garbage geometry, read past the end
+  tagged into a batch group would merge as garbage geometry, read past the end
   of its own storage on the way, and say nothing.
   A component with ANY skinned or morphed mesh instance contributes NONE of them
   (`entityIsBatchable`, upstream's whole-entity rule): merging bakes each source's
@@ -2145,46 +2022,44 @@ present, but the rule below never depends on reading it.
   is built from one such block, and splitting it hands the frame only the actions
   after the grab while the opaque world and the sky go to the back buffer for
   compose to overwrite. That is a black frame, not a missing reflection. Outside a
-  camera frame the standalone grab pass copies the back buffer as before.
+  camera frame the standalone grab pass copies the back buffer.
 - **The grabbed scene colour is LINEAR HDR under a camera frame and GAMMA-encoded
   otherwise**, so every consumer gates its decode on bit 5 of
   `LightingData::flagsAndPad[0]`, the same bit the sky and the tail check. There are
   four such consumers — refraction and SSR, in each language — and a decode applied
   unconditionally darkens whatever samples it by roughly a stop.
-- **Dynamic refraction was dark and opaque on BOTH backends for three stacked
-  reasons, found 2026-09-15 on `post-processing`'s amber (measured amber region
-  [47,53,41] -> [139,105,48]).** (1) The
-  fragment-stage `lighting.viewProjection` was uploaded TRANSPOSED — both binders
-  passed `getElement(row, col)` — so every refracting fragment projected to a
-  negative w and its grab UV clamped into a corner: one flat colour over the whole
-  surface, which reads as "opaque", not as "wrong offset". SSR reads the same matrix.
-  (2) The camera frame's scene pass stops at `lastGrabLayerId` (the skybox), and
-  `findActionIndex` searched only render actions, which exist for ENABLED layers;
-  a disabled Skybox layer (usual for an env-atlas-only scene) matched nothing, the
-  pass took every action, and the grab ran AFTER the transparent layers, so the
-  surface refracted itself from last frame. It now places the stop by composition
-  position, as upstream's `addCameraLayers` does (`RenderPassCameraFrame::findActionIndex`,
-  held by `tests/cameraFrameStopTests.cpp`). (3) The refraction was tinted by
-  `baseColor^(thickness + 1)`; upstream applies the diffuse albedo ONCE (the
-  refraction mixes into `dDiffuseLight`, which `combineColor` multiplies by albedo).
-  Bug (1) hid bug (2) completely: fixing the order alone moved nothing. Probe it
-  the way that found it — output the grab at a FIXED uv (valid texture?), the
-  flags `uv in range` / `w > 0` (valid projection?), and the raw sample + 0.05 (a
-  feedback loop runs away to white within 120 frames).
+- **Dynamic refraction has three traps on BOTH backends, and each can hide the
+  next; all three make the surface read dark and opaque.** (1) The fragment-stage
+  `lighting.viewProjection` must not be uploaded TRANSPOSED (`getElement(row, col)`
+  in a binder): every refracting fragment then projects to a negative w and its grab
+  UV clamps into a corner — one flat colour over the whole surface, which reads as
+  "opaque", not as "wrong offset". SSR reads the same matrix. (2) The camera frame's
+  scene pass stops at `lastGrabLayerId` (the skybox), and render actions exist only
+  for ENABLED layers, so `RenderPassCameraFrame::findActionIndex` places the stop by
+  composition position, as upstream's `addCameraLayers` does (held by
+  `tests/cameraFrameStopTests.cpp`); searching render actions alone, a disabled Skybox
+  layer (usual for an env-atlas-only scene) matches nothing, the pass takes every
+  action, the grab runs AFTER the transparent layers, and the surface refracts itself
+  from last frame. (3) The diffuse albedo applies ONCE, as upstream (the refraction
+  mixes into `dDiffuseLight`, which `combineColor` multiplies by albedo), not as a
+  `baseColor^(thickness + 1)` tint. A transposed matrix hides a wrong stop completely.
+  Probe it this way — output the grab at a FIXED uv (valid texture?), the flags
+  `uv in range` / `w > 0` (valid projection?), and the raw sample + 0.05 (a feedback
+  loop runs away to white within 120 frames).
 
-  CLOSED: re-measured 2026-09-16 against upstream pinned to the same pose, the
-  amber matches (ours a touch brighter). Do NOT reopen it from a thumbnail — the
-  old "dimmer than upstream" claim came from an unpinned capture against a
-  differently-posed thumbnail, twice. Still open: upstream scales the refraction
-  offset by the model's world scale (x60 here) and the fragment stage has no model
-  matrix, so a hard-coded x60 is not adopted blindly; and the amber projects LARGER
-  here than upstream at identical camera parameters. Numbers in `ENGINEERING-LOG.md`.
+  Compare refraction brightness against upstream only when it is pinned to the same
+  pose; an unpinned capture or a differently-posed thumbnail reads as "dimmer than
+  upstream" when it is not (pinned, `post-processing`'s amber matches, ours a touch
+  brighter). Still open: upstream scales the refraction offset by the model's world
+  scale (x60 here) and the fragment stage has no model matrix, so a hard-coded x60 is
+  not adopted blindly; and the amber projects LARGER here than upstream at identical
+  camera parameters. Numbers in `ENGINEERING-LOG.md`.
 - **Vulkan's clip space is NOT Y-down for this engine.** The backend rasterises
   through a negated-height viewport so Metal projection matrices work unchanged,
   which puts NDC +Y at the TOP row of every target, back buffer and offscreen
   alike. A point projected in a shader therefore maps to a texture coordinate
-  exactly as it does on Metal, `* vec2(0.5, -0.5) + 0.5`. Two GLSL call sites
-  believed otherwise and sampled the grab upside down.
+  exactly as it does on Metal, `* vec2(0.5, -0.5) + 0.5`. A GLSL call site that
+  assumes Y-down samples the grab upside down.
 - **A grab pass OWNS the texture it publishes, and the device only borrows a raw
   pointer to it.** So a grab pass is persisted across frames rather than rebuilt
   (the next frame's scene pass binds the pointer before the grab re-runs), and its
@@ -2194,42 +2069,33 @@ present, but the rule below never depends on reading it.
 - **Every caster sweep goes through `collectShadowCasters`, and it takes the
   CAMERA.** Batch mesh instances belong to no `RenderComponent` — `BatchManager`
   registers them straight with the scene layers — so a hand-written sweep of
-  `RenderComponent::instances()` misses them. The directional FIT and the directional
-  PASS each had their own sweep and disagreed about exactly that: the fit sized the
-  shadow map's depth range to the unbatched scene while the pass drew batches into
-  it, so a batch outside that range was clipped out of the map and its shadow was
-  simply absent. Measured on `dynamic-batching`: the fitted depth span was 54 where
-  it should have been 104, with the near plane 55 units past the batches. The camera
-  argument filters components by layer, and a caller that fits or draws for one camera
-  must pass it. Two sweeps of the same thing will drift again; use the collector.
+  `RenderComponent::instances()` misses them. A directional FIT and PASS with their own
+  sweeps disagree about exactly that: the fit sizes the shadow map's depth range to the
+  unbatched scene while the pass draws batches into it, so a batch outside that range
+  is clipped out of the map and its shadow is simply absent (`dynamic-batching` shows
+  it). The camera argument filters components by layer, and a caller that fits or
+  draws for one camera must pass it. Two sweeps of the same thing drift; use the
+  collector.
 
   **A directional cascade's pass draws the list its fit prepared**
   (`LightRenderData::visibleCasters`, stamped with the frame's `renderVersion`).
   `ShadowRendererDirectional::cull` collects the scene's casters ONCE per (light,
   camera), applies the camera-independent caster rules once, and per cascade tests
-  them against the FITTED frustum — the exact test the pass used to run after a second
-  full collection of its own. It must be the fitted frustum, not the wide one the fit
-  sweeps with: that camera sits a million units back and its side planes are good to
-  about a tenth of a unit, which on a 40k-caster frame disagreed about six casters on a
-  cascade edge. A list stamped with another frame is not used (it holds raw pointers);
-  the pass then collects for itself. `ShadowCasterComponentFilter` resolves the camera's
-  component once per sweep, where `shouldRenderShadowRenderComponent` searched every
-  camera for every render component. Verified 2026-09-30 by running the old sweeps
-  beside the new ones in one process and comparing element for element: 0 differences
-  over all 68 examples and the stress scene with 1 and 4 cascades, PCSS, VSM and omni
-  shadows (about 60 million culled instances and 100 million casters). The saving is
-  the pass's second collection; the fitted test costs about 0.5 ms of it back at 40k
-  shadow draws, and a first version that reused the wide-frustum list was that much
-  faster and drew six casters too few.
+  them against the FITTED frustum. It must be the fitted frustum, not the wide one the
+  fit sweeps with: that camera sits a million units back and its side planes are good
+  to about a tenth of a unit, which on a large frame disagrees about a few casters on a
+  cascade edge (reusing the wide-frustum list is faster and draws casters too few). A
+  list stamped with another frame is not used (it holds raw pointers); the pass then
+  collects for itself. `ShadowCasterComponentFilter` resolves the camera's component
+  once per sweep rather than searching every camera for every render component
+  (`shouldRenderShadowRenderComponent`).
 - **A depth-only draw sets the caster's cull mode itself** (`drawDepthOnly` →
   `resolveCullMode`, the material's cull with the node's scale flip, upstream's
-  `setupCullModeAndFrontFace` in `submitCasters`). Until 2026-09-17 the shadow and
-  prepass draws inherited whatever the previous draw had left on the device: the
-  default on the very first frame, the last full-screen quad's CULLFACE_NONE on every
-  frame after. Invisible with realtime shadows (every frame is the "after" case),
-  it froze the odd frame into every one-shot shadow: `ambient-occlusion`'s torch
-  maps rendered once with back faces culled and never again, so the frame-0 look
-  differed from a re-render or a realtime run by 16k pixels. The tell for this class
+  `setupCullModeAndFrontFace` in `submitCasters`). Otherwise shadow and prepass draws
+  inherit whatever the previous draw left on the device: the default on the very first
+  frame, the last full-screen quad's CULLFACE_NONE on every frame after. That is
+  invisible with realtime shadows (every frame is the "after" case) and freezes the odd
+  frame into every one-shot shadow. The tell for this class
   of bug is "the first frame differs from every later one" — re-arm the one-shot at
   frame 2 (`setShadowUpdateMode(THISFRAME)`) and compare; and read the shadow map
   back (`Texture::read` on the atlas) rather than the lit frame, converting the
@@ -2242,103 +2108,88 @@ present, but the rule below never depends on reading it.
   Vulkan reads from `coneParams.w` and Metal from `typeCastShadows.w`), and clears
   `castShadows` on any further one with a one-time warning. The FILTER is chosen
   per shader variant (`VT_FEATURE_VSM_SHADOWS` / `PCSS_SHADOWS`), so a light whose
-  shadow type differs from slot 0's is refused the same way. Slot 0 keeps its old
+  shadow type differs from slot 0's is refused the same way. Slot 0 has the base
   uniforms; slot 1 is an appended block of the same layout (`shadow1*` on Metal,
   `dirShadow1*` on Vulkan) and one shared function per language evaluates either
   (`evaluateDirectionalShadow` in `common-shadow-pcss.metal`,
   `sampleDirectionalShadow(slot, ...)` in `common-shadow-vsm.glsl`). Metal binds
   slot 1's map at texture 35; on Vulkan BOTH maps are separate images (scene set
   bindings 1 and 22) read through the shared samplers at 12 (linear, for EVSM) and
-  13 (nearest, for depth), which freed a combined sampler rather than adding one.
-  Before 2026-09-24 there was one slot, the Metal chunk latched it with a
-  frame-wide `shadowApplied` flag, and until 2026-09-23 Vulkan applied that one
-  map to every directional light. Verified with `VISUTWIN_FILL_LIGHT=35,30,1.5,1`
-  on `ambient-occlusion`: the fill's own shadow term is -2.478 counts mean on Metal
-  and -2.480 on Vulkan, with the building's shadow the same shape on both (PCSS in
-  slot 1: -4.308 on both). Single-light scenes are bit-identical on Metal; on Vulkan
-  PCF and VSM are too (to 1 count), while PCSS on `shadow-cascades` moves 47 isolated
-  pixels of 3.3M by up to 48 counts — a blocker-search threshold flipped by the
-  SPIR-V compiling differently, NOT the sampler (anisotropy and LOD clamp were both
-  ruled out by experiment). `vulkanSmoke`'s shadow-catcher step had been failing
-  since 2026-09-23 for test reasons only (a light with shadowMapIndex -1 and cascade
-  distances of 0); it sets both now.
+  13 (nearest, for depth), which costs no combined sampler. Check it with
+  `VISUTWIN_FILL_LIGHT=35,30,1.5,1` on `ambient-occlusion`: the fill's own shadow term
+  (about -2.48 counts mean) agrees between Metal and Vulkan, with the building's shadow
+  the same shape on both. Expected noise: PCSS on `shadow-cascades` on Vulkan has about
+  fifty isolated pixels of 3.3M off by up to 48 counts — a blocker-search threshold
+  flipped by the SPIR-V compiling differently, NOT the sampler (anisotropy and LOD clamp
+  are ruled out). A test light needs a valid shadowMapIndex (not -1) and nonzero
+  cascade distances, as `vulkanSmoke`'s shadow-catcher step sets.
 - **A depth-only Vulkan pipeline honours the bound `DepthState`'s compare function.**
-  `vulkanRenderPipeline.cpp` used to force `LESS_OR_EQUAL` whenever the pass had no
-  colour attachment, which silently turned the clustered atlas's per-rect clear
-  (`clearDepthRect`: a depth-1 triangle under ALWAYS) into a no-op wherever a caster
-  had written before. Shadows from every past position of a moving spot light
-  accumulated, so `clustered-spot-shadows` sat 12.7 counts mean from Metal over 360k
-  pixels — the old "19/255 on the normal-mapped cube faces" was this, not shading —
-  while every static scene rendered identically either way. Measured 2026-09-24:
-  0.21 after the fix, the rest on shadow edges (Metal's bilinear hardware-compare PCF
-  against the atlas's nine uniform taps). The golden set now includes the scene, and
-  fails at 13.9% against the old code. When a pipeline ignores a state the engine set,
+  Forcing `LESS_OR_EQUAL` in `vulkanRenderPipeline.cpp` whenever the pass has no colour
+  attachment silently turns the clustered atlas's per-rect clear (`clearDepthRect`: a
+  depth-1 triangle under ALWAYS) into a no-op wherever a caster has written before, so
+  shadows from every past position of a moving spot light accumulate, while every
+  static scene renders identically either way. The golden set includes
+  `clustered-spot-shadows` to catch it; the backend difference left there is on
+  shadow edges (Metal's bilinear hardware-compare PCF against the atlas's nine uniform
+  taps). When a pipeline ignores a state the engine set,
   the bug is invisible until something depends on the non-default value.
 - **VSM is DIRECTIONAL-ONLY; a spot or omni light asking for it gets PCF3.**
   `Light::resolveShadowType` falls back with a one-time warning, and `Light::setType`
   re-resolves the kept request (`requestedShadowType`), as upstream's type setter
   does. Upstream falls back for omni too; for a spot it is a DEVIATION, since upstream
-  shadows spots with VSM. Before 2026-09-24 a local light kept VSM, got an RGBA16F
-  moments map no pass wrote and no forward path sampled, and cast NO shadow
-  (`pcss-local` with its spots forced to VSM: no shadow at all; with the fallback,
-  within 0.007 of the authored frame). Porting local VSM means moments in the local
+  shadows spots with VSM. A local light kept on VSM gets an RGBA16F moments map no
+  pass writes and no forward path samples, and casts NO shadow. Porting local VSM means moments in the local
   shadow passes, the blur, and a sampling path in both forward chunks.
 - **A shadow pass must not take its variant from a scene-wide switch set by the
   FORWARD pass.** `renderForwardLayer` sets ProgramLibrary's feature switches (VSM,
   PCSS, cookies, local shadows ...) when the forward pass executes, which is AFTER
-  that frame's shadow passes. `getShadowShader` read the VSM switch, so the first
-  VSM shadow any light rendered used the depth-only variant and wrote no moments; a
-  realtime shadow was right one frame later, a ONE-SHOT one stayed blank for good —
-  zeros on Vulkan, uninitialised private memory on Metal, which is why
-  `ambient-occlusion` under `VISUTWIN_SHADOW_TYPE=2` was ~10 counts apart between
-  backends over 700k pixels (2026-09-24). The caller now passes `vsm` from the light
-  it renders (`DepthOnlyShaders::vsm`). Anything a shadow or depth pass compiles must
+  that frame's shadow passes. Were `getShadowShader` to read the VSM switch, the first
+  VSM shadow any light renders would use the depth-only variant and write no moments; a
+  realtime shadow is right one frame later, a ONE-SHOT one stays blank for good —
+  zeros on Vulkan, uninitialised private memory on Metal, so the backends disagree. The
+  caller passes `vsm` from the light it renders (`DepthOnlyShaders::vsm`). Anything a shadow or depth pass compiles must
   come from its own light or pass, never from state the forward pass leaves behind.
   Diagnose this class by reading the map back (`Texture::read`) on frame 1 and after a
   one-shot re-arm at frame 2: a map that is only right the SECOND time is a first-use
   bug, and realtime updates hide it.
 - **A light's cascade RECTS come from its cascade COUNT, set in the constructor as well as
-  the setter** (`Light::directionalCascadeLayout`). The count defaulted to one while the
-  rect member was initialised with the four-cascade 2x2 grid, and `setNumCascades(1)`
-  returns early on an unchanged count, so from the day the default became one until
-  2026-09-29 every directional shadow that never set a count rendered into ONE QUADRANT of
-  its map: half upstream's resolution (only 4 example files set a count at all; four golden
-  cases moved, on shadow edges only, both backends).
-  Found on `input-events`, whose ground acne upstream's thumbnail seemed to lack; a LIVE
-  upstream frame at the same size had the acne too (it is the scene: a 200 m caster ground),
-  and matched ours at 2048 number for number — the tell for a halved map. After the fix
-  both read ground mean 93.63, std 3.45, range 86-99. Compare against a LIVE upstream frame
+  the setter** (`Light::directionalCascadeLayout`). `setNumCascades(1)` returns early on
+  an unchanged count, so with the count defaulting to one, a rect member initialised
+  with the four-cascade 2x2 grid renders every directional shadow that never sets a
+  count into ONE QUADRANT of its map: half upstream's resolution.
+  `input-events`' ground acne is the scene (a 200 m caster ground), and a LIVE upstream
+  frame at the same size has it too, matching ours number for number (ground mean
+  93.63, std 3.45, range 86-99); a halved map breaks that match. Compare against a LIVE
+  upstream frame
   at matched size before calling a thumbnail difference a bug: a 320 px thumbnail averages
   stripes a few pixels wide to nothing. `tests/shadowMapInvalidationTests.cpp` holds the
   default rect.
   The general rule: a setter that returns early on an unchanged value NEVER RUNS for the
   default, so anything it derives must also be derived at construction, from the same
-  function. An audit on 2026-09-29 of every such setter (and every dirty flag that starts
-  false) found no other case.
-- **The default is ONE shadow cascade, as upstream.** It was 4, and a one-shot
-  directional shadow is unusable with more than one: the receiver picks its cascade
-  by VIEW depth, so moving the camera carries the scene into cascades whose maps were
-  fitted once to the near slices of the original view — zooming into
-  `ambient-occlusion` lost every directional shadow and zooming out brought them
-  back. A scene that wants cascades sets them, and then must not use one-shot
+  function; a dirty flag that starts false is the same trap.
+- **The default is ONE shadow cascade, as upstream.** A one-shot directional shadow
+  is unusable with more than one: the receiver picks its cascade by VIEW depth, so
+  moving the camera carries the scene into cascades whose maps were fitted once to the
+  near slices of the original view — zooming into a multi-cascade `ambient-occlusion`
+  loses every directional shadow and zooming out brings them back. A scene that wants cascades sets them, and then must not use one-shot
   directional shadows with a moving camera (upstream has the same limit).
 - **`shadowDistance` sets the shadow TEXEL, and a smeared or popping character
   shadow is a texel problem before it is a bias problem.** The one default cascade
   spans the camera frustum out to the shadow distance, so the ortho radius is about
   the distance and the texel is `2 * radius / resolution`: 100 m at 2048 is a 10 cm
   texel, and a 1.8 m character's legs are one texel wide and pop as it moves.
-  `anim-stategraph` carried max(radius * 4, 100) where upstream's `locomotion` has
-  16; its shadow was a faint smear. Ablate before blaming the engine — a
-  receive-only floor, a 16 m distance and a maximal bias each left that scene's big
-  white zigzag untouched, because it is the PlayCanvas logo in `playcanvas-grey.png`
-  stretched over the floor exactly as upstream shows it. Keep the distance a few
+  `anim-stategraph` follows upstream's `locomotion` at 16; max(radius * 4, 100) makes
+  its shadow a faint smear. Ablate before blaming the engine — that scene's big white
+  zigzag survives a receive-only floor, a 16 m distance and a maximal bias, because it
+  is the logo in `playcanvas-grey.png` stretched over the floor exactly as upstream
+  shows it. Keep the distance a few
   multiples of the camera distance to the subject, or scale it with the camera as
   the fly demo does.
   A second cascade is not a free sharpening: the atlas splits into 2x2 quadrants,
   so every cascade renders at HALF the resolution, and the subject has to fall in
-  the near one to gain anything. On `anim-stategraph` two cascades at distribution
-  0.5 split at 4 m, put the 5 m character in the far cascade and made its shadow
-  softer (3 cm texel vs 1.7). Reach for a cascade when the far one must cover far
+  the near one to gain anything: two cascades at distribution 0.5 split
+  `anim-stategraph` at 4 m and put its 5 m character in the far cascade, with a softer
+  shadow (3 cm texel vs 1.7). Reach for a cascade when the far one must cover far
   more floor than the subject needs, not to fix the subject.
 - **A directional receiver's shadow depth is SATURATED, never range-tested.** The
   shadow camera's near and far are fitted to the CASTERS every frame, so a

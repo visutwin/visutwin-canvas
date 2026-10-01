@@ -3,11 +3,10 @@
 //
 // Common host for the example applications.
 //
-// Every example used to open with the same ~60 lines: SDL init, window, renderer,
-// swap chain, graphics device, AppOptions with the same four component systems,
-// Engine init/start, a performance-counter delta-time loop, and a teardown lambda.
-// ExampleApp owns all of that so an example file contains only the scene it exists
-// to demonstrate.
+// ExampleApp owns what every example would otherwise repeat: SDL init, window,
+// renderer, swap chain, graphics device, AppOptions with the same four component
+// systems, Engine init/start, a performance-counter delta-time loop, and teardown.
+// An example file contains only the scene it exists to demonstrate.
 //
 // Deriving from it looks like this:
 //
@@ -26,7 +25,7 @@
 // Backend portability is the other reason this exists. The Metal path needs
 // metal-cpp's *_PRIVATE_IMPLEMENTATION translation unit and a CAMetalLayer from
 // an SDL renderer; the Vulkan path needs SDL_WINDOW_VULKAN at window-creation
-// time. Both now live in exampleApp.cpp, so an example compiles for either
+// time. Both live in exampleApp.cpp, so an example compiles for either
 // backend without carrying a single #ifdef of its own.
 //
 #pragma once

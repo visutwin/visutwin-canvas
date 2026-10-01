@@ -541,9 +541,9 @@ namespace visutwin::canvas
          * The mesh of one primitive type on one device, SHARED by every render component
          * of that type (upstream's getShapePrimitive): a scene of ten thousand boxes has
          * one box mesh, not ten thousand, and draws of one material and one primitive
-         * then keep one vertex buffer bound. Each component used to build its own —
-         * geometry, tangents and GPU buffers, about 190 KB of GPU memory for a sphere —
-         * and building dominated the 9.5 us a primitive entity cost to create.
+         * then keep one vertex buffer bound. A mesh per component would repeat the
+         * geometry, tangents and GPU buffers (about 190 KB of GPU memory for a sphere)
+         * and dominate the cost of creating a primitive entity.
          *
          * DEVIATION: held WEAKLY. Upstream keeps each primitive for the device's
          * lifetime; here the components that use a mesh co-own it (`_ownedMeshes`) and
@@ -698,11 +698,11 @@ namespace visutwin::canvas
         _material = material;
 
         // Upstream: a primitive's instances take the new material; nothing is rebuilt.
-        // This used to rebuild the primitive — a second mesh for the common setType,
-        // setMaterial order — and so also dropped whatever had been set on the instance.
+        // Rebuilding the primitive would build a second mesh for the common setType,
+        // setMaterial order and drop whatever had been set on the instance.
         if (_type != "asset" && !_meshInstances.empty()) {
-            // A batch bakes its sources' material in: it is rebuilt from them, as it was
-            // when the instance was replaced.
+            // A batch bakes its sources' material in, so its group is torn down and
+            // rebuilt from them.
             if (auto* batches = batcher(); batches && active()) {
                 batches->sourcesLeaving(_batchGroupId);
             }

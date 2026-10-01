@@ -83,9 +83,8 @@ namespace visutwin::canvas
         /**
          * The mesh instances of one layer that survived one camera's frustum, split
          * by transparency. Filled once per (camera, layer) per frame, then read by
-         * BOTH sublayer passes — which is the point: the opaque and transparent
-         * sublayers used to sweep every RenderComponent in the scene and cull it
-         * independently, each throwing away the half that belonged to the other.
+         * BOTH sublayer passes, so neither sweeps the scene and culls it on its own
+         * only to throw away the half that belongs to the other.
          */
         struct CulledInstances
         {
@@ -200,12 +199,10 @@ namespace visutwin::canvas
         /**
          * Clustered lighting grids, one per DISTINCT light set in the frame.
          *
-         * There used to be exactly one, built by whichever layer rendered first and
-         * then bound for every other layer regardless of its own lights — and a light
-         * list IS per layer here, since the gather filters on
-         * LightComponent::rendersLayer. A layer whose lights differed got another
-         * layer's grid; one with no clustered lights at all inherited the previous
-         * layer's buffers and kept being lit by them.
+         * A light list IS per layer here, since the gather filters on
+         * LightComponent::rendersLayer, so one grid for the frame would give a layer
+         * whose lights differ another layer's grid, and leave one with no clustered
+         * lights lit by the previous layer's buffers.
          *
          * Upstream's WorldClustersAllocator keys grids on a hash of the layer's light
          * ids and shares one between layers that agree, which is what this does. The

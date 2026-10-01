@@ -23,17 +23,17 @@ namespace visutwin::canvas
      * draws of equal sort key keep, the order lights fill their slots in and the order
      * scripts run in, so a removal must not move the survivors.
      *
-     * Removing used to be `std::erase` on a plain vector: a scan for the component and
-     * a shift of everything after it, so destroying K of N components cost K x N, and
-     * unloading a tile from a large scene stalled on it. Here a removal finds its slot
+     * A removal does not erase: an erase is a scan for the component and a shift of
+     * everything after it, so destroying K of N components would cost K x N. Instead a
+     * removal finds its slot
      * by binary search (slots are in creation order, so their serials are sorted) and
      * leaves a NULL in it; the holes are closed in one pass, still in order, the next
      * time the list is asked for.
      *
      * Two consequences for callers, both already the convention everywhere:
      *  - a loop over items() checks each entry for null. The list never hands out a
-     *    hole, but a component destroyed DURING the loop becomes one under it — where
-     *    the old erase shifted the rest down and the loop skipped a live component;
+     *    hole, but a component destroyed DURING the loop becomes one under it (never a
+     *    shift, so the loop skips no live component);
      *  - items() may compact, so a loop must not call it again for the same type once a
      *    component of that type may have been destroyed inside it.
      *

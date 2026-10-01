@@ -5,7 +5,7 @@
 //
 // Kept as a free function over plain inputs so a unit test can hold the bit layout
 // without a renderer or a material — a field that silently overlaps its neighbour is
-// invisible in any render, which is exactly what happened to the key this replaced.
+// invisible in any render.
 #pragma once
 
 #include <cstdint>
@@ -24,13 +24,9 @@ namespace visutwin::canvas
      *   31..0   mesh address  — meshes of one material stay together, which is one
      *                           vertex-buffer bind instead of many
      *
-     * Every field owns its own bits. The key this replaced XORed overlapping ranges:
-     * the depth-state key and the emissive-texture bit both landed on bit 4, the alpha
-     * mode and the occlusion bit both on bit 3. Two materials differing in one of
-     * those could produce the same key and interleave with each other's draws. It then
-     * shifted the whole result left by 32, discarding the half that held the shader
-     * variant key — so the most expensive state change in a frame contributed nothing
-     * to the order at all.
+     * Every field owns its own bits; never XOR fields into overlapping ranges, or two
+     * materials differing in one of them can produce the same key and interleave with
+     * each other's draws.
      *
      * `materialId` is masked to 23 bits; a process that somehow creates more than
      * eight million materials wraps and sorts two of them together, which costs a

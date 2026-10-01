@@ -7,10 +7,6 @@
 // every one of those writers already holds the device and most hold nothing else in
 // common; the device's own draw, primitive and shader-switch counts sit beside it.
 //
-// Until 2026-09-25 these were members of Renderer with no write site at all: stats.cameras,
-// materials, shaders, triangles, cullTime, shadowDrawCalls and every per-phase time read
-// zero, and the one time that was written (sort) was truncated to whole milliseconds.
-//
 #pragma once
 
 namespace visutwin::canvas

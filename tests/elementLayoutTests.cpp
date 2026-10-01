@@ -5,8 +5,8 @@
 // constructor defaults, screen binding, and every `position` case of #9525), plus the
 // screen's scale and projection and a few anchor cases the upstream suite leaves implicit.
 //
-// Until 2026-09-29 ElementComponent stored anchor, pivot and margins and nothing read
-// them: the examples placed each element's entity by hand in window pixels.
+// An ElementComponent that stores anchor, pivot and margins without anything reading them
+// fails every placement case here.
 //
 // A real engine on a stub device. With no window, Engine::canvasSize() is the device's
 // size, which is how a test resizes a screen-space screen: change the stub's size and

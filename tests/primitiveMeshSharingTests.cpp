@@ -2,9 +2,9 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // Every render component of one primitive type shares ONE mesh per device (upstream's
-// getShapePrimitive). Until 2026-09-30 each component built its own geometry and GPU
-// buffers — ten thousand boxes were ten thousand box meshes — and setMaterial rebuilt
-// the primitive, so the usual setType-then-setMaterial order built it twice. None of
+// getShapePrimitive). A component that built its own geometry and GPU buffers would give
+// ten thousand boxes ten thousand box meshes, and a setMaterial that rebuilt the
+// primitive would build it twice in the usual setType-then-setMaterial order. None of
 // that shows in a frame: a shared mesh and a private copy render the same pixels. So the
 // buffers are counted here, on a device whose buffers count themselves:
 //
@@ -99,7 +99,7 @@ namespace
         entity->setEngine(&engine);
         engine.root()->addChild(std::move(owned));
         auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
-        // setType FIRST: the order that used to build the primitive twice.
+        // setType FIRST: the order in which a rebuilding setMaterial builds the primitive twice.
         render->setType(type);
         render->setMaterial(material);
         return entity;
@@ -154,7 +154,7 @@ int main()
     {
         auto* render = boxes[1]->findComponent<RenderComponent>();
         MeshInstance* before = instanceOf(boxes[1]);
-        before->setCastShadow(false);   // per-instance state a rebuild used to drop
+        before->setCastShadow(false);   // per-instance state a rebuild would drop
         render->setMaterial(materialB.get());
         MeshInstance* after = instanceOf(boxes[1]);
         check(after == before, "keeps the mesh instance: nothing is rebuilt");

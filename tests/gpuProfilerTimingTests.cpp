@@ -9,10 +9,9 @@
 // resolver takes the SMALLER of the two per pass, which is right in both cases, and
 // anchors the frame's first pass to the previous frame's last end.
 //
-// The case in "two drawable passes" is the one that was wrong until 2026-09-22,
-// when a drawable-bound pass kept its own interval unconditionally: two such passes
-// in a frame overlap, and the frame counted that time twice — `ambient-occlusion`
-// zoomed in read 24-33 ms of GPU for an 8.3 ms frame.
+// The case in "two drawable passes" catches a resolver that keeps a drawable-bound
+// pass's own interval unconditionally: two such passes in a frame overlap, and the
+// frame counts that time twice — several times the real GPU time of the frame.
 //
 #include <cmath>
 #include <cstdio>

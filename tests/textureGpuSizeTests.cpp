@@ -6,10 +6,9 @@
 // not read as a wrong number once — it makes the total DRIFT, and only while
 // textures are being created and destroyed. Nothing visual shows that.
 //
-// The whole texture side of DeviceVRAM was dead until 2026-09-16 (_gpuSize was
-// declared and never assigned, so adjustVramSizeTracking was never reached), which
-// is why these are closed-form cases checked by hand rather than against a
-// reference implementation: there was none.
+// If _gpuSize is never assigned, adjustVramSizeTracking is never reached and the
+// whole texture side of DeviceVRAM reads zero. These are closed-form cases checked
+// by hand, since there is no reference implementation to compare against.
 
 #include <cstdint>
 #include <iostream>

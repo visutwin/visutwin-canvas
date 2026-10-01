@@ -196,13 +196,13 @@ namespace visutwin::canvas
             cascade.camera->setFarClip(depthMax - depthMin + 0.2f);
         }
 
-        // The casters the pass draws, against the FITTED frustum — the test the pass
-        // used to run itself, after collecting the whole scene a second time. Not the
-        // set the sweep found: that one is tested from a camera a million units
-        // back, where the side planes are only good to about a tenth of a unit, and
-        // on a 40k-draw frame the two disagreed about six casters sitting on a
-        // cascade's edge. The fitted camera is close, so this is the exact answer,
-        // and it costs a frustum test per caster rather than a sweep of the scene.
+        // The casters the pass draws, against the FITTED frustum, so the pass need not
+        // collect the whole scene a second time. Not the set the sweep found: that one
+        // is tested from a camera a million units back, where the side planes are only
+        // good to about a tenth of a unit, so it disagrees with the fitted frustum about
+        // casters sitting on a cascade's edge. The fitted camera is close, so this is the
+        // exact answer, and it costs a frustum test per caster rather than a sweep of the
+        // scene.
         void recordFittedCasters(const CascadeCamera& cascade, const std::vector<MeshInstance*>& casters,
             const int frame)
         {
@@ -263,15 +263,12 @@ namespace visutwin::canvas
 
         // The scene's casters for this camera, collected ONCE for all the cascades, with
         // everything that does not depend on a cascade decided here too: what is left
-        // per cascade is the frustum test. Each cascade used to collect and test the
-        // whole scene itself, and the pass then did both again.
+        // per cascade is the frustum test.
         //
-        // The SAME caster set the pass will draw, through the shared collector: this used
-        // to sweep RenderComponent::instances() by hand and so missed the batch mesh
-        // instances, which belong to no component; the pass drew them anyway, into a depth
-        // range fitted without them. A batch outside that range was clipped out of the
-        // shadow map — its shadow simply absent, with nothing to say why, and only in a
-        // scene that batches at all.
+        // The SAME caster set the pass will draw, through the shared collector. A sweep of
+        // RenderComponent::instances() would miss the batch mesh instances, which belong
+        // to no component; the pass draws them anyway, so a batch outside a depth range
+        // fitted without them would be clipped out of the shadow map, its shadow absent.
         static thread_local std::vector<MeshInstance*> casters;
         casters.clear();
         collectShadowCasters(casters, camera);
@@ -287,8 +284,8 @@ namespace visutwin::canvas
         // cascade, at any depth — which also catches casters above the slice, such as
         // wing tips higher than the ground the cascade covers). The caster set is
         // rotation-invariant for static scenes, so the depth range fitted from it is
-        // identical frame to frame and stored EVSM moments do not drift — what
-        // eliminated the wing-tip flicker the old frustum-corner depth produced.
+        // identical frame to frame and stored EVSM moments do not drift (a depth range
+        // from the frustum corners would move with the view and flicker).
         std::array<std::optional<BoundingBox>, 4> cascadeAabb{};
         for (int cascade = 0; cascade < cascadeCount; ++cascade) {
             const auto cascadeCam = cascadeCamera(*_shadowRenderer, light, camera, cascade);

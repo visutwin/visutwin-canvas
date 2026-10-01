@@ -23,7 +23,7 @@ namespace visutwin::canvas
         /// Register a system. A duplicate id, or a second system for the same
         /// component type, is REJECTED with an error and the first one kept — it is
         /// already wired up, and overwriting the lookup maps would leave it alive,
-        /// owned and still subscribed behind an id that no longer resolved to it.
+        /// owned and still subscribed behind an id that no longer resolves to it.
         /// Fires `add` on success.
         void add(std::unique_ptr<IComponentSystem> system);
 

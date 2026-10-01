@@ -89,16 +89,16 @@ fragment float4 fragmentShader(Varyings in [[stage_in]])
 // Differences from the MSL above, all forced by the backend rather than by choice:
 //  - transforms arrive in a 128-byte vertex push constant (viewProjection, model),
 //    not in buffer(1)/buffer(2) uniform blocks;
-//  - there is no normalMatrix/normalSign, so the normal is transformed by mat3(model),
-//    exactly as engine/shaders/vulkan/forward.vert does;
+//  - there is no normal matrix in the push constant, so the normal is transformed by
+//    mat3(model), exact only under uniform scale (engine/shaders/vulkan/forward.vert
+//    derives the inverse transpose through normal_matrix.glsl);
 //  - the custom uniform block is set 0 / binding 0 (the per-draw material UBO, bound
 //    to both stages) rather than buffer(3);
 //  - the clip.z remap is MANDATORY. Engine projections are GL-style (NDC z in [-1,1])
 //    while Vulkan clips to [0,w], so forward.vert (and particle.vert / gsplat.vert)
 //    all apply `z = 0.5 * (z + w)`. A custom shader that skips it stores roughly half
 //    the depth every other draw stores, and then wrongly wins depth tests against all
-//    standard-material geometry — verified 2026-08-21 with a box that the statue
-//    occluded on Vulkan but correctly intersected on Metal.
+//    standard-material geometry.
 static const char* kToonShaderSourceGlsl = R"GLSL(
 #version 450
 

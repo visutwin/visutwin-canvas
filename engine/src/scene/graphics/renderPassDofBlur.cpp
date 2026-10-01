@@ -3,15 +3,8 @@
 //
 //
 //
-// CURRENTLY UNREACHABLE. RenderPassCameraFrame::setupDofPass() only does
-// `_dofPass.reset()`, so RenderPassDof — and with it this pass and
-// RenderPassDofBlur — is never constructed: the multi-pass DOF pipeline
-// (CoC -> Downsample -> Blur) is disabled because the parent RenderPassDof has
-// no render target, which corrupted the Metal encoder state and produced a black
-// screen. Depth of field runs through applyDofSinglePass in the compose shader
-// instead, reading the depth buffer directly. Anything "verified" about this
-// pass by screenshotting an example is therefore vacuous — it did not run.
-// Live since 2026-09-19: RenderPassCameraFrame::setupDofPass builds the pipeline.
+// Part of the multi-pass DOF pipeline (CoC -> Downsample -> Blur) that
+// RenderPassCameraFrame::setupDofPass builds.
 //
 #include "renderPassDofBlur.h"
 

@@ -3,13 +3,11 @@
 //
 // The forward sort key decides what order opaque draws go out in, and every defect it
 // can have is invisible: the frame still renders, just with more state changes than it
-// needed, or with two materials' draws interleaved. The key this replaced had both
-// faults and neither was ever noticed.
+// needed, or with two materials' draws interleaved.
 //
-// It XORed overlapping bit ranges — the depth-state key and the emissive-texture bit
-// both at bit 4, the alpha mode and the occlusion bit both at bit 3 — so materials
-// differing in one of those could hash equal. And its one caller shifted the result
-// left by 32, discarding the half that held the shader variant key.
+// A key that XORs overlapping bit ranges — say the depth-state key and the
+// emissive-texture bit both at bit 4 — lets materials differing in one of those hash
+// equal; a caller that shifts the result left by 32 discards whichever half it drops.
 //
 // What is checked here is that each field owns its own bits and that they rank in the
 // documented order. A collision sweep stands in for "no field overlaps another",

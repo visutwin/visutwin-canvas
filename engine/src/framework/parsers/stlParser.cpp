@@ -422,8 +422,8 @@ namespace visutwin::canvas
                         float dot = groupDir.dot(fn);
                         if (dot >= cosCrease) {
                             // Weighted by the corner ANGLE, so a flat region contributes
-                            // the same however it was split into triangles (a quad face
-                            // used to count once per triangle the corner sat in).
+                            // the same however it was split into triangles (unweighted, a
+                            // quad face would count once per triangle the corner sat in).
                             group.accumulated += fn * cornerAngle(ti, ci);
                             group.members.emplace_back(ti, ci);
                             assigned = true;

@@ -3,8 +3,7 @@
 //
 // The pixel-format descriptor table (platform/graphics/constants.cpp) is a map the
 // enum does not enforce: an enumerator with no entry makes pixelFormatBytesPerPixel()
-// return 0, and the Vulkan upload path sizes its staging copy from that. R32F,
-// DEPTH16 and BGRA8 had enumerators and no entry until 2026-09-06. There is no
+// return 0, and the Vulkan upload path sizes its staging copy from that. There is no
 // way to iterate an enum, so this lists every enumerator by hand: add a format
 // here when you add one there, and the test says so if the table lags.
 
@@ -60,7 +59,7 @@ int main()
         }
     }
 
-    // The three that were missing, by value.
+    // Three that are easy to leave out of the table (R32F, DEPTH16, BGRA8), by value.
     const auto expect = [&](const PixelFormat f, const uint32_t size, const char* name) {
         const bool ok = pixelFormatBytesPerPixel(f) == size;
         std::cout << (ok ? "  ok   " : "  FAIL ") << name << " is " << size << " bytes\n";

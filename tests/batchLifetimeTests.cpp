@@ -2,12 +2,11 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // A batch keeps raw pointers to its SOURCE mesh instances (and a dynamic batch to
-// their nodes, read every frame). Until 2026-09-23 nothing told the BatchManager
-// when a source went away, so destroying a batched entity left a batch pointing
-// at freed mesh instances until the group happened to be rebuilt or destroyed —
-// and for a dynamic batch the very next frame read them. Disabling an entity did
-// not take its meshes out of a rebuild either: the rebuild tested enabled(), not
-// active().
+// their nodes, read every frame). If nothing tells the BatchManager when a source
+// goes away, destroying a batched entity leaves a batch pointing at freed mesh
+// instances until the group happens to be rebuilt or destroyed — and for a dynamic
+// batch the very next frame reads them. A rebuild that tests enabled() instead of
+// active() keeps a disabled entity's meshes in the batch.
 //
 // A use-after-free cannot be observed in a result, so this pins the contract that
 // prevents it: the moment a source leaves (destroyed, disabled, moved to another
@@ -166,8 +165,8 @@ int main()
 
     std::cout << "\nchanging a source's material\n";
     {
-        // setMaterial swaps the instance's material in place (no rebuild since
-        // 2026-09-30), so it must tell the batcher itself: the batch baked the old one in.
+        // setMaterial swaps the instance's material in place without a rebuild, so it
+        // must tell the batcher itself: the batch baked the old one in.
         auto otherMaterial = std::make_shared<StandardMaterial>();
         MeshInstance* changed = meshes[3];
         boxes[3]->findComponent<RenderComponent>()->setMaterial(otherMaterial.get());

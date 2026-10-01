@@ -120,8 +120,8 @@ namespace visutwin::canvas
         // Fingerprint the camera state the render actions bake in: identity,
         // active state, render target, camera-passes mode, layer list and the
         // clear flags (setupClears copies them into the actions).
-        // A count-only comparison missed enabled toggles, render-target changes,
-        // and destroy+create at equal count — all of which left stale actions
+        // A count-only comparison would miss enabled toggles, render-target changes,
+        // and destroy+create at equal count — all of which leave stale actions
         // holding dangling RenderAction::camera pointers.
         size_t fingerprint = cameras.size();
         const auto mix = [&fingerprint](size_t v) {
@@ -283,8 +283,8 @@ namespace visutwin::canvas
 
         // Cameras render in PRIORITY order, smallest first (upstream). The sort is
         // stable and everything defaults to 0, so a scene that sets no priority keeps
-        // the construction order it always had — which is what a dynamic reflection
-        // probe used to depend on, and now does not have to.
+        // construction order; a scene that needs one camera first (a dynamic reflection
+        // probe) says so with a priority rather than relying on that order.
         std::vector<CameraComponent*> ordered(cameras.begin(), cameras.end());
         std::stable_sort(ordered.begin(), ordered.end(),
             [](const CameraComponent* a, const CameraComponent* b) {

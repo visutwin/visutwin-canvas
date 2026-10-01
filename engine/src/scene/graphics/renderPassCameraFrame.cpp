@@ -121,8 +121,8 @@ namespace visutwin::canvas
         // the depth from the PREPASS, the only producer there: the scene target's
         // multisampled depth is internal, discarded at the end of the pass and never
         // resolved (upstream refuses in-scene depth with MSAA for the same reason).
-        // Resolving it used to cost 1 ms a frame on ambient-occlusion for a texture the
-        // prepass had already written. Single-sampled, the scene pass writes the shared
+        // Resolving it as well would be a second copy of a texture the prepass has
+        // already written. Single-sampled, the scene pass writes the shared
         // depth texture itself and a prepass renders only where prepassRenders() says.
         if (sanitized.taaEnabled || sanitized.ssaoType != SSAOTYPE_NONE || sanitized.dofEnabled ||
             sanitized.fogEnabled) {
@@ -159,8 +159,8 @@ namespace visutwin::canvas
         // reads it off CameraFrame.rendering.sceneColorMap. ForwardRenderer skips the
         // standalone grab pass whenever a camera frame is active, because the scene
         // renders into this offscreen target rather than the back buffer, so without
-        // this line the request was silently dropped the moment any post-processing
-        // was switched on and every material reading the scene colour sampled a null
+        // this line the request would be silently dropped the moment any post-processing
+        // is switched on, and every material reading the scene colour would sample a null
         // or stale texture.
         options.sceneColorMap = _cameraComponent->renderSceneColorMap();
         options.sceneDepthMap = _cameraComponent->renderSceneDepthMap();
@@ -502,8 +502,8 @@ namespace visutwin::canvas
         // pass, never stored, never resolved — the prepass (forced on for every
         // depth consumer in sanitizeOptions) has already written the sampleable
         // depth, as upstream does. A user-supplied depth texture here would make
-        // the pass store and resolve the multisampled depth every frame, which
-        // measured 1 ms on ambient-occlusion for a texture nobody needed.
+        // the pass store and resolve the multisampled depth every frame, for a
+        // texture nobody needs.
         sceneTargetOptions.depth = true;
         sceneTargetOptions.depthBuffer = options.samples > 1 ? nullptr : _sceneDepthTexture.get();
         sceneTargetOptions.stencil = options.stencil;
@@ -629,8 +629,8 @@ namespace visutwin::canvas
         // split over the scene, transparent and after passes (the depth layer's is not
         // cloned at all), so the first and last action PER CAMERA across those passes,
         // in the order they run, carry the flags — prerender and postrender then fire
-        // once per camera. Each pass used to rewrite them for its own block, which fired
-        // both events up to three times. The clones are this frame's own.
+        // once per camera. A pass must not rewrite them for its own block, or both events
+        // fire up to three times. The clones are this frame's own.
         std::unordered_map<const CameraComponent*, RenderAction*> first;
         std::unordered_map<const CameraComponent*, RenderAction*> last;
         for (const auto* pass : {_scenePass.get(), _scenePassTransparent.get(), _afterPass.get()}) {
@@ -666,9 +666,6 @@ namespace visutwin::canvas
     //    writes it again, so for the consumers that run after it (TAA, DOF, fog,
     //    compose-mode SSAO) a prepass is a second geometry pass whose output is erased
     //    before anything samples it.
-    // Until 2026-09-30 it rendered for every consumer: on `taa` a third of the frame's
-    // draws (2173 -> 1455) and 18% of its CPU render time, for a frame that comes back
-    // the same without it.
     bool RenderPassCameraFrame::prepassRenders(const CameraFrameOptions& options)
     {
         return options.prepassEnabled &&
@@ -707,9 +704,8 @@ namespace visutwin::canvas
 
         // Upstream's addCameraLayers walks the whole layer list and only BREAKS once it
         // reaches the requested layer, so a composition that does not contain that layer
-        // renders every layer rather than nothing. Returning here on a missing layer made
-        // the scene pass draw no actions at all: harmless while the default camera always
-        // had an immediate layer to stop at, but the grab path stops at the SKYBOX instead,
+        // renders every layer rather than nothing. Do not return on a missing layer: the
+        // scene pass would draw no actions at all, and the grab path stops at the SKYBOX,
         // which a camera with a custom layer set need not render.
         int sceneEndIndex = findActionIndex(lastLayerId, lastLayerTransparent, 0);
         if (sceneEndIndex == kStopLayerNotInComposition) {
@@ -914,9 +910,7 @@ namespace visutwin::canvas
         // both, all feeding the compose pass's applyDof. The orchestrator has no
         // target of its own and is never init()-ed, so the frame graph schedules its
         // three before-passes and skips it (RenderPass::render treats an
-        // uninitialised target as "no pass"). This path was dormant until 2026-09-19
-        // behind a note that it black-screened; that note predated the frame graph's
-        // handling of targetless passes and was not re-tested. Persisted across frames
+        // uninitialised target as "no pass"). Persisted across frames
         // like the other texture-owning sub-passes; needsReset covers the DOF options
         // that change the textures.
         if (options.dofEnabled && _cameraComponent && inputTexture && inputTextureHalf) {
@@ -1054,11 +1048,9 @@ namespace visutwin::canvas
                 _sceneRenderTarget->resize(scaledW, scaledH);
                 // Under MSAA the sampleable depth is NOT an attachment of the scene
                 // target (that one carries its own internal multisampled depth), so the
-                // resize above never reached it: the prepass kept rendering into a
-                // depth texture of the ORIGINAL window size while SSAO sampled it at
-                // the new one. Resizing a window from 900 to 1900 wide turned every
-                // ambient-occlusion frame into dark, streaked noise; a window started
-                // at that size was fine, which is what said the resize was at fault.
+                // resize above does not reach it: without this, the prepass would keep
+                // rendering into a depth texture of the ORIGINAL window size while SSAO
+                // samples it at the new one.
                 if (_sceneDepthTexture &&
                     (static_cast<int>(_sceneDepthTexture->width()) != scaledW ||
                      static_cast<int>(_sceneDepthTexture->height()) != scaledH)) {

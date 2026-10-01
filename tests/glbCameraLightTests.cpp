@@ -3,8 +3,8 @@
 //
 // glTF cameras (core) and KHR_lights_punctual lights become camera and light
 // components on the instantiated hierarchy, as upstream's createCamera / createLight
-// build them. Until 2026-09-24 the parser read neither, so a model's cameras and
-// lights simply were not there. Checked through BOTH halves of the load pipeline.
+// build them. A parser that reads neither leaves a model's cameras and lights simply
+// not there. Checked through BOTH halves of the load pipeline.
 //
 // What upstream does and this test pins: both are imported DISABLED; a camera sits on
 // its node (glTF and the engine both look down -Z); a light sits on an extra CHILD

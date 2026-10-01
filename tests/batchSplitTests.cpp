@@ -2,11 +2,11 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // Batching merges many mesh instances into one draw, which means one vertex
-// layout, one primitive type, one pair of shadow flags and one bounding box. The
-// batcher used to apply none of those rules: it reinterpreted any vertex buffer
-// as the 56-byte packed layout and never read BatchGroup::maxAabbSize at all, so
-// a mesh with a different stride merged as garbage and one batch could span the
-// whole scene. These hold the splitting rules that replaced that.
+// layout, one primitive type, one pair of shadow flags and one bounding box. A
+// batcher that applies none of those rules reinterprets any vertex buffer as the
+// 56-byte packed layout and ignores BatchGroup::maxAabbSize, so a mesh with a
+// different stride merges as garbage and one batch can span the whole scene.
+// These hold the splitting rules that prevent that.
 
 #include <iostream>
 #include <vector>
@@ -78,8 +78,8 @@ int main()
         check(lists[0] == std::vector<size_t>({0, 1, 2}), "input order is preserved");
     }
 
-    // A different vertex layout cannot share the merged buffer. This is the case
-    // that used to be merged through a reinterpret_cast.
+    // A different vertex layout cannot share the merged buffer; merged anyway, it
+    // would be read through a reinterpret_cast as the wrong layout.
     {
         std::vector<BatchCandidate> candidates = {cubeAt(0.0f, 1u), cubeAt(1.0f, 2u), cubeAt(2.0f, 1u)};
         const auto lists = splitBatchLists(candidates, 0.0f, false);

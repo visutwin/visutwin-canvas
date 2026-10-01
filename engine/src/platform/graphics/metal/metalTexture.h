@@ -17,9 +17,8 @@ namespace visutwin::canvas::gpu
      *
      * The copy goes through a shared-storage staging texture unconditionally. A
      * render target is device-private on Apple Silicon, and `getBytes` on a
-     * private texture does not fail — it returns whatever is there, which is how
-     * `tools/generate-env-atlas` wrote a plausible-looking wrong image for as
-     * long as it existed. Paying one blit for a texture that happened to be
+     * private texture does not fail — it returns whatever is there, a
+     * plausible-looking wrong image rather than an error. Paying one blit for a texture that happened to be
      * shared is the cheaper mistake.
      *
      * The back-buffer screenshot reads the DRAWABLE, which is an `MTL::Texture`

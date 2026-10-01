@@ -3,10 +3,10 @@
 //
 // The WideLineRenderer's segment buffer across growing, shrinking and empty sets.
 //
-// The renderer used to upload exactly the live records into a buffer sized for the
-// largest set so far. VertexBuffer::setData refuses any payload that is not the
-// buffer's full size, so the first frame with FEWER segments logged an error and
-// every frame after it drew stale lines. Nothing visual shows this unless a line
+// A renderer that uploads exactly the live records into a buffer sized for the
+// largest set so far fails: VertexBuffer::setData refuses any payload that is not the
+// buffer's full size, so the first frame with FEWER segments logs an error and
+// every frame after it draws stale lines. Nothing visual shows this unless a line
 // set shrinks while the example is being watched, which is why it is pinned here
 // against a stub device instead.
 //

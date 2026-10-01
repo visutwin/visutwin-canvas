@@ -72,9 +72,9 @@ namespace visutwin::canvas
             }
 
             // World-space bound of what the light can actually reach. A spot gets its
-            // CONE, not its range sphere: the sphere was about thirty times the
+            // CONE, not its range sphere: the sphere is about thirty times the
             // volume at a 20-degree cone, and since the grid is sized from the union
-            // of these bounds, that slack coarsened every cell in the scene.
+            // of these bounds, that slack would coarsen every cell in the scene.
             entry.aabb = ld.isSpot
                 ? spotConeAabb(ld.position, ld.direction, ld.range, ld.outerConeAngle)
                 : omniAabb(ld.position, ld.range);
@@ -92,13 +92,11 @@ namespace visutwin::canvas
             _boundsMax = Vector3(1.0f);
         } else {
             // The union of the LIGHT bounds and nothing else, as upstream's
-            // evaluateBounds does. This used to start from the camera's position
-            // padded by 50 units in every direction, so the grid was a 100-unit cube
-            // wherever the lights actually were: the cells came out coarse, most of
-            // them empty, and a scene whose lights sat in one corner spent its whole
-            // cell budget on space no light could reach.
+            // evaluateBounds does. Padding it around the camera would spend the cell
+            // budget on space no light can reach, leaving the cells coarse and mostly
+            // empty.
             //
-            // Shrinking the grid to the lights does not lose lighting. The shader
+            // Bounding the grid by the lights does not lose lighting. The shader
             // skips any fragment outside the grid, and a fragment outside the union
             // of every light's bound is outside every light's range by construction.
             Vector3 bMin(std::numeric_limits<float>::max());

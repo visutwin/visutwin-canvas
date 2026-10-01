@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A PhysicsWorld frees every joint touching a body it destroys. Until 2026-09-23
-// nothing told the JointComponent, which kept the freed pointer and called
-// isBroken() on it at its next update — after any rigid-body setter that rebuilds
-// the body (setMass, say) or the destruction of either end's entity. The joint was
-// never rebuilt against the new body either.
+// A PhysicsWorld frees every joint touching a body it destroys. A JointComponent
+// that is not told keeps the freed pointer and calls isBroken() on it at its next
+// update — after any rigid-body setter that rebuilds the body (setMass, say) or the
+// destruction of either end's entity — and is never rebuilt against the new body.
 //
 // A use-after-free cannot be seen in a result, so this runs the components against
 // a world that NEVER frees its joint objects: it marks one dead exactly when a real

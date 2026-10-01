@@ -119,8 +119,7 @@ namespace visutwin::canvas
         // baseValue upstream reads at bind. Kept across frames, INDEXED: a layer's
         // evaluator reports a node by its slot, which maps to a target once
         // (_layerSlotTargets). The binder's answers and each layer's mask test are cached
-        // per target. Until 2026-10-01 this was a map keyed by node path, hashed and
-        // probed several times per node per frame, with two vectors allocated per node.
+        // per target, so no node path is hashed per frame.
         struct LayerContribution
         {
             AnimTransform value;

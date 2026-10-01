@@ -35,7 +35,7 @@ namespace visutwin::canvas
      * DIFFERENT slot is flagged `atlasSlotUpdated` and re-armed for one render.
      *
      * The memory is the atlas, whatever the light count: 2048x2048 of 32-bit depth is
-     * 16 MB, where five omni lights as 1024 cubemaps were 120 MB. What the split
+     * 16 MB, where five omni lights as 1024 cubemaps would be 120 MB. What the split
      * gives up is per-light resolution — more lights, smaller slots — which is the
      * trade upstream makes.
      *

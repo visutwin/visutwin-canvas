@@ -17,10 +17,9 @@
     // the DIFFUSE irradiance comes from the first of SH light probes, the
     // environment atlas' ambient rect, or the flat ambient; the SPECULAR
     // reflection comes from the environment atlas whenever it is bound, whatever
-    // supplied the diffuse. Until 2026-09-19 this backend put the probes and the
-    // atlas in ONE if/else-if, so a scene carrying both lost every environment
-    // reflection the moment its probes were enabled — the metals went flat —
-    // while Metal kept them. Diffuse and specular are kept apart so ambient
+    // supplied the diffuse. Do not put the probes and the atlas in ONE if/else-if:
+    // a scene carrying both would lose every environment reflection the moment its
+    // probes were enabled. Diffuse and specular are kept apart so ambient
     // occlusion can treat them as upstream does (see the occlusion block below).
     vec3 ambientIrradiance;
     if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
@@ -136,12 +135,11 @@
             ccReflection = ccEnv * intensity * getFresnelCC(max(dot(ccNormalW, V), 0.0));
         }
     }
-    // No kD on the irradiance: it used to be scaled by (1 - Fr) * (1 - metallic),
-    // which applied (1 - metallic) a SECOND time because diffuseAlbedo already
-    // carries it — a 3.3x deficit on a material at metalness 0.7 — and no other
-    // source here nor the Metal chunk does that. No specular floor without an
-    // atlas either: `ambient * F0` is not a term Metal or upstream has, and it lit
-    // metals from nothing in scenes with no environment.
+    // No kD on the irradiance: scaling it by (1 - Fr) * (1 - metallic) would apply
+    // (1 - metallic) a SECOND time, because diffuseAlbedo already carries it, and
+    // neither the Metal chunk nor upstream does that. No specular floor without an
+    // atlas either: `ambient * F0` is not a term Metal or upstream has, and it would
+    // light metals from nothing in scenes with no environment.
     // upstream litForwardBackend.js, right after addAmbient: the ambient diffuse is
     // scaled by (1 - specularity) per channel when the material renders specular
     // (twin of the block in forward-fragment-ambient.metal, which explains it).
@@ -154,8 +152,8 @@
     // Sheen image-based lighting: sample the atlas along the reflection at the
     // sheen roughness, scaled by the analytical directional albedo instead of the
     // DFG lookup upstream samples. Twin of the block in
-    // forward-fragment-ambient.metal; this backend had no sheen IBL at all, so a
-    // sheened surface lit only by an environment showed nothing.
+    // forward-fragment-ambient.metal. Without it a sheened surface lit only by an
+    // environment shows no sheen.
     if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT) &&
         vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) && lighting.envParams.y > 0.5) {
         vec3 sheenR = reflect(-V, N);
@@ -461,10 +459,10 @@
             lighting.envParams.y > 0.5 && (material.flags & (1u << 18)) == 0u &&
             material.transmissionFactor > 0.0) {
             // Env-atlas refraction (upstream refractionCube.js): the reflection lookup
-            // along the REFRACTED direction. What stood here mixed toward this
-            // fragment's own ambient (indirectDiffuse + indirectSpecular), which is
-            // not a refraction at all: the surface came out opaque at any
-            // transmission. Twin of the Metal tail's cube path.
+            // along the REFRACTED direction — not a mix toward this fragment's own
+            // ambient (indirectDiffuse + indirectSpecular), which is not a refraction
+            // at all and reads opaque at any transmission. Twin of the Metal tail's
+            // cube path.
             vec3 refrDir = refract(-V, N, 1.0 / max(material.refractionIndex, 1.001));
             vec3 refrColor = (dot(refrDir, refrDir) > 0.0)
                 ? sampleEnvAtlas(normalize(refrDir), roughness) * max(lighting.envParams.x, 0.0)

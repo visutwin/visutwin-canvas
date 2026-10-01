@@ -8,9 +8,9 @@
 // ASTC -> BC7 -> DXT5 -> RGBA8 from supportsCompressedFormat, and there are FOUR
 // transcode call sites that must each use it: the texture asset (every example), the
 // async TextureResourceHandler, and the glTF KHR_texture_basisu images on the
-// synchronous and prepared paths. Until 2026-09-06 they hard-coded ASTC, which no
-// desktop Vulkan GPU can create. Changing one call site changes nothing, so each one
-// is driven here by a device that answers exactly one format.
+// synchronous and prepared paths. A site that hard-codes ASTC fails on every desktop
+// Vulkan GPU. Changing one call site changes nothing, so each one is driven here by a
+// device that answers exactly one format.
 //
 // CPU only: the stub device creates no GPU objects; the textures record their format.
 

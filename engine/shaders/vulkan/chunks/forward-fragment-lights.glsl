@@ -241,9 +241,9 @@
         // Direct diffuse is albedo * radiance * NdotL — no 1/PI and no
         // energy-conservation factor. Upstream's lightDiffuseLambert is a bare
         // NdotL and its combine multiplies by albedo, and the Metal chunk matches
-        // it; this divided by PI and multiplied by kD = (1 - F)(1 - metallic),
-        // which made every direct light here about a third of Metal's. kD also
-        // applied (1 - metallic) a second time, since diffuseAlbedo carries it.
+        // it. Dividing by PI and multiplying by kD = (1 - F)(1 - metallic) would make
+        // every direct light about a third of Metal's, and kD would apply
+        // (1 - metallic) a second time, since diffuseAlbedo carries it.
         color += (diffuseAlbedo * diffuseTerm + specular * specularOn) * radiance * NdotL;
         directDiffuse += diffuseAlbedo * diffuseTerm * radiance * NdotL;
         bakeDiffuseLight += diffuseTerm * radiance * NdotL;
@@ -253,9 +253,9 @@
             // Twin of the clearcoat block in forward-fragment-lights.metal: GGX
             // distribution, Kelemen visibility (a coat is smooth enough that
             // Smith-GGX is not worth its cost) and a fixed F0 = 0.04 Fresnel, all
-            // taken at the clearcoat's own half vector. This used to divide by
-            // 4*NdotV with no NdotL anywhere, which is not a reflectance integral
-            // at all — the coat brightened as the surface turned away from the light.
+            // taken at the clearcoat's own half vector, and weighted by NdotL (a
+            // division by 4*NdotV with no NdotL is not a reflectance integral: the coat
+            // would brighten as the surface turned away from the light).
             // Taken at the COAT normal with the coat's own roughness, as Metal does.
             float ccNdotL = max(dot(ccNormalW, L), 0.0);
             float ccNdotH = max(dot(ccNormalW, H), 0.0);

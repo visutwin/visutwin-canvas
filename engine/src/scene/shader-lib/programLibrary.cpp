@@ -432,9 +432,9 @@ namespace visutwin::canvas
         options.morphing = morphing || variantBit(variantBits, 23);
         // Instancing follows the draw: a mesh instance with a per-instance buffer gets the
         // instanced vertex stage (upstream infers it from MeshInstance::setInstancing the same
-        // way). Variant bit 33 stays honoured so materials that opted in explicitly keep working;
-        // for those the per-instance color is assumed, since the 80-byte layout was the only one
-        // the engine supported when that bit was the sole way to request instancing.
+        // way). Variant bit 33 is honoured so materials that opt in explicitly keep working;
+        // for those the per-instance color is assumed, since such materials expect the
+        // 80-byte layout, which carries one.
         const bool materialInstancing = variantBit(variantBits, 33);
         options.instancing = instancing || materialInstancing;
         options.instancingColor = instancing ? instancingColor : materialInstancing;
@@ -566,9 +566,9 @@ namespace visutwin::canvas
     {
         // Build the key entirely from resolved ShaderVariantOptions — do NOT fold in
         // the raw material shaderVariantKey, because the options already capture
-        // every flag that affects the compiled shader.  Including the raw key was
-        // creating spurious unique variants (different materials mapping to the
-        // same set of options but different shaderVariantKey values) and hitting
+        // every flag that affects the compiled shader.  Including the raw key would
+        // create spurious unique variants (different materials mapping to the
+        // same set of options but different shaderVariantKey values) and hit
         // the AGX compiled-variants footprint limit.
         //
         // The key holds the feature set itself rather than a mask folded into an
@@ -739,7 +739,7 @@ namespace visutwin::canvas
 
         // The material block is emitted from materialUniformFields.h, so the C++
         // struct and the shader declaration cannot drift. The chunk carries a
-        // VT_MATERIAL_DATA_BLOCK marker where the struct used to be written out.
+        // VT_MATERIAL_DATA_BLOCK marker where the struct is substituted.
         source += "\n#define VT_VERTEX_ENTRY ";
         source += vertexEntry;
         source += "\n#define VT_FRAGMENT_ENTRY ";
@@ -873,9 +873,10 @@ namespace visutwin::canvas
         // The GLSL backend builds its shadow shader from prebuilt bundle modules
         // selected by the definition NAME, not by chunk composition, so
         // registerGlslPrograms deliberately registers no "shadow" chunk program.
-        // Requiring one here silently disabled EVERY Vulkan shadow: the shadow
-        // passes return as soon as this is null, so nothing was ever drawn into the
-        // shadow map, it stayed at its cleared 1.0, and every fragment read as lit.
+        // Requiring one here would silently disable EVERY Vulkan shadow: the shadow
+        // passes return as soon as this is null, so nothing would be drawn into the
+        // shadow map, it would stay at its cleared 1.0, and every fragment would read
+        // as lit.
         // buildForwardShaderVariant already falls back to the bundle for a program
         // with no chunked GLSL form, so the check is only meaningful for MSL.
         if (_chunks.language() != ShaderLanguage::Glsl && !hasProgram("shadow")) {
@@ -890,7 +891,7 @@ namespace visutwin::canvas
         // The shadow pass runs the material's opacity frontend before writing depth,
         // as upstream's litShadowMain does. Without it a masked material — foliage,
         // a chain-link fence, a cut-out sign — writes depth over its whole quad and
-        // throws a solid shadow, which is what both backends did until 2026-09-10.
+        // throws a solid shadow.
         options.alphaTest = material && material->alphaMode() == AlphaMode::MASK;
         options.baseColorMap = options.alphaTest &&
             (stdMat ? (stdMat->diffuseMap() != nullptr || stdMat->baseColorTexture() != nullptr)
@@ -911,13 +912,12 @@ namespace visutwin::canvas
         options.instancingColor = instancing && instancingColor;
         // The shadow fragment shader needs to know whether to write moments
         // (RGBA16F EVSM) or just rely on hardware depth (PCF). That is a property
-        // of the LIGHT being rendered, so the caller says it. It used to come from
-        // the scene-wide VSM switch, which renderForwardLayer sets — AFTER the
-        // frame's shadow passes have run — so the first VSM shadow a light ever
-        // rendered used the depth-only variant and wrote no moments. A realtime
-        // shadow was right one frame later; a one-shot one stayed blank for good
-        // (zeros on Vulkan, uninitialised memory on Metal). It also handed spot
-        // shadows and the depth prepass the moments variant under a VSM key light.
+        // of the LIGHT being rendered, so the caller says it. Do not take it from the
+        // scene-wide VSM switch: renderForwardLayer sets that AFTER the frame's shadow
+        // passes have run, so a light's first VSM shadow would use the depth-only
+        // variant and write no moments (a one-shot shadow would stay blank for good),
+        // and spot shadows and the depth prepass would get the moments variant under a
+        // VSM key light.
         options.vsmShadows = vsm;
 
         const VariantKey key = makeVariantKey("shadow", options, material);

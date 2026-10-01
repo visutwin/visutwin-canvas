@@ -59,9 +59,9 @@ namespace visutwin::canvas
         if (!shadowShader) {
             // Returning here draws NOTHING into the shadow map, which then reads as
             // its cleared 1.0 and lights every fragment: a total, silent loss of
-            // shadows that looks like a shading bug rather than a missing shader.
-            // A program-registration mismatch did exactly this on Vulkan, so say it
-            // out loud once instead of failing quietly.
+            // shadows that looks like a shading bug rather than a missing shader (a
+            // program-registration mismatch, for one), so say it out loud once instead
+            // of failing quietly.
             static bool warned = false;
             if (!warned) {
                 warned = true;
@@ -136,8 +136,8 @@ namespace visutwin::canvas
 
             // The cascade's casters, prepared this frame by the fit
             // (ShadowRendererDirectional::cull), which already holds the scene's casters
-            // and tests them against this same fitted frustum: this pass used to collect
-            // and test the whole scene again for the same answer. The list is this
+            // and tests them against this same fitted frustum, so the pass does not
+            // collect and test the whole scene again for the same answer. The list is this
             // frame's or it is not used — it holds raw pointers — and then the pass
             // collects and culls for itself, with the same collector the fit uses, so
             // the two cannot disagree about what a caster is.

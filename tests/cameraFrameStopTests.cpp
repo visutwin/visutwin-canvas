@@ -6,18 +6,18 @@
 // The scene pass renders up to the grab layer — the Skybox — then grabs the colour, and
 // the transparent layers draw after the grab so a refractive surface samples the
 // opaque world. Render actions exist only for ENABLED layers, and a scene lit by its
-// environment atlas alone disables the Skybox layer: the search used to match nothing,
-// the caller fell back to EVERY action, the grab ran after the transparent layers, and
-// a refractive surface sampled itself from the previous frame (one of the three stacked
-// causes of the dark refraction found on 2026-09-15). A disabled stop layer is placed
-// by its POSITION in the composition instead, as upstream's addCameraLayers does.
+// environment atlas alone disables the Skybox layer. A search over render actions
+// alone matches nothing there, the caller falls back to EVERY action, the grab runs
+// after the transparent layers, and a refractive surface samples itself from the
+// previous frame, which reads as dark, opaque refraction. A disabled stop layer is
+// placed by its POSITION in the composition instead, as upstream's addCameraLayers does.
 //
 // And when the frame's depth prepass renders (RenderPassCameraFrame::prepassRenders).
 // Single-sampled, the scene pass clears and rewrites the depth texture a prepass wrote,
 // so only a consumer that reads it BEFORE the scene pass — lighting-mode SSAO — needs
 // one; under MSAA the prepass is the only sampleable depth and every consumer needs it.
-// It used to render for every consumer at any sample count: a second geometry pass
-// whose output was erased before anything sampled it.
+// Rendering it for every consumer at any sample count would add a second geometry
+// pass whose output is erased before anything samples it.
 
 #include <iostream>
 #include <memory>

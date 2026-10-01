@@ -3,9 +3,9 @@
 // A normal is carried by the INVERSE TRANSPOSE of the model matrix, not by the
 // matrix itself. The two agree only for a rotation and a uniform scale; under
 // non-uniform scale they do not, and lighting reads the difference directly — a
-// squashed or stretched mesh shades as if it had never been squashed. Every
-// Vulkan vertex module passed mat3(model) until 2026-09-11, so that error was
-// this backend's alone: Metal has always uploaded the real thing per draw.
+// squashed or stretched mesh shades as if it had never been squashed. The Vulkan
+// vertex modules take their normal matrix from here rather than mat3(model); Metal
+// uploads the same matrix per draw.
 //
 // What this returns is the cofactor matrix times the sign of the determinant,
 // which is the inverse transpose scaled by |det| — and the caller normalizes, so

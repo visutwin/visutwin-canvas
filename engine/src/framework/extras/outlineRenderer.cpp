@@ -345,8 +345,8 @@ void main() {
 
         if (recursive) {
             for (const auto& child : entity->children()) {
-                // dynamic_cast: a plain GraphNode child is not an Entity (the static_cast
-                // this replaced was undefined for one).
+                // dynamic_cast: a plain GraphNode child is not an Entity, and a static_cast
+                // would be undefined for one.
                 if (auto* childEntity = dynamic_cast<Entity*>(child.get())) {
                     collectClones(childEntity, color, recursive, sources, clones, materials);
                 }
@@ -383,7 +383,7 @@ void main() {
         std::vector<Entity*> sources;
         collectClones(entity, color, recursive, sources, record.clones, record.materials);
         // The clones point at these entities' nodes: destroying any of them drops the
-        // whole record before the node is freed (the pointers used to dangle). The root
+        // whole record before the node is freed, so no pointer is left dangling. The root
         // is watched even when it contributed no clone of its own.
         if (std::find(sources.begin(), sources.end(), entity) == sources.end()) {
             sources.push_back(entity);

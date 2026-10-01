@@ -2,8 +2,8 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // A container's animation tracks, in the FILE's order (upstream `container.animations`, an array),
-// with a lookup by name. They used to live in an unordered_map, so iterating them, or taking
-// `begin()` as "the" animation as several examples do, came out in hash order.
+// with a lookup by name. Not an unordered_map: iterating them, or taking `begin()` as "the"
+// animation as several examples do, has to follow the file, not hash order.
 //
 #pragma once
 

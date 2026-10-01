@@ -186,10 +186,9 @@ namespace visutwin::canvas
         // (glb-parser createNode). The SAME string has to come out of every place
         // that names a node — the entity the container instantiates, the animation
         // target, the skin's bone list — or an unnamed node exists under one name
-        // and is animated under another. Until 2026-09-19 the node payload kept the
-        // empty name and parseAnimations SKIPPED any channel whose target was
-        // unnamed, so an unnamed animated node (common in exporter output, where
-        // only meshes and bones are named) simply did not move.
+        // and is animated under another. Unnamed animated nodes are common in
+        // exporter output, where only meshes and bones are named, so a channel
+        // targeting one must not be skipped.
         std::string glbNodeName(const tinygltf::Model& model, const int nodeIndex)
         {
             const auto& name = model.nodes[static_cast<size_t>(nodeIndex)].name;
@@ -215,7 +214,7 @@ namespace visutwin::canvas
         // down to it, joined with '/', upstream's constructNodePath. A bare name
         // cannot tell two nodes apart that share it in different branches — a
         // left and a right "Wheel", or a skeleton exported twice — and every such
-        // scene animated only whichever findByName met first. DefaultAnimBinder
+        // scene would animate only whichever findByName met first. DefaultAnimBinder
         // walks the path and falls back to the leaf name for tracks that were not
         // produced by this parser.
         std::string glbNodePath(const tinygltf::Model& model, const std::vector<int>& parents, int nodeIndex)
@@ -689,7 +688,7 @@ namespace visutwin::canvas
                             // the bone boxes take the vertex's reach under every target at once
                             // — the negative deltas summed toward the min, the positive toward
                             // the max, per axis — as upstream's _initBoneAabbs does. Without it
-                            // a skinned mesh whose targets push it outward was culled on screen.
+                            // a skinned mesh whose targets push it outward could be culled on screen.
                             const auto morphTargets = readMorphTargets(model, primitive, vertexCount);
                             for (size_t v = 0; v < vertexCount; ++v) {
                                 const Vector3 rest = Vector3::load(&positions[v * 3]);
@@ -886,7 +885,7 @@ namespace visutwin::canvas
                 }
 
                 // Two animations may share a name (nothing in glTF forbids it), and the
-                // tracks are keyed by name: the later one used to overwrite the earlier
+                // tracks are keyed by name, so the later one would overwrite the earlier
                 // in silence. Keep both, the later under a suffixed name, and say so.
                 if (outTracks.contains(trackName)) {
                     std::string unique;
@@ -1760,8 +1759,8 @@ namespace visutwin::canvas
 
     // DEVIATION: the sheen, specular, iridescence and anisotropy extensions all allow
     // TEXTURES, and this engine's material has none of those maps (the fragment stage
-    // is at MoltenVK's sampler limit, and the sheen/iridescence map bits were removed
-    // because no shader read them). The factors are applied; a texture is ignored with
+    // is at MoltenVK's sampler limit, and no shader reads a sheen or iridescence
+    // map). The factors are applied; a texture is ignored with
     // one warning per extension and process, so the file still loads.
     static void warnIgnoredExtensionTextures(const tinygltf::Value& ext, const char* extension,
         std::initializer_list<const char*> textureKeys)
@@ -2003,11 +2002,9 @@ namespace visutwin::canvas
     }
 
     // One glTF material, for EVERY load path: the synchronous parse(), createFromModel
-    // and createFromPrepared (the two asynchronous ones). Each used to carry its own
-    // copy of this, and the two async copies had drifted — no occlusion texture, no
-    // emissive texture, no metallic-roughness UV set and no KHR_materials_unlit — so a
-    // model loaded with loadAsync lost its baked AO and its glow, and an unlit model
-    // came out lit. `textureCount`, when given, counts the core textures bound.
+    // and createFromPrepared (the two asynchronous ones). Never give a path its own
+    // copy: copies drift, and nothing notices because no example loads asynchronously.
+    // `textureCount`, when given, counts the core textures bound.
     static std::shared_ptr<StandardMaterial> createGltfMaterial(const tinygltf::Material& srcMaterial,
         const std::function<std::shared_ptr<Texture>(int)>& getOrCreateTexture, size_t* textureCount = nullptr)
     {
@@ -2167,10 +2164,8 @@ namespace visutwin::canvas
     // Every load path ends in prepareFromModel() + createFromPrepared(): parse() and
     // parseFromMemory() load a model and call createFromModel(), which runs both
     // halves on the calling thread, and the asset loader runs the first half on a
-    // worker. The three paths used to carry their own copies of texture creation,
-    // vertex extraction and node building; the async copies had drifted (no point
-    // clouds, no material features, fewer warnings), which nothing noticed because
-    // no example loads asynchronously.
+    // worker. Texture creation, vertex extraction and node building live here once:
+    // per-path copies drift, and no example loads asynchronously to notice.
 
     namespace
     {
@@ -2392,8 +2387,8 @@ namespace visutwin::canvas
                 const auto& node = model.nodes[i];
                 if (node.matrix.size() == 16) {
                     // glTF stores matrices in column-major order, as Matrix4 does, so the
-                    // sixteen values are the four columns in sequence. This used to go through
-                    // setElement with (row, col) swapped, which wrote the matrix TRANSPOSED;
+                    // sixteen values are the four columns in sequence (setElement takes
+                    // (col, row), and swapping them writes the matrix TRANSPOSED);
                     // parseSkins builds the inverse bind matrices this same way.
                     const auto& m = node.matrix;
                     world[i] = Matrix4(

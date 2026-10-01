@@ -107,7 +107,7 @@ namespace visutwin::canvas
         // it keeps the container's texture list alive (Material::retainResource). A
         // mesh instance co-owns its mesh and material already; with this an entity
         // built from the container can outlive the Asset's unload() without its
-        // materials pointing at freed textures, which is what happened until 2026-09-24.
+        // materials pointing at freed textures.
         void addMeshPayload(const GlbMeshPayload& payload)
         {
             if (payload.material) {

@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Small contracts fixed by the 2026-09-25 triage of the 2026-09-23 audit findings, each
-// invisible in a render:
+// Small contracts, each invisible in a render:
 //
 //  - N6   StandardMaterial::setDiffuseMap(nullptr) (and the normal, metalness and
-//         emissive siblings) clears a map a glTF material bound on the BASE slot. The
-//         setter used to store its own pointer only, so it cleared nothing.
+//         emissive siblings) clears a map a glTF material bound on the BASE slot. A
+//         setter that stores only its own pointer clears nothing.
 //  - N11.2 ScriptComponent::setExecutionOrder moves the component in its system's update
-//         order. It used to store the value and change nothing.
+//         order, rather than storing the value and changing nothing.
 //  - N10.4 ResourceLoader::shutdown hands every undelivered completion back as an error,
-//         and a load after shutdown fails at once; both used to leave the caller waiting
-//         for good (an Asset stayed `_loading`).
-//  - N11.1 a button's image entity reads null once that entity is destroyed; the raw
-//         pointer used to dangle.
-//  - N10.2 two glTF animations with the same name are both kept; the later one used to
+//         and a load after shutdown fails at once; otherwise the caller waits for good
+//         (an Asset stays `_loading`).
+//  - N11.1 a button's image entity reads null once that entity is destroyed, rather
+//         than a dangling raw pointer.
+//  - N10.2 two glTF animations with the same name are both kept; the later one must not
 //         overwrite the earlier in silence.
 
 #include <tiny_gltf.h>

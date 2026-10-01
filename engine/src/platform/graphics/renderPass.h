@@ -121,8 +121,8 @@ namespace visutwin::canvas
         /// every frame, so each edit is recorded — the flag, the value it replaced and
         /// the value written — and undone at the next compile before the graph derives
         /// them afresh. Only a flag still holding the graph's value is put back: a pass
-        /// that changed its own flag since keeps its change. Until 2026-09-25 the edits
-        /// were one-way, so one frame's adjacency stuck to a pass for good.
+        /// that changed its own flag since keeps its change. One-way edits would make one
+        /// frame's adjacency stick to a pass for good.
         void setAttachmentFlagByGraph(const std::shared_ptr<void>& owner, bool& flag, bool value);
         void undoGraphAttachmentEdits();
 

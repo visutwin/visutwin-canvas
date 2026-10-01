@@ -3,15 +3,15 @@
 //
 // A GLB loads through three paths — the synchronous parse(), createFromModel and
 // prepareFromModel + createFromPrepared (the last two are what loadAsync uses) — and
-// each used to build its materials with its own copy of the same code. The two async
-// copies had drifted: no occlusion texture, no emissive texture, no metallic-roughness
-// UV set and no KHR_materials_unlit, so a model loaded asynchronously lost its baked AO
-// and its glow and an unlit model came out lit, while the synchronous load was right.
-// No example loads asynchronously, which is how it lived.
+// all three call one createGltfMaterial. An async path with its own copy that drifts
+// (no occlusion texture, no emissive texture, no metallic-roughness UV set, no
+// KHR_materials_unlit) loses a model's baked AO and its glow and lights an unlit model,
+// while the synchronous load stays right. No example loads asynchronously, so only this
+// shows it.
 //
-// All three now call one createGltfMaterial. This builds a model in memory that uses
-// every one of those features and checks the material each ASYNC path produces; the
-// synchronous path shares the function, and loads from disk in every example.
+// This builds a model in memory that uses every one of those features and checks the
+// material each ASYNC path produces; the synchronous path shares the function, and
+// loads from disk in every example.
 
 #include <tiny_gltf.h>
 
@@ -218,9 +218,9 @@ int main()
     }
 
     // A material holds raw Texture*s into its container. A mesh instance co-owns its
-    // material, so an entity built from an asset used to survive the asset's unload()
-    // with materials pointing at freed textures; the container's texture list is now
-    // kept alive by every material it hands out. The device's texture VRAM figure is
+    // material, so an entity built from an asset survives the asset's unload(); unless
+    // every material the container hands out keeps its texture list alive, those
+    // materials point at freed textures. The device's texture VRAM figure is
     // the observable: a texture gives its bytes back in its destructor.
     std::cout << "\na material outlives its container\n";
     {

@@ -199,9 +199,9 @@ fragment float4 taaFragment(
     // Premultiplied (rgb * a) is the coverage-correct space for TAA (upstream
     // taaResolve.js): straight RGB interpolates colour and opacity independently at
     // edges, which fringes and ghosts. Clamp and mix premultiplied, then
-    // un-premultiply by the CURRENT alpha — alpha is not filtered over time. Both
-    // backends used to blend (Metal) or keep (Vulkan) the HISTORY alpha. With alpha
-    // 1 the result is unchanged bit for bit.
+    // un-premultiply by the CURRENT alpha — alpha is not filtered over time, so the
+    // HISTORY alpha is neither blended nor kept. With alpha 1 the result is the
+    // straight-RGB mix bit for bit.
     const float3 historyPremul = historyColor.rgb * historyColor.a;
     const float3 srcPremul = srcColor.rgb * srcColor.a;
     const float3 historyPremulClamped = colorClampPremul(sourceTexture, linearSampler, uv,

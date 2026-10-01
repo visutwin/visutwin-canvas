@@ -3,9 +3,9 @@
 // Fresnel at two interfaces (air to film, film to substrate) with the optical
 // path difference between them producing the hue shift with viewing angle.
 //
-// This backend used to approximate it as a fixed `0.5 + 0.5 * cos(phase + rgb
-// offsets)` tint blended into F0 — a rainbow that never moved with the view
-// direction, which is the one thing iridescence is.
+// Do not approximate it as a fixed `0.5 + 0.5 * cos(phase + rgb offsets)` tint
+// blended into F0: that is a rainbow that never moves with the view direction,
+// which is the one thing iridescence is.
 
 float iorToF0(float transmittedIor, float incidentIor) {
     float r = (transmittedIor - incidentIor) / (transmittedIor + incidentIor);

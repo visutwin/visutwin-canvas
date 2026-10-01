@@ -1,9 +1,7 @@
 # Architecture Reference
 
 Per-subsystem reference for VisuTwin Canvas: how each feature works, how to turn
-it on, and where it deviates from upstream. Split out of `CLAUDE.md` on
-2026-09-04, verbatim, so that file could stay small enough to load at the start of
-every session.
+it on, and where it deviates from upstream.
 
 Read `CLAUDE.md` first. It holds the rules and the live gotchas, and where the two
 files overlap, `CLAUDE.md` is authoritative. Completed-work narrative lives in
@@ -30,8 +28,8 @@ chosen by the `VertexFormat` the app builds and passed to
   `VT_FEATURE_INSTANCING_COLOR`, which is what declares `instanceColor
   [[attribute(10)]]` and the matching 5th entry in the Metal vertex descriptor.
   GPU instance culling (`enableGpuInstanceCulling`) requires this stride — its
-  cull kernel compacts fixed 80-byte records — and now refuses the 64-byte one
-  instead of misreading it.
+  cull kernel compacts fixed 80-byte records — and refuses the 64-byte one
+  rather than misreading it.
 Instanced casters go through the shadow passes too (`RenderPassShadowDirectional`
 and `RenderPassShadowLocalNonClustered` bind the instance buffer at slot 5, fetch
 `getShadowShader(..., instancing, instancingColor)` and draw instanced, then
@@ -49,13 +47,13 @@ and its buffer format, and passes them to `ProgramLibrary::bindMaterial`. The
 legacy `Material::setShaderVariantKey(1<<33)` opt-in is still honoured (and
 implies the 80-byte layout, the only one that existed when it was the sole way
 in). DEVIATION: Vulkan's `forward_instanced.vert` reads the matrix only and
-never consumed a per-instance color, so 80-byte buffers render with the material
+does not consume a per-instance color, so 80-byte buffers render with the material
 color there.
 
 ### Directional shadows
-- **Shadow bias convention** (fixed 2026-08-14): `LightComponent::setShadowBias` takes upstream's **0..1 authoring value** (default 0.05) and remaps it to the internal `Light::shadowBias` as `-0.01 * clamp(v,0,1)` — negative on purpose, because the shadow passes apply `shadowBias * -1000` as the hardware polygon offset and that product must be POSITIVE to push casters AWAY from the light. Passing the raw component value straight through inverted it, so a larger bias produced MORE shadow (a self-casting ground went fully black at 0.05). Hardware bias is skipped for PCSS (biases in-shader) and for omni lights on both paths (their faces store perspective depth and take a relative bias in-shader), as upstream skips it for its distance-storing omni maps. The directional PCF shader uses a fixed 0.0001 receiver bias, NOT the light's; only local/clustered lights consume the light bias in-shader (negated + upstream's ×20 spot scale, since our shader subtracts it from the receiver depth). A receiver's shadow-space depth is saturated to [0, 1] on both backends (upstream's ortho `getShadowSampleCoord`), so a receiver beyond the caster-fitted far plane — a receiver-only ground — is shadowed by the casters in front of it rather than skipped; until 2026-09-19 it was range-tested and lit, which is why ground planes had to be casters.
+- **Shadow bias convention**: `LightComponent::setShadowBias` takes upstream's **0..1 authoring value** (default 0.05) and remaps it to the internal `Light::shadowBias` as `-0.01 * clamp(v,0,1)` — negative on purpose, because the shadow passes apply `shadowBias * -1000` as the hardware polygon offset and that product must be POSITIVE to push casters AWAY from the light. Passing the raw component value straight through inverts it, so a larger bias produces MORE shadow (a self-casting ground goes fully black at 0.05). Hardware bias is skipped for PCSS (biases in-shader) and for omni lights on both paths (their faces store perspective depth and take a relative bias in-shader), as upstream skips it for its distance-storing omni maps. The directional PCF shader uses a fixed 0.0001 receiver bias, NOT the light's; only local/clustered lights consume the light bias in-shader (negated + upstream's ×20 spot scale, since our shader subtracts it from the receiver depth). A receiver's shadow-space depth is saturated to [0, 1] on both backends (upstream's ortho `getShadowSampleCoord`), so a receiver beyond the caster-fitted far plane — a receiver-only ground — is shadowed by the casters in front of it rather than skipped.
 - **PCF3_32F** (default): hardware-compared depth2d, 4-tap bilinear PCF reconstructing a 3×3 kernel.
-- **PCSS_32F** (`SHADOW_PCSS_32F`): contact-hardening soft shadows (upstream `shadowSoft.js` PCSSDirectional). Also supported on **spot/omni local lights** (upstream `shadowPCSS.js`, 2026-07-13): a runtime uniform branch (no extra variant) driven by `LightingData::localShadowPcss0/1` = {searchArea UV (0=off), near, far}; spot = Vogel-disk blocker+filter with per-tap depth linearization, omni = Vogel-sphere direction perturbation on the depth cube; `searchArea = penumbraSize/shadowResolution (*fovRatio for spot)` — local-light `penumbraSize` is in shadow-map PIXELS (~10-40), NOT the directional world-space scale. Example: `pcss-local-example.cpp`. FIXED two pre-existing spot local shadow bugs found here: the spot shadow camera was missing upstream's `rotateLocal(-90,0,0)` (camera looks -Z, light emits -Y) and `MetalUniformBinder` uploaded `localShadowMatrix` transposed (`Matrix4::getElement` takes **(col,row)** — was called (row,col)); spot 2D shadow maps never worked before. Vogel-disk blocker search + filter (in-shader sample generation, `fractSinRand` seed), world-space penumbra: `penumbra = shape * penumbraSize * depthRange` with `shape = 1-(1-t)^penumbraFalloff`. Per-cascade ortho radii + caster depth ranges flow via `LightingUniforms::pcssCascadeRadii/pcssCascadeDepthRanges`; `pcssParams` = {filterSamples 16, blockerSamples 16, penumbraSize, penumbraFalloff}. DEVIATION: reuses the standard PCF hardware depth map sampled RAW (non-comparison `shadowRawSampler`) instead of upstream's dedicated R32F color map — the `pcf=true` flag in its `shadowTypeInfo` entry selects the depth attachment. Configure: `setShadowType(SHADOW_PCSS_32F)` + `setPenumbraSize(0.02-0.05 — upstream example scale; ~tan of light angular size)` + `setPenumbraFalloff(>=1)`. `VT_FEATURE_PCSS_SHADOWS` set per frame like VSM. GOTCHA: a huge ground plane left as shadow CASTER inflates the fitted caster depth range → whole-plane acne (PCF) and blown-up penumbras (PCSS) — set `render->setCastShadows(false)` on large receiver-only ground.
+- **PCSS_32F** (`SHADOW_PCSS_32F`): contact-hardening soft shadows (upstream `shadowSoft.js` PCSSDirectional). Also supported on **spot/omni local lights** (upstream `shadowPCSS.js`): a runtime uniform branch (no extra variant) driven by `LightingData::localShadowPcss0/1` = {searchArea UV (0=off), near, far}; spot = Vogel-disk blocker+filter with per-tap depth linearization, omni = Vogel-sphere direction perturbation on the depth cube; `searchArea = penumbraSize/shadowResolution (*fovRatio for spot)` — local-light `penumbraSize` is in shadow-map PIXELS (~10-40), NOT the directional world-space scale. Example: `pcss-local-example.cpp`. The spot shadow camera applies upstream's `rotateLocal(-90,0,0)` (camera looks -Z, light emits -Y), and `MetalUniformBinder` uploads `localShadowMatrix` untransposed (`Matrix4::getElement` takes **(col,row)**, not (row,col)); without either, spot 2D shadow maps do not work. Vogel-disk blocker search + filter (in-shader sample generation, `fractSinRand` seed), world-space penumbra: `penumbra = shape * penumbraSize * depthRange` with `shape = 1-(1-t)^penumbraFalloff`. Per-cascade ortho radii + caster depth ranges flow via `LightingUniforms::pcssCascadeRadii/pcssCascadeDepthRanges`; `pcssParams` = {filterSamples 16, blockerSamples 16, penumbraSize, penumbraFalloff}. DEVIATION: reuses the standard PCF hardware depth map sampled RAW (non-comparison `shadowRawSampler`) instead of upstream's dedicated R32F color map — the `pcf=true` flag in its `shadowTypeInfo` entry selects the depth attachment. Configure: `setShadowType(SHADOW_PCSS_32F)` + `setPenumbraSize(0.02-0.05 — upstream example scale; ~tan of light angular size)` + `setPenumbraFalloff(>=1)`. `VT_FEATURE_PCSS_SHADOWS` set per frame like VSM. GOTCHA: a huge ground plane left as shadow CASTER inflates the fitted caster depth range → whole-plane acne (PCF) and blown-up penumbras (PCSS) — set `render->setCastShadows(false)` on large receiver-only ground.
 - **VSM_16F**: Exponential VSM with `c = 5.54`, RGBA16F moments storage. Render path writes `(exp(c·z), exp(c·z)², 1, 1)`; sample path uses Chebyshev's inequality with `reduceLightBleeding(0.1)`. Separable Gaussian blur (default 11-tap, configurable via `LightComponent::setVsmBlurSize`) runs after shadow render. Depth tightening uses **caster-AABB projected onto shadow-cam Z** (rotation-invariant for static scenes — eliminates per-frame depth jitter that would otherwise show as variance flicker on thin geometry). Configurable per-light via `LightComponent::setShadowType(SHADOW_VSM_16F)` + `setVsmBias(0.0025f)` + `setVsmBlurSize(11)`. Mirrors upstream `SHADOW_VSM_16F` (`shadowEVSM.js` + `blurVSM.js`).
 
 ### Tangent frames — there is no derivative TBN
@@ -70,9 +68,8 @@ carries no TANGENT attribute).
 
 A mesh CAN still reach the shader with a zero tangent — a non-triangle primitive
 with no tangent stream. `normalize()` of that is NaN, which poisons the shading
-normal and the pixel. Metal has always guarded it (`length_squared(T) >= 1e-6`,
-falling back to the geometric normal); the Vulkan chunk did not until 2026-09-03
-and now does the same.
+normal and the pixel. Both backends guard it (`length_squared(T) >= 1e-6`,
+falling back to the geometric normal).
 
 DIVERGENCE, deliberately left alone: the two backends interpret `normalScale`
 differently — Metal blends the sampled normal toward flat
@@ -83,9 +80,9 @@ normal-mapped Metal scene, so it wants its own commit and its own verification.
 ### Opacity Dither
 `VT_FEATURE_OPACITY_DITHER` (upstream `opacity-dither.js`, BAYER8 variant): `StandardMaterial::setOpacityDither(true)` renders partial opacity in the OPAQUE pass by discarding fragments against a screen-space 8×8 Bayer threshold (pow-2.2-linearized) — no sorting artifacts, correct depth writes. Keep the material non-transparent; alpha comes from `setOpacity`/texture alpha. DEVIATIONS: no blue-noise/IGN variants, no per-frame jitter (static pattern). Bayer helpers live in the `common-dither` chunk (`ditherThreshold` / `ditherDiscards`, shared by the forward and shadow chunks); the forward discard block sits after the alpha-test block.
 
-**Decoupled strength — `alphaDither`** (upstream `StandardMaterial.alphaDither`, 2026-08-21): opacity normally drives BOTH the alpha blend and the dither density. `setAlphaDither(v)` splits them so opacity drives only the blend and `v` only the dither; `clearAlphaDither()` restores the coupled default. It rides in `MaterialUniforms::dispersionParams.y`, where NEGATIVE means unset. That sign also gates the legacy `alpha = 1.0` write: coupled use is an opaque-pass technique so alpha is forced, while decoupled use is upstream's blend-AND-dither case where alpha must survive to drive the blend.
+**Decoupled strength — `alphaDither`** (upstream `StandardMaterial.alphaDither`): opacity normally drives BOTH the alpha blend and the dither density. `setAlphaDither(v)` splits them so opacity drives only the blend and `v` only the dither; `clearAlphaDither()` restores the coupled default. It rides in `MaterialUniforms::dispersionParams.y`, where NEGATIVE means unset. That sign also gates the legacy `alpha = 1.0` write: coupled use is an opaque-pass technique so alpha is forced, while decoupled use is upstream's blend-AND-dither case where alpha must survive to drive the blend.
 
-**Shadow dither — `opacityShadowDither`** (flags bits 29-31, independent of the forward mode in bits 25-27): a partially-opaque caster discards the same Bayer pattern in the shadow pass and so throws a THINNED shadow. Two things had to change for it to fire, and both are easy to miss: the shadow pass otherwise **bypasses materials entirely** (the device hands the shader a default-constructed `MaterialUniforms`), so `renderPassShadowDirectional` now binds the caster's real material — but ONLY for casters that opted in, leaving every other scene's shadow pass untouched; and `shadowCasterFiltering` excluded transparent materials from casting at all, so the very casters this feature targets never reached the pass. DEVIATION: implemented in the Metal shadow fragment chunk, which serves both PCF and VSM. On Vulkan the PCF shadow pass is depth-only with no fragment stage, so only the VSM path can dither.
+**Shadow dither — `opacityShadowDither`** (flags bits 29-31, independent of the forward mode in bits 25-27): a partially-opaque caster discards the same Bayer pattern in the shadow pass and so throws a THINNED shadow. Two things make it fire, and both are easy to miss: the shadow pass otherwise **bypasses materials entirely** (the device hands the shader a default-constructed `MaterialUniforms`), so `renderPassShadowDirectional` binds the caster's real material — but ONLY for casters that opted in, leaving every other caster's draw untouched; and `shadowCasterFiltering` must let transparent materials cast, or the very casters this feature targets never reach the pass. DEVIATION: implemented in the Metal shadow fragment chunk, which serves both PCF and VSM. On Vulkan the PCF shadow pass is depth-only with no fragment stage, so only the VSM path can dither.
 
 Example: `pcss-dither-example.cpp` (port of upstream `graphics/dithered-transparency`).
 
@@ -96,7 +93,7 @@ distinct light set) and the forward shader walks the cell's list instead of a bo
 main array. Every shadow-casting spot AND omni light then renders into ONE packed
 2D depth texture, the `LightTextureAtlas` (`LightingParams::shadowAtlasResolution`,
 upstream's 2048 = 16 MB whatever the light count), and none of them enters the
-main array — which is why the two `kMaxLocalShadows` slots no longer cap anything
+main array — which is why the two `kMaxLocalShadows` slots do not cap anything
 here. Off, every caster owns its own map (a cubemap for an omni light) and at most
 two of them shadow; that path remains for PCSS local shadows and cookies, which the
 clustered shader does not sample yet (`pcss-local` and `lights` opt out).
@@ -134,25 +131,25 @@ clustered shader does not sample yet (`pcss-local` and `lights` opt out).
   pass (`drawLocalShadowFace`), so the two cannot drift.
 
 ### Ambient SH Light Probes
-`VT_FEATURE_LIGHT_PROBES`: 9-coefficient spherical-harmonics ambient replacing the flat ambient (upstream AMBIENTSH basis: `sh[0] + sh[1]x + sh[2]y + sh[3]z + sh[4]xz + sh[5]zy + sh[6]yx + sh[7](3z²-1) + sh[8](x²-y²)`). Enable via `Scene::setAmbientSH(std::array<Vector3,9>)` / `clearAmbientSH()`; the renderer sets `ProgramLibrary::setLightProbesEnabled` per frame and uploads the coefficients in `LightingUniforms::ambientSH[9]`. Coefficients are premultiplied (Ramamoorthi irradiance convolution + 1/π baked in, so a uniform environment of radiance A gives flat ambient A); `sh::projectEquirect` (`scene/graphics/sphericalHarmonics.h`) projects float or 8-bit-sRGB equirect radiance maps, `sh::evaluate` is the CPU mirror. When probes are active they replace both the flat ambient AND the env-atlas Lambert diffuse (specular IBL stays). NOTE: `ProgramLibrary::setEnvAtlasEnabled` (set per frame from `scene->envAtlas()`) gates VT_FEATURE_ENV_ATLAS — without it, unbound-atlas sampling returned nonzero `get_width()` on Apple GPUs and silently overwrote flat ambient with black. Example: `light-probes-example.cpp` (gradient sky projected to SH9, auto-cycles flat vs SH).
+`VT_FEATURE_LIGHT_PROBES`: 9-coefficient spherical-harmonics ambient replacing the flat ambient (upstream AMBIENTSH basis: `sh[0] + sh[1]x + sh[2]y + sh[3]z + sh[4]xz + sh[5]zy + sh[6]yx + sh[7](3z²-1) + sh[8](x²-y²)`). Enable via `Scene::setAmbientSH(std::array<Vector3,9>)` / `clearAmbientSH()`; the renderer sets `ProgramLibrary::setLightProbesEnabled` per frame and uploads the coefficients in `LightingUniforms::ambientSH[9]`. Coefficients are premultiplied (Ramamoorthi irradiance convolution + 1/π baked in, so a uniform environment of radiance A gives flat ambient A); `sh::projectEquirect` (`scene/graphics/sphericalHarmonics.h`) projects float or 8-bit-sRGB equirect radiance maps, `sh::evaluate` is the CPU mirror. When probes are active they replace both the flat ambient AND the env-atlas Lambert diffuse (specular IBL stays). NOTE: `ProgramLibrary::setEnvAtlasEnabled` (set per frame from `scene->envAtlas()`) gates VT_FEATURE_ENV_ATLAS — without it, unbound-atlas sampling returns nonzero `get_width()` on Apple GPUs and silently overwrites flat ambient with black. Example: `light-probes-example.cpp` (gradient sky projected to SH9, auto-cycles flat vs SH).
 
 ### Anim State Graph (modern `anim` component)
 Upstream `framework/anim/controller` + `components/anim` port at `engine/src/framework/anim/controller/`, `anim/state-graph/`, `components/anim/`:
 - **AnimController**: state machine with transitions (conditions on typed parameters, exit times, transition offsets, interruption sources, priorities), crossfades via clip blend weights, previous-state stack for interrupted transitions.
 - **Blend trees**: 1D, 2D cartesian, 2D directional, direct — all four upstream variants in one file (`animBlendTree.h/.cpp`), built from typed `AnimBlendTreeDesc` (DEVIATION: no JSON graph format; `AnimStateGraph` is a builder-style C++ data model).
 - **AnimComponent** (`anim` system id, registered like other systems via `registerComponentSystem<AnimComponentSystem>()`): layers (each own AnimController+AnimEvaluator), parameters (float/int/bool/trigger — single float storage), `assignAnimation("State.Leaf", track)` paths. Layers are composed per node by weight and blend type (OVERWRITE lerps toward the layer, ADDITIVE adds its offset from the rest pose), with per-layer node masks and optional `normalizeWeights`, as upstream's AnimTargetValue: each layer's evaluator hands its pose to the component through `AnimEvaluator::setPoseSink` and the component writes each node once. DEVIATION: no animation events yet.
-- **AnimEvaluator** now composites N clips sequentially (first contributor sets, later clips lerp by their blendWeight — mirrors upstream anim-evaluator.js); legacy AnimationComponent crossfade unchanged.
+- **AnimEvaluator** composites N clips sequentially (first contributor sets, later clips lerp by their blendWeight — mirrors upstream anim-evaluator.js); legacy AnimationComponent crossfade unchanged.
 - Example: `examples/src/anim-stategraph-example.cpp` (fox: Survey ⇄ 1D Walk/Run blend tree driven by a "speed" parameter; auto-demo cycles it).
 
 - **Without a state graph, `assignAnimation("Name", track)` makes upstream's default one**: a
   `Base` layer that plays that state from the start; further names become states of it. A
   layer's `transition(to, time, transitionOffset)` blends from the active state to `to` over
   `time` through an ad-hoc transition, whatever the graph's transitions say (upstream
-  `AnimComponentLayer.transition`; until 2026-09-30 it took no time and switched at once).
+  `AnimComponentLayer.transition`).
   `render-to-image` drives its knight this way.
 ### GPU Skinning + Morph Targets
-- **Skinning** (`VT_FEATURE_SKINNING`): 4-bone weighted blend. GLB parser reads JOINTS_0/WEIGHTS_0 into an 88-byte skinned vertex layout (PackedVertex + weights float4 @56 + joint indices float4 @72, attributes 11/12). `SkinInstance` builds a node-relative float4x4 bone palette per frame (deduped via `SkinInstance::beginFrame()` counter) uploaded through the slot-6 palette ring (shared with dynamic batching — mutually exclusive). Skins resolve bones by glTF node index at `instantiateRenderEntity()` (DEVIATION: upstream resolves by name). **Skinned culling**: the GLB parser computes per-bone bind-space AABBs (weight > 1e-4 influences, reading POSITION+JOINTS/WEIGHTS in parseSkins) stored on `Skin`; `MeshInstance::aabb()` unions each used bone's AABB transformed by `bone.worldTransform * inverseBind`, so skinned instances are frustum-culled (`cull` stays false only for skins without bone AABBs, e.g. non-GLB paths). Verified: fox forward-pass GPU 0.165→0.071 ms when camera turns away.
-- **Morphs** (`VT_FEATURE_MORPHS`): DEVIATION from upstream's render-to-texture accumulation — all target deltas live in one static buffer (per target/vertex: float4 posDelta + float4 nrmDelta, vertex slot 9); the vertex shader sums the top-8 active targets driven by an 80-byte `MorphParams` uniform (slot 10, `MorphInstance::gpuParams()`). Applied in bind space before skinning. **Morph weight animation**: glTF "weights" channels parse into `AnimCurve{propertyPath="weights"}` (N components = target count), `AnimTransform.weights` blends through AnimEvaluator like transforms, and `AnimBinder::resolveMorphInstances` (DefaultAnimBinder: mesh-node entity → RenderComponent morph instances) applies them — works through both legacy AnimationComponent and the anim state graph. Test asset: `assets/models/morph_wave.glb` (generated). Example: `mesh-morph-example.cpp`, a port of upstream `graphics/mesh-morph` — three spheres carrying three procedurally built targets each, weights driven by sine curves. It builds the targets on the CPU rather than loading them, so it covers `MorphTarget` as well as the blend. NOTE: `morph_wave.glb` still has no consumer.
+- **Skinning** (`VT_FEATURE_SKINNING`): 4-bone weighted blend. GLB parser reads JOINTS_0/WEIGHTS_0 into an 88-byte skinned vertex layout (PackedVertex + weights float4 @56 + joint indices float4 @72, attributes 11/12). `SkinInstance` builds a node-relative float4x4 bone palette per frame (deduped via `SkinInstance::beginFrame()` counter) uploaded through the slot-6 palette ring (shared with dynamic batching — mutually exclusive). Skins resolve bones by glTF node index at `instantiateRenderEntity()` (DEVIATION: upstream resolves by name). **Skinned culling**: the GLB parser computes per-bone bind-space AABBs (weight > 1e-4 influences, reading POSITION+JOINTS/WEIGHTS in parseSkins) stored on `Skin`; `MeshInstance::aabb()` unions each used bone's AABB transformed by `bone.worldTransform * inverseBind`, so skinned instances are frustum-culled (`cull` stays false only for skins without bone AABBs, e.g. non-GLB paths).
+- **Morphs** (`VT_FEATURE_MORPHS`): DEVIATION from upstream's render-to-texture accumulation — all target deltas live in one static buffer (per target/vertex: float4 posDelta + float4 nrmDelta, vertex slot 9); the vertex shader sums the top-8 active targets driven by an 80-byte `MorphParams` uniform (slot 10, `MorphInstance::gpuParams()`). Applied in bind space before skinning. **Morph weight animation**: glTF "weights" channels parse into `AnimCurve{propertyPath="weights"}` (N components = target count), `AnimTransform.weights` blends through AnimEvaluator like transforms, and `AnimBinder::resolveMorphInstances` (DefaultAnimBinder: mesh-node entity → RenderComponent morph instances) applies them — works through both legacy AnimationComponent and the anim state graph. Test asset: `assets/models/morph_wave.glb` (generated). Example: `mesh-morph-example.cpp`, a port of upstream `graphics/mesh-morph` — three spheres carrying three procedurally built targets each, weights driven by sine curves. It builds the targets on the CPU rather than loading them, so it covers `MorphTarget` as well as the blend. NOTE: `morph_wave.glb` has no consumer.
 - Both compose with shadow passes (directional + local non-clustered fetch skinned/morphed shadow shader variants lazily). Draco-compressed primitives skip skin/morph attributes.
 
 `VT_FEATURE_VSM_SHADOWS` is set per-frame by the renderer based on the active directional light's `shadowType`. When set:
@@ -163,43 +160,42 @@ Upstream `framework/anim/controller` + `components/anim` port at `engine/src/fra
 ### Reflection Probes (box-projected cubemap)
 `VT_FEATURE_REFLECTION_PROBE` (upstream `cubeMapProject.js` BOX + `reflectionEnv.js`): a local, parallax-corrected cubemap reflection replacing the global env-atlas specular IBL. Scene-level (like `setSkybox`/`setEnvAtlas`): `Scene::setReflectionProbe(cubemap, position, boxMin, boxMax, boxProjection=true, intensity=1)` / `clearReflectionProbe()`. The prefiltered cubemap binds at **fragment slot 24** (`texturecube<float> reflectionProbeCube`; `kMaxTextureSlots` 24→25); `LightingData::reflectionProbeBoxMin/Max/Params` (params = {boxProjection flag, intensity, maxLod}) carry the box + settings. In `forward-fragment-ambient.metal` the reflection dir `reflect(-V,N)` is box-projected (intersect the box, re-aim from box center — parallax) when `boxProjection`, X-flipped for the engine cube convention, sampled at a roughness→mip LOD, sRGB-decoded, Fresnel-weighted, and OVERWRITES `indirectSpecular`. Runtime feature: `ProgramLibrary::setReflectionProbeEnabled` per frame from `scene->reflectionProbe()`; `MetalUniformBinder::setReflectionProbeUniforms` fills the uniforms + stores the cube. DEVIATIONS: single scene-level probe (no per-mesh assignment/blending); roughness uses hardware trilinear cube mips, NOT upstream's GGX-prefiltered-per-level cube; no GGX cube→cube prefilter path yet. Example: `reflection-probe-example.cpp` (chrome sphere + polished floor in a colored-room cube; auto-toggles box projection ON — floor reflects the walls parallax-correctly — vs OFF — floor reflection collapses to a near-uniform direction-only color).
 
-**Dynamic scene-capture bake** (`framework/extras/reflectionProbe.h/.cpp`, 2026-07-14): `ReflectionProbe` renders the live scene into the probe cubemap at runtime instead of using a supplied/authored cube. It owns a mipmapped RGBA8 color cubemap + 6 face `RenderTarget`s + 6 `CameraComponent`s pointed along ±X/±Y/±Z (reusing `LightCamera::pointLightRotations`, 90° FOV, aspect 1). The six face cameras render as ordinary cameras in the normal frame graph (each `RenderTarget` targets one cube face via `RenderTargetOptions.face`), so **construct the probe BEFORE the main camera** (layer composition renders cameras in construction order → faces captured before the main camera samples the probe). Per frame `update()` (called AFTER `engine->render()`) runs `GraphicsDevice::generateCubemapMips` (blit `generateMipmaps` on its own command buffer) to rebuild the roughness mips from the freshly-rendered level-0 faces, and installs the cube via `setReflectionProbe` on the first call. Modes: `setDynamic(true)` re-captures every frame (reflections track the scene); `false` = one-shot then disable the face cameras. Two enabling engine changes: (1) `MetalGraphicsDevice::startRenderPass` now sets the **color** attachment slice from `activeTarget->face()` for cube textures (previously only the depth attachment did, for omni shadows); (2) `GraphicsDevice::generateCubemapMips`. Captured faces hold the normal tonemapped/gamma-encoded forward output, which the probe shader sRGB-decodes — matching the static path. DEVIATIONS: hardware-mip roughness (no GGX cube prefilter); the reflective object must sit on a layer excluded from the probe's capture layers or it self-captures (probe camera is at the probe center); probe faces miss directional-shadow cascades (fit only for the presentation camera). Example: `reflection-probe-dynamic-example.cpp` (chrome sphere on a probe-excluded layer reflects a ring of orbiting emissive boxes captured live — no env atlas/skybox, so the colored reflections come purely from the runtime capture).
+**Dynamic scene-capture bake** (`framework/extras/reflectionProbe.h/.cpp`): `ReflectionProbe` renders the live scene into the probe cubemap at runtime instead of using a supplied/authored cube. It owns a mipmapped RGBA8 color cubemap + 6 face `RenderTarget`s + 6 `CameraComponent`s pointed along ±X/±Y/±Z (reusing `LightCamera::pointLightRotations`, 90° FOV, aspect 1). The six face cameras render as ordinary cameras in the normal frame graph (each `RenderTarget` targets one cube face via `RenderTargetOptions.face`), so **construct the probe BEFORE the main camera** (layer composition renders cameras in construction order → faces captured before the main camera samples the probe). Per frame `update()` (called AFTER `engine->render()`) runs `GraphicsDevice::generateCubemapMips` (blit `generateMipmaps` on its own command buffer) to rebuild the roughness mips from the freshly-rendered level-0 faces, and installs the cube via `setReflectionProbe` on the first call. Modes: `setDynamic(true)` re-captures every frame (reflections track the scene); `false` = one-shot then disable the face cameras. It relies on two engine facilities: (1) `MetalGraphicsDevice::startRenderPass` sets the **color** attachment slice from `activeTarget->face()` for cube textures (as well as the depth attachment, for omni shadows); (2) `GraphicsDevice::generateCubemapMips`. Captured faces hold the normal tonemapped/gamma-encoded forward output, which the probe shader sRGB-decodes — matching the static path. DEVIATIONS: hardware-mip roughness (no GGX cube prefilter); the reflective object must sit on a layer excluded from the probe's capture layers or it self-captures (probe camera is at the probe center); probe faces miss directional-shadow cascades (fit only for the presentation camera). Example: `reflection-probe-dynamic-example.cpp` (chrome sphere on a probe-excluded layer reflects a ring of orbiting emissive boxes captured live — no env atlas/skybox, so the colored reflections come purely from the runtime capture).
 
 ### LTC Area Lights
-`VT_FEATURE_AREA_LIGHTS` area lights (`LIGHTTYPE_AREA_RECT`) use **LTC** (linearly transformed cosines, Heitz et al.) — port of upstream `ltc.js` with all three shapes: **rect, disk, sphere** (`LightComponent::setAreaShape(AreaLightShape::LIGHTSHAPE_RECT/DISK/SPHERE)`, 2026-07-13). Shape rides in `GpuLight::typeCastShadows.y` (area lights never cast shadows). Disk = `ltcEvaluateDisk` (upstream LTC_EvaluateDisk cubic-solver ellipse integral, LUT2.w horizon-clipped-sphere scale, NaN-guarded) inscribed in the width/height quad; sphere = billboarded quad toward the reflection vector + disk specular, wrap-Lambert diffuse with radius falloff (radius = max half-extent). Helpers in `common.metal` (`ltcUv`, `ltcEvaluateRect`, edge/clipped-sphere form factors); the light-loop branch in `forward-fragment-lighting.metal` accumulates diffuse (identity transform, ×16 to match the constant in `getFalloffInvSquared`, `1-specFres` energy conservation), specular (inverse matrix from LUT 1, Fresnel/geometry magnitudes from LUT 2), and clearcoat, then `continue`s past the shared punctual GGX. Distance attenuation is range-window only (`getFalloffWindow`) — physical falloff comes from the form factor. The two 64×64 RGBA16F LUTs are **embedded** in the engine (`scene/graphics/areaLightLuts.h` + generated `areaLightLutsData.inc`; DEVIATION: upstream ships them as an app-loaded JSON) — the renderer creates them lazily on the first area light and binds fragment slots 20/21 through `GraphicsDevice::setAreaLightLuts`. Area lights do not cast/receive local shadows. GOTCHA: with `StandardMaterial`, set surface properties via `setDiffuse/setMetalness/setGloss(+setGlossInvert)` (and `setUseMetalness(true)` for metalness to apply at all) — the base-Material `setBaseColorFactor/setMetallicFactor/setRoughnessFactor` values are always overwritten by `StandardMaterial::updateUniforms`. Example: `area-light-example.cpp` (warm panel over five floor strips, roughness 0.05→0.75).
+`VT_FEATURE_AREA_LIGHTS` area lights (`LIGHTTYPE_AREA_RECT`) use **LTC** (linearly transformed cosines, Heitz et al.) — port of upstream `ltc.js` with all three shapes: **rect, disk, sphere** (`LightComponent::setAreaShape(AreaLightShape::LIGHTSHAPE_RECT/DISK/SPHERE)`). Shape rides in `GpuLight::typeCastShadows.y` (area lights never cast shadows). Disk = `ltcEvaluateDisk` (upstream LTC_EvaluateDisk cubic-solver ellipse integral, LUT2.w horizon-clipped-sphere scale, NaN-guarded) inscribed in the width/height quad; sphere = billboarded quad toward the reflection vector + disk specular, wrap-Lambert diffuse with radius falloff (radius = max half-extent). Helpers in `common.metal` (`ltcUv`, `ltcEvaluateRect`, edge/clipped-sphere form factors); the light-loop branch in `forward-fragment-lighting.metal` accumulates diffuse (identity transform, ×16 to match the constant in `getFalloffInvSquared`, `1-specFres` energy conservation), specular (inverse matrix from LUT 1, Fresnel/geometry magnitudes from LUT 2), and clearcoat, then `continue`s past the shared punctual GGX. Distance attenuation is range-window only (`getFalloffWindow`) — physical falloff comes from the form factor. The two 64×64 RGBA16F LUTs are **embedded** in the engine (`scene/graphics/areaLightLuts.h` + generated `areaLightLutsData.inc`; DEVIATION: upstream ships them as an app-loaded JSON) — the renderer creates them lazily on the first area light and binds fragment slots 20/21 through `GraphicsDevice::setAreaLightLuts`. Area lights do not cast/receive local shadows. GOTCHA: with `StandardMaterial`, set surface properties via `setDiffuse/setMetalness/setGloss(+setGlossInvert)` (and `setUseMetalness(true)` for metalness to apply at all) — the base-Material `setBaseColorFactor/setMetallicFactor/setRoughnessFactor` values are always overwritten by `StandardMaterial::updateUniforms`. Example: `area-light-example.cpp` (warm panel over five floor strips, roughness 0.05→0.75).
 
 ### Dynamic Grab-Pass Refraction
-`VT_FEATURE_DYNAMIC_REFRACTION` (upstream `refractionDynamic.js`): transmission samples a mid-frame **scene color grab** instead of the env atlas. `StandardMaterial::setUseDynamicRefraction(true)` (+ transmission/thickness/IOR + `setTransparent(true)` so the mesh draws after the grab) and `CameraComponent::requestSceneColorMap(true)` (the depth-layer `RenderPassColorGrab` — previously a stub — now blits the scene color into a persistent full-mip texture via `GraphicsDevice::grabSceneColor`, works for both offscreen RTs and the drawable since `framebufferOnly=false`). Bound at fragment slot 22 (`kMaxTextureSlots` now 23); rough/high-IOR surfaces read blurrier mips (upstream `iorToRoughness`); the shader projects the refracted exit point with `LightingData::viewProjection` (new field, also in `LightingUniforms`). **KHR_materials_volume + dispersion (2026-07-13)**: `setAttenuationColor`/`setAttenuationDistance` enable Beer-law transmittance `exp(-(-log(attColor)/attDist)*thickness)` (distance 0 keeps the legacy baseColor^thickness tint; applies to BOTH dynamic and env-atlas paths); `setDispersion` (dynamic path only) samples R/G/B at spread etas (`halfSpread = (ior-1)*0.025*dispersion`). The GLB parser now reads KHR_materials_transmission/_ior/_volume/_dispersion (`applyVolumeExtensions`). **Linear-grab**: the pow(2.2) grab decode is gated on flagsAndPad bit 5 — under the HDR CameraFrame path the mid-frame grab is linear and is NOT decoded. DEVIATIONS: no model-scale extraction (thickness is world units). Example: `refraction-example.cpp` (glass sphere over colorful columns, auto-cycles dynamic vs env-atlas).
+`VT_FEATURE_DYNAMIC_REFRACTION` (upstream `refractionDynamic.js`): transmission samples a mid-frame **scene color grab** instead of the env atlas. `StandardMaterial::setUseDynamicRefraction(true)` (+ transmission/thickness/IOR + `setTransparent(true)` so the mesh draws after the grab) and `CameraComponent::requestSceneColorMap(true)` (the depth-layer `RenderPassColorGrab` blits the scene color into a persistent full-mip texture via `GraphicsDevice::grabSceneColor`, works for both offscreen RTs and the drawable since `framebufferOnly=false`). Bound at fragment slot 22 (`kMaxTextureSlots` now 23); rough/high-IOR surfaces read blurrier mips (upstream `iorToRoughness`); the shader projects the refracted exit point with `LightingData::viewProjection` (also in `LightingUniforms`). **KHR_materials_volume + dispersion**: `setAttenuationColor`/`setAttenuationDistance` enable Beer-law transmittance `exp(-(-log(attColor)/attDist)*thickness)` (distance 0 keeps the legacy baseColor^thickness tint; applies to BOTH dynamic and env-atlas paths); `setDispersion` (dynamic path only) samples R/G/B at spread etas (`halfSpread = (ior-1)*0.025*dispersion`). The GLB parser reads KHR_materials_transmission/_ior/_volume/_dispersion (`applyVolumeExtensions`). **Linear-grab**: the pow(2.2) grab decode is gated on flagsAndPad bit 5 — under the HDR CameraFrame path the mid-frame grab is linear and is NOT decoded. DEVIATIONS: no model-scale extraction (thickness is world units). Example: `refraction-example.cpp` (glass sphere over colorful columns, auto-cycles dynamic vs env-atlas).
 
 ### Screen-Space Reflections
-`VT_FEATURE_SSR` (upstream `reflectionSSR.js` in spirit — per-fragment world-space march, not upstream's post-process view-space HiZ; 2026-07-14): a glossy surface reflects the on-screen opaque scene by ray-marching the reflection vector against a **scene depth grab** and sampling the **scene color grab** at the hit. `StandardMaterial::setUseScreenSpaceReflection(true)` + `setTransparent(true)` (so the surface draws AFTER the mid-frame grabs, in the depth layer) and BOTH `CameraComponent::requestSceneColorMap(true)` + `requestSceneDepthMap(true)`. Reuses the refraction color grab (slot 22); adds a **depth copy** — `GraphicsDevice::grabSceneDepth(RenderTarget*)` mirrors `grabSceneColor`, blitting the pass depth into a persistent `Depth32Float` private texture bound at **fragment slot 25** (`depth2d<float> ssrSceneDepthTexture`; `kMaxTextureSlots` 25→26). A depth COPY is required because the live depth buffer is still attached during the transparent draw (can't sample the target you're writing). The march (in `forward-fragment-ambient.metal`, after the reflection-probe block) projects each world-space step through `LightingData::viewProjection` to screen UV, compares the step's clip-space `w` (view distance) against the linearized scene depth (`sceneZ = near*far/(far - rawDepth*(far-near))`, near/far via new `LightingData::cameraNearFar` fed by `GraphicsDevice::setCameraClipPlanes` per frame from the camera). On a hit within `ssrThickness` it decodes the grab (pow(2.2) unless the HDR camera-frame path, flagsAndPad bit 5), applies an edge fade + roughness fade (`saturate(gloss*1.2-0.2)` — sharp march, no roughness cone) + `getFresnel`, and `mix`es OVER the probe/env-atlas `indirectSpecular`. Variant key bit 47; runtime gate `options.ssr = stdMat->useScreenSpaceReflection()`. DEVIATIONS: forward-pass per-fragment march (no HiZ acceleration, fixed 48 steps / 60-unit range), sharp reflections only (no roughness blur/mip cone), no temporal accumulation or hit fade-by-thickness, off-screen rays fall back to env/probe (no screen-edge stretch). Example: `ssr-example.cpp` (three colored opaque objects on a dark mirror floor; auto-toggles SSR every 3 s — ON, each floor region reflects the object above it; OFF, the floor collapses to flat ambient).
+`VT_FEATURE_SSR` (upstream `reflectionSSR.js` in spirit — per-fragment world-space march, not upstream's post-process view-space HiZ): a glossy surface reflects the on-screen opaque scene by ray-marching the reflection vector against a **scene depth grab** and sampling the **scene color grab** at the hit. `StandardMaterial::setUseScreenSpaceReflection(true)` + `setTransparent(true)` (so the surface draws AFTER the mid-frame grabs, in the depth layer) and BOTH `CameraComponent::requestSceneColorMap(true)` + `requestSceneDepthMap(true)`. Reuses the refraction color grab (slot 22); adds a **depth copy** — `GraphicsDevice::grabSceneDepth(RenderTarget*)` mirrors `grabSceneColor`, blitting the pass depth into a persistent `Depth32Float` private texture bound at **fragment slot 25** (`depth2d<float> ssrSceneDepthTexture`; `kMaxTextureSlots` 25→26). A depth COPY is required because the live depth buffer is still attached during the transparent draw (can't sample the target you're writing). The march (in `forward-fragment-ambient.metal`, after the reflection-probe block) projects each world-space step through `LightingData::viewProjection` to screen UV, compares the step's clip-space `w` (view distance) against the linearized scene depth (`sceneZ = near*far/(far - rawDepth*(far-near))`, near/far via `LightingData::cameraNearFar` fed by `GraphicsDevice::setCameraClipPlanes` per frame from the camera). On a hit within `ssrThickness` it decodes the grab (pow(2.2) unless the HDR camera-frame path, flagsAndPad bit 5), applies an edge fade + roughness fade (`saturate(gloss*1.2-0.2)` — sharp march, no roughness cone) + `getFresnel`, and `mix`es OVER the probe/env-atlas `indirectSpecular`. Variant key bit 47; runtime gate `options.ssr = stdMat->useScreenSpaceReflection()`. DEVIATIONS: forward-pass per-fragment march (no HiZ acceleration, fixed 48 steps / 60-unit range), sharp reflections only (no roughness blur/mip cone), no temporal accumulation or hit fade-by-thickness, off-screen rays fall back to env/probe (no screen-edge stretch). Example: `ssr-example.cpp` (three colored opaque objects on a dark mirror floor; auto-toggles SSR every 3 s — ON, each floor region reflects the object above it; OFF, the floor collapses to flat ambient).
 
 ### Extras: OutlineRenderer + ViewCube
 `engine/src/framework/extras/` (ports of upstream `extras/`):
 - **OutlineRenderer** (`outline-renderer.js`): colored selection outlines. A dedicated "Outline" layer (id 100, excluded from the main camera's default layer list) + offscreen camera render flat **unlit clone** mesh instances (sharing mesh+node with the source — DEVIATION: upstream re-renders originals through a shader-pass override) into an RGBA8 target; H/V extend quad passes (5-tap dilate + edge alpha, offsets/srcMultiplier baked into two shader variants since quad passes carry no uniforms) then an alpha-blend quad composite over the back buffer. The three post passes register via **`Renderer::addAppendPass`** — a new engine mechanism appending app passes to the END of the frame graph. GOTCHA that motivated it: rendering to the back buffer AFTER `Engine::render()` crashes (frameEnd presents the drawable; a stale `_frameDrawable` reuse is a pointer-auth SIGSEGV — the older edge-detect example has this latent bug). Per frame: `outline->frameUpdate(cameraEntity)` before render.
 - **ViewCube** (`view-cube.js`): world-axis orientation gizmo. DEVIATION: upstream is DOM/SVG; this port renders unlit sphere handles + axis rods on the IMMEDIATE layer with depth test off, anchored each frame to the camera's top-right corner (`update(cameraEntity)`). `onClick(x, y, w, h, cameraEntity)` unprojects a ray (standard-Z, near plane at clip z=0), ray-sphere picks the six handles, and fires `ViewCube::EVENT_CAMERAALIGN` with the world axis (EventHandler payload).
-- An entity whose render component is not `active()` (its own flag, or a disabled entity or ancestor) draws no outline, as upstream 7c1e90f34; before 2026-09-24 a hidden object kept its outline.
+- An entity whose render component is not `active()` (its own flag, or a disabled entity or ancestor) draws no outline, as upstream 7c1e90f34.
 - Example: `outline-viewcube-example.cpp` (auto-cycling outline over three objects + view cube; includes an onClick scan self-test).
 
 ### Vertex Color Routing + Unlit Emissive
 `StandardMaterial::setDiffuseVertexColor` / `setEmissiveVertexColor` (upstream's
-two flags of the same name, 2026-08-17). A mesh's vertex colors modulate the
-DIFFUSE lane by default — which is how every vertex-colored material here behaved
-before — and material flag bit 28 turns that off while bit 23 routes them to
+two flags of the same name). A mesh's vertex colors modulate the
+DIFFUSE lane by default, and material flag bit 28 turns that off while bit 23 routes them to
 EMISSIVE instead. `emissiveVertexColor` also implies the vertex-color variant
 (`options.vertexColors`), which is otherwise an explicit `shaderVariantKey` bit 21
 opt-in, since the material cannot see whether the mesh carries a color stream.
 
-`VT_FEATURE_UNLIT` now outputs `baseColor + emissive` rather than base color
+`VT_FEATURE_UNLIT` outputs `baseColor + emissive` rather than base color
 alone. Upstream reaches this path through `useLighting = false`, which drops the
-lights but keeps the emissive lane — a material with black diffuse and a bright
-emissive map (upstream's decals) rendered as pure black before. The emissive term
+lights but keeps the emissive lane — without the emissive term a material with
+black diffuse and a bright emissive map (upstream's decals) renders as pure black. The emissive term
 is recomputed inside the unlit block because that early return never reaches
 `forward-fragment-emissive`. Example: `mesh-decals-example.cpp`.
 
 ### Light Cookies
 `VT_FEATURE_COOKIE_2D` / `VT_FEATURE_COOKIE_CUBE` (upstream `cookie.js` +
-`lightFunctionLight.js`, 2026-08-17): a texture the light projects onto the
+`lightFunctionLight.js`): a texture the light projects onto the
 scene, multiplying its color — a 2D texture through a **spot**'s beam, a cubemap
 sampled by direction for an **omni**. Authored on the component:
 `LightComponent::setCookie(texture)` + `setCookieChannel(CookieChannel)`
@@ -217,12 +213,12 @@ transform instead; its rotation takes the light→fragment direction into cube s
 Slots: **two 2D + two cubemap per frame** (mirroring the local-shadow pools),
 Metal fragment textures 27-28 / 29-30 (`kMaxTextureSlots` 27→31), Vulkan set 3
 bindings 17-20 as separate images sharing `linearClampSampler` (combined samplers
-would blow the 16-per-stage limit MoltenVK inherits). `GpuLightUniform` grew a
-`cookieFlags` uint4 (80→96 bytes) and `LightingUniforms` a 4-matrix + 4-vec4
-cookie block; `VulkanLightingUBO` mirrors both (2000→2448 bytes — the size is
+would blow the 16-per-stage limit MoltenVK inherits). `GpuLightUniform` carries a
+`cookieFlags` uint4 and `LightingUniforms` a 4-matrix + 4-vec4
+cookie block; `VulkanLightingUBO` mirrors both (its size is
 asserted in `vulkanRenderPipeline.cpp` AND in the shader-bundle validator).
 
-**GOTCHA that cost the most time:** cookie samples sit inside the per-light loop
+**GOTCHA:** cookie samples sit inside the per-light loop
 behind fragment-varying `continue`s, so screen-space derivatives there are
 undefined — and an undefined mip LOD reads a fully averaged mip, turning a
 heart-shaped cookie into a flat wash of its own average. Both backends sample with
@@ -234,38 +230,35 @@ is NOT ported — cookies work on the non-clustered forward path, which is what
 upstream's own example exercises. Example: `lights-example.cpp`.
 
 **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
-and its shadow/cookie cameras use `fov = outerConeAngle * 2`). The renderer used to
-halve them when building `outerConeCos`, so every spot's lit cone was half as wide
-as the shadow and cookie frustum fitted to the same light — a beam covering only the
-middle of its own cookie. Fixed 2026-08-17 in `renderer.cpp` and `worldClusters.cpp`;
-it widens every existing spot-light example to upstream's geometry.
+and its shadow/cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
+when building `outerConeCos` (`renderer.cpp`, `worldClusters.cpp`): that makes
+every spot's lit cone half as wide as the shadow and cookie frustum fitted to the
+same light — a beam covering only the middle of its own cookie.
 
 ### Lightmaps
-`StandardMaterial::setLightMap(texture)` → `VT_FEATURE_LIGHTMAP` variant: the lit shader samples the lightmap at **UV1** (texture slot 19; procedural primitives mirror UV0 into UV1) and the sRGB-decoded sample **replaces** indirect diffuse. Upstream's `lightmapAdd.js` adds it, but `lit-shader.js` gates the ambient behind `addAmbient = !lightMapEnabled` — adding both double-counts what the bake already contains and visibly washes the surface out (fixed 2026-08-16, both backends). Specular IBL is unaffected. When adding material texture slots: bump `MetalTextureBinder::kMaxTextureSlots` AND the `materialSlots` clear list in `bindMaterialTextures`.
+`StandardMaterial::setLightMap(texture)` → `VT_FEATURE_LIGHTMAP` variant: the lit shader samples the lightmap at **UV1** (texture slot 19; procedural primitives mirror UV0 into UV1) and the sRGB-decoded sample **replaces** indirect diffuse. Upstream's `lightmapAdd.js` adds it, but `lit-shader.js` gates the ambient behind `addAmbient = !lightMapEnabled` — adding both double-counts what the bake already contains and visibly washes the surface out. Specular IBL is unaffected. When adding material texture slots: bump `MetalTextureBinder::kMaxTextureSlots` AND the `materialSlots` clear list in `bindMaterialTextures`.
 
-**GPU lightmapper** (`framework/lightmapper/gpuLightmapper.h/.cpp`, 2026-08-16): upstream's own mechanism — each target mesh is rendered **in UV space** (`VT_FEATURE_LIGHTMAP_BAKE`: the vertex stage writes clip position from UV1, the fragment stage outputs the diffuse LIGHT with no albedo), so occlusion comes from the existing shadow maps instead of rays. ~40 ms for the house scene versus ~12 s for the CPU baker. The bake rides the normal frame graph like `ReflectionProbe`: one camera per target with `Camera::setLightmapBakePass(true)`, its own render target, and a private layer holding just that mesh; `bake()` then `update()` after `Engine::render()`. THREE things it must do that are easy to miss: the bake pass forces `CULLFACE_NONE` (UV winding follows the unwrap, so half the charts would be culled), every scene light gets the bake layer ids appended for the duration (lights are filtered per layer, else only ambient bakes), and the mesh wears `MASK_BAKE` during the bake and `MASK_AFFECT_LIGHTMAPPED` after (upstream's scheme — bake lights carry `MASK_BAKE` so they cannot light the mesh again at runtime). DEVIATIONS: no AO virtual lights, no bounces, no BAKE_COLORDIR, no GPU dilate/denoise, and **no cast shadows yet** — the bake captures direct light and ambient only (the CPU baker's shadows are ray-traced; note they were missing on all but trivial scenes until the 2026-09-13 BVH fix). The CPU `Lightmapper` stays as the quality reference (ray-traced AO + soft shadows).
+**GPU lightmapper** (`framework/lightmapper/gpuLightmapper.h/.cpp`): upstream's own mechanism — each target mesh is rendered **in UV space** (`VT_FEATURE_LIGHTMAP_BAKE`: the vertex stage writes clip position from UV1, the fragment stage outputs the diffuse LIGHT with no albedo), so occlusion comes from the existing shadow maps instead of rays. The bake rides the normal frame graph like `ReflectionProbe`: one camera per target with `Camera::setLightmapBakePass(true)`, its own render target, and a private layer holding just that mesh; `bake()` then `update()` after `Engine::render()`. THREE things it must do that are easy to miss: the bake pass forces `CULLFACE_NONE` (UV winding follows the unwrap, so half the charts would be culled), every scene light gets the bake layer ids appended for the duration (lights are filtered per layer, else only ambient bakes), and the mesh wears `MASK_BAKE` during the bake and `MASK_AFFECT_LIGHTMAPPED` after (upstream's scheme — bake lights carry `MASK_BAKE` so they cannot light the mesh again at runtime). DEVIATIONS: no AO virtual lights, no bounces, no BAKE_COLORDIR, no GPU dilate/denoise, and **no cast shadows yet** — the bake captures direct light and ambient only (the CPU baker's shadows are ray-traced). The CPU `Lightmapper` stays as the quality reference (ray-traced AO + soft shadows).
 
-**Lightmapper baker** (`framework/lightmapper/lightmapper.h/.cpp`, 2026-07-14): a **CPU** baker (upstream is a GPU UV-space renderer — DEVIATION). `addLight()` (directional/point/spot) + `addOccluder(mesh, worldTransform)` (world triangles for ray casting) + `bake(targetMesh, worldTransform, Options)` → RGBA8 texture (or `bakeAndApply(material, ...)`). Options mirror upstream's scene-level bake knobs: `sizeMultiplier`/`maxResolution` derive a per-mesh resolution from world bounds (upstream `calculateLightmapSize`), `ambientBake` + `ambientBakeNumSamples`/`SpherePart`/`OcclusionContrast`/`OcclusionBrightness` replace the flat AO term with rays distributed over the top part of the sphere shaped by upstream's `bakeLmEnd` curve, `filterEnabled`/`filterRange`/`filterSmoothness` run a bilateral denoise, and per-light `bakeNumSamples`/`bakeArea` give directional lights soft shadows (upstream spreads N virtual lights over the cone; the ray tracer jitters the shadow ray instead). Per target mesh it reads CPU vertex/index storage (`VertexBuffer::storage()` as 56-byte `PackedVertex`, uv1 at offset 48), rasterizes triangles in **UV1 space** (barycentric per texel → world pos+normal), and shades: direct lighting (Lambert × attenuation + spot cone) with **hard shadow rays**, cosine-weighted-hemisphere **ambient occlusion**, ambient+sky terms AO-modulated; then dilates seams and sRGB-encodes (the shader pow(2.2)-decodes). Ray any-hit uses `LightmapperBvh` (`framework/lightmapper/lightmapperBvh.h`): a median-split binary BVH collapsed to **four children per node**, walked with one 4-box SIMD slab test per node (SSE2 / NEON / scalar), leaves of at most four triangles, boxes padded so float rounding can never reject a real hit. Measured on 1M bake-shaped rays over 24,800 triangles, one thread: 229 ns/ray on Apple silicon (NEON) against 422 for the corrected binary tree, 208 against 339 on an i5-13600K (SSE2); the 4-wide tree forced scalar gains little, so the win is the SIMD test. The expensive shading phase is multi-threaded (`std::thread::hardware_concurrency`). **Until 2026-09-13 the BVH skipped most of every tree** — it walked `left` and `left + 1`, which is the right sibling only under a leaf — so on any scene past a handful of triangles shadow and AO rays found no occluders. The old "~0.9 s for a 512² map" timing was taken on that tree and is not a valid baseline. DEVIATIONS: LDR RGBA8 only, single bounce (no GI), no color+dir directional lightmaps, no auto lightmap-size/UV-unwrap (uses the mesh's existing UV1 — box faces overlap, so bake receiver-only planes). Mask a lightmapped mesh out of realtime lights with `MeshInstance::setMask(MASK_AFFECT_LIGHTMAPPED)`. Example: `lightmap-bake-example.cpp` (floor baked with soft shadows + AO from occluder boxes/sphere; toggles the lightmap on/off). Test asset: `assets/textures/lightmap-pools.tga` (render-to-texture example ground).
+**Lightmapper baker** (`framework/lightmapper/lightmapper.h/.cpp`): a **CPU** baker (upstream is a GPU UV-space renderer — DEVIATION). `addLight()` (directional/point/spot) + `addOccluder(mesh, worldTransform)` (world triangles for ray casting) + `bake(targetMesh, worldTransform, Options)` → RGBA8 texture (or `bakeAndApply(material, ...)`). Options mirror upstream's scene-level bake knobs: `sizeMultiplier`/`maxResolution` derive a per-mesh resolution from world bounds (upstream `calculateLightmapSize`), `ambientBake` + `ambientBakeNumSamples`/`SpherePart`/`OcclusionContrast`/`OcclusionBrightness` replace the flat AO term with rays distributed over the top part of the sphere shaped by upstream's `bakeLmEnd` curve, `filterEnabled`/`filterRange`/`filterSmoothness` run a bilateral denoise, and per-light `bakeNumSamples`/`bakeArea` give directional lights soft shadows (upstream spreads N virtual lights over the cone; the ray tracer jitters the shadow ray instead). Per target mesh it reads CPU vertex/index storage (`VertexBuffer::storage()` as 56-byte `PackedVertex`, uv1 at offset 48), rasterizes triangles in **UV1 space** (barycentric per texel → world pos+normal), and shades: direct lighting (Lambert × attenuation + spot cone) with **hard shadow rays**, cosine-weighted-hemisphere **ambient occlusion**, ambient+sky terms AO-modulated; then dilates seams and sRGB-encodes (the shader pow(2.2)-decodes). Ray any-hit uses `LightmapperBvh` (`framework/lightmapper/lightmapperBvh.h`): a median-split binary BVH collapsed to **four children per node**, walked with one 4-box SIMD slab test per node (SSE2 / NEON / scalar), leaves of at most four triangles, boxes padded so float rounding can never reject a real hit. The 4-wide tree forced scalar gains little; the win is the SIMD test. The expensive shading phase is multi-threaded (`std::thread::hardware_concurrency`). DEVIATIONS: LDR RGBA8 only, single bounce (no GI), no color+dir directional lightmaps, no auto lightmap-size/UV-unwrap (uses the mesh's existing UV1 — box faces overlap, so bake receiver-only planes). Mask a lightmapped mesh out of realtime lights with `MeshInstance::setMask(MASK_AFFECT_LIGHTMAPPED)`. Example: `lightmap-bake-example.cpp` (floor baked with soft shadows + AO from occluder boxes/sphere; toggles the lightmap on/off). Test asset: `assets/textures/lightmap-pools.tga` (render-to-texture example ground).
 
 ### GPU Profiler
-`GraphicsDevice::gpuProfiler()` (nullptr when unsupported; disabled by default — `setEnabled(true)`). Metal impl (`metalGpuProfiler.*`): MTLCounterSampleBuffer stage-boundary timestamps attached per render pass in `startRenderPass` (start-of-vertex → end-of-fragment), 3 triple-buffered sample-buffer slots resolved 2 frames late, tick→ns via correlated `sampleTimestamps`. Results: `passTimings()` (per-pass ms, named via `RenderPass::name()`) + `frameMilliseconds()`. **Both backends resolve through `GpuProfiler::publishTimings`, and the figure is defined to be comparable with upstream's:** a pass costs the delta between consecutive END samples, not its own start-to-end interval, because on a pipelined GPU the tiler starts a pass's vertex work while its predecessor's fragment work still runs and the intervals overlap (their sum read 5.4 ms for 3 ms of work; upstream's profiler says the same and reports a span). Upstream's span is no use on a native swapchain — the last pass waits for the drawable INSIDE the frame's GPU timeline, so the span is the whole vsync interval (measured 16 ms at 60 Hz) — hence a pass targeting the drawable keeps its own interval instead of a delta that would contain that wait, and the frame is the sum. `tests/gpuProfilerTimingTests.cpp` pins both rules. With vsync off a back-buffer pass can still absorb the wait; that is a benchmark configuration and the back-buffer rows are where it shows. Compute passes not yet instrumented. NOTE: metal-cpp framework extern constants (e.g. `MTL::CommonCounterSetTimestamp`) only link in the `*_PRIVATE_IMPLEMENTATION` TU — compare string values instead inside the engine library.
+`GraphicsDevice::gpuProfiler()` (nullptr when unsupported; disabled by default — `setEnabled(true)`). Metal impl (`metalGpuProfiler.*`): MTLCounterSampleBuffer stage-boundary timestamps attached per render pass in `startRenderPass` (start-of-vertex → end-of-fragment), 3 triple-buffered sample-buffer slots resolved 2 frames late, tick→ns via correlated `sampleTimestamps`. Results: `passTimings()` (per-pass ms, named via `RenderPass::name()`) + `frameMilliseconds()`. **Both backends resolve through `GpuProfiler::publishTimings`, and the figure is defined to be comparable with upstream's:** a pass costs the delta between consecutive END samples, not its own start-to-end interval, because on a pipelined GPU the tiler starts a pass's vertex work while its predecessor's fragment work still runs and the intervals overlap (upstream's profiler says the same and reports a span). Upstream's span is no use on a native swapchain — the last pass waits for the drawable INSIDE the frame's GPU timeline, so the span is the whole vsync interval (16 ms at 60 Hz) — hence a pass targeting the drawable keeps its own interval instead of a delta that would contain that wait, and the frame is the sum. `tests/gpuProfilerTimingTests.cpp` pins both rules. With vsync off a back-buffer pass can still absorb the wait; that is a benchmark configuration and the back-buffer rows are where it shows. Compute passes not yet instrumented. NOTE: metal-cpp framework extern constants (e.g. `MTL::CommonCounterSetTimestamp`) only link in the `*_PRIVATE_IMPLEMENTATION` TU — compare string values instead inside the engine library.
 
 ### GPU Particle System
-`engine/src/scene/particles/` + `framework/components/particlesystem/` (upstream particle-system component, GPU-sim subset; implemented 2026-07-13): **ParticleSystemComponent** — mutate `options()` then `apply()`; upstream's `play/pause/unpause/stop/reset`, `autoPlay` (false builds it paused with its mesh instance hidden), `preWarm` (reset queues one lifetime in 32 steps, dispatched at the next update because a dispatch belongs inside a frame) and `layers`. Simulation is a backend-agnostic compute dispatch (`ParticleEmitter::simulate` builds a `Compute` over the kernels in `scene/particles/particleSimShaders.h` — MSL and GLSL under one name — and calls `GraphicsDevice::computeDispatch`, ordered before the frame's render encoding) over a persistent 64-byte `GpuParticle` pool with upstream's particle clock: particle i starts at life `-i*rate` (rate 0 is a burst), the unborn are re-spawned every step, a finished particle's life wraps back by `max(lifetime, numParticles*rate)` and is shown again only while the emitter loops, and `stop()` hides the unborn. Hash-seeded spawn (box/sphere shapes); the velocity is the port's initial velocity + spread with gravity and damping PLUS upstream's `localVelocityGraph`/`velocityGraph` (each a per-life random point between the graph and its graph2, 16-sample LUTs in the 1280-byte `GpuParticleSimParams`), and `rotationSpeedGraph`/2 integrates into the angle. Rendering mirrors the gsplat branch: `MeshInstance::particleEmitter()` keyed instanced tri-strip quad per particle, self-contained billboard shader (particle pool vertex slot 7, `GpuParticleRenderParams` slot 11 — SHARED with gsplat slots, a draw is one or the other), curves (`scaleGraph` — a HALF-extent, as upstream — `colorGraph`, `alphaGraph`) quantized to 16-sample LUTs in the render params, upstream's clockwise rotation, `alignToMotion` and `stretch` (upstream's pointAlong and stretch chunks, in view space), sprite-sheet animation (`animTilesX/Y`, `animNumFrames`), additive/normal/premultiplied blending, optional `colorMap` bound via the material baseColor slot (procedural soft disc when null), `intensity` for HDR glow, and upstream's output stage in the fragment (the sRGB colour map decoded, times the colour graph, then tone-mapped with the scene's exposure and gamma-encoded, or left linear on a camera frame's HDR scene; fog is not applied — DEVIATION). The kernel draws its random numbers from a PCG integer hash of the particle index and the emitter's step counter, so both backends draw the same random numbers (they agree to 4 counts on `particles-spark`). The option defaults are upstream's (scale 1, opaque white, BLEND_NORMAL, rate 1, initialVelocity 0). `screenSpace` (upstream SCREEN_SPACE, for a system under a screen-space element) uses the node's world transform as clip space with no view or projection, sizes quads in viewport heights with x scaled by height / width (#9570, also applied to the motion direction), turns off the depth test, and marks the mesh instance screen-space; `ScreenComponent::processDrawOrderSync` numbers a particle system with its elements, so on the UI layer it draws in hierarchy order. Component update hooks the engine "update" event; the emitter mesh instance sets `cull=false` (world-space particles ignore the node transform). DEVIATIONS: GPU path only (no CPU sim), no sorting, unlit, billboards only (no mesh particles or custom face), initial velocity/gravity/damping beside the graphs, no radial speed graph, no graph2 for scale/color/alpha, no rate2, no wrap or depth softening. NOTE: `MetalParticleComputePass` (flow-viz velocity-field advector) is a separate, unrelated compute pass. The sim kernel + billboard shader (and the gsplat shader) live as editable `.metal` files under `engine/shaders/metal/embedded/` and are wrapped into raw-string constants at build time by `tools/embed_msl.cmake` (CMake `add_custom_command` → generated `.inc` `#include`d inside the anonymous namespace; regenerates on `.metal` edit, no runtime filesystem dependency — DEVIATION from the runtime-loaded ShaderChunks registry, matching the compile-time `areaLightLuts` embed). Sprite-sheet animation is `animTilesX/Y` + `animNumFrames` + `animIndex`, where animIndex selects WHICH animation in the sheet to play: each is animNumFrames tiles long and they run in reading order, so a 4x4 sheet at 4 frames holds four animations. Example: `particles-anim-index-example.cpp`, a port of upstream `graphics/particles-anim-index` (four emitters sharing one sheet, one animIndex each), verified on both backends 2026-09-05. `particles-spark` ports upstream `graphics/particles-spark` (its simulation measured against upstream's CPU updater: mean height by age within 0.1 at every age), `ui-particle-system` ports upstream `user-interface/particle-system` (screen-space sparkles and a claim burst in the UI draw order), and `render-to-texture` uses upstream's velocity curves. It has to call `options.registerComponentSystem<ParticleSystemComponentSystem>()` in `configure`: component systems come from `AppOptions::componentSystems`, so a component whose system no application registers is constructed and then never updated. Upstream's other counterparts, `particles-snow` / `particles-random-sprites` / `particles-mesh`, are not ported.
+`engine/src/scene/particles/` + `framework/components/particlesystem/` (upstream particle-system component, GPU-sim subset): **ParticleSystemComponent** — mutate `options()` then `apply()`; upstream's `play/pause/unpause/stop/reset`, `autoPlay` (false builds it paused with its mesh instance hidden), `preWarm` (reset queues one lifetime in 32 steps, dispatched at the next update because a dispatch belongs inside a frame) and `layers`. Simulation is a backend-agnostic compute dispatch (`ParticleEmitter::simulate` builds a `Compute` over the kernels in `scene/particles/particleSimShaders.h` — MSL and GLSL under one name — and calls `GraphicsDevice::computeDispatch`, ordered before the frame's render encoding) over a persistent 64-byte `GpuParticle` pool with upstream's particle clock: particle i starts at life `-i*rate` (rate 0 is a burst), the unborn are re-spawned every step, a finished particle's life wraps back by `max(lifetime, numParticles*rate)` and is shown again only while the emitter loops, and `stop()` hides the unborn. Hash-seeded spawn (box/sphere shapes); the velocity is the port's initial velocity + spread with gravity and damping PLUS upstream's `localVelocityGraph`/`velocityGraph` (each a per-life random point between the graph and its graph2, 16-sample LUTs in the 1280-byte `GpuParticleSimParams`), and `rotationSpeedGraph`/2 integrates into the angle. Rendering mirrors the gsplat branch: `MeshInstance::particleEmitter()` keyed instanced tri-strip quad per particle, self-contained billboard shader (particle pool vertex slot 7, `GpuParticleRenderParams` slot 11 — SHARED with gsplat slots, a draw is one or the other), curves (`scaleGraph` — a HALF-extent, as upstream — `colorGraph`, `alphaGraph`) quantized to 16-sample LUTs in the render params, upstream's clockwise rotation, `alignToMotion` and `stretch` (upstream's pointAlong and stretch chunks, in view space), sprite-sheet animation (`animTilesX/Y`, `animNumFrames`), additive/normal/premultiplied blending, optional `colorMap` bound via the material baseColor slot (procedural soft disc when null), `intensity` for HDR glow, and upstream's output stage in the fragment (the sRGB colour map decoded, times the colour graph, then tone-mapped with the scene's exposure and gamma-encoded, or left linear on a camera frame's HDR scene; fog is not applied — DEVIATION). The kernel draws its random numbers from a PCG integer hash of the particle index and the emitter's step counter, so both backends draw the same random numbers (they agree to 4 counts on `particles-spark`). The option defaults are upstream's (scale 1, opaque white, BLEND_NORMAL, rate 1, initialVelocity 0). `screenSpace` (upstream SCREEN_SPACE, for a system under a screen-space element) uses the node's world transform as clip space with no view or projection, sizes quads in viewport heights with x scaled by height / width (#9570, also applied to the motion direction), turns off the depth test, and marks the mesh instance screen-space; `ScreenComponent::processDrawOrderSync` numbers a particle system with its elements, so on the UI layer it draws in hierarchy order. Component update hooks the engine "update" event; the emitter mesh instance sets `cull=false` (world-space particles ignore the node transform). DEVIATIONS: GPU path only (no CPU sim), no sorting, unlit, billboards only (no mesh particles or custom face), initial velocity/gravity/damping beside the graphs, no radial speed graph, no graph2 for scale/color/alpha, no rate2, no wrap or depth softening. NOTE: `MetalParticleComputePass` (flow-viz velocity-field advector) is a separate, unrelated compute pass. The sim kernel + billboard shader (and the gsplat shader) live as editable `.metal` files under `engine/shaders/metal/embedded/` and are wrapped into raw-string constants at build time by `tools/embed_msl.cmake` (CMake `add_custom_command` → generated `.inc` `#include`d inside the anonymous namespace; regenerates on `.metal` edit, no runtime filesystem dependency — DEVIATION from the runtime-loaded ShaderChunks registry, matching the compile-time `areaLightLuts` embed). Sprite-sheet animation is `animTilesX/Y` + `animNumFrames` + `animIndex`, where animIndex selects WHICH animation in the sheet to play: each is animNumFrames tiles long and they run in reading order, so a 4x4 sheet at 4 frames holds four animations. Example: `particles-anim-index-example.cpp`, a port of upstream `graphics/particles-anim-index` (four emitters sharing one sheet, one animIndex each). `particles-spark` ports upstream `graphics/particles-spark` (its simulation measured against upstream's CPU updater: mean height by age within 0.1 at every age), `ui-particle-system` ports upstream `user-interface/particle-system` (screen-space sparkles and a claim burst in the UI draw order), and `render-to-texture` uses upstream's velocity curves. It has to call `options.registerComponentSystem<ParticleSystemComponentSystem>()` in `configure`: component systems come from `AppOptions::componentSystems`, so a component whose system no application registers is constructed and then never updated. Upstream's other counterparts, `particles-snow` / `particles-random-sprites` / `particles-mesh`, are not ported.
 
 ### Parallax Occlusion Mapping
 `VT_FEATURE_PARALLAX` (upstream `parallax.js`, plus the 2.22 additions): the height
 map displaces every texture UV before any map is sampled, so colour, normal,
 metal/rough, occlusion and emissive all read the displaced point. Turn it on with
 `StandardMaterial::setHeightMap`; `setHeightMapFactor` is the displacement depth in TENTHS of a uv tile, upstream's
-unit (default **0.1**, upstream's 2.22 value — this was 0.05 before, a deliberate
-BREAKING change for anything that relied on the default).
+unit (default **0.1**, upstream's 2.22 value).
 
 - **`setHeightMapBase`** is the height-map value that sits at the level of the
   geometry, upstream's meaning. Below it the field sinks into the polygon, above
-  it the field stands proud. 1 is pure depth below the surface, which is what the
-  port marched before the parameter existed; the default **0.5** pivots the relief
-  around mid-grey, as upstream's engine default does. The base moves the ray's
+  it the field stands proud. 1 is pure depth below the surface; the default
+  **0.5** pivots the relief around mid-grey, as upstream's engine default does. The base moves the ray's
   ENTRY UV as well as the depths — see the gotcha in `AGENTS.md`, because shifting
   only the depths is a no-op that looks like it works.
 - **`setHeightMapShadow`** (0..1, default 0 = off) marches the height field a
@@ -306,21 +299,21 @@ per-segment record.
 ### App-facing Compute + Storage Draws
 Upstream's `compute/particles` needs two things an application can reach: a compute
 shader over app-owned storage buffers, and a draw that expands one instance per record
-in the same buffer. Both landed 2026-08-21 on BOTH backends.
+in the same buffer. Both exist on BOTH backends.
 
-**`Compute` parameters** (`platform/graphics/compute.h`): alongside the existing texture
-parameters there are now storage buffers (`setParameter(name, shared_ptr<VertexBuffer>)`
+**`Compute` parameters** (`platform/graphics/compute.h`): alongside texture
+parameters there are storage buffers (`setParameter(name, shared_ptr<VertexBuffer>)`
 — `VertexBuffer` is the engine's generic GPU storage vehicle, so the same object also
 binds to a draw) and loose scalars (`setParameter(name, float|uint32_t)`), collapsed into
-one uniform block. `setThreadgroupSize` replaces the hardcoded 8x8x1 (still the default,
-so the edge-detect kernel is unaffected).
+one uniform block. `setThreadgroupSize` sets the threadgroup size (default 8x8x1, which the
+edge-detect kernel uses).
 
 **DEVIATION — no reflection.** Upstream reflects resources out of the WGSL source and
 builds the bind group from the reflected names. This port has none, so binding indices
 come from parameter NAMES in sorted order: buffers 0..b-1, textures b..b+t-1, the uniform
 block at b+t, and the block's members are the scalars again in name order. A shader that
 declares them in a different order silently reads the wrong data. A texture-only compute
-keeps the indices it had before, which is why edge-detect needed no changes.
+binds its textures from index 0.
 
 **Storage draws** (`MeshInstance::setStorageDraw(buffer, instanceCount, params, size)`):
 the generic form of the emitter/gsplat draw branches — a custom shader reads the buffer,
@@ -336,21 +329,21 @@ upstream draws 6 indices per particle over a vertex-buffer-less mesh keyed on
 engine's own emitter and splat paths do, which avoids a 24 MB index buffer.
 
 ### Gaussian Splatting (classic path)
-`engine/src/scene/gsplat/` + `framework/components/gsplat/`: 3DGS PLY loading (`GSplatData::loadPly` — binary LE), CPU-precomputed covariance (Sigma = R·S²·Rᵀ) in a 40-byte `GpuSplat` storage buffer (vertex slot 7), background `GSplatSorter` thread (upstream sort-worker counting sort; order reversed farthest-first + behind-camera trim via instance count; the per-splat depth and key run in a 4-lane SIMD kernel, `scene/gsplat/gsplatSortKeys.h`, about 1.7x faster at 4M splats on both NEON and SSE2, bit-exact against its scalar reference) filling ping-pong order buffers (slot 8), self-contained Metal shader (`shaders/metal/embedded/gsplat-render.metal`: EWA screen-space covariance projection per upstream `gsplatCorner.js`, normExp falloff, premultiplied alpha, `CULLFACE_NONE` — screen-space quads have no winding) drawn as one instanced tri-strip quad per splat via a renderer branch keyed on `MeshInstance::gsplatInstance()`. Params at vertex slot 11. `GSplatComponent::setResource()` wires it to an entity.
+`engine/src/scene/gsplat/` + `framework/components/gsplat/`: 3DGS PLY loading (`GSplatData::loadPly` — binary LE), CPU-precomputed covariance (Sigma = R·S²·Rᵀ) in a 40-byte `GpuSplat` storage buffer (vertex slot 7), background `GSplatSorter` thread (upstream sort-worker counting sort; order reversed farthest-first + behind-camera trim via instance count; the per-splat depth and key run in a 4-lane SIMD kernel, `scene/gsplat/gsplatSortKeys.h`, bit-exact against its scalar reference) filling ping-pong order buffers (slot 8), self-contained Metal shader (`shaders/metal/embedded/gsplat-render.metal`: EWA screen-space covariance projection per upstream `gsplatCorner.js`, normExp falloff, premultiplied alpha, `CULLFACE_NONE` — screen-space quads have no winding) drawn as one instanced tri-strip quad per splat via a renderer branch keyed on `MeshInstance::gsplatInstance()`. Params at vertex slot 11. `GSplatComponent::setResource()` wires it to an entity.
 
-**Tier 2 (2026-07-14):**
+**Tier 2:**
 - **View-dependent SH** (bands 1-3): the generic PLY header parser reads `f_rest_*` (9/24/45 coeffs → bands 1/2/3), dequantizes them coefficient-major interleaved (`[c0.rgb, c1.rgb, ...]`, 45 floats/splat zero-padded) into a per-splat SH storage buffer (vertex slot 12). The shader evaluates `gsplatEvalSH` (upstream `gsplatEvalSH.js` basis) by the model-space view direction `normalize(transpose(mat3(modelView)) · viewPos)` and adds it to the DC color in display/gamma space before the sRGB→linear decode. `shBands` rides in `GpuGSplatParams` (runtime branch, no shader variant; SH0 assets bind a 1-float dummy at slot 12). DEVIATION: upstream quantizes SH to 11-10-11 in a texture; this stores raw floats.
 - **Compressed `.compressed.ply`** (SuperSplat format): auto-detected by a leading `chunk` element. Per-256-splat chunk min/max bounds (12 or 18 floats) + a uint `vertex` element — 11-10-11 unorm position/scale lerped into the chunk box, 2-10-10-10 largest-component quaternion, 8888 color — dequantized through the SAME covariance/color path as uncompressed (`buildSplat` helper). Optional uchar `sh` element (channel-major, `u8·8/255−4`). ~4× smaller than float PLY. DEVIATION: no WebP-packed SOG format, no unified octree streaming/LOD path.
 
-Example: `gsplat-example` (port of upstream `gaussian-splatting/simple` — a CC-BY-4.0 `tamiya-dt03.compressed.ply` capture on upstream's ground/PCSS-light/orbit setup), which exercises the compressed path. NO example covers SH bands 1-3 any more: `gsplat-tier2-example` was deleted 2026-08-15 (its nearest upstream counterpart, `gaussian-splatting/spherical-harmonics`, is the `simple` scene with a different asset). SH parsing is still implemented and untested by any example — reinstate one if you touch it. NOT ported: WebP SOG, unified octree streaming/LOD (~13k upstream lines).
+Example: `gsplat-example` (port of upstream `gaussian-splatting/simple` — a CC-BY-4.0 `tamiya-dt03.compressed.ply` capture on upstream's ground/PCSS-light/orbit setup), which exercises the compressed path. NO example covers SH bands 1-3: their nearest upstream counterpart, `gaussian-splatting/spherical-harmonics`, is the `simple` scene with a different asset. SH parsing is implemented and untested by any example — add one if you touch it. NOT ported: WebP SOG, unified octree streaming/LOD (~13k upstream lines).
 
 ### Spec-Gloss / Oren-Nayar / Detail Normals / Displacement / Clearcoat
-The last four stubbed `VT_FEATURE_*` shader features (implemented 2026-07-13), plus clearcoat:
-- **Spec-gloss** (`VT_FEATURE_SPEC_GLOSS`, KHR_materials_pbrSpecularGlossiness): upstream's specular workflow, which is the DEFAULT (`useMetalness` false, as upstream). `setSpecular` (sRGB-authored, linearised into `specGlossParams.rgb`) + `setGloss` (+ `setGlossInvert`) + `setSpecGlossMap` (Metal only) — F0 = specular colour, roughness = 1-gloss, diffuse NOT scaled by the specular (upstream's combine adds albedo × diffuse light untouched). A material whose specular is black and has no spec-gloss map, clearcoat or metalness renders NO specular at all (`StandardMaterial::rendersSpecular`, upstream's `useSpecular` rule → `VT_FEATURE_NO_SPECULAR`), which is what a code-created `StandardMaterial` gets by default; call `setUseMetalness(true)` for the metal-rough workflow. The spec-gloss texture reuses the metal-rough binding (slot 3, rgb=sRGB specular, a=glossiness). The GLB parser sets `useMetalness` on every metal-rough material and applies KHR_materials_pbrSpecularGlossiness through `setSpecular`/`setGloss`, as upstream's extension handler does. The AMBIENT diffuse is scaled by `1 - specularity` under specular, as upstream's `LIT_SPECULAR` does (both chunks, 2026-09-19); the DIRECT diffuse is not. GOTCHA: the texture sample MUST be gated on the `hasSpecGlossMap` flags bit (21) — an unbound Metal texture on Apple GPUs reports nonzero `get_width()` but samples zero, silently zeroing specular/gloss for factor-only materials (same trap as the env-atlas bug).
+Four `VT_FEATURE_*` material shader features, plus clearcoat:
+- **Spec-gloss** (`VT_FEATURE_SPEC_GLOSS`, KHR_materials_pbrSpecularGlossiness): upstream's specular workflow, which is the DEFAULT (`useMetalness` false, as upstream). `setSpecular` (sRGB-authored, linearised into `specGlossParams.rgb`) + `setGloss` (+ `setGlossInvert`) + `setSpecGlossMap` (Metal only) — F0 = specular colour, roughness = 1-gloss, diffuse NOT scaled by the specular (upstream's combine adds albedo × diffuse light untouched). A material whose specular is black and has no spec-gloss map, clearcoat or metalness renders NO specular at all (`StandardMaterial::rendersSpecular`, upstream's `useSpecular` rule → `VT_FEATURE_NO_SPECULAR`), which is what a code-created `StandardMaterial` gets by default; call `setUseMetalness(true)` for the metal-rough workflow. The spec-gloss texture reuses the metal-rough binding (slot 3, rgb=sRGB specular, a=glossiness). The GLB parser sets `useMetalness` on every metal-rough material and applies KHR_materials_pbrSpecularGlossiness through `setSpecular`/`setGloss`, as upstream's extension handler does. The AMBIENT diffuse is scaled by `1 - specularity` under specular, as upstream's `LIT_SPECULAR` does (both chunks); the DIRECT diffuse is not. GOTCHA: the texture sample MUST be gated on the `hasSpecGlossMap` flags bit (21) — an unbound Metal texture on Apple GPUs reports nonzero `get_width()` but samples zero, silently zeroing specular/gloss for factor-only materials (same trap as the env-atlas bug).
 - **Oren-Nayar diffuse** (`VT_FEATURE_OREN_NAYAR`): `setUseOrenNayar(true)` swaps Lambert `N·L` for the fast qualitative Oren-Nayar form (sigma² = roughness²) in both the multi-light loop and the clustered path.
 - **Detail normals** (`VT_FEATURE_DETAIL_NORMALS`): `setDetailNormalMap` + `setDetailNormalScale` + `setDetailNormalTransform` — UDN blend (detail xy added to base normal xy) at fragment slot **23**, own UV transform.
 - **Displacement** (`VT_FEATURE_DISPLACEMENT`): `setDisplacementMap` + `setDisplacementScale`/`setDisplacementBias` — vertex-stage height sampling (`level(0)`) displaces along the normal before skinning/morph composition. The map routes through a slot>=100 sentinel in `Material::getTextureSlots` to VERTEX texture slot 0 (`MetalTextureBinder`). DEVIATION: standard vertex path only (not instanced/dynamic-batch/skinned).
-- **Clearcoat** (`VT_FEATURE_CLEARCOAT`, KHR_materials_clearcoat): `setClearCoat` / `setClearCoatGloss` / `setClearCoatBumpiness` plus the intensity (G), gloss (G) and normal maps on slots 7/13/14, flag bits 14/15/16, read at the base-colour and normal-map UVs. Upstream's composition on BOTH backends: the coat's per-light GGX (Kelemen visibility, F0 0.04) and its env-atlas reflection at the coat gloss accumulate separately and the tail composes `lit * (1 - Fc * cc) + (ccDirect + ccReflection) * cc`, so the coat takes energy from the base. Vulkan reads the three maps as separate images through the shared material sampler at set-1 binding 24 (since 2026-09-19; before that they were Metal only and the Vulkan coat had no reflection). Parity is measured on `clearcoat` (the Khronos ClearCoatTest.glb): mean absolute difference 0.002 counts, 12 pixels of 630,000 above 8 counts. GOTCHA: that shared sampler has to carry the device anisotropy like the per-texture samplers do — without it the ribbed coat normal map alone moved ~1,900 pixels.
+- **Clearcoat** (`VT_FEATURE_CLEARCOAT`, KHR_materials_clearcoat): `setClearCoat` / `setClearCoatGloss` / `setClearCoatBumpiness` plus the intensity (G), gloss (G) and normal maps on slots 7/13/14, flag bits 14/15/16, read at the base-colour and normal-map UVs. Upstream's composition on BOTH backends: the coat's per-light GGX (Kelemen visibility, F0 0.04) and its env-atlas reflection at the coat gloss accumulate separately and the tail composes `lit * (1 - Fc * cc) + (ccDirect + ccReflection) * cc`, so the coat takes energy from the base. Vulkan reads the three maps as separate images through the shared material sampler at set-1 binding 24. Parity is measured on `clearcoat` (the Khronos ClearCoatTest.glb): mean absolute difference 0.002 counts, 12 pixels of 630,000 above 8 counts. GOTCHA: that shared sampler has to carry the device anisotropy like the per-texture samplers do — without it the ribbed coat normal map alone moves ~1,900 pixels.
 Example: `material-stubs-example.cpp` (four spheres A/B-cycling all four features with procedural textures).
 
 ### Scalar Material Maps (gloss / thickness / refraction)
@@ -362,16 +355,14 @@ from the metal-rough map (upstream treats them as alternative sources, not a pro
 thickness and refraction scale `thickness` and `transmissionFactor` for both refraction
 paths.
 
-`glossMap` existed as a property before but was **dead** — never bound, never sampled.
-Turning it on changes any scene that already set one (`area-light`'s floor now has
-spatially varying gloss, which is the intended upstream look).
+`area-light`'s floor has spatially varying gloss from its gloss map, which is the
+intended upstream look.
 
 Presence rides in the SIGN of `MaterialUniforms::mapChannelParams` (`{glossFactor,
 glossChannel, thicknessChannel, refractionChannel}`, negative = no map) because the
 material `flags` word has no spare bits left — 25-27 and 29-31 are the two dither modes.
 
-Slots 0-30 were all taken, so these are fragment slots **31/32/33** and
-`MetalTextureBinder::kMaxTextureSlots` went 31 -> 34. Adding a field to
+These are fragment slots **31/32/33**. Adding a field to
 `MaterialUniforms` means updating FOUR places or the build breaks:
 `scene/materials/material.h`, `shaders/metal/chunks/common-structs.metal`,
 `shaders/vulkan/forward.{frag,vert}`, and BOTH size checks — the `static_assert` in
@@ -393,8 +384,8 @@ Example: `refraction-example.cpp` (port of upstream `materials/material-refracti
 - `ShaderMaterial`: Custom Metal shader with user entry points
 
 ## Engine subsystems
-These moved out of `CLAUDE.md` for size. They are reference, not rules; the
-rules they imply are repeated in that file's gotcha list.
+They are reference, not rules; the
+rules they imply are repeated in the gotcha list of `CLAUDE.md`.
 ## Examples harness (`ExampleApp`)
 
 Every example derives from `ExampleApp` (`examples/exampleApp.h/.cpp`), which owns
@@ -434,11 +425,11 @@ already some example's binding.
 - **The per-pass rows are keyed by pass NAME, summed and aged.** Passes sharing a
   name are one row holding their sum, as upstream's gpu-profiler accumulates them
   (the forward pass draws the scene and then the UI layer; a separable blur runs
-  twice) — keyed on the last of them the row showed the 0.1 ms UI pass and hid the
-  3 ms scene pass. A row whose pass has not reported for 60 resolved frames is
+  twice) — keyed on the last of them the row would show the 0.1 ms UI pass and hide
+  the 3 ms scene pass. A row whose pass has not reported for 60 resolved frames is
   dropped, or a one-shot shadow pass keeps showing its first-frame figure as if it
   still ran. A pass that sets no `_name` reports its class name
-  (`RenderPass::name()`), so the quad passes no longer collapse into one "pass".
+  (`RenderPass::name()`), so the quad passes do not collapse into one "pass".
 - The HUD is torn down BEFORE the engine and the device: MiniStats unhooks itself
   from `postrender`, and the overlay's shutdown still needs the device, because the
   Vulkan path waits the device idle before freeing ImGui's font texture and pipeline.
@@ -469,8 +460,8 @@ already some example's binding.
   Vulkan's frame fence, acquire, submit and present). Under vsync that wait is the
   frame pacing and it happens INSIDE `render()`: Metal acquires its drawable lazily
   in the first back-buffer pass, and MoltenVK takes it at the queue SUBMIT that
-  renders into it — measured at ~16 ms in the submit against under 0.1 ms in the
-  acquire and present together, which is why timing only the acquire left the
+  renders into it — about 16 ms in the submit against under 0.1 ms in the
+  acquire and present together, so timing only the acquire would leave the
   Vulkan CPU row echoing the frame time. The uniform-ring semaphores are not counted: the display
   wait throttles the CPU before they ever block.
 
@@ -494,8 +485,8 @@ than maintained incrementally. `pushOpaque` / `pushTransparent` still append.
 depth 1.0. `CompareFunction` is an alias of the existing `StencilCompareFunction`
 so both backends share one conversion helper. Metal keeps its four prebuilt
 LessEqual states and routes any other function through the depth/stencil cache
-(now keyed on the function too); Vulkan reads it in `vulkanRenderPipeline` and the
-PSO key already covered it via `DepthState::key()`. `Greater` + `depthWrite(false)`
+(keyed on the function too); Vulkan reads it in `vulkanRenderPipeline` and the
+PSO key covers it via `DepthState::key()`. `Greater` + `depthWrite(false)`
 is the x-ray trick in `layers-example` — the mesh draws only where something
 already rendered in front of it.
 
@@ -504,8 +495,8 @@ already rendered in front of it.
 - `GraphNode` -> `Entity` -> Components via `ComponentSystem<T>` registry
 - O(1) component lookup via `unordered_map<ComponentTypeID, Component*>`
 - `GraphNode::lookAt(target, up = +Y)` aims the node's -Z at a world-space target,
-  setting WORLD rotation. Some examples predating it still carry local yaw/pitch
-  helpers; those are equivalent.
+  setting WORLD rotation. Some examples carry local yaw/pitch
+  helpers instead; those are equivalent.
 - **18 component types:** Camera, Render, Light, Script, Animation, Anim (state
   graph), Screen, Element, Button, LayoutGroup, LayoutChild, Scrollbar, ScrollView,
   Collision, RigidBody, Joint, GSplat, ParticleSystem
@@ -518,7 +509,7 @@ already rendered in front of it.
 
 ## UI screens and elements
 
-Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
+Upstream's `ScreenComponent` and `ElementComponent` layout
 (`framework/components/screen`, `framework/components/element`).
 
 - **Screen.** `setScreenSpace(true)` makes the resolution the canvas size
@@ -540,7 +531,7 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   the space ElementInput hit-tests in), `canvasCorners` (the same, y down) and
   `worldCorners`.
 - **Input** (`framework/input/elementInput.h`, `elementInputEvents.cpp`; upstream
-  element-input.js, ported 2026-09-29). `Engine::handleInputEvent` hands every SDL event
+  element-input.js). `Engine::handleInputEvent` hands every SDL event
   to `ElementInput::handleEvent`, which calls the platform-neutral `onMouseDown/Up/Move`,
   `onMouseWheel` and `onTouchStart/Move/End/Cancel` in canvas points. Elements with
   `useInput` that are `active()` receive `mousedown`, `mouseup`, `mousemove`,
@@ -641,8 +632,8 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   `setShadowColor` / `setShadowOffset` are upstream's element properties and scaling.
   The fill is tone mapped (unless a camera frame owes it that) before the outline and
   shadow, which are not — upstream applies MSDF after its tone mapping. A font without
-  `range` is a bitmap font: coverage in alpha, nearest filtering, as before.
-- **Masks** (upstream `_updateMask`, ported 2026-09-29). `setMask(true)` on an IMAGE
+  `range` is a bitmap font: coverage in alpha, nearest filtering.
+- **Masks** (upstream `_updateMask`). `setMask(true)` on an IMAGE
   element makes it write the stencil instead of colour: its material keeps alpha test 1
   (`AlphaMode::MASK`, cutoff 1.0, so a sprite's transparent texels are outside the mask),
   turns every colour write off and draws in the transparent sublayer without depth
@@ -664,7 +655,7 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   upstream's example: a card mask holding a panning photo in a cover mask and a circle
   avatar mask.
 - **Layout groups** (`framework/components/layoutgroup`, `layoutchild`; upstream layout-group
-  and layout-child, ported 2026-09-30). A `LayoutGroupComponent` lays out the element children
+  and layout-child). A `LayoutGroupComponent` lays out the element children
   of its entity in a row or column (`setOrientation`), wrapping into more (`setWrap`), fitting
   them to its size per axis (`LayoutFitting::None / Stretch / Shrink / Both`), and placing the
   block by `setAlignment` (x 0 left to 1 right, y 0 bottom to 1 top; default (0, 1)),
@@ -698,7 +689,7 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   Bounce, 0.1 and 0.05; and a wheel notch is 100 pixels. `layout-group`, `scroll-view` and
   `common-widgets` port upstream's examples; `tests/uiLayoutScrollTests.cpp` holds all four
   parts through the real engine and ElementInput.
-- **Auto fit and max lines** (upstream's, ported 2026-09-30). `setAutoFitWidth` /
+- **Auto fit and max lines** (upstream's). `setAutoFitWidth` /
   `setAutoFitHeight` shrink the font from `maxFontSize` (32) down to `minFontSize` (8) until the
   text fits the element's width / height; each works only while the matching autoWidth /
   autoHeight is off. A width overflow scales the size to `floor(size x width / text width)`, a
@@ -712,7 +703,7 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   `ElementComponent::measureLayout()` measures for the element and its visual alike.
   `tests/textFitTests.cpp` ports upstream's auto-fit and maxLines cases on the Roboto font, with
   "the largest size that fits" as the oracle where upstream's expectations are its test font's.
-- **Custom materials** (upstream image element `material`, ported 2026-09-30).
+- **Custom materials** (upstream image element `material`).
   `ElementComponent::setMaterial` makes an image draw its quad with that material (a
   `ShaderMaterial`, say) instead of its own; the element's colour, opacity and texture are then
   the material's affair, as upstream, and a mask ignores it. The quad's UVs run v DOWN the
@@ -721,7 +712,7 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   layer draws only transparent materials in its sorted sublayer, so the material wants
   `setAlphaMode(BLEND)`. `ui-custom-shader` ports upstream's cooldown example, its shader in MSL and
   GLSL and its two uniforms as one `customUniformData` block.
-- **Localization** (upstream `framework/i18n`, ported 2026-09-30). `Engine::i18n()` is upstream's
+- **Localization** (upstream `framework/i18n`). `Engine::i18n()` is upstream's
   `app.i18n`: a locale (`setLocale`, "change" event with the new and old locale), messages added
   from upstream's JSON format (`addData` / `addDataFromFile`, parsed with nlohmann/json and
   validated always, not only in debug; `removeData`), `getText`, `getPluralText` with upstream's
@@ -796,7 +787,7 @@ Upstream's `ScreenComponent` and `ElementComponent` layout, ported 2026-09-29
   (upstream's rule), so `setLocalScale` / `setLocalRotation` REPLACE the model's
   own root transform.
 - stb's vertical-flip flag is **thread-local**. Setting the global one does not
-  affect a loader-thread decode; this silently flipped every env atlas once.
+  affect a loader-thread decode.
 
 ### Render pass types
 
@@ -827,7 +818,7 @@ produces deterministic PNGs and is the regression check for the whole family.
 
 ## Live gotchas
 
-Moved here from `AGENTS.md` — these bite while working ON the subsystem, so they
+These bite while working ON the subsystem, so they
 belong beside its reference rather than in the file every session loads in full.
 The cross-cutting traps stay in `AGENTS.md`.
 
@@ -835,7 +826,7 @@ The cross-cutting traps stay in `AGENTS.md`.
   count reaches the pipeline through it.** `RenderTargetOptions::samples` is
   clamped to `GraphicsDevice::maxSamples()`, which each backend fills in from the
   hardware; a backend that never sets it silently renders every target
-  single-sampled, which is what Vulkan did until 2026-09-10. A multisampled
+  single-sampled. A multisampled
   target owns a multisampled twin of each attachment, renders into that, and
   resolves into the plain texture the later passes sample — so `autoResolve` plus
   `ColorAttachmentOps::resolve` is what makes MSAA visible at all, and a target
@@ -857,10 +848,10 @@ The cross-cutting traps stay in `AGENTS.md`.
   any of them (`prepassRenders`), while the scene pass's multisampled depth is
   discarded, never stored or resolved. Single-sampled the scene pass writes the
   shared depth texture itself, and the prepass renders only for lighting-mode
-  SSAO, which reads the depth before the scene pass. Before
-  2026-09-17 the scene target was built over the shared depth texture, which made
+  SSAO, which reads the depth before the scene pass. Under MSAA the scene target
+  is NOT built over the shared depth texture: that would make
   `allocateAttachments` store AND resolve the 4x depth every frame for a texture
-  the prepass had already written. Two companions landed with it: a render target
+  the prepass had already written. Two companions go with it: a render target
   created without host data is PRIVATE on Metal (`Texture::renderTargetUse`, set
   by `RenderTarget`'s constructor; the GPU object is created eagerly, so marking
   RECREATES an untouched one) with a staging blit for any later CPU write
@@ -868,22 +859,15 @@ The cross-cutting traps stay in `AGENTS.md`.
   `transientMultisample` — `StorageModeMemoryless`, tile memory only — except when
   a later pass reloads the target (the transparent pass after a colour grab, the
   fog combine), a store on a memoryless twin being downgraded to a resolve with
-  one warning. All three match upstream's structure and cut memory; NONE of them
-  moved the frame time. Measured 2026-09-17 with the previous commit and the new
-  build kept as two binaries and run interleaved three times each:
-  ambient-occlusion 4.36 vs 4.51 ms, forward 3.32 vs 3.41, pixel-identical. What
-  DOES hold, interleaved: MSAA adds ~1.3 ms to the forward pass here, the same at
-  2x and 4x, with minimal shading (1.25 -> 2.53 ms), with an RGBA8 target
-  (-0.24), and without the colour resolve — a fixed cost this profiler cannot
-  attribute inside the pass. A GPU capture is the next tool for it. Single-run
-  ablations the day before had "found" 1.0 ms in the depth resolve and 0.7 in
-  storage; day-to-day GPU clock state moves this scene's frame by that much, so a
-  timing claim needs both builds in one session, interleaved.
+  one warning. All three match upstream's structure and cut memory; none of them
+  changes the frame time. A timing claim here needs both builds in one session,
+  interleaved: day-to-day GPU clock state moves this scene's frame by as much as
+  the effects being measured.
 - **The shadow pass runs the caster's OPACITY FRONTEND before writing depth**,
   as upstream's `litShadowMain` does. Without it a masked material throws the
-  shadow of its quad: alpha was tested against `baseColor.a` alone, never against
-  the base-colour texture, on Metal, and Vulkan's depth-only PCF pass had no
-  fragment stage at all, so it had neither the alpha test nor the shadow dither.
+  shadow of its quad: a test against `baseColor.a` alone ignores the base-colour
+  texture, and a depth-only pass with no fragment stage has neither the alpha test
+  nor the shadow dither.
   The shadow's alpha must be the SAME product the forward pass tests, or its edge
   does not follow the visible one. Three consequences for anything touching this:
   `ProgramLibrary::getShadowShader` takes the CASTER'S MATERIAL and derives the
@@ -914,17 +898,14 @@ The cross-cutting traps stay in `AGENTS.md`.
   The update mode is the one property the sync does NOT replay:
   `LightComponent::setShadowUpdateMode` pushes it once, because the renderer
   consumes `SHADOWUPDATE_THISFRAME` by writing `NONE` back and a per-frame replay
-  would re-arm it into a realtime light. The sync used to force `REALTIME` on
-  every shadow caster, so no example could ask for one-shot shadows at all; the
-  `ambient-occlusion` port paid ~730 shadow draws a frame for its five static
-  torches and its sun where upstream renders them once. Default shadow
-  resolution is upstream's 1024 (it was 2048, four times the memory per map).
+  would re-arm it into a realtime light. Default shadow
+  resolution is upstream's 1024.
   **A directional light at `SHADOWUPDATE_NONE` is NOT re-fitted.** Its cascades
   are sliced from the camera frustum, and this port writes the sampling matrices
   (the palette and per-cascade fit) in `ShadowRendererDirectional::cull`, reading
   them at bind time — so re-fitting a light whose map will not re-render moves
-  every sampling matrix with the view while the texture stays put, which is what
-  the first one-shot port did: shadows correct until the camera moved. Upstream
+  every sampling matrix with the view while the texture stays put: shadows are
+  correct until the camera moves. Upstream
   re-fits every frame and gets away with it because it writes `shadowMatrix`
   INSIDE the shadow pass; `Renderer::cullShadowmaps` skips the fit instead, which
   holds the same invariant. The light still joins the per-camera list, because the
@@ -980,9 +961,9 @@ The cross-cutting traps stay in `AGENTS.md`.
   shared texture and the resize early-outs), so `RenderPassCameraFrame::frameUpdate`
   rebuilds the prepass target and re-points the pass by hand.
 - **Cameras render in PRIORITY order, smallest first** (`CameraComponent::priority`,
-  default 0, stable sort). Construction order used to decide it, which is why a
-  dynamic reflection probe had to be built before the camera that samples it; say it
-  with a priority instead. The composition's camera fingerprint includes the priority,
+  default 0, stable sort). Construction order does not decide it: a dynamic
+  reflection probe that must render before the camera that samples it says so with
+  a priority. The composition's camera fingerprint includes the priority,
   so changing one rebuilds the render actions.
 - **PCSS tightens every cascade against the UNION of the cascades' caster boxes.**
   PCSS scales its penumbra by the cascade's caster depth RANGE, so a range that moves
@@ -1020,8 +1001,8 @@ The cross-cutting traps stay in `AGENTS.md`.
   world space. The segment buffer never shrinks: a smaller set is written into its
   FRONT with a full-size payload and the draw's instance count says how much is
   live, because `VertexBuffer::setData` refuses any payload that is not the
-  buffer's exact size — the renderer used to upload only the live records, so the
-  first frame with fewer segments froze every line. `wideLineSegmentBuffer.h` owns
+  buffer's exact size — uploading only the live records would freeze every line
+  from the first frame with fewer segments. `wideLineSegmentBuffer.h` owns
   this and `tests/wideLineSegmentBufferTests.cpp` holds it.
 - **GPU instance culling requires the 80-byte stride.** Its kernel compacts fixed
   80-byte records. The instanced shader variant follows THE DRAW, not the
@@ -1030,13 +1011,13 @@ The cross-cutting traps stay in `AGENTS.md`.
   The base is the height-map value that sits at the level of the geometry, so
   anything above it lifts off the polygon and the view ray has to enter higher up.
   Offsetting only the depths moves the ray and the field by the same amount and
-  changes nothing at all — the images come back bit-identical, which is how the
-  first attempt at this looked like it worked. The entry UV must move by the
+  changes nothing at all — the images come back bit-identical, so it looks like it
+  works. The entry UV must move by the
   lateral distance the ray covers over that height. Base 1 is pure depth below the
   surface; the default 0.5 pivots around mid-grey, as upstream.
 - **`heightMapFactor` is in TENTHS of a uv tile**, upstream's unit: a factor of 1
   asks for a relief 0.1 uv deep. Used raw, upstream's own tuned value of 0.4 smears
-  brickwork into spikes, which is what the parallax-mapping port showed.
+  brickwork into spikes.
 - **Parallax self-shadowing costs a second march and only the DIRECTIONAL light
   pays it.** It runs inside the light loop, which is behind fragment-varying
   control flow, so its height taps use an explicit LOD; the view march sits in
@@ -1051,17 +1032,16 @@ The cross-cutting traps stay in `AGENTS.md`.
   slope as if the base were flat, so the combined slope is wrong wherever the base
   is not. Upstream's `blendNormals` rotates the detail into the base normal's frame:
   `n1 = base + (0,0,1)`, `n2 = detail * (-1,-1,1)`, `n1 * dot(n1,n2) / n1.z - n2`,
-  left unnormalized because the TBN product is normalized after. Ported to both
-  backends 2026-09-05; it was the same defect on both, so this is a correctness fix
-  and not an alignment one.
+  left unnormalized because the TBN product is normalized after. Both backends do
+  this.
 - **`normalScale` blends the sampled normal TOWARD FLAT.** It does not scale xy.
   Upstream's `material_bumpiness` is a `mix(vec3(0,0,1), normalMap, s)` and both
-  backends now do that. Scaling xy leaves z alone, so it steepens the normal's
+  backends do that. Scaling xy leaves z alone, so it steepens the normal's
   slope exactly where the mix flattens it; the two agree only at 0 and 1, which is
-  why the default of 1 hid this. Aligned 2026-09-05 — the earlier note here, that
+  why the default of 1 hid this. The earlier note here, that
   Vulkan held upstream's form and aligning would move every Metal scene, was wrong
   on both counts. There is also no Gram-Schmidt re-orthonormalization of the
-  interpolated tangent any more: upstream normalizes the tangent and binormal and
+  interpolated tangent: upstream normalizes the tangent and binormal and
   does nothing else. It measured as a no-op, so if a mesh ever shows tangent skew,
   add it back to BOTH backends rather than one.
 - **The GPU lightmapper has no cast shadows yet.** It captures direct light and
@@ -1075,7 +1055,7 @@ SSAO. It is applied to the current mesh and to every rebuilt one.
 Two traps, both of which silently produce no sky at all:
 - **`Scene::setAtmosphereEnabled` must rebuild the sky mesh.** The atmosphere
   branch of `Sky::updateSkyMesh` requires the flag to be set ALREADY, and every
-  caller writes `setSkyType` then `setAtmosphereEnabled`. The setter now calls
+  caller writes `setSkyType` then `setAtmosphereEnabled`. The setter calls
   `resetSkyMesh()`.
 - **`planetCenterAndRadius.xyz` is CAMERA-LOCAL.** A viewer on the surface needs
   the centre one radius BELOW: `{0, -6371000, 0}`. At the origin the viewer sits at

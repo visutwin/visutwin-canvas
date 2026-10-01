@@ -713,12 +713,11 @@ namespace visutwin::canvas
             depthStencil.depthWriteEnable = VK_TRUE;
         }
         // Depth comparison follows the bound DepthState (upstream Material.depthFunc),
-        // in depth-only passes too; LessEqual is the default. A depth-only pass that
-        // forced LessEqual broke the clustered shadow atlas's per-rect clear, which
-        // draws a depth-1 triangle under ALWAYS (clearDepthRect): under LessEqual it
-        // wrote only where the atlas already held 1.0, so every caster depth from an
-        // earlier frame survived and a moving spot light dragged a trail of all its
-        // past shadows — Vulkan only, since Metal honoured ALWAYS (2026-09-24).
+        // in depth-only passes too; LessEqual is the default. Do not force LessEqual on a
+        // depth-only pass: the clustered shadow atlas's per-rect clear draws a depth-1
+        // triangle under ALWAYS (clearDepthRect), and under LessEqual it would write only
+        // where the atlas already held 1.0, so every caster depth from an earlier frame
+        // would survive and a moving spot light would drag a trail of its past shadows.
         depthStencil.depthCompareOp = depthState
             ? vulkanMapStencilCompare(depthState->func())
             : VK_COMPARE_OP_LESS_OR_EQUAL;

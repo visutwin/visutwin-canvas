@@ -30,8 +30,7 @@ namespace visutwin::canvas
     }
 
     // Upstream Sky.depthWrite: stored, and handed to the sky mesh now and whenever
-    // one is built. It used to be stored and never read — the mesh always forced
-    // depth writes off.
+    // one is built.
     void Sky::setDepthWrite(const bool value)
     {
         _depthWrite = value;

@@ -40,9 +40,9 @@
         // Glossy (level==0): sample from shiny atlas sub-region with screen-space MIP.
         // Rough (level>0): trilinearly interpolate between adjacent roughness MIP levels.
 #if VT_FEATURE_ANISOTROPY
-        // Upstream reflDirAniso (common-brdf). What stood here bent the normal
-        // straight onto the bitangent by the raw signed value, which at full
-        // anisotropy reflected along B whatever the surface normal was.
+        // Upstream reflDirAniso (common-brdf). Do not bend the normal straight onto
+        // the bitangent by the raw signed value: at full anisotropy that reflects
+        // along B whatever the surface normal is.
         const float3 R = getReflDirAniso(N, V, anisoB, gloss, anisoIntensity);
 #else
         const float3 R = reflect(-V, N);
@@ -198,18 +198,18 @@
     // probe/env-atlas fallback where the ray hits on-screen geometry. Twin of the
     // block in forward-fragment-ambient.glsl.
     //
-    // Three things this march owes its correctness to, each found 2026-09-19 with a
-    // magenta pillar standing on the SSR floor (VISUTWIN_SSR_FLOOR's fourth field):
+    // Three things this march owes its correctness to (a magenta pillar standing on
+    // the SSR floor, VISUTWIN_SSR_FLOOR's fourth field, checks all three):
     //   - the colour grab is MIPMAPPED, and this block sits behind a data-dependent
-    //     loop, so implicit-LOD sampling took undefined derivatives and read the
-    //     coarsest mips: every hit came back as the scene's average, which erased a
-    //     thin pillar and turned the boxes into soft blobs. LOD 0, explicitly;
+    //     loop, so implicit-LOD sampling would take undefined derivatives and read the
+    //     coarsest mips: every hit would come back as the scene's average, erasing
+    //     thin objects. LOD 0, explicitly;
     //   - the depth taps must be POINT sampled (a bilinear tap across a silhouette
     //     is a depth belonging to neither surface), as SSAO's are;
     //   - a coarse step accepted as the hit puts the fetch up to a whole step past
     //     the intersection along the ray, so the hit is REFINED by bisection
     //     between the last sample in front and the first behind.
-    // The march length scales with the camera range rather than a fixed 60 units,
+    // The march length scales with the camera range rather than a fixed distance,
     // so a 0.3 m fly and a 500-unit hall get the same relative reach.
     if (ssrSceneDepthTexture.get_width() > 0 && sceneColorTexture.get_width() > 0) {
         constexpr sampler ssrDepthSampler(coord::normalized, filter::nearest, address::clamp_to_edge);
@@ -329,8 +329,7 @@
     // mix(0.04, albedo, metalness), the specular workflow's specular colour). Only
     // the ambient irradiance: the lightmap that may replace it in the tail is added
     // unscaled upstream too, and the direct light has its own energy terms. A
-    // dielectric floor lit by its environment reads 4% darker for this; until
-    // 2026-09-19 neither backend applied it (AGENTS.md carried it as an open item).
+    // dielectric floor lit by its environment reads 4% darker for this.
     indirectDiffuse *= float3(1.0) - F0;
 #endif
 
@@ -348,9 +347,9 @@
     // everything. The two diffuse accumulators are still separate here, so the same
     // split holds: the ambient is always occluded, the direct only when asked. A
     // lightmap replaces indirectDiffuse in the tail, after this point, so the bake
-    // is occluded only under occludeDirect, as upstream. Before this the indirect
-    // term was never multiplied at all, so an AO map (or lighting-mode SSAO) had no
-    // effect on diffuse light with the default material.
+    // is occluded only under occludeDirect, as upstream. The ambient multiply is what
+    // lets an AO map (or lighting-mode SSAO) affect diffuse light with the default
+    // material.
     indirectDiffuse *= ao;
     if ((material.flags & (1u << 13)) != 0u) {
         directDiffuse *= ao;

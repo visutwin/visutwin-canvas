@@ -22,9 +22,9 @@ namespace visutwin::canvas
         IComponentSystem* rawSystem = system.get();
 
         // Reject a duplicate rather than shadowing. Overwriting the two lookup maps
-        // used to leave the FIRST system alive and owned in _ownedSystems — and
-        // still subscribed to whatever engine events it registered for, so it kept
-        // updating from behind an id that no longer resolved to it. Keeping the
+        // would leave the FIRST system alive and owned in _ownedSystems — and still
+        // subscribed to whatever engine events it registered for, so it would keep
+        // updating from behind an id that no longer resolves to it. Keeping the
         // first is the safer half of the choice: it is the one already wired up.
         if (const auto existing = _systems.find(rawSystem->id());
             existing != _systems.end()) {

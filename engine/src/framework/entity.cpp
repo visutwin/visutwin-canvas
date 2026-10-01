@@ -69,9 +69,8 @@ namespace visutwin::canvas
         // Release in the reverse of creation order, the C++ convention and the one
         // that undoes construction dependencies — and through the SYSTEM that owns
         // each component, so a system caching its components hears `beforeremove`
-        // and `remove` here exactly as it would for an explicit removal. Teardown
-        // used to clear the containers directly, so a cache learned only when the
-        // component's destructor got round to telling it.
+        // and `remove` here exactly as it would for an explicit removal, rather than
+        // learning only when the component's destructor gets round to telling it.
         const auto ordered = orderedComponents();
         for (auto it = ordered.rbegin(); it != ordered.rend(); ++it) {
             Component* component = *it;

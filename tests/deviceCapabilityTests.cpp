@@ -4,8 +4,8 @@
 // The device capability queries, and the two decisions that key on them.
 //
 // Nothing in the tree can show either one. Every GPU this engine runs on renders
-// half-float colour attachments and allocates textures far past the 4096 that five
-// call sites used to spell as a literal, so the fallback path and the clamp path are
+// half-float colour attachments and allocates textures far past the 4096 default
+// (the literal the dimension queries stand in for), so the fallback path and the clamp path are
 // both unreachable from an example — a render proves only that the capable case
 // still works. A stub device that ANSWERS differently is the only way to exercise
 // what happens when a device says no.

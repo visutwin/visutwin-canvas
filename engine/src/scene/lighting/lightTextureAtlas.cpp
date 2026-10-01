@@ -96,7 +96,7 @@ namespace visutwin::canvas
         // cameras are upstream's rotations, but upstream renders them into bottom-up
         // GL storage and this engine's targets are top-down, so v runs the other way.
         // tests/lightTextureAtlasTests.cpp holds this against the cameras' real
-        // projection; it is what found the sign.
+        // projection.
         const Vector3 absDir = dir.abs();
         const float ax = absDir.getX();
         const float ay = absDir.getY();
@@ -136,9 +136,7 @@ namespace visutwin::canvas
                 // image themselves (Vulkan defers the destroy behind the frame fences,
                 // Metal's command buffers retain what they reference). The contents are
                 // lost, so the version bumps and every light is re-slotted and re-armed
-                // in update(). Until 2026-09-19 a change after the first frame was
-                // ignored — and never even reached this class, since the renderer
-                // configured the atlas once.
+                // in update().
                 spdlog::info("LightTextureAtlas: resolution {} -> {}", _resolution, _pendingResolution);
                 _resolution = _pendingResolution;
                 _renderTarget->resize(_resolution, _resolution);

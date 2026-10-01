@@ -3,11 +3,11 @@
 //
 // Entity::clone copies an entity, its components and its Entity descendants, then
 // remaps every reference the source subtree held into itself onto the copy (upstream
-// `Entity#clone` + `resolveDuplicatedEntityReferenceProperties`). Until 2026-09-24
-// only the render and light components had a cloneFrom — every other component came
-// back default-constructed — references were not remapped at all, components were
-// cloned in hash-map order, and a cloned primitive borrowed its mesh from the source,
-// so destroying the source freed the clone's mesh (the sanitizer build aborts there).
+// `Entity#clone` + `resolveDuplicatedEntityReferenceProperties`). The failures these
+// catch: a component without a cloneFrom comes back default-constructed, a reference
+// left unremapped still points into the source, components cloned in hash-map order
+// vary per run, and a cloned primitive that borrows its mesh from the source loses it
+// when the source is destroyed (the sanitizer build aborts there).
 
 #include <cmath>
 #include <iostream>

@@ -103,8 +103,7 @@ namespace visutwin::canvas
         /// NOT depend on it, though: its mesh instances co-own their meshes and
         /// materials, and each material keeps the container's texture list alive
         /// (Material::retainResource), so unloading the Asset while such an entity lives
-        /// is safe. Until 2026-09-24 it freed the textures out from under the next
-        /// frame's draw. What stays borrowed is a Texture* taken from a TEXTURE asset and
+        /// is safe. What stays borrowed is a Texture* taken from a TEXTURE asset and
         /// set on a material by hand: that asset must outlive the material.
         std::optional<Resource> resource();
 

@@ -33,7 +33,7 @@ void main() {
             // Negate X, the same way every other env-atlas lookup in this
             // backend does (see the diffuse and specular IBL directions in
             // forward-fragment-ambient) and the cubemap branch just above.
-            // Without it the sky was rendered mirrored: an exact left-right
+            // Without it the sky renders mirrored: an exact left-right
             // flip, which a full-width mean cannot see because mirroring
             // preserves it.
             float intensity = max(lighting.envParams.x, 0.0);
@@ -45,10 +45,9 @@ void main() {
         }
         // Under the camera-frame path (bit 5 of flagsAndPad[0]) the sky, like
         // every other forward draw, must leave linear HDR for compose to expose,
-        // tonemap and gamma-encode. Without this the sky was written already
-        // gamma-encoded into the linear HDR target and compose encoded it a
-        // second time, which is what made every camera-frame scene here brighter
-        // and bluer than Metal. Mirrors the same check in each sky path of
+        // tonemap and gamma-encode. Without this the sky would be written already
+        // gamma-encoded into the linear HDR target and compose would encode it a
+        // second time. Mirrors the same check in each sky path of
         // forward-fragment-head.metal.
         if ((lighting.flagsAndPad[0] & (1u << 5)) != 0u) {
             outColor = vec4(max(sky, vec3(0.0)), 1.0);
@@ -60,7 +59,7 @@ void main() {
     }
 
     // Per-map UVs: select the UV set by flag bit, then apply that map's own
-    // transform — previously the base-color transform was applied to every map.
+    // transform, not the base-color transform for every map.
     vec2 uvBase = applyUvTransform(
         ((material.flags & FLAG_BASE_UV1) != 0u) ? fragUV1 : fragUV0,
         material.baseColorTransform0, material.baseColorTransform1);
@@ -127,15 +126,13 @@ void main() {
     // variants, which feed the mesh's per-vertex color through.
     // Upstream splits this into `diffuseVertexColor` / `emissiveVertexColor`:
     // flag bit 28 takes the color OFF the diffuse lane (so a zero flags word keeps
-    // the old behaviour) and bit 23 routes it to emissive instead. Alpha always
+    // it on the diffuse) and bit 23 routes it to emissive instead. Alpha always
     // modulates opacity.
     bool diffuseVertexColorOff = (material.flags & (1u << 28)) != 0u;
     vec4 vertexTint = diffuseVertexColorOff ? vec4(1.0, 1.0, 1.0, fragColor.a) : fragColor;
     // Material colours are authored in gamma space (upstream's convention), so the
-    // factor AND the texture sample are decoded to linear before lighting. This
-    // backend did neither, which left every surface brighter and less saturated
-    // than Metal. Outside the camera-frame path the forward tonemap compressed the
-    // difference to a few percent, which is why it read as a camera-frame bug.
+    // factor AND the texture sample are decoded to linear before lighting, as Metal
+    // does; skipping either leaves every surface brighter and less saturated.
     vec3 baseLinear = srgbToLinear(material.baseColor.rgb) * srgbToLinear(baseSample.rgb);
     vec4 albedo = vec4(baseLinear * vertexTint.rgb,
         material.baseColor.a * baseSample.a * vertexTint.a);
@@ -165,7 +162,7 @@ void main() {
     if (vtFeatureEnabled(VT_FEATURE_OPACITY_DITHER_BIT)) {
         // Upstream's alphaDither decouples the two strengths: opacity keeps driving the
         // alpha blend while this value alone drives the dither density. Negative means
-        // unset, which restores the coupled behaviour every material had before.
+        // unset, which falls back to the coupled behaviour (opacity drives both).
         float ditherStrength = material.dispersionParams.y;
         bool hasAlphaDither = ditherStrength >= 0.0;
         float ditherAlpha = hasAlphaDither ? ditherStrength : albedo.a;
@@ -192,8 +189,8 @@ void main() {
         // lane (that is how its decal material draws at all).
         vec3 unlitEmissive = material.emissiveColor.rgb;
         if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
-            // Decoded as the lit path and Metal's unlit path decode it; this path read the
-            // raw sRGB until 2026-09-29, brighter than Metal for any unlit emissive map.
+            // Decoded as the lit path and Metal's unlit path decode it; read as raw sRGB
+            // an unlit emissive map would come out brighter than on Metal.
             unlitEmissive *= srgbToLinear(texture(emissiveMap, uvEmissive).rgb);
         }
         if ((material.flags & (1u << 23)) != 0u) {
@@ -355,8 +352,8 @@ void main() {
             // Bitangent from the geometric normal with the handedness sign carried
             // in tangent.w. Upstream normalizes the interpolated tangent and
             // binormal and does nothing else, so no Gram-Schmidt here either — it
-            // was a Vulkan-only addition and it moved the shading normal wherever
-            // the interpolated tangent leaves the surface plane.
+            // would move the shading normal (on Vulkan alone) wherever the
+            // interpolated tangent leaves the surface plane.
             vec3 B = normalize(cross(N, T)) * fragWorldTangent.w;
             N = normalize(mat3(T, B, N) * tn);
         }
@@ -391,13 +388,10 @@ void main() {
     float specularOn = vtFeatureEnabled(VT_FEATURE_NO_SPECULAR_BIT) ? 0.0 : 1.0;
 
     // Clearcoat (VT_FEATURE_CLEARCOAT): a thin dielectric coat (F0 = 0.04) over the
-    // base, twin of the block in forward-fragment-surface.metal minus the clearcoat
-    // intensity/gloss/normal MAPS, which are Metal-only (AGENTS.md). The coat's direct
-    // and indirect specular accumulate here and are composed energy-conservingly in
-    // the tail. Until 2026-09-19 this backend added the coat's direct specular
-    // straight into the colour, had no coat reflection from the environment at all
-    // and never dimmed the base by what the coat reflects — the coated column of
-    // `clearcoat` read 0.6-0.75 of Metal's while every uncoated column matched.
+    // base, twin of the block in forward-fragment-surface.metal, clearcoat
+    // intensity/gloss/normal maps included. The coat's direct and indirect specular
+    // accumulate here and are composed energy-conservingly in the tail (the base is
+    // dimmed by what the coat reflects), never added straight into the colour.
     float ccSpecularity = material.clearCoatFactor;
     float ccGlossiness = 1.0 - clamp(material.clearCoatRoughness, 0.0, 1.0);
     // Clearcoat intensity and gloss maps read their GREEN channel, upstream's
@@ -427,9 +421,9 @@ void main() {
         }
     }
     // The coat's own GGX roughness for DIRECT light, from its gloss (map included),
-    // twin of forward-fragment-surface.metal. The light loops used the material's
-    // flat clearCoatRoughness and the base normal until 2026-09-23, so a coat
-    // normal or gloss map changed the coat's reflections but not its highlights.
+    // twin of forward-fragment-surface.metal. The light loops take this and the coat
+    // normal, not the flat clearCoatRoughness and the base normal, so a coat normal
+    // or gloss map changes the coat's highlights as well as its reflections.
     float ccRoughness = max(1.0 - ccGlossiness, 0.04);
     float ccAlpha2 = ccRoughness * ccRoughness * ccRoughness * ccRoughness;
     vec3 ccSpecularLight = vec3(0.0);
@@ -438,9 +432,7 @@ void main() {
     // Thin-film iridescence, computed once before the light loop and blended into
     // each Fresnel (direct, IBL, probe) by intensity — the shape
     // forward-fragment-surface.metal uses. iridescenceParams: x=intensity, y=IOR,
-    // z=thicknessMin(nm), w=thicknessMax(nm). What stood here was a fixed cosine
-    // tint blended into F0, which did not move with the view direction and so was
-    // not iridescence.
+    // z=thicknessMin(nm), w=thicknessMax(nm).
     float iridIntensity = 0.0;
     vec3 iridFresnel = F0;
     if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {

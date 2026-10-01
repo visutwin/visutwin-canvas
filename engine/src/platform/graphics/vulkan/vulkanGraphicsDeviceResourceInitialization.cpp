@@ -234,9 +234,8 @@ namespace visutwin::canvas
         // samplers in vulkanTexture.cpp and Metal's default sampler: on Metal
         // these maps are read through that default sampler, so a separate image
         // filtered without anisotropy is a backend divergence on every oblique
-        // surface. Invisible on the smooth parallax height map; on the
-        // clearcoat example's ribbed coat normal map it moved ~1,900 pixels by
-        // up to 180 counts (2026-09-19). maxAnisotropy() is published by
+        // surface. Invisible on the smooth parallax height map, obvious on a
+        // ribbed clearcoat normal map. maxAnisotropy() is published by
         // initDevice(), which has run by now.
         _materialExtraSampler = createDeviceSampler(_device, SamplerDesc{
             .anisotropyEnable = maxAnisotropy() > 1.0f ? VK_TRUE : VK_FALSE,
@@ -415,9 +414,8 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::destroyFallbackImages() noexcept
     {
         // Same contract as destroySamplers(): the ONLY place the constructor's
-        // fallback images are released, so both teardown paths stay in step. The
-        // two paths previously kept separate hand-written lists, which is how the
-        // _materialExtraSampler leak got in.
+        // fallback images are released, so both teardown paths stay in step:
+        // separate hand-written lists drift, and a resource missing from one leaks.
         for (auto& [view, image, allocation] :
                 {std::tie(_whiteImageView, _whiteImage, _whiteAllocation),
                  std::tie(_whiteCubeImageView, _whiteCubeImage, _whiteCubeAllocation)}) {
@@ -918,8 +916,8 @@ namespace visutwin::canvas
         //   alpha test / shadow dither → the depth-only opacity frontend, whose
         //                only job is to discard before depth is written;
         //   neither    → NO fragment stage, which is what every ordinary caster
-        //                wants and what this backend gave all of them until
-        //                2026-09-10, alpha-tested casters included.
+        //                wants (an alpha-tested caster must not get it, or it
+        //                throws a solid shadow).
         const bool shadowNeedsOpacity =
             definition.features.test(ShaderFeature::AlphaTest) ||
             definition.features.test(ShaderFeature::ShadowDither);

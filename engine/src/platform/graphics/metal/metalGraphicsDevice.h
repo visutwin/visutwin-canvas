@@ -298,10 +298,9 @@ namespace visutwin::canvas
         // What the CURRENT render encoder holds, so a draw re-issues only the state that
         // differs from the previous draw's. draw() is the only writer of each of these on
         // the encoder; startRenderPass resets them all with the new encoder
-        // (resetEncoderStateCache). Until 2026-09-30 every draw re-issued the pipeline, the
-        // vertex buffer, the winding, the cull mode and the depth-stencil state, and the
-        // driver re-emitted its render state for each: a quarter of the frame's CPU at
-        // 20k draws.
+        // (resetEncoderStateCache). Re-issuing the pipeline, the vertex buffer, the winding,
+        // the cull mode and the depth-stencil state on every draw makes the driver re-emit
+        // its render state for each, a large share of the frame's CPU at high draw counts.
         MTL::RenderPipelineState* _pipelineState = nullptr;   // non-owning, see draw()
         MTL::Buffer* _encoderVertexBuffer0 = nullptr;
         MTL::Buffer* _encoderInstancingBuffer = nullptr;

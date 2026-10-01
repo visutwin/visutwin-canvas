@@ -95,9 +95,8 @@ float parallaxSelfShadow(vec2 uv, vec3 lightDirTS, float heightScale,
 // the lookups sit inside the per-light loop and behind a per-pixel cascade pick,
 // so a 2x2 quad can straddle two atlas quadrants, and the implicit-LOD
 // derivatives across it span half the atlas. Under the anisotropic sampler that
-// averaged taps from other cascades into the result — the cascade dither
-// (2026-09-23) turned every dithered pixel of a shadow darker than either
-// cascade alone.
+// would average taps from other cascades into the result, turning every pixel the
+// cascade dither touches darker than either cascade alone.
 float pcf3x3(sampler2D tex, vec2 uv, float receiver) {
     vec2 texel = 1.0 / vec2(textureSize(tex, 0));
     float sum = 0.0;

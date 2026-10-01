@@ -126,8 +126,8 @@ namespace visutwin::canvas
         // A lightmap of this mesh instance's own, which is what a lightmapper bakes
         // (upstream MeshInstance's instance_lightMap, 0cd268478). It takes PRIORITY
         // over the material's lightMap, and binds in the same slot, so meshes that
-        // share one material each show their own bake; until 2026-09-23 the bakers
-        // wrote into the shared material and every such mesh showed the last one.
+        // share one material each show their own bake (a bake written into the shared
+        // material would show the last one on every such mesh).
         // Owned here: the texture must outlive every draw that samples it.
         const std::shared_ptr<Texture>& lightMap() const { return _lightMap; }
         void setLightMap(std::shared_ptr<Texture> texture) { _lightMap = std::move(texture); }

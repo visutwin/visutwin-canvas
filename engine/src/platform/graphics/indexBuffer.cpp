@@ -24,8 +24,7 @@ namespace visutwin::canvas
 
         _numBytes = indexFormatBytes(format) * numIndices;
 
-        // Track VRAM usage, as VertexBuffer does. Index memory went uncounted until
-        // 2026-09-16, so any total reported before then understated geometry.
+        // Track VRAM usage, as VertexBuffer does.
         if (_device) {
             adjustVramSizeTracking(_device->_vram, _numBytes);
         }

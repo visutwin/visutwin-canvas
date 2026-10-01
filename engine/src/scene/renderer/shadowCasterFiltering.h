@@ -44,10 +44,9 @@ namespace visutwin::canvas
     //
     // `camera` filters components by layer compatibility, and a caller that draws or
     // fits for a particular camera must pass it. Every caller that collects casters
-    // goes through here rather than sweeping itself — the directional fit and the
-    // directional pass used to have one hand-written sweep each, they disagreed about
-    // whether batch meshes were casters, and the fit therefore sized the shadow map's
-    // depth range to the unbatched scene while the pass drew batches into it.
+    // goes through here rather than sweeping itself: two sweeps drift apart, and if
+    // the directional fit and pass disagree about which meshes cast (batch meshes, for
+    // one), the fit sizes the shadow map's depth range to a scene the pass does not draw.
     void collectShadowCasters(std::vector<MeshInstance*>& casters, const Camera* camera = nullptr);
 
     // The mesh-level caster rules that do NOT depend on a camera: castShadow, node

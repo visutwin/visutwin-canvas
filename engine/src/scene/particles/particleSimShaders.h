@@ -6,15 +6,13 @@
 //
 // Binding layout follows Compute's name-order contract (see compute.h): one
 // storage buffer, "particles", takes binding 0, and the uniform block follows at
-// binding 1. Both kernels below already matched that layout when they were
-// backend-specific, so the migration did not have to move a single binding.
+// binding 1.
 //
 // The step is deterministic: birth state derives from an INTEGER hash (PCG) of the particle
 // index and the emitter's step counter, so an emitter needs no CPU round trip, and both
-// languages draw the same numbers bit for bit. It replaced fract(sin(x) * 43758), whose
-// GPU sine at large arguments was neither uniform (a spark fountain came out 10% narrower
-// than upstream) nor the same in MSL and SPIR-V (spawns a pixel apart between backends), and
-// whose seed included the running time, so its precision fell the longer an emitter ran.
+// languages draw the same numbers bit for bit. Do not use fract(sin(x) * 43758): GPU sine
+// at large arguments is neither uniform nor the same in MSL and SPIR-V, and a seed that
+// includes the running time loses precision the longer an emitter runs.
 // The per-life seed is kept in motion.w as a float holding 24 bits, which is exact.
 //
 // The particle clock is upstream's (particleUpdaterStart / Respawn / NoRespawn / OnStop):
@@ -24,16 +22,16 @@
 // every particle not yet born. A hidden particle keeps its clock running, so playing
 // again brings it back at its next wrap, as upstream.
 //
-// Velocity is our integrated initial velocity with gravity and damping (a DEVIATION kept
-// from before the graphs existed) PLUS upstream's velocity graphs: the local graph turned
+// Velocity is our integrated initial velocity with gravity and damping (a DEVIATION)
+// PLUS upstream's velocity graphs: the local graph turned
 // by the emitter, and the world graph, each a random point between graph and graph2 per
 // particle life. The graph speed of rotation is integrated into the angle.
 //
 // The uniform block IS `GpuParticleSimParams` — two mat4s, eight vec4s and four
 // 16-sample lookup tables, 1280 bytes, which its own static_assert pins. Both kernels declare that member list; changing
-// one without the others silently misreads every field after the change. The Vulkan
-// shader-bundle generator used to check this layout by SPIR-V reflection, which it
-// can no longer do now that the source is compiled at runtime.
+// one without the others silently misreads every field after the change. Nothing checks
+// this layout by reflection: the source is compiled at runtime, outside the SPIR-V bundle
+// the generator validates.
 //
 #pragma once
 

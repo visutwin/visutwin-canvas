@@ -187,7 +187,7 @@ namespace
     }
 
     // VSM is directional-only in this port: a spot or omni light asking for it gets
-    // PCF3 (it used to keep VSM and come out unshadowed), and the resolution follows
+    // PCF3 (kept as VSM it would come out unshadowed), and the resolution follows
     // the light TYPE, so changing the type re-resolves the kept request.
     bool checkLocalVsmFallsBack()
     {
@@ -232,11 +232,11 @@ namespace
         return true;
     }
 
-    // A new light's cascade rects must be the layout of its cascade COUNT. The member used
-    // to be initialised with the four-cascade 2x2 grid while the count defaulted to one,
-    // and setNumCascades(1) returns early on an unchanged count, so every default
-    // directional shadow rendered into one quadrant of its map (half upstream's
-    // resolution, found on input-events' ground acne, 2026-09-29).
+    // A new light's cascade rects must be the layout of its cascade COUNT. A member
+    // initialised with the four-cascade 2x2 grid while the count defaults to one stays
+    // that way, since setNumCascades(1) returns early on an unchanged count, and every
+    // default directional shadow then renders into one quadrant of its map (half
+    // upstream's resolution).
     bool checkDefaultCascadeLayout()
     {
         Light light(nullptr);

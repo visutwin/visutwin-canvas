@@ -215,7 +215,7 @@ namespace visutwin::canvas
         int shadowResolution() const { return _shadowResolution; }
 
         // Drops the shadow map on a change: it is allocated lazily and only when
-        // null, so an inline store left the texture at its old size while the
+        // null, so an inline store would leave the texture at its old size while the
         // viewport and the shader's texel size followed the new one.
         void setShadowResolution(int value);
 
@@ -314,11 +314,11 @@ namespace visutwin::canvas
 
         ShadowUpdateType _shadowUpdateMode = ShadowUpdateType::SHADOWUPDATE_NONE;
 
-        // ONE cascade by default, as upstream (light.js `numCascades = 1`). It used to
-        // be 4, and a one-shot directional shadow then broke the moment the camera
-        // moved: the cascade a fragment samples is picked by its VIEW depth, so
-        // zooming in carried the whole scene into cascades 0-1, whose maps had been
-        // fitted once to the empty near slices of the original view.
+        // ONE cascade by default, as upstream (light.js `numCascades = 1`). With more,
+        // a one-shot directional shadow breaks the moment the camera moves: the cascade
+        // a fragment samples is picked by its VIEW depth, so zooming in carries the
+        // scene into near cascades whose maps were fitted once to the empty near slices
+        // of the original view.
         int _numCascades = 1;
         float _cascadeDistribution = 0.5f;   // 0=linear splits, 1=logarithmic, 0.5=practical blend
         float _cascadeBlend = 0.0f;          // fraction: 0 = off, else dither + far fade (upstream)

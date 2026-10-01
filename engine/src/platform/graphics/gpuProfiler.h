@@ -71,16 +71,13 @@ namespace visutwin::canvas
          *    interval is the smaller and the right one.
          *
          * The minimum picks the correct measurement in both cases without having to know
-         * which case it is. Until 2026-09-22 a pass kept its own interval whenever it
-         * targeted the drawable, which broke as soon as a frame had TWO such passes:
-         * their intervals overlap each other almost entirely, so the frame counted that
-         * time twice, and `ambient-occlusion` zoomed in reported 24-33 ms of GPU for an
-         * 8.3 ms frame at 120 fps while nothing was actually slow.
+         * which case it is. Keeping the own interval for every pass that targets the
+         * drawable is wrong as soon as a frame has TWO such passes: their intervals
+         * overlap each other almost entirely, so the frame would count that time twice.
          *
          * The frame's first pass is measured against the LAST end of the previous frame,
          * for the same reason: with no anchor it could only keep its own interval, which
-         * on a pipelined GPU spans neighbouring frames' work (measured: 9.8 ms against a
-         * serial cost near 1 ms). An anchor from a frame the GPU finished long ago can
+         * on a pipelined GPU spans neighbouring frames' work. An anchor from a frame the GPU finished long ago can
          * only make the delta larger, and the minimum then keeps the interval, so the
          * anchor cannot inflate anything.
          *

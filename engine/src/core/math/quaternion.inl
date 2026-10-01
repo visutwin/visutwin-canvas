@@ -192,9 +192,9 @@ namespace visutwin::canvas
     inline Quaternion Quaternion::normalized() const
     {
         // A zero quaternion normalises to identity on every backend, as upstream
-        // (quat.js) does. The SSE and Apple paths used to divide by zero and return
-        // NaN; invert() routes through here, so the NaN spread to anything inverting a
-        // degenerate rotation.
+        // (quat.js) does. Without this guard the SSE and Apple paths divide by zero and
+        // return NaN, and since invert() routes through here, the NaN would spread to
+        // anything inverting a degenerate rotation.
         if (lengthSquared() == 0.0f) {
             return Quaternion();
         }

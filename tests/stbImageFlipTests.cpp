@@ -184,7 +184,7 @@ int main()
         stbi_set_flip_vertically_on_load(0);
         decodeLikeGlb(png, false);
 
-        // The trap itself: what the font loader used to do. Clearing the GLOBAL flag
+        // The trap itself: a loader that clears only the GLOBAL flag. Clearing it
         // is ignored once the thread-local one is set, and the decode comes out flipped.
         {
             stbi_set_flip_vertically_on_load(0);

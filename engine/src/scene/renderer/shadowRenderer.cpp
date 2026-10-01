@@ -11,16 +11,12 @@
 namespace visutwin::canvas
 {
     bool ShadowRenderer::needsShadowRendering(const Light* light) const {
-        // PURE, as upstream 2.23 made it. It used to consume a SHADOWUPDATE_THISFRAME
-        // request and count the shadow-map update here, which was survivable only
-        // while the answer was the same for every caller — every light was visible,
-        // so a call could not both decline to render and consume the request.
-        //
-        // Culling broke that: a one-shot request on a light no camera can reach was
-        // answered "no" and consumed in the same breath, and the shadow the caller
-        // asked for was never rendered at all. Renderer::consumeOneShotShadows does
-        // the consuming now, after the frame graph is built, for the lights that
-        // actually got a pass.
+        // PURE, as upstream 2.23 made it. It must not consume a SHADOWUPDATE_THISFRAME
+        // request: with lights culled, a one-shot request on a light no camera can reach
+        // would be answered "no" and consumed in the same breath, and the shadow the
+        // caller asked for never rendered. Renderer::consumeOneShotShadows does the
+        // consuming, after the frame graph is built, for the lights that actually got a
+        // pass.
         return light->enabled() && light->castShadows()
             && light->shadowUpdateMode() != ShadowUpdateType::SHADOWUPDATE_NONE
             && light->visibleThisFrame();

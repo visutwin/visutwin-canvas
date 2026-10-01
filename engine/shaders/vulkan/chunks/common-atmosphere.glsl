@@ -124,7 +124,7 @@ vec3 nishitaScatter(vec3 viewDir) {
     return clamp(skyColor, vec3(0.0), vec3(100.0));
 }
 
-// The BRDF terms that used to live here — distributionGGX, a separable Smith
-// geometry term and a flat-F90 Schlick — moved to common-brdf.glsl, which is the
-// twin of common-brdf.metal. Two of the three disagreed with Metal.
+// The BRDF terms (distributionGGX, the Smith visibility, the Fresnel) live in
+// common-brdf.glsl, the twin of common-brdf.metal. Do not define local variants
+// here: a second spelling is a backend divergence by construction.
 

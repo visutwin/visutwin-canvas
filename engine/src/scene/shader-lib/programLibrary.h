@@ -55,8 +55,7 @@ namespace visutwin::canvas
         // the shadow of its bounding quad, and a caster with opacityShadowDither
         // thins its shadow with the ordered pattern. Pass nullptr only for a draw
         // that genuinely has no material (the shadow of a batch, say) — a null
-        // material gives the plain depth-only variant, which is what every caster
-        // used to get.
+        // material gives the plain depth-only variant.
         std::shared_ptr<Shader> getShadowShader(const Material* material = nullptr,
                                                 bool dynamicBatch = false, bool skinning = false,
                                                 bool morphing = false, bool instancing = false,

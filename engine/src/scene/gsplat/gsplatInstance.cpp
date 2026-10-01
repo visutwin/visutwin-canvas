@@ -61,7 +61,7 @@ namespace visutwin::canvas
         // ANY affine transform.
         //
         // Transforming the view direction by the INVERSE instead (upstream's older
-        // form, and what this did) weights axis i by 1/s_i where the true depth
+        // form) weights axis i by 1/s_i where the true depth
         // weights it by s_i; the two cancel only when every scale is equal. Under a
         // non-uniform scale the error depends on the view direction, so such a splat
         // sorts wrongly against the rest of the scene at some camera angles and not
@@ -111,7 +111,7 @@ namespace visutwin::canvas
 
         // Normalising is order-preserving — every key and the min/max bounds share
         // the positive factor — and keeps the sorter's fixed camera-movement epsilon
-        // comparing a unit vector, as it did before.
+        // comparing a unit vector.
         const float length = weights.length();
         return length > 1e-8f ? weights * (1.0f / length) : Vector3(0.0f, 0.0f, 1.0f);
     }

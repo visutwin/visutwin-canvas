@@ -119,8 +119,8 @@ namespace visutwin::canvas
          * Spherical linear interpolation from `a` to `b` by `t`, along the shorter arc
          * (`b` is negated when a.dot(b) < 0), falling back to a normalised lerp when the
          * two are within 1e-6 of parallel. The result is renormalised. One definition for
-         * the whole engine: AnimEvaluator, AnimTrack and Skeleton each carried their own
-         * scalar copy until 2026-09-19.
+         * the whole engine (AnimEvaluator, AnimTrack and Skeleton all call it), so every
+         * quaternion blend rounds alike on each SIMD backend.
          */
         static Quaternion slerp(const Quaternion& a, const Quaternion& b, float t);
 
