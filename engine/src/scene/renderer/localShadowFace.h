@@ -28,9 +28,9 @@ namespace visutwin::canvas
 
     /**
      * Draws face `face` of `light`'s shadow into whatever target and viewport are
-     * bound: the pre-classified caster list for an omni light, a culled sweep of
-     * the scene for a spot. Shared by the per-face non-clustered pass and the
-     * single clustered atlas pass, so the two cannot drift.
+     * bound: the caster list the light's cull prepared this frame, or a culled sweep
+     * of the scene when there is none. Shared by the per-face non-clustered pass and
+     * the single clustered atlas pass, so the two cannot drift.
      */
     void drawLocalShadowFace(GraphicsDevice* device, ProgramLibrary* programLibrary,
         DepthOnlyShaders& shaders, Light* light, int face, Camera* shadowCamera);

@@ -8,11 +8,12 @@
 #include "skinBatchInstance.h"
 
 #include "core/math/matrix4.h"
+#include "platform/graphics/graphicsDevice.h"
 
 namespace visutwin::canvas
 {
     SkinBatchInstance::SkinBatchInstance(std::vector<GraphNode*> nodes)
-        : _nodes(std::move(nodes))
+        : _nodes(std::move(nodes)), _paletteVersion(GraphicsDevice::nextPaletteVersion())
     {
         // Pre-allocate palette: 16 floats (float4x4) per bone.
         _palette.resize(_nodes.size() * 16, 0.0f);
@@ -35,6 +36,9 @@ namespace visutwin::canvas
         // memcpy per bone is 8-16× faster than 16 getElement() calls, which on
         // SSE/NEON each do a store-to-temp + scalar extract round-trip.
         static_assert(sizeof(Matrix4) == 64, "Matrix4 must be 64 bytes for palette memcpy");
+
+        // The contents change below, so they take a new name.
+        _paletteVersion = GraphicsDevice::nextPaletteVersion();
 
         const int count = static_cast<int>(_nodes.size());
         for (int i = 0; i < count; ++i)

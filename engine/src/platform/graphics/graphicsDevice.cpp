@@ -73,6 +73,12 @@ namespace visutwin::canvas
         _gpuProfiler.reset();
     }
 
+    uint64_t GraphicsDevice::nextPaletteVersion()
+    {
+        static uint64_t version = 0;
+        return ++version;
+    }
+
     void GraphicsDevice::frameStart()
     {
         _renderPassIndex = 0;

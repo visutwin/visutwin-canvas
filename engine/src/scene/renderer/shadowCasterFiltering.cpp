@@ -122,6 +122,28 @@ namespace visutwin::canvas
         return meshInstance->mesh()->hasVertexBuffer();
     }
 
+    void collectLightIndependentShadowCasters(std::vector<ShadowCasterBounds>& casters)
+    {
+        casters.clear();
+        static thread_local std::vector<MeshInstance*> collected;
+        collected.clear();
+        collectShadowCasters(collected);
+        casters.reserve(collected.size());
+        for (auto* meshInstance : collected) {
+            if (!meshInstance || !meshInstance->visible() ||
+                !shouldRenderShadowMeshInstanceIgnoringVisibility(meshInstance)) {
+                continue;
+            }
+            ShadowCasterBounds caster;
+            caster.meshInstance = meshInstance;
+            caster.cull = meshInstance->cull();
+            if (caster.cull) {
+                caster.aabb = meshInstance->aabb();
+            }
+            casters.push_back(caster);
+        }
+    }
+
     bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera)
     {
         const Frustum frustum = (shadowCamera && shadowCamera->node())

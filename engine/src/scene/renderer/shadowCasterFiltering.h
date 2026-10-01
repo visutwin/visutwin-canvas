@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/math/primitives.h"
+#include "core/shape/boundingBox.h"
 
 namespace visutwin::canvas
 {
@@ -55,6 +56,26 @@ namespace visutwin::canvas
     // own visibility test — the omni classification, which tests six faces at once —
     // pays these once rather than once per face.
     bool shouldRenderShadowMeshInstanceIgnoringVisibility(MeshInstance* meshInstance);
+
+    // A shadow caster with what a light's bounds test reads, so that test runs over one
+    // contiguous array instead of reaching through every mesh instance to its node
+    // (and, for a skinned one, re-deriving the bounds from its bones) once per light.
+    struct ShadowCasterBounds
+    {
+        MeshInstance* meshInstance = nullptr;
+        // World bounds, taken only when `cull` is set.
+        BoundingBox aabb;
+        // MeshInstance::cull(): a caster with culling off is in every list, untested.
+        bool cull = true;
+    };
+
+    // The scene's casters through every rule that depends on neither a light nor a
+    // camera: collectShadowCasters, then visible() and
+    // shouldRenderShadowMeshInstanceIgnoringVisibility, with each caster's bounds.
+    // Clears `casters` first, keeps collection order. What is left per light is a
+    // bounds test, so a frame with many shadowed local lights collects and filters the
+    // scene once, not once per light.
+    void collectLightIndependentShadowCasters(std::vector<ShadowCasterBounds>& casters);
 
     // Checks mesh-level shadow caster rules (castShadow/material/frustum/cull/node state).
     bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera);

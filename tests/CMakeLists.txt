@@ -169,6 +169,23 @@ target_link_libraries(visutwin-primitive-mesh-sharing-tests PRIVATE visutwin-can
 
 add_test(NAME primitive-mesh-sharing COMMAND visutwin-primitive-mesh-sharing-tests)
 
+add_executable(visutwin-local-shadow-caster-tests
+    localShadowCasterTests.cpp
+)
+
+target_link_libraries(visutwin-local-shadow-caster-tests PRIVATE visutwin-canvas)
+
+add_test(NAME local-shadow-casters COMMAND visutwin-local-shadow-caster-tests)
+add_test(NAME local-shadow-casters-non-clustered COMMAND visutwin-local-shadow-caster-tests --non-clustered)
+
+add_executable(visutwin-palette-sharing-tests
+    paletteSharingTests.cpp
+)
+
+target_link_libraries(visutwin-palette-sharing-tests PRIVATE visutwin-canvas)
+
+add_test(NAME palette-sharing COMMAND visutwin-palette-sharing-tests)
+
 add_executable(visutwin-batch-split-tests
     batchSplitTests.cpp
 )

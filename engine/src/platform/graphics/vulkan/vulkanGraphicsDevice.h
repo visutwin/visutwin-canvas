@@ -124,7 +124,7 @@ namespace visutwin::canvas
         void setViewport(float x, float y, float w, float h) override;
         void setScissor(int x, int y, int w, int h) override;
         void setDepthBias(float depthBias, float slopeScale, float clamp) override;
-        void setDynamicBatchPalette(const void* data, size_t size) override;
+        void setDynamicBatchPalette(const void* data, size_t size, uint64_t contentVersion = 0) override;
         void setIndirectDrawBuffer(void* nativeBuffer) override {
             _indirectDrawBuffer = reinterpret_cast<VkBuffer>(nativeBuffer);
         }
@@ -789,10 +789,63 @@ namespace visutwin::canvas
         {
             uint64_t version = 0;
             uint32_t offset = 0;
+            uint64_t frame = ~0ull;
         };
         // Every material packed this frame, not just the last one: a frame interleaves
-        // materials across shadow faces, prepass and forward pass. Cleared at frame start.
+        // materials across shadow faces, prepass and forward pass. An entry is this
+        // frame's only while its `frame` is _frameSerial. The map is NOT cleared every
+        // frame — that frees and reallocates a node per material per frame — but only
+        // once it holds far more entries than a frame writes (materials that went away).
         std::unordered_map<const void*, MaterialUniformSlot> _materialUniformSlots;
+        size_t _materialUniformSlotsWritten = 0;
+
+        // What the command buffer being recorded has bound, so a draw issues only what
+        // differs from the draw before it. Binding a set, a vertex buffer or the stencil
+        // reference again with the same value costs twice on MoltenVK: once to record
+        // the command and once to encode it into Metal at submit.
+        //
+        // draw() is the ONLY writer of this state on the graphics bind point, and every
+        // pass forgets it as it begins (beginPassState, and wherever something else has
+        // bound a pipeline: the overlay). Code that binds a set, a vertex or index
+        // buffer, or sets the stencil reference from anywhere else must go through these
+        // or call resetBoundDrawState(), or the next draw skips a bind it needed.
+        struct BoundDrawState
+        {
+            struct Set
+            {
+                VkDescriptorSet set = VK_NULL_HANDLE;
+                uint32_t dynamicOffset = 0;
+            };
+            std::array<Set, 7> sets{};
+            VkBuffer vertexBuffer = VK_NULL_HANDLE;
+            VkBuffer instanceBuffer = VK_NULL_HANDLE;
+            VkBuffer indexBuffer = VK_NULL_HANDLE;
+            VkIndexType indexType = VK_INDEX_TYPE_MAX_ENUM;
+            bool stencilReferenceSet = false;
+            uint32_t stencilReferenceFront = 0;
+            uint32_t stencilReferenceBack = 0;
+
+            // Set 0: what the bound material block came from (the reuse key and
+            // version of bindMaterialUniformSet). Null for a block nothing may repeat.
+            const void* uniformKey = nullptr;
+            uint64_t uniformVersion = 0;
+
+            // Set 1: the material (and its uniformsVersion, which every material
+            // mutator moves, texture setters included) and the instance lightmap the
+            // bound texture set was built from. Within a pass those decide it — a
+            // texture's image does not change while a pass is being recorded — so a
+            // draw repeating them does not rebuild the image infos to find the same set.
+            bool textureSetKnown = false;
+            const Material* textureMaterial = nullptr;
+            uint64_t textureMaterialVersion = 0;
+            const Texture* textureLightMap = nullptr;
+            VkDescriptorSet textureSet = VK_NULL_HANDLE;
+        } _bound;
+        void resetBoundDrawState();
+        // Binds `set` at `index` unless it is what is bound there; `dynamicOffset` is
+        // null for a set with no dynamic buffer.
+        void bindSetIfChanged(VkCommandBuffer cmd, uint32_t index, VkDescriptorSet set,
+            const uint32_t* dynamicOffset = nullptr);
         struct ClusterSetReuse
         {
             uint32_t lightOffset = 0;

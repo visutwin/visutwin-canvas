@@ -167,7 +167,7 @@ namespace visutwin::canvas
 
         /// Bind the dynamic batch matrix palette at slot 6 via setVertexBytes.
         /// Uses Metal buffer for bone data.
-        void setDynamicBatchPalette(const void* data, size_t size) override;
+        void setDynamicBatchPalette(const void* data, size_t size, uint64_t contentVersion = 0) override;
 
         /// Bind morph target delta buffer (vertex slot 9) + params (vertex slot 10)
         /// for the next draw call.

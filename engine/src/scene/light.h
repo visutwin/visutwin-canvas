@@ -52,14 +52,15 @@ namespace visutwin::canvas
         // scene again:
         //  - OMNI: cullShadowCastersOmni classifies each caster into the faces it
         //    touches in one sweep, instead of six independent frustum sweeps;
+        //  - SPOT: ShadowRendererLocal::cullLocalLights tests the same shared caster
+        //    list against the cone's frustum;
         //  - DIRECTIONAL: the cascade fit (ShadowRendererDirectional::cull) has the
         //    scene's casters in hand to size the cascade's depth range, and tests them
         //    against the fitted frustum once it is known.
-        // Empty for a spot light, whose pass culls as it draws.
         std::vector<MeshInstance*> visibleCasters;
-        // The device's renderVersion when visibleCasters was filled for a directional
-        // cascade. The pass uses the list only in that same frame — it holds raw
-        // pointers — and collects for itself otherwise.
+        // The device's renderVersion when visibleCasters was filled. The pass uses the
+        // list only in that same frame — it holds raw pointers — and collects for
+        // itself otherwise.
         int visibleCastersFrame = -1;
     };
 

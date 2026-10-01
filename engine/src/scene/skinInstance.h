@@ -25,8 +25,9 @@ namespace visutwin::canvas
      * preserves float precision at large world coordinates; the vertex shader applies the node's
      * model matrix on top, so the two cancel and vertices land in world space.
      *
-     * DEVIATION: the palette is uploaded per draw as a float4x4 Metal buffer at slot 6 (the same
-     * ring-buffer path dynamic batching uses) instead of upstream's RGBA32F bone texture.
+     * DEVIATION: the palette is uploaded as a float4x4 buffer at slot 6 (the same ring-buffer
+     * path dynamic batching uses) instead of upstream's RGBA32F bone texture. paletteVersion()
+     * names its contents, so the device uploads it once a frame for every pass that draws it.
      */
     class SkinInstance
     {
@@ -51,6 +52,13 @@ namespace visutwin::canvas
 
         const void* paletteData() const { return _palette.data(); }
         size_t paletteSizeBytes() const { return _palette.size() * sizeof(Matrix4); }
+
+        /**
+         * Names the palette's current contents (GraphicsDevice::nextPaletteVersion), new each
+         * time updateMatrixPalette() rewrites them. What setDynamicBatchPalette takes to
+         * upload one copy a frame.
+         */
+        uint64_t paletteVersion() const { return _paletteVersion; }
         int boneCount() const { return static_cast<int>(_palette.size()); }
 
         /**
@@ -69,6 +77,8 @@ namespace visutwin::canvas
 
         // Sequential index of when the palette update was performed the last time.
         uint64_t _skinUpdateIndex = ~0ull;
+
+        uint64_t _paletteVersion;
 
         static uint64_t s_frameIndex;
     };

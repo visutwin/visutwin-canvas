@@ -1752,7 +1752,8 @@ namespace visutwin::canvas
                 // per-frame matrix palette, which the vertex shader indexes with a
                 // per-vertex bone index; the model matrix is identity.
                 if (auto* sbi = meshInstance->skinBatchInstance()) {
-                    device.setDynamicBatchPalette(sbi->paletteData(), sbi->paletteSizeBytes());
+                    device.setDynamicBatchPalette(sbi->paletteData(), sbi->paletteSizeBytes(),
+                        sbi->paletteVersion());
                 }
                 device.setTransformUniforms(view.viewProjection, Matrix4::identity());
                 device.draw(entry.primitive, entry.indexBuffer, 1, -1, true, true);
@@ -1799,7 +1800,8 @@ namespace visutwin::canvas
                         const ScopedMilliseconds skinTimer(counters.skinTime);
                         si->updateMatrixPalette(meshInstance->node());
                     }
-                    device.setDynamicBatchPalette(si->paletteData(), si->paletteSizeBytes());
+                    device.setDynamicBatchPalette(si->paletteData(), si->paletteSizeBytes(),
+                        si->paletteVersion());
                     counters.skinDrawCalls++;
                 }
                 // Morph targets: bind the shared delta buffer + current weights.

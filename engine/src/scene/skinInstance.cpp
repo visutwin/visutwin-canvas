@@ -6,6 +6,7 @@
 #include "skinInstance.h"
 
 #include "graphNode.h"
+#include "platform/graphics/graphicsDevice.h"
 #include "skin.h"
 
 namespace visutwin::canvas
@@ -13,7 +14,7 @@ namespace visutwin::canvas
     uint64_t SkinInstance::s_frameIndex = 0;
 
     SkinInstance::SkinInstance(std::shared_ptr<Skin> skin)
-        : _skin(std::move(skin))
+        : _skin(std::move(skin)), _paletteVersion(GraphicsDevice::nextPaletteVersion())
     {
         if (_skin) {
             _palette.resize(_skin->inverseBindPose().size(), Matrix4::identity());
@@ -39,6 +40,9 @@ namespace visutwin::canvas
         const Matrix4 invRoot = rootNode
             ? rootNode->worldTransform().inverse()
             : Matrix4::identity();
+
+        // The contents change below, so they take a new name.
+        _paletteVersion = GraphicsDevice::nextPaletteVersion();
 
         const auto& inverseBindPose = _skin->inverseBindPose();
         const size_t count = std::min(_bones.size(), inverseBindPose.size());

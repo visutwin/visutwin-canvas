@@ -255,8 +255,8 @@ namespace visutwin::canvas
         _uniformRing = std::make_unique<MetalUniformRingBuffer>(
             _device, kMaxDrawsPerFrame * 2, sizeof(MetalUniformBinder::LightingUniforms), "UniformRing");
 
-        // Variable-size bump-allocator ring buffer for dynamic batch matrix palettes.
-        // 256KB per frame region supports up to 4096 total instances across all batches.
+        // Variable-size bump-allocator ring buffer for matrix palettes (dynamic batches
+        // and skins). Starts at 256KB a frame and grows with what a frame asks for.
         _paletteRing = std::make_unique<MetalPaletteRingBuffer>(_device, "PaletteRing");
 
         // GPU pass profiler (MTLCounterSampleBuffer timestamps). Created when the
@@ -867,12 +867,12 @@ namespace visutwin::canvas
         _indirectDrawBuffer = static_cast<MTL::Buffer*>(nativeBuffer);
     }
 
-    void MetalGraphicsDevice::setDynamicBatchPalette(const void* data, const size_t size)
+    void MetalGraphicsDevice::setDynamicBatchPalette(const void* data, const size_t size,
+        const uint64_t contentVersion)
     {
-        // Allocate from the palette ring buffer (variable-size bump allocator).
-        // This replaces the previous setVertexBytes() path which was limited to 4KB.
-        // The ring buffer supports arbitrary palette sizes within the 256KB/frame budget.
-        _pendingPaletteOffset = _paletteRing->allocate(data, size);
+        // From the palette ring (variable-size bump allocator, which grows): one copy a
+        // frame per content version, however many passes draw the skin.
+        _pendingPaletteOffset = _paletteRing->allocate(data, size, contentVersion);
     }
 
     void MetalGraphicsDevice::setParticleState(const std::shared_ptr<VertexBuffer>& particles,

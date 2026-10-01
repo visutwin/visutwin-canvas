@@ -7,6 +7,7 @@
 
 #include <scene/frameGraph.h>
 
+#include "shadowCasterFiltering.h"
 #include "shadowRenderer.h"
 #include "shadowMap.h"
 #include "scene/camera.h"
@@ -27,8 +28,9 @@ namespace visutwin::canvas
         // Each shadow face is a separate render pass as it renders to a separate render target.
         void buildNonClusteredRenderPasses(FrameGraph* frameGraph, const std::vector<Light*>& localLights);
 
-        // Position shadow cameras for local (spot/point) lights and allocate shadow maps.
-        // Mirrors Renderer::cullShadowmaps() but for local lights.
+        // Position shadow cameras for local (spot/point) lights, allocate shadow maps,
+        // and prepare each face's caster list for the lights whose shadow renders this
+        // frame. Mirrors Renderer::cullShadowmaps() but for local lights.
         void cullLocalLights(const std::vector<Light*>& localLights,
             const std::shared_ptr<GraphicsDevice>& device);
 
@@ -39,5 +41,10 @@ namespace visutwin::canvas
 
         // Temporary list to collect lights to render shadows for
         std::vector<Light*> _shadowLights;
+
+        // The scene's casters for this cull, shared by every light in it (see
+        // collectLightIndependentShadowCasters). Kept for its capacity; the pointers are
+        // only good until the frame ends.
+        std::vector<ShadowCasterBounds> _casters;
     };
 }

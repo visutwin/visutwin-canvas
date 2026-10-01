@@ -523,7 +523,14 @@ namespace visutwin::canvas
         // Every per-draw reuse is keyed on this, so none survives into the new frame's
         // ring region and descriptor pools.
         ++_frameSerial;
-        _materialUniformSlots.clear();
+        // The material slots are stamped with the serial rather than cleared, which
+        // would free and reallocate a node per material every frame; they are dropped
+        // only when most of them belong to materials no frame draws any more.
+        if (_materialUniformSlots.size() > _materialUniformSlotsWritten * 2 + 256) {
+            _materialUniformSlots.clear();
+        }
+        _materialUniformSlotsWritten = 0;
+        resetBoundDrawState();
     }
 
     void VulkanGraphicsDevice::recordScreenshotCopy(VkCommandBuffer cmd,
@@ -820,6 +827,7 @@ namespace visutwin::canvas
         // its bind as redundant and renders with ImGui's pipeline.
         _currentPipeline = VK_NULL_HANDLE;
         _pushConstantsDirty = true;
+        resetBoundDrawState();
     }
 
     void VulkanGraphicsDevice::collectRetiredSwapchains(const bool force)

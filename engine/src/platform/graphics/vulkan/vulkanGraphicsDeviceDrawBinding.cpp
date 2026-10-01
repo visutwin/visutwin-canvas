@@ -294,6 +294,7 @@ namespace visutwin::canvas
         _insideRenderPass = true;
         _currentPipeline = VK_NULL_HANDLE;
         _pushConstantsDirty = true;
+        resetBoundDrawState();
 
         // Depth-only offscreen passes are shadow-map renders. They use the SAME
         // negative-height viewport as every other pass: the shadow sample
@@ -505,10 +506,32 @@ namespace visutwin::canvas
         issueDraw(cmd, primitive, indexBuffer, numInstances, indirectSlot);
         recordDraw(primitive, numInstances);
 
+        // The vertex buffer list is the caller's and is consumed by the draw. What the
+        // COMMAND BUFFER has bound is not forgotten: every caller passes first = last =
+        // true, so forgetting the pipeline here would bind it again for every draw.
         if (last) {
             clearVertexBuffer();
-            _currentPipeline = VK_NULL_HANDLE;
         }
+    }
+
+    void VulkanGraphicsDevice::resetBoundDrawState()
+    {
+        _bound = BoundDrawState{};
+    }
+
+    void VulkanGraphicsDevice::bindSetIfChanged(VkCommandBuffer cmd, const uint32_t index,
+        const VkDescriptorSet set, const uint32_t* dynamicOffset)
+    {
+        auto& bound = _bound.sets[index];
+        const uint32_t offset = dynamicOffset ? *dynamicOffset : 0;
+        if (bound.set == set && bound.dynamicOffset == offset) {
+            return;
+        }
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _renderPipeline->pipelineLayout(), index, 1, &set,
+            dynamicOffset ? 1u : 0u, dynamicOffset);
+        bound.set = set;
+        bound.dynamicOffset = offset;
     }
 
     VulkanGraphicsDevice::DrawResources VulkanGraphicsDevice::takePendingDrawResources()
@@ -561,7 +584,9 @@ namespace visutwin::canvas
         // is keyed on these — a mismatch with the actual VkRenderingInfo
         // attachments at draw-time is rejected by validation as
         // VUID-vkCmdDrawIndexed-dynamicRenderingUnusedAttachments-08910.
-        std::vector<VkFormat> colorFormats{_swapchainFormat};
+        // A fixed array, not a vector: this runs per draw.
+        std::array<VkFormat, 8> colorFormats{_swapchainFormat};
+        size_t colorFormatCount = 1;
         VkFormat depthFmt = _depthFormat;
         // The swapchain is always single-sample (as it is on Metal); only an
         // offscreen target can be multisampled, and the pipeline's raster
@@ -569,10 +594,9 @@ namespace visutwin::canvas
         VkSampleCountFlagBits rasterSamples = VK_SAMPLE_COUNT_1_BIT;
         if (_activeOffscreenTarget) {
             const auto& colors = _activeOffscreenTarget->colorAttachments();
-            colorFormats.clear();
-            colorFormats.reserve(colors.size());
-            for (const auto& color : colors) {
-                colorFormats.push_back(color.format);
+            colorFormatCount = std::min(colors.size(), colorFormats.size());
+            for (size_t i = 0; i < colorFormatCount; ++i) {
+                colorFormats[i] = colors[i].format;
             }
             depthFmt = _activeOffscreenTarget->hasDepthAttachment()
                 ? _activeOffscreenTarget->depthAttachment().format
@@ -597,7 +621,7 @@ namespace visutwin::canvas
             instanceFormat,
             shader, _blendState, _depthState, cullMode,
             _stencilEnabled, _stencilFront, _stencilBack,
-            colorFormats, depthFmt, rasterSamples, isSkybox);
+            std::span<const VkFormat>(colorFormats.data(), colorFormatCount), depthFmt, rasterSamples, isSkybox);
 
         if (pipeline == VK_NULL_HANDLE) {
             spdlog::error("VulkanGraphicsDevice: draw skipped because pipeline creation failed");
@@ -611,39 +635,53 @@ namespace visutwin::canvas
 
         if (vf) {
             auto* vb = static_cast<VulkanVertexBuffer*>(vf.get());
-            if (vb->buffer() != VK_NULL_HANDLE) {
+            if (vb->buffer() != VK_NULL_HANDLE && vb->buffer() != _bound.vertexBuffer) {
                 VkBuffer buf = vb->buffer();
                 VkDeviceSize offset = 0;
                 vkCmdBindVertexBuffers(cmd, 0, 1, &buf, &offset);
+                _bound.vertexBuffer = buf;
             }
         }
 
         // Bind per-instance buffer at binding 1 (matches the pipeline's
         // VK_VERTEX_INPUT_RATE_INSTANCE binding).
-        if (instancingVB && instancingVB->buffer() != VK_NULL_HANDLE) {
+        if (instancingVB && instancingVB->buffer() != VK_NULL_HANDLE &&
+            instancingVB->buffer() != _bound.instanceBuffer) {
             VkBuffer instBuf = instancingVB->buffer();
             VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 1, 1, &instBuf, &offset);
+            _bound.instanceBuffer = instBuf;
         }
         return true;
     }
 
     void VulkanGraphicsDevice::applyStencilReference(VkCommandBuffer cmd)
     {
+        // Pipelines declare the stencil reference as dynamic even when the current
+        // attachment/state does not use stencil, so it is defined (as 0) for a
+        // non-stencil draw too: the first draw of a pass never depends on state left
+        // by an earlier draw or frame. After that it is set only when it changes.
+        uint32_t front = 0;
+        uint32_t back = 0;
         if (_stencilEnabled && (_stencilFront || _stencilBack)) {
             const auto& effectiveFront = _stencilFront ? _stencilFront : _stencilBack;
             const auto& effectiveBack = _stencilBack ? _stencilBack : _stencilFront;
-            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_BIT,
-                effectiveFront->reference());
-            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_BACK_BIT,
-                effectiveBack->reference());
-        } else {
-            // Pipelines declare stencil reference as dynamic even when the
-            // current attachment/state does not use stencil. Define it on
-            // every command buffer so a first non-stencil draw never depends
-            // on state left by an earlier draw or frame.
-            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+            front = static_cast<uint32_t>(effectiveFront->reference());
+            back = static_cast<uint32_t>(effectiveBack->reference());
         }
+        if (_bound.stencilReferenceSet && _bound.stencilReferenceFront == front &&
+            _bound.stencilReferenceBack == back) {
+            return;
+        }
+        if (front == back) {
+            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, front);
+        } else {
+            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_BIT, front);
+            vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_BACK_BIT, back);
+        }
+        _bound.stencilReferenceSet = true;
+        _bound.stencilReferenceFront = front;
+        _bound.stencilReferenceBack = back;
     }
 
     void VulkanGraphicsDevice::flushPushConstants(VkCommandBuffer cmd)
@@ -684,9 +722,7 @@ namespace visutwin::canvas
             _lightingSlotOffset = *lightingOffset;
             _lightingNeedsUpload = false;
         }
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            _renderPipeline->pipelineLayout(), 2, 1, &_lightingDescriptorSet,
-            1, &_lightingSlotOffset);
+        bindSetIfChanged(cmd, 2, _lightingDescriptorSet, &_lightingSlotOffset);
         return true;
     }
 
@@ -730,9 +766,14 @@ namespace visutwin::canvas
         const void* reuseKey = reusableMaterial ? static_cast<const void*>(reusableMaterial)
             : (defaultBlock ? static_cast<const void*>(&kDefaultBlockKey) : nullptr);
         const uint64_t reuseVersion = reusableMaterial ? reusableMaterial->uniformsVersion() : 0;
+        // The draw before this one bound the same block: nothing to look up or bind.
+        if (reuseKey && _bound.uniformKey == reuseKey && _bound.uniformVersion == reuseVersion) {
+            return true;
+        }
         std::optional<uint32_t> matOffset;
         const auto reuse = reuseKey ? _materialUniformSlots.find(reuseKey) : _materialUniformSlots.end();
-        if (reuse != _materialUniformSlots.end() && reuse->second.version == reuseVersion) {
+        if (reuse != _materialUniformSlots.end() && reuse->second.frame == _frameSerial &&
+            reuse->second.version == reuseVersion) {
             matOffset = reuse->second.offset;
         } else {
             // The descriptor's range is kPerDrawUniformCapacity, so the allocation
@@ -743,15 +784,17 @@ namespace visutwin::canvas
                 std::min(uniformSize, perDrawBlock.size()));
             matOffset = allocateUniform(perDrawBlock.data(), perDrawBlock.size());
             if (matOffset && reuseKey) {
-                _materialUniformSlots[reuseKey] = {reuseVersion, *matOffset};
+                _materialUniformSlots[reuseKey] = {reuseVersion, *matOffset, _frameSerial};
+                ++_materialUniformSlotsWritten;
             }
         }
         if (!matOffset) {
             return false;
         }
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            _renderPipeline->pipelineLayout(), 0, 1, &_materialDescriptorSet,
-            1, &*matOffset);
+        bindSetIfChanged(cmd, 0, _materialDescriptorSet, &*matOffset);
+        // A block with no key (a quad's or a custom one) is never taken for a repeat.
+        _bound.uniformKey = reuseKey;
+        _bound.uniformVersion = reuseVersion;
         return true;
     }
 
@@ -759,6 +802,21 @@ namespace visutwin::canvas
     {
         // Set 1: material textures. Cache identical image/sampler tuples for
         // the lifetime of this frame slot instead of allocating per draw.
+
+        // A quad pass's inputs go over the material's, so a draw with any of them
+        // bound is always rebuilt; so is the first draw of a pass.
+        bool quadInputs = quadRenderActive();
+        for (const Texture* quadTexture : quadTextureBindings()) {
+            quadInputs = quadInputs || quadTexture != nullptr;
+        }
+        const uint64_t materialVersion = _material ? _material->uniformsVersion() : 0;
+        if (!quadInputs && _bound.textureSetKnown && _bound.textureMaterial == _material &&
+            _bound.textureMaterialVersion == materialVersion &&
+            _bound.textureLightMap == instanceLightMap()) {
+            bindSetIfChanged(cmd, 1, _bound.textureSet);
+            return true;
+        }
+
         std::array<VkDescriptorImageInfo, kMaterialTextureBindings.size()> imageInfos{};
         writeDefaultMaterialTextureInfos(imageInfos);
         writeMaterialTextureInfos(imageInfos);
@@ -769,8 +827,12 @@ namespace visutwin::canvas
         if (texSet == VK_NULL_HANDLE) {
             return false;
         }
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            _renderPipeline->pipelineLayout(), 1, 1, &texSet, 0, nullptr);
+        bindSetIfChanged(cmd, 1, texSet);
+        _bound.textureSetKnown = !quadInputs;
+        _bound.textureMaterial = _material;
+        _bound.textureMaterialVersion = materialVersion;
+        _bound.textureLightMap = instanceLightMap();
+        _bound.textureSet = texSet;
         return true;
     }
 
@@ -1025,8 +1087,7 @@ namespace visutwin::canvas
         if (sceneSet == VK_NULL_HANDLE) {
             return false;
         }
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            _renderPipeline->pipelineLayout(), 3, 1, &sceneSet, 0, nullptr);
+        bindSetIfChanged(cmd, 3, sceneSet);
         return true;
     }
 
@@ -1089,8 +1150,7 @@ namespace visutwin::canvas
                 resources.morphParamsSize);
         }
         vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            _renderPipeline->pipelineLayout(), 4, 1, &geometrySet, 0, nullptr);
+        bindSetIfChanged(cmd, 4, geometrySet);
         return true;
     }
 
@@ -1138,8 +1198,7 @@ namespace visutwin::canvas
             vkUpdateDescriptorSets(_device, writes.size(), writes.data(), 0, nullptr);
             _clusterSetReuse = {*lightOffset, *cellOffset, lightSize, cellSize, _frameSerial, clusterSet};
         }
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            _renderPipeline->pipelineLayout(), 5, 1, &clusterSet, 0, nullptr);
+        bindSetIfChanged(cmd, 5, clusterSet);
         return true;
     }
 
@@ -1193,8 +1252,7 @@ namespace visutwin::canvas
         }
         addWrite(3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
         vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            _renderPipeline->pipelineLayout(), 6, 1, &gpuSet, 0, nullptr);
+        bindSetIfChanged(cmd, 6, gpuSet);
         return true;
     }
 
@@ -1208,7 +1266,11 @@ namespace visutwin::canvas
             if (ib->buffer() == VK_NULL_HANDLE) {
                 return;
             }
-            vkCmdBindIndexBuffer(cmd, ib->buffer(), 0, ib->indexType());
+            if (ib->buffer() != _bound.indexBuffer || ib->indexType() != _bound.indexType) {
+                vkCmdBindIndexBuffer(cmd, ib->buffer(), 0, ib->indexType());
+                _bound.indexBuffer = ib->buffer();
+                _bound.indexType = ib->indexType();
+            }
             if (indirect) {
                 vkCmdDrawIndexedIndirect(cmd, _indirectDrawBuffer,
                     static_cast<VkDeviceSize>(indirectSlot) * sizeof(VkDrawIndexedIndirectCommand),
@@ -1332,8 +1394,11 @@ namespace visutwin::canvas
     }
 
     void VulkanGraphicsDevice::setDynamicBatchPalette(
-        const void* data, const size_t size)
+        const void* data, const size_t size, const uint64_t /*contentVersion*/)
     {
+        // One copy per draw, in the per-draw uniform ring: the descriptor set built for
+        // the draw names its offset, so sharing a copy between draws would save the
+        // bytes and nothing else.
         _pendingPaletteOffset.reset();
         _pendingPaletteSize = 0;
         if (!data || size == 0) {

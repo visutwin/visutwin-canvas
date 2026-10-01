@@ -152,35 +152,31 @@ void main() {}
         const Matrix4 viewProjection = shadowCamera->projectionMatrix()
             * shadowCamera->node()->worldTransform().inverse();
 
-        // Build the shadow frustum once for the whole caster sweep.
-        const Frustum shadowFrustum = buildCameraFrustum(shadowCamera, shadowCamera->node());
-
-        // Casters. An OMNI light had all six faces classified in one sweep before the
-        // frame graph ran (cullShadowCastersOmni), so this face just draws its share:
-        // the list is already filtered and needs no frustum test. Every other light
-        // collects and culls here — every RenderComponent's mesh instances, plus the
-        // batch mesh instances, which belong to no RenderComponent (BatchManager
-        // registers them straight with the scene layers) and would otherwise cast
-        // no shadow.
-        const bool preClassified = light->type() == LightType::LIGHTTYPE_OMNI;
-        std::vector<MeshInstance*> casters;
-        const std::vector<MeshInstance*>* casterList = &casters;
-        if (preClassified) {
-            LightRenderData* renderData = light->getRenderData(nullptr, face);
-            if (!renderData) {
-                return;
+        // The face's casters, prepared this frame when the light was culled
+        // (ShadowRendererLocal::cullLocalLights): already through the caster rules and
+        // the face's frustum, so the pass draws them and nothing else. The list is this
+        // frame's or it is not used — it holds raw pointers.
+        LightRenderData* renderData = light->getRenderData(nullptr, face);
+        if (renderData && renderData->visibleCastersFrame == device->renderVersion()) {
+            for (auto* meshInstance : renderData->visibleCasters) {
+                if (drawDepthOnly(device, programLibrary, meshInstance, viewProjection, shaders)) {
+                    device->frameCounters().shadowDrawCalls++;
+                }
             }
-            casterList = &renderData->visibleCasters;
-        } else {
-            collectShadowCasters(casters);
+            return;
         }
 
-        for (auto* meshInstance : *casterList) {
+        // No list for this frame: collect and cull here, with the same collector — every
+        // RenderComponent's mesh instances, plus the batch mesh instances, which belong
+        // to no RenderComponent and would otherwise cast no shadow.
+        const Frustum shadowFrustum = buildCameraFrustum(shadowCamera, shadowCamera->node());
+        std::vector<MeshInstance*> casters;
+        collectShadowCasters(casters);
+        for (auto* meshInstance : casters) {
             if (!meshInstance || !meshInstance->visible()) {
                 continue;
             }
-            if (!preClassified &&
-                !shouldRenderShadowMeshInstance(meshInstance, shadowCamera, shadowFrustum)) {
+            if (!shouldRenderShadowMeshInstance(meshInstance, shadowCamera, shadowFrustum)) {
                 continue;
             }
             if (drawDepthOnly(device, programLibrary, meshInstance, viewProjection, shaders)) {

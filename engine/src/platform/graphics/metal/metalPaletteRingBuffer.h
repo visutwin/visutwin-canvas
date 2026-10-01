@@ -3,7 +3,8 @@
 //
 // Created by Arnis Lektauers on 07.03.2026.
 //
-// Variable-size triple-buffered ring buffer for dynamic batch matrix palettes.
+// Variable-size triple-buffered ring buffer for matrix palettes (dynamic batches and
+// GPU skinning).
 //
 // Unlike MetalUniformRingBuffer (fixed-slot-size, 256B-aligned), this uses
 // bump allocation to handle variable-size palette data efficiently:
@@ -12,8 +13,10 @@
 //   - 330 instances → 21KB + padding = 21.25KB
 //
 // Same triple-buffered semaphore pattern as MetalUniformRingBuffer:
-//   1. beginFrame()           — wait for GPU, advance to next 256KB region
-//   2. allocate(data, size)   — bump-allocate, memcpy data, return offset
+//   1. beginFrame()           — wait for GPU, grow if last frame overflowed,
+//                               advance to the next region
+//   2. allocate(data, size, version) — bump-allocate, memcpy data, return offset;
+//                               a repeated version returns this frame's first copy
 //   3. encoder->setVertexBufferOffset(offset, 6) — cheap offset-only bind
 //   4. endFrame(commandBuffer) — register GPU completion signal
 //
@@ -24,6 +27,7 @@
 #include <cassert>
 #include <cstring>
 
+#include "platform/graphics/paletteFrameAllocator.h"
 #include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
@@ -33,18 +37,15 @@ namespace visutwin::canvas
     public:
         static constexpr int kMaxInflightFrames = 3;
         static constexpr size_t kAlignment = 256;          // Metal constant buffer offset alignment
-        static constexpr size_t kRegionSize = 256 * 1024;  // 256KB per frame region
-        // 256KB = 4096 instances × 64 bytes (float4x4).  This is the total budget
-        // across ALL dynamic batches rendered in a single frame.
+        // Starting size of a frame region, not a limit: a frame that asks for more
+        // grows the ring (see growIfNeeded). 256KB = 4096 matrices, across every
+        // dynamic batch and skin drawn in one frame.
+        static constexpr size_t kInitialRegionSize = 256 * 1024;
 
         MetalPaletteRingBuffer(MTL::Device* device, const char* label = "PaletteRing")
+            : _device(device), _label(label), _frame(kInitialRegionSize, kAlignment)
         {
-            _totalSize = kMaxInflightFrames * kRegionSize;
-            _buffer = device->newBuffer(_totalSize, MTL::ResourceStorageModeShared);
-            if (_buffer) {
-                _buffer->setLabel(NS::String::string(label, NS::UTF8StringEncoding));
-                _basePtr = static_cast<uint8_t*>(_buffer->contents());
-            }
+            allocateBuffer(kInitialRegionSize);
             _frameSemaphore = dispatch_semaphore_create(kMaxInflightFrames);
         }
 
@@ -69,20 +70,27 @@ namespace visutwin::canvas
         void beginFrame()
         {
             dispatch_semaphore_wait(_frameSemaphore, DISPATCH_TIME_FOREVER);
+            growIfNeeded();
             _frameIndex = (_frameIndex + 1) % kMaxInflightFrames;
-            _writeOffset = 0;
+            _frame.beginFrame();
         }
 
         /**
-         * Bump-allocate palette data into the ring buffer.
+         * Place palette data in this frame's region.
          *
          * @param data Pointer to palette data (N × float4x4, column-major)
          * @param size Size in bytes of the palette data
+         * @param contentVersion Nonzero names the contents (GraphicsDevice::
+         *        nextPaletteVersion): every draw carrying the same version this frame
+         *        gets the one copy. 0 is never shared.
          * @return Byte offset into the MTLBuffer — pass to setVertexBufferOffset()
          *
-         * Returns SIZE_MAX if the allocation would exceed the frame region budget.
+         * Returns SIZE_MAX if the palette does not fit the frame region. The frame is
+         * then wrong for that draw and cannot be made right — the buffer is bound for
+         * the whole pass — so the demand is counted and the ring grows at the next
+         * frame boundary.
          */
-        [[nodiscard]] size_t allocate(const void* data, size_t size)
+        [[nodiscard]] size_t allocate(const void* data, const size_t size, const uint64_t contentVersion = 0)
         {
             assert(data != nullptr);
             assert(size > 0);
@@ -91,16 +99,15 @@ namespace visutwin::canvas
                 return SIZE_MAX;
             }
 
-            const size_t alignedSize = alignUp(size, kAlignment);
-            if (_writeOffset + alignedSize > kRegionSize) {
-                spdlog::warn("PaletteRingBuffer: frame allocation exceeded {}KB budget "
-                    "(requested {}B at offset {})", kRegionSize / 1024, size, _writeOffset);
+            const auto allocation = _frame.allocate(size, contentVersion);
+            if (!allocation.offset) {
                 return SIZE_MAX;
             }
 
-            const size_t absoluteOffset = static_cast<size_t>(_frameIndex) * kRegionSize + _writeOffset;
-            std::memcpy(_basePtr + absoluteOffset, data, size);
-            _writeOffset += alignedSize;
+            const size_t absoluteOffset = static_cast<size_t>(_frameIndex) * _frame.regionSize() + *allocation.offset;
+            if (allocation.isNew) {
+                std::memcpy(_basePtr + absoluteOffset, data, size);
+            }
             return absoluteOffset;
         }
 
@@ -121,21 +128,66 @@ namespace visutwin::canvas
         }
 
         [[nodiscard]] MTL::Buffer* buffer() const { return _buffer; }
-        [[nodiscard]] size_t writeOffset() const { return _writeOffset; }
+        [[nodiscard]] size_t writeOffset() const { return _frame.writeOffset(); }
         [[nodiscard]] size_t totalSize() const { return _totalSize; }
 
     private:
-        static size_t alignUp(size_t value, size_t alignment)
+        void allocateBuffer(const size_t regionSize)
         {
-            return (value + alignment - 1) & ~(alignment - 1);
+            _totalSize = kMaxInflightFrames * regionSize;
+            if (_buffer) {
+                _buffer->release();
+                _buffer = nullptr;
+                _basePtr = nullptr;
+            }
+            _buffer = _device ? _device->newBuffer(_totalSize, MTL::ResourceStorageModeShared) : nullptr;
+            if (_buffer) {
+                _buffer->setLabel(NS::String::string(_label, NS::UTF8StringEncoding));
+                _basePtr = static_cast<uint8_t*>(_buffer->contents());
+            }
         }
 
+        /**
+         * Reallocate to fit what the PREVIOUS frame asked for, behind a full drain, as
+         * MetalUniformRingBuffer::growIfNeeded does and for the same reason: an offset
+         * means something only against the buffer bound when the pass began, so the
+         * buffer can be replaced only where nothing in flight references it. The caller
+         * has waited for this region; the other regions are waited for here.
+         */
+        void growIfNeeded()
+        {
+            if (!_frame.overflowed()) {
+                return;
+            }
+            const size_t requested = _frame.requestedBytes();
+            const size_t previous = _frame.regionSize();
+            const size_t wanted = _frame.wantedRegionSize();
+
+            for (int i = 1; i < kMaxInflightFrames; ++i) {
+                dispatch_semaphore_wait(_frameSemaphore, DISPATCH_TIME_FOREVER);
+            }
+            allocateBuffer(wanted);
+            _frame.setRegionSize(wanted);
+            for (int i = 1; i < kMaxInflightFrames; ++i) {
+                dispatch_semaphore_signal(_frameSemaphore);
+            }
+
+            spdlog::warn("{}: {} KB of matrix palettes requested in a frame but only {} KB fit; the "
+                         "excess draws kept the palette bound before them for that frame. Grown to "
+                         "{} KB a frame; the next frame is correct.",
+                         _label, requested / 1024, previous / 1024, wanted / 1024);
+            _frameIndex = -1;   // the region cursor restarts against the new buffer
+        }
+
+        MTL::Device* _device = nullptr;
+        const char* _label = "PaletteRing";
         MTL::Buffer* _buffer = nullptr;
         uint8_t* _basePtr = nullptr;
         dispatch_semaphore_t _frameSemaphore = nullptr;
 
         size_t _totalSize = 0;
         int _frameIndex = -1;   // Will become 0 on first beginFrame()
-        size_t _writeOffset = 0; // Bump pointer within current frame region
+        // Offsets, sharing and demand of the frame in progress.
+        PaletteFrameAllocator _frame;
     };
 }

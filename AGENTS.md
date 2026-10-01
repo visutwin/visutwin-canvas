@@ -932,6 +932,21 @@ present, but the rule below never depends on reading it.
   with casters on the wrong faces. `tests/omniFaceAxisTests.cpp` is what holds the
   order; if it fails, fix the table or rewrite the classification, do not adjust
   the test.
+- **Every shadowed local light culls from ONE caster list a frame, and its passes draw
+  the lists that cull prepared.** `ShadowRendererLocal::cullLocalLights` collects the
+  scene's casters once (`collectLightIndependentShadowCasters`: the collector, then
+  `visible()` and the caster rules that depend on no light, with each caster's bounds
+  copied beside it), and per light keeps what its faces see — an omni through the
+  six-face classification, a spot through its cone's frustum — in
+  `LightRenderData::visibleCasters`, stamped with the frame's `renderVersion`, as the
+  directional cascades are. Collecting or filtering per light is a sweep of the whole
+  scene per light for the same list every time (64 shadowed omnis over 5,000 casters
+  spend more than half the frame there). Only a light whose shadow renders this frame
+  (`needsShadowRendering`) is culled; `drawLocalShadowFace` draws a list stamped for its
+  frame and otherwise collects and culls for itself, so a list is never used stale (it
+  holds raw pointers). The per-light test must stay the one the pass would make, on the
+  same frustum: `tests/localShadowCasterTests.cpp` holds a spot's list against that
+  reference in both lighting modes. The work is counted in `cullTime`.
 - **Omni shadow bias is RELATIVE** — a fraction (0.2%, `omniShadowParams[2]`) of
   the receiver distance applied BEFORE the perspective projection. Cubemap shadow
   depth is crushed against 1.0, so a fixed post-projection offset erases omni
@@ -1581,6 +1596,20 @@ present, but the rule below never depends on reading it.
   because a skipped draw never asks for what it would have needed — which is why
   growth is `max(requested, current * 2)` and why a first overflow can take two
   frames to settle.
+- **A matrix palette is uploaded once a FRAME, named by a version, and Metal's palette
+  ring grows like the uniform rings.** `SkinInstance` and `SkinBatchInstance` take a new
+  `paletteVersion()` (`GraphicsDevice::nextPaletteVersion()`, process-wide, never 0)
+  each time they rewrite their palette, and pass it to `setDynamicBatchPalette`; Metal's
+  ring (`MetalPaletteRingBuffer`, its bookkeeping in `PaletteFrameAllocator`) hands
+  every draw carrying the same version the frame's one copy, so a skin drawn by the
+  forward pass and three shadow passes costs one palette, not four. A palette writer
+  that changes the bytes WITHOUT taking a new version makes later draws of the frame
+  reuse the old copy; version 0 is never shared. A frame that asks for more than the
+  region holds (256 KB to begin with) is counted in full and the ring reallocates at the
+  next frame boundary behind a drain, with one message; in that one frame a draw that
+  did not fit keeps the palette bound before it. Vulkan copies a palette per draw into
+  its uniform ring, which already grows. `tests/paletteSharingTests.cpp` holds the
+  sharing, the overflow count and the versions.
 - **A CPU-written, GPU-read buffer needs `GraphicsDevice::maxFramesInFlight()`
   copies on Metal, and the write must happen at most once a frame.** A Metal
   `setData` is a memcpy into shared storage the GPU reads directly, and the ring
@@ -1792,6 +1821,27 @@ present, but the rule below never depends on reading it.
   driver re-emit its render state per draw. `MetalRenderPipeline::get` also answers a
   repeat of the previous key from a
   one-entry memo.
+- **Vulkan's `draw()` does the same: it binds only what differs from the draw before it,
+  and it is the ONLY writer of that state.** `BoundDrawState` (`_bound`) remembers, for
+  the command buffer being recorded, the descriptor set and dynamic offset at each of
+  sets 0-6, the vertex, instance and index buffers and the stencil reference;
+  `bindSetIfChanged` is the one place a set is bound. The pipeline stays bound across
+  draws (`_currentPipeline` is not cleared on `last`). On MoltenVK a redundant bind
+  costs twice — recorded, then encoded into Metal at submit — and binding seven sets per
+  draw was most of the gap to the Metal backend. Two repeats skip more than the bind: a
+  draw whose material block has the key and version of the one before it skips the slot
+  lookup, and a draw repeating the previous draw's material — same `uniformsVersion()`,
+  which every mutator moves, texture setters included — and instance lightmap skips
+  rebuilding set 1's image infos (a quad's inputs always rebuild). A material TEXTURE
+  setter that skips `markUniformsDirty()` therefore leaves a later draw of the same pass
+  on the old texture; `vulkanSmoke` swaps a material's texture between draws of one
+  pass and fails if that goes unseen. The cache is forgotten wherever a
+  pass begins (`beginPassState`), after the overlay, and at frame start
+  (`resetBoundDrawState`). Code that binds a set, a vertex or index buffer, or the
+  stencil reference on the graphics bind point from anywhere else must go through it or
+  reset it, or the next draw skips a bind it needed. Per-draw work must not allocate:
+  the pipeline's colour formats are a fixed array, and `_materialUniformSlots` is stamped
+  with `_frameSerial` instead of cleared (clearing frees a node per material per frame).
 - **A camera frame's depth prepass RENDERS only where something reads the depth before
   the scene pass, or under MSAA** (`RenderPassCameraFrame::prepassRenders`).
   `prepassEnabled` means "there is a depth consumer" (TAA, SSAO, DOF, fog). Under MSAA

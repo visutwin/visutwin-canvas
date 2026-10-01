@@ -17,7 +17,7 @@
 
 namespace visutwin::canvas
 {
-    void cullShadowCastersOmni(Light* light)
+    void cullShadowCastersOmni(Light* light, const std::vector<ShadowCasterBounds>& casters, const int frame)
     {
         if (!light || light->type() != LightType::LIGHTTYPE_OMNI || !light->node()) {
             return;
@@ -30,6 +30,7 @@ namespace visutwin::canvas
                 return;
             }
             faces[face]->visibleCasters.clear();
+            faces[face]->visibleCastersFrame = frame;
         }
 
         // The six frusta share their near, far and field of view, so one camera's
@@ -50,20 +51,10 @@ namespace visutwin::canvas
         // Light space is world space translated to put the light at the origin.
         const Vector3 lightPosition = light->node()->position();
 
-        static thread_local std::vector<MeshInstance*> casters;
-        casters.clear();
-        collectShadowCasters(casters);
-
-        for (auto* meshInstance : casters) {
-            if (!meshInstance || !meshInstance->visible()) {
-                continue;
-            }
-            if (!shouldRenderShadowMeshInstanceIgnoringVisibility(meshInstance)) {
-                continue;
-            }
-
+        for (const auto& caster : casters) {
+            MeshInstance* meshInstance = caster.meshInstance;
             // A caster with culling switched off is in every face.
-            if (!meshInstance->cull()) {
+            if (!caster.cull) {
                 for (auto* face : faces) {
                     face->visibleCasters.push_back(meshInstance);
                 }
@@ -71,7 +62,7 @@ namespace visutwin::canvas
                 continue;
             }
 
-            const BoundingBox& aabb = meshInstance->aabb();
+            const BoundingBox& aabb = caster.aabb;
             const Vector3& halfExtents = aabb.halfExtents();
             const Vector3 offset = aabb.center() - lightPosition;
             const Vector3 distance = offset.abs();

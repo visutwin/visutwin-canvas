@@ -17,6 +17,7 @@
 //
 #pragma once
 
+#include <cstdint>
 #include <cstring>
 #include <vector>
 
@@ -42,12 +43,18 @@ namespace visutwin::canvas
         /// Total byte size of the palette (for setVertexBytes).
         [[nodiscard]] size_t paletteSizeBytes() const { return _palette.size() * sizeof(float); }
 
+        /// Names the palette's current contents (GraphicsDevice::nextPaletteVersion), new
+        /// each time updateMatrices() rewrites them; what setDynamicBatchPalette takes to
+        /// upload one copy a frame for the forward and shadow draws of the batch.
+        [[nodiscard]] uint64_t paletteVersion() const { return _paletteVersion; }
+
         /// Number of bones (= number of original mesh instances).
         [[nodiscard]] int boneCount() const { return static_cast<int>(_nodes.size()); }
 
     private:
         std::vector<GraphNode*> _nodes;
         std::vector<float> _palette;  // N x 16 floats (float4x4 per bone)
+        uint64_t _paletteVersion;
     };
 
 } // namespace visutwin::canvas

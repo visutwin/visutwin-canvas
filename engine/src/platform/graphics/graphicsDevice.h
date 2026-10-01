@@ -504,12 +504,23 @@ namespace visutwin::canvas
         /// Bind the dynamic batch matrix palette for the next draw call.
         /// data: float4x4 array (16 floats per bone), size: byte count.
         /// Also used by GPU skinning (SkinInstance palette) — same slot-6 contract.
-        virtual void setDynamicBatchPalette(const void* data, size_t size)
+        ///
+        /// contentVersion names the BYTES: a value taken from nextPaletteVersion() each
+        /// time the palette is rewritten. A backend may then upload one copy a frame
+        /// for every draw that carries the same version — a skin is drawn by the
+        /// forward pass and by each shadow pass that sees it. 0 names nothing: the
+        /// palette is uploaded for this draw alone.
+        virtual void setDynamicBatchPalette(const void* data, size_t size, uint64_t contentVersion = 0)
         {
             (void)data;
             (void)size;
+            (void)contentVersion;
             VT_DEVICE_FEATURE_UNSUPPORTED("setDynamicBatchPalette");
         }
+
+        /// A process-wide palette content version, never 0 and never repeated, so a
+        /// freed palette's reused address cannot be mistaken for the one before it.
+        static uint64_t nextPaletteVersion();
 
         /// Bind morph target state for the next draw call (consumed by one draw).
         /// deltaBuffer: packed per-target float4 position/normal deltas (vertex slot 9).

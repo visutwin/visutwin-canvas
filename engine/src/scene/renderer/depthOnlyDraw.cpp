@@ -81,7 +81,8 @@ namespace visutwin::canvas
                 device->setShader(variant);
             }
             if (auto* sbi = meshInstance->skinBatchInstance()) {
-                device->setDynamicBatchPalette(sbi->paletteData(), sbi->paletteSizeBytes());
+                device->setDynamicBatchPalette(sbi->paletteData(), sbi->paletteSizeBytes(),
+                    sbi->paletteVersion());
             }
             device->setTransformUniforms(viewProjection, Matrix4::identity());
             device->draw(mesh->getPrimitive(), mesh->getIndexBuffer(), 1, -1, true, true);
@@ -106,7 +107,8 @@ namespace visutwin::canvas
                     const ScopedMilliseconds skinTimer(device->frameCounters().skinTime);
                     si->updateMatrixPalette(meshInstance->node());
                 }
-                device->setDynamicBatchPalette(si->paletteData(), si->paletteSizeBytes());
+                device->setDynamicBatchPalette(si->paletteData(), si->paletteSizeBytes(),
+                    si->paletteVersion());
             }
             if (morphed) {
                 auto* mi = meshInstance->morphInstance();

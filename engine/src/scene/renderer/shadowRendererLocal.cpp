@@ -10,8 +10,12 @@
 #include <cmath>
 #include <numbers>
 
+#include "core/scopedTimer.h"
 #include "lightCamera.h"
 #include "renderPassShadowLocalNonClustered.h"
+#include "shadowCasterFiltering.h"
+#include "scene/frustumUtils.h"
+#include "scene/meshInstance.h"
 #include "scene/lighting/lightTextureAtlas.h"
 #include "platform/graphics/texture.h"
 #include "shadowMap.h"
@@ -21,6 +25,31 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // A spot light's one face: the casters inside the cone's frustum, the test its
+        // pass would otherwise make per caster while drawing, from a sweep of the scene
+        // of its own.
+        void cullShadowCastersSpot(Light* light, const std::vector<ShadowCasterBounds>& casters, const int frame)
+        {
+            LightRenderData* rd = light->getRenderData(nullptr, 0);
+            if (!rd || !rd->shadowCamera || !rd->shadowCamera->node()) {
+                return;
+            }
+            Camera* shadowCamera = rd->shadowCamera.get();
+            const Frustum frustum = buildCameraFrustum(shadowCamera, shadowCamera->node());
+
+            rd->visibleCasters.clear();
+            rd->visibleCastersFrame = frame;
+            for (const auto& caster : casters) {
+                if (caster.cull && !isVisibleInFrustum(frustum, caster.aabb)) {
+                    continue;
+                }
+                rd->visibleCasters.push_back(caster.meshInstance);
+            }
+        }
+    }
+
     Camera* ShadowRendererLocal::prepareLights(std::vector<Light*>& shadowLights, const std::vector<Light*>& lights) {
         Camera* shadowCamera = nullptr;
 
@@ -64,6 +93,12 @@ namespace visutwin::canvas
         // Cache the device pointer for use in buildNonClusteredRenderPasses().
         // The device is needed to create render pass encoders and draw commands.
         _device = device;
+
+        // Collected on the first light that needs it, once for every light culled here:
+        // per light, both the collection and the caster rules are a sweep of the whole
+        // scene that returns the same list each time.
+        bool castersCollected = false;
+        const int frame = device ? device->renderVersion() : -1;
 
         for (auto* light : localLights) {
             if (!light || !light->castShadows() || !light->enabled()) {
@@ -147,12 +182,25 @@ namespace visutwin::canvas
                 }
             }
 
-            // Omni: classify every caster into the faces it touches in ONE sweep, so
-            // the six face passes draw a prepared list instead of each re-sweeping the
-            // scene and building its own frustum. Runs after the cameras above, whose
-            // near, far and fov it reads.
-            if (isOmni) {
-                cullShadowCastersOmni(light);
+            // The casters each face draws, prepared here so the passes draw a list
+            // instead of each sweeping the scene: an omni's six faces are classified in
+            // ONE sweep of the shared list, a spot's face is tested against its frustum.
+            // Runs after the cameras above, whose near, far and fov it reads. Only for a
+            // light whose shadow renders this frame: no pass draws a light that was
+            // culled or whose one-shot map is already rendered. (A pass that finds no
+            // list for its frame collects for itself.)
+            if (_shadowRenderer->needsShadowRendering(light)) {
+                // Culling, like the mesh-instance and directional culls: counted there.
+                const ScopedMilliseconds cullTimer(device->frameCounters().cullTime);
+                if (!castersCollected) {
+                    collectLightIndependentShadowCasters(_casters);
+                    castersCollected = true;
+                }
+                if (isOmni) {
+                    cullShadowCastersOmni(light, _casters, frame);
+                } else {
+                    cullShadowCastersSpot(light, _casters, frame);
+                }
             }
 
             // Compute and store the shadow VP matrix.

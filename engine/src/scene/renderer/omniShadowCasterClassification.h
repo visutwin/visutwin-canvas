@@ -5,9 +5,12 @@
 //
 #pragma once
 
+#include <vector>
+
 namespace visutwin::canvas
 {
     class Light;
+    struct ShadowCasterBounds;
 
     /**
      * One-pass omni shadow caster classification (upstream cullShadowCastersOmni).
@@ -26,8 +29,15 @@ namespace visutwin::canvas
      * `LightCamera::pointLightRotations` puts them there, and `omniFaceAxisTests`
      * in the test suite is what keeps them there.
      *
+     * `casters` is the scene's caster list with the light-independent rules already
+     * applied and each caster's bounds beside it (collectLightIndependentShadowCasters):
+     * the caller collects it once for every light it culls, so what runs per light is
+     * the bounds test alone, over one array. `frame` is
+     * the device's renderVersion, stamped on each face's list so a pass uses it only in
+     * the frame that prepared it.
+     *
      * Safe to call for any light; does nothing unless the light is an omni that
      * casts shadows.
      */
-    void cullShadowCastersOmni(Light* light);
+    void cullShadowCastersOmni(Light* light, const std::vector<ShadowCasterBounds>& casters, int frame);
 }
