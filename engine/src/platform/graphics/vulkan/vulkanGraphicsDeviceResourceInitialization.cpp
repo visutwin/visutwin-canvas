@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <vector>
 #include <VkBootstrap.h>
 #include <SDL3/SDL_vulkan.h>
 
@@ -84,6 +85,40 @@ namespace visutwin::canvas
         }
     }
 
+    namespace
+    {
+        struct SamplerDesc
+        {
+            VkFilter filter = VK_FILTER_LINEAR;
+            VkSamplerMipmapMode mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+            VkSamplerAddressMode addressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            float maxLod = VK_LOD_CLAMP_NONE;
+            VkBool32 anisotropyEnable = VK_FALSE;
+            float maxAnisotropy = 0.0f;
+        };
+
+        /// One of the device's shared samplers; throws, naming it, when it cannot be made.
+        VkSampler createDeviceSampler(VkDevice device, const SamplerDesc& desc, const char* name)
+        {
+            VkSamplerCreateInfo info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+            info.magFilter = desc.filter;
+            info.minFilter = desc.filter;
+            info.mipmapMode = desc.mipmapMode;
+            info.addressModeU = desc.addressMode;
+            info.addressModeV = desc.addressMode;
+            info.addressModeW = desc.addressMode;
+            info.maxLod = desc.maxLod;
+            info.anisotropyEnable = desc.anisotropyEnable;
+            info.maxAnisotropy = desc.maxAnisotropy;
+            VkSampler sampler = VK_NULL_HANDLE;
+            if (vkCreateSampler(device, &info, nullptr, &sampler) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    std::string("VulkanGraphicsDevice: ") + name + " sampler creation failed");
+            }
+            return sampler;
+        }
+    }
+
     void VulkanGraphicsDevice::initialize(
         const GraphicsDeviceOptions& options)
     {
@@ -119,18 +154,7 @@ namespace visutwin::canvas
                 "VulkanGraphicsDevice: device/queue initialization failed");
         }
 
-        // VMA allocator
-        VmaAllocatorCreateInfo allocatorInfo{};
-        allocatorInfo.physicalDevice = _physicalDevice;
-        allocatorInfo.device = _device;
-        allocatorInfo.instance = _instance;
-        allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
-        if (vmaCreateAllocator(
-                &allocatorInfo, &_vmaAllocator) != VK_SUCCESS ||
-            _vmaAllocator == VK_NULL_HANDLE) {
-            throw std::runtime_error(
-                "VulkanGraphicsDevice: VMA allocator creation failed");
-        }
+        createAllocator();
 
         if (!initSwapchain(_width, _height)) {
             throw std::runtime_error("VulkanGraphicsDevice: swapchain creation failed");
@@ -143,313 +167,11 @@ namespace visutwin::canvas
                 "VulkanGraphicsDevice: injected initialization failure");
         }
 
-        // Upload command pool (batched, nonblocking staging transfers)
-        VkCommandPoolCreateInfo uploadPoolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-        uploadPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        uploadPoolInfo.queueFamilyIndex = _graphicsQueueFamily;
-        if (vkCreateCommandPool(
-                _device, &uploadPoolInfo, nullptr,
-                &_uploadCommandPool) != VK_SUCCESS) {
-            throw std::runtime_error(
-                "VulkanGraphicsDevice: upload command pool creation failed");
-        }
-
-        // Render pipeline
+        createUploadCommandPool();
         _renderPipeline = std::make_unique<VulkanRenderPipeline>(this);
-
-        // Default sampler
-        VkSamplerCreateInfo samplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-        samplerInfo.magFilter = VK_FILTER_LINEAR;
-        samplerInfo.minFilter = VK_FILTER_LINEAR;
-        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-        if (vkCreateSampler(
-                _device, &samplerInfo, nullptr,
-                &_defaultSampler) != VK_SUCCESS) {
-            throw std::runtime_error(
-                "VulkanGraphicsDevice: default sampler creation failed");
-        }
-
-        // Environment-atlas sampler: clamp-to-edge so the equirectangular seam
-        // and the packed sub-rects (irradiance, roughness mips) never wrap
-        // into each other.  Trilinear; no anisotropy (matches the Metal
-        // envAtlasSampler rationale — anisotropy smears the atan2 wrap).
-        VkSamplerCreateInfo envSamplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-        envSamplerInfo.magFilter = VK_FILTER_LINEAR;
-        envSamplerInfo.minFilter = VK_FILTER_LINEAR;
-        envSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        envSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        envSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        envSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        envSamplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-        if (vkCreateSampler(
-                _device, &envSamplerInfo, nullptr,
-                &_envSampler) != VK_SUCCESS) {
-            throw std::runtime_error(
-                "VulkanGraphicsDevice: environment sampler creation failed");
-        }
-
-        // Shared sampler for the separate material images (height, detail
-        // normal, displacement and the three clearcoat maps). Linear + repeat
-        // AND the device's anisotropy ratio, exactly like the per-texture
-        // samplers in vulkanTexture.cpp and Metal's default sampler: on Metal
-        // these maps are read through that default sampler, so a separate image
-        // filtered without anisotropy is a backend divergence on every oblique
-        // surface. Invisible on the smooth parallax height map; on the
-        // clearcoat example's ribbed coat normal map it moved ~1,900 pixels by
-        // up to 180 counts (2026-09-19). maxAnisotropy() is published by
-        // initDevice(), which has run by now.
-        VkSamplerCreateInfo extraSamplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-        extraSamplerInfo.magFilter = VK_FILTER_LINEAR;
-        extraSamplerInfo.minFilter = VK_FILTER_LINEAR;
-        extraSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        extraSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        extraSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        extraSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        extraSamplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-        extraSamplerInfo.anisotropyEnable = maxAnisotropy() > 1.0f ? VK_TRUE : VK_FALSE;
-        extraSamplerInfo.maxAnisotropy = std::max(maxAnisotropy(), 1.0f);
-        if (vkCreateSampler(
-                _device, &extraSamplerInfo, nullptr,
-                &_materialExtraSampler) != VK_SUCCESS) {
-            throw std::runtime_error(
-                "VulkanGraphicsDevice: material sampler creation failed");
-        }
-
-        // Shadow-map sampler: clamp-to-edge, NEAREST filter, no mips.  A plain
-        // (non-comparison) sampler — the shader does the depth compare manually
-        // and averages a 3×3 PCF kernel at discrete texel offsets, so no linear
-        // filtering is needed (and depth formats like D32_SFLOAT often don't
-        // support VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR anyway).
-        VkSamplerCreateInfo shadowSamplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-        shadowSamplerInfo.magFilter = VK_FILTER_NEAREST;
-        shadowSamplerInfo.minFilter = VK_FILTER_NEAREST;
-        shadowSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        shadowSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        shadowSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        shadowSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        shadowSamplerInfo.maxLod = 0.0f;
-        if (vkCreateSampler(
-                _device, &shadowSamplerInfo, nullptr,
-                &_shadowSampler) != VK_SUCCESS) {
-            throw std::runtime_error(
-                "VulkanGraphicsDevice: shadow sampler creation failed");
-        }
-
-        // 1×1 white texture (fallback for unbound texture slots)
-        {
-            VkImageCreateInfo imgInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-            imgInfo.imageType = VK_IMAGE_TYPE_2D;
-            imgInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-            imgInfo.extent = {1, 1, 1};
-            imgInfo.mipLevels = 1;
-            imgInfo.arrayLayers = 1;
-            imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-            imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-            imgInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-
-            VmaAllocationCreateInfo aInfo{};
-            aInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-            if (vmaCreateImage(
-                    _vmaAllocator, &imgInfo, &aInfo, &_whiteImage,
-                    &_whiteAllocation, nullptr) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback image creation failed");
-            }
-
-            VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-            viewInfo.image = _whiteImage;
-            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-            viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-            if (vkCreateImageView(
-                    _device, &viewInfo, nullptr,
-                    &_whiteImageView) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback image view creation failed");
-            }
-
-            // Upload single white pixel
-            uint32_t whitePixel = 0xFFFFFFFF;
-            VkBuffer stagingBuf = VK_NULL_HANDLE;
-            VmaAllocation stagingAlloc = VK_NULL_HANDLE;
-            VkBufferCreateInfo sInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-            sInfo.size = 4;
-            sInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            VmaAllocationCreateInfo saInfo{};
-            saInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-            if (vmaCreateBuffer(
-                    _vmaAllocator, &sInfo, &saInfo, &stagingBuf,
-                    &stagingAlloc, nullptr) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback staging buffer creation failed");
-            }
-            void* mapped = nullptr;
-            if (vmaMapMemory(
-                    _vmaAllocator, stagingAlloc, &mapped) != VK_SUCCESS) {
-                vmaDestroyBuffer(
-                    _vmaAllocator, stagingBuf, stagingAlloc);
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback staging buffer mapping failed");
-            }
-            memcpy(mapped, &whitePixel, 4);
-            vmaUnmapMemory(_vmaAllocator, stagingAlloc);
-
-            const VkImage whiteImage = _whiteImage;
-            enqueueUpload([whiteImage, stagingBuf](VkCommandBuffer cmd) {
-                vulkanTransitionImageLayout(cmd, whiteImage,
-                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-                VkBufferImageCopy region{};
-                region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                region.imageExtent = {1, 1, 1};
-                vkCmdCopyBufferToImage(cmd, stagingBuf, whiteImage,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-                vulkanTransitionImageLayout(cmd, whiteImage,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            }, [allocator = _vmaAllocator, stagingBuf, stagingAlloc] {
-                vmaDestroyBuffer(allocator, stagingBuf, stagingAlloc);
-            });
-        }
-
-        // 1×1 white cubemap (fallback for unbound omni shadow slots).  Six
-        // layers + cube-compatible so it can back a samplerCube descriptor;
-        // every face is white so an unshadowed omni light reads fully lit.
-        {
-            VkImageCreateInfo imgInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-            imgInfo.imageType = VK_IMAGE_TYPE_2D;
-            imgInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-            imgInfo.extent = {1, 1, 1};
-            imgInfo.mipLevels = 1;
-            imgInfo.arrayLayers = 6;
-            imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-            imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-            imgInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-            imgInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
-
-            VmaAllocationCreateInfo aInfo{};
-            aInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-            if (vmaCreateImage(
-                    _vmaAllocator, &imgInfo, &aInfo, &_whiteCubeImage,
-                    &_whiteCubeAllocation, nullptr) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback cubemap creation failed");
-            }
-
-            VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-            viewInfo.image = _whiteCubeImage;
-            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-            viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-            viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
-            if (vkCreateImageView(
-                    _device, &viewInfo, nullptr,
-                    &_whiteCubeImageView) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback cubemap view creation failed");
-            }
-
-            uint32_t whitePixels[6] = {0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu,
-                                       0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu};
-            VkBuffer stagingBuf = VK_NULL_HANDLE;
-            VmaAllocation stagingAlloc = VK_NULL_HANDLE;
-            VkBufferCreateInfo sInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-            sInfo.size = sizeof(whitePixels);
-            sInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            VmaAllocationCreateInfo saInfo{};
-            saInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-            if (vmaCreateBuffer(
-                    _vmaAllocator, &sInfo, &saInfo, &stagingBuf,
-                    &stagingAlloc, nullptr) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback cubemap staging buffer "
-                    "creation failed");
-            }
-            void* mapped = nullptr;
-            if (vmaMapMemory(
-                    _vmaAllocator, stagingAlloc, &mapped) != VK_SUCCESS) {
-                vmaDestroyBuffer(
-                    _vmaAllocator, stagingBuf, stagingAlloc);
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: fallback cubemap staging buffer "
-                    "mapping failed");
-            }
-            memcpy(mapped, whitePixels, sizeof(whitePixels));
-            vmaUnmapMemory(_vmaAllocator, stagingAlloc);
-
-            const VkImage whiteCubeImage = _whiteCubeImage;
-            enqueueUpload([whiteCubeImage, stagingBuf](VkCommandBuffer cmd) {
-                vulkanTransitionImageLayout(cmd, whiteCubeImage,
-                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6);
-                // One copy per face (each face is a distinct array layer).
-                VkBufferImageCopy regions[6]{};
-                for (uint32_t f = 0; f < 6; ++f) {
-                    regions[f].bufferOffset = f * sizeof(uint32_t);
-                    regions[f].imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, f, 1};
-                    regions[f].imageExtent = {1, 1, 1};
-                }
-                vkCmdCopyBufferToImage(cmd, stagingBuf, whiteCubeImage,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6, regions);
-                vulkanTransitionImageLayout(cmd, whiteCubeImage,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6);
-            }, [allocator = _vmaAllocator, stagingBuf, stagingAlloc] {
-                vmaDestroyBuffer(allocator, stagingBuf, stagingAlloc);
-            });
-        }
-
-
-        // Per-draw / per-pass uniform ring buffer.  Sized for a generous draw
-        // count per frame: each region holds material + lighting slots for the
-        // whole frame.  Slot sizes are aligned up to the device's dynamic-UBO
-        // offset granularity inside the ring allocator.
-        {
-            constexpr VkDeviceSize kRegionBytes = 8u * 1024u * 1024u;  // 8 MB / frame
-            _uniformRing = std::make_unique<VulkanUniformRingBuffer>(
-                _vmaAllocator, kMaxFramesInFlight, kRegionBytes, _uboOffsetAlignment);
-
-            // Persistent pool for the two dynamic-UBO descriptor sets.  Never
-            // reset — the sets reference the stable ring buffer and only their
-            // dynamic offsets change per draw.
-            std::array<VkDescriptorPoolSize, 1> sizes{};
-            sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2};
-            VkDescriptorPoolCreateInfo dpInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-            dpInfo.maxSets = 2;
-            dpInfo.poolSizeCount = static_cast<uint32_t>(sizes.size());
-            dpInfo.pPoolSizes = sizes.data();
-            if (vkCreateDescriptorPool(
-                    _device, &dpInfo, nullptr, &_persistentDescriptorPool) != VK_SUCCESS) {
-                throw std::runtime_error(
-                    "VulkanGraphicsDevice: persistent descriptor pool creation failed");
-            }
-
-            // Allocation only: the buffer the set NAMES is written by
-            // writeUniformRingDescriptors below, which also runs after the ring
-            // grows — so the two paths cannot describe the buffer differently.
-            auto allocSet = [&](VkDescriptorSetLayout layout) {
-                VkDescriptorSet set = VK_NULL_HANDLE;
-                VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-                ai.descriptorPool = _persistentDescriptorPool;
-                ai.descriptorSetCount = 1;
-                ai.pSetLayouts = &layout;
-                if (vkAllocateDescriptorSets(_device, &ai, &set) != VK_SUCCESS) {
-                    throw std::runtime_error(
-                        "VulkanGraphicsDevice: persistent descriptor allocation failed");
-                }
-                return set;
-            };
-
-            // Range covers the largest block bound here, not just MaterialUniforms —
-            // quad effects share this slot and some carry more (volumetric fog: 512 B).
-            static_assert(sizeof(MaterialUniforms) <= kPerDrawUniformCapacity);
-            _materialDescriptorSet = allocSet(_renderPipeline->materialSetLayout());
-            _lightingDescriptorSet = allocSet(_renderPipeline->lightingSetLayout());
-            writeUniformRingDescriptors();
-        }
+        createSamplers();
+        createFallbackImages();
+        createUniformRing();
 
         // GPU pass profiler. Disabled by default (sampling costs a little), so
         // creating it here is cheap — it only allocates its query pools.
@@ -461,6 +183,217 @@ namespace visutwin::canvas
         _gpuProfiler = _vulkanGpuProfiler;
 
         spdlog::info("VulkanGraphicsDevice initialized ({}x{})", _width, _height);
+    }
+
+    void VulkanGraphicsDevice::createAllocator()
+    {
+        VmaAllocatorCreateInfo allocatorInfo{};
+        allocatorInfo.physicalDevice = _physicalDevice;
+        allocatorInfo.device = _device;
+        allocatorInfo.instance = _instance;
+        allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+        if (vmaCreateAllocator(
+                &allocatorInfo, &_vmaAllocator) != VK_SUCCESS ||
+            _vmaAllocator == VK_NULL_HANDLE) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: VMA allocator creation failed");
+        }
+    }
+
+    void VulkanGraphicsDevice::createUploadCommandPool()
+    {
+        // Batched, nonblocking staging transfers record into buffers from this pool.
+        VkCommandPoolCreateInfo uploadPoolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+        uploadPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        uploadPoolInfo.queueFamilyIndex = _graphicsQueueFamily;
+        if (vkCreateCommandPool(
+                _device, &uploadPoolInfo, nullptr,
+                &_uploadCommandPool) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: upload command pool creation failed");
+        }
+    }
+
+    void VulkanGraphicsDevice::createSamplers()
+    {
+        // Every sampler created here must also be released by destroySamplers().
+
+        // Default: linear, repeat, full mip chain.
+        _defaultSampler = createDeviceSampler(_device, SamplerDesc{}, "default");
+
+        // Environment-atlas sampler: clamp-to-edge so the equirectangular seam
+        // and the packed sub-rects (irradiance, roughness mips) never wrap
+        // into each other.  Trilinear; no anisotropy (matches the Metal
+        // envAtlasSampler rationale — anisotropy smears the atan2 wrap).
+        _envSampler = createDeviceSampler(_device,
+            SamplerDesc{.addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE}, "environment");
+
+        // Shared sampler for the separate material images (height, detail
+        // normal, displacement and the three clearcoat maps). Linear + repeat
+        // AND the device's anisotropy ratio, exactly like the per-texture
+        // samplers in vulkanTexture.cpp and Metal's default sampler: on Metal
+        // these maps are read through that default sampler, so a separate image
+        // filtered without anisotropy is a backend divergence on every oblique
+        // surface. Invisible on the smooth parallax height map; on the
+        // clearcoat example's ribbed coat normal map it moved ~1,900 pixels by
+        // up to 180 counts (2026-09-19). maxAnisotropy() is published by
+        // initDevice(), which has run by now.
+        _materialExtraSampler = createDeviceSampler(_device, SamplerDesc{
+            .anisotropyEnable = maxAnisotropy() > 1.0f ? VK_TRUE : VK_FALSE,
+            .maxAnisotropy = std::max(maxAnisotropy(), 1.0f),
+        }, "material");
+
+        // Shadow-map sampler: clamp-to-edge, NEAREST filter, no mips.  A plain
+        // (non-comparison) sampler — the shader does the depth compare manually
+        // and averages a 3×3 PCF kernel at discrete texel offsets, so no linear
+        // filtering is needed (and depth formats like D32_SFLOAT often don't
+        // support VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR anyway).
+        _shadowSampler = createDeviceSampler(_device, SamplerDesc{
+            .filter = VK_FILTER_NEAREST,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+            .addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .maxLod = 0.0f,
+        }, "shadow");
+    }
+
+    void VulkanGraphicsDevice::createFallbackImages()
+    {
+        // Every image created here must also be released by destroyFallbackImages().
+
+        // 1×1 white texture: the fallback for unbound texture slots.
+        createWhiteImage(1, _whiteImage, _whiteAllocation, _whiteImageView, "image");
+
+        // 1×1 white cubemap: the fallback for unbound omni shadow slots. Six
+        // layers + cube-compatible so it can back a samplerCube descriptor;
+        // every face is white so an unshadowed omni light reads fully lit.
+        createWhiteImage(6, _whiteCubeImage, _whiteCubeAllocation, _whiteCubeImageView, "cubemap");
+    }
+
+    void VulkanGraphicsDevice::createWhiteImage(const uint32_t layers, VkImage& image,
+        VmaAllocation& allocation, VkImageView& view, const char* name)
+    {
+        const bool cube = layers == 6;
+        const auto fail = [name](const char* what) {
+            return std::runtime_error(
+                std::string("VulkanGraphicsDevice: fallback ") + name + " " + what);
+        };
+
+        VkImageCreateInfo imgInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        imgInfo.imageType = VK_IMAGE_TYPE_2D;
+        imgInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        imgInfo.extent = {1, 1, 1};
+        imgInfo.mipLevels = 1;
+        imgInfo.arrayLayers = layers;
+        imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imgInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        imgInfo.flags = cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
+
+        VmaAllocationCreateInfo aInfo{};
+        aInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+        if (vmaCreateImage(_vmaAllocator, &imgInfo, &aInfo, &image, &allocation, nullptr) != VK_SUCCESS) {
+            throw fail("creation failed");
+        }
+
+        VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        viewInfo.image = image;
+        viewInfo.viewType = cube ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers};
+        if (vkCreateImageView(_device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
+            throw fail("view creation failed");
+        }
+
+        // One white RGBA8 texel per layer.
+        const std::vector<uint32_t> whitePixels(layers, 0xFFFFFFFFu);
+        const VkDeviceSize stagingSize = whitePixels.size() * sizeof(uint32_t);
+        VkBuffer stagingBuf = VK_NULL_HANDLE;
+        VmaAllocation stagingAlloc = VK_NULL_HANDLE;
+        VkBufferCreateInfo sInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        sInfo.size = stagingSize;
+        sInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        VmaAllocationCreateInfo saInfo{};
+        saInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        if (vmaCreateBuffer(_vmaAllocator, &sInfo, &saInfo, &stagingBuf, &stagingAlloc, nullptr) != VK_SUCCESS) {
+            throw fail("staging buffer creation failed");
+        }
+        void* mapped = nullptr;
+        if (vmaMapMemory(_vmaAllocator, stagingAlloc, &mapped) != VK_SUCCESS) {
+            vmaDestroyBuffer(_vmaAllocator, stagingBuf, stagingAlloc);
+            throw fail("staging buffer mapping failed");
+        }
+        memcpy(mapped, whitePixels.data(), stagingSize);
+        vmaUnmapMemory(_vmaAllocator, stagingAlloc);
+
+        enqueueUpload([image, stagingBuf, layers](VkCommandBuffer cmd) {
+            vulkanTransitionImageLayout(cmd, image,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers);
+            // One copy per layer (a cubemap's faces are distinct array layers).
+            std::vector<VkBufferImageCopy> regions(layers);
+            for (uint32_t layer = 0; layer < layers; ++layer) {
+                regions[layer].bufferOffset = layer * sizeof(uint32_t);
+                regions[layer].imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, layer, 1};
+                regions[layer].imageExtent = {1, 1, 1};
+            }
+            vkCmdCopyBufferToImage(cmd, stagingBuf, image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, layers, regions.data());
+            vulkanTransitionImageLayout(cmd, image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers);
+        }, [allocator = _vmaAllocator, stagingBuf, stagingAlloc] {
+            vmaDestroyBuffer(allocator, stagingBuf, stagingAlloc);
+        });
+    }
+
+    void VulkanGraphicsDevice::createUniformRing()
+    {
+        // Per-draw / per-pass uniform ring buffer.  Sized for a generous draw
+        // count per frame: each region holds material + lighting slots for the
+        // whole frame.  Slot sizes are aligned up to the device's dynamic-UBO
+        // offset granularity inside the ring allocator.
+        constexpr VkDeviceSize kRegionBytes = 8u * 1024u * 1024u;  // 8 MB / frame
+        _uniformRing = std::make_unique<VulkanUniformRingBuffer>(
+            _vmaAllocator, kMaxFramesInFlight, kRegionBytes, _uboOffsetAlignment);
+
+        // Persistent pool for the two dynamic-UBO descriptor sets.  Never
+        // reset — the sets reference the stable ring buffer and only their
+        // dynamic offsets change per draw.
+        std::array<VkDescriptorPoolSize, 1> sizes{};
+        sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2};
+        VkDescriptorPoolCreateInfo dpInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        dpInfo.maxSets = 2;
+        dpInfo.poolSizeCount = static_cast<uint32_t>(sizes.size());
+        dpInfo.pPoolSizes = sizes.data();
+        if (vkCreateDescriptorPool(
+                _device, &dpInfo, nullptr, &_persistentDescriptorPool) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "VulkanGraphicsDevice: persistent descriptor pool creation failed");
+        }
+
+        // Allocation only: the buffer the set NAMES is written by
+        // writeUniformRingDescriptors below, which also runs after the ring
+        // grows — so the two paths cannot describe the buffer differently.
+        auto allocSet = [&](VkDescriptorSetLayout layout) {
+            VkDescriptorSet set = VK_NULL_HANDLE;
+            VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            ai.descriptorPool = _persistentDescriptorPool;
+            ai.descriptorSetCount = 1;
+            ai.pSetLayouts = &layout;
+            if (vkAllocateDescriptorSets(_device, &ai, &set) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "VulkanGraphicsDevice: persistent descriptor allocation failed");
+            }
+            return set;
+        };
+
+        // Range covers the largest block bound here, not just MaterialUniforms —
+        // quad effects share this slot and some carry more (volumetric fog: 512 B).
+        static_assert(sizeof(MaterialUniforms) <= kPerDrawUniformCapacity);
+        _materialDescriptorSet = allocSet(_renderPipeline->materialSetLayout());
+        _lightingDescriptorSet = allocSet(_renderPipeline->lightingSetLayout());
+        writeUniformRingDescriptors();
     }
 
     void VulkanGraphicsDevice::destroySamplers() noexcept

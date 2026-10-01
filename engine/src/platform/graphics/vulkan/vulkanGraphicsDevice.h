@@ -323,6 +323,20 @@ namespace visutwin::canvas
 
         void initInstance(SDL_Window* window);
         void initDevice();
+        // initialize()'s stages after the device exists, in the order it runs
+        // them. Each throws on failure; cleanupPartialInitialization() then
+        // releases whatever the earlier stages made.
+        void createAllocator();
+        void createUploadCommandPool();
+        void createSamplers();
+        void createFallbackImages();
+        /// A 1×1 white RGBA8 image with `layers` layers (6 makes it a cubemap), its
+        /// view, and the queued upload that fills it.
+        void createWhiteImage(uint32_t layers, VkImage& image, VmaAllocation& allocation,
+            VkImageView& view, const char* name);
+        /// The per-draw uniform ring and the persistent material and lighting sets
+        /// that name it.
+        void createUniformRing();
         [[nodiscard]] bool initSwapchain(
             int width, int height,
             VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE);
