@@ -2498,7 +2498,7 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 11. `VISUTWIN_BLOOM_THRESHOLD=t` sets the bloom threshold on every camera. No upstream
     example sets one; t=0 must reproduce the unset frame exactly.
 12. `VISUTWIN_SHADOW_TYPE=n` sets `ShadowType` n on every shadow-casting directional
-    light (0 PCF3, 2 VSM, 5 PCF1, 6 PCSS). `shadow-cascades` otherwise reaches VSM and
+    light (0 PCF3, 2 VSM, 4 PCF5, 5 PCF1, 6 PCSS). `shadow-cascades` otherwise reaches VSM and
     PCSS only through a key press.
 13. `VISUTWIN_DEBUG_PASS=n` renders every camera with `DebugShaderPass` n (1 ALBEDO,
     2 WORLDNORMAL, 9 LIGHTING). Step 1 above without editing an example: frames that

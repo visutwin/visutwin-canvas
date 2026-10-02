@@ -177,4 +177,20 @@ namespace visutwin::canvas
         const float ndcZ = z / (_farClip - _nearClip) * 2.0f - 1.0f;
         return (inverseViewProjection * Vector4(ndcX, ndcY, ndcZ, 1.0f)).perspectiveDivide();
     }
+
+    Vector3 Camera::worldToScreen(const Vector3& worldCoord, const float cw, const float ch)
+    {
+        const Matrix4 world = _node ? _node->worldTransform() : Matrix4::identity();
+        const Matrix4 viewProjection = projectionMatrix() * world.inverse();
+        const Vector4 clip = viewProjection * Vector4(worldCoord, 1.0f);
+
+        // Clip space to [0, 1] with y down, then to canvas pixels through the camera rect.
+        const float sx = (clip.getX() / clip.getW() + 1.0f) * 0.5f;
+        const float sy = (1.0f - clip.getY() / clip.getW()) * 0.5f;
+        const float rx = _rect.getX();
+        const float ry = _rect.getY();
+        const float rw = _rect.getZ();
+        const float rh = _rect.getW();
+        return Vector3(sx * rw * cw + rx * cw, sy * rh * ch + (1.0f - ry - rh) * ch, clip.getZ());
+    }
 }

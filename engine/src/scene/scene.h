@@ -10,14 +10,18 @@
 #include <vector>
 
 #include "composition/layerComposition.h"
+#include "core/math/quaternion.h"
 #include "immediate/immediate.h"
 #include "lighting/lightingParams.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/texture.h"
 #include "scene/constants.h"
 #include "skybox/sky.h"
 
 namespace visutwin::canvas
 {
+    class Camera;
+
     /**
      * @brief Container for the scene graph, lighting environment, fog, skybox, and layer composition.
      * @ingroup group_scene_renderer
@@ -71,6 +75,14 @@ namespace visutwin::canvas
         void setSkyboxIntensity(float value);
         float skyboxIntensity() const { return _skyboxIntensity; }
 
+        /// Upstream `Scene.skyboxRotation`: turns the skybox AND the scene environment
+        /// lighting read from it (env atlas reflections and ambient, SH probes). A shader
+        /// samples the environment along `rotation * direction`, as upstream's
+        /// cubeMapRotate does (`dir * inverse(R)` in GLSL). The atmosphere and reflection
+        /// probes, which capture the actual scene, are not turned.
+        const Quaternion& skyboxRotation() const { return _skyboxRotation; }
+        void setSkyboxRotation(const Quaternion& value) { _skyboxRotation = value; }
+
         /// Upstream `Scene.physicalUnits`: lights shine with their LUMINANCE (candela for
         /// spot and omni, lux for directional) instead of their intensity. The camera's
         /// physical exposure (aperture, shutter, sensitivity) is NOT ported; set the
@@ -80,6 +92,10 @@ namespace visutwin::canvas
 
         void setExposure(float value) { _exposure = value; }
         float exposure() const { return _exposure; }
+
+        /// The exposure a camera renders with (upstream renderer's `exposure` uniform): the
+        /// camera's physical exposure under physicalUnits, the scene exposure otherwise.
+        float exposureFor(const Camera* camera) const;
 
         void setSkyType(int value);
         int skyType() const { return _skyType; }
@@ -184,6 +200,7 @@ namespace visutwin::canvas
         Immediate* _immediate = nullptr;
 
         float _skyboxIntensity = 1.0f;
+        Quaternion _skyboxRotation = Quaternion(0.0f, 0.0f, 0.0f, 1.0f);
         float _exposure = 1.0f;
         bool _physicalUnits = false;
         int _skyType = SKYTYPE_INFINITE;
@@ -208,6 +225,6 @@ namespace visutwin::canvas
         } _atmosphereUniforms;
 
         std::vector<Texture*> _prefilteredCubemaps;
-        Texture* _internalEnvAtlas = nullptr;
+        std::unique_ptr<Texture> _internalEnvAtlas;   // built from _prefilteredCubemaps
     };
 }

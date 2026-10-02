@@ -120,7 +120,25 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 dirShadow1PcssParams;
     vec4 dirShadow1PcssCascadeRadii;
     vec4 dirShadow1PcssCascadeDepthRanges;
+    // Scene::skyboxRotation, one column per vec4: environment samples read along
+    // R * dir (upstream cubeMapRotate). Identity unless the scene turns its sky.
+    vec4 skyboxRotation[3];
+    // Spot cookie 2x2 per 2D cookie slot (upstream cookieTransform), mat2 columns xy, zw.
+    vec4 cookieTransform2D[2];
+    // Upstream blueNoiseJitter: xy offset the opacity dither per frame while the camera
+    // jitters (TAA), zero otherwise.
+    vec4 ditherJitter;
 } lighting;
+
+// Upstream cubeMapRotate: the direction an environment sample (sky, env atlas, SH)
+// reads along under Scene::skyboxRotation. Column 0's w flags a rotation at all.
+vec3 cubeMapRotate(vec3 dir) {
+    if (lighting.skyboxRotation[0].w < 0.5) {
+        return dir;
+    }
+    return mat3(lighting.skyboxRotation[0].xyz, lighting.skyboxRotation[1].xyz,
+                lighting.skyboxRotation[2].xyz) * dir;
+}
 
 // Debug shader passes. Must match scene/constants.h :: DebugShaderPass. The
 // active mode arrives in flagsAndPad[1], so all modes share one compiled

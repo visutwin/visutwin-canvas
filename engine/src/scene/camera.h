@@ -66,6 +66,23 @@ namespace visutwin::canvas
         float nearClip() const { return _nearClip; }
         void setNearClip(const float value) { _nearClip = value; _projMatDirty = true; }
 
+        /// Upstream's physical camera: aperture in f-stops (default 16), shutter in seconds
+        /// (1/1000) and sensitivity in ISO (1000). Read only under Scene::physicalUnits,
+        /// where they replace the scene exposure (see physicalExposure()).
+        float aperture() const { return _aperture; }
+        void setAperture(const float value) { _aperture = value; }
+        float shutter() const { return _shutter; }
+        void setShutter(const float value) { _shutter = value; }
+        float sensitivity() const { return _sensitivity; }
+        void setSensitivity(const float value) { _sensitivity = value; }
+
+        /// Upstream `Camera.getExposure`: 1 / (1.2 * 2^EV100), EV100 = log2(N^2 / t * 100 / S).
+        float physicalExposure() const
+        {
+            const float ev100 = std::log2((_aperture * _aperture) / _shutter * 100.0f / _sensitivity);
+            return 1.0f / (std::pow(2.0f, ev100) * 1.2f);
+        }
+
         float farClip() const { return _farClip; }
         void setFarClip(const float value) { _farClip = value; _projMatDirty = true; }
 
@@ -107,6 +124,15 @@ namespace visutwin::canvas
          * inverse view-projection, so a projection offset is included.
          */
         Vector3 screenToWorld(float x, float y, float z, float cw, float ch);
+
+        /**
+         * Upstream `worldToScreen`: the canvas point (x right, y DOWN, in a `cw` x `ch`
+         * canvas) a world point projects to, through the camera's rect. z is the clip-space
+         * z before the divide, as upstream's transformPoint leaves it. A point behind the
+         * camera still returns a position (mirrored through the centre); test the view-space
+         * depth to reject it, as upstream's examples do.
+         */
+        Vector3 worldToScreen(const Vector3& worldCoord, float cw, float ch);
 
         const Matrix4& projectionMatrix()
         {
@@ -179,7 +205,7 @@ namespace visutwin::canvas
 
         /// Copy every SETTING of `other` (upstream `Camera.copy`): projection, clip
         /// planes, clears, rects, render target, tone mapping, culling mask, jitter
-        /// and debug pass. Not copied: the node, the grab passes and render passes
+        /// debug pass and the physical exposure settings. Not copied: the node, the grab passes and render passes
         /// (per-camera objects its component rebuilds) and the per-frame matrices.
         void copy(const Camera& other)
         {
@@ -204,6 +230,9 @@ namespace visutwin::canvas
             _toneMapping = other._toneMapping;
             _jitter = other._jitter;
             _debugShaderPass = other._debugShaderPass;
+            _aperture = other._aperture;
+            _shutter = other._shutter;
+            _sensitivity = other._sensitivity;
             _projMatDirty = true;
         }
 
@@ -279,6 +308,9 @@ namespace visutwin::canvas
 
         float _nearClip = 0.1f;
         float _farClip = 1000.0f;
+        float _aperture = 16.0f;
+        float _shutter = 1.0f / 1000.0f;
+        float _sensitivity = 1000.0f;
 
         uint32_t _cullingMask = 0xFFFFFFFFu;
         float _orthoHeight = 10.0f;

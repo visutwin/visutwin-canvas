@@ -64,6 +64,26 @@ float pcf3x3Directional(int slot, vec2 uv, float receiver) {
     return sum / 9.0;
 }
 
+// PCF1 over a directional slot's map: one comparison (upstream shadowPCF1).
+float pcf1Directional(int slot, vec2 uv, float receiver) {
+    return (receiver <= directionalShadowDepth(slot, uv)) ? 1.0 : 0.0;
+}
+
+// PCF5 over a directional slot's map. DEVIATION, the same as pcf3x3's: Metal
+// takes upstream's nine bilinear hardware comparisons; with no comparison
+// sampler bound here the 5x5 texels are compared directly, uniformly weighted.
+float pcf5x5Directional(int slot, vec2 uv, float receiver) {
+    vec2 texel = 1.0 / directionalShadowSize(slot);
+    float sum = 0.0;
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            float occluder = directionalShadowDepth(slot, uv + vec2(x, y) * texel);
+            sum += (receiver <= occluder) ? 1.0 : 0.0;
+        }
+    }
+    return sum / 25.0;
+}
+
 // ── PCSS: contact-hardening soft shadows (parity with common-shadow-pcss.metal) ──
 // Vogel-disk blocker search sizes a per-fragment penumbra, then a second disk
 // pass filters at that radius.  Every shadow map here is already bound through

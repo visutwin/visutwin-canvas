@@ -6,9 +6,9 @@
 // getCookieCube). Spot lights project a 2D texture through the beam; omni
 // lights sample a cubemap by the light→fragment direction.
 //
-// DEVIATION: no cookieTransform / cookieOffset variants (upstream's
-// getCookie2DXform pair) — the cookie is projected by the light's own frustum
-// with no extra 2D rotation/scale.
+// Upstream's getCookie2DXform pair is folded in: the cookie OFFSET rides the
+// projection matrix (the renderer pre-multiplies it), and the 2x2 TRANSFORM is
+// applied about the cookie centre after the clip test, as upstream orders them.
 #if VT_FEATURE_COOKIE_2D || VT_FEATURE_COOKIE_CUBE
 
 // Cookie sampling is unconditionally bilinear + clamped. Clamping is safe for the
@@ -46,16 +46,20 @@ static inline float3 cookieChannelValue(const float4 texel, const uint channel)
 /// beam — outside it the light contributes nothing.
 static inline float3 getCookie2D(texture2d<float> tex, const float4x4 transform,
                                  const float3 worldPos, const float intensity,
-                                 const uint channel, const bool clip)
+                                 const uint channel, const bool clip, const float4 xform)
 {
     const float4 projPos = transform * float4(worldPos, 1.0);
     if (projPos.w <= 0.0) {
         // Behind the light — never lit through the cookie.
         return clip ? float3(0.0) : float3(1.0);
     }
-    const float2 uv = projPos.xy / projPos.w;
+    float2 uv = projPos.xy / projPos.w;
     if (clip && (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)) {
         return float3(0.0);
+    }
+    // Skipped at identity so a cookie without a transform samples exactly as before.
+    if (any(xform != float4(1.0, 0.0, 0.0, 1.0))) {
+        uv = float2x2(xform.xy, xform.zw) * (uv - float2(0.5)) + float2(0.5);
     }
     return mix(float3(1.0), cookieChannelValue(tex.sample(cookieSampler, uv, level(0)), channel), intensity);
 }

@@ -4,7 +4,7 @@
 #if VT_FEATURE_LIGHT_PROBES
     // Ambient SH light probes: 9-coefficient irradiance evaluated in the world
     // normal direction (upstream AMBIENTSH basis, coefficients premultiplied).
-    const float3 shN = N;
+    const float3 shN = cubeMapRotate(N, lighting);
     float3 indirectDiffuse = max(
         lighting.ambientSH[0].xyz +
         lighting.ambientSH[1].xyz * shN.x +
@@ -28,7 +28,8 @@
         // Diffuse IBL: sample from dedicated Lambert irradiance sub-region
         // through `envAtlasSampler` (non-anisotropic, see common.metal).
         // Skipped when SH probes drive the ambient (probes take priority).
-        const float3 diffDir = float3(-N.x, N.y, N.z);
+        const float3 envN = cubeMapRotate(N, lighting);
+        const float3 diffDir = float3(-envN.x, envN.y, envN.z);
         const float2 envUvN = toSphericalUv(normalize(diffDir));
         const float3 envAmbient = processEnvironment(
             decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapAmbientUv(envUvN)), lighting),
@@ -47,7 +48,8 @@
 #else
         const float3 R = reflect(-V, N);
 #endif
-        const float3 specDir = float3(-R.x, R.y, R.z);
+        const float3 envR = cubeMapRotate(R, lighting);
+        const float3 specDir = float3(-envR.x, envR.y, envR.z);
         const float2 envUvSpec = toSphericalUv(normalize(specDir));
 
         const float level = saturate(1.0 - gloss) * 5.0;
@@ -94,7 +96,7 @@
         // Clearcoat IBL reflection.
         // Sample environment at clearcoat roughness level using clearcoat normal.
         {
-            const float3 ccR = reflect(-V, ccNormalW);
+            const float3 ccR = cubeMapRotate(reflect(-V, ccNormalW), lighting);
             const float2 ccEnvUv = toSphericalUv(normalize(float3(-ccR.x, ccR.y, ccR.z)));
             const float ccLevel = saturate(1.0 - ccGlossiness) * 5.0;
             const float ccIlevel = floor(ccLevel);
@@ -120,7 +122,7 @@
         // Sheen IBL: analytical approximation (no LUT texture).
         // Samples the environment atlas at sheen roughness level using the reflected direction.
         {
-            const float3 sheenR = reflect(-V, N);
+            const float3 sheenR = cubeMapRotate(reflect(-V, N), lighting);
             const float2 sheenEnvUv = toSphericalUv(normalize(float3(-sheenR.x, sheenR.y, sheenR.z)));
             const float sheenLevel = saturate(sheenRoughness) * 5.0;
             const float sheenILevel = floor(sheenLevel);

@@ -11,6 +11,7 @@
 #include <vector>
 #include <Metal/Metal.hpp>
 
+#include "core/math/quaternion.h"
 #include "platform/graphics/uniformBinder.h"
 
 namespace visutwin::canvas
@@ -55,6 +56,8 @@ namespace visutwin::canvas
             const Matrix4* viewProjection = nullptr);
 
         /// Pack environment uniforms (skybox, env atlas) into LightingUniforms.
+        void setSkyboxRotation(const Quaternion& rotation);
+        void setDitherJitter(const Vector4& jitter);
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter, bool isDome, Texture* skyboxCubeMap);
 

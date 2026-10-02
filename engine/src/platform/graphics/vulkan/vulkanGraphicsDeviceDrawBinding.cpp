@@ -1655,6 +1655,8 @@ namespace visutwin::canvas
         };
         packCookie(derived.cookie2D[0], _cookieTexture2D0, ubo.cookieMatrix2D0, ubo.cookieParams2D0);
         packCookie(derived.cookie2D[1], _cookieTexture2D1, ubo.cookieMatrix2D1, ubo.cookieParams2D1);
+        std::memcpy(ubo.cookieTransform2D, derived.cookie2D[0].transform, sizeof(derived.cookie2D[0].transform));
+        std::memcpy(ubo.cookieTransform2D + 4, derived.cookie2D[1].transform, sizeof(derived.cookie2D[1].transform));
         packCookie(derived.cookieCube[0], _cookieTextureCube0, ubo.cookieMatrixCube0, ubo.cookieParamsCube0);
         packCookie(derived.cookieCube[1], _cookieTextureCube1, ubo.cookieMatrixCube1, ubo.cookieParamsCube1);
 
@@ -1709,6 +1711,37 @@ namespace visutwin::canvas
         _lightingUbo.envParams[3] = skyboxMip;
 
         _lightingNeedsUpload = true;
+    }
+
+    void VulkanGraphicsDevice::setDitherJitter(const Vector4& jitter)
+    {
+        float value[4];
+        jitter.store(value);
+        if (std::memcmp(value, _lightingUbo.ditherJitter, sizeof(value)) != 0) {
+            std::memcpy(_lightingUbo.ditherJitter, value, sizeof(value));
+            _lightingNeedsUpload = true;
+        }
+    }
+
+    void VulkanGraphicsDevice::setSkyboxRotation(const Quaternion& rotation)
+    {
+        const Matrix4 r = Matrix4::trs(Vector3(0.0f), rotation, Vector3(1.0f));
+        float columns[12];
+        for (int i = 0; i < 3; ++i) {
+            const Vector4 c = r.getColumn(i);
+            columns[i * 4 + 0] = c.getX();
+            columns[i * 4 + 1] = c.getY();
+            columns[i * 4 + 2] = c.getZ();
+            columns[i * 4 + 3] = 0.0f;
+        }
+        // w of the first column says "rotated", so an unrotated sky skips the multiply
+        // and renders bit-identically (upstream compiles CUBEMAP_ROTATION only then).
+        const bool identity = columns[0] == 1.0f && columns[5] == 1.0f && columns[10] == 1.0f;
+        columns[3] = identity ? 0.0f : 1.0f;
+        if (std::memcmp(columns, _lightingUbo.skyboxRotation, sizeof(columns)) != 0) {
+            std::memcpy(_lightingUbo.skyboxRotation, columns, sizeof(columns));
+            _lightingNeedsUpload = true;
+        }
     }
 }
 

@@ -8,9 +8,11 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "core/math/color.h"
+#include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
 #include "scene/constants.h"
@@ -125,8 +127,17 @@ namespace visutwin::canvas
         float shadowNormalBias() const { return _shadowNormalBias; }
         void setShadowNormalBias(const float value) { _shadowNormalBias = value; }
 
-        float shadowStrength() const { return _shadowStrength; }
-        void setShadowStrength(const float value) { _shadowStrength = value; }
+        /// Upstream `shadowIntensity`: how dark the shadow is (1 = full, 0 = none).
+        float shadowIntensity() const { return _shadowIntensity; }
+        void setShadowIntensity(const float value) { _shadowIntensity = value; }
+
+        /// Upstream `shadowSamples` / `shadowBlockerSamples`: the PCSS filter and blocker
+        /// search tap counts (16 each). One pair per shader variant: the first shadowed
+        /// directional light of a layer supplies it for both directional slots.
+        int shadowSamples() const { return _shadowSamples; }
+        void setShadowSamples(const int value) { _shadowSamples = value < 1 ? 1 : value; }
+        int shadowBlockerSamples() const { return _shadowBlockerSamples; }
+        void setShadowBlockerSamples(const int value) { _shadowBlockerSamples = value < 1 ? 1 : value; }
 
         float shadowDistance() const { return _shadowDistance; }
         void setShadowDistance(const float value) { _shadowDistance = value; }
@@ -193,6 +204,16 @@ namespace visutwin::canvas
         bool cookieFalloff() const { return _cookieFalloff; }
         void setCookieFalloff(const bool value) { _cookieFalloff = value; }
 
+        /// Spot only (upstream cookieAngle / cookieScale / cookieOffset): turn the cookie
+        /// by `cookieAngle` degrees and scale it by `cookieScale` about its centre, and
+        /// shift it by `cookieOffset` in its own UV units. An unset scale is (1, 1).
+        float cookieAngle() const { return _cookieAngle; }
+        void setCookieAngle(const float value) { _cookieAngle = value; }
+        const std::optional<Vector2>& cookieScale() const { return _cookieScale; }
+        void setCookieScale(const std::optional<Vector2>& value) { _cookieScale = value; }
+        const std::optional<Vector2>& cookieOffset() const { return _cookieOffset; }
+        void setCookieOffset(const std::optional<Vector2>& value) { _cookieOffset = value; }
+
         // --- Area Light ---
         float areaWidth() const { return _areaWidth; }
         void setAreaWidth(const float value) { _areaWidth = value; }
@@ -245,7 +266,9 @@ namespace visutwin::canvas
         mutable bool _shadowUpdateModePending = true;
         float _shadowBias = 0.05f;   // upstream LightComponent default
         float _shadowNormalBias = 0.0f;
-        float _shadowStrength = 1.0f;
+        float _shadowIntensity = 1.0f;
+        int _shadowSamples = 16;
+        int _shadowBlockerSamples = 16;
         float _shadowDistance = 40.0f;
         int _shadowResolution = 1024; // upstream's default; 2048 quadrupled every map
         ShadowType _shadowType = SHADOW_PCF3_32F;
@@ -260,6 +283,9 @@ namespace visutwin::canvas
         float _cookieIntensity = 1.0f;
         CookieChannel _cookieChannel = CookieChannel::COOKIE_CHANNEL_RGB;
         bool _cookieFalloff = true;
+        float _cookieAngle = 0.0f;
+        std::optional<Vector2> _cookieScale;
+        std::optional<Vector2> _cookieOffset;
         float _areaWidth = 1.0f;
         float _areaHeight = 1.0f;
         AreaLightShape _areaShape = AreaLightShape::LIGHTSHAPE_RECT;

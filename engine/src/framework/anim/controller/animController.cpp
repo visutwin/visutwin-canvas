@@ -38,8 +38,10 @@ namespace visutwin::canvas
 
     AnimController::AnimController(AnimEvaluator* animEvaluator,
         const std::vector<AnimStateDesc>& states, const std::vector<AnimTransitionDesc>& transitions,
-        const bool activate, FindParameterFn findParameter, ConsumeTriggerFn consumeTrigger)
+        const bool activate, EventHandler* eventHandler, FindParameterFn findParameter,
+        ConsumeTriggerFn consumeTrigger)
         : _animEvaluator(animEvaluator),
+          _eventHandler(eventHandler),
           _findParameter(std::move(findParameter)),
           _consumeTrigger(std::move(consumeTrigger)),
           _activate(activate)
@@ -356,7 +358,7 @@ namespace visutwin::canvas
             AnimClip* clip = _animEvaluator->findClip(animation->name());
             if (!clip) {
                 auto newClip = std::make_shared<AnimClip>(animation->animTrack(), _timeInState,
-                    animation->speed(), true, newActiveState->loop());
+                    animation->speed(), true, newActiveState->loop(), _eventHandler);
                 newClip->setName(animation->name());
                 _animEvaluator->addClip(newClip);
                 clip = newClip.get();

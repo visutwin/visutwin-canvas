@@ -10,11 +10,6 @@
 // 4, shutter 1/100 and sensitivity 500, the lights are all enabled, and the active
 // camera switches every two seconds.
 //
-// DEVIATION: the engine has no camera aperture, shutter or sensitivity, so the
-// physical exposure upstream's cameras compute from them,
-// 1 / (1.2 * 2^log2(N^2 / t * 100 / S)), is set as the scene exposure instead.
-// Both cameras share those settings, so a scene-wide exposure is exact.
-//
 #include <cmath>
 #include <memory>
 #include <string>
@@ -36,13 +31,6 @@ namespace
     constexpr float kSensitivity = 500.0f;
 
     constexpr float kSwitchInterval = 2.0f;
-
-    /// Upstream Camera::getExposure.
-    float physicalExposure(const float aperture, const float shutter, const float sensitivity)
-    {
-        const float ev100 = std::log2((aperture * aperture) / shutter * 100.0f / sensitivity);
-        return 1.0f / (std::pow(2.0f, ev100) * 1.2f);
-    }
 }
 
 class GlbLoaderExample final: public ExampleApp
@@ -72,14 +60,17 @@ protected:
 
         // glb lights use physical units.
         scene()->setPhysicalUnits(true);
-        // The exposure upstream's cameras would compute (see header).
-        scene()->setExposure(physicalExposure(kAperture, kShutter, kSensitivity));
 
         // Find all cameras - by default they are disabled.
         _cameras = entity->findComponents<CameraComponent>();
         for (auto* component : _cameras) {
             // Set the aspect ratio to automatic to work with any window size.
             component->camera()->setAspectRatioMode(AspectRatioMode::ASPECT_AUTO);
+
+            // Set up physical camera settings, used with physical units.
+            component->camera()->setAperture(kAperture);
+            component->camera()->setShutter(kShutter);
+            component->camera()->setSensitivity(kSensitivity);
         }
 
         // Enable all lights from the glb.
@@ -88,7 +79,8 @@ protected:
         }
 
         spdlog::info("GLB: {} cameras, {} lights, exposure {}", _cameras.size(),
-            entity->findComponents<LightComponent>().size(), scene()->exposure());
+            entity->findComponents<LightComponent>().size(),
+            _cameras.empty() ? 0.0f : scene()->exposureFor(_cameras.front()->camera()));
         if (_cameras.empty()) {
             spdlog::error("{} has no cameras", kModel);
             return false;

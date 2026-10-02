@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 #include "core/utils.h"
 
@@ -98,6 +99,11 @@ namespace visutwin::canvas
 
         // Additive blending: src*srcAlpha + dst*ONE (particles glow and accumulate)
         static BlendState additiveBlend();
+
+        /// Upstream `BlendState.NOBLEND`: one shared instance with blending off and every
+        /// channel written. Upstream freezes it; here it is SHARED, so never mutate it —
+        /// make a BlendState of your own instead.
+        static const std::shared_ptr<BlendState>& noBlend();
 
     private:
         // Bit field representing the blend state for render target 0

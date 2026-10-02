@@ -37,6 +37,13 @@ namespace visutwin::canvas
     {
     }
 
+    void AnimTrack::setEvents(std::vector<AnimEvent> events)
+    {
+        std::stable_sort(events.begin(), events.end(),
+            [](const AnimEvent& a, const AnimEvent& b) { return a.time < b.time; });
+        _events = std::move(events);
+    }
+
     namespace
     {
         uint64_t nextTrackSerial()

@@ -303,6 +303,14 @@ static inline float evaluateDirectionalShadow(VT_DIRECTIONAL_SHADOW_MAP shadowMa
         const float visible = getShadowPCSSDirectional(shadowMap,
             float3(shadowUv, pcssDepth), pcssRadii[cascadeIndex], pcssDepthRanges[cascadeIndex],
             pcssParams, fragCoord);
+#elif VT_FEATURE_PCF1_SHADOWS
+        // PCF1_32F — one comparison.
+        const float receiverDepth = shadowDepth - biasNormalStrength.x;
+        const float visible = getShadowPCF1x1(shadowMap, shadowUv, receiverDepth);
+#elif VT_FEATURE_PCF5_SHADOWS
+        // PCF5_32F — upstream's 5x5 from nine bilinear comparisons.
+        const float receiverDepth = shadowDepth - biasNormalStrength.x;
+        const float visible = getShadowPCF5x5(shadowMap, shadowUv, receiverDepth, resolution);
 #else
         // PCF3_32F — optimized bilinear 3×3 PCF.
         const float receiverDepth = shadowDepth - biasNormalStrength.x;

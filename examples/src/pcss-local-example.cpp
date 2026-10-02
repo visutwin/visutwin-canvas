@@ -17,7 +17,7 @@
 //   Space = cycle the active light on/off (upstream "Cycle Active Light")
 //   A     = animate lights on/off
 //   1/2/3 = toggle the area / point / directional light while not cycling
-//   P     = switch all three lights between PCSS_32F and PCF3_32F
+//   P     = switch all three lights between PCSS_32F and PCF5_32F
 //
 // DEVIATION: upstream's area light is a SPOT with LIGHTSHAPE_RECT, so it casts a
 // PCSS shadow while lighting with an LTC rectangle. Here LIGHTTYPE_AREA_RECT is a
@@ -25,8 +25,8 @@
 // shape. Contact-hardening shadows are the point of this test, so the light stays
 // a spot with the same cone, range, falloff and shadow settings and lights as a
 // point source. The emissive plane still shows the rectangle.
-// DEVIATION: upstream's PCF option is SHADOW_PCF5_32F, which this engine does not
-// have. P switches to SHADOW_PCF3_32F.
+// DEVIATION: under PCF5_32F the spot and omni filter with the 3x3 kernel; the
+// engine's local shadow paths have one kernel. The directional takes the 5x5.
 // DEVIATION: the area spot's shadowBias is 0, where upstream leaves the default
 // 0.05. Upstream's spot shader compares the stored depth with no bias of its own.
 // This engine's non-clustered local-shadow shader subtracts shadowBias * 20 from
@@ -305,11 +305,11 @@ private:
         if (keyboard->wasPressed(Key::Digit3)) _directionalEnabled = !_directionalEnabled;
         if (keyboard->wasPressed(Key::P)) {
             _pcss = !_pcss;
-            const ShadowType type = _pcss ? SHADOW_PCSS_32F : SHADOW_PCF3_32F;
+            const ShadowType type = _pcss ? SHADOW_PCSS_32F : SHADOW_PCF5_32F;
             _area->setShadowType(type);
             _omni->setShadowType(type);
             _directional->setShadowType(type);
-            spdlog::info("Shadows: {}", _pcss ? "PCSS_32F" : "PCF3_32F");
+            spdlog::info("Shadows: {}", _pcss ? "PCSS_32F" : "PCF5_32F");
         }
     }
 

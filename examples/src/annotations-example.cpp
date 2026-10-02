@@ -137,7 +137,7 @@ protected:
         Entity* light = createDirectionalLight(Vector3(0.0f, 0.0f, 0.0f), Color(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, true);
         auto* lightComponent = light->findComponent<LightComponent>();
         lightComponent->setShadowDistance(30.0f);
-        lightComponent->setShadowStrength(0.6f);
+        lightComponent->setShadowIntensity(0.6f);
         lightComponent->setShadowResolution(1024);
         lightComponent->setShadowType(SHADOW_VSM_16F);
 

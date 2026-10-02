@@ -161,7 +161,7 @@
     // along the REFRACTED direction, mixed into the diffuse light.
     if (envAtlasTexture.get_width() > 0) {
         const float ior = max(material.refractionIndex, 1.001);
-        const float3 refrDir = refract(-V, N, 1.0 / ior);
+        const float3 refrDir = cubeMapRotate(refract(-V, N, 1.0 / ior), lighting);
         const bool refracts = length_squared(refrDir) > 0.0;
         const float2 refrUv = toSphericalUv(
             refracts ? normalize(float3(-refrDir.x, refrDir.y, refrDir.z)) : float3(0.0, 0.0, 1.0));

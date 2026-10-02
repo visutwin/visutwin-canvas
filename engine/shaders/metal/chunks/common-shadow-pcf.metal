@@ -33,6 +33,59 @@ static inline float getShadowPCF3x3(depth2d<float> shadowMap, float2 shadowUv, f
     return sum * (1.0 / 16.0);
 }
 
+// Upstream shadowPCF1: one hardware comparison.
+static inline float getShadowPCF1x1(depth2d<float> shadowMap, float2 shadowUv, float depth) {
+    constexpr sampler shadowCompSampler(coord::normalized, filter::linear,
+                                        compare_func::less_equal, address::clamp_to_edge);
+    return shadowMap.sample_compare(shadowCompSampler, shadowUv, depth, level(0));
+}
+
+// Upstream shadowPCF5 (_getShadowPCF5x5): a 5x5 kernel from nine bilinear
+// comparisons, "the witness" weights.
+static inline float getShadowPCF5x5(depth2d<float> shadowMap, float2 shadowUv, float depth, float resolution) {
+    constexpr sampler shadowCompSampler(coord::normalized, filter::linear,
+                                        compare_func::less_equal, address::clamp_to_edge);
+
+    const float z = depth;
+    const float2 uv = shadowUv * resolution;
+    const float shadowMapSizeInv = 1.0 / resolution;
+    const float2 base_uv_full = floor(uv + 0.5);
+    const float s = (uv.x + 0.5 - base_uv_full.x);
+    const float t = (uv.y + 0.5 - base_uv_full.y);
+    const float2 base_uv = (base_uv_full - float2(0.5)) * shadowMapSizeInv;
+
+    const float uw0 = (4.0 - 3.0 * s);
+    const float uw1 = 7.0;
+    const float uw2 = (1.0 + 3.0 * s);
+
+    const float u0 = ((3.0 - 2.0 * s) / uw0 - 2.0) * shadowMapSizeInv + base_uv.x;
+    const float u1 = ((3.0 + s) / uw1) * shadowMapSizeInv + base_uv.x;
+    const float u2 = (s / uw2 + 2.0) * shadowMapSizeInv + base_uv.x;
+
+    const float vw0 = (4.0 - 3.0 * t);
+    const float vw1 = 7.0;
+    const float vw2 = (1.0 + 3.0 * t);
+
+    const float v0 = ((3.0 - 2.0 * t) / vw0 - 2.0) * shadowMapSizeInv + base_uv.y;
+    const float v1 = ((3.0 + t) / vw1) * shadowMapSizeInv + base_uv.y;
+    const float v2 = (t / vw2 + 2.0) * shadowMapSizeInv + base_uv.y;
+
+    float sum = 0.0;
+    sum += uw0 * vw0 * shadowMap.sample_compare(shadowCompSampler, float2(u0, v0), z, level(0));
+    sum += uw1 * vw0 * shadowMap.sample_compare(shadowCompSampler, float2(u1, v0), z, level(0));
+    sum += uw2 * vw0 * shadowMap.sample_compare(shadowCompSampler, float2(u2, v0), z, level(0));
+
+    sum += uw0 * vw1 * shadowMap.sample_compare(shadowCompSampler, float2(u0, v1), z, level(0));
+    sum += uw1 * vw1 * shadowMap.sample_compare(shadowCompSampler, float2(u1, v1), z, level(0));
+    sum += uw2 * vw1 * shadowMap.sample_compare(shadowCompSampler, float2(u2, v1), z, level(0));
+
+    sum += uw0 * vw2 * shadowMap.sample_compare(shadowCompSampler, float2(u0, v2), z, level(0));
+    sum += uw1 * vw2 * shadowMap.sample_compare(shadowCompSampler, float2(u1, v2), z, level(0));
+    sum += uw2 * vw2 * shadowMap.sample_compare(shadowCompSampler, float2(u2, v2), z, level(0));
+
+    return saturate(sum * (1.0 / 144.0));
+}
+
 // ── Clustered atlas: omni faces ─────────────────────────────────────────────
 // Upstream's getCubemapFaceCoordinates with its V term NEGATED: the dominant axis
 // of the unnormalized light-to-fragment direction picks the face (+X, -X, +Y, -Y,

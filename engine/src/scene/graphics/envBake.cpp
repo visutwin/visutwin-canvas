@@ -92,15 +92,8 @@ namespace visutwin::canvas
         // writes, no depth test or write, no culling of a fullscreen triangle.
         void setBakeRenderState(GraphicsDevice* device)
         {
-            static const auto blend = std::make_shared<BlendState>();
-            static const auto depth = [] {
-                auto state = std::make_shared<DepthState>();
-                state->setDepthTest(false);
-                state->setDepthWrite(false);
-                return state;
-            }();
-            device->setBlendState(blend);
-            device->setDepthState(depth);
+            device->setBlendState(BlendState::noBlend());
+            device->setDepthState(DepthState::noDepth());
             device->setCullMode(CullMode::CULLFACE_NONE);
             device->setStencilState();
         }
@@ -393,6 +386,15 @@ namespace visutwin::canvas
         if (wantReproject) {
             reproject = reprojectShader(device, request.reprojectSource->isCubemap());
             request.reprojectSource->upload();
+            for (Texture* source : request.reprojectRectSources) {
+                if (source && source != request.reprojectSource) {
+                    if (source->isCubemap() != request.reprojectSource->isCubemap()) {
+                        spdlog::error("bakeEnvAtlas: per-rect sources must match the reproject source's shape");
+                        return false;
+                    }
+                    source->upload();
+                }
+            }
         }
         if (wantConvolve) {
             convolve = convolveShader(device, request.convolveSource->isCubemap());
@@ -436,11 +438,14 @@ namespace visutwin::canvas
 
         if (wantReproject) {
             QuadRender quad(reproject);
-            quad.setTexture(0, request.reprojectSource);
-            for (const auto& rect : request.reprojectRects) {
+            for (size_t i = 0; i < request.reprojectRects.size(); ++i) {
+                const auto& rect = request.reprojectRects[i];
                 if (rect.width <= 0 || rect.height <= 0) {
                     continue;
                 }
+                Texture* source = i < request.reprojectRectSources.size() && request.reprojectRectSources[i]
+                    ? request.reprojectRectSources[i] : request.reprojectSource;
+                quad.setTexture(0, source);
                 env_shaders::ReprojectUniforms uniforms{};
                 fillUvMod(uniforms.uvMod, rect);
                 uniforms.sourceProjection = static_cast<uint32_t>(request.reprojectSourceProjection);

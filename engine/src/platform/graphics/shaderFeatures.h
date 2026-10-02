@@ -67,6 +67,8 @@
     X(OpacityDither,             "VT_FEATURE_OPACITY_DITHER") \
     X(ShadowDither,              "VT_FEATURE_SHADOW_DITHER") \
     X(PcssShadows,               "VT_FEATURE_PCSS_SHADOWS") \
+    X(Pcf1Shadows,               "VT_FEATURE_PCF1_SHADOWS") \
+    X(Pcf5Shadows,               "VT_FEATURE_PCF5_SHADOWS") \
     X(ReflectionProbe,           "VT_FEATURE_REFLECTION_PROBE") \
     X(Ssr,                       "VT_FEATURE_SSR") \
     X(SurfaceLic,                "VT_FEATURE_SURFACE_LIC") \

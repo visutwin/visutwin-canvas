@@ -38,6 +38,12 @@ float sampleCascadeVisibility(int slot, vec3 coord, int cascade) {
             directionalShadowPcssRadii(slot)[cascade],
             directionalShadowPcssDepthRanges(slot)[cascade]);
     }
+    if (vtFeatureEnabled(VT_FEATURE_PCF1_SHADOWS_BIT)) {
+        return pcf1Directional(slot, coord.xy, coord.z - params.z);
+    }
+    if (vtFeatureEnabled(VT_FEATURE_PCF5_SHADOWS_BIT)) {
+        return pcf5x5Directional(slot, coord.xy, coord.z - params.z);
+    }
     return pcf3x3Directional(slot, coord.xy, coord.z - params.z);
 }
 

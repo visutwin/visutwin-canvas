@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -72,6 +73,27 @@ namespace visutwin::canvas
         AnimProperty property = AnimProperty::Unknown;  // from propertyPath
     };
 
+    /**
+     * One animation event (upstream AnimEvents entry): fired on the AnimComponent under
+     * `name` when playback passes `time` (seconds). Upstream events carry any extra
+     * properties; here they are strings in `properties`.
+     */
+    struct AnimEvent
+    {
+        std::string name;
+        float time = 0.0f;
+        std::map<std::string, std::string> properties;
+    };
+
+    class AnimTrack;
+
+    /// What an anim event handler receives: `entity.anim.on(name, [](const AnimEventFired&) {})`.
+    struct AnimEventFired
+    {
+        const AnimTrack* track = nullptr;
+        const AnimEvent* event = nullptr;
+    };
+
     class AnimTrack
     {
     public:
@@ -83,6 +105,10 @@ namespace visutwin::canvas
 
         float duration() const { return _duration; }
         void setDuration(float value) { _duration = value; }
+
+        /// Upstream `AnimTrack.events`: kept sorted by time, as AnimEvents sorts them.
+        const std::vector<AnimEvent>& events() const { return _events; }
+        void setEvents(std::vector<AnimEvent> events);
 
         // Curve-based API. addCurve gives the curve its target index (one per distinct
         // nodeName, in first-seen order) and its property.
@@ -127,6 +153,7 @@ namespace visutwin::canvas
         std::vector<AnimData> _inputs;    // keyframe time arrays (shared across curves)
         std::vector<AnimData> _outputs;   // value arrays
         std::vector<std::string> _targets;
+        std::vector<AnimEvent> _events;
         std::unordered_map<std::string, size_t> _targetLookup;   // addCurve only
         Serial _serial;
     };

@@ -28,55 +28,11 @@
 
 using namespace visutwin::canvas;
 
-// Omni light cookie: six faces assembled into a cubemap below. Face order is the
-// engine's cube convention: +X, -X, +Y, -Y, +Z, -Z.
+// Omni light cookie: a cubemap asset of six faces, in the engine's cube order
+// +X, -X, +Y, -Y, +Z, -Z.
 const std::array<const char*, 6> xmasFaceFiles = {
     "xmas_posx", "xmas_negx", "xmas_posy", "xmas_negy", "xmas_posz", "xmas_negz"
 };
-
-// Assemble a cubemap from six loaded 2D face textures. DEVIATION: upstream builds
-// this through a 'cubemap' Asset that references six texture assets; this port has
-// no cubemap asset type, so the faces are copied into one cubemap texture here.
-std::shared_ptr<Texture> makeCubemapFromFaces(GraphicsDevice* device,
-                                              const std::array<Texture*, 6>& faces,
-                                              const std::string& name)
-{
-    const Texture* first = faces[0];
-    if (!first) {
-        return nullptr;
-    }
-    const uint32_t size = first->width();
-    for (const Texture* face : faces) {
-        if (!face || face->width() != size || face->height() != size) {
-            spdlog::error("Cubemap '{}': faces must all be square and the same size", name);
-            return nullptr;
-        }
-    }
-
-    TextureOptions options;
-    options.name = name;
-    options.width = size;
-    options.height = size;
-    options.format = PixelFormat::PIXELFORMAT_RGBA8;
-    options.cubemap = true;
-    options.mipmaps = true;
-    options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
-    options.magFilter = FilterMode::FILTER_LINEAR;
-    auto cubemap = std::make_shared<Texture>(device, options);
-
-    for (uint32_t face = 0; face < 6; ++face) {
-        const auto* pixels = static_cast<const uint8_t*>(faces[face]->getLevel(0));
-        const size_t dataSize = faces[face]->getLevelDataSize(0);
-        if (!pixels || dataSize == 0) {
-            spdlog::error("Cubemap '{}': face {} has no CPU-side pixel data", name, face);
-            return nullptr;
-        }
-        cubemap->setLevelData(0, pixels, dataSize, face);
-    }
-    // mipmaps = true makes upload() generate the roughness chain on the GPU.
-    cubemap->upload();
-    return cubemap;
-}
 
 class LightsExample final: public ExampleApp
 {
@@ -111,25 +67,14 @@ protected:
             spdlog::warn("heart.png failed to load — the spot light keeps a plain beam");
         }
 
-        // Load the six cubemap faces, then assemble them. The face assets stay alive
-        // for the run; only their CPU-side level 0 is read, at assembly time.
-        std::array<Texture*, 6> xmasFaces{};
-        bool allFacesLoaded = true;
+        // The omni cookie: upstream's 'cubemap' asset of six face images.
+        AssetData xmasData{.mipmaps = true};
         for (size_t i = 0; i < xmasFaceFiles.size(); ++i) {
-            auto asset = std::make_unique<Asset>(
-                xmasFaceFiles[i],
-                AssetType::TEXTURE,
-                assetPath("cubemaps/xmas_faces/" + std::string(xmasFaceFiles[i]) + ".png")
-            );
-            if (const auto resource = asset->resource()) {
-                xmasFaces[i] = std::get<Texture*>(*resource);
-            } else {
-                allFacesLoaded = false;
-            }
-            _xmasFaceAssets.push_back(std::move(asset));
+            xmasData.faces[i] = assetPath("cubemaps/xmas_faces/" + std::string(xmasFaceFiles[i]) + ".png");
         }
-        if (allFacesLoaded) {
-            _xmasCookie = makeCubemapFromFaces(device().get(), xmasFaces, "xmas_cubemap");
+        _xmasAsset = std::make_unique<Asset>("xmas_cubemap", AssetType::CUBEMAP, "", xmasData);
+        if (const auto resource = _xmasAsset->resource()) {
+            _xmasCookie = std::get<Texture*>(*resource);
         }
         if (!_xmasCookie) {
             spdlog::warn("xmas cubemap failed to build — the omni light keeps a plain falloff");
@@ -242,7 +187,7 @@ protected:
             _omniComp->setShadowNormalBias(0.03f);
             _omniComp->setShadowType(SHADOW_PCF3_32F);
             _omniComp->setShadowResolution(256);
-            _omniComp->setCookie(_xmasCookie.get());
+            _omniComp->setCookie(_xmasCookie);
             _omniComp->setCookieChannel(CookieChannel::COOKIE_CHANNEL_RGB);
             _omniComp->setCookieIntensity(1.0f);
         }
@@ -341,8 +286,8 @@ private:
 
     std::unique_ptr<Asset> _statueAsset;
     std::unique_ptr<Asset> _heartAsset;
-    std::vector<std::unique_ptr<Asset>> _xmasFaceAssets;
-    std::shared_ptr<Texture> _xmasCookie;
+    std::unique_ptr<Asset> _xmasAsset;
+    Texture* _xmasCookie = nullptr;
 
     std::shared_ptr<StandardMaterial> _groundMaterial;
     std::shared_ptr<StandardMaterial> _coneMaterial;

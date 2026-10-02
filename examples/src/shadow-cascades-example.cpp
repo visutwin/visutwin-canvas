@@ -17,18 +17,13 @@
 //   ; / '  PCSS penumbra size -/+ (0..0.2)    , / .  PCSS penumbra falloff -/+ (1..10)
 //
 // DEVIATIONS:
-// - No skybox rotation. Upstream rotates the skybox by euler (0, -70, 0); Scene has no
-//   skybox rotation, so the sky and the environment lighting keep their default
-//   orientation.
 // - No "Every Frame" toggle and no per-cascade shadowUpdateOverrides. Upstream can
 //   refresh the nearest cascade every frame and the others every 5/10/15 frames; the
 //   engine has no per-cascade update override, and LightComponent::syncToLight forces
 //   SHADOWUPDATE_REALTIME on every shadow-casting light each frame. All cascades update
 //   every frame, which is upstream's default (everyFrame: true).
 // - Filter types. Upstream offers PCF1/3/5 in 16F and 32F, VSM 16F/32F and PCSS; the
-//   engine implements PCF1_32F, PCF3_32F, VSM_16F and PCSS_32F, so T cycles those four.
-// - shadowSamples and shadowBlockerSamples (16 each upstream) are not exposed on
-//   LightComponent, so the PCSS sample counts are the engine's own.
+//   engine implements the 32F PCF kernels, VSM_16F and PCSS_32F, so T cycles those five.
 // - The cloud order is shuffled with a fixed seed rather than Math.random(), so the
 //   cloud layout is the same on every run and screenshots are comparable.
 // - Orbit camera: upstream's orbit-camera script focuses the tree's bounding box, and
@@ -66,6 +61,7 @@ protected:
     {
         // Setup skydome
         scene()->setSkyboxMip(3);
+        scene()->setSkyboxRotation(Quaternion::fromEulerAngles(0.0f, -70.0f, 0.0f));
 
         _envAtlas = std::make_unique<Asset>(
             "helipad-env-atlas",
@@ -282,6 +278,8 @@ private:
         _light->setShadowType(_shadowType);
         _light->setVsmBlurSize(_vsmBlurSize);
         _light->setPenumbraSize(_penumbraSize);
+        _light->setShadowSamples(16);          // PCSS filter samples
+        _light->setShadowBlockerSamples(16);   // PCSS blocker search samples
         _light->setPenumbraFalloff(_penumbraFalloff);
     }
 
@@ -294,8 +292,8 @@ private:
     }
 
     static constexpr float kCloudSpeed = 0.2f;
-    static constexpr std::array<ShadowType, 4> kShadowTypes = {
-        SHADOW_PCF1_32F, SHADOW_PCF3_32F, SHADOW_VSM_16F, SHADOW_PCSS_32F
+    static constexpr std::array<ShadowType, 5> kShadowTypes = {
+        SHADOW_PCF1_32F, SHADOW_PCF3_32F, SHADOW_PCF5_32F, SHADOW_VSM_16F, SHADOW_PCSS_32F
     };
 
     std::unique_ptr<Asset> _envAtlas;

@@ -27,7 +27,8 @@ void main() {
             // High-res skybox cubemap (negated X matches the engine's atlas
             // lookup handedness — same as the Metal SKY_CUBEMAP path).
             float intensity = max(lighting.envParams.x, 0.0);
-            sky = decodeEnv(texture(skyboxCube, vec3(-dir.x, dir.y, dir.z))) * intensity;
+            vec3 cubeDir = cubeMapRotate(dir);
+            sky = decodeEnv(texture(skyboxCube, vec3(-cubeDir.x, cubeDir.y, cubeDir.z))) * intensity;
         } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
                    lighting.envParams.y > 0.5) {
             // Negate X, the same way every other env-atlas lookup in this
@@ -37,7 +38,8 @@ void main() {
             // flip, which a full-width mean cannot see because mirroring
             // preserves it.
             float intensity = max(lighting.envParams.x, 0.0);
-            vec3 atlasDir = vec3(-dir.x, dir.y, dir.z);
+            vec3 rotatedDir = cubeMapRotate(dir);
+            vec3 atlasDir = vec3(-rotatedDir.x, rotatedDir.y, rotatedDir.z);
             sky = decodeEnv(texture(envAtlas, mapRoughnessUv(dirToEquirect(atlasDir),
                                     max(lighting.envParams.w, 0.0)))) * intensity;
         } else {
@@ -156,9 +158,8 @@ void main() {
     // dither turns partial opacity into a discard pattern so transparency
     // renders in the opaque pass with correct depth. The matrix is chosen per
     // material via flags bits 25-27 (DitherMode) — a runtime value, not a shader
-    // variant, so switching matrices needs no recompile. DEVIATION: no
-    // blue-noise / IGN variants and no per-frame jitter (static pattern;
-    // upstream jitters for TAA convergence).
+    // variant, so switching matrices needs no recompile. The pattern moves
+    // per frame while the camera jitters for TAA (lighting.ditherJitter).
     if (vtFeatureEnabled(VT_FEATURE_OPACITY_DITHER_BIT)) {
         // Upstream's alphaDither decouples the two strengths: opacity keeps driving the
         // alpha blend while this value alone drives the dither density. Negative means
@@ -167,7 +168,8 @@ void main() {
         bool hasAlphaDither = ditherStrength >= 0.0;
         float ditherAlpha = hasAlphaDither ? ditherStrength : albedo.a;
 
-        if (ditherDiscards((material.flags >> 25) & 0x7u, gl_FragCoord.xy, ditherAlpha)) {
+        if (ditherDiscards((material.flags >> 25) & 0x7u, gl_FragCoord.xy, ditherAlpha,
+                lighting.ditherJitter.xy)) {
             discard;
         }
 

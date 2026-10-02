@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -56,6 +57,12 @@ namespace visutwin::canvas
     {
         std::string type = TextureType::TEXTURETYPE_DEFAULT;
         bool mipmaps = false;
+        /// AssetType::CUBEMAP (upstream's 'cubemap' asset with six face textures): the
+        /// face image files in the engine's cube order +X, -X, +Y, -Y, +Z, -Z. The
+        /// asset's own `file` is not read. DEVIATION: upstream names six texture ASSETS
+        /// and also accepts a prefiltered .dds; here the faces are files, decoded as the
+        /// texture asset decodes them, and there is no prefiltered form.
+        std::array<std::string, 6> faces;
     };
 
     // Borrowed resource view. The pointer remains valid until its Asset is

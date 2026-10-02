@@ -6,7 +6,9 @@
 // DEVIATION: upstream samples cookies with mipmapping.
 // A texture the light projects onto the scene, masking its color: a 2D texture
 // projected through a spot's beam, a cubemap sampled by direction for an omni.
-// DEVIATION: no cookieTransform / cookieOffset variants.
+// Upstream's getCookie2DXform: the offset rides the projection matrix (the
+// renderer pre-multiplies it); the 2x2 transform is applied about the cookie
+// centre after the clip test, as upstream orders them.
 
 // Upstream's cookieChannel is a 3-character swizzle ('rgb', or a single channel
 // repeated, e.g. 'a' → 'aaa'). CookieChannel carries the same five options.
@@ -32,6 +34,11 @@ vec3 getCookie2D(int slot, vec3 worldPos, uint channel, bool clip) {
     vec2 uv = projPos.xy / projPos.w;
     if (clip && (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)) {
         return vec3(0.0);
+    }
+    // Skipped at identity so a cookie without a transform samples exactly as before.
+    vec4 xform = lighting.cookieTransform2D[slot];
+    if (xform != vec4(1.0, 0.0, 0.0, 1.0)) {
+        uv = mat2(xform.xy, xform.zw) * (uv - vec2(0.5)) + vec2(0.5);
     }
     vec4 texel = (slot == 0) ? textureLod(cookie2D0, uv, 0.0) : textureLod(cookie2D1, uv, 0.0);
     return mix(vec3(1.0), cookieChannelValue(texel, channel), intensity);

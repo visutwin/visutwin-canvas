@@ -95,25 +95,13 @@ namespace visutwin::canvas
 
     private:
         CullMode _cullMode = CullMode::CULLFACE_NONE;
-        // DEVIATION: BlendState::NOBLEND singleton is not implemented yet; default BlendState maps to no-blend.
-        std::shared_ptr<BlendState> _blendState = std::make_shared<BlendState>();
-        // DEVIATION: DepthState::NODEPTH singleton is not implemented yet; default depth state is used.
-        // Fullscreen quads composite in 2D — depth test/write default OFF, matching
-        // upstream drawQuadWithShader (DepthState.NODEPTH). With the default depth
-        // state, quads targeting the back buffer would test against UNDEFINED depth:
-        // the previous back-buffer pass stores depth with StoreActionDontCare, so
-        // LoadActionLoad reads garbage -> frame-random fragment dropouts (flicker).
-        // Fullscreen quads composite in 2D — depth test/write default OFF, matching
-        // upstream drawQuadWithShader (DepthState.NODEPTH). With the default depth
-        // state, quads targeting the back buffer would test against UNDEFINED depth:
-        // the previous back-buffer pass stores depth with StoreActionDontCare, so
-        // LoadActionLoad reads garbage -> frame-random fragment dropouts (flicker).
-        std::shared_ptr<DepthState> _depthState = []() {
-            auto state = std::make_shared<DepthState>();
-            state->setDepthTest(false);
-            state->setDepthWrite(false);
-            return state;
-        }();
+        std::shared_ptr<BlendState> _blendState = BlendState::noBlend();
+        // Fullscreen quads composite in 2D, so depth test and write are OFF, as upstream's
+        // drawQuadWithShader (DepthState.NODEPTH). With the default depth state, quads
+        // targeting the back buffer would test against UNDEFINED depth: the previous
+        // back-buffer pass stores depth with StoreActionDontCare, so LoadActionLoad reads
+        // garbage -> frame-random fragment dropouts (flicker).
+        std::shared_ptr<DepthState> _depthState = DepthState::noDepth();
         std::shared_ptr<StencilParameters> _stencilFront = nullptr;
         std::shared_ptr<StencilParameters> _stencilBack = nullptr;
         std::optional<Vector4> _viewport;

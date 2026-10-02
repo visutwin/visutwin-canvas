@@ -16,6 +16,7 @@
 
 #include "core/math/random.h"
 #include "core/math/vector3.h"
+#include "envBake.h"
 #include "envReproject.h"
 #include "platform/graphics/texture.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -352,6 +353,87 @@ namespace visutwin::canvas
         bakeEnvAtlas(device, opts);
 
         spdlog::info("EnvLighting: atlas generated ({}x{}, RGBP)", size, size);
+        return texture;
+    }
+
+    // ----------------------------------------------------------------
+    // generatePrefilteredAtlas — upstream EnvLighting.generatePrefilteredAtlas
+    // ----------------------------------------------------------------
+    Texture* EnvLighting::generatePrefilteredAtlas(GraphicsDevice* device, const std::vector<Texture*>& sources,
+        const int size, const int numAmbientSamples, const bool legacyAmbient)
+    {
+        if (!device || sources.size() != 6 ||
+            std::any_of(sources.begin(), sources.end(), [](const Texture* t) { return !t || !t->isCubemap(); })) {
+            spdlog::error("EnvLighting::generatePrefilteredAtlas: needs six cubemaps");
+            return nullptr;
+        }
+        for (const Texture* source : sources) {
+            if (source->encoding() != TextureEncoding::Default) {
+                spdlog::warn("EnvLighting::generatePrefilteredAtlas: an RGBM / RGBP source is read "
+                    "undecoded; the reproject shader takes linear sources only");
+                break;
+            }
+        }
+
+        TextureOptions atlasOptions;
+        atlasOptions.name = "envPrefilteredAtlas";
+        atlasOptions.width = size;
+        atlasOptions.height = size;
+        atlasOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+        atlasOptions.mipmaps = false;
+        atlasOptions.minFilter = FilterMode::FILTER_LINEAR;
+        atlasOptions.magFilter = FilterMode::FILTER_LINEAR;
+        auto* texture = new Texture(device, atlasOptions);
+        texture->setEncoding(TextureEncoding::RGBP);
+        texture->upload();
+
+        // Upstream's layout at s = size / 512: the mipmaps of sources[0] down the
+        // diagonal, the blurry levels of sources[1..5] down the left of the lower half,
+        // and the ambient rect.
+        const int s = std::max(1, size / 512);
+        EnvAtlasRequest request;
+        request.target = texture;
+        request.reprojectSource = sources[0];
+        request.reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_CUBE;
+        request.encodeRgbp = true;
+        request.decodeSrgb = false;
+        {
+            int x = 0, y = 0, w = 512 * s, h = 256 * s;
+            const int levels = calcLevels(512);
+            for (int i = 0; i < levels; ++i) {
+                request.reprojectRects.push_back({x, y, w, h, s});
+                request.reprojectRectSources.push_back(sources[0]);
+                x += h;
+                y += h;
+                w = std::max(1, w / 2);
+                h = std::max(1, h / 2);
+            }
+        }
+        {
+            int x = 0, y = 256 * s, w = 256 * s, h = 128 * s;
+            for (size_t i = 1; i < sources.size(); ++i) {
+                request.reprojectRects.push_back({x, y, w, h, s});
+                request.reprojectRectSources.push_back(sources[i]);
+                y += h;
+                w = std::max(1, w / 2);
+                h = std::max(1, h / 2);
+            }
+        }
+        const EnvBakeRect ambientRect{128 * s, (256 + 128) * s, 64 * s, 32 * s, s};
+        std::vector<float> lambertSamples;
+        if (legacyAmbient) {
+            request.reprojectRects.push_back(ambientRect);
+            request.reprojectRectSources.push_back(sources[5]);
+        } else {
+            const int sourceSize = static_cast<int>(sources[0]->width());
+            lambertSamples = generateLambertSampleTable(numAmbientSamples, sourceSize * sourceSize * 6);
+            request.convolveSource = sources[0];
+            request.convolveRects.push_back({ambientRect, lambertSamples.data(), numAmbientSamples, false});
+        }
+
+        if (!bakeEnvAtlas(device, request)) {
+            spdlog::error("EnvLighting::generatePrefilteredAtlas: bake failed");
+        }
         return texture;
     }
 

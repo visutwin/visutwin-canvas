@@ -156,9 +156,11 @@
                         ? lighting.cookieParams2D0 : lighting.cookieParams2D1;
                     cookieMask = (cookieIdx == 0u)
                         ? getCookie2D(cookieTexture2D0, cookieXform, rd.worldPos,
-                                      cookieParams.x, cookieChannel, !cookieFalloff)
+                                      cookieParams.x, cookieChannel, !cookieFalloff,
+                                      lighting.cookieTransform2D[0])
                         : getCookie2D(cookieTexture2D1, cookieXform, rd.worldPos,
-                                      cookieParams.x, cookieChannel, !cookieFalloff);
+                                      cookieParams.x, cookieChannel, !cookieFalloff,
+                                      lighting.cookieTransform2D[1]);
                     cookieReplacesConeFalloff = !cookieFalloff;
                 }
 #endif

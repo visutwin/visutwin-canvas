@@ -96,6 +96,81 @@ namespace visutwin::canvas
         }
     }
 
+    namespace
+    {
+        /// AssetType::CUBEMAP: six face images, all square and the same size, into one
+        /// cubemap texture. LDR faces are RGBA8 (with the asset's RGBP/RGBM encoding),
+        /// .hdr faces RGBA32F, as the texture asset decodes them.
+        std::unique_ptr<Texture> loadCubemapFaces(GraphicsDevice* device, const std::string& name,
+            const AssetData& data)
+        {
+            const StbVerticalFlipScope flipScope(false);
+            const bool hdr = data.faces[0].size() >= 4 &&
+                data.faces[0].compare(data.faces[0].size() - 4, 4, ".hdr") == 0;
+
+            int size = 0;
+            std::array<std::vector<uint8_t>, 6> pixels;
+            for (size_t face = 0; face < 6; ++face) {
+                const std::string& file = data.faces[face];
+                int width = 0;
+                int height = 0;
+                int channels = 0;
+                if (hdr) {
+                    float* decoded = stbi_loadf(file.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+                    if (!decoded) {
+                        spdlog::error("Cubemap asset '{}': cannot decode face {} '{}'", name, face, file);
+                        return nullptr;
+                    }
+                    const size_t bytes = static_cast<size_t>(width) * static_cast<size_t>(height) * 4u * sizeof(float);
+                    pixels[face].assign(reinterpret_cast<const uint8_t*>(decoded),
+                        reinterpret_cast<const uint8_t*>(decoded) + bytes);
+                    stbi_image_free(decoded);
+                } else {
+                    stbi_uc* decoded = stbi_load(file.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+                    if (!decoded) {
+                        spdlog::error("Cubemap asset '{}': cannot decode face {} '{}'", name, face, file);
+                        return nullptr;
+                    }
+                    const size_t bytes = static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
+                    pixels[face].assign(decoded, decoded + bytes);
+                    stbi_image_free(decoded);
+                }
+                if (width != height || (face > 0 && width != size)) {
+                    spdlog::error("Cubemap asset '{}': faces must all be square and the same size", name);
+                    return nullptr;
+                }
+                size = width;
+            }
+
+            TextureOptions options;
+            options.profilerHint = TexHint::TEXHINT_ASSET;
+            options.name = name;
+            options.width = static_cast<uint32_t>(size);
+            options.height = static_cast<uint32_t>(size);
+            options.format = hdr ? PixelFormat::PIXELFORMAT_RGBA32F : PixelFormat::PIXELFORMAT_RGBA8;
+            options.cubemap = true;
+            options.mipmaps = data.mipmaps;
+            options.numLevels = data.mipmaps ? 0 : 1;
+            options.minFilter = data.mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR : FilterMode::FILTER_LINEAR;
+            options.magFilter = FilterMode::FILTER_LINEAR;
+            auto cubemap = std::make_unique<Texture>(device, options);
+            if (!hdr && data.type == TextureType::TEXTURETYPE_RGBP) {
+                cubemap->setEncoding(TextureEncoding::RGBP);
+            } else if (!hdr && data.type == TextureType::TEXTURETYPE_RGBM) {
+                cubemap->setEncoding(TextureEncoding::RGBM);
+            } else {
+                cubemap->setEncoding(TextureEncoding::Default);
+            }
+            for (uint32_t face = 0; face < 6; ++face) {
+                cubemap->setLevelData(0, pixels[face].data(), pixels[face].size(), face);
+            }
+            // With mipmaps on, upload() generates the chain on the GPU.
+            cubemap->upload();
+            spdlog::info("Loaded cubemap '{}': 6 x {}x{}{}", name, size, size, hdr ? " (HDR)" : "");
+            return cubemap;
+        }
+    }
+
     std::optional<Resource> Asset::resource() {
         if (_resources.empty()) {
             // Once per load, not on every call: resource() is also the cheap accessor
@@ -262,6 +337,17 @@ namespace visutwin::canvas
                     stbi_image_free(pixels);
                     _resources.emplace_back(std::move(texture));
                 }
+            } else if (_type == AssetType::CUBEMAP) {
+                auto graphicsDevice = _defaultGraphicsDevice.lock();
+                if (!graphicsDevice) {
+                    spdlog::error("Cannot load cubemap asset '{}': no graphics device set", _name);
+                    return std::nullopt;
+                }
+                auto cubemap = loadCubemapFaces(graphicsDevice.get(), _name, _data);
+                if (!cubemap) {
+                    return std::nullopt;
+                }
+                _resources.emplace_back(std::move(cubemap));
             } else if (_type == AssetType::FONT) {
                 auto graphicsDevice = _defaultGraphicsDevice.lock();
                 if (!graphicsDevice) {
@@ -311,6 +397,13 @@ namespace visutwin::canvas
         if (!graphicsDevice) {
             spdlog::error("Cannot async-load asset '{}': no graphics device set", _name);
             if (callback) callback(std::nullopt);
+            return;
+        }
+
+        // A cubemap is six small decodes with nothing to stream: load it here.
+        if (_type == AssetType::CUBEMAP) {
+            const auto result = resource();
+            if (callback) callback(result);
             return;
         }
 

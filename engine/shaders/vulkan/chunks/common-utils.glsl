@@ -60,6 +60,7 @@ vec3 decodeEnv(vec4 raw) {
 // refraction uses it; the specular block in forward-fragment-ambient spells the
 // same lookup inline.
 vec3 sampleEnvAtlas(vec3 dir, float roughness) {
+    dir = cubeMapRotate(dir);   // Scene::skyboxRotation, as every env-atlas lookup
     vec2 envUv = dirToEquirect(vec3(-dir.x, dir.y, dir.z));
     float level = clamp(roughness * 5.0, 0.0, 5.0);
     float l0 = floor(level);

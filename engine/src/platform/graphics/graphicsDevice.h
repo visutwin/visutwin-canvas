@@ -180,6 +180,10 @@ namespace visutwin::canvas
         // Spot: world → cookie UV projection. Omni: the light's world transform,
         // whose rotation takes the light→fragment vector into cookie cube space.
         Matrix4 cookieMatrix = Matrix4::identity();
+        // Spot: upstream's cookieTransform, the 2x2 (mat2 columns xy, zw) applied about
+        // the cookie centre after the projection; identity = none. The cookieOffset is
+        // already folded into cookieMatrix (upstream adds it before its clip test).
+        float cookieTransform[4] = {1.0f, 0.0f, 0.0f, 1.0f};
 
         // Area light: half-extents, local right axis (world space) and shape
         // (0=rect, 1=disk, 2=sphere — mirrors AreaLightShape).
@@ -225,6 +229,10 @@ namespace visutwin::canvas
         // pcss: SHADOW_PCSS_32F (contact-hardening soft shadows). The map stays the
         // standard depth texture, sampled raw with a Vogel-disk blocker search.
         bool pcss = false;
+        // Slot 0's whole shadow type: the PCF kernel is per variant too (PCF1, PCF3,
+        // PCF5), so a slot-1 light must match it exactly. An int so this header needs
+        // no scene constant; it holds a ShadowType.
+        int directionalType = 0;
         int pcssSamples = 16;
         int pcssBlockerSamples = 16;
 
@@ -396,6 +404,14 @@ namespace visutwin::canvas
             (void)skyDomeCenter; (void)isDome; (void)skyboxCubeMap;
             VT_DEVICE_FEATURE_UNSUPPORTED("setEnvironmentUniforms");
         }
+
+        /// Scene::skyboxRotation for the environment samples of the forward shaders.
+        /// Set with the environment, once per layer.
+        virtual void setSkyboxRotation(const Quaternion& rotation) { (void)rotation; }
+
+        /// Upstream blueNoiseJitter: the per-frame opacity-dither offset of the camera
+        /// being drawn (zero unless it jitters for TAA). Set once per layer.
+        virtual void setDitherJitter(const Vector4& jitter) { (void)jitter; }
 
         virtual void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod)

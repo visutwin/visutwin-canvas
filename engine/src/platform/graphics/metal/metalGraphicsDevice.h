@@ -67,6 +67,8 @@ namespace visutwin::canvas
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter = Vector3(0,0,0), bool isDome = false,
             Texture* skyboxCubeMap = nullptr) override;
+        void setSkyboxRotation(const Quaternion& rotation) override { _uniformBinder.setSkyboxRotation(rotation); }
+        void setDitherJitter(const Vector4& jitter) override { _uniformBinder.setDitherJitter(jitter); }
 
         void setAreaLightLuts(Texture* lut1, Texture* lut2) override
         {

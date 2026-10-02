@@ -150,6 +150,8 @@ constant uint VT_DITHER_BAYER2  = 1u;
 constant uint VT_DITHER_BAYER4  = 2u;
 constant uint VT_DITHER_BAYER8  = 3u;
 constant uint VT_DITHER_BAYER16 = 4u;
+constant uint VT_DITHER_BLUENOISE = 5u;
+constant uint VT_DITHER_IGNNOISE  = 6u;
 
 // Debug shader passes. Must match scene/constants.h :: DebugShaderPass. The active mode arrives
 // in LightingData::flagsAndPad.y, so all modes share one compiled variant (VT_FEATURE_DEBUG_PASS)
@@ -266,4 +268,12 @@ struct LightingData {
     float4 shadow1PcssParams;
     float4 shadow1PcssCascadeRadii;
     float4 shadow1PcssCascadeDepthRanges;
+    // Scene::skyboxRotation, one column per vector: environment samples read along
+    // R * dir (upstream cubeMapRotate). Identity unless the scene turns its sky.
+    float4 skyboxRotation[3];
+    // Spot cookie 2x2 per 2D cookie slot (upstream cookieTransform), mat2 columns xy, zw.
+    float4 cookieTransform2D[2];
+    // Upstream blueNoiseJitter: xy offset the opacity dither per frame while the camera
+    // jitters (TAA), zero otherwise.
+    float4 ditherJitter;
 };

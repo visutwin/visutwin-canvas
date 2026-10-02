@@ -125,8 +125,8 @@
     // Opacity dithering (upstream opacity-dither.js): screen-space ordered dither turns partial
     // opacity into a discard pattern so transparency renders in the opaque pass with correct
     // depth. The matrix is chosen per material via flags bits 25-27 (DitherMode), a runtime value
-    // rather than a shader variant. DEVIATION: no blue-noise / IGN variants and no per-frame
-    // jitter (static pattern; upstream jitters for TAA convergence).
+    // rather than a shader variant. The pattern moves per frame while the camera jitters for
+    // TAA (lighting.ditherJitter, upstream blueNoiseJitter).
     {
         // Upstream's alphaDither decouples the two strengths: opacity keeps driving the alpha
         // blend while this value alone drives the dither density. Negative means unset, which
@@ -135,7 +135,8 @@
         const bool hasAlphaDither = ditherStrength >= 0.0;
         const float ditherAlpha = hasAlphaDither ? ditherStrength : alpha;
 
-        if (ditherDiscards((material.flags >> 25) & 0x7u, rd.position.xy, ditherAlpha)) {
+        if (ditherDiscards((material.flags >> 25) & 0x7u, rd.position.xy, ditherAlpha,
+                lighting.ditherJitter.xy)) {
             discard_fragment();
         }
 

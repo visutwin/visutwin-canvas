@@ -45,9 +45,8 @@ namespace visutwin::canvas
      * The AnimController manages the animations of its entity based on the provided state graph
      * and parameters. Its update method determines the active state from the current time,
      * parameters and available states/transitions, and keeps the AnimEvaluator supplied with the
-     * correct clips and blend weights.
-     *
-     * DEVIATION: animation/transition events are not fired (no EventHandler plumbed through yet).
+     * correct clips and blend weights. Each clip it creates fires its track's events on
+     * `eventHandler` (upstream passes the AnimComponent).
      */
     class AnimController
     {
@@ -57,7 +56,7 @@ namespace visutwin::canvas
 
         AnimController(AnimEvaluator* animEvaluator, const std::vector<AnimStateDesc>& states,
                        const std::vector<AnimTransitionDesc>& transitions, bool activate,
-                       FindParameterFn findParameter, ConsumeTriggerFn consumeTrigger);
+                       EventHandler* eventHandler, FindParameterFn findParameter, ConsumeTriggerFn consumeTrigger);
 
         AnimEvaluator* animEvaluator() const { return _animEvaluator; }
 
@@ -130,6 +129,7 @@ namespace visutwin::canvas
         };
 
         AnimEvaluator* _animEvaluator;
+        EventHandler* _eventHandler = nullptr;
         FindParameterFn _findParameter;
         ConsumeTriggerFn _consumeTrigger;
 

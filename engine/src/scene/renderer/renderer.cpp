@@ -986,6 +986,8 @@ namespace visutwin::canvas
             bool cookieCube = false;
             bool vsmShadows = false;
             bool pcssShadows = false;
+            bool pcf1Shadows = false;
+            bool pcf5Shadows = false;
             bool areaLights = false;
         };
 
@@ -1028,6 +1030,8 @@ namespace visutwin::canvas
                 if (lc->castShadows() && type == LightType::LIGHTTYPE_DIRECTIONAL && sceneLight) {
                     use.vsmShadows |= sceneLight->shadowType() == SHADOW_VSM_16F;
                     use.pcssShadows |= sceneLight->shadowType() == SHADOW_PCSS_32F;
+                    use.pcf1Shadows |= sceneLight->shadowType() == SHADOW_PCF1_32F;
+                    use.pcf5Shadows |= sceneLight->shadowType() == SHADOW_PCF5_32F;
                 }
 
                 use.areaLights |= type == LightType::LIGHTTYPE_AREA_RECT;
@@ -1238,7 +1242,7 @@ namespace visutwin::canvas
             } else if (slot >= ShadowParams::kMaxDirectionalShadows) {
                 refusal = "more directional lights cast shadows on one layer than there are "
                           "directional shadow slots; the extra ones are unshadowed";
-            } else if (slot > 0 && (vsm != shadowParams.vsm || pcss != shadowParams.pcss)) {
+            } else if (slot > 0 && sceneLight->shadowType() != shadowParams.directionalType) {
                 refusal = "a directional light's shadow type differs from the first shadowed "
                           "directional light's on the same layer; it is unshadowed";
             }
@@ -1257,10 +1261,16 @@ namespace visutwin::canvas
             shadowParams.enabled = true;
             shadowParams.vsm = vsm;
             shadowParams.pcss = pcss;
+            shadowParams.directionalType = sceneLight->shadowType();
             auto& dir = shadowParams.directional[slot];
             dir.shadowMap = sceneLight->shadowMap()->shadowTexture();
             dir.normalBias = lightComponent.shadowNormalBias();
-            dir.strength = lightComponent.shadowStrength();
+            dir.strength = lightComponent.shadowIntensity();
+            if (slot == 0) {
+                // The tap counts are the variant's, one pair for both slots.
+                shadowParams.pcssSamples = sceneLight->shadowSamples();
+                shadowParams.pcssBlockerSamples = sceneLight->shadowBlockerSamples();
+            }
 
             // CSM: copy the full matrix palette and cascade distances.
             dir.numCascades = sceneLight->numCascades();
@@ -1401,6 +1411,16 @@ namespace visutwin::canvas
                 ? lightComponent.entity()->worldTransform()
                 : (lightData.castShadows ? sceneLight->shadowViewProjection()
                                          : LightCamera::evalSpotCookieMatrix(*sceneLight));
+            if (!isOmniCookie) {
+                // Upstream getCookie2DXform adds cookieOffset to the projected xy before
+                // its clip test; a translation by offset * w in front of the projection is
+                // exactly that, so the offset needs no uniform of its own.
+                const Vector2& offset = sceneLight->cookieOffset();
+                if (offset.x != 0.0f || offset.y != 0.0f) {
+                    lightData.cookieMatrix = Matrix4::translation(offset.x, offset.y, 0.0f) * lightData.cookieMatrix;
+                }
+                sceneLight->cookieTransform().store(lightData.cookieTransform);
+            }
         }
 
         /// This (camera, layer)'s lights, split as the shaders consume them.
@@ -1503,6 +1523,7 @@ namespace visutwin::canvas
                 static_cast<float>(scene ? scene->skyboxMip() : 0),
                 skyDomeCenter, isDome,
                 scene ? scene->skybox() : nullptr);
+            device.setSkyboxRotation(scene ? scene->skyboxRotation() : Quaternion(0.0f, 0.0f, 0.0f, 1.0f));
 
             // A dynamic probe captures the scene into the very cubemap the scene
             // samples for reflections, so during its own face passes the probe
@@ -1765,7 +1786,7 @@ namespace visutwin::canvas
             splatParams.fogParams[1] = fogParams.end;
             splatParams.fogParams[2] = fogParams.density;
             splatParams.fogParams[3] = fogParams.enabled ? static_cast<float>(fogParams.type) : 0.0f;
-            splatParams.output[0] = ctx.scene ? ctx.scene->exposure() : 1.0f;
+            splatParams.output[0] = ctx.scene ? ctx.scene->exposureFor(view.camera) : 1.0f;
             splatParams.output[1] = static_cast<float>(view.toneMapping);
             splatParams.output[2] = device.hdrPass() ? 1.0f : 0.0f;
             for (const auto* buffer : {&gsplat.resource()->splatBuffer(), &gsplat.orderBuffer(),
@@ -1840,7 +1861,7 @@ namespace visutwin::canvas
                     static_cast<float>(view.viewport.w), static_cast<float>(view.viewport.h));
                 // Upstream particle_end: tone map and gamma-encode on a gamma target, leave
                 // both to compose on a camera frame's linear HDR scene.
-                particles->setOutput(ctx.scene ? ctx.scene->exposure() : 1.0f, view.toneMapping, device.hdrPass());
+                particles->setOutput(ctx.scene ? ctx.scene->exposureFor(view.camera) : 1.0f, view.toneMapping, device.hdrPass());
                 if (particles->particleBuffer()) {
                     particles->particleBuffer()->markStorageUse();   // counts as vram.sb
                 }
@@ -1895,7 +1916,7 @@ namespace visutwin::canvas
 
             const auto ambientColor = scene ? scene->ambientLight() : Color(0.0f, 0.0f, 0.0f, 1.0f);
             const auto fogParams = scene ? scene->fog() : FogParams{};
-            const float exposure = scene ? scene->exposure() : 1.0f;
+            const float exposure = scene ? scene->exposureFor(&camera) : 1.0f;
             const Vector3* ambientSH = (scene && scene->hasAmbientSH()) ? scene->ambientSH().data() : nullptr;
             ShadowParams noShadow;
             noShadow.enabled = false;
@@ -2038,6 +2059,8 @@ namespace visutwin::canvas
         programLibrary.setCookieCubeEnabled(lightFeatures.cookieCube);
         programLibrary.setVsmShadowsEnabled(lightFeatures.vsmShadows);
         programLibrary.setPcssShadowsEnabled(lightFeatures.pcssShadows);
+        programLibrary.setPcf1ShadowsEnabled(lightFeatures.pcf1Shadows);
+        programLibrary.setPcf5ShadowsEnabled(lightFeatures.pcf5Shadows);
         programLibrary.setAreaLightsEnabled(lightFeatures.areaLights);
 
         // LTC lookup tables: created lazily the first time an area light is
@@ -2224,6 +2247,18 @@ namespace visutwin::canvas
             directionalShadowFitCamera(camera), lights);
 
         bindLayerEnvironment(*_device, _scene.get(), view);
+
+        // Upstream blueNoiseJitter: the opacity dither moves with the TAA jitter, one step
+        // a frame, and stands still for a camera that does not jitter.
+        if (camera->jitter() > 0.0f) {
+            if (_blueNoiseJitterVersion != _device->renderVersion()) {
+                _blueNoiseJitterVersion = _device->renderVersion();
+                _blueNoiseJitter = _blueNoise.vec4();
+            }
+            _device->setDitherJitter(_blueNoiseJitter);
+        } else {
+            _device->setDitherJitter(Vector4(0.0f, 0.0f, 0.0f, 0.0f));
+        }
 
         if (clusteredEnabled) {
             static thread_local std::vector<ClusterLightData> clusterLights;

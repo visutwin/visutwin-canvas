@@ -96,6 +96,10 @@ namespace visutwin::canvas
         TextureProjection reprojectSourceProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
         TextureProjection reprojectTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
         std::vector<EnvBakeRect> reprojectRects;
+        // Optional per-rect sources, parallel to reprojectRects (the prefiltered atlas
+        // reprojects a different cubemap into each reflection level). Empty, or a null
+        // entry, means reprojectSource. They must all be cubemaps or all 2D, like it.
+        std::vector<Texture*> reprojectRectSources;
         Texture* convolveSource = nullptr;
         std::vector<EnvConvolveBakeRect> convolveRects;
         bool encodeRgbp = true;

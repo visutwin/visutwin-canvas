@@ -95,13 +95,13 @@ protected:
         // Lights
         // -----------------------------------------------------------------------
         // Single shadow-casting directional light, upstream's values verbatim.
-        // DEVIATION: LightComponent has no shadowIntensity / shadowSamples /
-        // shadowBlockerSamples setters, so upstream's 0.5 shadow intensity and its
-        // 16/16 PCSS sample counts fall back to the engine defaults.
         auto* keyLight = createDirectionalLight(Vector3(55.0f, 0.0f, 20.0f),
             Color(1.0f, 1.0f, 1.0f), 1.0f, true);
         if (auto* keyLightComp = keyLight->findComponent<LightComponent>()) {
             keyLightComp->setShadowType(ShadowType::SHADOW_PCSS_32F);
+            keyLightComp->setShadowIntensity(0.5f);
+            keyLightComp->setShadowSamples(16);
+            keyLightComp->setShadowBlockerSamples(16);
             keyLightComp->setShadowResolution(2048);
             keyLightComp->setShadowDistance(10.0f);
             keyLightComp->setShadowBias(0.2f);

@@ -25,7 +25,7 @@
     if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
         // 9-coefficient irradiance in the world normal direction (upstream
         // AMBIENTSH basis, coefficients premultiplied).
-        vec3 shN = N;
+        vec3 shN = cubeMapRotate(N);
         ambientIrradiance = max(
             lighting.ambientSH[0].rgb +
             lighting.ambientSH[1].rgb * shN.x +
@@ -56,7 +56,8 @@
             // Diffuse irradiance from the atlas' Lambert rect (the negate-X matches
             // the engine's atlas lookup handedness). Probes take priority over it,
             // as on Metal.
-            vec3 diffDir = vec3(-N.x, N.y, N.z);
+            vec3 envN = cubeMapRotate(N);
+            vec3 diffDir = vec3(-envN.x, envN.y, envN.z);
             ambientIrradiance = decodeEnv(texture(envAtlas, mapAmbientUv(dirToEquirect(diffDir)))) * intensity;
         }
 
@@ -67,7 +68,8 @@
         vec3 R = vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)
             ? getReflDirAniso(N, V, anisoB, 1.0 - roughness, anisoIntensity)
             : reflect(-V, N);
-        vec3 specDir = vec3(-R.x, R.y, R.z);
+        vec3 envR = cubeMapRotate(R);
+        vec3 specDir = vec3(-envR.x, envR.y, envR.z);
         vec2 envUv = dirToEquirect(specDir);
         float level = clamp(roughness * 5.0, 0.0, 5.0);
         float l0 = floor(level);
@@ -118,7 +120,7 @@
             // coat is a mirror, the prefiltered chain otherwise — with the coat's
             // fixed-F0 Fresnel. Composed in the tail, not here: the base's specular
             // stays in indirectSpecular so occlusion and SSR see the same term Metal's do.
-            vec3 ccR = reflect(-V, ccNormalW);
+            vec3 ccR = cubeMapRotate(reflect(-V, ccNormalW));
             vec2 ccEnvUv = dirToEquirect(normalize(vec3(-ccR.x, ccR.y, ccR.z)));
             float ccLevel = clamp(1.0 - ccGlossiness, 0.0, 1.0) * 5.0;
             float ccL0 = floor(ccLevel);
@@ -156,7 +158,7 @@
     // environment shows no sheen.
     if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT) &&
         vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) && lighting.envParams.y > 0.5) {
-        vec3 sheenR = reflect(-V, N);
+        vec3 sheenR = cubeMapRotate(reflect(-V, N));
         vec2 sheenEnvUv = dirToEquirect(normalize(vec3(-sheenR.x, sheenR.y, sheenR.z)));
         float sheenLevel = clamp(sheenRoughness, 0.0, 1.0) * 5.0;
         float sheenL0 = floor(sheenLevel);

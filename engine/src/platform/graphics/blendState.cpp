@@ -176,6 +176,12 @@ namespace visutwin::canvas
 
     // --- Factory methods ---
 
+    const std::shared_ptr<BlendState>& BlendState::noBlend()
+    {
+        static const auto state = std::make_shared<BlendState>();
+        return state;
+    }
+
     BlendState BlendState::alphaBlend()
     {
         BlendState state;

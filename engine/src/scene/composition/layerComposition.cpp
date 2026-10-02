@@ -355,8 +355,12 @@ namespace visutwin::canvas
 
             if (lastRenderAction) {
                 lastRenderAction->lastCameraUse = true;
-                // DEVIATION: disablePostEffectsLayer / full camera stack propagation is not ported yet.
-                // Keep parity for default behavior by triggering postprocess on the camera's last render action.
+                // The camera's last action carries the post-processing trigger. Upstream moves
+                // it to the action before `disablePostEffectsLayer` (UI by default), but that
+                // camera setting serves only its legacy PostEffectQueue, which this port does
+                // not have: post-processing here is the camera frame, which ends its scene at
+                // `lastSceneLayerId` (Immediate) and draws the layers after it (UI) after
+                // compose, exactly what disablePostEffectsLayer = UI gives upstream.
                 lastRenderAction->triggerPostprocess = true;
             }
         }

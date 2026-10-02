@@ -5,8 +5,10 @@
 //
 #include "scene.h"
 
+#include <algorithm>
 #include <cstring>
 
+#include "scene/camera.h"
 #include "scene/graphics/envLighting.h"
 
 namespace visutwin::canvas
@@ -85,10 +87,7 @@ namespace visutwin::canvas
             }
 
             _prefilteredCubemaps.clear();
-            if (_internalEnvAtlas) {
-                delete _internalEnvAtlas;
-                _internalEnvAtlas = nullptr;
-            }
+            _internalEnvAtlas.reset();
 
             resetSkyMesh();
         }
@@ -124,11 +123,23 @@ namespace visutwin::canvas
 
     void Scene::setPrefilteredCubemaps(const std::vector<Texture*>& cubemaps)
     {
+        if (cubemaps == _prefilteredCubemaps) {
+            return;
+        }
         _prefilteredCubemaps = cubemaps;
 
-        // DEVIATION: generatePrefilteredAtlas (from pre-filtered cubemaps) is not yet ported.
-        // When needed, it will be added to EnvLighting. For now, only generateAtlas (from
-        // equirectangular HDR source) is implemented.
-        (void)_internalEnvAtlas;
+        // Upstream Scene.prefilteredCubemaps: six complete cubemaps build the env atlas the
+        // scene then lights with; anything less clears it.
+        const bool complete = cubemaps.size() == 6 &&
+            std::all_of(cubemaps.begin(), cubemaps.end(), [](const Texture* t) { return t != nullptr; });
+        _internalEnvAtlas.reset(complete
+            ? EnvLighting::generatePrefilteredAtlas(_device.get(), cubemaps) : nullptr);
+        _envAtlas = _internalEnvAtlas.get();
+        resetSkyMesh();
+    }
+
+    float Scene::exposureFor(const Camera* camera) const
+    {
+        return _physicalUnits && camera ? camera->physicalExposure() : _exposure;
     }
 }

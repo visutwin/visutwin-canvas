@@ -139,6 +139,20 @@ namespace visutwin::canvas
             PackedVector4f shadow1PcssParams = {16.0f, 16.0f, 1.0f, 1.0f};
             PackedVector4f shadow1PcssCascadeRadii = {1.0f, 1.0f, 1.0f, 1.0f};
             PackedVector4f shadow1PcssCascadeDepthRanges = {1.0f, 1.0f, 1.0f, 1.0f};
+
+            // Scene::skyboxRotation as a 3x3 rotation, one COLUMN per vector (w unused):
+            // environment samples read along R * dir (upstream cubeMapRotate).
+            PackedVector4f skyboxRotation0 = {1.0f, 0.0f, 0.0f, 0.0f};
+            PackedVector4f skyboxRotation1 = {0.0f, 1.0f, 0.0f, 0.0f};
+            PackedVector4f skyboxRotation2 = {0.0f, 0.0f, 1.0f, 0.0f};
+
+            // Spot cookie 2x2 per 2D cookie slot (upstream cookieTransform), mat2 columns.
+            PackedVector4f cookieTransform2D0 = {1.0f, 0.0f, 0.0f, 1.0f};
+            PackedVector4f cookieTransform2D1 = {1.0f, 0.0f, 0.0f, 1.0f};
+
+            // Upstream blueNoiseJitter: xy offset the opacity dither per frame while the
+            // camera jitters (TAA), zero otherwise. zw unused.
+            PackedVector4f ditherJitter = {0.0f, 0.0f, 0.0f, 0.0f};
         };
 
         // ---------------------------------------------------------------

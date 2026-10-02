@@ -13,6 +13,7 @@
 
 #include "camera.h"
 #include "constants.h"
+#include "core/math/vector2.h"
 #include "core/math/vector4.h"
 #include "core/shape/boundingSphere.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -121,6 +122,14 @@ namespace visutwin::canvas
         // skipped and the cookie's own projection clip defines the beam shape.
         bool cookieFalloff() const { return _cookieFalloff; }
         void setCookieFalloff(const bool value) { _cookieFalloff = value; }
+
+        // Spot only (upstream cookieTransform / cookieOffset): the 2x2 that turns and
+        // scales the cookie about its centre, as mat2 COLUMNS (x, y) and (z, w), and the
+        // offset added to the projected position before it. Identity and zero = none.
+        const Vector4& cookieTransform() const { return _cookieTransform; }
+        void setCookieTransform(const Vector4& value) { _cookieTransform = value; }
+        const Vector2& cookieOffset() const { return _cookieOffset; }
+        void setCookieOffset(const Vector2& value) { _cookieOffset = value; }
 
         // World → cookie-UV projection for spot cookies. Equal to the shadow VP
         // when the light casts shadows; otherwise evaluated separately (upstream
@@ -250,6 +259,12 @@ namespace visutwin::canvas
         float shadowIntensity() const { return _shadowIntensity; }
         void setShadowIntensity(const float value) { _shadowIntensity = value; }
 
+        // PCSS tap counts (upstream shadowSamples / shadowBlockerSamples, 16 each).
+        int shadowSamples() const { return _shadowSamples; }
+        void setShadowSamples(const int value) { _shadowSamples = value; }
+        int shadowBlockerSamples() const { return _shadowBlockerSamples; }
+        void setShadowBlockerSamples(const int value) { _shadowBlockerSamples = value; }
+
         // Per-light shadow VP matrix for local lights. Set during shadow camera positioning.
         const Matrix4& shadowViewProjection() const { return _shadowViewProjection; }
         void setShadowViewProjection(const Matrix4& value) { _shadowViewProjection = value; }
@@ -294,6 +309,8 @@ namespace visutwin::canvas
         CookieChannel _cookieChannel = CookieChannel::COOKIE_CHANNEL_RGB;
 
         bool _cookieFalloff = true;
+        Vector4 _cookieTransform = Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+        Vector2 _cookieOffset = Vector2(0.0f, 0.0f);
 
         Matrix4 _cookieMatrix = Matrix4::identity();
 
@@ -365,6 +382,8 @@ namespace visutwin::canvas
 
         //shadowIntensity.
         float _shadowIntensity = 1.0f;
+        int _shadowSamples = 16;
+        int _shadowBlockerSamples = 16;
 
         // Computed shadow VP matrix for local lights (set during shadow camera positioning).
         Matrix4 _shadowViewProjection = Matrix4::identity();

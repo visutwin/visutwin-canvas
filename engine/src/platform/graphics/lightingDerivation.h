@@ -56,6 +56,7 @@ namespace visutwin::canvas
         Texture* texture = nullptr;
         float matrix[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
         float params[4] = {1.0f, 1.0f, 0.0f, 0.0f};   // intensity, falloff, channel
+        float transform[4] = {1.0f, 0.0f, 0.0f, 1.0f}; // 2D only: the cookie 2x2, mat2 columns
     };
 
     struct DerivedLighting

@@ -15,8 +15,8 @@
 // resolution.
 //
 // DEVIATIONS:
-// - there is no CameraComponent::worldToScreen; the projection is done here, straight
-//   into the screen's units (upstream converts CSS pixels by the canvas's pixel ratio).
+// - worldToScreen answers in window points (the canvas here), so the tag's screen units are
+//   points over the screen's scale, where upstream converts CSS pixels by the pixel ratio.
 // - the name is a text element as wide as its tag, centred in it; upstream's is
 //   auto-sized to the text, which centres it the same way.
 //
@@ -72,34 +72,6 @@ namespace
         float speed = 0.0f;
         float angle = 0.0f;
     };
-
-    /// Where `world` lands on `screen`: screen units from its BOTTOM-left corner (where a
-    /// bottom-left anchor places an element), the view-space depth, and whether it is on
-    /// the canvas at all.
-    struct ScreenPoint
-    {
-        Vector2 position;
-        float viewZ = 0.0f;
-        bool onCanvas = false;
-    };
-
-    ScreenPoint worldToScreen(const Vector3& world, CameraComponent* camera, const ScreenComponent* screen)
-    {
-        ScreenPoint point;
-        const Vector3 view = camera->entity()->worldTransform().inverse().transformPoint(world);
-        point.viewZ = view.getZ();
-        const Vector4 clip = camera->camera()->projectionMatrix() * Vector4(view.getX(), view.getY(), view.getZ(), 1.0f);
-        if (clip.getW() <= 1e-6f) {
-            return point;
-        }
-        const float ndcX = clip.getX() / clip.getW();
-        const float ndcY = clip.getY() / clip.getW();
-        point.onCanvas = ndcX > -1.0f && ndcX < 1.0f && ndcY > -1.0f && ndcY < 1.0f;
-        const float scale = std::max(screen->scale(), 1e-6f);
-        point.position = Vector2((ndcX * 0.5f + 0.5f) * screen->resolution().x / scale,
-                                 (ndcY * 0.5f + 0.5f) * screen->resolution().y / scale);
-        return point;
-    }
 }
 
 class WorldToScreenExample final: public ExampleApp
@@ -196,16 +168,23 @@ protected:
             fighter.angle += dt * fighter.speed;
             fighter.body->setPosition(fighter.radius * std::sin(fighter.angle), 1.0f,
                                       fighter.radius * std::cos(fighter.angle));
-            const ScreenPoint point = worldToScreen(fighter.body->position() + overHead, _camera, _screen);
+            const Vector3 head = fighter.body->position() + overHead;
+            const Vector3 onCanvas = _camera->worldToScreen(head);
 
             // Hide the tag when its fighter is behind the camera, which the depth in view
             // space tells, or off the canvas
-            const bool visible = point.viewZ < 0.0f && point.onCanvas;
+            const Vector3 view = _camera->entity()->worldTransform().inverse().transformPoint(head);
+            const auto [canvasWidth, canvasHeight] = engine()->canvasSize();
+            const bool visible = view.getZ() < 0.0f &&
+                onCanvas.getX() > 0.0f && onCanvas.getX() < static_cast<float>(canvasWidth) &&
+                onCanvas.getY() > 0.0f && onCanvas.getY() < static_cast<float>(canvasHeight);
             fighter.tag->setEnabled(visible);
             if (visible) {
-                fighter.tag->setLocalPosition(point.position.x, point.position.y, 0.0f);
+                const float units = 1.0f / std::max(_screen->scale(), 1e-6f);
+                fighter.tag->setLocalPosition(onCanvas.getX() * units,
+                    (static_cast<float>(canvasHeight) - onCanvas.getY()) * units, 0.0f);
                 // Fade the tags of distant fighters, so that the nearest ones stand out
-                const float opacity = std::clamp(2.2f - -point.viewZ / 10.0f, 0.35f, 1.0f);
+                const float opacity = std::clamp(2.2f - -view.getZ() / 10.0f, 0.35f, 1.0f);
                 for (auto* part : fighter.parts) {
                     part->setOpacity(opacity);
                 }

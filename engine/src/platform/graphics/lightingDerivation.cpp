@@ -104,6 +104,7 @@ namespace visutwin::canvas
             slot.params[0] = src.cookieIntensity;
             slot.params[1] = src.cookieFalloff ? 1.0f : 0.0f;
             slot.params[2] = static_cast<float>(src.cookieChannel);
+            std::memcpy(slot.transform, src.cookieTransform, sizeof(slot.transform));
             slot.params[3] = 0.0f;
         }
         return out;

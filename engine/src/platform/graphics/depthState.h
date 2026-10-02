@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 #include "stencilParameters.h"
 
@@ -83,6 +84,24 @@ namespace visutwin::canvas
         static DepthState noWrite() {
             DepthState state;
             state.setDepthWrite(false);
+            return state;
+        }
+
+        /// Upstream `DepthState.DEFAULT`: test LESS_EQUAL, write. Shared: never mutate it.
+        static const std::shared_ptr<DepthState>& defaultState() {
+            static const auto state = std::make_shared<DepthState>();
+            return state;
+        }
+
+        /// Upstream `DepthState.NODEPTH`: no test (always passes), no write — what a
+        /// fullscreen quad composites with. Shared: never mutate it.
+        static const std::shared_ptr<DepthState>& noDepth() {
+            static const auto state = [] {
+                auto s = std::make_shared<DepthState>();
+                s->setDepthTest(false);
+                s->setDepthWrite(false);
+                return s;
+            }();
             return state;
         }
 

@@ -954,7 +954,7 @@ namespace visutwin::canvas
         const int sceneToneMapping = _scene ? _scene->toneMapping() : TONEMAP_LINEAR;
         const int cameraToneMapping = _cameraComponent ? _cameraComponent->toneMapping() : TONEMAP_INHERIT;
         _composePass->setToneMapping(cameraToneMapping != TONEMAP_INHERIT ? cameraToneMapping : sceneToneMapping);
-        _composePass->setExposure(_scene ? _scene->exposure() : 1.0f);
+        _composePass->setExposure(_scene ? _scene->exposureFor(_cameraComponent ? _cameraComponent->camera() : nullptr) : 1.0f);
 
         // Single-pass fallback parameters (read only when no CoC texture is bound).
         if (options.dofEnabled && _cameraComponent) {

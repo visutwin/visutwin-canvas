@@ -204,6 +204,17 @@ namespace visutwin::canvas
         float dirShadow1PcssParams[4]             = {16.0f, 16.0f, 1.0f, 1.0f};
         float dirShadow1PcssCascadeRadii[4]       = {1.0f, 1.0f, 1.0f, 1.0f};
         float dirShadow1PcssCascadeDepthRanges[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        // Scene::skyboxRotation, one column per vec4 (w unused): environment samples
+        // read along R * dir (upstream cubeMapRotate).
+        float skyboxRotation[12]                  = {1.0f, 0.0f, 0.0f, 0.0f,
+                                                     0.0f, 1.0f, 0.0f, 0.0f,
+                                                     0.0f, 0.0f, 1.0f, 0.0f};
+        // Spot cookie 2x2 per 2D cookie slot (upstream cookieTransform), mat2 columns.
+        float cookieTransform2D[8]                = {1.0f, 0.0f, 0.0f, 1.0f,
+                                                     1.0f, 0.0f, 0.0f, 1.0f};
+        // Upstream blueNoiseJitter: xy offset the opacity dither per frame while the
+        // camera jitters (TAA), zero otherwise.
+        float ditherJitter[4]                     = {0.0f, 0.0f, 0.0f, 0.0f};
     };
 
     // Env-atlas encoding tag stored in VulkanLightingUBO::envParams[2].

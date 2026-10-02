@@ -140,6 +140,11 @@ namespace visutwin::canvas
         // compile with VT_FEATURE_PCSS_SHADOWS (contact-hardening soft shadows).
         void setPcssShadowsEnabled(bool value) { _pcssShadowsEnabled = value; }
 
+        // Set when the directional light uses SHADOW_PCF1_32F / SHADOW_PCF5_32F: the
+        // depth-map PCF kernel is one tap / upstream's 5x5 instead of the 3x3.
+        void setPcf1ShadowsEnabled(bool value) { _pcf1ShadowsEnabled = value; }
+        void setPcf5ShadowsEnabled(bool value) { _pcf5ShadowsEnabled = value; }
+
         // Set when clustered lighting is enabled on the scene.
         // When true, forward shaders compile with VT_FEATURE_LIGHT_CLUSTERING.
         void setClusteredLightingEnabled(bool value) { _clusteredLightingEnabled = value; }
@@ -236,6 +241,8 @@ namespace visutwin::canvas
             bool cookieCube = false;        // Omni light cookie — cubemap sampled by light→fragment direction
             bool vsmShadows = false;        // Directional EVSM_16F: moments texture sampled via Chebyshev.
             bool pcssShadows = false;       // Directional PCSS: raw depth samples, Vogel-disk blocker search.
+            bool pcf1Shadows = false;       // Directional PCF1_32F: one comparison tap.
+            bool pcf5Shadows = false;       // Directional PCF5_32F: upstream's 9-tap 5x5 kernel.
                                             // Mirrors upstream SHADOW_VSM_16F.
             bool dynamicBatch = false;      // Dynamic batching — per-vertex bone index + matrix palette
             bool pointSize = false;         // Point primitive rendering — [[point_size]] in vertex output
@@ -360,6 +367,8 @@ namespace visutwin::canvas
         bool _cookieCubeEnabled = false;
         bool _vsmShadowsEnabled = false;
         bool _pcssShadowsEnabled = false;
+        bool _pcf1ShadowsEnabled = false;
+        bool _pcf5ShadowsEnabled = false;
 
         ShaderChunks _chunks;
         uint64_t _cachedChunksHash = 0;

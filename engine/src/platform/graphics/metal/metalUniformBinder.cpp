@@ -234,6 +234,8 @@ namespace visutwin::canvas
         };
         packCookie(derived.cookie2D[0], _cookieTexture2D0, lu.cookieMatrix2D0, lu.cookieParams2D0);
         packCookie(derived.cookie2D[1], _cookieTexture2D1, lu.cookieMatrix2D1, lu.cookieParams2D1);
+        std::memcpy(&lu.cookieTransform2D0, derived.cookie2D[0].transform, sizeof(lu.cookieTransform2D0));
+        std::memcpy(&lu.cookieTransform2D1, derived.cookie2D[1].transform, sizeof(lu.cookieTransform2D1));
         packCookie(derived.cookieCube[0], _cookieTextureCube0, lu.cookieMatrixCube0, lu.cookieParamsCube0);
         packCookie(derived.cookieCube[1], _cookieTextureCube1, lu.cookieMatrixCube1, lu.cookieParamsCube1);
     }
@@ -266,6 +268,35 @@ namespace visutwin::canvas
         _lightingUniforms.reflectionProbeParams[0] = boxProjection ? 1.0f : 0.0f;
         _lightingUniforms.reflectionProbeParams[1] = intensity;
         _lightingUniforms.reflectionProbeParams[2] = maxLod;
+    }
+
+    void MetalUniformBinder::setSkyboxRotation(const Quaternion& rotation)
+    {
+        const Matrix4 r = Matrix4::trs(Vector3(0.0f), rotation, Vector3(1.0f));
+        PackedVector4f columns[3];
+        for (int i = 0; i < 3; ++i) {
+            const Vector4 c = r.getColumn(i);
+            columns[i] = {c.getX(), c.getY(), c.getZ(), 0.0f};
+        }
+        // w of the first column says "rotated", so an unrotated sky skips the multiply
+        // and renders bit-identically (upstream compiles CUBEMAP_ROTATION only then).
+        const bool identity = columns[0].x == 1.0f && columns[1].y == 1.0f && columns[2].z == 1.0f;
+        columns[0].w = identity ? 0.0f : 1.0f;
+        if (std::memcmp(columns, &_lightingUniforms.skyboxRotation0, sizeof(columns)) == 0) {
+            return;
+        }
+        std::memcpy(&_lightingUniforms.skyboxRotation0, columns, sizeof(columns));
+        markLightingChanged();
+    }
+
+    void MetalUniformBinder::setDitherJitter(const Vector4& jitter)
+    {
+        const PackedVector4f value = {jitter.getX(), jitter.getY(), jitter.getZ(), jitter.getW()};
+        if (std::memcmp(&value, &_lightingUniforms.ditherJitter, sizeof(value)) == 0) {
+            return;
+        }
+        _lightingUniforms.ditherJitter = value;
+        markLightingChanged();
     }
 
     void MetalUniformBinder::setEnvironmentUniforms(Texture* envAtlas, const float skyboxIntensity,

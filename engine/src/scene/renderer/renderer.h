@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/math/blueNoise.h"
 #include "core/math/primitives.h"
 #include "renderPassUpdateClustered.h"
 #include "shadowMap.h"
@@ -201,6 +202,12 @@ namespace visutwin::canvas
         friend struct RendererTestAccess;
 
         std::unique_ptr<ShadowRenderer> _shadowRenderer;
+
+        // Upstream renderer's blueNoise (seed 123) and blueNoiseJitter: advanced once per
+        // frame while a camera jitters, and held otherwise.
+        BlueNoise _blueNoise{123};
+        Vector4 _blueNoiseJitter = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
+        int _blueNoiseJitterVersion = -1;
         std::unique_ptr<ShadowRendererDirectional> _shadowRendererDirectional;
 
         // LTC lookup textures for area lights — created lazily on first area light.

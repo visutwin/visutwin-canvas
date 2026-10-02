@@ -42,7 +42,7 @@ namespace visutwin::canvas
             });
         }
         _controller = std::make_unique<AnimController>(
-            _evaluator.get(), allStates, transitions, activate,
+            _evaluator.get(), allStates, transitions, activate, component,
             [component](const std::string& parameterName) -> AnimParameter* {
                 return component ? component->findParameter(parameterName) : nullptr;
             },

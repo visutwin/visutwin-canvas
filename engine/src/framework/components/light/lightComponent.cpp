@@ -5,9 +5,8 @@
 //
 #include "lightComponent.h"
 
-#include <numbers>
-
 #include <cmath>
+#include <numbers>
 
 #include "framework/engine.h"
 #include "framework/entity.h"
@@ -84,13 +83,32 @@ namespace visutwin::canvas
         _light->setCascadeBlend(_cascadeBlend);
         _light->setShadowBias(toLightShadowBias(_shadowBias));
         _light->setNormalBias(_shadowNormalBias);
-        _light->setShadowIntensity(_shadowStrength);
+        _light->setShadowIntensity(_shadowIntensity);
+        _light->setShadowSamples(_shadowSamples);
+        _light->setShadowBlockerSamples(_shadowBlockerSamples);
         _light->setRange(_range);
         _light->setOuterConeAngle(_outerConeAngle);
         _light->setCookie(_cookie);
         _light->setCookieIntensity(_cookieIntensity);
         _light->setCookieChannel(_cookieChannel);
         _light->setCookieFalloff(_cookieFalloff);
+        {
+            // Upstream LightComponent's cookieAngle / cookieScale setters: the 2x2 that
+            // the shader applies about the cookie's centre, (c/sx, -s/sx, s/sy, c/sy).
+            Vector4 transform(1.0f, 0.0f, 0.0f, 1.0f);
+            if (_cookieAngle != 0.0f || _cookieScale) {
+                const float sx = _cookieScale ? _cookieScale->x : 1.0f;
+                const float sy = _cookieScale ? _cookieScale->y : 1.0f;
+                const float radians = _cookieAngle * (std::numbers::pi_v<float> / 180.0f);
+                const float c = std::cos(radians);
+                const float s = std::sin(radians);
+                transform = Vector4(c / sx, -s / sx, s / sy, c / sy);
+            }
+            _light->setCookieTransform(transform);
+            // DEVIATION: an offset with no angle or scale keeps the identity 2x2. Upstream
+            // forces Vec4(1, 1, 0, 0) there, which as a mat2 maps v onto u.
+            _light->setCookieOffset(_cookieOffset.value_or(Vector2(0.0f, 0.0f)));
+        }
         _light->setNode(_entity);
 
         // Once, not every sync: the renderer consumes a THISFRAME request by writing
@@ -156,7 +174,9 @@ namespace visutwin::canvas
         _castShadows = src->_castShadows;
         _shadowBias = src->_shadowBias;
         _shadowNormalBias = src->_shadowNormalBias;
-        _shadowStrength = src->_shadowStrength;
+        _shadowIntensity = src->_shadowIntensity;
+        _shadowSamples = src->_shadowSamples;
+        _shadowBlockerSamples = src->_shadowBlockerSamples;
         _shadowDistance = src->_shadowDistance;
         _shadowResolution = src->_shadowResolution;
         _shadowUpdateMode = src->_shadowUpdateMode;
@@ -171,6 +191,9 @@ namespace visutwin::canvas
         _cookieIntensity = src->_cookieIntensity;
         _cookieChannel = src->_cookieChannel;
         _cookieFalloff = src->_cookieFalloff;
+        _cookieAngle = src->_cookieAngle;
+        _cookieScale = src->_cookieScale;
+        _cookieOffset = src->_cookieOffset;
         _areaWidth = src->_areaWidth;
         _areaHeight = src->_areaHeight;
         _areaShape = src->_areaShape;

@@ -298,7 +298,7 @@ def validate(module: str, reflection: dict) -> None:
         if kind == "UniformBuffer"
     }
     # (0,0) is MaterialUniforms, sized from the shared field list.
-    if block_sizes != {(0, 0): MATERIAL_BLOCK_SIZE, (2, 0): 2800}:
+    if block_sizes != {(0, 0): MATERIAL_BLOCK_SIZE, (2, 0): 2896}:
         raise RuntimeError(
             f"{module}: uniform block reflection mismatch: {block_sizes}"
         )

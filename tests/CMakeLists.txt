@@ -625,6 +625,14 @@ target_link_libraries(visutwin-picker-tests PRIVATE visutwin-canvas)
 
 add_test(NAME picker COMMAND visutwin-picker-tests)
 
+add_executable(visutwin-upstream-small-ports-tests
+    upstreamSmallPortsTests.cpp
+)
+
+target_link_libraries(visutwin-upstream-small-ports-tests PRIVATE visutwin-canvas)
+
+add_test(NAME upstream-small-ports COMMAND visutwin-upstream-small-ports-tests)
+
 add_executable(visutwin-layout-calculator-tests
     layoutCalculatorTests.cpp
 )

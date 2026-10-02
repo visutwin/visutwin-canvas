@@ -232,7 +232,7 @@ namespace visutwin::canvas
 
         // Match the lit scene: the forward pass multiplies light by the scene exposure, so the
         // fog's in-scattering has to be scaled the same way or it will not sit in the same range.
-        const float exposure = _scene ? _scene->exposure() : 1.0f;
+        const float exposure = _scene ? _scene->exposureFor(_cameraComponent ? _cameraComponent->camera() : nullptr) : 1.0f;
 
         auto* lightComponent = findDirectionalLight();
         if (lightComponent) {

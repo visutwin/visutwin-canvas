@@ -492,6 +492,8 @@ namespace visutwin::canvas
         options.cookieCube = _cookieCubeEnabled && !options.skybox;
         options.vsmShadows = _vsmShadowsEnabled && !options.skybox;
         options.pcssShadows = _pcssShadowsEnabled;
+        options.pcf1Shadows = _pcf1ShadowsEnabled && !options.skybox;
+        options.pcf5Shadows = _pcf5ShadowsEnabled && !options.skybox;
         options.areaLights = _areaLightsEnabled && !options.skybox;
     }
 
@@ -565,6 +567,8 @@ namespace visutwin::canvas
         set(ShaderFeature::OpacityDither, options.opacityDither);
         set(ShaderFeature::ShadowDither, options.shadowDither);
         set(ShaderFeature::PcssShadows, options.pcssShadows);
+        set(ShaderFeature::Pcf1Shadows, options.pcf1Shadows);
+        set(ShaderFeature::Pcf5Shadows, options.pcf5Shadows);
         set(ShaderFeature::ReflectionProbe, options.reflectionProbe);
         set(ShaderFeature::Ssr, options.ssr);
         set(ShaderFeature::SurfaceLic, options.surfaceLIC);
@@ -854,6 +858,8 @@ namespace visutwin::canvas
         add(_cookieCubeEnabled);
         add(_vsmShadowsEnabled);
         add(_pcssShadowsEnabled);
+        add(_pcf1ShadowsEnabled);
+        add(_pcf5ShadowsEnabled);
         add(_areaLightsEnabled);
         return bits;
     }

@@ -10,8 +10,6 @@
 //
 // The GLB's materials author clearcoat via KHR_materials_clearcoat (factors +
 // intensity/roughness/normal textures), parsed by glbParser::applyClearcoat.
-// DEVIATION: no Scene::setSkyboxRotation API, so upstream's 70° skydome yaw is
-// skipped (background orientation only).
 //
 #include <memory>
 
@@ -33,6 +31,7 @@ protected:
     {
         scene()->setToneMapping(TONEMAP_ACES);
         scene()->setSkyboxIntensity(1.5f);
+        scene()->setSkyboxRotation(Quaternion::fromEulerAngles(0.0f, 70.0f, 0.0f));
 
         // Morning environment atlas — same asset as the upstream example.
         _morning = std::make_unique<Asset>(

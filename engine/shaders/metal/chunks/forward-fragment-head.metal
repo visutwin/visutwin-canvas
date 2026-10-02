@@ -1,5 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+
+// Upstream cubeMapRotate: the direction an environment sample (sky, env atlas, SH)
+// reads along under Scene::skyboxRotation. Column 0's w flags a rotation at all.
+static inline float3 cubeMapRotate(const float3 dir, constant LightingData& lighting)
+{
+    if (lighting.skyboxRotation[0].w < 0.5) {
+        return dir;
+    }
+    return float3x3(lighting.skyboxRotation[0].xyz, lighting.skyboxRotation[1].xyz,
+                    lighting.skyboxRotation[2].xyz) * dir;
+}
+
 fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   constant MaterialData &material [[buffer(3)]],
                                   constant LightingData &lighting [[buffer(4)]],
@@ -127,7 +139,7 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #elif VT_FEATURE_SKY_CUBEMAP
     // SKY_CUBEMAP path — sample high-res cubemap
     if (skyboxCubeMap.get_width() > 0) {
-        float3 dir = viewDir;
+        float3 dir = cubeMapRotate(viewDir, lighting);
         dir.x *= -1.0;
         const float4 raw = skyboxCubeMap.sample(defaultSampler, dir);
         const float3 skyLinear = processEnvironment(decodeEnvironment(raw, lighting), max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
@@ -146,7 +158,7 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     // anchored to world −Z. The pre-baked 1-pixel seam border covers
     // bilinear, but not anisotropic kernels — so we drop anisotropy here.
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
-        const float3 dir = viewDir * float3(-1.0, 1.0, 1.0);
+        const float3 dir = cubeMapRotate(viewDir, lighting) * float3(-1.0, 1.0, 1.0);
         const float skyMip = max(lighting.skyboxMipAndPad.x, 0.0);
         const float skyInt = max(lighting.cameraPositionSkyboxIntensity.w, 0.0);
         const float2 uv = toSphericalUv(normalize(dir));

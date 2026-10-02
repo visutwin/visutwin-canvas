@@ -154,11 +154,10 @@ namespace visutwin::canvas
         TONEMAP_NONE = 6,
     };
 
-    // Opacity dither matrices (upstream DITHER_*). Selects the ordered-dither threshold pattern
-    // used to render partial opacity in the opaque pass.
-    //
-    // DEVIATION: upstream also offers DITHER_BLUENOISE and DITHER_IGNNOISE; only the Bayer
-    // matrices are ported, and the pattern is static (upstream jitters it per frame for TAA).
+    // Opacity dither patterns (upstream DITHER_*). Selects the threshold pattern used to render
+    // partial opacity in the opaque pass. Every pattern moves per frame while the camera jitters
+    // for TAA (upstream blueNoiseJitter), and stands still otherwise. DEVIATION: the shadow
+    // passes dither unjittered.
     enum class DitherMode
     {
         DITHER_NONE = 0,
@@ -166,6 +165,8 @@ namespace visutwin::canvas
         DITHER_BAYER4 = 2,
         DITHER_BAYER8 = 3,
         DITHER_BAYER16 = 4,
+        DITHER_BLUENOISE = 5,   // upstream's 32x32 blue-noise tile
+        DITHER_IGNNOISE = 6,    // interleaved gradient noise
     };
 
     // Debug shader passes (upstream SHADERPASS_ALBEDO and friends). Replaces the forward pass
@@ -213,8 +214,17 @@ namespace visutwin::canvas
         SHADOW_VSM_16F = 2,
 
         /**
+         * A shadow sampling technique using a 32-bit shadow map that averages depth comparisons from
+         * a 5x5 grid of texels (nine bilinear comparisons) for the softest PCF edges. Directional
+         * lights take the 5x5 kernel; DEVIATION: a spot or omni light filters with the 3x3, as it
+         * does for PCF1 (the local and clustered paths have one kernel).
+         */
+        SHADOW_PCF5_32F = 4,
+
+        /**
          * A shadow sampling technique using a 32-bit shadow map that performs a single depth
-         * comparison for sharp shadow edges.
+         * comparison for sharp shadow edges. Directional lights only; a spot or omni light filters
+         * with the 3x3 (DEVIATION, see SHADOW_PCF5_32F).
          */
         SHADOW_PCF1_32F = 5,
 
