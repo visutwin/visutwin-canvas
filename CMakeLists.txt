@@ -39,6 +39,18 @@ if(VISUTWIN_WARNINGS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     endif()
 endif()
 
+# vcpkg's zlib reaches every link line twice, as ZLIB::ZLIB (through assimp) and as
+# ZLIB::ZLIBSTATIC (through minizip): two imported targets for one libz.a, which CMake
+# cannot merge because it deduplicates by target, not by file. Apple's linker links it
+# once and warns "ignoring duplicate libraries" for every executable; say nothing instead.
+if(APPLE)
+    include(CheckLinkerFlag)
+    check_linker_flag(CXX "-Wl,-no_warn_duplicate_libraries" VISUTWIN_LINKER_NO_DUPLICATE_WARNING)
+    if(VISUTWIN_LINKER_NO_DUPLICATE_WARNING)
+        add_link_options("-Wl,-no_warn_duplicate_libraries")
+    endif()
+endif()
+
 add_subdirectory(engine)
 if(VISUTWIN_BUILD_EXAMPLES)
     add_subdirectory(examples)

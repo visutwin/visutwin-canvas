@@ -64,6 +64,12 @@ Sibling repositories (separate CMake projects, same parent dir):
 - CLion: use "default" preset, ensure `/opt/homebrew/bin` in PATH for Ninja
 - `CMAKE_IGNORE_PATH=/usr/local/include;/usr/local/lib` to exclude stale system SDL3
 - Runtime backend override: `VISUTWIN_BACKEND=metal|vulkan` (lower case)
+- **The Vulkan backend picks its DRIVER by ID, preferring MoltenVK.** The macOS Vulkan SDK
+  (1.4.363 on) registers Mesa's KosmicKrisp beside MoltenVK for the same GPU, with the same
+  device name, so the first suitable device was whichever ICD the loader listed first.
+  Everything here is written and measured against MoltenVK; `VISUTWIN_VULKAN_DRIVER=kosmickrisp`
+  (any case-insensitive part of the driver name) selects another, and the "Vulkan device"
+  log line names the driver it got. Compare backends on MoltenVK unless you mean otherwise.
 
 ```bash
 cmake --preset default
@@ -142,13 +148,15 @@ ctest --preset default
   library: `libvulkan-dev` on Ubuntu (the runtime package ships only
   `libvulkan.so.1`), the Vulkan SDK's `libvulkan.dylib` on macOS. `glslc` and
   `spirv-cross` come from vcpkg's own `shaderc` and `spirv-cross` tools.
-- **tinygltf 2.9.7 builds from an OVERLAY port** in `vcpkg-overlays/ports/`,
-  registered in `vcpkg.json`. GitHub regenerated the tag's source archive, so the
-  baseline port's SHA512 fails on any machine without tinygltf cached — which is
-  every fresh CI runner. The overlay differs from the baseline port only in that
-  hash, and the regenerated archive was checked file for file against the tag.
-  vcpkg never re-hashed 2.9.7 (upstream moved to 3.0.0), so delete the overlay
-  when the baseline is bumped past it.
+- **`ci.yml`'s `VCPKG_COMMIT` must equal `vcpkg.json`'s `builtin-baseline`.** CI checks
+  vcpkg out at that commit and keys its binary cache on it; bump the two together. A
+  local vcpkg must have that commit CHECKED OUT (or be newer): the baseline is read from
+  git history, but each port's version entries from the working tree, so a clone that is
+  only fetched fails with "no version database entry".
+- **tinygltf comes from the baseline (3.0.0), through its v2 header `tiny_gltf.h`.** 3.0.0
+  ships the v2 C++ API unchanged beside a new v3 header (`tiny_gltf_v3.h`), which the
+  parser does not use. The overlay that pinned 2.9.7 over a regenerated archive's hash is
+  gone; `vcpkg-overlays/ports/` now holds only the `visutwin-canvas` port for consumers.
 - **Apple's libc++ hides missing standard includes; GCC's libstdc++ does not.**
   libc++ pulls `<cmath>`, `<cstdint>` and `<array>` in transitively, so a header
   that uses `std::sqrt`, `uint32_t` or `std::array` without including them builds

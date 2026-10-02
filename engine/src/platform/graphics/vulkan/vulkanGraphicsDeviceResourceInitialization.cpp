@@ -11,7 +11,10 @@
 
 #include <chrono>
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 #include <VkBootstrap.h>
 #include <SDL3/SDL_vulkan.h>
@@ -605,6 +608,12 @@ namespace visutwin::canvas
 
         // Objects with destructors that call VkDevice/VMA must die first.
         _renderPipeline.reset();
+        // The pipeline cache and the shader disk cache are made early in initialization,
+        // so an initialization that fails later owns them too; the destructor's path is
+        // not taken here.
+        if (_device != VK_NULL_HANDLE) {
+            destroyShaderCaches();
+        }
         _vulkanGpuProfiler.reset();
         _gpuProfiler.reset();
 
@@ -732,17 +741,60 @@ namespace visutwin::canvas
         selector.set_surface(_surface)
                 .set_minimum_version(1, 3);
 
-        auto physResult = selector.select();
-        if (!physResult) {
-            spdlog::error("Failed to select Vulkan physical device: {}", physResult.error().message());
+        auto physResult = selector.select_devices();
+        if (!physResult || physResult.value().empty()) {
+            spdlog::error("Failed to select Vulkan physical device: {}",
+                physResult ? std::string("no suitable device") : physResult.error().message());
             return;
         }
-        auto vkbPhysical = physResult.value();
+
+        // The DRIVER decides, not the enumeration order. The Vulkan SDK for macOS registers
+        // two drivers for the same GPU, MoltenVK and Mesa's KosmicKrisp, and both report the
+        // same device name, so "the first suitable device" is whichever ICD the loader
+        // happened to list first. This backend is written and tested against MoltenVK (its
+        // sampler limit, its MSL translation), so MoltenVK is preferred;
+        // VISUTWIN_VULKAN_DRIVER=<name> picks another by a case-insensitive match on the
+        // driver name ("kosmickrisp", "moltenvk").
+        const auto driverProperties = [](const VkPhysicalDevice device) {
+            VkPhysicalDeviceDriverProperties driver{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+            VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+            properties.pNext = &driver;
+            vkGetPhysicalDeviceProperties2(device, &properties);
+            return driver;
+        };
+        const auto lowered = [](std::string text) {
+            std::transform(text.begin(), text.end(), text.begin(),
+                [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return text;
+        };
+        const char* requestedDriver = std::getenv("VISUTWIN_VULKAN_DRIVER");
+        const std::string wanted = requestedDriver ? lowered(requestedDriver) : std::string();
+        const auto& candidates = physResult.value();
+        const vkb::PhysicalDevice* chosen = nullptr;
+        for (const auto& candidate : candidates) {
+            const auto driver = driverProperties(candidate.physical_device);
+            const bool match = wanted.empty()
+                ? driver.driverID == VK_DRIVER_ID_MOLTENVK
+                : lowered(driver.driverName).find(wanted) != std::string::npos;
+            if (match) {
+                chosen = &candidate;
+                break;
+            }
+        }
+        if (!chosen) {
+            if (!wanted.empty()) {
+                spdlog::warn("VISUTWIN_VULKAN_DRIVER='{}' matches no suitable driver; using the first", requestedDriver);
+            }
+            chosen = &candidates.front();
+        }
+        auto vkbPhysical = *chosen;
         _physicalDevice = vkbPhysical.physical_device;
 
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(_physicalDevice, &props);
-        spdlog::info("Vulkan device: {}, apiVersion={}.{}.{}", props.deviceName,
+        const auto chosenDriver = driverProperties(_physicalDevice);
+        spdlog::info("Vulkan device: {} ({} {}), apiVersion={}.{}.{}", props.deviceName,
+            chosenDriver.driverName, chosenDriver.driverInfo,
             VK_API_VERSION_MAJOR(props.apiVersion),
             VK_API_VERSION_MINOR(props.apiVersion),
             VK_API_VERSION_PATCH(props.apiVersion));
