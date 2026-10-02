@@ -94,20 +94,20 @@ protected:
         _house = std::make_unique<Asset>(
             "house", AssetType::CONTAINER, assetPath("models/house.glb"));
 
-        const auto helipadResource = _helipad->resource();
-        if (!helipadResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        if (!helipadTexture) {
             spdlog::error("Failed to load helipad env atlas");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
 
         // Instantiate the house (unwrapped UV1 for lightmapping), scaled up.
-        const auto houseResource = _house->resource();
-        if (!houseResource) {
+        ContainerResource* houseContainer = _house->resourceAs<ContainerResource>();
+        if (!houseContainer) {
             spdlog::error("Failed to load house model");
             return false;
         }
-        auto* houseEntity = std::get<ContainerResource*>(*houseResource)->instantiateRenderEntity();
+        auto* houseEntity = houseContainer->instantiateRenderEntity();
         houseEntity->setLocalScale(100.0f, 100.0f, 100.0f);
         root()->addChild(houseEntity);
 
@@ -140,7 +140,7 @@ protected:
         // LightComponents, since the bake evaluates the ordinary lit pipeline; the CPU baker
         // instead takes its own light descriptions below.
         _gpuLightmapper = std::make_unique<GpuLightmapper>(engine());
-        _helipadTexture = std::get<Texture*>(*helipadResource);
+        _helipadTexture = helipadTexture;
 
         _sun.type = LightType::LIGHTTYPE_DIRECTIONAL;
         _sun.direction = eulerToDirection(-55.0f, 0.0f, -30.0f);

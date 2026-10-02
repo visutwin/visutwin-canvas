@@ -41,12 +41,6 @@ namespace
     const Color LIGHT(0.95f, 0.96f, 0.98f, 1.0f);
     const Color MUTED(0.6f, 0.64f, 0.72f, 1.0f);
 
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
-
     /// The text properties set per element. Unset fields keep the
     /// element's defaults (auto size, centred, the font size as the line height).
     struct TextProps
@@ -76,10 +70,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options);
     }
 
     bool create() override
@@ -88,12 +79,9 @@ protected:
         _boldAsset = std::make_unique<Asset>("bold", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        _font = fontOf(*_fontAsset);
-        FontResource* bold = fontOf(*_boldAsset);
-        Texture* atlasTexture = nullptr;
-        if (const auto res = _uiAtlasTexture->resource(); res && std::holds_alternative<Texture*>(*res)) {
-            atlasTexture = std::get<Texture*>(*res);
-        }
+        _font = _fontAsset->resourceAs<FontResource>();
+        FontResource* bold = _boldAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!_font || !bold || !atlasTexture) {
             spdlog::error("Failed to load the Roboto fonts or ui/ui-atlas.png");
             return false;
@@ -102,14 +90,8 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         // The title, with an outline and a soft shadow drawn by the font's shader
         ElementComponent* title = createText(screenEntity, {.text = "Game Over", .font = bold, .fontSize = 64,
@@ -232,7 +214,6 @@ private:
         _tip->setWidth(portrait ? 460.0f : 560.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _boldAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;

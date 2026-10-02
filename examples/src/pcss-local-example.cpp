@@ -47,7 +47,6 @@
 #include <cmath>
 #include <memory>
 #include <string>
-#include <variant>
 
 #include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
@@ -87,14 +86,14 @@ protected:
         _helipadAsset = std::make_unique<Asset>(
             "helipad-env-atlas", AssetType::TEXTURE, assetPath("cubemaps/helipad-env-atlas.png"),
             AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false});
-        const auto helipadResource = _helipadAsset->resource();
-        if (!helipadResource) {
+        Texture* helipadTexture = _helipadAsset->resourceAs<Texture>();
+        if (!helipadTexture) {
             spdlog::error("Failed to load helipad env atlas");
             return false;
         }
         scene()->setSkyboxMip(1);
         scene()->setAmbientLight(0.0f, 0.0f, 0.0f);
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
         scene()->setClusteredLightingEnabled(false);
         scene()->setSkyboxIntensity(0.1f);
 
@@ -261,12 +260,12 @@ protected:
 private:
     static GlbContainerResource* loadContainer(const std::unique_ptr<Asset>& asset)
     {
-        const auto resource = asset->resource();
-        if (!resource || !std::holds_alternative<ContainerResource*>(*resource)) {
+        ContainerResource* container = asset->resourceAs<ContainerResource>();
+        if (!container) {
             spdlog::error("GLB '{}' failed to load as a container", asset->name());
             return nullptr;
         }
-        return dynamic_cast<GlbContainerResource*>(std::get<ContainerResource*>(*resource));
+        return dynamic_cast<GlbContainerResource*>(container);
     }
 
     // Primitive shape that matches the light source shape. It casts no shadow.

@@ -214,12 +214,12 @@ protected:
 
         _statueAsset = std::make_unique<Asset>(
             "statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
-        const auto statueResource = _statueAsset->resource();
-        if (!statueResource) {
+        ContainerResource* statueContainer = _statueAsset->resourceAs<ContainerResource>();
+        if (!statueContainer) {
             spdlog::error("Failed to load models/statue.glb");
             return false;
         }
-        _statue = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
+        _statue = statueContainer->instantiateRenderEntity();
         root()->addChild(_statue);
 
         // Set the new material on every mesh in the model.

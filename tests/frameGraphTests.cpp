@@ -17,54 +17,19 @@
 #include <string>
 #include <vector>
 
-#include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/renderPass.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/texture.h"
 #include "scene/frameGraph.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {64, 64}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
     std::shared_ptr<GraphicsDevice> device;
-
-    class StubRenderTarget final : public RenderTarget
-    {
-    public:
-        using RenderTarget::RenderTarget;
-    protected:
-        void destroyFrameBuffers() override {}
-        void createFrameBuffers() override {}
-    };
 
     // A pass on `target` (null = back buffer) that DISCARDS its colour and depth unless
     // told otherwise: what an MSAA or intermediate pass looks like, so a raised store is
@@ -106,7 +71,7 @@ namespace
 int main()
 {
     std::cout << std::unitbuf;
-    device = std::make_shared<StubDevice>();
+    device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {64, 64}});
 
     TextureOptions colourOptions;
     colourOptions.width = 64;
@@ -207,6 +172,5 @@ int main()
         check(face0->colorArrayOps()[0]->genMipmaps, "a frame with one face gives its mipmap generation back");
     }
 
-    std::cout << (failures == 0 ? "\nAll frame graph tests passed\n" : "\nFrame graph tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("frame graph");
 }

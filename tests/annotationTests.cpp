@@ -42,41 +42,15 @@
 #include "scene/camera.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/scene.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(const int width, const int height) override { _size = {width, height}; }
-        std::pair<int, int> size() const override { return _size; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    private:
-        std::pair<int, int> _size{300, 150};
-    };
-
     /// A script that implements nothing: what the lifecycle events are tested on.
     class Probe : public Script
     {
@@ -86,14 +60,6 @@ namespace
 
     std::shared_ptr<Engine> engine;
     std::shared_ptr<Mouse> mouse;
-
-    Entity* newEntity(const std::string& name)
-    {
-        auto* e = new Entity();
-        e->setEngine(engine.get());
-        e->setName(name);
-        return e;
-    }
 
     /// Every event `target` fires of `names`, in order.
     std::shared_ptr<std::vector<std::string>> record(EventHandler* target, const std::vector<std::string>& names)
@@ -153,26 +119,20 @@ int main()
 {
     std::cout << std::unitbuf;
 
-    auto device = std::make_shared<StubDevice>();
-    engine = std::make_shared<Engine>(nullptr);
+    auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {300, 150}, .resizable = true});
     auto input = std::make_shared<ElementInput>();
     mouse = std::make_shared<Mouse>();
-    AppOptions options;
-    options.graphicsDevice = device;
-    options.elementInput = input;
-    options.mouse = mouse;
-    options.registerComponentSystem<CameraComponentSystem>();
-    options.registerComponentSystem<RenderComponentSystem>();
-    options.registerComponentSystem<ScreenComponentSystem>();
-    options.registerComponentSystem<ElementComponentSystem>();
-    options.registerComponentSystem<ScriptComponentSystem>();
-    engine->init(options);
+    engine = makeTestEngine<CameraComponentSystem, RenderComponentSystem, ScreenComponentSystem, ElementComponentSystem,
+        ScriptComponentSystem>(device, [&](AppOptions& options) {
+        options.elementInput = input;
+        options.mouse = mouse;
+    });
 
     std::cout << "script lifecycle events\n";
     {
-        Entity* parent = newEntity("parent");
+        Entity* parent = newEntity(engine.get(), "parent");
         engine->root()->addChild(std::unique_ptr<GraphNode>(parent));
-        Entity* e = newEntity("scripted");
+        Entity* e = newEntity(engine.get(), "scripted");
         e->addComponent<ScriptComponent>();
         Script* probe = e->script()->create<Probe>();
         auto log = record(probe, {"enable", "disable", "destroy"});
@@ -211,13 +171,13 @@ int main()
 
     // The camera looks down -Z from z = 10 at the annotation, at the origin; the canvas is
     // 300x150, so the hotspot is at its centre.
-    Entity* cameraEntity = newEntity("camera");
+    Entity* cameraEntity = newEntity(engine.get(), "camera");
     cameraEntity->setLocalPosition(0.0f, 0.0f, 10.0f);
     engine->root()->addChild(std::unique_ptr<GraphNode>(cameraEntity));
     auto* camera = static_cast<CameraComponent*>(cameraEntity->addComponent<CameraComponent>());
     camera->camera()->setAspectRatio(2.0f);
 
-    Entity* owner = newEntity("owner");
+    Entity* owner = newEntity(engine.get(), "owner");
     engine->root()->addChild(std::unique_ptr<GraphNode>(owner));
     owner->addComponent<ScriptComponent>();
     auto* manager = owner->script()->create<AnnotationManager>();
@@ -230,7 +190,7 @@ int main()
           "the camera renders them beside its default layers, not instead of them");
 
     const auto makeAnnotation = [&](const std::string& label, const Vector3& position) {
-        Entity* e = newEntity("annotation" + label);
+        Entity* e = newEntity(engine.get(), "annotation" + label);
         e->setLocalPosition(position);
         e->addComponent<ScriptComponent>();
         auto* annotation = e->script()->create<Annotation>();
@@ -333,6 +293,5 @@ int main()
     }
 
     engine.reset();
-    std::cout << (failures == 0 ? "PASS" : "FAIL") << " (" << failures << " failures)\n";
-    return failures == 0 ? 0 : 1;
+    return finish("annotation");
 }

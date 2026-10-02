@@ -13,17 +13,13 @@
 #include <cmath>
 #include <numbers>
 #include <memory>
-#include <cstdlib>
-#include <map>
-#include <vector>
-#include <algorithm>
-#include "platform/graphics/gpuProfiler.h"
 
 #include <core/shape/boundingBox.h>
 #include <framework/assets/asset.h>
 
 #include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
+#include "../ssaoKeys.h"
 #include "platform/graphics/depthState.h"
 #include "scene/constants.h"
 #include "scene/graphics/renderPassConstants.h"
@@ -59,20 +55,20 @@ protected:
         _laboratory = std::make_unique<Asset>(
             "laboratory", AssetType::CONTAINER, assetPath("models/laboratory.glb"));
 
-        const auto envAtlasResource = _envAtlas->resource();
-        if (!envAtlasResource) {
+        Texture* envAtlasTexture = _envAtlas->resourceAs<Texture>();
+        if (!envAtlasTexture) {
             spdlog::error("Failed to load environment atlas texture");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+        scene()->setEnvAtlas(envAtlasTexture);
 
         // create laboratory entity (scale 100)
-        const auto labResource = _laboratory->resource();
-        if (!labResource) {
+        ContainerResource* labContainer = _laboratory->resourceAs<ContainerResource>();
+        if (!labContainer) {
             spdlog::error("Failed to load laboratory model");
             return false;
         }
-        auto* labEntity = std::get<ContainerResource*>(*labResource)->instantiateRenderEntity();
+        auto* labEntity = labContainer->instantiateRenderEntity();
         labEntity->setLocalScale(100, 100, 100);
         root()->addChild(labEntity);
 
@@ -214,104 +210,23 @@ protected:
         spdlog::info("Orbit controls: LMB/RMB orbit, Shift/MMB pan, Wheel/Pinch zoom, F focus, R reset");
         spdlog::info("SSAO controls: O toggle SSAO, T lighting/combine, B toggle blur, Z toggle randomize");
         spdlog::info("  +/- adjust intensity, [/] adjust radius, ,/. adjust samples, ;/' adjust power");
-        logSsaoState("init");
+        logSsaoState(_cameraComp, "init");
 
         return true;
     }
-
-    void update(float) override
-    {
-        ++_probeFrame;
-        if (_probeFrame == 20) if (const auto& gd = engine()->graphicsDevice()) if (const auto& prof = gd->gpuProfiler()) prof->setEnabled(true);
-        if (_probeFrame < 60 || _probeFrame > 360) return;
-        const auto& gd = engine()->graphicsDevice(); const auto& prof = gd ? gd->gpuProfiler() : nullptr; if (!prof) return;
-        size_t i = 0; for (const auto& pt : prof->passTimings()) { const std::string key = std::to_string(i++) + " " + pt.name; if (!_t.count(key)) _order.push_back(key); _t[key].push_back(pt.milliseconds); }
-        _frameMs.push_back(prof->frameMilliseconds());
-        if (_probeFrame == 360) {
-            auto med = [](std::vector<double> v) { std::sort(v.begin(), v.end()); return v.empty() ? 0.0 : v[v.size() / 2]; };
-            std::string line = "PROBE ours frame " + std::to_string(med(_frameMs)).substr(0, 5);
-            for (const auto& k : _order) line += " | " + k + " " + std::to_string(med(_t[k])).substr(0, 5);
-            spdlog::info("{}", line);
-        }
-    }
-    int _probeFrame = 0; std::map<std::string, std::vector<double>> _t; std::vector<std::string> _order; std::vector<double> _frameMs;
 
     bool onEvent(const SDL_Event& event) override
     {
         if (event.type != SDL_EVENT_KEY_DOWN || !_cameraComp) {
             return false;
         }
-
-        auto ssao = _cameraComp->ssao();
-        switch (event.key.key) {
-        case SDLK_O:
-            ssao.enabled = !ssao.enabled;
-            _cameraComp->setSsao(ssao);
-            logSsaoState("toggle");
-            return true;
-        case SDLK_B:
-            ssao.blurEnabled = !ssao.blurEnabled;
-            _cameraComp->setSsao(ssao);
-            logSsaoState("blur");
-            return true;
-        case SDLK_Z:
-            ssao.randomize = !ssao.randomize;
-            _cameraComp->setSsao(ssao);
-            logSsaoState("randomize");
-            return true;
-        case SDLK_T:
-            ssao.type = (ssao.type == SSAOTYPE_LIGHTING) ? SSAOTYPE_COMBINE : SSAOTYPE_LIGHTING;
-            _cameraComp->setSsao(ssao);
-            logSsaoState("type");
-            return true;
-        case SDLK_EQUALS:
-            ssao.intensity = std::min(1.0f, ssao.intensity + 0.05f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("intensity+");
-            return true;
-        case SDLK_MINUS:
-            ssao.intensity = std::max(0.0f, ssao.intensity - 0.05f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("intensity-");
-            return true;
-        case SDLK_RIGHTBRACKET:
-            ssao.radius = std::min(100.0f, ssao.radius + 5.0f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("radius+");
-            return true;
-        case SDLK_LEFTBRACKET:
-            ssao.radius = std::max(1.0f, ssao.radius - 5.0f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("radius-");
-            return true;
-        case SDLK_PERIOD:
-            ssao.samples = std::min(32, ssao.samples + 2);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("samples+");
-            return true;
-        case SDLK_COMMA:
-            ssao.samples = std::max(2, ssao.samples - 2);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("samples-");
-            return true;
-        case SDLK_APOSTROPHE:
-            ssao.power = std::min(16.0f, ssao.power + 1.0f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("power+");
-            return true;
-        case SDLK_SEMICOLON:
-            ssao.power = std::max(0.5f, ssao.power - 1.0f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("power-");
-            return true;
-        case SDLK_F:
+        if (event.key.key == SDLK_F) {
             if (_controls) {
                 _controls->focus(_focusPoint, _orbitDistance);
             }
             return true;
-        default:
-            return false;
         }
+        return handleSsaoKey(_cameraComp, event.key.key);
     }
 
     void destroy() override
@@ -320,26 +235,6 @@ protected:
     }
 
 private:
-    void logSsaoState(const char* reason) const
-    {
-        if (!_cameraComp) {
-            return;
-        }
-        const auto& ssao = _cameraComp->ssao();
-        spdlog::info("SSAO {}: enabled={}, type={}, blur={}, intensity={:.2f}, power={:.1f}, radius={:.1f}, samples={}, minAngle={:.1f}, scale={:.2f}, randomize={}",
-            reason,
-            ssao.enabled ? "ON" : "OFF",
-            std::string(ssao.type),
-            ssao.blurEnabled ? "ON" : "OFF",
-            ssao.intensity,
-            ssao.power,
-            ssao.radius,
-            ssao.samples,
-            ssao.minAngle,
-            ssao.scale,
-            ssao.randomize ? "ON" : "OFF");
-    }
-
     std::unique_ptr<Asset> _envAtlas;
     std::unique_ptr<Asset> _laboratory;
     std::shared_ptr<StandardMaterial> _planeMaterial;

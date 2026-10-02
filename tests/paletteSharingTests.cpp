@@ -24,21 +24,13 @@
 #include "scene/graphNode.h"
 #include "scene/skin.h"
 #include "scene/skinInstance.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::printf("%s %s\n", condition ? "  ok  " : "  FAIL", what);
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     constexpr size_t kAlignment = 256;
     constexpr size_t kPalette = 64 * 64;   // 64 bones x float4x4
 }
@@ -145,6 +137,5 @@ int main()
         check(skinA.paletteVersion() != thisFrame, "the next frame's update renames it again");
     }
 
-    std::printf(failures == 0 ? "\nAll palette sharing tests passed\n" : "\nPalette sharing tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("palette sharing");
 }

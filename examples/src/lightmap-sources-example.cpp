@@ -30,7 +30,6 @@
 //
 #include <memory>
 #include <string>
-#include <variant>
 #include <vector>
 
 #include "../exampleApp.h"
@@ -57,21 +56,18 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ElementComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options, {.screen = false});
     }
 
     bool create() override
     {
         _lightmapAsset = std::make_unique<Asset>("lightmap", AssetType::TEXTURE,
             assetPath("textures/clouds.jpg"));
-        const auto lightmapResource = _lightmapAsset->resource();
-        if (!lightmapResource) {
+        Texture* assignedLightmap = _lightmapAsset->resourceAs<Texture>();
+        if (!assignedLightmap) {
             spdlog::error("Failed to load clouds.jpg");
             return false;
         }
-        Texture* assignedLightmap = std::get<Texture*>(*lightmapResource);
         _font = std::make_unique<Asset>("label-font", AssetType::FONT, assetPath("fonts/roboto-regular.json"));
 
         // A dim sky ambient. A lightmap is taken to carry the ambient light already, so
@@ -188,11 +184,7 @@ private:
         constexpr float kFontSizeWorld = 0.16f;
         const float scale = kFontSizeWorld / static_cast<float>(kFontSize);
 
-        FontResource* fontResource = nullptr;
-        if (const auto res = _font->resource();
-            res.has_value() && std::holds_alternative<FontResource*>(*res)) {
-            fontResource = std::get<FontResource*>(*res);
-        }
+        FontResource* fontResource = _font->resourceAs<FontResource>();
         if (!fontResource) {
             spdlog::warn("roboto-regular.json failed to load; the labels will be missing");
             return;
@@ -216,7 +208,6 @@ private:
         root()->addChild(text);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _lightmapAsset;
     std::unique_ptr<Asset> _font;
     std::shared_ptr<StandardMaterial> _plain;

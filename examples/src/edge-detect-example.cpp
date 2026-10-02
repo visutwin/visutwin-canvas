@@ -164,17 +164,16 @@ protected:
             AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false}
         );
 
-        const auto boardResource = _boardAsset->resource();
-        const auto helipadResource = _helipadAsset->resource();
-        if (!boardResource || !helipadResource || !std::holds_alternative<ContainerResource*>(*boardResource)) {
+        ContainerResource* container = _boardAsset->resourceAs<ContainerResource>();
+        Texture* helipadTexture = _helipadAsset->resourceAs<Texture>();
+        if (!container || !helipadTexture) {
             spdlog::error("Failed to load required chess-board/env atlas resources");
             return false;
         }
 
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
         scene()->setSkyboxMip(1);
 
-        auto* container = std::get<ContainerResource*>(*boardResource);
         auto* boardEntity = container ? container->instantiateRenderEntity() : nullptr;
         if (!boardEntity) {
             spdlog::error("Failed to instantiate chess-board.glb render entity");

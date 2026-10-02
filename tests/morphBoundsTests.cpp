@@ -16,7 +16,6 @@
 
 #include <tiny_gltf.h>
 
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -27,33 +26,21 @@
 
 #include "framework/parsers/glbContainerResource.h"
 #include "framework/parsers/glbParser.h"
-#include "platform/graphics/graphicsDevice.h"
 #include "scene/graphNode.h"
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
 #include "scene/morph.h"
 #include "scene/morphInstance.h"
 #include "scene/skin.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const Vector3& a, const float x, const float y, const float z)
-    {
-        return std::fabs(a.getX() - x) < 1e-5f && std::fabs(a.getY() - y) < 1e-5f &&
-            std::fabs(a.getZ() - z) < 1e-5f;
-    }
+    constexpr float kTolerance = 1e-5f;
 
     Vector3 boxMin(const BoundingBox& box) { return box.center() - box.halfExtents(); }
     Vector3 boxMax(const BoundingBox& box) { return box.center() + box.halfExtents(); }
@@ -65,26 +52,6 @@ namespace
         return "(" + std::to_string(lo.getX()) + ", " + std::to_string(lo.getY()) + ", " + std::to_string(lo.getZ()) +
             ") - (" + std::to_string(hi.getX()) + ", " + std::to_string(hi.getY()) + ", " + std::to_string(hi.getZ()) + ")";
     }
-
-    /// Creates no GPU objects: the parser gets null buffers back and keeps going,
-    /// and the bone bounds are computed from the glTF data before any of that.
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
 
     // Two targets over a three-vertex mesh (rest positions (0,0,0), (1,0,0), (0,1,0)):
     //   A moves vertex 0 by (0, 0, -2);
@@ -181,13 +148,15 @@ int main()
     {
         const Morph morph(twoTargets(), 3, nullptr);
         // Deltas: (0,0,-2), (0,0,1), (3,0,0) and zeros, with the origin included.
-        check(near(boxMin(morph.aabb()), 0.0f, 0.0f, -2.0f), "min is the most negative delta per axis: " + describe(morph.aabb()));
-        check(near(boxMax(morph.aabb()), 3.0f, 0.0f, 1.0f), "max is the most positive delta per axis");
+        check(nearStrict(boxMin(morph.aabb()), 0.0f, 0.0f, -2.0f, kTolerance),
+            "min is the most negative delta per axis: " + describe(morph.aabb()));
+        check(nearStrict(boxMax(morph.aabb()), 3.0f, 0.0f, 1.0f, kTolerance),
+            "max is the most positive delta per axis");
 
         MorphTarget outward;
         outward.deltaPositions = {1.0f, 2.0f, 3.0f};
         const Morph onlyPositive({outward}, 1, nullptr);
-        check(near(boxMin(onlyPositive.aabb()), 0.0f, 0.0f, 0.0f),
+        check(nearStrict(boxMin(onlyPositive.aabb()), 0.0f, 0.0f, 0.0f, kTolerance),
             "the origin is always inside: a target that only pushes outward keeps min at 0");
     }
 
@@ -202,20 +171,24 @@ int main()
         GraphNode node;
         MeshInstance instance(mesh.get(), nullptr, &node);
         const BoundingBox before = instance.aabb();
-        check(near(boxMin(before), 0.0f, 0.0f, 0.0f) && near(boxMax(before), 1.0f, 1.0f, 0.0f),
+        check(nearStrict(boxMin(before), 0.0f, 0.0f, 0.0f, kTolerance) &&
+              nearStrict(boxMax(before), 1.0f, 1.0f, 0.0f, kTolerance),
             "without a morph the bounds are the rest pose: " + describe(before));
 
         // Attached AFTER the bounds were computed and cached: the setter must invalidate.
         instance.setMorphInstance(std::make_shared<MorphInstance>(
             std::make_shared<Morph>(twoTargets(), 3, nullptr)));
         const BoundingBox after = instance.aabb();
-        check(near(boxMin(after), 0.0f, 0.0f, -2.0f) && near(boxMax(after), 4.0f, 1.0f, 1.0f),
+        check(nearStrict(boxMin(after), 0.0f, 0.0f, -2.0f, kTolerance) &&
+              nearStrict(boxMax(after), 4.0f, 1.0f, 1.0f, kTolerance),
             "with the morph they grow by its delta bounds: " + describe(after));
     }
 
     std::cout << "\nskinned + morphed glTF bone bounds\n";
     {
-        auto device = std::make_shared<StubDevice>();
+        // Creates no GPU objects: the parser gets null buffers back and keeps going,
+        // and the bone bounds are computed from the glTF data before any of that.
+        auto device = std::make_shared<StubGraphicsDevice>();
         tinygltf::Model model = skinnedMorphedModel();
         auto container = GlbParser::createFromModel(model, device, "morphBoundsTests");
         check(container != nullptr, "createFromModel parses the skinned, morphed model");
@@ -226,11 +199,11 @@ int main()
         if (hasBoneBox) {
             const BoundingBox& bone = skinContainer->skinPayloads()[0].skin->boneAabbs()[0];
             // Vertex 0 reaches z -2 (A) and z +1 (B); vertex 1 reaches x 1 + 3 = 4 (B).
-            check(near(boxMin(bone), 0.0f, 0.0f, -2.0f) && near(boxMax(bone), 4.0f, 1.0f, 1.0f),
+            check(nearStrict(boxMin(bone), 0.0f, 0.0f, -2.0f, kTolerance) &&
+                  nearStrict(boxMax(bone), 4.0f, 1.0f, 1.0f, kTolerance),
                 "the bone box holds every vertex's reach under its targets: " + describe(bone));
         }
     }
 
-    std::cout << (failures == 0 ? "\nAll morph bounds tests passed\n" : "\nMorph bounds tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("morph bounds");
 }

@@ -35,78 +35,35 @@
 #include "framework/input/elementInput.h"
 #include "framework/input/uiGeometryArena.h"
 #include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    // Buffers that keep their bytes on the CPU, so the test can read what was written.
-    class CpuVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        void unlock() override {}
-    };
-
-    class CpuIndexBuffer final : public IndexBuffer
-    {
-    public:
-        using IndexBuffer::IndexBuffer;
-        bool setData(const std::vector<uint8_t>& data) override
-        {
-            _storage = data;
-            return true;
-        }
-        bool writeRange(const size_t offset, const void* data, const size_t size) override
-        {
-            if (offset + size > _storage.size()) {
-                return false;
-            }
-            std::memcpy(_storage.data() + offset, data, size);
-            return true;
-        }
-    };
-
     int vertexBuffersCreated = 0;
 
-    class StubDevice final : public GraphicsDevice
+    // Buffers that keep their bytes on the CPU, so the test can read what was written; a
+    // count of the vertex buffers made, and Metal's three frames in flight.
+    class SharingDevice final : public StubGraphicsDevice
     {
     public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
+        SharingDevice() : StubGraphicsDevice(Options{.size = {800, 600}, .cpuBuffers = true, .keepIndexData = true}) {}
+
         std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
             const int numVertices, const VertexBufferOptions& options) override
         {
             ++vertexBuffersCreated;
-            return std::make_shared<CpuVertexBuffer>(this, format, numVertices, options);
+            return StubGraphicsDevice::createVertexBuffer(format, numVertices, options);
         }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(const IndexFormat format, const int numIndices,
-            const std::vector<uint8_t>& data) override
-        {
-            auto buffer = std::make_shared<CpuIndexBuffer>(this, format, numIndices);
-            buffer->setData(data);
-            return buffer;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {800, 600}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
+
         int maxFramesInFlight() const override { return 3; }
     };
 
@@ -193,7 +150,7 @@ int main()
 
     std::cout << "\ngeometry arena\n";
     {
-        StubDevice device;
+        SharingDevice device;
         auto arena = UiGeometryArena::create(&device);
         std::vector<float> vertices;
         std::vector<uint32_t> indices;
@@ -259,16 +216,10 @@ int main()
     }
 
     // ---- ElementInput ------------------------------------------------------------
-    auto device = std::make_shared<StubDevice>();
-    auto engine = std::make_shared<Engine>(nullptr);
+    auto device = std::make_shared<SharingDevice>();
     auto elementInput = std::make_shared<ElementInput>();
-    AppOptions options;
-    options.graphicsDevice = device;
-    options.elementInput = elementInput;
-    options.registerComponentSystem<RenderComponentSystem>();
-    options.registerComponentSystem<ScreenComponentSystem>();
-    options.registerComponentSystem<ElementComponentSystem>();
-    engine->init(options);
+    auto engine = makeTestEngine<RenderComponentSystem, ScreenComponentSystem, ElementComponentSystem>(device,
+        [&](AppOptions& options) { options.elementInput = elementInput; });
 
     auto* screen = new Entity();
     screen->setEngine(engine.get());
@@ -428,6 +379,5 @@ int main()
             instanceOf(b->entity())->material() == ia->material(), "and gets a new one, shared material and all");
     }
 
-    std::cout << (failures == 0 ? "\nAll UI visual sharing tests passed\n" : "\nUI visual sharing tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("UI visual sharing");
 }

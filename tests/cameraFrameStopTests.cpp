@@ -33,21 +33,13 @@
 #include "scene/constants.h"
 #include "scene/graphics/renderPassCameraFrame.h"
 #include "scene/layer.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     int indexOf(const std::vector<RenderAction*>& actions, const int layerId, const bool transparent)
     {
         for (size_t i = 0; i < actions.size(); ++i) {
@@ -144,6 +136,5 @@ int main()
         check(!RenderPassCameraFrame::prepassRenders(options), "and with no consumer it still does not render");
     }
 
-    std::cout << (failures == 0 ? "\nAll camera frame stop tests passed\n" : "\nCamera frame stop tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("camera frame stop");
 }

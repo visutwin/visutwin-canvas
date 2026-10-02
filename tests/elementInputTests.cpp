@@ -48,66 +48,19 @@
 #include "scene/materials/standardMaterial.h"
 #include "scene/meshInstance.h"
 #include "scene/sprite.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-5f) { return std::abs(a - b) <= eps; }
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(const int width, const int height) override { _size = {width, height}; }
-        std::pair<int, int> size() const override { return _size; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    private:
-        std::pair<int, int> _size{300, 150};
-    };
+    constexpr float kTolerance = 1e-5f;
 
     std::shared_ptr<Engine> engine;
     std::shared_ptr<ElementInput> input;
-
-    Entity* newEntity(const std::string& name = "e")
-    {
-        auto* e = new Entity();
-        e->setEngine(engine.get());
-        e->setName(name);
-        return e;
-    }
-
-    Entity* addTo(GraphNode* parent, Entity* child)
-    {
-        parent->addChild(std::unique_ptr<GraphNode>(child));
-        return child;
-    }
-
-    ElementComponent* addElement(Entity* e, const ElementDesc& desc)
-    {
-        auto* element = static_cast<ElementComponent*>(e->addComponent<ElementComponent>());
-        element->setup(desc);
-        return element;
-    }
 
     ButtonComponent* addButton(Entity* e)
     {
@@ -116,7 +69,7 @@ namespace
 
     Entity* screenSpaceScreen()
     {
-        Entity* screen = addTo(engine->root(), newEntity("screen"));
+        Entity* screen = addTo(engine->root(), newEntity(engine.get(), "screen"));
         static_cast<ScreenComponent*>(screen->addComponent<ScreenComponent>())->setScreenSpace(true);
         return screen;
     }
@@ -126,7 +79,7 @@ namespace
     ElementComponent* box(Entity* parent, const std::string& name, const float x, const float y, const float w,
                           const float h, const bool useInput = true)
     {
-        Entity* e = addTo(parent, newEntity(name));
+        Entity* e = addTo(parent, newEntity(engine.get(), name));
         ElementComponent* element = addElement(e, {.type = ElementType::Group, .anchor = Vector4(0, 0, 0, 0),
             .pivot = Vector2(0, 0), .width = w, .height = h, .useInput = useInput});
         e->setLocalPosition(x, y, 0.0f);
@@ -187,8 +140,8 @@ namespace
     TestButton createButton(GraphNode* parent)
     {
         TestButton b;
-        b.button = addTo(parent, newEntity("button"));
-        b.image = addTo(b.button, newEntity("image"));
+        b.button = addTo(parent, newEntity(engine.get(), "button"));
+        b.image = addTo(b.button, newEntity(engine.get(), "image"));
         b.imageElement = addElement(b.image, {.type = ElementType::Image});
         addElement(b.button, {.type = ElementType::Image, .useInput = true});
         b.component = addButton(b.button);
@@ -220,23 +173,17 @@ int main()
 {
     std::cout << std::unitbuf;
 
-    auto device = std::make_shared<StubDevice>();
-    engine = std::make_shared<Engine>(nullptr);
+    auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {300, 150}, .resizable = true});
     input = std::make_shared<ElementInput>();
-    AppOptions options;
-    options.graphicsDevice = device;
-    options.elementInput = input;
     auto mouseDevice = std::make_shared<Mouse>();
-    options.mouse = mouseDevice;
-    options.registerComponentSystem<CameraComponentSystem>();
     // the element visuals are render components
-    options.registerComponentSystem<RenderComponentSystem>();
-    options.registerComponentSystem<ScreenComponentSystem>();
-    options.registerComponentSystem<ElementComponentSystem>();
-    options.registerComponentSystem<ButtonComponentSystem>();
-    engine->init(options);
+    engine = makeTestEngine<CameraComponentSystem, RenderComponentSystem, ScreenComponentSystem,
+        ElementComponentSystem, ButtonComponentSystem>(device, [&](AppOptions& options) {
+        options.elementInput = input;
+        options.mouse = mouseDevice;
+    });
 
-    Entity* cameraEntity = addTo(engine->root(), newEntity("camera"));
+    Entity* cameraEntity = addTo(engine->root(), newEntity(engine.get(), "camera"));
     cameraEntity->setLocalPosition(0.0f, 0.0f, 0.0f);   // looking down -Z
     auto* camera = static_cast<CameraComponent*>(cameraEntity->addComponent<CameraComponent>());
     camera->camera()->setAspectRatio(2.0f);             // the 300x150 canvas
@@ -276,7 +223,7 @@ int main()
 
         input->onMouseWheel(100.0f, 110.0f, 1.0f);
         check(r.count("mousewheel") == 1 && r.events[0].wheelDelta == -1 &&
-              near(r.events[0].wheel(), 2.0f), "a wheel notch away from the user is wheelDelta -1 (wheel +2)");
+              near(r.events[0].wheel(), 2.0f, kTolerance), "a wheel notch away from the user is wheelDelta -1 (wheel +2)");
         r.clear();
         input->onMouseMove(10.0f, 10.0f);
         r.clear();
@@ -510,7 +457,7 @@ int main()
         // Two 2x2 elements on no screen, facing the camera at the origin; the canvas centre
         // looks straight at both.
         const auto worldBox = [&](const std::string& name, const float z) {
-            Entity* e = addTo(engine->root(), newEntity(name));
+            Entity* e = addTo(engine->root(), newEntity(engine.get(), name));
             ElementComponent* element = addElement(e, {.type = ElementType::Group, .pivot = Vector2(0.5f, 0.5f),
                 .width = 2.0f, .height = 2.0f, .useInput = true});
             e->setLocalPosition(0.0f, 0.0f, z);
@@ -532,7 +479,7 @@ int main()
         // avatar mask with its picture, the last element of the card.
         const auto image = [&](GraphNode* parent, const std::string& name, const bool mask, const float w,
                                const float h, const bool useInput = false) {
-            Entity* e = addTo(parent, newEntity(name));
+            Entity* e = addTo(parent, newEntity(engine.get(), name));
             ElementComponent* element = addElement(e, {.type = ElementType::Image, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f),
                 .pivot = Vector2(0.5f, 0.5f), .width = w, .height = h, .useInput = useInput});
             element->setMask(mask);
@@ -600,7 +547,7 @@ int main()
 
     std::cout << "\ncustom material (upstream image element `material`)\n";
     {
-        auto* e = static_cast<ElementComponent*>(addTo(screen, newEntity("overlay"))->addComponent<ElementComponent>());
+        auto* e = static_cast<ElementComponent*>(addTo(screen, newEntity(engine.get(), "overlay"))->addComponent<ElementComponent>());
         e->setup({.type = ElementType::Image, .anchor = Vector4(0, 0, 0, 0), .pivot = Vector2(0, 0),
                   .width = 20.0f, .height = 20.0f});
         engine->update(0.0f);
@@ -627,7 +574,7 @@ int main()
 
     std::cout << "\nButtonComponent defaults (upstream #addComponent)\n";
     {
-        Entity* e = addTo(engine->root(), newEntity());
+        Entity* e = addTo(engine->root(), newEntity(engine.get()));
         ButtonComponent* b = addButton(e);
         check(b->enabled() && b->isActive() && b->imageEntity() == nullptr, "enabled, active, no image");
         check(b->hitPadding().getX() == 0.0f && b->hitPadding().getW() == 0.0f, "no hit padding");
@@ -642,14 +589,14 @@ int main()
     std::cout << "\n#active\n";
     {
         TestButton t = createButton(engine->root());
-        check(near(t.imageElement->color().r, 1.0f), "the image starts at its default white");
+        check(near(t.imageElement->color().r, 1.0f, kTolerance), "the image starts at its default white");
         t.component->setActive(false);
-        check(near(t.imageElement->color().r, 0.25f) && near(t.imageElement->color().g, 0.25f) &&
-              near(t.imageElement->color().b, 0.25f) && near(t.imageElement->opacity(), 1.0f),
+        check(near(t.imageElement->color().r, 0.25f, kTolerance) && near(t.imageElement->color().g, 0.25f, kTolerance) &&
+              near(t.imageElement->color().b, 0.25f, kTolerance) && near(t.imageElement->opacity(), 1.0f, kTolerance),
             "deactivating applies the inactive tint");
         t.component->setInactiveTint(Color(0.2f, 0.4f, 0.6f, 1.0f));
-        check(near(t.imageElement->color().r, 0.2f) && near(t.imageElement->color().g, 0.4f) &&
-              near(t.imageElement->color().b, 0.6f), "and reapplies it when it changes while inactive");
+        check(near(t.imageElement->color().r, 0.2f, kTolerance) && near(t.imageElement->color().g, 0.4f, kTolerance) &&
+              near(t.imageElement->color().b, 0.6f, kTolerance), "and reapplies it when it changes while inactive");
 
         int clicks = 0;
         t.component->on("click", [&clicks]() { ++clicks; });
@@ -669,22 +616,22 @@ int main()
         TestButton t = createButton(engine->root());
         t.component->setActive(false);
         t.component->setInactiveSpriteFrame(2);
-        check(near(t.imageElement->color().r, 0.25f), "tint mode has applied the inactive tint");
+        check(near(t.imageElement->color().r, 0.25f, kTolerance), "tint mode has applied the inactive tint");
         t.component->setTransitionMode(ButtonTransitionMode::Tint);
-        check(near(t.imageElement->color().r, 0.25f), "setting the same mode changes nothing");
+        check(near(t.imageElement->color().r, 0.25f, kTolerance), "setting the same mode changes nothing");
         t.component->setTransitionMode(ButtonTransitionMode::SpriteChange);
-        check(near(t.imageElement->color().r, 1.0f), "switching to sprites restores the default tint");
+        check(near(t.imageElement->color().r, 1.0f, kTolerance), "switching to sprites restores the default tint");
         check(t.imageElement->spriteFrame() == 2, "and shows the inactive sprite frame");
         t.button->destroy();
     }
 
     std::cout << "\n#imageEntity\n";
     {
-        Entity* image1 = addTo(engine->root(), newEntity("image1"));
+        Entity* image1 = addTo(engine->root(), newEntity(engine.get(), "image1"));
         ElementComponent* element1 = addElement(image1, {.type = ElementType::Image});
-        Entity* image2 = addTo(engine->root(), newEntity("image2"));
+        Entity* image2 = addTo(engine->root(), newEntity(engine.get(), "image2"));
         ElementComponent* element2 = addElement(image2, {.type = ElementType::Image});
-        Entity* e = addTo(engine->root(), newEntity());
+        Entity* e = addTo(engine->root(), newEntity(engine.get()));
         ButtonComponent* b = addButton(e);
         b->setImageEntity(image1);
         check(element1->hasEvent("set:color") && !element2->hasEvent("set:color"), "it follows image 1");
@@ -695,12 +642,12 @@ int main()
         check(b->imageEntity() == nullptr && !element2->hasEvent("set:color"), "null lets go of both");
 
         // An element added to the image entity AFTER the button names it.
-        Entity* late = addTo(engine->root(), newEntity("late"));
+        Entity* late = addTo(engine->root(), newEntity(engine.get(), "late"));
         b->setImageEntity(late);
         b->setActive(false);
         ElementComponent* lateElement = addElement(late, {.type = ElementType::Image});
         engine->update(0.0f);
-        check(near(lateElement->color().r, 0.25f), "an image element added later is picked up on the next update");
+        check(near(lateElement->color().r, 0.25f, kTolerance), "an image element added later is picked up on the next update");
         e->destroy();
         image1->destroy();
         image2->destroy();
@@ -738,7 +685,7 @@ int main()
     std::cout << "\nstates through ElementInput\n";
     {
         // A tint button on the screen tinting itself, as the buttons example builds them.
-        Entity* e = addTo(screen, newEntity("play"));
+        Entity* e = addTo(screen, newEntity(engine.get(), "play"));
         ElementComponent* element = addElement(e, {.type = ElementType::Image, .anchor = Vector4(0, 0, 0, 0),
             .pivot = Vector2(0, 0), .width = 100.0f, .height = 40.0f, .useInput = true});
         element->setColor(Color(1.0f, 0.55f, 0.2f, 1.0f));
@@ -751,34 +698,34 @@ int main()
         r.follow(b, {"hoverstart", "hoverend", "pressedstart", "pressedend", "click", "mouseenter"});
 
         input->onMouseMove(150.0f, 80.0f);
-        check(near(element->color().g, 0.7f) && b->visualState() == ButtonComponent::VisualState::Hover,
+        check(near(element->color().g, 0.7f, kTolerance) && b->visualState() == ButtonComponent::VisualState::Hover,
             "hovering applies the hover tint");
         input->onMouseDown(150.0f, 80.0f, MouseButton::Left);
-        check(near(element->color().g, 0.4f), "pressing applies the pressed tint");
+        check(near(element->color().g, 0.4f, kTolerance), "pressing applies the pressed tint");
         input->onMouseUp(150.0f, 80.0f, MouseButton::Left);
-        check(near(element->color().g, 0.7f), "releasing goes back to hover");
+        check(near(element->color().g, 0.7f, kTolerance), "releasing goes back to hover");
         check(r.names == std::vector<std::string>{"hoverstart", "mouseenter", "hoverend", "pressedstart",
                                                   "pressedend", "hoverstart", "click"},
             "hoverstart/end, pressedstart/end and the click, in upstream's order");
         check(r.events.back().element == element, "the button re-fires the element's event");
         input->onMouseMove(10.0f, 10.0f);
-        check(near(element->color().g, 0.55f), "leaving restores the image's own colour");
+        check(near(element->color().g, 0.55f, kTolerance), "leaving restores the image's own colour");
 
         element->setColor(Color(0.2f, 0.9f, 0.3f, 1.0f));
         input->onMouseMove(150.0f, 80.0f);
         input->onMouseMove(10.0f, 10.0f);
-        check(near(element->color().g, 0.9f), "a colour the application sets becomes the default");
+        check(near(element->color().g, 0.9f, kTolerance), "a colour the application sets becomes the default");
 
         b->setFadeDuration(100.0f);
         input->onMouseMove(150.0f, 80.0f);
-        check(near(element->color().g, 0.9f), "with a fade the tint does not jump");
+        check(near(element->color().g, 0.9f, kTolerance), "with a fade the tint does not jump");
         engine->update(0.05f);
         check(near(element->color().g, 0.8f, 1e-4f), "half the fade later it is half way");
         engine->update(0.05f);
-        check(near(element->color().g, 0.7f), "and at the end it is the hover tint");
+        check(near(element->color().g, 0.7f, kTolerance), "and at the end it is the hover tint");
 
         b->setEnabled(false);
-        check(near(element->color().g, 0.9f), "disabling the button restores the default look");
+        check(near(element->color().g, 0.9f, kTolerance), "disabling the button restores the default look");
         b->setEnabled(true);
         input->onMouseMove(1.0f, 1.0f);
         e->destroy();
@@ -786,7 +733,7 @@ int main()
 
     std::cout << "\nsprite change through the states\n";
     {
-        Entity* e = addTo(screen, newEntity("options"));
+        Entity* e = addTo(screen, newEntity(engine.get(), "options"));
         ElementComponent* element = addElement(e, {.type = ElementType::Image, .anchor = Vector4(0, 0, 0, 0),
             .pivot = Vector2(0, 0), .width = 100.0f, .height = 40.0f, .useInput = true});
         auto states = std::make_shared<Sprite>();
@@ -810,8 +757,7 @@ int main()
         e->destroy();
     }
 
-    std::cout << (failures == 0 ? "\nAll element input tests passed\n" : "\nElement input tests FAILED\n");
     input.reset();
     engine.reset();
-    return failures == 0 ? 0 : 1;
+    return finish("element input");
 }

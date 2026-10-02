@@ -33,6 +33,10 @@
 #include <vector>
 
 #include "extras/script/cameraControls.h"
+#include "framework/components/button/buttonComponentSystem.h"
+#include "framework/components/element/elementComponentSystem.h"
+#include "framework/components/screen/screenComponentSystem.h"
+#include "framework/input/elementInput.h"
 #include "framework/constants.h"
 #include "scene/materials/standardMaterial.h"
 #include "framework/extras/miniStats.h"
@@ -641,6 +645,36 @@ namespace visutwin::canvas
         camera->setLocalEulerAngles(eulerAngles.getX(), eulerAngles.getY(), eulerAngles.getZ());
         _engine->root()->addChild(camera);
         return camera;
+    }
+
+    void ExampleApp::registerUi(AppOptions& options, const UiSystems systems)
+    {
+        if (systems.screen) {
+            options.registerComponentSystem<ScreenComponentSystem>();
+        }
+        options.registerComponentSystem<ElementComponentSystem>();
+        if (systems.button) {
+            options.registerComponentSystem<ButtonComponentSystem>();
+        }
+        _elementInput = std::make_shared<ElementInput>();
+        options.elementInput = _elementInput;
+    }
+
+    ScreenComponent* ExampleApp::createScreen(const ScreenOptions& options)
+    {
+        auto* entity = new Entity();
+        entity->setEngine(_engine.get());
+        auto* screen = static_cast<ScreenComponent*>(entity->addComponent<ScreenComponent>());
+        // Screen space first: a world-space screen refuses every scale mode but None.
+        screen->setScreenSpace(options.screenSpace);
+        screen->setReferenceResolution(options.referenceResolution);
+        screen->setScaleMode(options.scaleMode);
+        screen->setScaleBlend(options.scaleBlend);
+        if (options.priority) {
+            screen->setPriority(*options.priority);
+        }
+        _engine->root()->addChild(entity);
+        return screen;
     }
 
     CameraControls* ExampleApp::addOrbitControls(Entity* camera, const Vector3& focusPoint)

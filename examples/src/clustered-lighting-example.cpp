@@ -155,12 +155,11 @@ protected:
             assetPath("textures/normal-map.png"),
             AssetData{ .mipmaps = true }
         );
-        const auto normalMapResource = _normalMapAsset->resource();
-        if (!normalMapResource) {
+        Texture* normalMap = _normalMapAsset->resourceAs<Texture>();
+        if (!normalMap) {
             spdlog::error("Failed to load textures/normal-map.png");
             return false;
         }
-        auto* normalMap = std::get<Texture*>(*normalMapResource);
 
         // --- Shared material: tiled normal map, mildly glossy metal ---
         _material = std::make_shared<StandardMaterial>();

@@ -24,21 +24,13 @@
 #include "scene/constants.h"
 #include "scene/layer.h"
 #include "scene/light.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     class ProbeComponent : public Component
     {
     public:
@@ -195,7 +187,5 @@ int main()
         check(!clearColorOf(), "and stops the frame after the camera's clear is switched off");
     }
 
-    std::cout << (failures == 0 ? "\nAll component active tests passed\n"
-                                : "\nComponent active tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("component active");
 }

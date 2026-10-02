@@ -18,21 +18,13 @@
 #include <random>
 
 #include "scene/lighting/lightBounds.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::printf("  %s %s\n", condition ? "ok  " : "FAIL", what);
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     bool contains(const BoundingBox& box, const Vector3& point, const float slack = 1e-3f)
     {
         const Vector3 low = box.center() - box.halfExtents();
@@ -144,8 +136,5 @@ int main()
             "an omni's bound reaches its range on every axis");
     }
 
-    if (failures == 0) {
-        std::printf("light bounds: all checks passed\n");
-    }
-    return failures == 0 ? 0 : 1;
+    return finish("light bounds");
 }

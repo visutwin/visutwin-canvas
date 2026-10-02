@@ -114,6 +114,21 @@ namespace visutwin::canvas
         /// set on a material by hand: that asset must outlive the material.
         std::optional<Resource> resource();
 
+        /// The resource as a T (Texture, ContainerResource or FontResource), loading it
+        /// synchronously as resource() does. Null when the load failed or the resource is
+        /// another type, so a caller tests one pointer instead of the variant. The pointer
+        /// is borrowed exactly as resource()'s is.
+        template <class T>
+        T* resourceAs()
+        {
+            const auto loadedResource = resource();
+            if (!loadedResource) {
+                return nullptr;
+            }
+            T* const* typed = std::get_if<T*>(&*loadedResource);
+            return typed ? *typed : nullptr;
+        }
+
         /**
          * Asynchronous load — queues I/O on the ResourceLoader's background
          * thread and invokes @p callback on the main thread (during

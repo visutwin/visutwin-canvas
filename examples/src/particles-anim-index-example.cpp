@@ -45,11 +45,7 @@ protected:
     {
         _sprite = std::make_unique<Asset>("particlesNumbers", AssetType::TEXTURE,
             assetPath("textures/particles-numbers.png"));
-        Texture* sheet = nullptr;
-        if (const auto resource = _sprite->resource();
-            resource && std::holds_alternative<Texture*>(*resource)) {
-            sheet = std::get<Texture*>(*resource);
-        }
+        Texture* sheet = _sprite->resourceAs<Texture>();
         if (sheet == nullptr) {
             spdlog::error("particles-anim-index needs textures/particles-numbers.png");
             return false;

@@ -39,42 +39,16 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/meshInstance.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-5f) { return std::abs(a - b) <= eps; }
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(const int width, const int height) override { _size = {width, height}; }
-        std::pair<int, int> size() const override { return _size; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    private:
-        std::pair<int, int> _size{300, 150};
-    };
+    constexpr float kTolerance = 1e-5f;
 
     void writePng(const std::filesystem::path& path, const int width, const int height)
     {
@@ -116,17 +90,11 @@ int main()
     const auto dir = std::filesystem::temp_directory_path() / "visutwin-msdf-text-tests";
     std::filesystem::create_directories(dir);
 
-    auto device = std::make_shared<StubDevice>();
-    auto engine = std::make_shared<Engine>(nullptr);
+    auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {300, 150}, .resizable = true});
     auto elementInput = std::make_shared<ElementInput>();
-    AppOptions options;
-    options.graphicsDevice = device;
-    options.elementInput = elementInput;
     // The visuals are render components: without the system they cannot exist.
-    options.registerComponentSystem<RenderComponentSystem>();
-    options.registerComponentSystem<ScreenComponentSystem>();
-    options.registerComponentSystem<ElementComponentSystem>();
-    engine->init(options);
+    auto engine = makeTestEngine<RenderComponentSystem, ScreenComponentSystem, ElementComponentSystem>(device,
+        [&](AppOptions& options) { options.elementInput = elementInput; });
 
     std::cout << "loader\n";
     const auto msdfFont = loadBitmapFontResource(writeFont(dir, "msdf", true).string(), device);
@@ -142,14 +110,14 @@ int main()
     check(msdf->pages.size() == 2, "both pages load (<name>.png and <name>1.png)");
     check(msdf->pages.size() == 2 && msdf->pages[0]->width() == 64 && msdf->pages[1]->width() == 32,
           "each page keeps its own size");
-    check(near(msdf->pxRange, 6.0f), "pxrange is scale x range (1.5 x 4)");
-    check(near(msdf->intensity, 0.25f), "intensity is read");
+    check(near(msdf->pxRange, 6.0f, kTolerance), "pxrange is scale x range (1.5 x 4)");
+    check(near(msdf->intensity, 0.25f, kTolerance), "intensity is read");
     check(msdf->glyphs[65].page == 0 && msdf->glyphs[66].page == 1, "each glyph keeps its page");
     // Every pair of a row, not just its first: the value lookup searched from the key's
     // closing quote and missed the key itself, so no font's kerning ever loaded.
-    check(near(msdf->kerningValue(65, 66), -2.5f) && near(msdf->kerningValue(65, 65), 0.75f) &&
-          near(msdf->kerningValue(66, 65), -1.0f), "every kerning pair loads");
-    check(near(msdf->minY, -5.0f) && near(msdf->maxY, 24.0f),
+    check(near(msdf->kerningValue(65, 66), -2.5f, kTolerance) && near(msdf->kerningValue(65, 65), 0.75f, kTolerance) &&
+          near(msdf->kerningValue(66, 65), -1.0f, kTolerance), "every kerning pair loads");
+    check(near(msdf->minY, -5.0f, kTolerance) && near(msdf->maxY, 24.0f, kTolerance),
           "the font's vertical extent is the union of the glyph bounds (upstream _fontMinY / _fontMaxY)");
 
     {
@@ -219,15 +187,15 @@ int main()
         const MaterialUniforms& u = material->packedUniforms();
         const float w = static_cast<float>(msdf->pages[i]->width());
         const float h = static_cast<float>(msdf->pages[i]->height());
-        check(near(u.msdfParams[0], 6.0f) && near(u.msdfParams[1], 0.25f), page + "pxrange and intensity");
-        check(near(u.msdfParams[2], w) && near(u.msdfParams[3], h), page + "the page's own size (textureSize stand-in)");
-        check(near(u.msdfOutlineShadow[0], 0.15f), page + "outline thickness x 0.2");
-        check(near(u.msdfOutlineShadow[1], 0.005f), page + "shadow x offset x 0.005");
-        check(near(u.msdfOutlineShadow[2], -(w / h) * 0.005f * -2.0f),
+        check(near(u.msdfParams[0], 6.0f, kTolerance) && near(u.msdfParams[1], 0.25f, kTolerance), page + "pxrange and intensity");
+        check(near(u.msdfParams[2], w, kTolerance) && near(u.msdfParams[3], h, kTolerance), page + "the page's own size (textureSize stand-in)");
+        check(near(u.msdfOutlineShadow[0], 0.15f, kTolerance), page + "outline thickness x 0.2");
+        check(near(u.msdfOutlineShadow[1], 0.005f, kTolerance), page + "shadow x offset x 0.005");
+        check(near(u.msdfOutlineShadow[2], -(w / h) * 0.005f * -2.0f, kTolerance),
               page + "shadow y offset x 0.005 x -(page aspect), upstream's value as is");
-        check(near(u.msdfOutlineColor[0], std::pow(0.5f, 2.2f)) && near(u.msdfOutlineColor[1], std::pow(0.25f, 2.2f)) &&
-              near(u.msdfOutlineColor[3], 0.75f), page + "outline colour linear, alpha straight");
-        check(near(u.msdfShadowColor[0], 1.0f) && near(u.msdfShadowColor[3], 0.5f), page + "shadow colour linear");
+        check(near(u.msdfOutlineColor[0], std::pow(0.5f, 2.2f), kTolerance) && near(u.msdfOutlineColor[1], std::pow(0.25f, 2.2f), kTolerance) &&
+              near(u.msdfOutlineColor[3], 0.75f, kTolerance), page + "outline colour linear, alpha straight");
+        check(near(u.msdfShadowColor[0], 1.0f, kTolerance) && near(u.msdfShadowColor[3], 0.5f, kTolerance), page + "shadow colour linear");
     }
 
     const auto bitmapInstances = visualInstances(bitmapText->entity());
@@ -246,7 +214,7 @@ int main()
     check(!after.empty() && after[0] == before, "restyling keeps the mesh instances");
     if (!after.empty()) {
         auto* material = dynamic_cast<StandardMaterial*>(after[0]->material());
-        check(material && near(material->packedUniforms().msdfOutlineShadow[0], 0.1f), "and updates the thickness");
+        check(material && near(material->packedUniforms().msdfOutlineShadow[0], 0.1f, kTolerance), "and updates the thickness");
     }
 
     std::cout << "layout (upstream metrics)\n";
@@ -254,30 +222,30 @@ int main()
         // The MSDF font: A and B advance 10 font units, kerning A->B -2.5 and B->A -1, bounds
         // spanning -5..24, no space glyph. At fontSize 32 a font unit is one element unit.
         const TextMeasure one = measureText(*msdf, "AB", 32.0f, 32.0f);
-        check(one.lines.size() == 1 && near(one.width, 17.5f), "width is the kerned advance (10 - 2.5 + 10)");
-        check(near(one.height, 29.0f), "height is the glyph-bounds extent (24 - -5)");
+        check(one.lines.size() == 1 && near(one.width, 17.5f, kTolerance), "width is the kerned advance (10 - 2.5 + 10)");
+        check(near(one.height, 29.0f, kTolerance), "height is the glyph-bounds extent (24 - -5)");
         const TextMeasure half = measureText(*msdf, "AB", 16.0f, 16.0f);
-        check(near(half.width, 8.75f) && near(half.height, 14.5f), "metrics scale by fontSize / 32");
+        check(near(half.width, 8.75f, kTolerance) && near(half.height, 14.5f, kTolerance), "metrics scale by fontSize / 32");
         const TextMeasure wrapped = measureText(*msdf, "AB AB", 32.0f, 32.0f, 20.0f);
-        check(wrapped.lines.size() == 2 && near(wrapped.width, 17.5f), "a line wraps after the whitespace");
-        check(near(wrapped.height, 24.0f + 32.0f + 5.0f), "and the block spans both lines");
+        check(wrapped.lines.size() == 2 && near(wrapped.width, 17.5f, kTolerance), "a line wraps after the whitespace");
+        check(near(wrapped.height, 24.0f + 32.0f + 5.0f, kTolerance), "and the block spans both lines");
         const TextMeasure longWord = measureText(*msdf, "ABABAB", 32.0f, 32.0f, 20.0f);
         check(longWord.lines.size() == 3, "a word longer than the line breaks between characters");
         const TextMeasure trailing = measureText(*msdf, "AB\n", 32.0f, 32.0f);
-        check(near(trailing.height, 29.0f), "a trailing line break adds no height");
+        check(near(trailing.height, 29.0f, kTolerance), "a trailing line break adds no height");
         const TextMeasure spaced = measureText(*msdf, "AB", 32.0f, 32.0f, std::numeric_limits<float>::infinity(), 1.4f);
-        check(near(spaced.width, 1.4f * 17.5f), "spacing multiplies every advance, kerning included (1.4 x 17.5)");
+        check(near(spaced.width, 1.4f * 17.5f, kTolerance), "spacing multiplies every advance, kerning included (1.4 x 17.5)");
         const TextMeasure spacedWrap = measureText(*msdf, "AB AB", 32.0f, 32.0f, 30.0f, 1.4f);
         check(spacedWrap.lines.size() == 2, "and wrapping measures the spread line (24.5 fits 30, the second word does not)");
         const TextMeasure empty = measureText(*msdf, "", 32.0f, 32.0f);
-        check(near(empty.width, 0.0f) && near(empty.height, 0.0f), "empty text measures 0 x 0");
+        check(near(empty.width, 0.0f, kTolerance) && near(empty.height, 0.0f, kTolerance), "empty text measures 0 x 0");
         // Symbols are code points: a glyph keyed 8230 (U+2026, three bytes in UTF-8) is one
         // symbol with its own advance, where a byte loop drew three missing glyphs.
         FontGlyph ellipsis = msdf->glyphs[65];
         ellipsis.id = 0x2026;
         msdf->glyphs[0x2026] = ellipsis;
         const TextMeasure dots = measureText(*msdf, "A\u2026", 32.0f, 32.0f);
-        check(near(dots.width, 20.0f), "a multi-byte character lays out as one glyph (10 + 10)");
+        check(near(dots.width, 20.0f, kTolerance), "a multi-byte character lays out as one glyph (10 + 10)");
         msdf->glyphs.erase(0x2026);
     }
 
@@ -295,19 +263,19 @@ int main()
         ElementComponent* text = addText(msdf);
         text->setFontSize(32);
         text->setText("AB");
-        check(near(text->width(), 17.5f) && near(text->height(), 29.0f), "autoWidth and autoHeight take the text's size");
+        check(near(text->width(), 17.5f, kTolerance) && near(text->height(), 29.0f, kTolerance), "autoWidth and autoHeight take the text's size");
         text->setAutoWidth(false);
         text->setWrapLines(true);
         text->setWidth(20.0f);
         text->setText("AB AB");
-        check(near(text->height(), 61.0f), "wrapped at a set width, the height follows the lines");
+        check(near(text->height(), 61.0f, kTolerance), "wrapped at a set width, the height follows the lines");
         text->setWidth(40.0f);
-        check(near(text->height(), 29.0f), "and a wider element re-wraps at once");
+        check(near(text->height(), 29.0f, kTolerance), "and a wider element re-wraps at once");
         ElementComponent* split = addText(msdf);
         split->setAnchor(Vector4(0.0f, 0.5f, 1.0f, 0.5f));
         const float before = split->width();
         split->setText("AB");
-        check(near(split->width(), before), "a split axis keeps its own size");
+        check(near(split->width(), before, kTolerance), "a split axis keeps its own size");
     }
 
     std::cout << "justify (upstream justify)\n";
@@ -326,11 +294,11 @@ int main()
             for (const auto& g : justified) if (g.symbol == symbol) b = g.x0;
             return b - a;
         };
-        check(near(shift(0), 0.0f) && near(shift(1), 0.0f),
+        check(near(shift(0), 0.0f, kTolerance) && near(shift(1), 0.0f, kTolerance),
               "the justified line starts flush left, whatever the alignment");
-        check(near(shift(3), 5.0f) && near(shift(4), 5.0f),
+        check(near(shift(3), 5.0f, kTolerance) && near(shift(4), 5.0f, kTolerance),
               "the word after the gap moves by the whole slack (40 - 35), so the line ends flush right");
-        check(near(shift(6), 11.25f), "the last line keeps the alignment (centred: (40 - 17.5) / 2)");
+        check(near(shift(6), 11.25f, kTolerance), "the last line keeps the alignment (centred: (40 - 17.5) / 2)");
         const TextMeasure broken = measureText(*msdf, decodeUtf8("AB AB\nAB"), 32.0f, 32.0f, 40.0f);
         check(broken.lines.size() == 2 && broken.lines[0].gaps == 0, "a line ended by a line break is not justified");
         const TextMeasure longWord = measureText(*msdf, decodeUtf8("ABABAB"), 32.0f, 32.0f, 20.0f);
@@ -383,10 +351,10 @@ int main()
         bool own = false;
         for (auto* instance : parts) {
             auto* material = dynamic_cast<StandardMaterial*>(instance->material());
-            if (material && near(material->emissive().r, 1.0f) && near(material->emissive().g, 0.0f)) {
+            if (material && near(material->emissive().r, 1.0f, kTolerance) && near(material->emissive().g, 0.0f, kTolerance)) {
                 red = true;
             }
-            if (material && near(material->emissive().r, 0.5f)) {
+            if (material && near(material->emissive().r, 0.5f, kTolerance)) {
                 own = true;
             }
         }
@@ -396,8 +364,8 @@ int main()
         elementInput->syncElements();
         const auto shadowed = visualInstances(marked->entity());
         auto* material = shadowed.empty() ? nullptr : dynamic_cast<StandardMaterial*>(shadowed[0]->material());
-        check(material && near(material->packedUniforms().msdfOutlineShadow[1], 0.005f) &&
-              near(material->packedUniforms().msdfOutlineShadow[2], 0.01f),
+        check(material && near(material->packedUniforms().msdfOutlineShadow[1], 0.005f, kTolerance) &&
+              near(material->packedUniforms().msdfOutlineShadow[2], 0.01f, kTolerance),
               "with tags, the shadow takes upstream's per-vertex convention (0.005 x, 0.005 y)");
 
         ElementComponent* broken = addText(msdf);
@@ -414,6 +382,5 @@ int main()
     engine.reset();
     delete msdf;
     delete bitmap;
-    std::cout << (failures == 0 ? "PASS" : "FAIL") << " (" << failures << " failures)\n";
-    return failures == 0 ? 0 : 1;
+    return finish("msdf text");
 }

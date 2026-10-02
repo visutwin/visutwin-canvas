@@ -652,6 +652,14 @@ same flush immediately before `vkQueueSubmit`.
 
 ## Examples
 
+**Shared example and test code.** Examples build UI elements through `examples/uiElements.h`
+(each example passes its own defaults), screens and UI systems through `ExampleApp::createScreen`
+/ `registerUi`, read assets through `Asset::resourceAs<T>()`, and share `grid.h`,
+`transformGizmoExample.h` and `ssaoKeys.h`. Unit tests use `tests/support/`: `check.h`
+(`check`, `near` / `nearStrict` with an explicit epsilon, `finish`), `stubDevice.h` (one
+configurable stub device), `testEngine.h` and `gltfModel.h`, and register through
+`visutwin_add_unit_test` in `tests/CMakeLists.txt`. Do not paste a local copy of any of them.
+
 **Port an upstream example; do not invent one.** Upstream's example set is the
 reference for what a feature demo should show, and a scene invented here cannot be
 compared against anything. The upstream sources are at

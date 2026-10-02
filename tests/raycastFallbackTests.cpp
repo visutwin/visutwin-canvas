@@ -12,47 +12,21 @@
 #include <iostream>
 #include <memory>
 
-#include "framework/appOptions.h"
 #include "framework/components/collision/collisionComponent.h"
 #include "framework/components/collision/collisionComponentSystem.h"
 #include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/components/rigidbody/rigidBodyComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
-#include "platform/graphics/graphicsDevice.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
     // A unit box collider with a static body, at `z` on the ray's path.
     Entity* addBox(Engine& engine, GraphNode* parent, const float z)
     {
@@ -71,12 +45,9 @@ namespace
 
 int main()
 {
-    auto engine = std::make_shared<Engine>(nullptr);
-    AppOptions options;
-    options.graphicsDevice = std::make_shared<StubDevice>();
-    options.registerComponentSystem<CollisionComponentSystem>();
-    options.registerComponentSystem<RigidBodyComponentSystem>();
-    engine->init(options);   // no physicsWorld: the CPU fallback answers
+    // No physicsWorld: the CPU fallback answers.
+    auto engine = makeTestEngine<CollisionComponentSystem, RigidBodyComponentSystem>(
+        std::make_shared<StubGraphicsDevice>());
 
     auto* system = dynamic_cast<RigidBodyComponentSystem*>(engine->systems()->getById("rigidbody"));
     check(system != nullptr, "the rigid-body system exists");
@@ -107,6 +78,5 @@ int main()
     parent->setEnabled(false);
     check(system->raycastAll(start, end).empty(), "nor one under a disabled PARENT");
 
-    std::cout << (failures == 0 ? "\nAll raycast fallback tests passed\n" : "\nRaycast fallback tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("raycast fallback");
 }

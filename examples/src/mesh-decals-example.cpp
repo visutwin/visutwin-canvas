@@ -138,10 +138,8 @@ protected:
         _heart = std::make_unique<Asset>(
             "heart", AssetType::TEXTURE, assetPath("textures/heart.png"));
 
-        Texture* heartTexture = nullptr;
-        if (const auto heartResource = _heart->resource()) {
-            heartTexture = std::get<Texture*>(*heartResource);
-        } else {
+        Texture* heartTexture = _heart->resourceAs<Texture>();
+        if (!heartTexture) {
             spdlog::error("heart.png missing at {}", assetPath("textures/heart.png"));
             return false;
         }

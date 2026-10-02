@@ -11,21 +11,13 @@
 #include <string>
 
 #include "framework/components/element/markup.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     std::string valueOf(const MarkupResult& r, const size_t i, const std::string& tag)
     {
         if (i >= r.tags.size() || !r.tags[i]) {
@@ -126,6 +118,5 @@ int main()
         check(!r.error.empty() && r.symbols == text, "an unterminated string is an error");
     }
 
-    std::cout << (failures == 0 ? "PASS" : "FAIL") << " (" << failures << " failures)\n";
-    return failures == 0 ? 0 : 1;
+    return finish("markup");
 }

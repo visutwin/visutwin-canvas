@@ -15,6 +15,7 @@
 // once per frame and on the previous-frame snapshot it takes.
 
 #include <iostream>
+#include <sstream>
 #include <string>
 
 #include "platform/input/controller.h"
@@ -22,28 +23,23 @@
 #include "platform/input/keyboard.h"
 #include "platform/input/mouse.h"
 #include "platform/input/touchDevice.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        if (!condition) {
-            std::cerr << "FAILED: " << what << "\n";
-            ++failures;
-        }
-    }
-
     void checkNear(const float actual, const float expected, const std::string& what)
     {
-        if (std::abs(actual - expected) > 1e-4f) {
-            std::cerr << "FAILED: " << what << " (got " << actual
-                      << ", expected " << expected << ")\n";
-            ++failures;
+        const bool ok = !(std::abs(actual - expected) > 1e-4f);
+        if (ok) {
+            check(true, what);
+            return;
         }
+        std::ostringstream detail;
+        detail << what << " (got " << actual << ", expected " << expected << ")";
+        check(false, detail.str());
     }
 
     SDL_Event keyEvent(const bool down, const SDL_Scancode scancode,
@@ -290,6 +286,7 @@ namespace
 
 int main()
 {
+    quietPasses();
     keyboardStateAndEdges();
     keyboardModifiersAndFocus();
     keyboardEvents();
@@ -298,10 +295,5 @@ int main()
     controllerActionsAndAxes();
     gamePadsWithNoPad();
 
-    if (failures > 0) {
-        std::cerr << "input device tests FAILED (" << failures << ")\n";
-        return 1;
-    }
-    std::cout << "input device tests passed\n";
-    return 0;
+    return finish("input device");
 }

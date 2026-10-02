@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "../uiAtlas.h"
 #include "core/math/curve.h"
 #include "core/math/curveSet.h"
@@ -45,18 +46,6 @@ namespace
     const Color LIGHT(0.95f, 0.96f, 0.98f, 1.0f);
     const Color MUTED(0.6f, 0.64f, 0.72f, 1.0f);
 
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
-
-    Texture* textureOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<Texture*>(*res) ? std::get<Texture*>(*res) : nullptr;
-    }
-
     // Number.toLocaleString('en-US') for a whole number: thousands separated by commas.
     std::string withCommas(const int value)
     {
@@ -66,22 +55,6 @@ namespace
         }
         return digits;
     }
-
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        Vector4 anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-        Vector2 pivot = Vector2(0.5f, 0.5f);
-        std::shared_ptr<Sprite> sprite;
-        int spriteFrame = 0;
-        Color color = LIGHT;
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        FontResource* font = nullptr;
-        std::string text;
-        std::optional<int> fontSize;
-    };
 }
 
 class UiParticleSystemExample final: public ExampleApp
@@ -92,12 +65,8 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
+        registerUi(options, {.button = true});
         options.registerComponentSystem<ParticleSystemComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
     }
 
     bool create() override
@@ -107,10 +76,10 @@ protected:
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
         _sparkAsset = std::make_unique<Asset>("spark", AssetType::TEXTURE, assetPath("textures/spark.png"));
-        _font = fontOf(*_fontAsset);
-        _bold = fontOf(*_boldAsset);
-        Texture* atlasTexture = textureOf(*_uiAtlasTexture);
-        Texture* spark = textureOf(*_sparkAsset);
+        _font = _fontAsset->resourceAs<FontResource>();
+        _bold = _boldAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
+        Texture* spark = _sparkAsset->resourceAs<Texture>();
         if (!_font || !_bold || !atlasTexture || !spark) {
             spdlog::error("Failed to load the Roboto fonts, ui/ui-atlas.png or textures/spark.png");
             return false;
@@ -119,14 +88,8 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
-        _screenEntity = new Entity();
-        _screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(_screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(_screenEntity);
+        _screen = createScreen();
+        _screenEntity = _screen->entity();
 
         auto atlas = createUiAtlas(atlasTexture);
         auto panel = std::make_shared<Sprite>(atlas, std::vector<std::string>{"panel"}, 2.0f, SpriteRenderMode::Sliced);
@@ -241,30 +204,12 @@ protected:
     }
 
 private:
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = props.pivot};
-        desc.width = props.width;
-        desc.height = props.height;
-        desc.useInput = props.useInput;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-            element->setSpriteFrame(props.spriteFrame);
-        }
-        element->setColor(props.color);
-        if (props.type == ElementType::Text) {
-            element->setFontResource(props.font ? props.font : _font);
-            if (props.fontSize) {
-                element->setFontSize(*props.fontSize);
-            }
-            element->setText(props.text);
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props, {.type = ElementType::Image,
+            .color = LIGHT, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f), .pivot = Vector2(0.5f, 0.5f),
+            .font = _font});
     }
 
     // A screen-space, local-space particle system on the UI layer, 30 units above the card's
@@ -314,7 +259,6 @@ private:
         _screen->setScaleBlend(static_cast<float>(w) / reference.x > static_cast<float>(h) / reference.y ? 1.0f : 0.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _boldAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;

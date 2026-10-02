@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "../uiAtlas.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
@@ -44,18 +45,6 @@ namespace
     const Color ORANGE(1.0f, 0.55f, 0.2f, 1.0f);
     const Color LIGHT(0.95f, 0.96f, 0.98f, 1.0f);
     const Color MUTED(0.6f, 0.64f, 0.72f, 1.0f);
-
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
-
-    Texture* textureOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<Texture*>(*res) ? std::get<Texture*>(*res) : nullptr;
-    }
 
     // Intl.NumberFormat(locale, {style: 'currency', currency}).format(value) for the locales and
     // currencies this example reaches; see the header.
@@ -79,23 +68,6 @@ namespace
         }
         return text;
     }
-
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        Vector4 anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-        Vector2 pivot = Vector2(0.5f, 0.5f);
-        std::optional<Vector4> margin;
-        std::shared_ptr<Sprite> sprite;
-        Color color = LIGHT;
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        FontResource* font = nullptr;
-        std::string text;
-        std::string key;
-        std::optional<int> fontSize;
-    };
 }
 
 class TextLocalizationExample final: public ExampleApp
@@ -106,11 +78,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options, {.button = true});
     }
 
     bool create() override
@@ -119,9 +87,9 @@ protected:
         _boldAsset = std::make_unique<Asset>("bold", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        _font = fontOf(*_fontAsset);
-        _bold = fontOf(*_boldAsset);
-        Texture* atlasTexture = textureOf(*_uiAtlasTexture);
+        _font = _fontAsset->resourceAs<FontResource>();
+        _bold = _boldAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!_font || !_bold || !atlasTexture) {
             spdlog::error("Failed to load the Roboto fonts or ui/ui-atlas.png");
             return false;
@@ -136,14 +104,8 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
-        _screenEntity = new Entity();
-        _screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(_screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(_screenEntity);
+        _screen = createScreen();
+        _screenEntity = _screen->entity();
 
         auto atlas = createUiAtlas(atlasTexture);
         const auto sprite = [&](const std::string& frame) {
@@ -222,33 +184,12 @@ protected:
     void update(float /*dt*/) override { layout(); }
 
 private:
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = props.pivot, .margin = props.margin};
-        desc.width = props.width;
-        desc.height = props.height;
-        desc.useInput = props.useInput;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-        }
-        element->setColor(props.color);
-        if (props.type == ElementType::Text) {
-            element->setFontResource(props.font ? props.font : _font);
-            if (props.fontSize) {
-                element->setFontSize(*props.fontSize);
-            }
-            if (!props.key.empty()) {
-                element->setKey(props.key);
-            } else {
-                element->setText(props.text);
-            }
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props, {.type = ElementType::Image,
+            .color = LIGHT, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f), .pivot = Vector2(0.5f, 0.5f),
+            .font = _font});
     }
 
     // A button with a text element. The label is either a localization key or a plain text.
@@ -260,8 +201,8 @@ private:
         component->setImageEntity(button->entity());
         component->setHoverTint(Color(color.r * 0.8f + 0.2f, color.g * 0.8f + 0.2f, color.b * 0.8f + 0.2f, 1.0f));
         component->setPressedTint(Color(color.r * 0.7f, color.g * 0.7f, color.b * 0.7f, 1.0f));
-        _chosen[button] = createElement(button->entity(), {.anchor = Vector4(0.0f, 0.0f, 1.0f, 1.0f),
-            .margin = Vector4(0.0f, 0.0f, 0.0f, 0.0f), .sprite = _outline, .color = ORANGE});
+        _chosen[button] = createElement(button->entity(), {.sprite = _outline, .color = ORANGE,
+            .anchor = Vector4(0.0f, 0.0f, 1.0f, 1.0f), .margin = Vector4(0.0f, 0.0f, 0.0f, 0.0f)});
         label.type = ElementType::Text;
         label.font = _bold;
         label.fontSize = 24;
@@ -313,7 +254,6 @@ private:
         _caption->entity()->setLocalPosition(0.0f, portrait ? -350.0f : -260.0f, 0.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _boldAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;

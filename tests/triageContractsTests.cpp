@@ -26,7 +26,6 @@
 #include <string>
 #include <vector>
 
-#include "framework/appOptions.h"
 #include "framework/components/button/buttonComponent.h"
 #include "framework/components/button/buttonComponentSystem.h"
 #include "framework/components/script/scriptComponent.h"
@@ -38,51 +37,19 @@
 #include "framework/parsers/glbParser.h"
 #include "framework/script/scriptRegistry.h"
 #include "platform/graphics/compute.h"
-#include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/standardMaterial.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
-    class CpuVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        void unlock() override {}
-    };
-
     bool hasSlot(const StandardMaterial& material, const int slot)
     {
         std::vector<TextureSlot> slots;
@@ -130,7 +97,7 @@ namespace
 int main()
 {
     std::cout << std::unitbuf;
-    const auto device = std::make_shared<StubDevice>();
+    const auto device = std::make_shared<StubGraphicsDevice>();
 
     std::cout << "N6: clearing a map a glTF material bound on the base slot\n";
     {
@@ -152,12 +119,7 @@ int main()
 
     std::cout << "\nN11.2: execution order\n";
     {
-        auto engine = std::make_shared<Engine>(nullptr);
-        AppOptions options;
-        options.graphicsDevice = device;
-        options.registerComponentSystem<ScriptComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
-        engine->init(options);
+        auto engine = makeTestEngine<ScriptComponentSystem, ButtonComponentSystem>(device);
         engine->scripts()->registerType<First>();
         engine->scripts()->registerType<Second>();
         auto* system = dynamic_cast<ScriptComponentSystem*>(engine->systems()->getById("script"));
@@ -294,6 +256,5 @@ int main()
         check(device->vram().vb == 0 && device->vram().sb == 0, "freeing them returns both buckets to zero");
     }
 
-    std::cout << (failures == 0 ? "\nAll triage contract tests passed\n" : "\nTriage contract tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("triage contracts");
 }

@@ -68,12 +68,12 @@ protected:
         _envAtlas = std::make_unique<Asset>("helipad-env-atlas", AssetType::TEXTURE,
             assetPath("cubemaps/helipad-env-atlas.png"),
             AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false});
-        const auto envAtlasResource = _envAtlas->resource();
-        if (!envAtlasResource) {
+        Texture* envAtlasTexture = _envAtlas->resourceAs<Texture>();
+        if (!envAtlasTexture) {
             spdlog::error("Failed to load environment atlas texture");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+        scene()->setEnvAtlas(envAtlasTexture);
 
         // The fog's local lights sample the clustered lighting's shadow atlas; a larger one
         // gives the shadows of the beams more detail.
@@ -81,12 +81,12 @@ protected:
 
         // The terrain
         _terrainAsset = std::make_unique<Asset>("terrain", AssetType::CONTAINER, assetPath("models/terrain.glb"));
-        const auto terrainResource = _terrainAsset->resource();
-        if (!terrainResource || !std::holds_alternative<ContainerResource*>(*terrainResource)) {
+        ContainerResource* terrainContainer = _terrainAsset->resourceAs<ContainerResource>();
+        if (!terrainContainer) {
             spdlog::error("Failed to load terrain.glb");
             return false;
         }
-        auto* terrain = std::get<ContainerResource*>(*terrainResource)->instantiateRenderEntity();
+        auto* terrain = terrainContainer->instantiateRenderEntity();
         if (!terrain) {
             spdlog::error("Failed to instantiate terrain.glb");
             return false;

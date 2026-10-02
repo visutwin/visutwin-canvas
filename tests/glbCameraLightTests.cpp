@@ -14,8 +14,6 @@
 // is manual only when the file gives one; "point" is omni, cone angles go to degrees,
 // a missing range is 9999, falloff is inverse-squared, intensity is clamped to [0, 2].
 
-#include <tiny_gltf.h>
-
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -26,47 +24,16 @@
 #include "framework/components/light/lightComponent.h"
 #include "framework/entity.h"
 #include "framework/parsers/glbContainerResource.h"
-#include "framework/parsers/glbParser.h"
-#include "platform/graphics/graphicsDevice.h"
+#include "support/check.h"
+#include "support/gltfModel.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-4f) { return std::fabs(a - b) < eps; }
-
-    bool near(const Vector3& v, const float x, const float y, const float z)
-    {
-        return near(v.getX(), x) && near(v.getY(), y) && near(v.getZ(), z);
-    }
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
+    constexpr float kTolerance = 1e-4f;
 
     tinygltf::Model buildModel()
     {
@@ -161,21 +128,25 @@ namespace
         if (camera) {
             const Camera* c = camera->camera();
             check(!camera->enabled(), "imported disabled");
-            check(c->projection() == ProjectionType::Perspective && near(c->fov(), 0.8f * 180.0f / 3.14159265f),
+            check(c->projection() == ProjectionType::Perspective &&
+                  nearStrict(c->fov(), 0.8f * 180.0f / 3.14159265f, kTolerance),
                 "perspective, yfov in degrees");
-            check(near(c->nearClip(), 0.05f) && near(c->farClip(), 200.0f), "near and far");
-            check(c->aspectRatioMode() == AspectRatioMode::ASPECT_MANUAL && near(c->aspectRatio(), 1.5f),
+            check(nearStrict(c->nearClip(), 0.05f, kTolerance) &&
+                  nearStrict(c->farClip(), 200.0f, kTolerance), "near and far");
+            check(c->aspectRatioMode() == AspectRatioMode::ASPECT_MANUAL &&
+                  nearStrict(c->aspectRatio(), 1.5f, kTolerance),
                 "the file's aspect ratio, manual");
-            check(near(cam->localPosition(), 1.0f, 2.0f, 3.0f), "on the node itself");
+            check(nearStrict(cam->localPosition(), 1.0f, 2.0f, 3.0f, kTolerance), "on the node itself");
         }
         Entity* orthoNode = entityNamed(root, "Ortho");
         auto* ortho = orthoNode ? orthoNode->findComponent<CameraComponent>() : nullptr;
         check(ortho && ortho->camera()->projection() == ProjectionType::Orthographic &&
-              near(ortho->camera()->orthoHeight(), 2.0f) && near(ortho->camera()->aspectRatio(), 2.0f),
+              nearStrict(ortho->camera()->orthoHeight(), 2.0f, kTolerance) &&
+              nearStrict(ortho->camera()->aspectRatio(), 2.0f, kTolerance),
             "orthographic: ymag is the half height, aspect xmag / ymag");
         Entity* infiniteNode = entityNamed(root, "Infinite");
         auto* infinite = infiniteNode ? infiniteNode->findComponent<CameraComponent>() : nullptr;
-        check(infinite && near(infinite->camera()->farClip(), 1000.0f) &&
+        check(infinite && nearStrict(infinite->camera()->farClip(), 1000.0f, kTolerance) &&
               infinite->camera()->aspectRatioMode() == AspectRatioMode::ASPECT_AUTO,
             "no zfar keeps the default far plane, no aspect ratio stays automatic");
 
@@ -186,52 +157,50 @@ namespace
             check(!spot->enabled(), "imported disabled");
             check(spot->entity()->name() == "Spot", "the child is named after the node");
             check(spot->type() == LightType::LIGHTTYPE_SPOT, "spot");
-            check(near(spot->intensity(), 2.0f), "intensity 5 clamped to 2");
-            check(near(spot->color().g, 0.5f) && near(spot->color().b, 0.25f), "colour");
-            check(near(spot->range(), 12.0f), "range");
-            check(near(spot->innerConeAngle(), 0.2f * 180.0f / 3.14159265f) &&
-                  near(spot->outerConeAngle(), 0.5f * 180.0f / 3.14159265f), "cone angles in degrees");
+            check(nearStrict(spot->intensity(), 2.0f, kTolerance), "intensity 5 clamped to 2");
+            check(nearStrict(spot->color().g, 0.5f, kTolerance) &&
+                  nearStrict(spot->color().b, 0.25f, kTolerance), "colour");
+            check(nearStrict(spot->range(), 12.0f, kTolerance), "range");
+            check(nearStrict(spot->innerConeAngle(), 0.2f * 180.0f / 3.14159265f, kTolerance) &&
+                  nearStrict(spot->outerConeAngle(), 0.5f * 180.0f / 3.14159265f, kTolerance),
+                "cone angles in degrees");
             check(spot->falloffMode() == LightFalloff::LIGHTFALLOFF_INVERSESQUARED, "inverse-squared falloff");
-            check(near(spot->direction(), 0.0f, 0.0f, -1.0f), "shines down the node's -Z");
+            check(nearStrict(spot->direction(), 0.0f, 0.0f, -1.0f, kTolerance), "shines down the node's -Z");
         }
         Entity* sunNode = entityNamed(root, "Sun");
         auto* sun = sunNode ? lightOf(sunNode) : nullptr;
-        check(sun && sun->type() == LightType::LIGHTTYPE_DIRECTIONAL && near(sun->intensity(), 0.7f),
+        check(sun && sun->type() == LightType::LIGHTTYPE_DIRECTIONAL && nearStrict(sun->intensity(), 0.7f, kTolerance),
             "directional, intensity kept");
-        check(sun && near(sun->direction(), -1.0f, 0.0f, 0.0f), "a turned node turns its light (-Z -> world -X)");
+        check(sun && nearStrict(sun->direction(), -1.0f, 0.0f, 0.0f, kTolerance),
+            "a turned node turns its light (-Z -> world -X)");
         Entity* bulbNode = entityNamed(root, "Bulb");
         auto* bulb = bulbNode ? lightOf(bulbNode) : nullptr;
-        check(bulb && bulb->type() == LightType::LIGHTTYPE_OMNI && near(bulb->range(), 9999.0f) &&
-              near(bulb->intensity(), 1.0f), "point is omni; no range is 9999; default intensity 1");
+        check(bulb && bulb->type() == LightType::LIGHTTYPE_OMNI && nearStrict(bulb->range(), 9999.0f, kTolerance) &&
+              nearStrict(bulb->intensity(), 1.0f, kTolerance),
+            "point is omni; no range is 9999; default intensity 1");
     }
 }
 
 int main()
 {
     std::cout << std::unitbuf;
-    const auto device = std::make_shared<StubDevice>();
-    {
-        tinygltf::Model model = buildModel();
-        auto container = GlbParser::createFromModel(model, device, "glbCameraLightTests");
-        std::unique_ptr<Entity> root(container ? container->instantiateRenderEntity() : nullptr);
-        if (!root) {
-            std::cout << "  FAIL createFromModel instantiates\n";
-            return 1;
-        }
-        checkHierarchy(root.get(), "createFromModel");
-    }
-    {
-        tinygltf::Model model = buildModel();
-        auto prepared = GlbParser::prepareFromModel(model, PixelFormat::PIXELFORMAT_RGBA8, "glbCameraLightTests");
-        auto container = GlbParser::createFromPrepared(model, std::move(prepared), device, "glbCameraLightTests");
-        std::unique_ptr<Entity> root(container ? container->instantiateRenderEntity() : nullptr);
-        if (!root) {
-            std::cout << "  FAIL createFromPrepared instantiates\n";
-            return 1;
-        }
-        checkHierarchy(root.get(), "\nprepareFromModel + createFromPrepared (the async path)");
+    const auto device = std::make_shared<StubGraphicsDevice>();
+    const bool loaded = forEachLoadPath([] { return buildModel(); }, device, "glbCameraLightTests",
+        [](GlbContainerResource* container, const LoadPath path) {
+            const bool created = path == LoadPath::CreateFromModel;
+            std::unique_ptr<Entity> root(container ? container->instantiateRenderEntity() : nullptr);
+            if (!root) {
+                std::cout << (created ? "  FAIL createFromModel instantiates\n"
+                                      : "  FAIL createFromPrepared instantiates\n");
+                return false;
+            }
+            checkHierarchy(root.get(),
+                created ? "createFromModel" : "\nprepareFromModel + createFromPrepared (the async path)");
+            return true;
+        });
+    if (!loaded) {
+        return 1;
     }
 
-    std::cout << (failures == 0 ? "\nAll glTF camera/light tests passed\n" : "\nglTF camera/light tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("glTF camera/light");
 }

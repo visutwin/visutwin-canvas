@@ -13,7 +13,6 @@
 // asymmetric atlas goes through the real font path after a GLB-style flipped decode
 // and its first row must still be the image's top row.
 
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -27,40 +26,14 @@
 #include "framework/handlers/fontResource.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/texture.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what.c_str());
-            ++failures;
-        }
-    }
-
-    /// Creates nothing; enough for the font loader to build its Texture.
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
     constexpr int kSize = 4;
     constexpr uint8_t kTopAlpha = 255;
     constexpr uint8_t kBottomAlpha = 40;
@@ -132,6 +105,7 @@ namespace
 
 int main()
 {
+    quietPasses();
     const auto dir = std::filesystem::temp_directory_path() / "visutwin-stb-flip-tests";
     std::filesystem::create_directories(dir);
 
@@ -153,7 +127,8 @@ int main()
             << R"("kerning":{}})";
     }
 
-    const auto device = std::make_shared<StubDevice>();
+    // Creates nothing; enough for the font loader to build its Texture.
+    const auto device = std::make_shared<StubGraphicsDevice>();
 
     // The scope sets and restores, innermost first.
     {
@@ -208,10 +183,5 @@ int main()
 
     std::filesystem::remove_all(dir);
 
-    if (failures == 0) {
-        std::printf("stb image flip tests passed\n");
-        return 0;
-    }
-    std::printf("%d failure(s)\n", failures);
-    return 1;
+    return finish("stb image flip");
 }

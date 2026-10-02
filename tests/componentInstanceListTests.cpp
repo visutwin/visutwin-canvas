@@ -29,21 +29,13 @@
 #include "framework/components/componentSystem.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/entity.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     class Probe final : public Component
     {
     public:
@@ -177,7 +169,5 @@ int main()
         check(RenderComponent::instances().size() == before, "and the list returns to where it started");
     }
 
-    std::cout << (failures == 0 ? "\nAll component instance list tests passed\n"
-        : "\nComponent instance list tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("component instance list");
 }

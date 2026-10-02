@@ -162,8 +162,8 @@ protected:
                 .mipmaps = false
             }
         );
-        if (const auto helipadResource = _helipad->resource()) {
-            scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        if (Texture* helipadTexture = _helipad->resourceAs<Texture>()) {
+            scene()->setEnvAtlas(helipadTexture);
         } else {
             spdlog::error("Failed to load helipad env atlas texture");
             return false;

@@ -85,10 +85,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options);
     }
 
     bool create() override
@@ -96,14 +93,8 @@ protected:
         _font = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        FontResource* font = nullptr;
-        if (const auto res = _font->resource(); res && std::holds_alternative<FontResource*>(*res)) {
-            font = std::get<FontResource*>(*res);
-        }
-        Texture* atlasTexture = nullptr;
-        if (const auto res = _uiAtlasTexture->resource(); res && std::holds_alternative<Texture*>(*res)) {
-            atlasTexture = std::get<Texture*>(*res);
-        }
+        FontResource* font = _font->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!font || !atlasTexture) {
             spdlog::error("Failed to load fonts/roboto-bold.json or ui/ui-atlas.png");
             return false;
@@ -136,14 +127,8 @@ protected:
         _camera->camera()->setFov(45.0f);
 
         // The screen the tags are on
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         // The fighters walk around the arena, each on a circle of its own
         const std::array<FighterDef, 4> defs{{
@@ -292,7 +277,6 @@ private:
         _screen->setReferenceResolution(portrait ? Vector2(540.0f, 960.0f) : Vector2(1280.0f, 720.0f));
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _font;
     std::unique_ptr<Asset> _uiAtlasTexture;
     std::shared_ptr<TextureAtlas> _atlas;

@@ -54,12 +54,12 @@ protected:
                 .mipmaps = false
             }
         );
-        const auto helipadResource = _helipad->resource();
-        if (!helipadResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        if (!helipadTexture) {
             spdlog::error("Failed to load helipad texture");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
 
         _rocksColor = std::make_unique<Asset>(
             "diffuse", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-color.jpg"));
@@ -207,12 +207,12 @@ protected:
 private:
     static Texture* requireTexture(const std::unique_ptr<Asset>& asset, const char* label)
     {
-        const auto resource = asset->resource();
-        if (!resource) {
+        Texture* texture = asset->resourceAs<Texture>();
+        if (!texture) {
             spdlog::error("Failed to load texture asset '{}'", label);
             return nullptr;
         }
-        return std::get<Texture*>(*resource);
+        return texture;
     }
 
     void createObject(const float x, const float y, const float z,

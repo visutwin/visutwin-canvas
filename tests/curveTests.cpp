@@ -18,21 +18,13 @@
 #include <utility>
 
 #include "core/math/curve.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     bool is(const Curve& c, const float time, const float keyTime, const float keyValue)
     {
         const auto key = c.closest(time);
@@ -87,6 +79,5 @@ int main()
             "and the evaluator still dispatches on them by name");
     }
 
-    std::cout << (failures == 0 ? "\nAll curve tests passed\n" : "\nCurve tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("curve");
 }

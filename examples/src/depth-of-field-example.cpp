@@ -105,31 +105,31 @@ protected:
             "cat", AssetType::CONTAINER, assetPath("models/cat.glb"));
 
         // Skydome + IBL from the env atlas — there is no other light in the scene.
-        const auto envAtlasResource = _envAtlas->resource();
-        if (!envAtlasResource) {
+        Texture* envAtlasTexture = _envAtlas->resourceAs<Texture>();
+        if (!envAtlasTexture) {
             spdlog::error("Failed to load the environment atlas — the scene has no other light");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+        scene()->setEnvAtlas(envAtlasTexture);
         scene()->setExposure(1.2f);
 
         // ── Apartment interior ──────────────────────────────────────────────────
-        const auto apartmentResource = _apartment->resource();
-        if (!apartmentResource) {
+        ContainerResource* apartmentContainer = _apartment->resourceAs<ContainerResource>();
+        if (!apartmentContainer) {
             spdlog::error("Failed to load models/apartment.glb");
             return false;
         }
-        auto* apartmentEntity = std::get<ContainerResource*>(*apartmentResource)->instantiateRenderEntity();
+        auto* apartmentEntity = apartmentContainer->instantiateRenderEntity();
         apartmentEntity->setLocalScale(30.0f, 30.0f, 30.0f);
         root()->addChild(apartmentEntity);
 
         // ── Neon "love" sign on the far wall ────────────────────────────────────
-        const auto loveResource = _love->resource();
-        if (!loveResource) {
+        ContainerResource* loveContainer = _love->resourceAs<ContainerResource>();
+        if (!loveContainer) {
             spdlog::error("Failed to load models/love.glb");
             return false;
         }
-        auto* loveEntity = std::get<ContainerResource*>(*loveResource)->instantiateRenderEntity();
+        auto* loveEntity = loveContainer->instantiateRenderEntity();
         loveEntity->setLocalPosition(-335.0f, 180.0f, 0.0f);
         loveEntity->setLocalScale(130.0f, 130.0f, 130.0f);
         root()->addChild(loveEntity);
@@ -153,12 +153,12 @@ protected:
         });
 
         // ── Cat statue: the focal object ────────────────────────────────────────
-        const auto catResource = _cat->resource();
-        if (!catResource) {
+        ContainerResource* catContainer = _cat->resourceAs<ContainerResource>();
+        if (!catContainer) {
             spdlog::error("Failed to load models/cat.glb");
             return false;
         }
-        auto* catEntity = std::get<ContainerResource*>(*catResource)->instantiateRenderEntity();
+        auto* catEntity = catContainer->instantiateRenderEntity();
         catEntity->setLocalPosition(-80.0f, 80.0f, -20.0f);
         catEntity->setLocalScale(80.0f, 80.0f, 80.0f);
         root()->addChild(catEntity);

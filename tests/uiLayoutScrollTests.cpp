@@ -42,61 +42,27 @@
 #include "framework/input/elementInput.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/camera.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-3f) { return std::abs(a - b) <= eps; }
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(const int width, const int height) override { _size = {width, height}; }
-        std::pair<int, int> size() const override { return _size; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    private:
-        std::pair<int, int> _size{300, 150};
-    };
+    constexpr float kTolerance = 1e-3f;
 
     std::shared_ptr<Engine> engine;
     std::shared_ptr<ElementInput> input;
     Entity* screen = nullptr;
-
-    Entity* newEntity(const std::string& name)
-    {
-        auto* e = new Entity();
-        e->setEngine(engine.get());
-        e->setName(name);
-        return e;
-    }
 
     /// An element under `parent`, anchored and pivoted at its bottom-left unless told
     /// otherwise, at (x, y) in its parent's units.
     ElementComponent* element(Entity* parent, const std::string& name, ElementDesc desc, const float x = 0.0f,
                               const float y = 0.0f)
     {
-        Entity* e = newEntity(name);
+        Entity* e = newEntity(engine.get(), name);
         parent->addChild(std::unique_ptr<GraphNode>(e));
         if (!desc.type) {
             desc.type = ElementType::Group;
@@ -138,28 +104,18 @@ int main()
 {
     std::cout << std::unitbuf;
 
-    auto device = std::make_shared<StubDevice>();
-    engine = std::make_shared<Engine>(nullptr);
+    auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {300, 150}, .resizable = true});
     input = std::make_shared<ElementInput>();
-    AppOptions options;
-    options.graphicsDevice = device;
-    options.elementInput = input;
-    options.registerComponentSystem<CameraComponentSystem>();
-    options.registerComponentSystem<RenderComponentSystem>();
-    options.registerComponentSystem<ScreenComponentSystem>();
-    options.registerComponentSystem<ElementComponentSystem>();
-    options.registerComponentSystem<LayoutGroupComponentSystem>();
-    options.registerComponentSystem<LayoutChildComponentSystem>();
-    options.registerComponentSystem<ScrollbarComponentSystem>();
-    options.registerComponentSystem<ScrollViewComponentSystem>();
-    engine->init(options);
+    engine = makeTestEngine<CameraComponentSystem, RenderComponentSystem, ScreenComponentSystem, ElementComponentSystem,
+        LayoutGroupComponentSystem, LayoutChildComponentSystem, ScrollbarComponentSystem, ScrollViewComponentSystem>(
+        device, [&](AppOptions& options) { options.elementInput = input; });
 
-    Entity* cameraEntity = newEntity("camera");
+    Entity* cameraEntity = newEntity(engine.get(), "camera");
     engine->root()->addChild(std::unique_ptr<GraphNode>(cameraEntity));
     auto* camera = static_cast<CameraComponent*>(cameraEntity->addComponent<CameraComponent>());
     camera->camera()->setAspectRatio(2.0f);
 
-    screen = newEntity("screen");
+    screen = newEntity(engine.get(), "screen");
     engine->root()->addChild(std::unique_ptr<GraphNode>(screen));
     static_cast<ScreenComponent*>(screen->addComponent<ScreenComponent>())->setScreenSpace(true);
     update();
@@ -189,34 +145,34 @@ int main()
         update();
         check(reflows == 1, "an update lays a new group out once");
         check(rows[0]->anchor().getX() == 0.0f && rows[0]->anchor().getW() == 0.0f, "children's anchors reset to zero");
-        check(near(rows[0]->calculatedWidth(), 90.0f) && near(rows[2]->calculatedWidth(), 90.0f),
+        check(near(rows[0]->calculatedWidth(), 90.0f, kTolerance) && near(rows[2]->calculatedWidth(), 90.0f, kTolerance),
               "stretched to the width less the padding");
-        check(near(rows[0]->entity()->localPosition().getY(), 95.0f) &&
-                  near(rows[1]->entity()->localPosition().getY(), 65.0f) &&
-                  near(rows[2]->entity()->localPosition().getY(), 35.0f) &&
-                  near(rows[0]->entity()->localPosition().getX(), 5.0f),
+        check(near(rows[0]->entity()->localPosition().getY(), 95.0f, kTolerance) &&
+                  near(rows[1]->entity()->localPosition().getY(), 65.0f, kTolerance) &&
+                  near(rows[2]->entity()->localPosition().getY(), 35.0f, kTolerance) &&
+                  near(rows[0]->entity()->localPosition().getX(), 5.0f, kTolerance),
               "rows stack down from the top padding (reverseY is the default)");
-        check(near(bounds.getZ(), 90.0f) && near(bounds.getW(), 80.0f), "reflow carries the bounds");
+        check(near(bounds.getZ(), 90.0f, kTolerance) && near(bounds.getW(), 80.0f, kTolerance), "reflow carries the bounds");
 
         update();
         check(reflows == 1, "an update with nothing changed does not lay out again");
 
         rows[1]->entity()->setEnabled(false);
         update();
-        check(reflows == 2 && near(rows[2]->entity()->localPosition().getY(), 65.0f),
+        check(reflows == 2 && near(rows[2]->entity()->localPosition().getY(), 65.0f, kTolerance),
               "a disabled child leaves the layout and the rest close up");
         rows[1]->entity()->setEnabled(true);
         update();
-        check(reflows == 3 && near(rows[2]->entity()->localPosition().getY(), 35.0f), "re-enabled, it is back");
+        check(reflows == 3 && near(rows[2]->entity()->localPosition().getY(), 35.0f, kTolerance), "re-enabled, it is back");
 
         rows[0]->setHeight(40.0f);
         update();
-        check(reflows == 4 && near(rows[1]->entity()->localPosition().getY(), 45.0f), "a child's new height reflows");
+        check(reflows == 4 && near(rows[1]->entity()->localPosition().getY(), 45.0f, kTolerance), "a child's new height reflows");
 
         auto* child = static_cast<LayoutChildComponent*>(rows[2]->entity()->addComponent<LayoutChildComponent>());
         child->setMaxWidth(50.0f);
         update();
-        check(reflows == 5 && near(rows[2]->calculatedWidth(), 50.0f), "a layout child's limit reflows");
+        check(reflows == 5 && near(rows[2]->calculatedWidth(), 50.0f, kTolerance), "a layout child's limit reflows");
         child->setExcludeFromLayout(true);
         update();
         check(reflows == 6, "excluding a child reflows");
@@ -232,9 +188,9 @@ int main()
         auto handle = group->on("reflow", [&](const Vector4& b) { list->setHeight(b.getW() + 10.0f); });
         list->setHeight(300.0f);
         update();
-        check(near(list->calculatedHeight(), bounds.getW() + 10.0f), "a handler's new size ...");
+        check(near(list->calculatedHeight(), bounds.getW() + 10.0f, kTolerance), "a handler's new size ...");
         check(near(rows[1]->entity()->localPosition().getY() + rows[1]->calculatedHeight(),
-                   list->calculatedHeight() - 5.0f),
+                   list->calculatedHeight() - 5.0f, kTolerance),
               "... is laid out in the same update: the first row still meets the top padding");
         handle->off();
         clearScreen();
@@ -253,7 +209,7 @@ int main()
         innerGroup->setWidthFitting(LayoutFitting::Stretch);
         ElementComponent* cell = element(inner->entity(), "cell", {.width = 10.0f, .height = 10.0f});
         update();
-        check(near(inner->calculatedWidth(), 200.0f) && near(cell->calculatedWidth(), 200.0f),
+        check(near(inner->calculatedWidth(), 200.0f, kTolerance) && near(cell->calculatedWidth(), 200.0f, kTolerance),
               "the inner group lays out at the width the outer one gave it, in one update");
 
         // A group whose handler changes its own size every time never settles; the system
@@ -280,11 +236,11 @@ int main()
         input->onMouseDown(60.0f, canvasY(60.0f), MouseButton::Left);
         input->onMouseMove(90.0f, canvasY(40.0f));
         check(events == std::vector<std::string>{"start", "move"} && helper->isDragging(), "press and move: start, move");
-        check(near(moved.getX(), 80.0f) && near(moved.getY(), 30.0f) &&
-                  near(knob->entity()->localPosition().getX(), 80.0f),
+        check(near(moved.getX(), 80.0f, kTolerance) && near(moved.getY(), 30.0f, kTolerance) &&
+                  near(knob->entity()->localPosition().getX(), 80.0f, kTolerance),
               "the element follows the pointer by the distance moved");
         input->onMouseMove(200.0f, canvasY(140.0f));
-        check(near(knob->entity()->localPosition().getX(), 190.0f), "moves go to the pressed element even off it");
+        check(near(knob->entity()->localPosition().getX(), 190.0f, kTolerance), "moves go to the pressed element even off it");
         input->onMouseUp(200.0f, canvasY(140.0f), MouseButton::Left);
         check(events.back() == "end" && !helper->isDragging(), "release: end");
         events.clear();
@@ -304,7 +260,7 @@ int main()
         // The knob's screen box is (20..60, 20..60).
         input->onMouseDown(30.0f, canvasY(30.0f), MouseButton::Left);
         input->onMouseMove(50.0f, canvasY(50.0f));
-        check(near(knob->entity()->localPosition().getX(), 20.0f) && near(knob->entity()->localPosition().getY(), 10.0f),
+        check(near(knob->entity()->localPosition().getX(), 20.0f, kTolerance) && near(knob->entity()->localPosition().getY(), 10.0f, kTolerance),
               "constrained to x, and scaled into the parent's units");
         input->onMouseUp(50.0f, canvasY(50.0f), MouseButton::Left);
 
@@ -316,7 +272,7 @@ int main()
         helper.reset();
         input->onMouseDown(50.0f, canvasY(50.0f), MouseButton::Left);
         input->onMouseMove(80.0f, canvasY(50.0f));
-        check(near(knob->entity()->localPosition().getX(), 20.0f), "a destroyed helper moves nothing");
+        check(near(knob->entity()->localPosition().getX(), 20.0f, kTolerance), "a destroyed helper moves nothing");
         input->onMouseUp(80.0f, canvasY(50.0f), MouseButton::Left);
         clearScreen();
     }
@@ -332,12 +288,12 @@ int main()
               "defaults: horizontal, value 0, handle size 0, no handle");
         scrollbar->setHandleEntity(handle->entity());
         scrollbar->setHandleSize(0.25f);
-        check(near(handle->calculatedWidth(), 50.0f), "the handle is handleSize of the track");
+        check(near(handle->calculatedWidth(), 50.0f, kTolerance), "the handle is handleSize of the track");
 
         std::vector<float> values;
         scrollbar->on("set:value", [&](const float v) { values.push_back(v); });
         scrollbar->setValue(1.0f);
-        check(near(handle->entity()->localPosition().getX(), 150.0f), "value 1 puts the handle at the far end");
+        check(near(handle->entity()->localPosition().getX(), 150.0f, kTolerance), "value 1 puts the handle at the far end");
         scrollbar->setValue(2.0f);
         check(scrollbar->value() == 1.0f && values == std::vector<float>{1.0f, 1.0f},
               "values clamp to [0, 1], and set:value fires the clamped value");
@@ -352,12 +308,12 @@ int main()
         update();
         input->onMouseDown(60.0f, canvasY(60.0f), MouseButton::Left);
         input->onMouseMove(135.0f, canvasY(70.0f));
-        check(near(scrollbar->value(), 0.5f) && near(handle->entity()->localPosition().getY(), 0.0f),
+        check(near(scrollbar->value(), 0.5f, kTolerance) && near(handle->entity()->localPosition().getY(), 0.0f, kTolerance),
               "dragging the handle 75 along a usable 150 sets 0.5, along x only");
         input->onMouseUp(135.0f, canvasY(70.0f), MouseButton::Left);
 
         track->setWidth(400.0f);
-        check(near(handle->calculatedWidth(), 100.0f) && near(handle->entity()->localPosition().getX(), 150.0f),
+        check(near(handle->calculatedWidth(), 100.0f, kTolerance) && near(handle->entity()->localPosition().getX(), 150.0f, kTolerance),
               "a resized track refits the handle and moves it");
 
         // A disabled scrollbar's handle does not drag.
@@ -365,7 +321,7 @@ int main()
         // The handle's box is now x 200..300.
         input->onMouseDown(250.0f, canvasY(60.0f), MouseButton::Left);
         input->onMouseMove(290.0f, canvasY(60.0f));
-        check(input->pressedElement() == handle && near(scrollbar->value(), 0.5f),
+        check(input->pressedElement() == handle && near(scrollbar->value(), 0.5f, kTolerance),
               "a disabled scrollbar ignores a drag on its handle");
         input->onMouseUp(290.0f, canvasY(60.0f), MouseButton::Left);
         scrollbar->setEnabled(true);
@@ -378,7 +334,7 @@ int main()
         handle->setAnchor(Vector4(0, 1, 1, 1));
         handle->setPivot(Vector2(0, 1));
         scrollbar->setValue(1.0f);
-        check(near(handle->calculatedHeight(), 50.0f) && near(handle->entity()->localPosition().getY(), -150.0f),
+        check(near(handle->calculatedHeight(), 50.0f, kTolerance) && near(handle->entity()->localPosition().getY(), -150.0f, kTolerance),
               "vertical: value 1 puts the handle 150 below the top");
 
         handle->entity()->destroy();
@@ -415,23 +371,23 @@ int main()
 
         std::vector<Vector2> scrolls;
         scrollView->on("set:scroll", [&](const Vector2& s) { scrolls.push_back(s); });
-        check(near(content->entity()->localPosition().getY(), 0.0f), "scroll 0: the content's top at the viewport's");
-        check(near(scrollbar->handleSize(), 0.25f), "the scrollbar's handle is the visible share of the content");
+        check(near(content->entity()->localPosition().getY(), 0.0f, kTolerance), "scroll 0: the content's top at the viewport's");
+        check(near(scrollbar->handleSize(), 0.25f, kTolerance), "the scrollbar's handle is the visible share of the content");
 
         scrollView->setScroll(Vector2(0.0f, 0.5f));
-        check(near(content->entity()->localPosition().getY(), 150.0f) && scrolls.size() == 1,
+        check(near(content->entity()->localPosition().getY(), 150.0f, kTolerance) && scrolls.size() == 1,
               "scroll 0.5 raises the content by half of its 300 overflow, and fires set:scroll");
-        check(near(scrollbar->value(), 0.5f), "the scrollbar follows");
+        check(near(scrollbar->value(), 0.5f, kTolerance), "the scrollbar follows");
         scrollbar->setValue(1.0f);
-        check(near(scrollView->scroll().y, 1.0f) && near(content->entity()->localPosition().getY(), 300.0f),
+        check(near(scrollView->scroll().y, 1.0f, kTolerance) && near(content->entity()->localPosition().getY(), 300.0f, kTolerance),
               "the scrollbar drives the view");
         scrollView->setScroll(Vector2(0.0f, 3.0f));
-        check(near(scrollView->scroll().y, 1.0f), "Clamp keeps it within [0, 1]");
+        check(near(scrollView->scroll().y, 1.0f, kTolerance), "Clamp keeps it within [0, 1]");
 
         // The wheel: a notch toward the user is 100 pixels of the 400 content.
         scrollView->setScroll(Vector2(0.0f, 0.0f));
         input->onMouseWheel(50.0f, canvasY(60.0f), -1.0f);
-        check(near(scrollView->scroll().y, 0.25f), "a wheel notch toward the user scrolls a quarter of this content");
+        check(near(scrollView->scroll().y, 0.25f, kTolerance), "a wheel notch toward the user scrolls a quarter of this content");
 
         // Dragging the content up past the threshold scrolls it and turns off the item's
         // input until the drag ends.
@@ -439,7 +395,7 @@ int main()
         update();
         input->onMouseDown(60.0f, canvasY(60.0f), MouseButton::Left);
         input->onMouseMove(60.0f, canvasY(90.0f));
-        check(near(scrollView->scroll().y, 0.1f) && near(content->entity()->localPosition().getX(), 0.0f),
+        check(near(scrollView->scroll().y, 0.1f, kTolerance) && near(content->entity()->localPosition().getX(), 0.0f, kTolerance),
               "dragging up 30 scrolls by 30 of 300, and not sideways (horizontal off)");
         check(!item->useInput(), "a drag past the threshold turns off the content's input");
         input->onMouseUp(60.0f, canvasY(90.0f), MouseButton::Left);
@@ -453,7 +409,7 @@ int main()
         input->onMouseMove(60.0f, canvasY(0.0f));
         const float dragged = scrollView->scroll().y;
         input->onMouseUp(60.0f, canvasY(0.0f), MouseButton::Left);
-        check(near(dragged, -std::log10(1.2f)), "dragged 0.2 past the top, the tension leaves -log10(1.2)");
+        check(near(dragged, -std::log10(1.2f), kTolerance), "dragged 0.2 past the top, the tension leaves -log10(1.2)");
         for (int i = 0; i < 200; ++i) {
             update();
         }
@@ -476,10 +432,5 @@ int main()
         check(true, "the view and its entities are torn down in any order");
     }
 
-    if (failures) {
-        std::cout << failures << " check(s) FAILED\n";
-        return 1;
-    }
-    std::cout << "All layout and scroll tests passed\n";
-    return 0;
+    return finish("layout and scroll");
 }

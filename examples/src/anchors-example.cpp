@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "../uiAtlas.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
@@ -42,45 +43,6 @@ namespace
     const Color LIGHT(0.95f, 0.96f, 0.98f, 1.0f);
     const Color MUTED(0.6f, 0.64f, 0.72f, 1.0f);
     const Color DARK(0.1f, 0.11f, 0.14f, 1.0f);
-
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
-
-    Texture* textureOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<Texture*>(*res) ? std::get<Texture*>(*res) : nullptr;
-    }
-
-    /// The element properties that this example sets. Without an anchor and a pivot, an
-    /// element is attached to the bottom-left corner of its parent, so the example passes both.
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        std::shared_ptr<Sprite> sprite;
-        int spriteFrame = 0;
-        Texture* texture = nullptr;
-        ElementFitMode fitMode = ElementFitMode::Stretch;
-        Color color = LIGHT;
-        std::optional<Vector4> anchor;
-        std::optional<Vector2> pivot;
-        std::optional<Vector4> margin;
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        bool mask = false;
-        FontResource* font = nullptr;
-        std::string text;
-        std::optional<int> fontSize;
-        std::optional<float> lineHeight;
-        bool wrapLines = false;
-        bool enableMarkup = false;
-        std::optional<ElementHorizontalAlign> horizontalAlign;
-        std::optional<float> verticalAlign;
-    };
 }
 
 class AnchorsExample final: public ExampleApp
@@ -92,11 +54,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options, {.button = true});
     }
 
     bool create() override
@@ -107,10 +65,10 @@ protected:
             AssetData{.mipmaps = true});
         _landscapeTexture = std::make_unique<Asset>("landscape", AssetType::TEXTURE, assetPath("ui/landscape.png"),
             AssetData{.mipmaps = true});
-        _font = fontOf(*_fontAsset);
-        FontResource* bold = fontOf(*_boldAsset);
-        Texture* atlasTexture = textureOf(*_uiAtlasTexture);
-        Texture* landscape = textureOf(*_landscapeTexture);
+        _font = _fontAsset->resourceAs<FontResource>();
+        FontResource* bold = _boldAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
+        Texture* landscape = _landscapeTexture->resourceAs<Texture>();
         if (!_font || !bold || !atlasTexture || !landscape) {
             spdlog::error("Failed to load the Roboto fonts, ui/ui-atlas.png or ui/landscape.png");
             return false;
@@ -119,14 +77,8 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         auto atlas = createUiAtlas(atlasTexture);
         auto panel = std::make_shared<Sprite>(atlas, std::vector<std::string>{"panel"}, 2.0f, SpriteRenderMode::Sliced);
@@ -241,46 +193,11 @@ private:
         float height;
     };
 
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = props.pivot, .margin = props.margin};
-        desc.width = props.width;
-        desc.height = props.height;
-        desc.useInput = props.useInput;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-            element->setSpriteFrame(props.spriteFrame);
-        }
-        if (props.texture) {
-            element->setTexture(props.texture);
-        }
-        element->setFitMode(props.fitMode);
-        element->setColor(props.color);
-        element->setMask(props.mask);
-        if (props.type == ElementType::Text) {
-            element->setFontResource(props.font ? props.font : _font);
-            if (props.fontSize) {
-                element->setFontSize(*props.fontSize);
-            }
-            if (props.lineHeight) {
-                element->setLineHeight(*props.lineHeight);
-            }
-            if (props.horizontalAlign) {
-                element->setHorizontalAlign(*props.horizontalAlign);
-            }
-            if (props.verticalAlign) {
-                element->setVerticalAlign(*props.verticalAlign);
-            }
-            element->setWrapLines(props.wrapLines);
-            element->setEnableMarkup(props.enableMarkup);
-            element->setText(props.text);
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props,
+            {.type = ElementType::Image, .color = LIGHT, .font = _font});
     }
 
     // The window's size is limited by the screen's reference resolution, so that it stays on the
@@ -311,7 +228,6 @@ private:
         _chat->entity()->setLocalPosition(40.0f, portrait ? -110.0f : -40.0f, 0.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _boldAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;

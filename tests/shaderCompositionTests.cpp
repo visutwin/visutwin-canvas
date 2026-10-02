@@ -24,9 +24,10 @@
 #include <string>
 #include <vector>
 
-#include "platform/graphics/graphicsDevice.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/shader-lib/programLibrary.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 namespace visutwin::canvas
 {
@@ -51,36 +52,14 @@ namespace visutwin::canvas
 }
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class StubDevice final : public GraphicsDevice
+    class StubDevice final : public StubGraphicsDevice
     {
     public:
         explicit StubDevice(const ShaderLanguage language) : _language(language) {}
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
         ShaderLanguage shaderLanguage() const override { return _language; }
     private:
         ShaderLanguage _language;
@@ -173,6 +152,5 @@ int main()
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and removing it returns to the old key");
     }
 
-    std::cout << (failures == 0 ? "\nAll shader composition tests passed\n" : "\nShader composition tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("shader composition");
 }

@@ -16,21 +16,13 @@
 
 #include "framework/physics/jolt/joltPhysicsWorld.h"
 #include "framework/physics/physicsWorld.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what);
-            ++failures;
-        }
-    }
-
     /// Advance one simulated second at 60 Hz.
     void stepSeconds(PhysicsWorld& world, const float seconds)
     {
@@ -64,6 +56,7 @@ namespace
 
 int main()
 {
+    quietPasses();
     const auto world = createJoltPhysicsWorld();
     if (!world) {
         std::printf("physics: no backend in this build, nothing to test\n");
@@ -406,8 +399,5 @@ int main()
         }
     }
 
-    if (failures == 0) {
-        std::printf("physics world tests passed\n");
-    }
-    return failures == 0 ? 0 : 1;
+    return finish("physics world");
 }

@@ -24,22 +24,14 @@
 
 #include "framework/components/element/imageElementGeometry.h"
 #include "scene/textureAtlas.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-4f) { return std::abs(a - b) <= eps; }
+    constexpr float kTolerance = 1e-4f;
 
     /// The sliced vertex, ported literally: the 4x4 mesh from Sprite._create9SliceMesh
     /// (x, z in {+1, -1}, texCoord0 = 1 on the inner lines), transform.js and uv0.js under
@@ -220,18 +212,18 @@ int main()
         const ImageGeometry g = buildSimpleImageGeometry(Vector2(100.0f, 50.0f), Vector2(0.5f, 0.5f),
                                                          Vector4(0.0f, 0.0f, 1.0f, 1.0f));
         check(g.vertices.size() == 4 && g.indices.size() == 6, "four vertices, two triangles");
-        check(near(g.vertices[0].x, -50.0f) && near(g.vertices[0].y, -25.0f), "bottom left about the pivot");
-        check(near(g.vertices[2].x, 50.0f) && near(g.vertices[2].y, 25.0f), "top right about the pivot");
-        check(near(g.vertices[0].v, 1.0f) && near(g.vertices[2].v, 0.0f),
+        check(near(g.vertices[0].x, -50.0f, kTolerance) && near(g.vertices[0].y, -25.0f, kTolerance), "bottom left about the pivot");
+        check(near(g.vertices[2].x, 50.0f, kTolerance) && near(g.vertices[2].y, 25.0f, kTolerance), "top right about the pivot");
+        check(near(g.vertices[0].v, 1.0f, kTolerance) && near(g.vertices[2].v, 0.0f, kTolerance),
               "the bottom edge samples the image's bottom row (v = 1), the top edge its top (v = 0)");
     }
     {
         // The rect: x, y from the bottom, width, height.
         const ImageGeometry g = buildSimpleImageGeometry(Vector2(10.0f, 10.0f), Vector2(0.0f, 0.0f),
                                                          Vector4(0.25f, 0.5f, 0.5f, 0.25f));
-        check(near(g.vertices[0].x, 0.0f) && near(g.vertices[2].x, 10.0f), "pivot (0, 0) puts the origin at the corner");
-        check(near(g.vertices[0].u, 0.25f) && near(g.vertices[1].u, 0.75f), "u spans the rect");
-        check(near(g.vertices[0].v, 0.5f) && near(g.vertices[3].v, 0.25f), "v = 1 - y from the bottom");
+        check(near(g.vertices[0].x, 0.0f, kTolerance) && near(g.vertices[2].x, 10.0f, kTolerance), "pivot (0, 0) puts the origin at the corner");
+        check(near(g.vertices[0].u, 0.25f, kTolerance) && near(g.vertices[1].u, 0.75f, kTolerance), "u spans the rect");
+        check(near(g.vertices[0].v, 0.5f, kTolerance) && near(g.vertices[3].v, 0.25f, kTolerance), "v = 1 - y from the bottom");
     }
 
     std::cout << "fit modes\n";
@@ -240,12 +232,12 @@ int main()
         const Vector2 contain = fitImageSize(200.0f, 100.0f, 1.0f, ElementFitMode::Contain);
         const Vector2 cover = fitImageSize(200.0f, 100.0f, 1.0f, ElementFitMode::Cover);
         const Vector2 unknown = fitImageSize(200.0f, 100.0f, -1.0f, ElementFitMode::Contain);
-        check(near(stretch.x, 200.0f) && near(stretch.y, 100.0f), "stretch keeps the rectangle");
-        check(near(contain.x, 100.0f) && near(contain.y, 100.0f), "contain fits a square inside 200x100");
-        check(near(cover.x, 200.0f) && near(cover.y, 200.0f), "cover fills 200x100 with a square");
-        check(near(unknown.x, 200.0f) && near(unknown.y, 100.0f), "an unknown aspect stretches");
+        check(near(stretch.x, 200.0f, kTolerance) && near(stretch.y, 100.0f, kTolerance), "stretch keeps the rectangle");
+        check(near(contain.x, 100.0f, kTolerance) && near(contain.y, 100.0f, kTolerance), "contain fits a square inside 200x100");
+        check(near(cover.x, 200.0f, kTolerance) && near(cover.y, 200.0f, kTolerance), "cover fills 200x100 with a square");
+        check(near(unknown.x, 200.0f, kTolerance) && near(unknown.y, 100.0f, kTolerance), "an unknown aspect stretches");
         const Vector2 tall = fitImageSize(100.0f, 200.0f, 1.0f, ElementFitMode::Contain);
-        check(near(tall.x, 100.0f) && near(tall.y, 100.0f), "contain in a tall rectangle shrinks the height");
+        check(near(tall.x, 100.0f, kTolerance) && near(tall.y, 100.0f, kTolerance), "contain in a tall rectangle shrinks the height");
     }
 
     std::cout << "sliced grid\n";
@@ -256,13 +248,13 @@ int main()
         const ImageGeometry g = buildSlicedImageGeometry(Vector2(120.0f, 40.0f), Vector2(0.5f, 0.0f), frame,
                                                          1024.0f, 512.0f, 2.0f);
         // Borders of 16 and 8 pixels at 2 pixels per unit are 8 and 4 units.
-        check(near(g.vertices[0].x, -60.0f) && near(g.vertices[1].x, -52.0f) &&
-              near(g.vertices[2].x, 52.0f) && near(g.vertices[3].x, 60.0f), "columns keep 8-unit borders");
-        check(near(g.vertices[0].y, 0.0f) && near(g.vertices[4].y, 4.0f) &&
-              near(g.vertices[8].y, 36.0f) && near(g.vertices[12].y, 40.0f), "rows keep 4-unit borders");
-        check(near(g.vertices[1].u, 116.0f / 1024.0f) && near(g.vertices[2].u, 148.0f / 1024.0f),
+        check(near(g.vertices[0].x, -60.0f, kTolerance) && near(g.vertices[1].x, -52.0f, kTolerance) &&
+              near(g.vertices[2].x, 52.0f, kTolerance) && near(g.vertices[3].x, 60.0f, kTolerance), "columns keep 8-unit borders");
+        check(near(g.vertices[0].y, 0.0f, kTolerance) && near(g.vertices[4].y, 4.0f, kTolerance) &&
+              near(g.vertices[8].y, 36.0f, kTolerance) && near(g.vertices[12].y, 40.0f, kTolerance), "rows keep 4-unit borders");
+        check(near(g.vertices[1].u, 116.0f / 1024.0f, kTolerance) && near(g.vertices[2].u, 148.0f / 1024.0f, kTolerance),
               "inner u at the border pixels");
-        check(near(g.vertices[0].v, 1.0f - 200.0f / 512.0f) && near(g.vertices[12].v, 1.0f - 232.0f / 512.0f),
+        check(near(g.vertices[0].v, 1.0f - 200.0f / 512.0f, kTolerance) && near(g.vertices[12].v, 1.0f - 232.0f / 512.0f, kTolerance),
               "the frame's bottom row samples 1 - y / height");
     }
     {
@@ -272,8 +264,8 @@ int main()
         frame.border = Vector4(16.0f, 16.0f, 16.0f, 16.0f);
         const ImageGeometry g = buildSlicedImageGeometry(Vector2(10.0f, 40.0f), Vector2(0.0f, 0.0f), frame,
                                                          64.0f, 64.0f, 2.0f);
-        check(near(g.vertices[0].x, 0.0f) && near(g.vertices[1].x, 5.0f) &&
-              near(g.vertices[2].x, 5.0f) && near(g.vertices[3].x, 10.0f),
+        check(near(g.vertices[0].x, 0.0f, kTolerance) && near(g.vertices[1].x, 5.0f, kTolerance) &&
+              near(g.vertices[2].x, 5.0f, kTolerance) && near(g.vertices[3].x, 10.0f, kTolerance),
               "a 10-unit width with 8-unit borders scales them to 5");
     }
 
@@ -319,13 +311,13 @@ int main()
         // columns: border, 32, 32, 4, border = 5; rows: border, 32 (exactly one tile), border = 3
         check(g.vertices.size() == 5 * 3 * 4, "a 100 x 64 element: five columns by three rows of quads");
         const auto last = oursAt(g, 82.0f, 30.0f);   // halfway through the 4-unit remainder
-        check(last && near(last->x, (820.0f + 32.0f + 4.0f) / 1024.0f),
+        check(last && near(last->x, (820.0f + 32.0f + 4.0f) / 1024.0f, kTolerance),
               "the cut-short tile samples only its share of the inner region (8 px of 64)");
         const Vector2 firstTile = upstreamTiledUv(24.0f, 30.0f, Vector2(100.0f, 64.0f), Vector2(0.0f, 0.0f), frame,
                                                   1024.0f, 1024.0f, 2.0f);
         const Vector2 secondTile = upstreamTiledUv(56.0f, 30.0f, Vector2(100.0f, 64.0f), Vector2(0.0f, 0.0f), frame,
                                                    1024.0f, 1024.0f, 2.0f);
-        check(near(firstTile.x, secondTile.x) && !near(firstTile.x, (820.0f + 64.0f) / 1024.0f),
+        check(near(firstTile.x, secondTile.x, kTolerance) && !near(firstTile.x, (820.0f + 64.0f) / 1024.0f, kTolerance),
               "control: the upstream oracle itself repeats (8 units into two tiles sample alike) and does not stretch");
         compareTiledWithUpstream("tiled 100 x 64", Vector2(100.0f, 64.0f), Vector2(0.5f, 0.5f), frame, 1024.0f,
                                  1024.0f, 2.0f);
@@ -337,6 +329,5 @@ int main()
                                  1024.0f, 1024.0f, 2.0f);
     }
 
-    std::cout << (failures == 0 ? "PASS" : "FAIL") << " (" << failures << " failures)\n";
-    return failures == 0 ? 0 : 1;
+    return finish("image element geometry");
 }

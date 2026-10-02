@@ -130,10 +130,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options);
     }
 
     bool create() override
@@ -153,19 +150,17 @@ protected:
             "mosquito", AssetType::CONTAINER, assetPath("models/MosquitoInAmber.glb"));
         _font = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/roboto-regular.json"));
 
-        const auto helipadResource = _helipad->resource();
-        const auto platformResource = _platform->resource();
-        const auto mosquitoResource = _mosquito->resource();
-        if (const auto res = _font->resource(); res && std::holds_alternative<FontResource*>(*res)) {
-            _fontResource = std::get<FontResource*>(*res);
-        }
-        if (!helipadResource || !platformResource || !mosquitoResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        ContainerResource* platformContainer = _platform->resourceAs<ContainerResource>();
+        ContainerResource* mosquitoContainer = _mosquito->resourceAs<ContainerResource>();
+        _fontResource = _font->resourceAs<FontResource>();
+        if (!helipadTexture || !platformContainer || !mosquitoContainer) {
             spdlog::error("Failed to load the helipad atlas, scifi-platform.glb or MosquitoInAmber.glb");
             return false;
         }
 
         // Setup skydome with low intensity
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
         scene()->setSkyboxMip(2);
         scene()->setExposure(0.3f);
 
@@ -177,7 +172,7 @@ protected:
         }
 
         // Platform
-        auto* platformEntity = std::get<ContainerResource*>(*platformResource)->instantiateRenderEntity();
+        auto* platformEntity = platformContainer->instantiateRenderEntity();
         platformEntity->setLocalScale(10.0f, 10.0f, 10.0f);
         root()->addChild(platformEntity);
 
@@ -198,7 +193,7 @@ protected:
         }
 
         // Mosquito in amber
-        _mosquitoEntity = std::get<ContainerResource*>(*mosquitoResource)->instantiateRenderEntity();
+        _mosquitoEntity = mosquitoContainer->instantiateRenderEntity();
         _mosquitoEntity->setLocalScale(600.0f, 600.0f, 600.0f);
         _mosquitoEntity->setLocalPosition(0.0f, 20.0f, 0.0f);
         root()->addChild(_mosquitoEntity);
@@ -331,16 +326,8 @@ private:
         }
 
         // A 2D screen to place UI on
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        if (_screen) {
-            _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-            _screen->setScaleBlend(0.5f);
-            _screen->setScreenSpace(true);
-            _screen->setScaleMode(ScreenScaleMode::Blend);
-        }
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         const auto addLabel = [&](const std::string& name, const std::string& text, const float x,
                                   const float y, const int layer) {
@@ -447,7 +434,6 @@ private:
     Settings _settings;
     const Color _lightColor{1.0f, 0.7f, 0.1f, 1.0f};
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _helipad;
     std::unique_ptr<Asset> _platform;
     std::unique_ptr<Asset> _mosquito;

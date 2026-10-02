@@ -23,21 +23,14 @@
 #include "framework/entity.h"
 #include "framework/components/component.h"
 #include "framework/components/componentSystem.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
     std::vector<std::string> events;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
 
     /// Records what happens to it, so ordering can be asserted rather than eyeballed.
     class ProbeComponent : public Component
@@ -241,10 +234,5 @@ int main()
             "and the component is actually released");
     }
 
-    if (failures == 0) {
-        std::cout << "entity lifecycle ordering: all checks passed\n";
-        return 0;
-    }
-    std::cout << "entity lifecycle ordering: " << failures << " check(s) FAILED\n";
-    return 1;
+    return finish("entity lifecycle ordering");
 }

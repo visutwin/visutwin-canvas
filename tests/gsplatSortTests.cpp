@@ -20,21 +20,13 @@
 #include "core/math/quaternion.h"
 #include "core/math/vector3.h"
 #include "scene/gsplat/gsplatInstance.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what);
-            ++failures;
-        }
-    }
-
     Matrix4 makeTransform(const Vector3& scale, const Vector3& translation, const float yawDegrees)
     {
         return Matrix4::trs(translation,
@@ -85,6 +77,7 @@ namespace
 
 int main()
 {
+    quietPasses();
     const Vector3 forward = Vector3(0.3f, -0.5f, 1.0f).normalized();
 
     struct Case { const char* name; Vector3 scale; };
@@ -112,8 +105,5 @@ int main()
         check(depthError(flattened, direction.normalized()) < 1e-5f, "swept camera angle");
     }
 
-    if (failures == 0) {
-        std::printf("gsplat sort direction: all checks passed\n");
-    }
-    return failures == 0 ? 0 : 1;
+    return finish("gsplat sort direction");
 }

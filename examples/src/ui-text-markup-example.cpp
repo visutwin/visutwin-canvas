@@ -43,12 +43,6 @@ namespace
 {
     const Color LIGHT(0.9f, 0.92f, 0.95f, 1.0f);
     const Color MUTED(0.6f, 0.64f, 0.72f, 1.0f);
-
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
 }
 
 class UiTextMarkupExample final: public ExampleApp
@@ -60,10 +54,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options);
     }
 
     bool create() override
@@ -72,12 +63,9 @@ protected:
         _bold = std::make_unique<Asset>("bold", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        FontResource* font = fontOf(*_font);
-        FontResource* bold = fontOf(*_bold);
-        Texture* atlasTexture = nullptr;
-        if (const auto res = _uiAtlasTexture->resource(); res && std::holds_alternative<Texture*>(*res)) {
-            atlasTexture = std::get<Texture*>(*res);
-        }
+        FontResource* font = _font->resourceAs<FontResource>();
+        FontResource* bold = _bold->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!font || !bold || !atlasTexture) {
             spdlog::error("Failed to load the Roboto fonts or ui/ui-atlas.png");
             return false;
@@ -86,14 +74,8 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         // The panel frame of the UI kit atlas, 2 pixels per unit.
         auto atlas = std::make_shared<TextureAtlas>();
@@ -187,7 +169,6 @@ private:
         _log->setHeight(y + 14.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _font;
     std::unique_ptr<Asset> _bold;
     std::unique_ptr<Asset> _uiAtlasTexture;

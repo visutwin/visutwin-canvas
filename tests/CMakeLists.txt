@@ -1,63 +1,41 @@
-add_executable(visutwin-graph-node-tests
-    graphNodeTests.cpp
-)
+# visutwin_add_unit_test(<target> <test name> <source>
+#     [TINYGLTF] [DEFINITIONS <definition>...] [LABELS <label>...] [TIMEOUT <seconds>])
+#
+# One test executable linked against the engine, registered as one ctest test. TINYGLTF
+# adds tinygltf's include directory, for a test that builds a glTF model in memory.
+function(visutwin_add_unit_test target testName source)
+    cmake_parse_arguments(PARSE_ARGV 3 ARG "TINYGLTF" "TIMEOUT" "DEFINITIONS;LABELS")
+    add_executable(${target} ${source})
+    target_link_libraries(${target} PRIVATE visutwin-canvas)
+    if(ARG_TINYGLTF)
+        target_include_directories(${target} PRIVATE ${TINYGLTF_INCLUDE_DIRS})
+    endif()
+    if(ARG_DEFINITIONS)
+        target_compile_definitions(${target} PRIVATE ${ARG_DEFINITIONS})
+    endif()
+    add_test(NAME ${testName} COMMAND ${target})
+    if(ARG_LABELS)
+        set_tests_properties(${testName} PROPERTIES LABELS "${ARG_LABELS}")
+    endif()
+    if(ARG_TIMEOUT)
+        set_tests_properties(${testName} PROPERTIES TIMEOUT ${ARG_TIMEOUT})
+    endif()
+endfunction()
 
-target_link_libraries(visutwin-graph-node-tests PRIVATE visutwin-canvas)
-
-add_test(NAME graph-node-invariants COMMAND visutwin-graph-node-tests)
-
-add_executable(visutwin-material-uniforms-tests
-    materialUniformsTests.cpp
-)
-
-target_link_libraries(visutwin-material-uniforms-tests PRIVATE visutwin-canvas)
-
-add_test(NAME material-uniforms COMMAND visutwin-material-uniforms-tests)
-
-add_executable(visutwin-stencil-parameters-tests
-    stencilParametersTests.cpp
-)
-
-target_link_libraries(visutwin-stencil-parameters-tests PRIVATE visutwin-canvas)
-
-add_test(NAME stencil-parameters COMMAND visutwin-stencil-parameters-tests)
-
-add_executable(visutwin-blend-state-tests
-    blendStateTests.cpp
-)
-
-target_link_libraries(visutwin-blend-state-tests PRIVATE visutwin-canvas)
-
-add_test(NAME blend-state COMMAND visutwin-blend-state-tests)
-
-add_executable(visutwin-camera-projection-tests
-    cameraProjectionTests.cpp
-)
-
-target_link_libraries(visutwin-camera-projection-tests PRIVATE visutwin-canvas)
-
-add_test(NAME camera-projection COMMAND visutwin-camera-projection-tests)
+visutwin_add_unit_test(visutwin-graph-node-tests graph-node-invariants graphNodeTests.cpp)
+visutwin_add_unit_test(visutwin-material-uniforms-tests material-uniforms materialUniformsTests.cpp)
+visutwin_add_unit_test(visutwin-stencil-parameters-tests stencil-parameters stencilParametersTests.cpp)
+visutwin_add_unit_test(visutwin-blend-state-tests blend-state blendStateTests.cpp)
+visutwin_add_unit_test(visutwin-camera-projection-tests camera-projection cameraProjectionTests.cpp)
 
 # GPU instance culling on a real device of this build's backend (tests/gpuInstanceCullTests.cpp).
 # It needs a GPU and a window, so it carries the `gpu` label, which the CI test presets
 # exclude; run it with `ctest --preset gpu`, or `ctest -L gpu` in a Vulkan build.
-add_executable(visutwin-gpu-instance-cull-tests gpuInstanceCullTests.cpp)
-target_link_libraries(visutwin-gpu-instance-cull-tests PRIVATE visutwin-canvas)
-add_test(NAME gpu-instance-cull COMMAND visutwin-gpu-instance-cull-tests)
-set_tests_properties(gpu-instance-cull PROPERTIES LABELS "gpu" TIMEOUT 60)
+visutwin_add_unit_test(visutwin-gpu-instance-cull-tests gpu-instance-cull gpuInstanceCullTests.cpp LABELS gpu TIMEOUT 60)
 
 if(VISUTWIN_BACKEND_VULKAN)
-    add_executable(visutwin-vulkan-smoke
-        vulkanSmoke.cpp
-    )
-
-    target_link_libraries(visutwin-vulkan-smoke PRIVATE visutwin-canvas)
-
-    add_test(NAME vulkan-validation-smoke COMMAND visutwin-vulkan-smoke)
-    set_tests_properties(vulkan-validation-smoke PROPERTIES
-        LABELS "vulkan;smoke"
-        TIMEOUT 60
-    )
+    visutwin_add_unit_test(visutwin-vulkan-smoke vulkan-validation-smoke vulkanSmoke.cpp
+        LABELS vulkan smoke TIMEOUT 60)
 endif()
 
 # Golden images (tools/golden_images.py): renders deterministic examples with this
@@ -97,596 +75,83 @@ if(VISUTWIN_BUILD_EXAMPLES)
     )
 endif()
 
-add_executable(visutwin-gsplat-sort-tests
-    gsplatSortTests.cpp
-)
-
-target_link_libraries(visutwin-gsplat-sort-tests PRIVATE visutwin-canvas)
-
-add_test(NAME gsplat-sort-direction COMMAND visutwin-gsplat-sort-tests)
-
-add_executable(visutwin-physics-world-tests
-    physicsWorldTests.cpp
-)
-
-target_link_libraries(visutwin-physics-world-tests PRIVATE visutwin-canvas)
-
-add_test(NAME physics-world COMMAND visutwin-physics-world-tests)
-
-add_executable(visutwin-omni-face-axis-tests
-    omniFaceAxisTests.cpp
-)
-
-target_link_libraries(visutwin-omni-face-axis-tests PRIVATE visutwin-canvas)
-
-add_test(NAME omni-face-axes COMMAND visutwin-omni-face-axis-tests)
-
-add_executable(visutwin-sort-distance-tests
-    sortDistanceTests.cpp
-)
-
-target_link_libraries(visutwin-sort-distance-tests PRIVATE visutwin-canvas)
-
-add_test(NAME sort-distance COMMAND visutwin-sort-distance-tests)
-
-add_executable(visutwin-pixel-format-tests
-    pixelFormatTests.cpp
-)
-
-target_link_libraries(visutwin-pixel-format-tests PRIVATE visutwin-canvas)
-
-add_test(NAME pixel-format-table COMMAND visutwin-pixel-format-tests)
-
-add_executable(visutwin-simd-math-tests
-    simdMathTests.cpp
-)
-
-target_link_libraries(visutwin-simd-math-tests PRIVATE visutwin-canvas)
-
-add_test(NAME simd-math COMMAND visutwin-simd-math-tests)
-
-add_executable(visutwin-entity-lifecycle-tests
-    entityLifecycleTests.cpp
-)
-
-target_link_libraries(visutwin-entity-lifecycle-tests PRIVATE visutwin-canvas)
-
-add_test(NAME entity-lifecycle COMMAND visutwin-entity-lifecycle-tests)
-
-add_executable(visutwin-component-registry-tests
-    componentRegistryTests.cpp
-)
-
-target_link_libraries(visutwin-component-registry-tests PRIVATE visutwin-canvas)
-
-add_test(NAME component-registry COMMAND visutwin-component-registry-tests)
-
-add_executable(visutwin-component-instance-list-tests
-    componentInstanceListTests.cpp
-)
-
-target_link_libraries(visutwin-component-instance-list-tests PRIVATE visutwin-canvas)
-
-add_test(NAME component-instance-list COMMAND visutwin-component-instance-list-tests)
-
-add_executable(visutwin-primitive-mesh-sharing-tests
-    primitiveMeshSharingTests.cpp
-)
-
-target_link_libraries(visutwin-primitive-mesh-sharing-tests PRIVATE visutwin-canvas)
-
-add_test(NAME primitive-mesh-sharing COMMAND visutwin-primitive-mesh-sharing-tests)
-
-add_executable(visutwin-local-shadow-caster-tests
-    localShadowCasterTests.cpp
-)
-
-target_link_libraries(visutwin-local-shadow-caster-tests PRIVATE visutwin-canvas)
-
-add_test(NAME local-shadow-casters COMMAND visutwin-local-shadow-caster-tests)
+visutwin_add_unit_test(visutwin-gsplat-sort-tests gsplat-sort-direction gsplatSortTests.cpp)
+visutwin_add_unit_test(visutwin-physics-world-tests physics-world physicsWorldTests.cpp)
+visutwin_add_unit_test(visutwin-omni-face-axis-tests omni-face-axes omniFaceAxisTests.cpp)
+visutwin_add_unit_test(visutwin-sort-distance-tests sort-distance sortDistanceTests.cpp)
+visutwin_add_unit_test(visutwin-pixel-format-tests pixel-format-table pixelFormatTests.cpp)
+visutwin_add_unit_test(visutwin-simd-math-tests simd-math simdMathTests.cpp)
+visutwin_add_unit_test(visutwin-entity-lifecycle-tests entity-lifecycle entityLifecycleTests.cpp)
+visutwin_add_unit_test(visutwin-component-registry-tests component-registry componentRegistryTests.cpp)
+visutwin_add_unit_test(visutwin-component-instance-list-tests component-instance-list componentInstanceListTests.cpp)
+visutwin_add_unit_test(visutwin-primitive-mesh-sharing-tests primitive-mesh-sharing primitiveMeshSharingTests.cpp)
+visutwin_add_unit_test(visutwin-local-shadow-caster-tests local-shadow-casters localShadowCasterTests.cpp)
 add_test(NAME local-shadow-casters-non-clustered COMMAND visutwin-local-shadow-caster-tests --non-clustered)
 
-add_executable(visutwin-palette-sharing-tests
-    paletteSharingTests.cpp
-)
+visutwin_add_unit_test(visutwin-palette-sharing-tests palette-sharing paletteSharingTests.cpp)
+visutwin_add_unit_test(visutwin-shader-disk-cache-tests shader-disk-cache shaderDiskCacheTests.cpp)
+visutwin_add_unit_test(visutwin-forward-shader-memo-tests forward-shader-memo forwardShaderMemoTests.cpp)
+visutwin_add_unit_test(visutwin-glb-image-decode-tests glb-image-decode glbImageDecodeTests.cpp)
+visutwin_add_unit_test(visutwin-batch-split-tests batch-split batchSplitTests.cpp)
+visutwin_add_unit_test(visutwin-component-active-tests component-active componentActiveTests.cpp)
+visutwin_add_unit_test(visutwin-shadow-map-invalidation-tests shadow-map-invalidation shadowMapInvalidationTests.cpp)
+visutwin_add_unit_test(visutwin-input-device-tests input-devices inputDeviceTests.cpp)
+visutwin_add_unit_test(visutwin-gsplat-aabb-tests gsplat-aabb gsplatAabbTests.cpp)
+visutwin_add_unit_test(visutwin-light-culling-tests light-culling lightCullingTests.cpp)
+visutwin_add_unit_test(visutwin-sort-key-tests sort-key sortKeyTests.cpp)
+visutwin_add_unit_test(visutwin-light-bounds-tests light-bounds lightBoundsTests.cpp)
+visutwin_add_unit_test(visutwin-light-texture-atlas-tests light-texture-atlas lightTextureAtlasTests.cpp)
+visutwin_add_unit_test(visutwin-gpu-profiler-timing-tests gpu-profiler-timing gpuProfilerTimingTests.cpp)
+visutwin_add_unit_test(visutwin-device-capability-tests device-capabilities deviceCapabilityTests.cpp)
+visutwin_add_unit_test(visutwin-gsplat-sort-keys-tests gsplat-sort-keys gsplatSortKeysTests.cpp)
+visutwin_add_unit_test(visutwin-lightmapper-bvh-tests lightmapper-bvh lightmapperBvhTests.cpp)
+visutwin_add_unit_test(visutwin-lightmap-filters-tests lightmap-filters lightmapFiltersTests.cpp)
+visutwin_add_unit_test(visutwin-standard-material-workflow-tests standard-material-workflow standardMaterialWorkflowTests.cpp)
+visutwin_add_unit_test(visutwin-wide-line-segment-buffer-tests wide-line-segment-buffer wideLineSegmentBufferTests.cpp)
+visutwin_add_unit_test(visutwin-primitive-geometry-tests primitive-geometry primitiveGeometryTests.cpp)
 
-target_link_libraries(visutwin-palette-sharing-tests PRIVATE visutwin-canvas)
-
-add_test(NAME palette-sharing COMMAND visutwin-palette-sharing-tests)
-
-add_executable(visutwin-shader-disk-cache-tests
-    shaderDiskCacheTests.cpp
-)
-
-target_link_libraries(visutwin-shader-disk-cache-tests PRIVATE visutwin-canvas)
-
-add_test(NAME shader-disk-cache COMMAND visutwin-shader-disk-cache-tests)
-
-add_executable(visutwin-forward-shader-memo-tests
-    forwardShaderMemoTests.cpp
-)
-
-target_link_libraries(visutwin-forward-shader-memo-tests PRIVATE visutwin-canvas)
-
-add_test(NAME forward-shader-memo COMMAND visutwin-forward-shader-memo-tests)
-
-add_executable(visutwin-glb-image-decode-tests
-    glbImageDecodeTests.cpp
-)
-
-target_link_libraries(visutwin-glb-image-decode-tests PRIVATE visutwin-canvas)
-
-add_test(NAME glb-image-decode COMMAND visutwin-glb-image-decode-tests)
-
-add_executable(visutwin-batch-split-tests
-    batchSplitTests.cpp
-)
-
-target_link_libraries(visutwin-batch-split-tests PRIVATE visutwin-canvas)
-
-add_test(NAME batch-split COMMAND visutwin-batch-split-tests)
-
-add_executable(visutwin-component-active-tests
-    componentActiveTests.cpp
-)
-
-target_link_libraries(visutwin-component-active-tests PRIVATE visutwin-canvas)
-
-add_test(NAME component-active COMMAND visutwin-component-active-tests)
-
-add_executable(visutwin-shadow-map-invalidation-tests
-    shadowMapInvalidationTests.cpp
-)
-
-target_link_libraries(visutwin-shadow-map-invalidation-tests PRIVATE visutwin-canvas)
-
-add_test(NAME shadow-map-invalidation COMMAND visutwin-shadow-map-invalidation-tests)
-
-add_executable(visutwin-input-device-tests
-    inputDeviceTests.cpp
-)
-
-target_link_libraries(visutwin-input-device-tests PRIVATE visutwin-canvas)
-
-add_test(NAME input-devices COMMAND visutwin-input-device-tests)
-
-add_executable(visutwin-gsplat-aabb-tests
-    gsplatAabbTests.cpp
-)
-
-target_link_libraries(visutwin-gsplat-aabb-tests PRIVATE visutwin-canvas)
-
-add_test(NAME gsplat-aabb COMMAND visutwin-gsplat-aabb-tests)
-
-add_executable(visutwin-light-culling-tests
-    lightCullingTests.cpp
-)
-
-target_link_libraries(visutwin-light-culling-tests PRIVATE visutwin-canvas)
-
-add_test(NAME light-culling COMMAND visutwin-light-culling-tests)
-
-add_executable(visutwin-sort-key-tests
-    sortKeyTests.cpp
-)
-
-target_link_libraries(visutwin-sort-key-tests PRIVATE visutwin-canvas)
-
-add_test(NAME sort-key COMMAND visutwin-sort-key-tests)
-
-add_executable(visutwin-light-bounds-tests
-    lightBoundsTests.cpp
-)
-
-target_link_libraries(visutwin-light-bounds-tests PRIVATE visutwin-canvas)
-
-add_test(NAME light-bounds COMMAND visutwin-light-bounds-tests)
-
-add_executable(visutwin-light-texture-atlas-tests
-    lightTextureAtlasTests.cpp
-)
-
-target_link_libraries(visutwin-light-texture-atlas-tests PRIVATE visutwin-canvas)
-
-add_test(NAME light-texture-atlas COMMAND visutwin-light-texture-atlas-tests)
-
-add_executable(visutwin-gpu-profiler-timing-tests
-    gpuProfilerTimingTests.cpp
-)
-
-target_link_libraries(visutwin-gpu-profiler-timing-tests PRIVATE visutwin-canvas)
-
-add_test(NAME gpu-profiler-timing COMMAND visutwin-gpu-profiler-timing-tests)
-
-add_executable(visutwin-device-capability-tests
-    deviceCapabilityTests.cpp
-)
-
-target_link_libraries(visutwin-device-capability-tests PRIVATE visutwin-canvas)
-
-add_test(NAME device-capabilities COMMAND visutwin-device-capability-tests)
-
-add_executable(visutwin-gsplat-sort-keys-tests
-    gsplatSortKeysTests.cpp
-)
-
-target_link_libraries(visutwin-gsplat-sort-keys-tests PRIVATE visutwin-canvas)
-
-add_test(NAME gsplat-sort-keys COMMAND visutwin-gsplat-sort-keys-tests)
-
-add_executable(visutwin-lightmapper-bvh-tests
-    lightmapperBvhTests.cpp
-)
-
-target_link_libraries(visutwin-lightmapper-bvh-tests PRIVATE visutwin-canvas)
-
-add_test(NAME lightmapper-bvh COMMAND visutwin-lightmapper-bvh-tests)
-
-add_executable(visutwin-lightmap-filters-tests
-    lightmapFiltersTests.cpp
-)
-
-target_link_libraries(visutwin-lightmap-filters-tests PRIVATE visutwin-canvas)
-
-add_test(NAME lightmap-filters COMMAND visutwin-lightmap-filters-tests)
-
-add_executable(visutwin-standard-material-workflow-tests
-    standardMaterialWorkflowTests.cpp
-)
-
-target_link_libraries(visutwin-standard-material-workflow-tests PRIVATE visutwin-canvas)
-
-add_test(NAME standard-material-workflow COMMAND visutwin-standard-material-workflow-tests)
-
-add_executable(visutwin-wide-line-segment-buffer-tests
-    wideLineSegmentBufferTests.cpp
-)
-
-target_link_libraries(visutwin-wide-line-segment-buffer-tests PRIVATE visutwin-canvas)
-
-add_test(NAME wide-line-segment-buffer COMMAND visutwin-wide-line-segment-buffer-tests)
-
-add_executable(visutwin-primitive-geometry-tests
-    primitiveGeometryTests.cpp
-)
-
-target_link_libraries(visutwin-primitive-geometry-tests PRIVATE visutwin-canvas)
-
-add_test(NAME primitive-geometry COMMAND visutwin-primitive-geometry-tests)
-
+# Animation layer blending: a layer weight is a per-node contribution composed across
+# layers (OVERWRITE / ADDITIVE, masks, normalised weights), not an on/off switch.
+visutwin_add_unit_test(visutwin-anim-layer-blend-tests anim-layer-blend animLayerBlendTests.cpp)
 # glTF animation binding: unnamed nodes take a node_<index> identity and
 # targets are name PATHS, so duplicate names in different branches animate their
 # own entity. Builds a tinygltf model in memory, so it needs tinygltf's header.
-# Animation layer blending: a layer weight is a per-node contribution composed across
-# layers (OVERWRITE / ADDITIVE, masks, normalised weights), not an on/off switch.
-add_executable(visutwin-anim-layer-blend-tests
-    animLayerBlendTests.cpp
-)
-
-target_link_libraries(visutwin-anim-layer-blend-tests PRIVATE visutwin-canvas)
-
-add_test(NAME anim-layer-blend COMMAND visutwin-anim-layer-blend-tests)
-
-add_executable(visutwin-glb-animation-binding-tests
-    glbAnimationBindingTests.cpp
-)
-
-target_include_directories(visutwin-glb-animation-binding-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
-target_link_libraries(visutwin-glb-animation-binding-tests PRIVATE visutwin-canvas)
-
-add_test(NAME glb-animation-binding COMMAND visutwin-glb-animation-binding-tests)
-
-add_executable(visutwin-glb-point-node-matrix-tests
-    glbPointNodeMatrixTests.cpp
-)
-
-target_include_directories(visutwin-glb-point-node-matrix-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
-target_link_libraries(visutwin-glb-point-node-matrix-tests PRIVATE visutwin-canvas)
-
-add_test(NAME glb-point-node-matrix COMMAND visutwin-glb-point-node-matrix-tests)
-
-add_executable(visutwin-stb-image-flip-tests
-    stbImageFlipTests.cpp
-)
-
-target_link_libraries(visutwin-stb-image-flip-tests PRIVATE visutwin-canvas)
-
-add_test(NAME stb-image-flip COMMAND visutwin-stb-image-flip-tests)
-
-add_executable(visutwin-texture-gpu-size-tests
-    textureGpuSizeTests.cpp
-)
-
-target_link_libraries(visutwin-texture-gpu-size-tests PRIVATE visutwin-canvas)
-
-add_test(NAME texture-gpu-size COMMAND visutwin-texture-gpu-size-tests)
-
-add_executable(visutwin-morph-bounds-tests
-    morphBoundsTests.cpp
-)
-
-target_include_directories(visutwin-morph-bounds-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
-target_link_libraries(visutwin-morph-bounds-tests PRIVATE visutwin-canvas)
-
-add_test(NAME morph-bounds COMMAND visutwin-morph-bounds-tests)
-
-add_executable(visutwin-joint-lifetime-tests
-    jointLifetimeTests.cpp
-)
-
-target_link_libraries(visutwin-joint-lifetime-tests PRIVATE visutwin-canvas)
-
-add_test(NAME joint-lifetime COMMAND visutwin-joint-lifetime-tests)
-
-add_executable(visutwin-batch-lifetime-tests
-    batchLifetimeTests.cpp
-)
-
-target_link_libraries(visutwin-batch-lifetime-tests PRIVATE visutwin-canvas)
-
-add_test(NAME batch-lifetime COMMAND visutwin-batch-lifetime-tests)
-
-add_executable(visutwin-glb-material-paths-tests
-    glbMaterialPathsTests.cpp
-)
-
-target_include_directories(visutwin-glb-material-paths-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
-target_link_libraries(visutwin-glb-material-paths-tests PRIVATE visutwin-canvas)
-
-add_test(NAME glb-material-paths COMMAND visutwin-glb-material-paths-tests)
-
-add_executable(visutwin-glb-point-cloud-tests
-    glbPointCloudTests.cpp
-)
-
-target_include_directories(visutwin-glb-point-cloud-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
-target_link_libraries(visutwin-glb-point-cloud-tests PRIVATE visutwin-canvas)
-
-add_test(NAME glb-point-cloud COMMAND visutwin-glb-point-cloud-tests)
-
-add_executable(visutwin-raycast-fallback-tests
-    raycastFallbackTests.cpp
-)
-
-target_link_libraries(visutwin-raycast-fallback-tests PRIVATE visutwin-canvas)
-
-add_test(NAME raycast-fallback COMMAND visutwin-raycast-fallback-tests)
-
-add_executable(visutwin-mirrored-body-tests
-    mirroredBodyTests.cpp
-)
-
-target_link_libraries(visutwin-mirrored-body-tests PRIVATE visutwin-canvas)
-
-add_test(NAME mirrored-body COMMAND visutwin-mirrored-body-tests)
-
-add_executable(visutwin-entity-clone-tests
-    entityCloneTests.cpp
-)
-
-target_link_libraries(visutwin-entity-clone-tests PRIVATE visutwin-canvas)
-
-add_test(NAME entity-clone COMMAND visutwin-entity-clone-tests)
-
-add_executable(visutwin-glb-camera-light-tests
-    glbCameraLightTests.cpp
-)
-
-target_include_directories(visutwin-glb-camera-light-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
-target_link_libraries(visutwin-glb-camera-light-tests PRIVATE visutwin-canvas)
-
-add_test(NAME glb-camera-light COMMAND visutwin-glb-camera-light-tests)
-
-add_executable(visutwin-glb-extensions-tests
-    glbExtensionsTests.cpp
-)
-
-target_include_directories(visutwin-glb-extensions-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
-target_link_libraries(visutwin-glb-extensions-tests PRIVATE visutwin-canvas)
-
-add_test(NAME glb-extensions COMMAND visutwin-glb-extensions-tests)
-
-add_executable(visutwin-triage-contracts-tests
-    triageContractsTests.cpp
-)
-
-target_include_directories(visutwin-triage-contracts-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
-target_link_libraries(visutwin-triage-contracts-tests PRIVATE visutwin-canvas)
-
-add_test(NAME triage-contracts COMMAND visutwin-triage-contracts-tests)
-
-add_executable(visutwin-frame-graph-tests
-    frameGraphTests.cpp
-)
-
-target_link_libraries(visutwin-frame-graph-tests PRIVATE visutwin-canvas)
-
-add_test(NAME frame-graph COMMAND visutwin-frame-graph-tests)
-
-add_executable(visutwin-shader-composition-tests
-    shaderCompositionTests.cpp
-)
-
-target_link_libraries(visutwin-shader-composition-tests PRIVATE visutwin-canvas)
-
-add_test(NAME shader-composition COMMAND visutwin-shader-composition-tests)
-
-add_executable(visutwin-camera-frame-stop-tests
-    cameraFrameStopTests.cpp
-)
-
-target_link_libraries(visutwin-camera-frame-stop-tests PRIVATE visutwin-canvas)
-
-add_test(NAME camera-frame-stop COMMAND visutwin-camera-frame-stop-tests)
-
-add_executable(visutwin-cluster-grid-sharing-tests
-    clusterGridSharingTests.cpp
-)
-
-target_link_libraries(visutwin-cluster-grid-sharing-tests PRIVATE visutwin-canvas)
-
-add_test(NAME cluster-grid-sharing COMMAND visutwin-cluster-grid-sharing-tests)
-
-add_executable(visutwin-ktx2-target-tests
-    ktx2TargetTests.cpp
-)
-
-target_include_directories(visutwin-ktx2-target-tests PRIVATE ${TINYGLTF_INCLUDE_DIRS})
-target_compile_definitions(visutwin-ktx2-target-tests PRIVATE VISUTWIN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(visutwin-ktx2-target-tests PRIVATE visutwin-canvas)
-
-add_test(NAME ktx2-target COMMAND visutwin-ktx2-target-tests)
-
-add_executable(visutwin-obj-stl-round-trip-tests
-    objStlRoundTripTests.cpp
-)
-
-target_link_libraries(visutwin-obj-stl-round-trip-tests PRIVATE visutwin-canvas)
-
-add_test(NAME obj-stl-round-trip COMMAND visutwin-obj-stl-round-trip-tests)
-
-add_executable(visutwin-frame-stats-tests
-    frameStatsTests.cpp
-)
-
-target_link_libraries(visutwin-frame-stats-tests PRIVATE visutwin-canvas)
-
-add_test(NAME frame-stats COMMAND visutwin-frame-stats-tests)
-
-add_executable(visutwin-curve-tests
-    curveTests.cpp
-)
-
-target_link_libraries(visutwin-curve-tests PRIVATE visutwin-canvas)
-
-add_test(NAME curve COMMAND visutwin-curve-tests)
-
-add_executable(visutwin-element-layout-tests
-    elementLayoutTests.cpp
-)
-
-target_link_libraries(visutwin-element-layout-tests PRIVATE visutwin-canvas)
-
-add_test(NAME element-layout COMMAND visutwin-element-layout-tests)
-
-add_executable(visutwin-element-input-tests
-    elementInputTests.cpp
-)
-
-target_link_libraries(visutwin-element-input-tests PRIVATE visutwin-canvas)
-
-add_test(NAME element-input COMMAND visutwin-element-input-tests)
-
-add_executable(visutwin-image-element-geometry-tests
-    imageElementGeometryTests.cpp
-)
-
-target_link_libraries(visutwin-image-element-geometry-tests PRIVATE visutwin-canvas)
-
-add_test(NAME image-element-geometry COMMAND visutwin-image-element-geometry-tests)
-
-add_executable(visutwin-msdf-text-tests
-    msdfTextTests.cpp
-)
-
-target_link_libraries(visutwin-msdf-text-tests PRIVATE visutwin-canvas)
-
-add_test(NAME msdf-text COMMAND visutwin-msdf-text-tests)
-
-add_executable(visutwin-markup-tests
-    markupTests.cpp
-)
-
-target_link_libraries(visutwin-markup-tests PRIVATE visutwin-canvas)
-
-add_test(NAME markup COMMAND visutwin-markup-tests)
-
-add_executable(visutwin-script-lifetime-tests
-    scriptLifetimeTests.cpp
-)
-
-target_link_libraries(visutwin-script-lifetime-tests PRIVATE visutwin-canvas)
-
-add_test(NAME script-lifetime COMMAND visutwin-script-lifetime-tests)
-
-add_executable(visutwin-annotation-tests
-    annotationTests.cpp
-)
-
-target_link_libraries(visutwin-annotation-tests PRIVATE visutwin-canvas)
-
-add_test(NAME annotation COMMAND visutwin-annotation-tests)
-
-add_executable(visutwin-script-phase-tests
-    scriptPhaseTests.cpp
-)
-
-target_link_libraries(visutwin-script-phase-tests PRIVATE visutwin-canvas)
-
-add_test(NAME script-phases COMMAND visutwin-script-phase-tests)
-
-add_executable(visutwin-ui-visual-sharing-tests
-    uiVisualSharingTests.cpp
-)
-
-target_link_libraries(visutwin-ui-visual-sharing-tests PRIVATE visutwin-canvas)
-
-add_test(NAME ui-visual-sharing COMMAND visutwin-ui-visual-sharing-tests)
-
-add_executable(visutwin-picker-tests
-    pickerTests.cpp
-)
-
-target_link_libraries(visutwin-picker-tests PRIVATE visutwin-canvas)
-
-add_test(NAME picker COMMAND visutwin-picker-tests)
-
-add_executable(visutwin-upstream-small-ports-tests
-    upstreamSmallPortsTests.cpp
-)
-
-target_link_libraries(visutwin-upstream-small-ports-tests PRIVATE visutwin-canvas)
-
-add_test(NAME upstream-small-ports COMMAND visutwin-upstream-small-ports-tests)
-
-add_executable(visutwin-layout-calculator-tests
-    layoutCalculatorTests.cpp
-)
-
-target_link_libraries(visutwin-layout-calculator-tests PRIVATE visutwin-canvas)
-
-add_test(NAME layout-calculator COMMAND visutwin-layout-calculator-tests)
-
-add_executable(visutwin-ui-layout-scroll-tests
-    uiLayoutScrollTests.cpp
-)
-
-target_link_libraries(visutwin-ui-layout-scroll-tests PRIVATE visutwin-canvas)
-
-add_test(NAME ui-layout-scroll COMMAND visutwin-ui-layout-scroll-tests)
-
-add_executable(visutwin-text-fit-tests
-    textFitTests.cpp
-)
-
-target_link_libraries(visutwin-text-fit-tests PRIVATE visutwin-canvas)
-target_compile_definitions(visutwin-text-fit-tests PRIVATE VISUTWIN_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
-
-add_test(NAME text-fit COMMAND visutwin-text-fit-tests)
-
-add_executable(visutwin-i18n-tests
-    i18nTests.cpp
-)
-
-target_link_libraries(visutwin-i18n-tests PRIVATE visutwin-canvas)
-target_compile_definitions(visutwin-i18n-tests PRIVATE VISUTWIN_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
-
-add_test(NAME i18n COMMAND visutwin-i18n-tests)
-
-add_executable(visutwin-gizmo-tests
-    gizmoTests.cpp
-)
-
-target_link_libraries(visutwin-gizmo-tests PRIVATE visutwin-canvas)
-
-add_test(NAME gizmo COMMAND visutwin-gizmo-tests)
+visutwin_add_unit_test(visutwin-glb-animation-binding-tests glb-animation-binding glbAnimationBindingTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-glb-point-node-matrix-tests glb-point-node-matrix glbPointNodeMatrixTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-stb-image-flip-tests stb-image-flip stbImageFlipTests.cpp)
+visutwin_add_unit_test(visutwin-texture-gpu-size-tests texture-gpu-size textureGpuSizeTests.cpp)
+visutwin_add_unit_test(visutwin-morph-bounds-tests morph-bounds morphBoundsTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-joint-lifetime-tests joint-lifetime jointLifetimeTests.cpp)
+visutwin_add_unit_test(visutwin-batch-lifetime-tests batch-lifetime batchLifetimeTests.cpp)
+visutwin_add_unit_test(visutwin-glb-material-paths-tests glb-material-paths glbMaterialPathsTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-glb-point-cloud-tests glb-point-cloud glbPointCloudTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-raycast-fallback-tests raycast-fallback raycastFallbackTests.cpp)
+visutwin_add_unit_test(visutwin-mirrored-body-tests mirrored-body mirroredBodyTests.cpp)
+visutwin_add_unit_test(visutwin-entity-clone-tests entity-clone entityCloneTests.cpp)
+visutwin_add_unit_test(visutwin-glb-camera-light-tests glb-camera-light glbCameraLightTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-glb-extensions-tests glb-extensions glbExtensionsTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-triage-contracts-tests triage-contracts triageContractsTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-frame-graph-tests frame-graph frameGraphTests.cpp)
+visutwin_add_unit_test(visutwin-shader-composition-tests shader-composition shaderCompositionTests.cpp)
+visutwin_add_unit_test(visutwin-camera-frame-stop-tests camera-frame-stop cameraFrameStopTests.cpp)
+visutwin_add_unit_test(visutwin-cluster-grid-sharing-tests cluster-grid-sharing clusterGridSharingTests.cpp)
+visutwin_add_unit_test(visutwin-ktx2-target-tests ktx2-target ktx2TargetTests.cpp TINYGLTF DEFINITIONS VISUTWIN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+visutwin_add_unit_test(visutwin-obj-stl-round-trip-tests obj-stl-round-trip objStlRoundTripTests.cpp)
+visutwin_add_unit_test(visutwin-frame-stats-tests frame-stats frameStatsTests.cpp)
+visutwin_add_unit_test(visutwin-curve-tests curve curveTests.cpp)
+visutwin_add_unit_test(visutwin-element-layout-tests element-layout elementLayoutTests.cpp)
+visutwin_add_unit_test(visutwin-element-input-tests element-input elementInputTests.cpp)
+visutwin_add_unit_test(visutwin-image-element-geometry-tests image-element-geometry imageElementGeometryTests.cpp)
+visutwin_add_unit_test(visutwin-msdf-text-tests msdf-text msdfTextTests.cpp)
+visutwin_add_unit_test(visutwin-markup-tests markup markupTests.cpp)
+visutwin_add_unit_test(visutwin-script-lifetime-tests script-lifetime scriptLifetimeTests.cpp)
+visutwin_add_unit_test(visutwin-annotation-tests annotation annotationTests.cpp)
+visutwin_add_unit_test(visutwin-script-phase-tests script-phases scriptPhaseTests.cpp)
+visutwin_add_unit_test(visutwin-ui-visual-sharing-tests ui-visual-sharing uiVisualSharingTests.cpp)
+visutwin_add_unit_test(visutwin-picker-tests picker pickerTests.cpp)
+visutwin_add_unit_test(visutwin-upstream-small-ports-tests upstream-small-ports upstreamSmallPortsTests.cpp)
+visutwin_add_unit_test(visutwin-layout-calculator-tests layout-calculator layoutCalculatorTests.cpp)
+visutwin_add_unit_test(visutwin-ui-layout-scroll-tests ui-layout-scroll uiLayoutScrollTests.cpp)
+visutwin_add_unit_test(visutwin-text-fit-tests text-fit textFitTests.cpp DEFINITIONS VISUTWIN_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
+visutwin_add_unit_test(visutwin-i18n-tests i18n i18nTests.cpp DEFINITIONS VISUTWIN_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
+visutwin_add_unit_test(visutwin-gizmo-tests gizmo gizmoTests.cpp)

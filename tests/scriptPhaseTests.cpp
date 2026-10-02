@@ -22,46 +22,20 @@
 #include <string>
 #include <vector>
 
-#include "framework/appOptions.h"
 #include "framework/components/script/scriptComponent.h"
 #include "framework/components/script/scriptComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/script/scriptRegistry.h"
-#include "platform/graphics/graphicsDevice.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
     // What ran, in order: "<script>:<phase>".
     std::vector<std::string> ran;
 
@@ -199,11 +173,7 @@ namespace
 
 int main()
 {
-    auto engine = std::make_shared<Engine>(nullptr);
-    AppOptions options;
-    options.graphicsDevice = std::make_shared<StubDevice>();
-    options.registerComponentSystem<ScriptComponentSystem>();
-    engine->init(options);
+    auto engine = makeTestEngine<ScriptComponentSystem>(std::make_shared<StubGraphicsDevice>());
     engine->scripts()->registerType<Idle>();
     engine->scripts()->registerType<Updater>();
     engine->scripts()->registerType<PostOnly>();
@@ -345,6 +315,5 @@ int main()
         check(count("custom:update") == 1 && count("custom:postUpdate") == 1, "runs the phases it implements");
     }
 
-    std::cout << (failures == 0 ? "\nAll script phase tests passed\n" : "\nScript phase tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("script phase");
 }

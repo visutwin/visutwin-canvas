@@ -39,10 +39,7 @@ protected:
     bool create() override
     {
         _spark = std::make_unique<Asset>("spark", AssetType::TEXTURE, assetPath("textures/spark.png"));
-        Texture* spark = nullptr;
-        if (const auto resource = _spark->resource(); resource && std::holds_alternative<Texture*>(*resource)) {
-            spark = std::get<Texture*>(*resource);
-        }
+        Texture* spark = _spark->resourceAs<Texture>();
         if (spark == nullptr) {
             spdlog::error("particles-spark needs textures/spark.png");
             return false;

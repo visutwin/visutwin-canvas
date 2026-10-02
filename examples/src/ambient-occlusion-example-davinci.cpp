@@ -20,6 +20,7 @@
 
 #include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
+#include "../ssaoKeys.h"
 #include "core/math/quaternion.h"
 #include "platform/graphics/depthState.h"
 #include "scene/constants.h"
@@ -64,20 +65,20 @@ protected:
             AssetData{ .mipmaps = false }
         );
 
-        const auto envAtlasResource = _envAtlas->resource();
-        if (!envAtlasResource) {
+        Texture* envAtlasTexture = _envAtlas->resourceAs<Texture>();
+        if (!envAtlasTexture) {
             spdlog::error("Failed to load environment atlas texture");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+        scene()->setEnvAtlas(envAtlasTexture);
 
         // create laboratory entity — auto-scale to fit scene
-        const auto labResource = _laboratory->resource();
-        if (!labResource) {
+        ContainerResource* labContainer = _laboratory->resourceAs<ContainerResource>();
+        if (!labContainer) {
             spdlog::error("Failed to load laboratory model");
             return false;
         }
-        auto* labEntity = std::get<ContainerResource*>(*labResource)->instantiateRenderEntity();
+        auto* labEntity = labContainer->instantiateRenderEntity();
         root()->addChild(labEntity);
 
         // Normalize model so its longest extent is ~100 units
@@ -123,9 +124,9 @@ protected:
         // add Leonardo da Vinci bust next to the workshop
         Entity* leoEntity = nullptr;
         {
-            const auto leoResource = _leonardoBust->resource();
-            if (leoResource) {
-                leoEntity = std::get<ContainerResource*>(*leoResource)->instantiateRenderEntity();
+            ContainerResource* leoContainer = _leonardoBust->resourceAs<ContainerResource>();
+            if (leoContainer) {
+                leoEntity = leoContainer->instantiateRenderEntity();
                 root()->addChild(leoEntity);
 
                 // Scale bust to same normalized size as the workshop (100 units)
@@ -327,9 +328,8 @@ protected:
             rendering.gradingTint[2] = 0.96f;
             rendering.colorEnhanceVibrance = 0.15f;
             rendering.colorEnhanceShadows = 0.15f;       // lift shadows slightly
-            if (const auto lutResource = _colorLutAsset->resource();
-                lutResource && std::holds_alternative<Texture*>(*lutResource)) {
-                rendering.colorLUT = std::get<Texture*>(*lutResource);
+            if (Texture* lutTexture = _colorLutAsset->resourceAs<Texture>()) {
+                rendering.colorLUT = lutTexture;
                 rendering.colorLUTIntensity = 0.35f;     // teal-orange look, kept gentle
             }
             _cameraComp->setRendering(rendering);
@@ -355,7 +355,7 @@ protected:
         spdlog::info("Orbit controls: LMB/RMB orbit, Shift/MMB pan, Wheel/Pinch zoom, F focus, R reset");
         spdlog::info("SSAO controls: O toggle SSAO, B toggle blur, Z toggle randomize");
         spdlog::info("  +/- adjust intensity, [/] adjust radius, ,/. adjust samples, ;/' adjust power");
-        logSsaoState("init");
+        logSsaoState(_cameraComp, "init", {.typeKey = false});
 
         return true;
     }
@@ -365,72 +365,13 @@ protected:
         if (event.type != SDL_EVENT_KEY_DOWN || !_cameraComp) {
             return false;
         }
-
-        auto ssao = _cameraComp->ssao();
-        switch (event.key.key) {
-        case SDLK_O:
-            ssao.enabled = !ssao.enabled;
-            _cameraComp->setSsao(ssao);
-            logSsaoState("toggle");
-            return true;
-        case SDLK_B:
-            ssao.blurEnabled = !ssao.blurEnabled;
-            _cameraComp->setSsao(ssao);
-            logSsaoState("blur");
-            return true;
-        case SDLK_Z:
-            ssao.randomize = !ssao.randomize;
-            _cameraComp->setSsao(ssao);
-            logSsaoState("randomize");
-            return true;
-        case SDLK_EQUALS:
-            ssao.intensity = std::min(1.0f, ssao.intensity + 0.05f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("intensity+");
-            return true;
-        case SDLK_MINUS:
-            ssao.intensity = std::max(0.0f, ssao.intensity - 0.05f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("intensity-");
-            return true;
-        case SDLK_RIGHTBRACKET:
-            ssao.radius = std::min(100.0f, ssao.radius + 5.0f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("radius+");
-            return true;
-        case SDLK_LEFTBRACKET:
-            ssao.radius = std::max(1.0f, ssao.radius - 5.0f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("radius-");
-            return true;
-        case SDLK_PERIOD:
-            ssao.samples = std::min(32, ssao.samples + 2);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("samples+");
-            return true;
-        case SDLK_COMMA:
-            ssao.samples = std::max(2, ssao.samples - 2);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("samples-");
-            return true;
-        case SDLK_APOSTROPHE:
-            ssao.power = std::min(16.0f, ssao.power + 1.0f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("power+");
-            return true;
-        case SDLK_SEMICOLON:
-            ssao.power = std::max(0.5f, ssao.power - 1.0f);
-            _cameraComp->setSsao(ssao);
-            logSsaoState("power-");
-            return true;
-        case SDLK_F:
+        if (event.key.key == SDLK_F) {
             if (_controls) {
                 _controls->focus(_focusPoint, _orbitDistance);
             }
             return true;
-        default:
-            return false;
         }
+        return handleSsaoKey(_cameraComp, event.key.key, {.typeKey = false});
     }
 
     void destroy() override
@@ -439,25 +380,6 @@ protected:
     }
 
 private:
-    void logSsaoState(const char* reason) const
-    {
-        if (!_cameraComp) {
-            return;
-        }
-        const auto& ssao = _cameraComp->ssao();
-        spdlog::info("SSAO {}: enabled={}, blur={}, intensity={:.2f}, power={:.1f}, radius={:.1f}, samples={}, minAngle={:.1f}, scale={:.2f}, randomize={}",
-            reason,
-            ssao.enabled ? "ON" : "OFF",
-            ssao.blurEnabled ? "ON" : "OFF",
-            ssao.intensity,
-            ssao.power,
-            ssao.radius,
-            ssao.samples,
-            ssao.minAngle,
-            ssao.scale,
-            ssao.randomize ? "ON" : "OFF");
-    }
-
     std::unique_ptr<Asset> _envAtlas;
     std::unique_ptr<Asset> _laboratory;
     std::unique_ptr<Asset> _leonardoBust;

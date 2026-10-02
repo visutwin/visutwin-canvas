@@ -24,21 +24,13 @@
 #include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/entity.h"
 #include "framework/physics/physicsWorld.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     class FakeBody final : public PhysicsBody
     {
     public:
@@ -205,6 +197,5 @@ int main()
         "a new end brings the joint back");
     check(deadCalls == 0, "still no call on a freed joint");
 
-    std::cout << (failures == 0 ? "\nAll joint lifetime tests passed\n" : "\nJoint lifetime tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("joint lifetime");
 }

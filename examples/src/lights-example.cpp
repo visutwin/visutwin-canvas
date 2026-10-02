@@ -59,10 +59,8 @@ protected:
             "heart", AssetType::TEXTURE, assetPath("textures/heart.png"),
             AssetData{.mipmaps = true});
 
-        Texture* heartCookie = nullptr;
-        if (const auto heartResource = _heartAsset->resource()) {
-            heartCookie = std::get<Texture*>(*heartResource);
-        } else {
+        Texture* heartCookie = _heartAsset->resourceAs<Texture>();
+        if (!heartCookie) {
             spdlog::warn("heart.png failed to load — the spot light keeps a plain beam");
         }
 
@@ -72,9 +70,7 @@ protected:
             xmasData.faces[i] = assetPath("cubemaps/xmas_faces/" + std::string(xmasFaceFiles[i]) + ".png");
         }
         _xmasAsset = std::make_unique<Asset>("xmas_cubemap", AssetType::CUBEMAP, "", xmasData);
-        if (const auto resource = _xmasAsset->resource()) {
-            _xmasCookie = std::get<Texture*>(*resource);
-        }
+        _xmasCookie = _xmasAsset->resourceAs<Texture>();
         if (!_xmasCookie) {
             spdlog::warn("xmas cubemap failed to build — the omni light keeps a plain falloff");
         }
@@ -84,13 +80,12 @@ protected:
         // -----------------------------------------------------------------------
         _statueAsset = std::make_unique<Asset>(
             "statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
-        const auto statueResource = _statueAsset->resource();
-        if (!statueResource || !std::holds_alternative<ContainerResource*>(*statueResource)) {
+        ContainerResource* statueContainer = _statueAsset->resourceAs<ContainerResource>();
+        if (!statueContainer) {
             spdlog::error("statue.glb failed to load");
             return false;
         }
-        auto* statueContainer = std::get<ContainerResource*>(*statueResource);
-        auto* statue = statueContainer ? statueContainer->instantiateRenderEntity() : nullptr;
+        auto* statue = statueContainer->instantiateRenderEntity();
         if (!statue) {
             spdlog::error("statue.glb instantiate failed");
             return false;

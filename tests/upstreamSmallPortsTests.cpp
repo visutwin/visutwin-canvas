@@ -28,22 +28,13 @@
 #include "scene/camera.h"
 #include "scene/graphNode.h"
 #include "scene/scene.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-3f) { return std::fabs(a - b) < eps; }
 
     class EventSink final : public EventHandler
     {
@@ -83,11 +74,11 @@ int main()
 
         const Vector3 world = camera.screenToWorld(300.0f, 200.0f, 7.0f, 800.0f, 600.0f);
         const Vector3 screen = camera.worldToScreen(world, 800.0f, 600.0f);
-        check(near(screen.getX(), 300.0f, 0.01f) && near(screen.getY(), 200.0f, 0.01f),
+        check(nearStrict(screen.getX(), 300.0f, 0.01f) && nearStrict(screen.getY(), 200.0f, 0.01f),
             "worldToScreen inverts screenToWorld through the camera rect");
 
         const Vector3 ahead = camera.worldToScreen(Vector3(1.0f, 2.0f, 0.0f), 800.0f, 600.0f);
-        check(near(ahead.getX(), 400.0f, 0.01f) && near(ahead.getY(), 300.0f, 0.01f),
+        check(nearStrict(ahead.getX(), 400.0f, 0.01f) && nearStrict(ahead.getY(), 300.0f, 0.01f),
             "a point straight ahead lands on the centre of the camera's rect");
         const Vector3 above = camera.worldToScreen(Vector3(1.0f, 3.0f, 0.0f), 800.0f, 600.0f);
         check(above.getY() < 300.0f, "screen y runs DOWN, as upstream's canvas coordinates do");
@@ -101,7 +92,7 @@ int main()
         camera.setSensitivity(500.0f);
         const float ev100 = std::log2(16.0f / 0.01f * 100.0f / 500.0f);
         const float expected = 1.0f / (std::pow(2.0f, ev100) * 1.2f);
-        check(near(camera.physicalExposure(), expected, 1e-7f), "physicalExposure is upstream's getExposure");
+        check(nearStrict(camera.physicalExposure(), expected, 1e-7f), "physicalExposure is upstream's getExposure");
 
         Scene scene(nullptr);
         scene.setExposure(0.5f);
@@ -167,6 +158,5 @@ int main()
             "the tile is upstream's bytes");
     }
 
-    std::cout << (failures == 0 ? "all passed" : std::to_string(failures) + " failed") << '\n';
-    return failures == 0 ? 0 : 1;
+    return finish("upstream small ports");
 }

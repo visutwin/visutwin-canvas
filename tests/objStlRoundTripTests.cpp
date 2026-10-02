@@ -32,67 +32,17 @@
 #include "framework/parsers/packedVertex.h"
 #include "framework/parsers/phongMaterial.h"
 #include "framework/parsers/stlParser.h"
-#include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "scene/mesh.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class CpuVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        void unlock() override {}
-    };
-
-    class CpuIndexBuffer final : public IndexBuffer
-    {
-    public:
-        using IndexBuffer::IndexBuffer;
-        bool setData(const std::vector<uint8_t>& data) override
-        {
-            _storage = data;
-            return true;
-        }
-    };
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
-            const int numVertices, const VertexBufferOptions& options) override
-        {
-            return std::make_shared<CpuVertexBuffer>(this, format, numVertices, options);
-        }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(const IndexFormat format, const int numIndices,
-            const std::vector<uint8_t>& data) override
-        {
-            auto buffer = std::make_shared<CpuIndexBuffer>(this, format, numIndices);
-            buffer->setData(data);
-            return buffer;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
     struct Geometry
     {
         std::vector<PackedVertex> vertices;
@@ -167,7 +117,8 @@ namespace
         return true;
     }
 
-    bool near(const Vector3& a, const Vector3& b, const float eps = 1e-5f)
+    /// The length of the difference within eps (not per component).
+    bool withinDistance(const Vector3& a, const Vector3& b, const float eps = 1e-5f)
     {
         return (a - b).length() <= eps;
     }
@@ -175,7 +126,7 @@ namespace
     bool hasVertexAt(const Geometry& g, const Vector3& p, const float eps = 1e-5f)
     {
         for (const auto& v : g.vertices) {
-            if (near(position(v), p, eps)) {
+            if (withinDistance(position(v), p, eps)) {
                 return true;
             }
         }
@@ -276,7 +227,8 @@ namespace
 int main()
 {
     std::cout << std::unitbuf;
-    auto device = std::make_shared<StubDevice>();
+    auto device = std::make_shared<StubGraphicsDevice>(
+        StubGraphicsDevice::Options{.cpuBuffers = true, .keepIndexData = true});
     dir = std::filesystem::temp_directory_path() / "visutwin-obj-stl-tests";
     std::filesystem::create_directories(dir);
 
@@ -312,7 +264,8 @@ int main()
                  v.u1 == v.u && v.v1 == v.v;
         }
         check(uv, "UVs flipped to top-left origin (v = 1 - vt), UV1 = UV0");
-        check(near(g.aabb.center(), Vector3(1.0f, 0.5f, 0.0f)) && near(g.aabb.halfExtents(), Vector3(1.0f, 0.5f, 0.0f)),
+        check(withinDistance(g.aabb.center(), Vector3(1.0f, 0.5f, 0.0f)) &&
+              withinDistance(g.aabb.halfExtents(), Vector3(1.0f, 0.5f, 0.0f)),
             "the bounds are the quad's");
     }
 
@@ -334,7 +287,7 @@ int main()
         check(g.vertices.size() == 8, "one vertex per corner");
         bool diagonal = g.vertices.size() == 8;
         for (const auto& v : g.vertices) {
-            diagonal = diagonal && near(normal(v), (position(v) - centre).normalized(), 1e-5f);
+            diagonal = diagonal && withinDistance(normal(v), (position(v) - centre).normalized(), 1e-5f);
         }
         check(diagonal, "each normal is the corner's diagonal, pointing out");
         check(normalsFollowWinding(g, false), "and on every triangle's front side");
@@ -398,7 +351,8 @@ int main()
         // Many exporters begin a BINARY header with "solid", which is how ASCII files begin.
         const auto solid = only(StlParser::parse(write("cube-solid.stl", binaryStl(tris, "solid exported")), device));
         check(solid.indices.size() == 36, "a binary file whose header starts \"solid\" is still read as binary");
-        check(near(ascii.aabb.center(), centre) && near(ascii.aabb.halfExtents(), centre), "the bounds are the cube's");
+        check(withinDistance(ascii.aabb.center(), centre) &&
+              withinDistance(ascii.aabb.halfExtents(), centre), "the bounds are the cube's");
     }
 
     std::cout << "\nSTL: smooth normals and crease angle\n";
@@ -414,7 +368,7 @@ int main()
         const auto smooth = only(StlParser::parse(write("cube-s.stl", binaryStl(tris, "s")), device, config));
         bool diagonal = smooth.vertices.size() == 8;
         for (const auto& v : smooth.vertices) {
-            diagonal = diagonal && near(normal(v), (position(v) - centre).normalized(), 1e-5f);
+            diagonal = diagonal && withinDistance(normal(v), (position(v) - centre).normalized(), 1e-5f);
         }
         check(smooth.indices.size() == 36 && diagonal && normalsFollowWinding(smooth, false),
             "above it they are smoothed: 8 vertices, each normal the corner's diagonal whichever "
@@ -488,6 +442,5 @@ int main()
     }
 
     std::filesystem::remove_all(dir);
-    std::cout << (failures == 0 ? "\nAll OBJ/STL round-trip tests passed\n" : "\nOBJ/STL round-trip tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("OBJ/STL round-trip");
 }

@@ -35,7 +35,6 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
-#include <variant>
 #include <vector>
 
 #include "extras/script/cameraControls.h"
@@ -85,9 +84,9 @@ protected:
         _checkerboard = std::make_unique<Asset>(
             "checkerboard", AssetType::TEXTURE, assetPath("textures/checkboard.png"));
 
-        const auto helipadResource = _helipad->resource();
-        const auto checkerResource = _checkerboard->resource();
-        if (!helipadResource || !checkerResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        Texture* checkerTexture = _checkerboard->resourceAs<Texture>();
+        if (!helipadTexture || !checkerTexture) {
             spdlog::error("Failed to load required textures");
             return false;
         }
@@ -119,7 +118,7 @@ protected:
         // Create ground plane and 3 primitives, visible in world layer
         _planeMaterial = std::make_shared<StandardMaterial>();
         _planeMaterial->setDiffuse(Color(3.0f, 4.0f, 2.0f, 1.0f));
-        _planeMaterial->setDiffuseMap(std::get<Texture*>(*checkerResource));
+        _planeMaterial->setDiffuseMap(checkerTexture);
         _planeMaterial->setDiffuseMapTiling(Vector2(10.0f, 10.0f));
         createPrimitive("plane", _planeMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
             Vector3(20.0f, 20.0f, 20.0f), {LAYERID_WORLD});
@@ -198,7 +197,7 @@ protected:
 
         // Setup skydome, use top mipmap level of cubemap (full resolution)
         scene()->setSkyboxMip(0);
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
 
         // Display the texture in the bottom-right corner, in the main frame only
         addTexturePreview(0.725f, 0.725f, 0.25f, 0.25f);

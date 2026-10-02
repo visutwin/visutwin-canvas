@@ -27,31 +27,20 @@
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "core/math/vector4.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-4f)
-    {
-        return std::fabs(a - b) <= eps;
-    }
+    constexpr float kTolerance = 1e-4f;
 
     bool isIdentity(const Matrix4& m)
     {
         for (int col = 0; col < 4; ++col) {
             for (int row = 0; row < 4; ++row) {
-                if (!near(m.getElement(col, row), col == row ? 1.0f : 0.0f)) {
+                if (!near(m.getElement(col, row), col == row ? 1.0f : 0.0f, kTolerance)) {
                     return false;
                 }
             }
@@ -94,13 +83,13 @@ int main()
     // ── Horizontal sums ──────────────────────────────────────────────────────
     // 3-4-5 triangle: the classic case, and the one the doubled SSE reduction got
     // wrong by a factor of sqrt(2).
-    check(near(Vector2(3.0f, 4.0f).dot(Vector2(3.0f, 4.0f)), 25.0f), "Vector2 dot with itself is 25");
-    check(near(Vector2(3.0f, 4.0f).length(), 5.0f), "Vector2(3,4) length is 5");
-    check(near(Vector2(1.0f, 0.0f).dot(Vector2(0.0f, 1.0f)), 0.0f), "Vector2 perpendicular dot is 0");
+    check(near(Vector2(3.0f, 4.0f).dot(Vector2(3.0f, 4.0f)), 25.0f, kTolerance), "Vector2 dot with itself is 25");
+    check(near(Vector2(3.0f, 4.0f).length(), 5.0f, kTolerance), "Vector2(3,4) length is 5");
+    check(near(Vector2(1.0f, 0.0f).dot(Vector2(0.0f, 1.0f)), 0.0f, kTolerance), "Vector2 perpendicular dot is 0");
 
-    check(near(Vector3(3.0f, 4.0f, 0.0f).length(), 5.0f), "Vector3(3,4,0) length is 5");
-    check(near(Vector3(1.0f, 2.0f, 2.0f).length(), 3.0f), "Vector3(1,2,2) length is 3");
-    check(near(Vector4(1.0f, 2.0f, 3.0f, 4.0f).dot(Vector4(1.0f, 1.0f, 1.0f, 1.0f)), 10.0f),
+    check(near(Vector3(3.0f, 4.0f, 0.0f).length(), 5.0f, kTolerance), "Vector3(3,4,0) length is 5");
+    check(near(Vector3(1.0f, 2.0f, 2.0f).length(), 3.0f, kTolerance), "Vector3(1,2,2) length is 3");
+    check(near(Vector4(1.0f, 2.0f, 3.0f, 4.0f).dot(Vector4(1.0f, 1.0f, 1.0f, 1.0f)), 10.0f, kTolerance),
         "Vector4 dot sums all four lanes");
 
     // Quaternion::dot is the shortest-arc test of every rotation blend and the body of
@@ -108,11 +97,11 @@ int main()
     {
         const Quaternion p(1.0f, 2.0f, 3.0f, 4.0f);
         const Quaternion q(-2.0f, 0.5f, 1.0f, 2.0f);
-        check(near(p.dot(q), -2.0f + 1.0f + 3.0f + 8.0f), "Quaternion dot matches the component sum");
-        check(near(p.dot(p), p.lengthSquared()), "Quaternion dot with itself is lengthSquared");
-        check(near(p.dot(p), 30.0f), "Quaternion lengthSquared of (1,2,3,4) is 30");
+        check(near(p.dot(q), -2.0f + 1.0f + 3.0f + 8.0f, kTolerance), "Quaternion dot matches the component sum");
+        check(near(p.dot(p), p.lengthSquared(), kTolerance), "Quaternion dot with itself is lengthSquared");
+        check(near(p.dot(p), 30.0f, kTolerance), "Quaternion lengthSquared of (1,2,3,4) is 30");
         check(p.dot(Quaternion(-1.0f, -2.0f, -3.0f, -4.0f)) < 0.0f, "the negated quaternion has a negative dot");
-        check(near(Quaternion(1.0f, 0.0f, 0.0f, 0.0f).dot(Quaternion(0.0f, 0.0f, 0.0f, 1.0f)), 0.0f),
+        check(near(Quaternion(1.0f, 0.0f, 0.0f, 0.0f).dot(Quaternion(0.0f, 0.0f, 0.0f, 1.0f)), 0.0f, kTolerance),
             "orthogonal quaternions dot to 0");
     }
 
@@ -126,21 +115,24 @@ int main()
         const Quaternion s1 = Quaternion::slerp(id, quarterY, 1.0f);
         const Quaternion sh = Quaternion::slerp(id, quarterY, 0.5f);
         const Quaternion nh = Quaternion::nlerp(id, quarterY, 0.5f);
-        check(near(s0.dot(id), 1.0f), "slerp at t=0 is the start");
-        check(near(s1.dot(quarterY), 1.0f), "slerp at t=1 is the end");
-        check(near(sh.dot(eighthY), 1.0f), "slerp midpoint of identity and a quarter turn is the eighth turn");
-        check(near(nh.dot(eighthY), 1.0f), "nlerp midpoint agrees with slerp for unit inputs");
-        check(near(sh.lengthSquared(), 1.0f) && near(nh.lengthSquared(), 1.0f), "both blends return unit quaternions");
+        check(near(s0.dot(id), 1.0f, kTolerance), "slerp at t=0 is the start");
+        check(near(s1.dot(quarterY), 1.0f, kTolerance), "slerp at t=1 is the end");
+        check(near(sh.dot(eighthY), 1.0f, kTolerance),
+            "slerp midpoint of identity and a quarter turn is the eighth turn");
+        check(near(nh.dot(eighthY), 1.0f, kTolerance), "nlerp midpoint agrees with slerp for unit inputs");
+        check(near(sh.lengthSquared(), 1.0f, kTolerance) && near(nh.lengthSquared(), 1.0f, kTolerance),
+            "both blends return unit quaternions");
         // q and -q are one rotation: blending toward the negated spelling must not swing the long way.
         const Quaternion minusQuarter = quarterY * -1.0f;
-        check(near(std::fabs(Quaternion::slerp(id, minusQuarter, 0.5f).dot(eighthY)), 1.0f),
+        check(near(std::fabs(Quaternion::slerp(id, minusQuarter, 0.5f).dot(eighthY)), 1.0f, kTolerance),
             "slerp takes the shorter arc when the end is negated");
-        check(near(std::fabs(Quaternion::nlerp(id, minusQuarter, 0.5f).dot(eighthY)), 1.0f),
+        check(near(std::fabs(Quaternion::nlerp(id, minusQuarter, 0.5f).dot(eighthY)), 1.0f, kTolerance),
             "nlerp takes the shorter arc when the end is negated");
-        check(near(Quaternion::slerp(quarterY, quarterY, 0.3f).dot(quarterY), 1.0f),
+        check(near(Quaternion::slerp(quarterY, quarterY, 0.3f).dot(quarterY), 1.0f, kTolerance),
             "slerp of a quaternion with itself is itself (parallel fallback)");
         const Quaternion sum = Quaternion(1.0f, 2.0f, 3.0f, 4.0f) + Quaternion(4.0f, 3.0f, 2.0f, 1.0f);
-        check(near(sum.getX(), 5.0f) && near(sum.getY(), 5.0f) && near(sum.getZ(), 5.0f) && near(sum.getW(), 5.0f),
+        check(near(sum.getX(), 5.0f, kTolerance) && near(sum.getY(), 5.0f, kTolerance) &&
+              near(sum.getZ(), 5.0f, kTolerance) && near(sum.getW(), 5.0f, kTolerance),
             "Quaternion operator+ is the component sum");
     }
 
@@ -151,21 +143,23 @@ int main()
     // axis-aligned camera produces exactly this near plane.
     {
         const Vector4 p = Vector4(0.0f, 0.0f, 2.0f, -8.0f).planeNormalize();
-        check(near(p.getX(), 0.0f) && near(p.getY(), 0.0f) && near(p.getZ(), 1.0f) && near(p.getW(), -4.0f),
+        check(near(p.getX(), 0.0f, kTolerance) && near(p.getY(), 0.0f, kTolerance) &&
+              near(p.getZ(), 1.0f, kTolerance) && near(p.getW(), -4.0f, kTolerance),
             "plane (0,0,2,-8) normalises to (0,0,1,-4)");
     }
     {
         // A normal in the XY plane: the case the broken code got right by accident,
         // since there z*z was zero anyway. It must stay right.
         const Vector4 p = Vector4(3.0f, 4.0f, 0.0f, -10.0f).planeNormalize();
-        check(near(p.getX(), 0.6f) && near(p.getY(), 0.8f) && near(p.getZ(), 0.0f) && near(p.getW(), -2.0f),
+        check(near(p.getX(), 0.6f, kTolerance) && near(p.getY(), 0.8f, kTolerance) &&
+              near(p.getZ(), 0.0f, kTolerance) && near(p.getW(), -2.0f, kTolerance),
             "plane (3,4,0,-10) normalises to (0.6,0.8,0,-2)");
     }
     {
         const Vector4 p = Vector4(1.0f, 2.0f, 2.0f, -9.0f).planeNormalize();
         const float len = std::sqrt(p.getX() * p.getX() + p.getY() * p.getY() + p.getZ() * p.getZ());
-        check(near(len, 1.0f), "a general plane normal comes out unit length");
-        check(near(p.getW(), -3.0f), "and its distance is scaled by the same factor");
+        check(near(len, 1.0f, kTolerance), "a general plane normal comes out unit length");
+        check(near(p.getW(), -3.0f, kTolerance), "and its distance is scaled by the same factor");
     }
 
     // ── Degenerate matrix inverse ────────────────────────────────────────────
@@ -190,7 +184,8 @@ int main()
     {
         const Quaternion zero(0.0f, 0.0f, 0.0f, 0.0f);
         const Quaternion n = zero.normalized();
-        check(near(n.getX(), 0.0f) && near(n.getY(), 0.0f) && near(n.getZ(), 0.0f) && near(n.getW(), 1.0f),
+        check(near(n.getX(), 0.0f, kTolerance) && near(n.getY(), 0.0f, kTolerance) &&
+              near(n.getZ(), 0.0f, kTolerance) && near(n.getW(), 1.0f, kTolerance),
             "a zero quaternion normalises to identity, not NaN");
         const Quaternion i = zero.invert();
         check(std::isfinite(i.getX()) && std::isfinite(i.getW()), "invert of a zero quaternion is finite");
@@ -244,7 +239,7 @@ int main()
         check(std::isinf((Vector3(1.0f) / Vector3(0.0f, 1.0f, 1.0f)).getX()), "a zero divisor gives inf");
         // The unused lane of the divisor is zero on SSE and NEON; 0/0 there must not
         // leak into the 3-component length.
-        check(near((Vector3(3.0f, 4.0f, 0.0f) / Vector3(1.0f)).length(), 5.0f),
+        check(near((Vector3(3.0f, 4.0f, 0.0f) / Vector3(1.0f)).length(), 5.0f, kTolerance),
             "division leaves the fourth lane clean for length()");
 
         check(a.minComponent() == -2.0f && a.maxComponent() == 3.0f, "Vector3 min/maxComponent");
@@ -287,7 +282,7 @@ int main()
         // or set w and leave x, y, z alone.
         const Vector3 dropped(a);
         check(dropped.getX() == 1.0f && dropped.getY() == 2.0f && dropped.getZ() == 3.0f &&
-            near(dropped.lengthSquared(), 14.0f), "Vector3(Vector4) drops w");
+            near(dropped.lengthSquared(), 14.0f, kTolerance), "Vector3(Vector4) drops w");
         check(Vector4(Vector3(1.0f, 2.0f, 3.0f), 7.0f) == Vector4(1.0f, 2.0f, 3.0f, 7.0f), "Vector4(Vector3, w) sets w");
     }
 
@@ -299,7 +294,7 @@ int main()
         check(p.x == 1.0f && p.y == -3.0f, "Vector2 component product");
         check(Vector2(3.0f, 4.0f).lengthSquared() == 25.0f, "Vector2 lengthSquared");
         const Vector2 n = Vector2(3.0f, 4.0f).normalized();
-        check(near(n.x, 0.6f) && near(n.y, 0.8f), "Vector2 normalized");
+        check(near(n.x, 0.6f, kTolerance) && near(n.y, 0.8f, kTolerance), "Vector2 normalized");
         const Vector2 z = Vector2(0.0f, 0.0f).normalized();
         check(z.x == 0.0f && z.y == 0.0f, "a zero Vector2 normalizes to zero");
     }
@@ -346,7 +341,8 @@ int main()
         }
         check(same, "translation(Vector3) is translation(x, y, z)");
 
-        check(near(Matrix4::trs(Vector3(0.0f), Quaternion(), Vector3(2.0f, 3.0f, 4.0f)).determinant3x3(), 24.0f),
+        check(near(Matrix4::trs(Vector3(0.0f), Quaternion(), Vector3(2.0f, 3.0f, 4.0f)).determinant3x3(), 24.0f,
+                  kTolerance),
             "determinant3x3 of a scale is the product of its factors");
         check(Matrix4::trs(Vector3(0.0f), Quaternion::fromEulerAngles(0.0f, 30.0f, 0.0f),
             Vector3(-1.0f, 1.0f, 1.0f)).determinant3x3() < 0.0f, "a mirrored transform has a negative determinant");
@@ -365,7 +361,7 @@ int main()
         check(normalAgrees && n.getElement(3, 3) == 1.0f, "normalMatrix is the upper-3x3 inverse transpose");
 
         const Matrix4 mirrored = Matrix4::trs(Vector3(0.0f), Quaternion(), Vector3(-2.0f, 1.0f, 1.0f));
-        check(near(mirrored.normalMatrix().getElement(0, 0), -0.5f),
+        check(near(mirrored.normalMatrix().getElement(0, 0), -0.5f, kTolerance),
             "a mirrored normal matrix keeps the determinant's sign");
         const Matrix4 flat = Matrix4::trs(Vector3(0.0f), Quaternion(), Vector3(1.0f, 0.0f, 1.0f)).normalMatrix();
         bool identity3x3 = true;
@@ -398,10 +394,5 @@ int main()
         check(roundTrip, "Matrix4::load round-trips store");
     }
 
-    if (failures == 0) {
-        std::cout << "simd math contracts: all checks passed\n";
-        return 0;
-    }
-    std::cout << "simd math contracts: " << failures << " check(s) FAILED\n";
-    return 1;
+    return finish("simd math contracts");
 }

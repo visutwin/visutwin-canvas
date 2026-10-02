@@ -18,21 +18,13 @@
 #include <vector>
 
 #include "framework/components/layoutgroup/layoutCalculator.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     constexpr float kInf = std::numeric_limits<float>::infinity();
 
     struct Child
@@ -542,10 +534,5 @@ int main()
         assertValues(t, o, Property::Y, {0, 0, 0, 0, 0});
     }
 
-    if (failures) {
-        std::cout << failures << " layout calculator check(s) FAILED\n";
-        return 1;
-    }
-    std::cout << "All layout calculator tests passed\n";
-    return 0;
+    return finish("layout calculator");
 }

@@ -30,21 +30,13 @@
 #include <vector>
 
 #include "framework/lightmapper/lightmapperBvh.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what.c_str());
-            ++failures;
-        }
-    }
-
     bool bruteForce(const std::vector<BvhTriangle>& tris, const Vector3& o, const Vector3& d, const float maxDist)
     {
         for (const BvhTriangle& tri : tris) {
@@ -177,6 +169,7 @@ namespace
 
 int main()
 {
+    quietPasses();
     std::printf("lightmapper BVH (slab backend: %s)\n", LightmapperBvh::slabBackend());
     if (const char* expected = std::getenv("VISUTWIN_EXPECT_KERNEL_BACKEND");
         expected && *expected && std::string(expected) != LightmapperBvh::slabBackend()) {
@@ -231,10 +224,5 @@ int main()
     compareScene("single", {BvhTriangle{{-1, 0, -1}, {1, 0, -1}, {0, 0, 1}}}, rng, 2000, 2.0f, false);
     compareScene("empty", {}, rng, 200, 2.0f, false);
 
-    if (failures != 0) {
-        std::printf("lightmapper BVH: %d check(s) FAILED\n", failures);
-        return 1;
-    }
-    std::printf("lightmapper BVH: all checks passed\n");
-    return 0;
+    return finish("lightmapper BVH");
 }

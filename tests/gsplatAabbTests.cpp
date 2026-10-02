@@ -24,28 +24,24 @@
 
 #include "core/math/vector3.h"
 #include "scene/gsplat/gsplatData.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what);
-            ++failures;
-        }
-    }
-
     void checkClose(const float actual, const float expected, const char* what,
         const float tolerance = 1e-4f)
     {
-        if (std::fabs(actual - expected) > tolerance) {
-            std::printf("FAIL: %s — expected %.6f, got %.6f\n", what, expected, actual);
-            ++failures;
+        const bool ok = !(std::fabs(actual - expected) > tolerance);
+        if (ok) {
+            check(true, what);
+            return;
         }
+        char detail[512];
+        std::snprintf(detail, sizeof(detail), "%s — expected %.6f, got %.6f", what, expected, actual);
+        check(false, detail);
     }
 
     /// One splat as the uncompressed PLY layout carries it: scales are LOG-space and
@@ -106,6 +102,7 @@ namespace
 
 int main()
 {
+    quietPasses();
     const float identity[4] = {1.0f, 0.0f, 0.0f, 0.0f};
 
     // ── An axis-aligned splat: the bound is 2 sigma on each axis ──────────────
@@ -196,8 +193,5 @@ int main()
             "bounds extend past the hull of the centres");
     }
 
-    if (failures == 0) {
-        std::printf("gsplat aabb: all checks passed\n");
-    }
-    return failures == 0 ? 0 : 1;
+    return finish("gsplat aabb");
 }

@@ -20,9 +20,10 @@
 #include <string>
 #include <vector>
 
-#include "platform/graphics/graphicsDevice.h"
 #include "scene/lighting/worldClusters.h"
 #include "scene/renderer/renderer.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 namespace visutwin::canvas
 {
@@ -40,35 +41,14 @@ namespace visutwin::canvas
 }
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class RecordingDevice final : public GraphicsDevice
+    class RecordingDevice final : public StubGraphicsDevice
     {
     public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {64, 64}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
+        RecordingDevice() : StubGraphicsDevice(Options{.size = {64, 64}}) {}
 
         void setClusterBuffers(const void* lightData, size_t, const void*, size_t) override
         {
@@ -172,6 +152,5 @@ int main()
         check(RendererTestAccess::poolSize(renderer) == 3, "no new allocation while the pool has grids to spare");
     }
 
-    std::cout << (failures == 0 ? "\nAll cluster grid sharing tests passed\n" : "\nCluster grid sharing tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("cluster grid sharing");
 }

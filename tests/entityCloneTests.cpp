@@ -19,7 +19,6 @@
 
 #include "framework/anim/evaluator/animTrack.h"
 #include "framework/anim/state-graph/animStateGraph.h"
-#include "framework/appOptions.h"
 #include "framework/components/anim/animComponent.h"
 #include "framework/components/anim/animComponentLayer.h"
 #include "framework/components/anim/animComponentSystem.h"
@@ -48,67 +47,19 @@
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/script/scriptRegistry.h"
-#include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/indexBuffer.h"
-#include "platform/graphics/vertexBuffer.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/mesh.h"
 #include "scene/skin.h"
 #include "scene/skinInstance.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    // Buffers that keep their bytes on the CPU: enough for a primitive mesh to exist.
-    class CpuVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        void unlock() override {}
-    };
-
-    class CpuIndexBuffer final : public IndexBuffer
-    {
-    public:
-        using IndexBuffer::IndexBuffer;
-        bool setData(const std::vector<uint8_t>&) override { return true; }
-    };
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
-            const int numVertices, const VertexBufferOptions& options) override
-        {
-            return std::make_shared<CpuVertexBuffer>(this, format, numVertices, options);
-        }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(const IndexFormat format, const int numIndices,
-            const std::vector<uint8_t>& data) override
-        {
-            auto buffer = std::make_shared<CpuIndexBuffer>(this, format, numIndices);
-            buffer->setData(data);
-            return buffer;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
     // A script with configuration it chooses to share with its clones, and one that
     // holds a reference into its own subtree.
     class Tuned final : public Script
@@ -184,22 +135,11 @@ namespace
 int main()
 {
     std::cout << std::unitbuf;   // a crash must not swallow the checks already printed
-    auto engine = std::make_shared<Engine>(nullptr);
-    AppOptions options;
-    options.graphicsDevice = std::make_shared<StubDevice>();
-    options.registerComponentSystem<RenderComponentSystem>();
-    options.registerComponentSystem<LightComponentSystem>();
-    options.registerComponentSystem<CameraComponentSystem>();
-    options.registerComponentSystem<CollisionComponentSystem>();
-    options.registerComponentSystem<RigidBodyComponentSystem>();
-    options.registerComponentSystem<JointComponentSystem>();
-    options.registerComponentSystem<ButtonComponentSystem>();
-    options.registerComponentSystem<ScreenComponentSystem>();
-    options.registerComponentSystem<ElementComponentSystem>();
-    options.registerComponentSystem<AnimationComponentSystem>();
-    options.registerComponentSystem<AnimComponentSystem>();
-    options.registerComponentSystem<ScriptComponentSystem>();
-    engine->init(options);
+    // Buffers that keep their bytes on the CPU: enough for a primitive mesh to exist.
+    auto engine = makeTestEngine<RenderComponentSystem, LightComponentSystem, CameraComponentSystem,
+        CollisionComponentSystem, RigidBodyComponentSystem, JointComponentSystem, ButtonComponentSystem,
+        ScreenComponentSystem, ElementComponentSystem, AnimationComponentSystem, AnimComponentSystem,
+        ScriptComponentSystem>(std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true}));
     engine->scripts()->registerType<Tuned>();
     engine->scripts()->registerType<Holder>();
 
@@ -373,6 +313,5 @@ int main()
     check(cMi && cMi->mesh() == sharedMesh && cMi->mesh()->aabb().halfExtents().getX() > 0.0f,
         "the clone's primitive mesh outlives the source (a use-after-free under the sanitizer before)");
 
-    std::cout << (failures == 0 ? "\nAll entity clone tests passed\n" : "\nEntity clone tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("entity clone");
 }

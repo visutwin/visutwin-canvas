@@ -25,23 +25,25 @@
 #include <memory>
 #include <vector>
 
-#include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "scene/graphics/wideLineSegmentBuffer.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
     constexpr int kRecordSize = 8 * 4 * static_cast<int>(sizeof(float));
 
-    /// A CPU-only vertex buffer: storage and nothing behind it.
-    class CpuVertexBuffer final : public VertexBuffer
+    /// A CPU-only vertex buffer that counts its uploads.
+    class CountingVertexBuffer final : public CpuVertexBuffer
     {
     public:
-        CpuVertexBuffer(GraphicsDevice* device, const std::shared_ptr<VertexFormat>& format,
+        CountingVertexBuffer(GraphicsDevice* device, const std::shared_ptr<VertexFormat>& format,
             const int numVertices, const VertexBufferOptions& options)
-            : VertexBuffer(device, format, numVertices, options) {}
+            : CpuVertexBuffer(device, format, numVertices, options) {}
 
         void unlock() override { ++uploads; }
 
@@ -49,44 +51,20 @@ namespace
     };
 
     /// A device that creates CPU-only vertex buffers and nothing else.
-    class StubDevice final : public GraphicsDevice
+    class StubDevice final : public StubGraphicsDevice
     {
     public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool,
-            bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override
-        {
-            return nullptr;
-        }
+        StubDevice() : StubGraphicsDevice(Options{.cpuBuffers = true, .nullIndexBuffers = true}) {}
+
         std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
             const int numVertices, const VertexBufferOptions& options) override
         {
             ++created;
-            return std::make_shared<CpuVertexBuffer>(this, format, numVertices, options);
-        }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int,
-            const std::vector<uint8_t>&) override { return nullptr; }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override
-        {
-            return nullptr;
+            return std::make_shared<CountingVertexBuffer>(this, format, numVertices, options);
         }
 
         int created = 0;
     };
-
-    int failures = 0;
-
-    void expect(const bool condition, const char* what)
-    {
-        if (!condition) {
-            std::cerr << "FAIL: " << what << "\n";
-            ++failures;
-        }
-    }
 
     /// `count` records whose every byte identifies the record and the upload.
     std::vector<uint8_t> makeRecords(const int count, const uint8_t tag)
@@ -121,10 +99,10 @@ namespace
     {
         StubDevice device;
         auto format = std::make_shared<VertexFormat>(kRecordSize, true, false);
-        CpuVertexBuffer buffer(&device, format, 4, VertexBufferOptions{});
-        expect(!buffer.setData(makeRecords(2, 1)),
+        CountingVertexBuffer buffer(&device, format, 4, VertexBufferOptions{});
+        check(!buffer.setData(makeRecords(2, 1)),
             "control: setData refuses a payload smaller than the buffer");
-        expect(buffer.setData(makeRecords(4, 1)),
+        check(buffer.setData(makeRecords(4, 1)),
             "control: setData accepts a payload of the buffer's full size");
     }
 
@@ -136,58 +114,58 @@ namespace
 
         // First upload allocates.
         auto records = makeRecords(5, 10);
-        expect(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 5, kRecordSize),
+        check(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 5, kRecordSize),
             "first upload succeeds");
-        expect(buffer != nullptr && device.created == 1 && capacity == 5, "first upload allocates 5");
-        expect(buffer && holds(*buffer, 5, records, 5), "first upload holds its records");
+        check(buffer != nullptr && device.created == 1 && capacity == 5, "first upload allocates 5");
+        check(buffer && holds(*buffer, 5, records, 5), "first upload holds its records");
         const VertexBuffer* allocated = buffer.get();
 
         // SHRINK: the defect. Must upload in place, not be refused.
         records = makeRecords(2, 40);
-        expect(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 2, kRecordSize),
+        check(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 2, kRecordSize),
             "shrinking upload succeeds");
-        expect(buffer.get() == allocated && device.created == 1 && capacity == 5,
+        check(buffer.get() == allocated && device.created == 1 && capacity == 5,
             "shrinking keeps the buffer");
-        expect(holds(*buffer, 5, records, 2), "shrinking puts the live records at the front");
+        check(holds(*buffer, 5, records, 2), "shrinking puts the live records at the front");
 
         // ZERO: nothing uploaded, buffer kept.
-        const int uploadsBefore = static_cast<CpuVertexBuffer*>(buffer.get())->uploads;
-        expect(wideline::uploadSegmentRecords(device, buffer, capacity, nullptr, 0, kRecordSize),
+        const int uploadsBefore = static_cast<CountingVertexBuffer*>(buffer.get())->uploads;
+        check(wideline::uploadSegmentRecords(device, buffer, capacity, nullptr, 0, kRecordSize),
             "empty upload succeeds");
-        expect(buffer.get() == allocated && capacity == 5 &&
-            static_cast<CpuVertexBuffer*>(buffer.get())->uploads == uploadsBefore,
+        check(buffer.get() == allocated && capacity == 5 &&
+            static_cast<CountingVertexBuffer*>(buffer.get())->uploads == uploadsBefore,
             "empty upload keeps the buffer and uploads nothing");
 
         // Back up to exactly the capacity: in place.
         records = makeRecords(5, 70);
-        expect(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 5, kRecordSize),
+        check(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 5, kRecordSize),
             "upload at capacity succeeds");
-        expect(buffer.get() == allocated && device.created == 1, "upload at capacity keeps the buffer");
-        expect(holds(*buffer, 5, records, 5), "upload at capacity holds its records");
+        check(buffer.get() == allocated && device.created == 1, "upload at capacity keeps the buffer");
+        check(holds(*buffer, 5, records, 5), "upload at capacity holds its records");
 
         // Past the capacity: reallocate, geometrically.
         records = makeRecords(6, 100);
-        expect(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 6, kRecordSize),
+        check(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 6, kRecordSize),
             "growing upload succeeds");
-        expect(device.created == 2 && capacity == 10, "growing reallocates to double the capacity");
-        expect(buffer && holds(*buffer, 10, records, 6), "growing holds its records");
+        check(device.created == 2 && capacity == 10, "growing reallocates to double the capacity");
+        check(buffer && holds(*buffer, 10, records, 6), "growing holds its records");
 
         // Well past double: exactly what is needed.
         records = makeRecords(37, 3);
-        expect(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 37, kRecordSize),
+        check(wideline::uploadSegmentRecords(device, buffer, capacity, records.data(), 37, kRecordSize),
             "large growing upload succeeds");
-        expect(device.created == 3 && capacity == 37, "a jump past double allocates what is needed");
-        expect(buffer && holds(*buffer, 37, records, 37), "large growing upload holds its records");
+        check(device.created == 3 && capacity == 37, "a jump past double allocates what is needed");
+        check(buffer && holds(*buffer, 37, records, 37), "large growing upload holds its records");
     }
 
     void checkCapacityRule()
     {
-        expect(wideline::segmentBufferCapacity(0, 0) == 0, "empty stays empty");
-        expect(wideline::segmentBufferCapacity(0, 3) == 3, "first allocation is what is needed");
-        expect(wideline::segmentBufferCapacity(8, 1) == 8, "never shrinks");
-        expect(wideline::segmentBufferCapacity(8, 8) == 8, "exact fit keeps the capacity");
-        expect(wideline::segmentBufferCapacity(8, 9) == 16, "grows by doubling");
-        expect(wideline::segmentBufferCapacity(8, 40) == 40, "a jump past double takes what is needed");
+        check(wideline::segmentBufferCapacity(0, 0) == 0, "empty stays empty");
+        check(wideline::segmentBufferCapacity(0, 3) == 3, "first allocation is what is needed");
+        check(wideline::segmentBufferCapacity(8, 1) == 8, "never shrinks");
+        check(wideline::segmentBufferCapacity(8, 8) == 8, "exact fit keeps the capacity");
+        check(wideline::segmentBufferCapacity(8, 9) == 16, "grows by doubling");
+        check(wideline::segmentBufferCapacity(8, 40) == 40, "a jump past double takes what is needed");
 
         // One more segment each frame reallocates O(log n) times, not n times.
         int capacity = 0;
@@ -195,23 +173,19 @@ namespace
         for (int required = 1; required <= 1000; ++required) {
             const int next = wideline::segmentBufferCapacity(capacity, required);
             reallocations += next != capacity ? 1 : 0;
-            expect(next >= required && next >= capacity, "capacity covers the request and is monotone");
+            check(next >= required && next >= capacity, "capacity covers the request and is monotone");
             capacity = next;
         }
-        expect(reallocations <= 11, "growing one segment at a time reallocates logarithmically");
+        check(reallocations <= 11, "growing one segment at a time reallocates logarithmically");
     }
 }
 
 int main()
 {
+    quietPasses();
     checkShortPayloadIsRefused();
     checkGrowShrinkZero();
     checkCapacityRule();
 
-    if (failures != 0) {
-        std::cerr << failures << " wide-line segment buffer check(s) failed\n";
-        return 1;
-    }
-    std::cout << "wide-line segment buffer: all checks passed\n";
-    return 0;
+    return finish("wide-line segment buffer");
 }

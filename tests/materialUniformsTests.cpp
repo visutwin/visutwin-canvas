@@ -14,8 +14,10 @@
 #include <string_view>
 
 #include "scene/materials/standardMaterial.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using visutwin::canvas::test::nearStrict;
 
 namespace
 {
@@ -29,10 +31,7 @@ namespace
         return condition;
     }
 
-    bool near(const float a, const float b)
-    {
-        return std::fabs(a - b) < 1e-5f;
-    }
+    constexpr float kTolerance = 1e-5f;
 }
 
 int main()
@@ -42,12 +41,14 @@ int main()
         auto material = std::make_shared<StandardMaterial>();
         material->setDiffuse(Color(1.0f, 0.0f, 0.0f, 1.0f));
         const MaterialUniforms& first = material->packedUniforms();
-        passed &= expect(near(first.baseColor[0], 1.0f) && near(first.baseColor[1], 0.0f),
+        passed &= expect(nearStrict(first.baseColor[0], 1.0f, kTolerance) &&
+                         nearStrict(first.baseColor[1], 0.0f, kTolerance),
             "first pack reflects the diffuse colour");
 
         material->setDiffuse(Color(0.0f, 1.0f, 0.0f, 1.0f));
         const MaterialUniforms& second = material->packedUniforms();
-        passed &= expect(near(second.baseColor[0], 0.0f) && near(second.baseColor[1], 1.0f),
+        passed &= expect(nearStrict(second.baseColor[0], 0.0f, kTolerance) &&
+                         nearStrict(second.baseColor[1], 1.0f, kTolerance),
             "a setter after the first pack invalidates the cache");
     }
 
@@ -60,7 +61,7 @@ int main()
         material->setMetalness(0.0f);
         material->packedUniforms();
         material->setMetalness(1.0f);
-        passed &= expect(near(material->packedUniforms().metallicFactor, 1.0f),
+        passed &= expect(nearStrict(material->packedUniforms().metallicFactor, 1.0f, kTolerance),
             "metalness edit survives the cache");
     }
 
@@ -70,7 +71,7 @@ int main()
         material->setOpacity(0.25f);
         const float a = material->packedUniforms().baseColor[3];
         const float b = material->packedUniforms().baseColor[3];
-        passed &= expect(near(a, b) && near(a, 0.25f),
+        passed &= expect(nearStrict(a, b, kTolerance) && nearStrict(a, 0.25f, kTolerance),
             "repeated packs agree when nothing changed");
     }
 
@@ -81,7 +82,8 @@ int main()
         material->packedUniforms();
         material->setParameter("material_baseColor", Color(0.0f, 0.0f, 1.0f, 1.0f));
         const MaterialUniforms& after = material->packedUniforms();
-        passed &= expect(near(after.baseColor[2], 1.0f) && near(after.baseColor[0], 0.0f),
+        passed &= expect(nearStrict(after.baseColor[2], 1.0f, kTolerance) &&
+                         nearStrict(after.baseColor[0], 0.0f, kTolerance),
             "setParameter override invalidates the cache");
     }
 

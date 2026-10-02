@@ -36,18 +36,6 @@ constexpr int WINDOW_HEIGHT = 720;
 
 namespace
 {
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
-
-    Texture* textureOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<Texture*>(*res) ? std::get<Texture*>(*res) : nullptr;
-    }
-
     const std::array<const char*, 3> LINES{{
         "It is dangerous to go alone.",
         "Take this sword. It served me well for many years, and I have no more need of it.",
@@ -64,10 +52,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options);
     }
 
     bool create() override
@@ -78,10 +63,10 @@ protected:
             AssetData{.mipmaps = true});
         _landscapeTexture = std::make_unique<Asset>("landscape", AssetType::TEXTURE, assetPath("ui/landscape.png"),
             AssetData{.mipmaps = true});
-        FontResource* font = fontOf(*_fontAsset);
-        FontResource* bold = fontOf(*_boldAsset);
-        Texture* atlasTexture = textureOf(*_uiAtlasTexture);
-        Texture* landscape = textureOf(*_landscapeTexture);
+        FontResource* font = _fontAsset->resourceAs<FontResource>();
+        FontResource* bold = _boldAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
+        Texture* landscape = _landscapeTexture->resourceAs<Texture>();
         if (!font || !bold || !atlasTexture || !landscape) {
             spdlog::error("Failed to load the Roboto fonts, ui/ui-atlas.png or ui/landscape.png");
             return false;
@@ -90,14 +75,8 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         // Frames of the UI kit atlas
         auto atlas = std::make_shared<TextureAtlas>();
@@ -228,7 +207,6 @@ private:
         _dialog->setWidth(portrait ? 444.0f : 650.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _boldAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;

@@ -22,7 +22,6 @@
 #include <utility>
 #include <vector>
 
-#include "framework/appOptions.h"
 #include "framework/batching/batch.h"
 #include "framework/batching/batchGroup.h"
 #include "framework/batching/skinBatchInstance.h"
@@ -31,70 +30,19 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
-#include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    // Buffers that keep their bytes on the CPU, which is all batching reads.
-    class CpuVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        // The zero-copy constructor, public here: an empty buffer for an empty mesh.
-        CpuVertexBuffer(GraphicsDevice* device, std::shared_ptr<VertexFormat> format, const int numVertices,
-            const int numBytes)
-            : VertexBuffer(device, std::move(format), numVertices, numBytes) {}
-        void unlock() override {}
-    };
-
-    class CpuIndexBuffer final : public IndexBuffer
-    {
-    public:
-        using IndexBuffer::IndexBuffer;
-        bool setData(const std::vector<uint8_t>&) override { return true; }
-    };
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
-            const int numVertices, const VertexBufferOptions& options) override
-        {
-            return std::make_shared<CpuVertexBuffer>(this, format, numVertices, options);
-        }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(const IndexFormat format, const int numIndices,
-            const std::vector<uint8_t>& data) override
-        {
-            auto buffer = std::make_shared<CpuIndexBuffer>(this, format, numIndices);
-            buffer->setData(data);
-            return buffer;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
     constexpr int kGroup = 3;
 
     std::vector<MeshInstance*> sourcesInGroup(BatchManager& batcher, const int groupId)
@@ -116,12 +64,9 @@ namespace
 
 int main()
 {
-    auto device = std::make_shared<StubDevice>();
-    auto engine = std::make_shared<Engine>(nullptr);
-    AppOptions options;
-    options.graphicsDevice = device;
-    options.registerComponentSystem<RenderComponentSystem>();
-    engine->init(options);
+    // Buffers that keep their bytes on the CPU, which is all batching reads.
+    auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true});
+    auto engine = makeTestEngine<RenderComponentSystem>(device);
     BatchManager& batcher = *engine->batcher();
 
     // One DYNAMIC group: its batch reads its sources' nodes every frame, the case
@@ -254,6 +199,5 @@ int main()
         }
     }
 
-    std::cout << (failures == 0 ? "\nAll batch lifetime tests passed\n" : "\nBatch lifetime tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("batch lifetime");
 }

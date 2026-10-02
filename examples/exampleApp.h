@@ -33,6 +33,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -41,6 +42,7 @@
 
 #include "core/math/color.h"
 #include "core/shape/boundingBox.h"
+#include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "framework/appOptions.h"
 #include "framework/engine.h"
@@ -57,6 +59,7 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/components/script/scriptComponent.h"
 #include "framework/components/script/scriptComponentSystem.h"
+#include "framework/components/screen/screenComponent.h"
 // Every example logs, so the spdlog wrapper comes along with the host rather
 // than being repeated in 41 files.
 #include "core/log.h"
@@ -66,6 +69,7 @@
 namespace visutwin::canvas
 {
     class CameraControls;
+    class ElementInput;
     class ImGuiOverlay;
     class MiniStats;
 
@@ -82,6 +86,26 @@ namespace visutwin::canvas
         /// Examples log at debug level by default — they are development tools,
         /// and the shader/asset chatter is usually the point.
         bool debugLogging = true;
+    };
+
+    /// Which UI component systems ExampleApp::registerUi adds.
+    struct UiSystems
+    {
+        /// The screen system; off for an example that draws elements with no screen.
+        bool screen = true;
+        bool button = false;
+    };
+
+    /// The settings of a screen, the data of a `screen` component. The defaults are the
+    /// screen nearly every UI example asks for: screen space, designed at 1280 x 720 and
+    /// blending the two axes' scales evenly.
+    struct ScreenOptions
+    {
+        Vector2 referenceResolution = Vector2(1280.0f, 720.0f);
+        ScreenScaleMode scaleMode = ScreenScaleMode::Blend;
+        float scaleBlend = 0.5f;
+        bool screenSpace = true;
+        std::optional<int> priority;
     };
 
     /**
@@ -200,6 +224,14 @@ namespace visutwin::canvas
         /// has no mesh instances at all.
         static BoundingBox entityBounds(Entity* entity);
 
+        /// From configure(): the screen and element systems, the button system when asked
+        /// for, and the element input that hands the elements their mouse and touch events.
+        /// Registered where it is called, so systems registered around it keep their order.
+        void registerUi(AppOptions& options, UiSystems systems = {});
+
+        /// A screen entity parented to the root, configured as `options` says.
+        ScreenComponent* createScreen(const ScreenOptions& options = {});
+
         /// A directional light entity parented to the root, aimed by
         /// `eulerAngles` (degrees). castShadows defaults to false to match
         /// LightComponent's own default — a helper that quietly turned shadows
@@ -225,6 +257,9 @@ namespace visutwin::canvas
         std::shared_ptr<Engine> _engine;
 
         CameraControls* _cameraControls = nullptr;
+
+        // Kept from registerUi; the engine borrows it.
+        std::shared_ptr<ElementInput> _elementInput;
 
         // The performance HUD every example shows. Owned by the host rather than by each
         // example, so all 46 get it without carrying a line for it.

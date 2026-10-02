@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
 #include "extras/script/cameraControls.h"
@@ -46,21 +47,6 @@ namespace
     const Color PANEL(0.16f, 0.18f, 0.23f, 1.0f);
     const Color LIGHT(0.95f, 0.96f, 0.98f, 1.0f);
     const Color MUTED(0.6f, 0.64f, 0.72f, 1.0f);
-
-    /// The element properties this example sets.
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        std::shared_ptr<Sprite> sprite;
-        Color color = LIGHT;
-        Vector4 anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-        std::optional<Vector4> margin;
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        std::string text;
-        int fontSize = 32;
-    };
 }
 
 class WorldUiExample final: public ExampleApp
@@ -72,11 +58,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options, {.button = true});
     }
 
     bool create() override
@@ -84,13 +66,8 @@ protected:
         _fontAsset = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        if (const auto res = _fontAsset->resource(); res && std::holds_alternative<FontResource*>(*res)) {
-            _font = std::get<FontResource*>(*res);
-        }
-        Texture* atlasTexture = nullptr;
-        if (const auto res = _uiAtlasTexture->resource(); res && std::holds_alternative<Texture*>(*res)) {
-            atlasTexture = std::get<Texture*>(*res);
-        }
+        _font = _fontAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!_font || !atlasTexture) {
             spdlog::error("Failed to load fonts/roboto-bold.json or ui/ui-atlas.png");
             return false;
@@ -207,28 +184,12 @@ private:
         return entity;
     }
 
-    /// An element on `parent`, centred on it unless `props` says otherwise.
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = Vector2(0.5f, 0.5f),
-                         .margin = props.margin, .useInput = props.useInput};
-        desc.width = props.width;
-        desc.height = props.height;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-        }
-        element->setColor(props.color);
-        if (props.type == ElementType::Text) {
-            element->setFontResource(_font);
-            element->setFontSize(props.fontSize);
-            element->setText(props.text);
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props, {.type = ElementType::Image,
+            .color = LIGHT, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f), .pivot = Vector2(0.5f, 0.5f),
+            .font = _font});
     }
 
     ButtonComponent* createButton(Entity* controls, const std::string& text, const float y)
@@ -254,7 +215,6 @@ private:
         _close->setActive(value == 1.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;
     FontResource* _font = nullptr;

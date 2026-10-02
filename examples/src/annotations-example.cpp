@@ -68,13 +68,6 @@ namespace
         const char* title;
         const char* text;
     };
-
-    template <typename T>
-    T* resourceOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<T*>(*res) ? std::get<T*>(*res) : nullptr;
-    }
 }
 
 class AnnotationsExample final: public ExampleApp
@@ -85,11 +78,8 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
+        registerUi(options);
         options.registerComponentSystem<ScrollbarComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
     }
 
     bool create() override
@@ -100,11 +90,11 @@ protected:
         _boldAsset = std::make_unique<Asset>("bold", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        auto* jet = resourceOf<ContainerResource>(*_jetAsset);
-        auto* hdr = resourceOf<Texture>(*_hdrAsset);
-        _font = resourceOf<FontResource>(*_fontAsset);
-        _bold = resourceOf<FontResource>(*_boldAsset);
-        auto* atlasTexture = resourceOf<Texture>(*_uiAtlasTexture);
+        auto* jet = _jetAsset->resourceAs<ContainerResource>();
+        auto* hdr = _hdrAsset->resourceAs<Texture>();
+        _font = _fontAsset->resourceAs<FontResource>();
+        _bold = _boldAsset->resourceAs<FontResource>();
+        auto* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!jet || !hdr || !_font || !_bold || !atlasTexture) {
             spdlog::error("Failed to load the jet fighter, the HDRI, the Roboto fonts or the UI atlas");
             return false;
@@ -363,7 +353,6 @@ private:
             ->setValue(0.25f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _jetAsset;
     std::unique_ptr<Asset> _hdrAsset;
     std::unique_ptr<Asset> _fontAsset;

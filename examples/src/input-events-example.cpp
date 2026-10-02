@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
 #include "framework/assets/asset.h"
@@ -59,23 +60,6 @@ namespace
         {"Treasure", Color(1.0f, 0.8f, 0.3f, 1.0f)},
         {"Danger", Color(0.95f, 0.3f, 0.25f, 1.0f)},
     }};
-
-    /// The element properties that this example sets.
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        std::shared_ptr<Sprite> sprite;
-        int spriteFrame = 0;
-        Color color = LIGHT;
-        Vector4 anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-        Vector2 pivot = Vector2(0.5f, 0.5f);
-        std::optional<Vector4> margin;
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        std::string text;
-        int fontSize = 32;
-    };
 }
 
 class InputEventsExample final: public ExampleApp
@@ -87,10 +71,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options);
     }
 
     bool create() override
@@ -98,13 +79,8 @@ protected:
         _fontAsset = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        if (const auto res = _fontAsset->resource(); res && std::holds_alternative<FontResource*>(*res)) {
-            _font = std::get<FontResource*>(*res);
-        }
-        Texture* atlasTexture = nullptr;
-        if (const auto res = _uiAtlasTexture->resource(); res && std::holds_alternative<Texture*>(*res)) {
-            atlasTexture = std::get<Texture*>(*res);
-        }
+        _font = _fontAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!_font || !atlasTexture) {
             spdlog::error("Failed to load fonts/roboto-bold.json or ui/ui-atlas.png");
             return false;
@@ -131,14 +107,8 @@ protected:
         _camera->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
         // The HUD's screen
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         auto atlas = std::make_shared<TextureAtlas>();
         atlas->setTexture(atlasTexture);
@@ -272,29 +242,12 @@ private:
         return material;
     }
 
-    /// An element on `parent`, centred on it unless `props` says otherwise.
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = props.pivot, .margin = props.margin,
-                         .useInput = props.useInput};
-        desc.width = props.width;
-        desc.height = props.height;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-            element->setSpriteFrame(props.spriteFrame);
-        }
-        element->setColor(props.color);
-        if (props.type == ElementType::Text) {
-            element->setFontResource(_font);
-            element->setFontSize(props.fontSize);
-            element->setText(props.text);
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props, {.type = ElementType::Image,
+            .color = LIGHT, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f), .pivot = Vector2(0.5f, 0.5f),
+            .font = _font});
     }
 
     void show(const size_t i) { _label->setText(std::string(TOOLS[i].name) + " marker"); }
@@ -348,7 +301,6 @@ private:
         _count->entity()->setLocalPosition(-24.0f, portrait ? -108.0f : -40.0f, 0.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;
     FontResource* _font = nullptr;

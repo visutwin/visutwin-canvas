@@ -57,8 +57,8 @@ protected:
             "helipad-env-atlas", AssetType::TEXTURE,
             assetPath("cubemaps/helipad-env-atlas.png"),
             AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false});
-        if (const auto env = _envAtlas->resource()) {
-            scene()->setEnvAtlas(std::get<Texture*>(*env));
+        if (Texture* envTexture = _envAtlas->resourceAs<Texture>()) {
+            scene()->setEnvAtlas(envTexture);
         }
 
         _color = load("color", "textures/bricks076a/color.png");
@@ -159,11 +159,11 @@ private:
     {
         _assets.push_back(std::make_unique<Asset>(name, AssetType::TEXTURE,
             assetPath(relative)));
-        const auto resource = _assets.back()->resource();
-        if (!resource || !std::holds_alternative<Texture*>(*resource)) {
+        Texture* texture = _assets.back()->resourceAs<Texture>();
+        if (!texture) {
             return nullptr;
         }
-        return std::get<Texture*>(*resource);
+        return texture;
     }
 
     /// Every map shares the parallax offset, so every map needs the same tiling.

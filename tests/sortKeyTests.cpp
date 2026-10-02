@@ -28,21 +28,13 @@
 
 #include "scene/mesh.h"
 #include "scene/renderer/sortKey.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::printf("  %s %s\n", condition ? "ok  " : "FAIL", what);
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     // Two mesh ids, adjacent: every id is its own key, none are folded together.
     constexpr uint32_t meshA = 1;
     constexpr uint32_t meshB = 2;
@@ -141,8 +133,5 @@ int main()
             "so one material's draws sort in the order their meshes were created");
     }
 
-    if (failures == 0) {
-        std::printf("forward sort key: all checks passed\n");
-    }
-    return failures == 0 ? 0 : 1;
+    return finish("forward sort key");
 }

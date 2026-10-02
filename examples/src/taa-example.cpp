@@ -59,8 +59,8 @@ protected:
             "cube", AssetType::CONTAINER, assetPath("models/playcanvas-cube.glb"));
 
         // Setup skydome with low intensity
-        if (const auto envAtlasResource = _envAtlas->resource()) {
-            scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+        if (Texture* envAtlasTexture = _envAtlas->resourceAs<Texture>()) {
+            scene()->setEnvAtlas(envAtlasTexture);
         } else {
             spdlog::warn("Failed to load environment atlas — continuing without IBL");
         }
@@ -68,12 +68,12 @@ protected:
         scene()->setExposure(2.5f);
 
         // Create an instance of the house and add it to the scene
-        const auto houseResource = _house->resource();
-        if (!houseResource) {
+        ContainerResource* houseContainer = _house->resourceAs<ContainerResource>();
+        if (!houseContainer) {
             spdlog::error("Failed to load house model");
             return false;
         }
-        auto* houseEntity = std::get<ContainerResource*>(*houseResource)->instantiateRenderEntity();
+        auto* houseEntity = houseContainer->instantiateRenderEntity();
         houseEntity->setLocalScale(100, 100, 100);
         root()->addChild(houseEntity);
 
@@ -112,8 +112,8 @@ protected:
             lightComp->setShadowNormalBias(0.05f);
         }
 
-        if (const auto cubeResource = _cube->resource()) {
-            _cubeEntity = std::get<ContainerResource*>(*cubeResource)->instantiateRenderEntity();
+        if (ContainerResource* cubeContainer = _cube->resourceAs<ContainerResource>()) {
+            _cubeEntity = cubeContainer->instantiateRenderEntity();
             _cubeEntity->setLocalScale(30, 30, 30);
             root()->addChild(_cubeEntity);
         }

@@ -66,12 +66,12 @@ protected:
                 .mipmaps = false
             }
         );
-        const auto helipadResource = _helipad->resource();
-        if (!helipadResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        if (!helipadTexture) {
             spdlog::error("Failed to load helipad texture");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
 
         // ------ Layer setup ------
 
@@ -329,12 +329,12 @@ private:
         if (!asset) {
             return nullptr;
         }
-        const auto resource = asset->resource();
-        if (!resource || !std::holds_alternative<ContainerResource*>(*resource)) {
+        ContainerResource* container = asset->resourceAs<ContainerResource>();
+        if (!container) {
             spdlog::error("GLB '{}' failed to load as a container", asset->name());
             return nullptr;
         }
-        return dynamic_cast<GlbContainerResource*>(std::get<ContainerResource*>(*resource));
+        return dynamic_cast<GlbContainerResource*>(container);
     }
 
     // Put every RenderComponent under an entity into the given layer.

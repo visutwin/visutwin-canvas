@@ -18,21 +18,18 @@
 
 #include "platform/graphics/constants.h"
 #include "platform/graphics/textureUtils.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
     void expect(const std::string& name, const size_t actual, const size_t expected)
     {
         const bool ok = actual == expected;
-        std::cout << (ok ? "  ok   " : "  FAIL ") << name << ": " << actual
-                  << (ok ? "" : " (expected " + std::to_string(expected) + ")") << '\n';
-        if (!ok) {
-            ++failures;
-        }
+        check(ok, name + ": " + std::to_string(actual) +
+            (ok ? "" : " (expected " + std::to_string(expected) + ")"));
     }
 }
 
@@ -122,10 +119,5 @@ int main()
         TextureUtils::calcGpuSize(64, 64, 1, 3, false, 0, PixelFormat::PIXELFORMAT_RGBA8),
         (64u * 64u + 32u * 32u + 16u * 16u) * 4u);
 
-    if (failures == 0) {
-        std::cout << "texture gpu size: all checks passed\n";
-        return 0;
-    }
-    std::cout << "texture gpu size: " << failures << " check(s) FAILED\n";
-    return 1;
+    return finish("texture gpu size");
 }

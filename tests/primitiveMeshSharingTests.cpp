@@ -21,76 +21,49 @@
 #include <string>
 #include <vector>
 
-#include "framework/appOptions.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
-#include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/meshInstance.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
     int liveVertexBuffers = 0;
     int vertexBuffersCreated = 0;
 
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class CountingVertexBuffer final : public VertexBuffer
+    class CountingVertexBuffer final : public CpuVertexBuffer
     {
     public:
         CountingVertexBuffer(GraphicsDevice* device, const std::shared_ptr<VertexFormat>& format,
             const int numVertices, const VertexBufferOptions& options)
-            : VertexBuffer(device, format, numVertices, options)
+            : CpuVertexBuffer(device, format, numVertices, options)
         {
             ++liveVertexBuffers;
             ++vertexBuffersCreated;
         }
         ~CountingVertexBuffer() override { --liveVertexBuffers; }
-        void unlock() override {}
     };
 
-    class CpuIndexBuffer final : public IndexBuffer
+    /// CPU index buffers; every vertex buffer is counted.
+    class CountingDevice final : public StubGraphicsDevice
     {
     public:
-        using IndexBuffer::IndexBuffer;
-        bool setData(const std::vector<uint8_t>&) override { return true; }
-    };
+        CountingDevice() : StubGraphicsDevice(Options{.cpuBuffers = true}) {}
 
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
         std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
             const int numVertices, const VertexBufferOptions& options) override
         {
             return std::make_shared<CountingVertexBuffer>(this, format, numVertices, options);
         }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(const IndexFormat format, const int numIndices,
-            const std::vector<uint8_t>& data) override
-        {
-            auto buffer = std::make_shared<CpuIndexBuffer>(this, format, numIndices);
-            buffer->setData(data);
-            return buffer;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
     };
 
     Entity* addPrimitive(Engine& engine, const std::string& type, Material* material)
@@ -123,12 +96,8 @@ int main()
 {
     std::cout << std::unitbuf;
 
-    auto device = std::make_shared<StubDevice>();
-    auto engine = std::make_shared<Engine>(nullptr);
-    AppOptions options;
-    options.graphicsDevice = device;
-    options.registerComponentSystem<RenderComponentSystem>();
-    engine->init(options);
+    auto device = std::make_shared<CountingDevice>();
+    auto engine = makeTestEngine<RenderComponentSystem>(device);
 
     auto materialA = std::make_shared<StandardMaterial>();
     auto materialB = std::make_shared<StandardMaterial>();
@@ -201,7 +170,5 @@ int main()
         check(liveVertexBuffers == 0, "and nothing is left once no component uses a primitive");
     }
 
-    std::cout << (failures == 0 ? "\nAll primitive mesh sharing tests passed\n"
-        : "\nPrimitive mesh sharing tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("primitive mesh sharing");
 }

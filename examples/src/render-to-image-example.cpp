@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "../uiAtlas.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
@@ -55,40 +56,6 @@ namespace
     const Color PANEL(0.16f, 0.18f, 0.23f, 1.0f);
     const Color LIGHT(0.95f, 0.96f, 0.98f, 1.0f);
     const Color MUTED(0.6f, 0.64f, 0.72f, 1.0f);
-
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
-
-    Texture* textureOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<Texture*>(*res) ? std::get<Texture*>(*res) : nullptr;
-    }
-
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        std::shared_ptr<Sprite> sprite;
-        Texture* texture = nullptr;
-        Color color = LIGHT;
-        Vector4 anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-        Vector2 pivot = Vector2(0.5f, 0.5f);
-        std::optional<Vector4> margin;
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        bool mask = false;
-        FontResource* font = nullptr;
-        std::string text;
-        std::optional<int> fontSize;
-        std::optional<float> lineHeight;
-        bool autoWidth = true;
-        bool wrapLines = false;
-        std::optional<float> verticalAlign;
-    };
 }
 
 class RenderToImageExample final: public ExampleApp
@@ -101,11 +68,7 @@ protected:
     void configure(AppOptions& options) override
     {
         options.registerComponentSystem<AnimComponentSystem>();
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options, {.button = true});
     }
 
     bool create() override
@@ -115,12 +78,10 @@ protected:
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
         _knightAsset = std::make_unique<Asset>("knight", AssetType::CONTAINER, assetPath("models/knight.glb"));
-        _font = fontOf(*_fontAsset);
-        FontResource* bold = fontOf(*_boldAsset);
-        Texture* atlasTexture = textureOf(*_uiAtlasTexture);
-        const auto knightResource = _knightAsset->resource();
-        auto* knight = knightResource && std::holds_alternative<ContainerResource*>(*knightResource)
-            ? dynamic_cast<GlbContainerResource*>(std::get<ContainerResource*>(*knightResource)) : nullptr;
+        _font = _fontAsset->resourceAs<FontResource>();
+        FontResource* bold = _boldAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
+        auto* knight = dynamic_cast<GlbContainerResource*>(_knightAsset->resourceAs<ContainerResource>());
         if (!_font || !bold || !atlasTexture || !knight) {
             spdlog::error("Failed to load the Roboto fonts, ui/ui-atlas.png or models/knight.glb");
             return false;
@@ -202,14 +163,8 @@ protected:
         scene()->setAmbientLight(0.45f, 0.47f, 0.55f);
 
         // The interface
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         auto atlas = createUiAtlas(atlasTexture);
         auto panel = std::make_shared<Sprite>(atlas, std::vector<std::string>{"panel"}, 2.0f, SpriteRenderMode::Sliced);
@@ -234,7 +189,8 @@ protected:
         createElement(_details->entity(), {.type = ElementType::Text, .color = MUTED, .anchor = topLeft,
             .pivot = topLeftPivot, .width = 280.0f,
             .text = "First through every crypt door, and last out of every fight. Never lowers his guard.",
-            .fontSize = 22, .lineHeight = 30.0f, .autoWidth = false, .wrapLines = true, .verticalAlign = 1.0f})
+            .fontSize = 22, .lineHeight = 30.0f, .autoWidth = false, .wrapLines = true,
+            .horizontalAlign = ElementHorizontalAlign::Left, .verticalAlign = 1.0f})
             ->entity()->setLocalPosition(0.0f, -110.0f, 0.0f);
 
         // Attack plays the thrust once, and the character goes back to idling when it ends
@@ -269,47 +225,12 @@ protected:
     }
 
 private:
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = props.pivot, .margin = props.margin};
-        desc.width = props.width;
-        desc.height = props.height;
-        desc.useInput = props.useInput;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-        }
-        if (props.texture) {
-            element->setTexture(props.texture);
-        }
-        element->setColor(props.color);
-        element->setMask(props.mask);
-        if (props.type == ElementType::Text) {
-            element->setFontResource(props.font ? props.font : _font);
-            if (props.fontSize) {
-                element->setFontSize(*props.fontSize);
-            }
-            if (props.lineHeight) {
-                element->setLineHeight(*props.lineHeight);
-            }
-            if (props.verticalAlign) {
-                element->setHorizontalAlign(ElementHorizontalAlign::Left);
-                element->setVerticalAlign(*props.verticalAlign);
-            }
-            // A text that wraps turns autoWidth off before its text is set, and takes its width
-            // after: with autoWidth on, the empty text had sized it to nothing
-            element->setAutoWidth(props.autoWidth);
-            if (!props.autoWidth && props.width) {
-                element->setWidth(*props.width);
-            }
-            element->setWrapLines(props.wrapLines);
-            element->setText(props.text);
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props, {.type = ElementType::Image,
+            .color = LIGHT, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f), .pivot = Vector2(0.5f, 0.5f),
+            .font = _font});
     }
 
     // The portrait beside the details on landscape canvases, and above them on portrait ones
@@ -332,7 +253,6 @@ private:
         _attack->entity()->setLocalPosition(portrait ? 0.0f : 150.0f, portrait ? -330.0f : -160.0f, 0.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _boldAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;

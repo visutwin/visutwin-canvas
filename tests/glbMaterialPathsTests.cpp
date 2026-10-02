@@ -15,103 +15,25 @@
 // material each ASYNC path produces; the synchronous path shares the function, and
 // loads from disk in every example.
 
-#include <tiny_gltf.h>
-
 #include <cstdint>
-#include <cstring>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "framework/parsers/glbContainerResource.h"
-#include "framework/parsers/glbParser.h"
-#include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/texture.h"
-#include "platform/graphics/vertexBuffer.h"
 #include "scene/materials/material.h"
+#include "support/check.h"
+#include "support/gltfModel.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    // Mesh payloads are only created when the device hands back a vertex buffer, so
-    // these keep their bytes on the CPU; textures get no GPU object, which upload()
-    // tolerates.
-    class CpuVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        void unlock() override {}
-    };
-
-    class CpuIndexBuffer final : public IndexBuffer
-    {
-    public:
-        using IndexBuffer::IndexBuffer;
-        bool setData(const std::vector<uint8_t>&) override { return true; }
-    };
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
-            const int numVertices, const VertexBufferOptions& options) override
-        {
-            return std::make_shared<CpuVertexBuffer>(this, format, numVertices, options);
-        }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(const IndexFormat format, const int numIndices,
-            const std::vector<uint8_t>& data) override
-        {
-            auto buffer = std::make_shared<CpuIndexBuffer>(this, format, numIndices);
-            buffer->setData(data);
-            return buffer;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
-    int addAccessor(tinygltf::Model& model, std::vector<unsigned char>& bytes, const std::vector<float>& values,
-        const int count, const int type)
-    {
-        const size_t at = bytes.size();
-        bytes.resize(at + values.size() * sizeof(float));
-        std::memcpy(bytes.data() + at, values.data(), values.size() * sizeof(float));
-
-        tinygltf::BufferView view;
-        view.buffer = 0;
-        view.byteOffset = at;
-        view.byteLength = values.size() * sizeof(float);
-        model.bufferViews.push_back(view);
-
-        tinygltf::Accessor accessor;
-        accessor.bufferView = static_cast<int>(model.bufferViews.size()) - 1;
-        accessor.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-        accessor.count = static_cast<size_t>(count);
-        accessor.type = type;
-        if (type == TINYGLTF_TYPE_VEC3) {
-            accessor.minValues = {0.0, 0.0, 0.0};
-            accessor.maxValues = {1.0, 1.0, 0.0};
-        }
-        model.accessors.push_back(accessor);
-        return static_cast<int>(model.accessors.size()) - 1;
-    }
+    const Vec3Bounds kVec3Bounds{{0.0, 0.0, 0.0}, {1.0, 1.0, 0.0}};
 
     // One triangle with two UV sets, and one material using every feature the async
     // copies dropped: occlusion (strength 0.5), emissive texture, metallic-roughness on
@@ -126,9 +48,9 @@ namespace
         primitive.mode = TINYGLTF_MODE_TRIANGLES;
         primitive.material = 0;
         primitive.attributes["POSITION"] = addAccessor(model, buffer.data,
-            {0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f}, 3, TINYGLTF_TYPE_VEC3);
+            {0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f}, 3, TINYGLTF_TYPE_VEC3, kVec3Bounds);
         primitive.attributes["NORMAL"] = addAccessor(model, buffer.data,
-            {0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC3);
+            {0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC3, kVec3Bounds);
         primitive.attributes["TEXCOORD_0"] = addAccessor(model, buffer.data,
             {0.0f, 0.0f,  1.0f, 0.0f,  0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC2);
         primitive.attributes["TEXCOORD_1"] = addAccessor(model, buffer.data,
@@ -201,23 +123,21 @@ namespace
 
 int main()
 {
-    auto device = std::make_shared<StubDevice>();
+    // Mesh payloads are only created when the device hands back a vertex buffer, so
+    // these keep their bytes on the CPU; textures get no GPU object, which upload()
+    // tolerates.
+    auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true});
 
-    std::cout << "createFromModel\n";
-    {
-        tinygltf::Model model = buildModel();
-        const auto container = GlbParser::createFromModel(model, device, "glbMaterialPathsTests");
-        checkMaterial(container.get(), "createFromModel");
-    }
-
-    std::cout << "\nprepareFromModel + createFromPrepared\n";
-    {
-        tinygltf::Model model = buildModel();
-        auto prepared = GlbParser::prepareFromModel(model, PixelFormat::PIXELFORMAT_RGBA8, "glbMaterialPathsTests");
-        const auto container = GlbParser::createFromPrepared(model, std::move(prepared), device,
-            "glbMaterialPathsTests");
-        checkMaterial(container.get(), "createFromPrepared");
-    }
+    forEachLoadPath([] { return buildModel(); }, device, "glbMaterialPathsTests",
+        [&](const GlbContainerResource* container, const LoadPath path) {
+            if (path == LoadPath::CreateFromModel) {
+                std::cout << "createFromModel\n";
+                checkMaterial(container, "createFromModel");
+            } else {
+                std::cout << "\nprepareFromModel + createFromPrepared\n";
+                checkMaterial(container, "createFromPrepared");
+            }
+        });
 
     // A material holds raw Texture*s into its container. A mesh instance co-owns its
     // material, so an entity built from an asset survives the asset's unload(); unless
@@ -241,6 +161,5 @@ int main()
         check(device->vram().tex == 0, "releasing the last material frees them");
     }
 
-    std::cout << (failures == 0 ? "\nAll GLB material path tests passed\n" : "\nGLB material path tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("GLB material paths");
 }

@@ -24,21 +24,13 @@
 #include "core/math/vector4.h"
 #include "scene/lighting/lightTextureAtlas.h"
 #include "scene/renderer/lightCamera.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what);
-            ++failures;
-        }
-    }
-
     bool rectsOverlap(const Vector4& a, const Vector4& b)
     {
         constexpr float eps = 1e-6f;
@@ -183,13 +175,9 @@ namespace
 
 int main()
 {
+    quietPasses();
     checkSplit();
     checkTiles();
     checkFaceLookupAgainstCameras();
-    if (failures == 0) {
-        std::printf("light-texture-atlas: all checks passed\n");
-        return 0;
-    }
-    std::printf("light-texture-atlas: %d check(s) failed\n", failures);
-    return 1;
+    return finish("light-texture-atlas");
 }

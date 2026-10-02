@@ -23,25 +23,14 @@
 #include "framework/components/anim/animComponent.h"
 #include "framework/components/anim/animComponentLayer.h"
 #include "framework/entity.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        if (!condition) {
-            ++failures;
-            std::cerr << "FAIL: " << what << '\n';
-        }
-    }
-
-    bool near(const Vector3& a, const float x, const float y, const float z, const float eps = 1e-4f)
-    {
-        return std::fabs(a.getX() - x) < eps && std::fabs(a.getY() - y) < eps && std::fabs(a.getZ() - z) < eps;
-    }
+    constexpr float kTolerance = 1e-4f;
 
     std::string str(const Vector3& v)
     {
@@ -139,60 +128,62 @@ namespace
 
 int main()
 {
+    quietPasses();
+
     // One layer at weight 1: the track's value, exactly as before.
     {
         const Rig rig = build(0.0f, AnimLayerBlendType::OVERWRITE, false, {}, false);
-        check(near(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f),
+        check(nearStrict(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f, kTolerance),
             "single layer writes its value unchanged: " + str(rig.bone->localPosition()));
     }
     // OVERWRITE at 0.25 is a quarter of the way from A toward B, not B.
     {
         const Rig rig = build(0.25f, AnimLayerBlendType::OVERWRITE, false);
-        check(near(rig.bone->localPosition(), 7.5f, 1.0f, 0.0f),
+        check(nearStrict(rig.bone->localPosition(), 7.5f, 1.0f, 0.0f, kTolerance),
             "overwrite layer at 0.25 blends a quarter toward its value: " + str(rig.bone->localPosition()));
     }
     // ADDITIVE at 0.25 adds a quarter of B's offset from the REST pose (1, 2, 3).
     {
         const Rig rig = build(0.25f, AnimLayerBlendType::ADDITIVE, false);
-        check(near(rig.bone->localPosition(), 9.75f, 0.5f, -0.75f),
+        check(nearStrict(rig.bone->localPosition(), 9.75f, 0.5f, -0.75f, kTolerance),
             "additive layer at 0.25 adds a quarter of its offset from the rest pose: " + str(rig.bone->localPosition()));
     }
     // Weight 0 contributes nothing; raising it at runtime takes effect on the next update.
     {
         Rig rig = build(0.0f, AnimLayerBlendType::OVERWRITE, false);
-        check(near(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f),
+        check(nearStrict(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f, kTolerance),
             "a zero-weight layer contributes nothing: " + str(rig.bone->localPosition()));
         rig.anim->findAnimationLayer("B")->setWeight(1.0f);
         rig.anim->update(0.1f);
-        check(near(rig.bone->localPosition(), 0.0f, 4.0f, 0.0f),
+        check(nearStrict(rig.bone->localPosition(), 0.0f, 4.0f, 0.0f, kTolerance),
             "a layer weight raised at runtime applies on the next update: " + str(rig.bone->localPosition()));
         rig.anim->findAnimationLayer("B")->setWeight(0.5f);
         rig.anim->update(0.1f);
-        check(near(rig.bone->localPosition(), 5.0f, 2.0f, 0.0f),
+        check(nearStrict(rig.bone->localPosition(), 5.0f, 2.0f, 0.0f, kTolerance),
             "half weight is the midpoint of A and B: " + str(rig.bone->localPosition()));
     }
     // A mask that does not list the node keeps the layer off it.
     {
         const Rig rig = build(1.0f, AnimLayerBlendType::OVERWRITE, false, {"Other"});
-        check(near(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f),
+        check(nearStrict(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f, kTolerance),
             "a masked-out node ignores the layer: " + str(rig.bone->localPosition()));
     }
     {
         const Rig rig = build(1.0f, AnimLayerBlendType::OVERWRITE, false, {"Bone"});
-        check(near(rig.bone->localPosition(), 0.0f, 4.0f, 0.0f),
+        check(nearStrict(rig.bone->localPosition(), 0.0f, 4.0f, 0.0f, kTolerance),
             "a mask listing the node lets the layer drive it: " + str(rig.bone->localPosition()));
     }
     // Normalised weights: an OVERWRITE layer on top masks the layers beneath it.
     {
         const Rig rig = build(0.25f, AnimLayerBlendType::OVERWRITE, true);
-        check(near(rig.bone->localPosition(), 0.0f, 4.0f, 0.0f),
+        check(nearStrict(rig.bone->localPosition(), 0.0f, 4.0f, 0.0f, kTolerance),
             "normalised: the topmost overwrite layer alone drives the node: " + str(rig.bone->localPosition()));
     }
     // Normalised with an additive top layer: 1 and 0.25 become 0.8 and 0.2, blended
     // sequentially from identity: (8,0,0) then a fifth toward (0,4,0).
     {
         const Rig rig = build(0.25f, AnimLayerBlendType::ADDITIVE, true);
-        check(near(rig.bone->localPosition(), 6.4f, 0.8f, 0.0f),
+        check(nearStrict(rig.bone->localPosition(), 6.4f, 0.8f, 0.0f, kTolerance),
             "normalised weights are divided by their total and blended in order: " + str(rig.bone->localPosition()));
     }
     // Rotation: OVERWRITE at 0.5 between a 90-degree turn about Y and identity is the
@@ -218,7 +209,7 @@ int main()
         rig.anim->update(0.1f);
         const Vector3 turned = rig.bone->localRotation() * Vector3(1.0f, 0.0f, 0.0f);
         const float s = std::sqrt(0.5f);
-        check(near(turned, s, 0.0f, -s, 1e-3f) || near(turned, s, 0.0f, s, 1e-3f),
+        check(nearStrict(turned, s, 0.0f, -s, 1e-3f) || nearStrict(turned, s, 0.0f, s, 1e-3f),
             "rotation overwrite at 0.5 lands at the half turn: " + str(turned));
     }
 
@@ -239,23 +230,19 @@ int main()
         check(rig.anim->baseLayer() != nullptr, "assignAnimation with no graph makes a Base layer");
         rig.anim->assignAnimation("Attack", constantTranslation(Vector3(10.0f, 0.0f, 0.0f)), {}, 1.0f, false);
         rig.anim->update(0.1f);
-        check(rig.anim->baseLayer()->activeState() == "Idle" && near(rig.bone->localPosition(), 0.0f, 0.0f, 0.0f),
+        check(rig.anim->baseLayer()->activeState() == "Idle" &&
+              nearStrict(rig.bone->localPosition(), 0.0f, 0.0f, 0.0f, kTolerance),
             "the default graph plays the first state: " + str(rig.bone->localPosition()));
 
         rig.anim->baseLayer()->transition("Attack", 0.2f);
         rig.anim->update(0.1f);
-        check(rig.anim->baseLayer()->transitioning() && near(rig.bone->localPosition(), 5.0f, 0.0f, 0.0f, 1e-3f),
+        check(rig.anim->baseLayer()->transitioning() && nearStrict(rig.bone->localPosition(), 5.0f, 0.0f, 0.0f, 1e-3f),
             "half way through a 0.2 s transition the pose is half way: " + str(rig.bone->localPosition()));
         rig.anim->update(0.15f);
         check(!rig.anim->baseLayer()->transitioning() && rig.anim->baseLayer()->activeState() == "Attack" &&
-                  near(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f),
+                  nearStrict(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f, kTolerance),
             "after it, the new state alone: " + str(rig.bone->localPosition()));
     }
 
-    if (failures == 0) {
-        std::cout << "anim-layer-blend: all checks passed\n";
-        return 0;
-    }
-    std::cerr << failures << " check(s) failed\n";
-    return 1;
+    return finish("anim-layer-blend");
 }

@@ -56,8 +56,8 @@ protected:
             "helipad-env-atlas", AssetType::TEXTURE,
             assetPath("cubemaps/helipad-env-atlas.png"),
             AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false});
-        if (const auto env = _envAtlas->resource()) {
-            scene()->setEnvAtlas(std::get<Texture*>(*env));
+        if (Texture* envTexture = _envAtlas->resourceAs<Texture>()) {
+            scene()->setEnvAtlas(envTexture);
         }
 
         _normalMap = std::make_unique<Asset>("normal", AssetType::TEXTURE,
@@ -82,7 +82,7 @@ protected:
         groundMaterial->setGloss(0.55f);
         groundMaterial->setMetalness(0.4f);
         groundMaterial->setUseMetalness(true);
-        groundMaterial->setNormalMap(textureOf(_normalMap));
+        groundMaterial->setNormalMap(_normalMap->resourceAs<Texture>());
         groundMaterial->setNormalMapTiling(Vector2(10.0f, 10.0f));
         groundMaterial->setBumpiness(0.5f);
         _materials.push_back(groundMaterial);
@@ -91,7 +91,7 @@ protected:
         cubeMaterial->setGloss(0.55f);
         cubeMaterial->setMetalness(0.4f);
         cubeMaterial->setUseMetalness(true);
-        cubeMaterial->setNormalMap(textureOf(_normalMap));
+        cubeMaterial->setNormalMap(_normalMap->resourceAs<Texture>());
         cubeMaterial->setNormalMapTiling(Vector2(0.25f, 0.25f));
         cubeMaterial->setBumpiness(0.5f);
         _materials.push_back(cubeMaterial);
@@ -158,15 +158,6 @@ protected:
     }
 
 private:
-    static Texture* textureOf(const std::unique_ptr<Asset>& asset)
-    {
-        const auto resource = asset->resource();
-        if (!resource || !std::holds_alternative<Texture*>(*resource)) {
-            return nullptr;
-        }
-        return std::get<Texture*>(*resource);
-    }
-
     void createSpotLight(const int index, const Color& color)
     {
         auto* entity = new Entity();
@@ -185,7 +176,7 @@ private:
             light->setShadowBias(0.4f);
             light->setShadowNormalBias(0.1f);
             light->setShadowResolution(512);
-            light->setCookie(textureOf(_cookie));
+            light->setCookie(_cookie->resourceAs<Texture>());
             light->setCookieIntensity(0.5f);
             light->setCookieChannel(CookieChannel::COOKIE_CHANNEL_A);
         }

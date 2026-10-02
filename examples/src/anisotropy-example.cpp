@@ -56,9 +56,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ElementComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options, {.screen = false});
     }
 
     bool create() override
@@ -78,12 +76,12 @@ protected:
             }
         );
 
-        const auto helipadResource = _helipad->resource();
-        if (!helipadResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        if (!helipadTexture) {
             spdlog::error("Failed to load helipad env atlas");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
 
         // Single directional light (base euler +90 X, -75 Y).
         createDirectionalLight(Vector3(90.0f, -75.0f, 0.0f));
@@ -187,11 +185,7 @@ private:
             assetPath("fonts/roboto-regular.json")
         );
 
-        FontResource* labelFontResource = nullptr;
-        if (const auto fontRes = _labelFont->resource();
-            fontRes.has_value() && std::holds_alternative<FontResource*>(*fontRes)) {
-            labelFontResource = std::get<FontResource*>(*fontRes);
-        }
+        FontResource* labelFontResource = _labelFont->resourceAs<FontResource>();
         if (!labelFontResource) {
             spdlog::warn("Label font failed to load — axis labels will be missing");
             return;
@@ -230,7 +224,6 @@ private:
     const Vector3 _focusPoint{0.0f, 0.0f, 0.0f};
     const float _gridRadius = std::max(NUM_SPHERES_X, NUM_SPHERES_Z) * SPACING * 0.5f;
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _helipad;
     std::unique_ptr<Asset> _labelFont;
     std::vector<std::shared_ptr<StandardMaterial>> _materials;

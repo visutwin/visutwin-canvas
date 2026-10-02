@@ -63,12 +63,12 @@ std::shared_ptr<AnimTrack> loadFirstAnimTrack(Asset* asset)
     if (!asset) {
         return nullptr;
     }
-    const auto resource = asset->resource();
-    if (!resource || !std::holds_alternative<ContainerResource*>(*resource)) {
+    ContainerResource* container = asset->resourceAs<ContainerResource>();
+    if (!container) {
         spdlog::error("Animation GLB '{}' failed to load as a container", asset->name());
         return nullptr;
     }
-    auto* glb = dynamic_cast<GlbContainerResource*>(std::get<ContainerResource*>(*resource));
+    auto* glb = dynamic_cast<GlbContainerResource*>(container);
     if (!glb || glb->animTracks().empty()) {
         spdlog::error("Animation GLB '{}' contains no animation tracks", asset->name());
         return nullptr;
@@ -122,8 +122,8 @@ protected:
         );
 
         // Load environment atlas for IBL
-        if (const auto envAtlasResource = _envAtlas->resource()) {
-            scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+        if (Texture* envAtlasTexture = _envAtlas->resourceAs<Texture>()) {
+            scene()->setEnvAtlas(envAtlasTexture);
         } else {
             spdlog::warn("Failed to load environment atlas — continuing without IBL");
         }
@@ -132,19 +132,9 @@ protected:
         // Load the bitmoji character model
         // -----------------------------------------------------------------------
         spdlog::info("Loading bitmoji character GLB...");
-        const auto resource = _modelAsset->resource();
-        if (!resource) {
-            spdlog::error("GLB load failed: asset resource is null");
-            return false;
-        }
-        if (!std::holds_alternative<ContainerResource*>(*resource)) {
-            spdlog::error("GLB load failed: expected ContainerResource");
-            return false;
-        }
-
-        auto* container = std::get<ContainerResource*>(*resource);
+        auto* container = _modelAsset->resourceAs<ContainerResource>();
         if (!container) {
-            spdlog::error("GLB load failed: container payload is null");
+            spdlog::error("GLB load failed: the asset did not load as a container");
             return false;
         }
 
@@ -236,9 +226,8 @@ protected:
         // Ground plane (playcanvas-grey texture)
         // -----------------------------------------------------------------------
         _groundMaterial = std::make_shared<StandardMaterial>();
-        if (const auto groundTexRes = _groundTexAsset->resource();
-            groundTexRes && std::holds_alternative<Texture*>(*groundTexRes)) {
-            _groundMaterial->setDiffuseMap(std::get<Texture*>(*groundTexRes));
+        if (Texture* groundTexture = _groundTexAsset->resourceAs<Texture>()) {
+            _groundMaterial->setDiffuseMap(groundTexture);
         } else {
             spdlog::warn("Ground texture failed to load — using flat grey");
         }

@@ -25,21 +25,15 @@
 #include "framework/i18n/i18n.h"
 #include "framework/input/elementInput.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     void expectEq(const std::string& actual, const std::string& expected, const std::string& what)
     {
         check(actual == expected, what + " -> '" + actual + "' (expected '" + expected + "')");
@@ -384,38 +378,12 @@ namespace
         }
     }
 
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(const int width, const int height) override { _size = {width, height}; }
-        std::pair<int, int> size() const override { return _size; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    private:
-        std::pair<int, int> _size{300, 150};
-    };
-
     void testTextElementKey()
     {
         std::cout << "text element key\n";
-        auto device = std::make_shared<StubDevice>();
-        auto engine = std::make_shared<Engine>(nullptr);
-        AppOptions options;
-        options.graphicsDevice = device;
-        options.elementInput = std::make_shared<ElementInput>();
-        options.registerComponentSystem<RenderComponentSystem>();
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        engine->init(options);
+        auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {300, 150}, .resizable = true});
+        auto engine = makeTestEngine<RenderComponentSystem, ScreenComponentSystem, ElementComponentSystem>(device,
+            [](AppOptions& options) { options.elementInput = std::make_shared<ElementInput>(); });
         I18n* i18n = engine->i18n();
         check(i18n != nullptr, "the engine has an I18n");
         if (!i18n) {
@@ -481,6 +449,5 @@ int main()
     testGetText();
     testLocaleAndData();
     testTextElementKey();
-    std::cout << (failures == 0 ? "All i18n tests passed\n" : "i18n tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("i18n");
 }

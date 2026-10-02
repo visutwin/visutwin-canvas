@@ -44,15 +44,14 @@ protected:
     bool create() override
     {
         _asset = std::make_unique<Asset>("scene", AssetType::CONTAINER, assetPath(kModel));
-        const auto resource = _asset->resource();
-        if (!resource || !std::holds_alternative<ContainerResource*>(*resource) ||
-            !std::get<ContainerResource*>(*resource)) {
+        ContainerResource* container = _asset->resourceAs<ContainerResource>();
+        if (!container) {
             spdlog::error("Failed to load {}", kModel);
             return false;
         }
 
         // Create an instance using render component.
-        Entity* entity = std::get<ContainerResource*>(*resource)->instantiateRenderEntity();
+        Entity* entity = container->instantiateRenderEntity();
         if (!entity) {
             spdlog::error("Failed to instantiate {}", kModel);
             return false;

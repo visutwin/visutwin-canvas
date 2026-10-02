@@ -16,21 +16,13 @@
 #include "core/shape/boundingBox.h"
 #include "framework/batching/batchSplit.h"
 #include "platform/graphics/vertexFormat.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     // A unit cube centred at x, so a run of them along X grows the batch's bounds
     // by exactly one unit each.
     BatchCandidate cubeAt(const float x, const uint32_t formatHash = 1u)
@@ -193,7 +185,5 @@ int main()
         check(!formatIsPackedVertexLayout(padded), "a padded stride is not mergeable");
     }
 
-    std::cout << (failures == 0 ? "\nAll batch split tests passed\n"
-                                : "\nBatch split tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("batch split");
 }

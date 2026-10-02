@@ -30,25 +30,14 @@
 #include <vector>
 
 #include "framework/components/render/primitiveGeometry.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-4f)
-    {
-        return std::fabs(a - b) <= eps;
-    }
+    constexpr float kTolerance = 1e-4f;
 
     struct Vertex
     {
@@ -84,8 +73,8 @@ namespace
             if (vx.py > top) { top = vx.py; vTop = vx.v; }
             if (vx.py < bottom) { bottom = vx.py; vBottom = vx.v; }
         }
-        check(near(vTop, 0.0f), topWhat);
-        check(near(vBottom, 1.0f), bottomWhat);
+        check(near(vTop, 0.0f, kTolerance), topWhat);
+        check(near(vBottom, 1.0f, kTolerance), bottomWhat);
     }
 }
 
@@ -99,16 +88,16 @@ int main()
         bool farTop = true, nearBottom = true, uAlongX = true, frame = true;
         for (size_t i = 0; i < vertexCount(plane); ++i) {
             const Vertex vx = vertexAt(plane, i);
-            if (near(vx.pz, -0.5f) && !near(vx.v, 0.0f)) farTop = false;
-            if (near(vx.pz, 0.5f) && !near(vx.v, 1.0f)) nearBottom = false;
-            if (!near(vx.u, vx.px + 0.5f)) uAlongX = false;
+            if (near(vx.pz, -0.5f, kTolerance) && !near(vx.v, 0.0f, kTolerance)) farTop = false;
+            if (near(vx.pz, 0.5f, kTolerance) && !near(vx.v, 1.0f, kTolerance)) nearBottom = false;
+            if (!near(vx.u, vx.px + 0.5f, kTolerance)) uAlongX = false;
 
             // Tangent along +u, i.e. +X.
             if (!(vx.tx > 0.99f)) frame = false;
             // Bitangent = cross(n, t) * w must point along +v, i.e. -Z.
             const float bx = (vx.ny * vx.tz - vx.nz * vx.ty) * vx.tw;
             const float bz = (vx.nx * vx.ty - vx.ny * vx.tx) * vx.tw;
-            if (!(bz < -0.99f && near(bx, 0.0f))) frame = false;
+            if (!(bz < -0.99f && near(bx, 0.0f, kTolerance))) frame = false;
         }
         check(vertexCount(plane) > 0, "plane has vertices");
         check(farTop, "plane: the z = -0.5 edge samples the image's TOP row (v = 0)");
@@ -121,9 +110,9 @@ int main()
         float vAtWorldTop = -1.0f;
         for (size_t i = 0; i < vertexCount(plane); ++i) {
             const Vertex vx = vertexAt(plane, i);
-            if (near(-vx.pz, 0.5f)) vAtWorldTop = vx.v;
+            if (near(-vx.pz, 0.5f, kTolerance)) vAtWorldTop = vx.v;
         }
-        check(near(vAtWorldTop, 0.0f), "plane rotated +90 about X shows the image upright");
+        check(near(vAtWorldTop, 0.0f, kTolerance), "plane rotated +90 about X shows the image upright");
     }
 
     // BOX front face (+Z normal): top row at +Y, u from -X to +X.
@@ -134,7 +123,7 @@ int main()
         bool uAlongX = true;
         for (size_t i = 0; i < vertexCount(box); ++i) {
             const Vertex vx = vertexAt(box, i);
-            if (front(vx) && !near(vx.u, vx.px + 0.5f)) uAlongX = false;
+            if (front(vx) && !near(vx.u, vx.px + 0.5f, kTolerance)) uAlongX = false;
         }
         check(uAlongX, "box front: u runs from 0 at x = -0.5 to 1 at x = +0.5");
     }
@@ -227,7 +216,7 @@ int main()
                 // green channel points (see the header comment above).
                 const float alongV = btLen > 0.0f ? -dot(bt, pv) / btLen : -1.0f;
                 worstV = std::min(worstV, alongV);
-                if (!(alongV > 0.5f) || !near(std::fabs(vx.tw), 1.0f)) ++badV;
+                if (!(alongV > 0.5f) || !near(std::fabs(vx.tw), 1.0f, kTolerance)) ++badV;
             }
         }
         std::cout << "  " << name << ": " << tested << " corners, worst dot(t, +u) " << worstU
@@ -372,6 +361,5 @@ int main()
               "inverted cone (zero base radius): no degenerate tip, only existing vertices indexed");
     }
 
-    std::cout << (failures == 0 ? "PASS\n" : "FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("primitive geometry");
 }

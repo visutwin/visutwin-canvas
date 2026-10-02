@@ -36,55 +36,15 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "scene/mesh.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        if (!condition) {
-            ++failures;
-            std::cerr << "FAIL: " << what << '\n';
-        }
-    }
-
-    bool near(const float a, const float b)
-    {
-        return std::fabs(a - b) < 1e-4f;
-    }
-
-    /// Keeps the CPU copy the base class makes so the test can read the merged points back.
-    class StubVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        void unlock() override {}
-    };
-
-    /// Creates nothing but vertex buffers; the model has no images or index data.
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format, int numVertices,
-            const VertexBufferOptions& options) override
-        {
-            return std::make_shared<StubVertexBuffer>(this, format, numVertices, options);
-        }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
+    constexpr float kTolerance = 1e-4f;
 
     // Three asymmetric points, one per axis, so no rotation but the identity
     // maps the set onto itself.
@@ -212,7 +172,7 @@ namespace
             return;
         }
         for (size_t i = 0; i < kExpected.size(); ++i) {
-            check(near(positions[i], kExpected[i]),
+            check(nearStrict(positions[i], kExpected[i], kTolerance),
                 label + ": component " + std::to_string(i) + " is " + std::to_string(positions[i]) +
                     ", expected " + std::to_string(kExpected[i]));
         }
@@ -221,7 +181,11 @@ namespace
 
 int main()
 {
-    auto device = std::make_shared<StubDevice>();
+    quietPasses();
+    // Creates nothing but vertex buffers, which keep the CPU copy the base class makes so
+    // the test can read the merged points back; the model has no images or index data.
+    auto device = std::make_shared<StubGraphicsDevice>(
+        StubGraphicsDevice::Options{.cpuBuffers = true, .nullIndexBuffers = true});
 
     const std::vector<float> fromMatrix = mergedPositions(true, device, "matrix");
     const std::vector<float> fromTrs = mergedPositions(false, device, "trs");
@@ -231,15 +195,10 @@ int main()
 
     if (fromMatrix.size() == fromTrs.size()) {
         for (size_t i = 0; i < fromMatrix.size(); ++i) {
-            check(near(fromMatrix[i], fromTrs[i]),
+            check(nearStrict(fromMatrix[i], fromTrs[i], kTolerance),
                 "matrix and TRS spellings of one node agree at component " + std::to_string(i));
         }
     }
 
-    if (failures == 0) {
-        std::cout << "glb-point-node-matrix: all checks passed\n";
-        return 0;
-    }
-    std::cerr << failures << " check(s) failed\n";
-    return 1;
+    return finish("glb-point-node-matrix");
 }

@@ -49,12 +49,12 @@ protected:
                 .mipmaps = false
             }
         );
-        const auto helipadResource = _helipad->resource();
-        if (!helipadResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        if (!helipadTexture) {
             spdlog::error("Failed to load helipad env atlas");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
 
         // Seaside-rocks textured ground plane (color + normal + gloss), metallic PBR so the
         // LTC area lights produce glossy stretched reflections across it. Textures tiled 7x7.
@@ -96,12 +96,12 @@ protected:
         // Statue hero standing on the floor (scale 0.4).
         _statue = std::make_unique<Asset>(
             "statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
-        const auto statueResource = _statue->resource();
-        if (!statueResource) {
+        ContainerResource* statueContainer = _statue->resourceAs<ContainerResource>();
+        if (!statueContainer) {
             spdlog::error("Failed to load statue model");
             return false;
         }
-        auto* statueEntity = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
+        auto* statueEntity = statueContainer->instantiateRenderEntity();
         statueEntity->setLocalScale(0.4f, 0.4f, 0.4f);
         root()->addChild(statueEntity);
 
@@ -153,12 +153,12 @@ protected:
 private:
     static Texture* requireTexture(const std::unique_ptr<Asset>& asset, const char* label)
     {
-        const auto resource = asset->resource();
-        if (!resource) {
+        Texture* texture = asset->resourceAs<Texture>();
+        if (!texture) {
             spdlog::error("Failed to load texture asset '{}'", label);
             return nullptr;
         }
-        return std::get<Texture*>(*resource);
+        return texture;
     }
 
     static float lerp(const float a, const float b, const float t)

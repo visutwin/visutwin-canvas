@@ -116,12 +116,12 @@ protected:
         // ---------------------------------------------------------------------
         // Laboratory
         // ---------------------------------------------------------------------
-        const auto labResource = _laboratoryAsset->resource();
-        if (!labResource) {
+        ContainerResource* labContainer = _laboratoryAsset->resourceAs<ContainerResource>();
+        if (!labContainer) {
             spdlog::error("Failed to load models/laboratory.glb");
             return false;
         }
-        auto* labEntity = std::get<ContainerResource*>(*labResource)->instantiateRenderEntity();
+        auto* labEntity = labContainer->instantiateRenderEntity();
         labEntity->setEngine(engine());
         labEntity->setLocalScale(100.0f, 100.0f, 100.0f);
         root()->addChild(labEntity);
@@ -183,12 +183,12 @@ protected:
         // ---------------------------------------------------------------------
         // Terrain — scaled to span the far clip and bedded under the laboratory
         // ---------------------------------------------------------------------
-        const auto terrainResource = _terrainAsset->resource();
-        if (!terrainResource) {
+        ContainerResource* terrainContainer = _terrainAsset->resourceAs<ContainerResource>();
+        if (!terrainContainer) {
             spdlog::error("Failed to load models/dry-sand-terrain.glb");
             return false;
         }
-        auto* terrain = std::get<ContainerResource*>(*terrainResource)->instantiateRenderEntity();
+        auto* terrain = terrainContainer->instantiateRenderEntity();
         terrain->setEngine(engine());
         root()->addChild(terrain);
 

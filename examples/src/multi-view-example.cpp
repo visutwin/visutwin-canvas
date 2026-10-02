@@ -128,12 +128,12 @@ protected:
                 .mipmaps = false
             }
         );
-        const auto helipadResource = _helipad->resource();
-        if (!helipadResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        if (!helipadTexture) {
             spdlog::error("Failed to load helipad env atlas");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
 
         // Layer setup: world + dedicated spotlight layer + skybox.
         const auto defaultLayers = scene()->layers();
@@ -167,14 +167,13 @@ protected:
         // and the spotlight (right) camera lights it with the spot light.
         _boardAsset = std::make_unique<Asset>(
             "chess-board", AssetType::CONTAINER, assetPath("models/chess-board.glb"));
-        const auto boardResource = _boardAsset->resource();
-        if (!boardResource || !std::holds_alternative<ContainerResource*>(*boardResource)) {
+        ContainerResource* boardContainer = _boardAsset->resourceAs<ContainerResource>();
+        if (!boardContainer) {
             spdlog::error("Failed to load chess-board.glb");
             return false;
         }
 
-        auto* boardContainer = std::get<ContainerResource*>(*boardResource);
-        auto* boardEntity = boardContainer ? boardContainer->instantiateRenderEntity() : nullptr;
+        auto* boardEntity = boardContainer->instantiateRenderEntity();
         if (!boardEntity) {
             spdlog::error("Failed to instantiate chess-board.glb render entity");
             return false;

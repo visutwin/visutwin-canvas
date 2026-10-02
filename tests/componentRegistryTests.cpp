@@ -16,21 +16,13 @@
 
 #include "framework/components/componentSystem.h"
 #include "framework/components/componentSystemRegistry.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     /// Distinct component types so two systems can differ by type as well as id.
     class AlphaComponent : public Component
     {
@@ -140,10 +132,5 @@ int main()
             "the id can be registered again after removal");
     }
 
-    if (failures == 0) {
-        std::cout << "component system registry: all checks passed\n";
-        return 0;
-    }
-    std::cout << "component system registry: " << failures << " check(s) FAILED\n";
-    return 1;
+    return finish("component system registry");
 }

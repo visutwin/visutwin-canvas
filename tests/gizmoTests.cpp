@@ -25,7 +25,6 @@
 #include <string>
 #include <vector>
 
-#include "framework/appOptions.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/camera/cameraComponentSystem.h"
 #include "framework/components/render/primitiveGeometry.h"
@@ -38,79 +37,24 @@
 #include "framework/gizmo/shape/shapes.h"
 #include "framework/gizmo/translateGizmo.h"
 #include "framework/gizmo/triData.h"
-#include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/indexBuffer.h"
-#include "platform/graphics/vertexBuffer.h"
 #include "scene/camera.h"
 #include "scene/layer.h"
 #include "scene/meshInstance.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-3f)
-    {
-        return std::abs(a - b) <= eps;
-    }
-
-    bool near(const Vector3& a, const Vector3& b, const float eps = 1e-3f)
-    {
-        return near(a.getX(), b.getX(), eps) && near(a.getY(), b.getY(), eps) && near(a.getZ(), b.getZ(), eps);
-    }
+    constexpr float kTolerance = 1e-3f;
 
     std::string str(const Vector3& v)
     {
         return "(" + std::to_string(v.getX()) + ", " + std::to_string(v.getY()) + ", " + std::to_string(v.getZ()) + ")";
     }
-
-    class CpuVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        void unlock() override {}
-    };
-
-    class CpuIndexBuffer final : public IndexBuffer
-    {
-    public:
-        using IndexBuffer::IndexBuffer;
-        bool setData(const std::vector<uint8_t>&) override { return true; }
-    };
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
-            const int numVertices, const VertexBufferOptions& options) override
-        {
-            return std::make_shared<CpuVertexBuffer>(this, format, numVertices, options);
-        }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(const IndexFormat format, const int numIndices,
-            const std::vector<uint8_t>& data) override
-        {
-            auto buffer = std::make_shared<CpuIndexBuffer>(this, format, numIndices);
-            buffer->setData(data);
-            return buffer;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {100, 100}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
 
     Entity* addEntity(Engine& engine)
     {
@@ -131,12 +75,8 @@ namespace
     GizmoScene makeScene()
     {
         GizmoScene scene;
-        scene.engine = std::make_shared<Engine>(nullptr);
-        AppOptions options;
-        options.graphicsDevice = std::make_shared<StubDevice>();
-        options.registerComponentSystem<RenderComponentSystem>();
-        options.registerComponentSystem<CameraComponentSystem>();
-        scene.engine->init(options);
+        scene.engine = makeTestEngine<RenderComponentSystem, CameraComponentSystem>(
+            std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {100, 100}, .cpuBuffers = true}));
 
         Entity* cameraEntity = addEntity(*scene.engine);
         cameraEntity->setLocalPosition(0.0f, 0.0f, 10.0f);   // looking down -Z at the origin
@@ -169,14 +109,14 @@ namespace
         box.setTransform(Vector3(0.0f, 1.0f, 0.0f), Quaternion(), Vector3(2.0f));
         float dist = 0.0f;
         bool hit = box.intersect(Matrix4::identity(), Vector3(0.0f, 1.0f, 10.0f), Vector3(0.0f, 0.0f, -1.0f), dist);
-        check(hit && near(dist, 9.0f), "a ray down -Z hits the scaled face at distance 9 (got " + std::to_string(dist) + ")");
+        check(hit && near(dist, 9.0f, kTolerance), "a ray down -Z hits the scaled face at distance 9 (got " + std::to_string(dist) + ")");
         hit = box.intersect(Matrix4::identity(), Vector3(0.0f, 2.5f, 10.0f), Vector3(0.0f, 0.0f, -1.0f), dist);
         check(!hit, "a ray above the box misses it");
 
         // the parent world transform composes in front of the TriData transform
         const Matrix4 parent = Matrix4::trs(Vector3(5.0f, 0.0f, 0.0f), Quaternion(), Vector3(0.5f));
         hit = box.intersect(parent, Vector3(5.0f, 0.5f, 10.0f), Vector3(0.0f, 0.0f, -1.0f), dist);
-        check(hit && near(dist, 9.5f), "under a parent (x 5, scale 0.5) the face is at z 0.5, distance 9.5 (got " +
+        check(hit && near(dist, 9.5f, kTolerance), "under a parent (x 5, scale 0.5) the face is at z 0.5, distance 9.5 (got " +
             std::to_string(dist) + ")");
     }
 
@@ -224,7 +164,7 @@ namespace
         float dist = 0.0f;
         // box: centre at gap + boxSize / 2 + lineLength = 0.56, size 0.12
         check(line.triData()[0]->intersect(world, Vector3(10.0f, 0.56f, 0.0f), Vector3(-1.0f, 0.0f, 0.0f), dist) &&
-            near(dist, 10.0f - 0.06f), "the box sits at the end of the line (y 0.56)");
+            near(dist, 10.0f - 0.06f, kTolerance), "the box sits at the end of the line (y 0.56)");
         // cylinder: radius (lineThickness + tolerance) / 2 = 0.06 around y in [0, 0.5]
         check(line.triData()[1]->intersect(world, Vector3(0.05f, 0.25f, 10.0f), Vector3(0.0f, 0.0f, -1.0f), dist),
             "the line is picked within its tolerance (0.05 off axis)");
@@ -235,9 +175,10 @@ namespace
         planeArgs.axis = GizmoAxis::Z;
         planeArgs.rotation = Vector3(90.0f, 0.0f, 0.0f);
         PlaneShape plane(engine, planeArgs);
-        check(near(plane.position(), Vector3(0.08f, 0.08f, 0.0f)), "the XY plane sits in the (+x, +y) quadrant");
+        check(near(plane.position(), Vector3(0.08f, 0.08f, 0.0f), kTolerance),
+            "the XY plane sits in the (+x, +y) quadrant");
         plane.setFlipped(Vector3(1.0f, 0.0f, 0.0f));
-        check(near(plane.position(), Vector3(-0.08f, 0.08f, 0.0f)), "and flips into (-x, +y)");
+        check(near(plane.position(), Vector3(-0.08f, 0.08f, 0.0f), kTolerance), "and flips into (-x, +y)");
     }
 
     void viewportScale()
@@ -476,10 +417,5 @@ int main()
     scaleDrags();
     lifetime();
 
-    if (failures > 0) {
-        std::cout << failures << " check(s) failed\n";
-        return 1;
-    }
-    std::cout << "all gizmo checks passed\n";
-    return 0;
+    return finish("gizmo");
 }

@@ -46,13 +46,13 @@ protected:
         _statue = std::make_unique<Asset>(
             "statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
 
-        const auto helipadResource = _helipad->resource();
-        if (!helipadResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        if (!helipadTexture) {
             spdlog::error("Failed to load helipad texture");
             return false;
         }
-        const auto statueResource = _statue->resource();
-        if (!statueResource) {
+        ContainerResource* statueContainer = _statue->resourceAs<ContainerResource>();
+        if (!statueContainer) {
             spdlog::error("Failed to load statue model");
             return false;
         }
@@ -60,7 +60,7 @@ protected:
         scene()->setAmbientLight(0.4f, 0.4f, 0.4f);
         scene()->setSkyboxMip(1);
         scene()->setSkyboxIntensity(0.4f);
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
 
         // A directional light.
         auto* light = new Entity();
@@ -69,7 +69,7 @@ protected:
         light->setLocalEulerAngles(45.0f, 30.0f, 0.0f);
         root()->addChild(light);
 
-        auto* statue = std::get<ContainerResource*>(*statueResource)->instantiateRenderEntity();
+        auto* statue = statueContainer->instantiateRenderEntity();
         statue->setLocalPosition(0.0f, -0.5f, 0.0f);
         root()->addChild(statue);
 

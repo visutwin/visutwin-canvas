@@ -46,12 +46,12 @@ protected:
             }
         );
 
-        const auto morningResource = _morning->resource();
-        if (!morningResource) {
+        Texture* morningTexture = _morning->resourceAs<Texture>();
+        if (!morningTexture) {
             spdlog::error("Failed to load morning env atlas");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*morningResource));
+        scene()->setEnvAtlas(morningTexture);
 
         // Khronos ClearCoatTest sample model (KHR_materials_clearcoat), posed
         // at yaw 90, position (0,0,1), scale 0.8.
@@ -61,12 +61,12 @@ protected:
             assetPath("models/ClearCoatTest.glb")
         );
 
-        const auto modelResource = _model->resource();
-        if (!modelResource) {
+        ContainerResource* modelContainer = _model->resourceAs<ContainerResource>();
+        if (!modelContainer) {
             spdlog::error("Failed to load ClearCoatTest.glb");
             return false;
         }
-        auto* modelEntity = std::get<ContainerResource*>(*modelResource)->instantiateRenderEntity();
+        auto* modelEntity = modelContainer->instantiateRenderEntity();
         modelEntity->setLocalEulerAngles(0.0f, 90.0f, 0.0f);
         modelEntity->setLocalPosition(0.0f, 0.0f, 1.0f);
         modelEntity->setLocalScale(0.8f, 0.8f, 0.8f);

@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "../uiAtlas.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
@@ -56,18 +57,6 @@ namespace
     // Your row's top within the content: the padding, then 36 rows of 64 and their spacing
     constexpr float TOP = 10.0f + ME * 74.0f;
 
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
-
-    Texture* textureOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<Texture*>(*res) ? std::get<Texture*>(*res) : nullptr;
-    }
-
     /// A score with thousands separators, as `toLocaleString('en-US')` writes it.
     std::string withCommas(const int value)
     {
@@ -77,24 +66,6 @@ namespace
         }
         return digits;
     }
-
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        std::shared_ptr<Sprite> sprite;
-        int spriteFrame = 0;
-        Color color = LIGHT;
-        Vector4 anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-        Vector2 pivot = Vector2(0.5f, 0.5f);
-        std::optional<Vector4> margin;
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        bool mask = false;
-        FontResource* font = nullptr;
-        std::string text;
-        std::optional<int> fontSize;
-    };
 }
 
 class ScrollViewExample final: public ExampleApp
@@ -106,14 +77,11 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
+        registerUi(options);
         options.registerComponentSystem<LayoutGroupComponentSystem>();
         options.registerComponentSystem<LayoutChildComponentSystem>();
         options.registerComponentSystem<ScrollbarComponentSystem>();
         options.registerComponentSystem<ScrollViewComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
     }
 
     bool create() override
@@ -122,9 +90,9 @@ protected:
         _boldAsset = std::make_unique<Asset>("bold", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        _font = fontOf(*_fontAsset);
-        _bold = fontOf(*_boldAsset);
-        Texture* atlasTexture = textureOf(*_uiAtlasTexture);
+        _font = _fontAsset->resourceAs<FontResource>();
+        _bold = _boldAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!_font || !_bold || !atlasTexture) {
             spdlog::error("Failed to load the Roboto fonts or ui/ui-atlas.png");
             return false;
@@ -133,14 +101,8 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         auto atlas = createUiAtlas(atlasTexture);
         _panel = std::make_shared<Sprite>(atlas, std::vector<std::string>{"panel"}, 2.0f, SpriteRenderMode::Sliced);
@@ -229,31 +191,12 @@ protected:
     void update(float /*dt*/) override { layout(); }
 
 private:
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = props.pivot, .margin = props.margin};
-        desc.width = props.width;
-        desc.height = props.height;
-        desc.useInput = props.useInput;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-            element->setSpriteFrame(props.spriteFrame);
-        }
-        element->setColor(props.color);
-        element->setMask(props.mask);
-        if (props.type == ElementType::Text) {
-            element->setFontResource(props.font ? props.font : _font);
-            if (props.fontSize) {
-                element->setFontSize(*props.fontSize);
-            }
-            element->setText(props.text);
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props, {.type = ElementType::Image,
+            .color = LIGHT, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f), .pivot = Vector2(0.5f, 0.5f),
+            .font = _font});
     }
 
     // A leaderboard row: rank, avatar, name and score
@@ -308,7 +251,6 @@ private:
         _pin->entity()->setLocalPosition(-12.0f, 18.0f, 0.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _boldAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;

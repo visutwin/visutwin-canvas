@@ -24,17 +24,16 @@
 #include <iostream>
 #include <memory>
 
-#include "platform/graphics/graphicsDevice.h"
 #include "scene/light.h"
 #include "scene/renderer/shadowMap.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
 
 namespace
 {
-    /// A device that creates nothing and only answers capability questions. The
-    /// nine pure virtuals below are the whole GPU-facing surface; none is reached.
-    class StubDevice final : public GraphicsDevice
+    /// A device that creates nothing and only answers capability questions.
+    class StubDevice final : public test::StubGraphicsDevice
     {
     public:
         /// Answers nothing, so every capability reads its base-class default.
@@ -45,25 +44,6 @@ namespace
             setMaxTextureSize(maxTexture);
             setMaxCubeMapSize(maxCube);
             setTextureHalfFloatRenderable(halfFloatRenderable);
-        }
-
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool,
-            bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override
-        {
-            return nullptr;
-        }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&,
-            int, const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int,
-            const std::vector<uint8_t>&) override { return nullptr; }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override
-        {
-            return nullptr;
         }
     };
 

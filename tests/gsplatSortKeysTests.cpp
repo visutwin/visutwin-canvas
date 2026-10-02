@@ -23,21 +23,13 @@
 #include <vector>
 
 #include "scene/gsplat/gsplatSortKeys.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what.c_str());
-            ++failures;
-        }
-    }
-
     // Valid density bins in the shape GSplatSorter builds: dividers that sum to at
     // most bucketCount, bases as their running sum.
     struct Bins
@@ -97,6 +89,7 @@ namespace
 
 int main()
 {
+    quietPasses();
     std::printf("gsplat sort keys (backend: %s)\n", gsplatSortKeysBackend());
     if (const char* expected = std::getenv("VISUTWIN_EXPECT_KERNEL_BACKEND");
         expected && *expected && std::string(expected) != gsplatSortKeysBackend()) {
@@ -168,10 +161,5 @@ int main()
         check(decreases == 0, std::to_string(decreases) + " places where a deeper splat got a smaller key");
     }
 
-    if (failures != 0) {
-        std::printf("gsplat sort keys: %d check(s) FAILED\n", failures);
-        return 1;
-    }
-    std::printf("gsplat sort keys: all checks passed\n");
-    return 0;
+    return finish("gsplat sort keys");
 }

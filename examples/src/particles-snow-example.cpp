@@ -39,10 +39,7 @@ protected:
     bool create() override
     {
         _snowflake = std::make_unique<Asset>("snowflake", AssetType::TEXTURE, assetPath("textures/snowflake.png"));
-        Texture* snowflake = nullptr;
-        if (const auto resource = _snowflake->resource(); resource && std::holds_alternative<Texture*>(*resource)) {
-            snowflake = std::get<Texture*>(*resource);
-        }
+        Texture* snowflake = _snowflake->resourceAs<Texture>();
 
         auto* camera = createCamera(Vector3(0.0f, 7.0f, 10.0f));
         _camera = camera->findComponent<CameraComponent>();

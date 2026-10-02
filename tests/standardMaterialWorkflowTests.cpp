@@ -17,7 +17,6 @@
 // setMetalness / setGloss / setBumpiness on a loaded model silently do nothing.
 
 #include <cmath>
-#include <cstdio>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,44 +24,15 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/standardMaterial.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what.c_str());
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b)
-    {
-        return std::fabs(a - b) < 1e-5f;
-    }
-
-    /// Creates nothing; enough for a Texture to exist so a material can hold one.
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
+    constexpr float kTolerance = 1e-5f;
 
     std::unique_ptr<Texture> makeTexture(GraphicsDevice* device)
     {
@@ -79,26 +49,32 @@ namespace
 
 int main()
 {
-    StubDevice device;
+    quietPasses();
+    // Creates nothing; enough for a Texture to exist so a material can hold one.
+    StubGraphicsDevice device;
 
     // The defaults, and what they mean for the packed block.
     {
         StandardMaterial material;
         check(!material.useMetalness(), "useMetalness defaults to false (upstream _defineFlag('useMetalness', false))");
-        check(near(material.metalness(), 1.0f), "metalness defaults to 1 (upstream)");
-        check(near(material.gloss(), 0.25f), "gloss defaults to 0.25 (upstream)");
-        check(near(material.heightMapFactor(), 1.0f), "heightMapFactor defaults to 1 (upstream)");
-        check(near(material.iridescenceThicknessMax(), 0.0f), "iridescenceThicknessMax defaults to 0 (upstream)");
+        check(nearStrict(material.metalness(), 1.0f, kTolerance), "metalness defaults to 1 (upstream)");
+        check(nearStrict(material.gloss(), 0.25f, kTolerance), "gloss defaults to 0.25 (upstream)");
+        check(nearStrict(material.heightMapFactor(), 1.0f, kTolerance), "heightMapFactor defaults to 1 (upstream)");
+        check(nearStrict(material.iridescenceThicknessMax(), 0.0f, kTolerance),
+            "iridescenceThicknessMax defaults to 0 (upstream)");
         check(material.usesSpecularWorkflow(), "a default material is in the specular workflow");
         check(!material.rendersSpecular(),
             "a default material renders NO specular: specular workflow, black specular, no map, no clearcoat");
 
         const MaterialUniforms& u = material.packedUniforms();
-        check(near(u.metallicFactor, 0.0f), "the specular workflow packs metallic 0 even though metalness is 1");
-        check(near(u.specGlossParams[0], 0.0f) && near(u.specGlossParams[1], 0.0f) && near(u.specGlossParams[2], 0.0f),
+        check(nearStrict(u.metallicFactor, 0.0f, kTolerance),
+            "the specular workflow packs metallic 0 even though metalness is 1");
+        check(nearStrict(u.specGlossParams[0], 0.0f, kTolerance) &&
+              nearStrict(u.specGlossParams[1], 0.0f, kTolerance) && nearStrict(u.specGlossParams[2], 0.0f, kTolerance),
             "a black specular packs a black F0");
-        check(near(u.specGlossParams[3], 0.25f), "the specular workflow's gloss is the material gloss");
-        check(near(u.roughnessFactor, 0.75f), "roughness is 1 - gloss");
+        check(nearStrict(u.specGlossParams[3], 0.25f, kTolerance),
+            "the specular workflow's gloss is the material gloss");
+        check(nearStrict(u.roughnessFactor, 0.75f, kTolerance), "roughness is 1 - gloss");
         check((u.flags & (kSkyboxOffBit | kOpacityMapBit)) == 0u,
             "a default material keeps the scene environment and has no opacity map bit");
     }
@@ -108,26 +84,28 @@ int main()
         StandardMaterial metal;
         metal.setUseMetalness(true);
         check(metal.rendersSpecular() && !metal.usesSpecularWorkflow(), "useMetalness renders specular");
-        check(near(metal.packedUniforms().metallicFactor, 1.0f), "useMetalness packs the default metalness of 1");
+        check(nearStrict(metal.packedUniforms().metallicFactor, 1.0f, kTolerance),
+            "useMetalness packs the default metalness of 1");
         metal.setMetalness(0.3f);
-        check(near(metal.packedUniforms().metallicFactor, 0.3f), "useMetalness packs the authored metalness");
+        check(nearStrict(metal.packedUniforms().metallicFactor, 0.3f, kTolerance),
+            "useMetalness packs the authored metalness");
 
         StandardMaterial tinted;
         tinted.setSpecular(Color(0.5f, 0.0f, 0.0f, 1.0f));
         check(tinted.rendersSpecular(), "a non-black specular colour renders specular");
-        check(near(tinted.packedUniforms().specGlossParams[0], std::pow(0.5f, 2.2f)),
+        check(nearStrict(tinted.packedUniforms().specGlossParams[0], std::pow(0.5f, 2.2f), kTolerance),
             "specular is authored in sRGB and packed linear, as upstream's _defineColor uniforms are");
 
         StandardMaterial coated;
         coated.setClearCoat(0.5f);
         check(coated.rendersSpecular(), "clearcoat renders specular (upstream's useSpecular includes clearCoat > 0)");
-        check(near(coated.packedUniforms().clearCoatMapChannels[0], 1.0f) &&
-                near(coated.packedUniforms().clearCoatMapChannels[1], 1.0f),
+        check(nearStrict(coated.packedUniforms().clearCoatMapChannels[0], 1.0f, kTolerance) &&
+                nearStrict(coated.packedUniforms().clearCoatMapChannels[1], 1.0f, kTolerance),
             "the clearcoat maps read G by default (upstream clearCoatMapChannel / clearCoatGlossMapChannel)");
         coated.setClearCoatMapChannel(MapChannel::MAP_CHANNEL_R);
         coated.setClearCoatGlossMapChannel(MapChannel::MAP_CHANNEL_A);
-        check(near(coated.packedUniforms().clearCoatMapChannels[0], 0.0f) &&
-                near(coated.packedUniforms().clearCoatMapChannels[1], 3.0f),
+        check(nearStrict(coated.packedUniforms().clearCoatMapChannels[0], 0.0f, kTolerance) &&
+                nearStrict(coated.packedUniforms().clearCoatMapChannels[1], 3.0f, kTolerance),
             "a clearcoat map channel set on the material reaches the packed block");
 
         const auto specGlossTexture = makeTexture(&device);
@@ -138,7 +116,7 @@ int main()
         StandardMaterial inverted;
         inverted.setGlossInvert(true);
         inverted.setGloss(0.2f);
-        check(near(inverted.packedUniforms().specGlossParams[3], 0.8f),
+        check(nearStrict(inverted.packedUniforms().specGlossParams[3], 0.8f, kTolerance),
             "glossInvert applies to the specular workflow's gloss too");
     }
 
@@ -156,10 +134,10 @@ int main()
         material.setBumpiness(0.4f);
 
         const MaterialUniforms& u = material.packedUniforms();
-        check(near(u.baseColor[3], 0.25f), "setOpacity applies with a base-colour texture bound");
-        check(near(u.metallicFactor, 0.6f), "setMetalness applies with a base-colour texture bound");
-        check(near(u.roughnessFactor, 0.1f), "setGloss applies with a base-colour texture bound");
-        check(near(u.normalScale, 0.4f), "setBumpiness applies with a base-colour texture bound");
+        check(nearStrict(u.baseColor[3], 0.25f, kTolerance), "setOpacity applies with a base-colour texture bound");
+        check(nearStrict(u.metallicFactor, 0.6f, kTolerance), "setMetalness applies with a base-colour texture bound");
+        check(nearStrict(u.roughnessFactor, 0.1f, kTolerance), "setGloss applies with a base-colour texture bound");
+        check(nearStrict(u.normalScale, 0.4f, kTolerance), "setBumpiness applies with a base-colour texture bound");
     }
 
     // The ambient tint: white by default, so every
@@ -172,8 +150,9 @@ int main()
             "the ambient tint defaults to exactly white");
         material.setAmbient(Color(0.5f, 0.25f, 1.0f, 1.0f));
         const MaterialUniforms& t = material.packedUniforms();
-        check(near(t.ambientTint[0], std::pow(0.5f, 2.2f)) && near(t.ambientTint[1], std::pow(0.25f, 2.2f)) &&
-              near(t.ambientTint[2], 1.0f), "setAmbient packs the colour linearised");
+        check(nearStrict(t.ambientTint[0], std::pow(0.5f, 2.2f), kTolerance) &&
+              nearStrict(t.ambientTint[1], std::pow(0.25f, 2.2f), kTolerance) &&
+              nearStrict(t.ambientTint[2], 1.0f, kTolerance), "setAmbient packs the colour linearised");
     }
 
     // useSkybox and the opacity map: the flag bits the shaders gate on, and slot 34.
@@ -231,10 +210,5 @@ int main()
         check(slotTexture(slots) == assigned.get(), "no instance lightmap leaves the material's in place");
     }
 
-    if (failures != 0) {
-        std::printf("standard material workflow: %d check(s) FAILED\n", failures);
-        return 1;
-    }
-    std::printf("standard material workflow: all checks passed\n");
-    return 0;
+    return finish("standard material workflow");
 }

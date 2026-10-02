@@ -16,25 +16,14 @@
 #include "core/math/quaternion.h"
 #include "core/math/vector3.h"
 #include "scene/renderer/sortDistance.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-4f)
-    {
-        return std::fabs(a - b) <= eps;
-    }
+    constexpr float kTolerance = 1e-4f;
 }
 
 int main()
@@ -44,7 +33,8 @@ int main()
     // A camera at the origin looking down -Z.
     const Vector3 camPos(0.0f, 0.0f, 0.0f);
     const Vector3 camFwd = cameraForwardOf(Matrix4::identity());
-    check(near(camFwd.getX(), 0.0f) && near(camFwd.getY(), 0.0f) && near(camFwd.getZ(), -1.0f),
+    check(near(camFwd.getX(), 0.0f, kTolerance) && near(camFwd.getY(), 0.0f, kTolerance) &&
+          near(camFwd.getZ(), -1.0f, kTolerance),
         "identity camera looks down -Z");
 
     // Two surfaces at the same view depth, one centred and one far off axis.
@@ -52,8 +42,8 @@ int main()
     const Vector3 offAxis(8.0f, 0.0f, -10.0f);
     const float dCentred = forwardSortDistance(centred, camPos, camFwd);
     const float dOffAxis = forwardSortDistance(offAxis, camPos, camFwd);
-    check(near(dCentred, 10.0f), "centred surface reads its view depth");
-    check(near(dOffAxis, 10.0f), "off-axis surface at the same depth reads the SAME distance");
+    check(near(dCentred, 10.0f, kTolerance), "centred surface reads its view depth");
+    check(near(dOffAxis, 10.0f, kTolerance), "off-axis surface at the same depth reads the SAME distance");
     check((offAxis - camPos).lengthSquared() > (centred - camPos).lengthSquared(),
         "(the radial form ranked the off-axis one farther — the bug this replaces)");
 
@@ -72,20 +62,16 @@ int main()
     const Matrix4 cameraWorld = Matrix4::trs(Vector3(3.0f, 1.0f, -2.0f),
         Quaternion::fromEulerAngles(0.0f, 90.0f, 0.0f), Vector3(1.0f));
     const Vector3 fwd = cameraForwardOf(cameraWorld);
-    check(near(fwd.getX(), -1.0f) && near(fwd.getY(), 0.0f) && near(fwd.getZ(), 0.0f, 1e-3f),
+    check(near(fwd.getX(), -1.0f, kTolerance) && near(fwd.getY(), 0.0f, kTolerance) && near(fwd.getZ(), 0.0f, 1e-3f),
         "a camera yawed 90 degrees looks down -X");
-    check(near(fwd.length(), 1.0f), "forward vector is unit length");
-    check(near(forwardSortDistance(Vector3(-4.0f, 1.0f, -2.0f), Vector3(3.0f, 1.0f, -2.0f), fwd), 7.0f),
+    check(near(fwd.length(), 1.0f, kTolerance), "forward vector is unit length");
+    check(near(forwardSortDistance(Vector3(-4.0f, 1.0f, -2.0f), Vector3(3.0f, 1.0f, -2.0f), fwd), 7.0f, kTolerance),
         "depth is measured from the camera position along that forward");
 
     // A scaled camera node must not scale the distance.
     const Matrix4 scaledCamera = Matrix4::trs(Vector3(0.0f), Quaternion(), Vector3(4.0f));
-    check(near(cameraForwardOf(scaledCamera).length(), 1.0f), "a scaled camera node still yields a unit forward");
+    check(near(cameraForwardOf(scaledCamera).length(), 1.0f, kTolerance),
+        "a scaled camera node still yields a unit forward");
 
-    if (failures == 0) {
-        std::cout << "sort distance: all checks passed\n";
-        return 0;
-    }
-    std::cout << "sort distance: " << failures << " check(s) FAILED\n";
-    return 1;
+    return finish("sort distance");
 }

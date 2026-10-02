@@ -26,28 +26,24 @@
 #include "scene/frustumUtils.h"
 #include "scene/graphNode.h"
 #include "scene/light.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what);
-            ++failures;
-        }
-    }
-
     void checkClose(const float actual, const float expected, const char* what,
         const float tolerance = 1e-4f)
     {
-        if (std::fabs(actual - expected) > tolerance) {
-            std::printf("FAIL: %s — expected %.6f, got %.6f\n", what, expected, actual);
-            ++failures;
+        const bool ok = !(std::fabs(actual - expected) > tolerance);
+        if (ok) {
+            check(true, what);
+            return;
         }
+        char detail[512];
+        std::snprintf(detail, sizeof(detail), "%s — expected %.6f, got %.6f", what, expected, actual);
+        check(false, detail);
     }
 
     constexpr float kDegToRad = std::numbers::pi_v<float> / 180.0f;
@@ -105,9 +101,10 @@ namespace
         for (const auto& point : conePoints(apex, axis, range, outerConeAngle)) {
             const float distance = (point - bounds.center()).length();
             if (distance > bounds.radius() + 1e-3f) {
-                std::printf("FAIL: %s — a lit point is %.4f from the centre, "
-                            "outside a radius of %.4f\n", what, distance, bounds.radius());
-                ++failures;
+                char detail[512];
+                std::snprintf(detail, sizeof(detail), "%s — a lit point is %.4f from the centre, "
+                              "outside a radius of %.4f", what, distance, bounds.radius());
+                fail(detail);
                 return;
             }
         }
@@ -116,6 +113,7 @@ namespace
 
 int main()
 {
+    quietPasses();
     // ── An omni light is bounded by its range ────────────────────────────────
     {
         const TestLight omni(LightType::LIGHTTYPE_OMNI,
@@ -241,8 +239,5 @@ int main()
             "a light behind the camera whose RANGE reaches into view survives");
     }
 
-    if (failures == 0) {
-        std::printf("light culling: all checks passed\n");
-    }
-    return failures == 0 ? 0 : 1;
+    return finish("light culling");
 }

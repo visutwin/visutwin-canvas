@@ -16,12 +16,14 @@
 #include "scene/graphNode.h"
 #include "framework/components/component.h"
 #include "framework/entity.h"
+#include "support/check.h"
 
 using visutwin::canvas::Component;
 using visutwin::canvas::componentTypeID;
 using visutwin::canvas::Entity;
 using visutwin::canvas::GraphNode;
 using visutwin::canvas::Vector3;
+using visutwin::canvas::test::near;
 
 namespace
 {
@@ -39,10 +41,7 @@ namespace
         void initializeComponentData() override {}
     };
 
-    bool near(const float lhs, const float rhs)
-    {
-        return std::abs(lhs - rhs) <= 1e-5f;
-    }
+    constexpr float kTolerance = 1e-5f;
 
     bool expect(const bool condition, const std::string_view message)
     {
@@ -66,9 +65,9 @@ namespace
     {
         const auto actual = (node->rotation() * Vector3(1.0f, 0.0f, 0.0f)).normalized();
         return expect(
-            near(actual.getX(), expected.getX()) &&
-            near(actual.getY(), expected.getY()) &&
-            near(actual.getZ(), expected.getZ()),
+            near(actual.getX(), expected.getX(), kTolerance) &&
+            near(actual.getY(), expected.getY(), kTolerance) &&
+            near(actual.getZ(), expected.getZ(), kTolerance),
             message);
     }
 
@@ -76,9 +75,9 @@ namespace
     {
         const auto actual = worldAxisX(node);
         return expect(
-            near(actual.getX(), expected.getX()) &&
-            near(actual.getY(), expected.getY()) &&
-            near(actual.getZ(), expected.getZ()),
+            near(actual.getX(), expected.getX(), kTolerance) &&
+            near(actual.getY(), expected.getY(), kTolerance) &&
+            near(actual.getZ(), expected.getZ(), kTolerance),
             message);
     }
 
@@ -86,9 +85,9 @@ namespace
     {
         const auto actual = node->position();
         return expect(
-            near(actual.getX(), expected.getX()) &&
-            near(actual.getY(), expected.getY()) &&
-            near(actual.getZ(), expected.getZ()),
+            near(actual.getX(), expected.getX(), kTolerance) &&
+            near(actual.getY(), expected.getY(), kTolerance) &&
+            near(actual.getZ(), expected.getZ(), kTolerance),
             message);
     }
 

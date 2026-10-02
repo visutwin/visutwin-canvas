@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "../uiAtlas.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
@@ -42,18 +43,6 @@ namespace
     const Color PANEL(0.16f, 0.18f, 0.23f, 1.0f);
     const Color LIGHT(0.95f, 0.96f, 0.98f, 1.0f);
 
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
-
-    Texture* textureOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<Texture*>(*res) ? std::get<Texture*>(*res) : nullptr;
-    }
-
     struct Level
     {
         const char* name;
@@ -68,24 +57,6 @@ namespace
         {"Dune Sea", "ui/level-desert.png", Vector2(0.7f, 0.5f), Vector2(0.7f, 0.68f)},
         {"Frost Peak", "ui/level-peak.png", Vector2(0.5f, 0.5f), Vector2(0.34f, 0.68f)},
     }};
-
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        std::shared_ptr<Sprite> sprite;
-        Texture* texture = nullptr;
-        ElementFitMode fitMode = ElementFitMode::Stretch;
-        Color color = LIGHT;
-        Vector4 anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-        Vector2 pivot = Vector2(0.5f, 0.5f);
-        std::optional<Vector4> margin;
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        bool mask = false;
-        std::string text;
-        std::optional<int> fontSize;
-    };
 }
 
 class ImageFitExample final: public ExampleApp
@@ -97,11 +68,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options, {.button = true});
     }
 
     bool create() override
@@ -110,12 +77,12 @@ protected:
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
         _mapTexture = std::make_unique<Asset>("map", AssetType::TEXTURE, assetPath("ui/world-map.png"));
-        _bold = fontOf(*_boldAsset);
-        Texture* atlasTexture = textureOf(*_uiAtlasTexture);
-        Texture* mapTexture = textureOf(*_mapTexture);
+        _bold = _boldAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
+        Texture* mapTexture = _mapTexture->resourceAs<Texture>();
         for (const Level& level : LEVELS) {
             _artAssets.push_back(std::make_unique<Asset>(level.name, AssetType::TEXTURE, assetPath(level.file)));
-            _art.push_back(textureOf(*_artAssets.back()));
+            _art.push_back(_artAssets.back()->resourceAs<Texture>());
         }
         if (!_bold || !atlasTexture || !mapTexture || std::find(_art.begin(), _art.end(), nullptr) != _art.end()) {
             spdlog::error("Failed to load the Roboto font or the ui textures");
@@ -125,14 +92,8 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         auto atlas = createUiAtlas(atlasTexture);
         auto panel = std::make_shared<Sprite>(atlas, std::vector<std::string>{"panel"}, 2.0f, SpriteRenderMode::Sliced);
@@ -188,34 +149,12 @@ protected:
     void update(float /*dt*/) override { layout(); }
 
 private:
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = props.pivot, .margin = props.margin};
-        desc.width = props.width;
-        desc.height = props.height;
-        desc.useInput = props.useInput;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-        }
-        if (props.texture) {
-            element->setTexture(props.texture);
-        }
-        element->setFitMode(props.fitMode);
-        element->setColor(props.color);
-        element->setMask(props.mask);
-        if (props.type == ElementType::Text) {
-            element->setFontResource(_bold);
-            if (props.fontSize) {
-                element->setFontSize(*props.fontSize);
-            }
-            element->setText(props.text);
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props, {.type = ElementType::Image,
+            .color = LIGHT, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f), .pivot = Vector2(0.5f, 0.5f),
+            .font = _bold});
     }
 
     // Choosing a level shows its art and name, and moves the map to the level and the ring to its
@@ -257,7 +196,6 @@ private:
         choose(_chosen);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _boldAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;
     std::unique_ptr<Asset> _mapTexture;

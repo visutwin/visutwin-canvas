@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
 #include "framework/assets/asset.h"
@@ -55,22 +56,6 @@ namespace
     const Vector4 CENTRE_ANCHOR(0.5f, 0.5f, 0.5f, 0.5f);
     const Vector2 CENTRE_PIVOT(0.5f, 0.5f);
 
-    /// The element properties that this example sets.
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        std::shared_ptr<Sprite> sprite;
-        int spriteFrame = 0;
-        Color color = LIGHT;
-        Vector4 anchor = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
-        Vector2 pivot = Vector2(0.0f, 0.0f);
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        std::string text;
-        int fontSize = 32;
-    };
-
     /// A toggle's label and what it applies.
     struct Choice
     {
@@ -88,11 +73,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options, {.button = true});
     }
 
     bool create() override
@@ -100,13 +81,8 @@ protected:
         _fontAsset = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        if (const auto res = _fontAsset->resource(); res && std::holds_alternative<FontResource*>(*res)) {
-            _font = std::get<FontResource*>(*res);
-        }
-        Texture* atlasTexture = nullptr;
-        if (const auto res = _uiAtlasTexture->resource(); res && std::holds_alternative<Texture*>(*res)) {
-            atlasTexture = std::get<Texture*>(*res);
-        }
+        _font = _fontAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!_font || !atlasTexture) {
             spdlog::error("Failed to load fonts/roboto-bold.json or ui/ui-atlas.png");
             return false;
@@ -136,14 +112,8 @@ protected:
         auto icons = std::make_shared<Sprite>(atlas, std::vector<std::string>{"circle", "knob"});
 
         // The HUD's screen, designed at 1280 x 720, and the reference area, centered on it
-        auto* hudEntity = new Entity();
-        hudEntity->setEngine(engine());
-        _hud = static_cast<ScreenComponent*>(hudEntity->addComponent<ScreenComponent>());
-        _hud->setScreenSpace(true);
-        _hud->setScaleMode(ScreenScaleMode::Blend);
-        _hud->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _hud->setScaleBlend(0.5f);
-        root()->addChild(hudEntity);
+        _hud = createScreen();
+        Entity* hudEntity = _hud->entity();
         ElementComponent* reference = createElement(hudEntity, {.sprite = outline, .color = MUTED,
             .anchor = CENTRE_ANCHOR, .pivot = CENTRE_PIVOT, .width = 1280.0f, .height = 720.0f});
         createElement(reference->entity(), {.type = ElementType::Text, .color = MUTED,
@@ -176,14 +146,8 @@ protected:
 
         // The controls are on a second screen, drawn over the HUD's with a higher priority and
         // always scaled with Blend, so they stay usable whatever the HUD's screen does
-        auto* controlsEntity = new Entity();
-        controlsEntity->setEngine(engine());
-        _controls = static_cast<ScreenComponent*>(controlsEntity->addComponent<ScreenComponent>());
-        _controls->setScreenSpace(true);
-        _controls->setScaleMode(ScreenScaleMode::Blend);
-        _controls->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _controls->setPriority(10);
-        root()->addChild(controlsEntity);
+        _controls = createScreen({.priority = 10});
+        Entity* controlsEntity = _controls->entity();
         _readout = createElement(controlsEntity, {.type = ElementType::Text, .anchor = CENTRE_ANCHOR,
             .pivot = CENTRE_PIVOT, .fontSize = 24});
 
@@ -216,27 +180,12 @@ protected:
     }
 
 private:
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = props.pivot, .useInput = props.useInput};
-        desc.width = props.width;
-        desc.height = props.height;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-            element->setSpriteFrame(props.spriteFrame);
-        }
-        element->setColor(props.color);
-        if (props.type == ElementType::Text) {
-            element->setFontResource(_font);
-            element->setFontSize(props.fontSize);
-            element->setText(props.text);
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props, {.type = ElementType::Image,
+            .color = LIGHT, .anchor = Vector4(0.0f, 0.0f, 0.0f, 0.0f), .pivot = Vector2(0.0f, 0.0f),
+            .font = _font});
     }
 
     /// A button that shows a setting, and moves it on to its next value when pressed.
@@ -306,7 +255,6 @@ private:
         showReadout();
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;
     FontResource* _font = nullptr;

@@ -65,11 +65,9 @@ protected:
     {
         options.registerComponentSystem<CollisionComponentSystem>();
         options.registerComponentSystem<RigidBodyComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
+        registerUi(options, {.screen = false});
         options.physicsWorld = createJoltPhysicsWorld();
 
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
     }
 
     bool create() override
@@ -211,11 +209,7 @@ private:
         constexpr float kFontSizeWorld = 0.5f;
         const float scale = kFontSizeWorld / static_cast<float>(kFontSize);
 
-        FontResource* fontResource = nullptr;
-        if (const auto res = _font->resource();
-            res.has_value() && std::holds_alternative<FontResource*>(*res)) {
-            fontResource = std::get<FontResource*>(*res);
-        }
+        FontResource* fontResource = _font->resourceAs<FontResource>();
         if (!fontResource) {
             spdlog::warn("roboto-regular.json failed to load; the labels will be missing");
             return;
@@ -244,7 +238,6 @@ private:
         root()->addChild(text);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _font;
 
     std::shared_ptr<StandardMaterial> _red;

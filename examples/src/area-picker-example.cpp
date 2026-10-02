@@ -135,12 +135,12 @@ protected:
                 .mipmaps = false
             }
         );
-        const auto helipadResource = _helipad->resource();
-        if (!helipadResource) {
+        Texture* helipadTexture = _helipad->resourceAs<Texture>();
+        if (!helipadTexture) {
             spdlog::error("Failed to load helipad texture");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
+        scene()->setEnvAtlas(helipadTexture);
 
         _cameraEntity = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         _cameraComponent = _cameraEntity->findComponent<CameraComponent>();

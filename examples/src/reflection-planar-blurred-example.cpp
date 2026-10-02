@@ -77,12 +77,12 @@ protected:
         _sunglassesAsset = std::make_unique<Asset>(
             "sunglasses", AssetType::CONTAINER, assetPath("models/SunglassesKhronos.glb"));
 
-        const auto envAtlasResource = _envAtlas->resource();
-        if (!envAtlasResource) {
+        Texture* envAtlasTexture = _envAtlas->resourceAs<Texture>();
+        if (!envAtlasTexture) {
             spdlog::error("Failed to load environment atlas texture");
             return false;
         }
-        scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
+        scene()->setEnvAtlas(envAtlasTexture);
 
         // Layer order:
         //   World(opaque) -> Excluded(opaque) -> Depth -> World(transp) -> Excluded(transp)
@@ -99,12 +99,12 @@ protected:
         // The hero model, at its authored real-world scale — neither scaled
         // nor moved, and the whole shot is a sub-metre close-up because of that.
         // -----------------------------------------------------------------------
-        const auto sunglassesResource = _sunglassesAsset->resource();
-        if (!sunglassesResource) {
+        ContainerResource* sunglassesContainer = _sunglassesAsset->resourceAs<ContainerResource>();
+        if (!sunglassesContainer) {
             spdlog::error("Failed to load models/SunglassesKhronos.glb");
             return false;
         }
-        auto* sunglasses = std::get<ContainerResource*>(*sunglassesResource)->instantiateRenderEntity();
+        auto* sunglasses = sunglassesContainer->instantiateRenderEntity();
         sunglasses->setEngine(engine());
         root()->addChild(sunglasses);
 

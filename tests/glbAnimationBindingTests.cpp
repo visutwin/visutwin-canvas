@@ -22,7 +22,6 @@
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 #include <tiny_gltf.h>
 
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -38,46 +37,15 @@
 #include "framework/entity.h"
 #include "framework/parsers/glbContainerResource.h"
 #include "framework/parsers/glbParser.h"
-#include "platform/graphics/graphicsDevice.h"
+#include "support/check.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        if (!condition) {
-            ++failures;
-            std::cerr << "FAIL: " << what << '\n';
-        }
-    }
-
-    bool near(const Vector3& a, const float x, const float y, const float z)
-    {
-        return std::fabs(a.getX() - x) < 1e-4f && std::fabs(a.getY() - y) < 1e-4f &&
-            std::fabs(a.getZ() - z) < 1e-4f;
-    }
-
-    /// Creates nothing; the model has no meshes or images, so nothing asks it to.
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>&, int,
-            const VertexBufferOptions&) override { return nullptr; }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat, int, const std::vector<uint8_t>&) override
-        {
-            return nullptr;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
+    constexpr float kTolerance = 1e-4f;
 
     // Node indices of the test hierarchy:
     //   0 "Root"
@@ -219,20 +187,24 @@ namespace
         evaluator.addClip(std::make_shared<AnimClip>(track, 0.0f, 1.0f, true, true));
         evaluator.update(0.25f);
 
-        check(instance.unnamed && near(instance.unnamed->localPosition(), 1.0f, 0.0f, 0.0f),
+        check(instance.unnamed && nearStrict(instance.unnamed->localPosition(), 1.0f, 0.0f, 0.0f, kTolerance),
             label + ": the unnamed node is animated");
-        check(instance.wheelUnderUnnamed && near(instance.wheelUnderUnnamed->localPosition(), 0.0f, 2.0f, 0.0f),
+        check(instance.wheelUnderUnnamed &&
+              nearStrict(instance.wheelUnderUnnamed->localPosition(), 0.0f, 2.0f, 0.0f, kTolerance),
             label + ": the Wheel under the unnamed node takes ITS channel");
-        check(instance.wheelUnderArm && near(instance.wheelUnderArm->localPosition(), 0.0f, 0.0f, 3.0f),
+        check(instance.wheelUnderArm &&
+              nearStrict(instance.wheelUnderArm->localPosition(), 0.0f, 0.0f, 3.0f, kTolerance),
             label + ": the Wheel under Arm takes ITS channel");
-        check(instance.arm && near(instance.arm->localPosition(), 0.0f, 0.0f, 0.0f),
+        check(instance.arm && nearStrict(instance.arm->localPosition(), 0.0f, 0.0f, 0.0f, kTolerance),
             label + ": a node with no channel is left alone");
     }
 }
 
 int main()
 {
-    auto device = std::make_shared<StubDevice>();
+    quietPasses();
+    // Creates nothing; the model has no meshes or images, so nothing asks it to.
+    auto device = std::make_shared<StubGraphicsDevice>();
 
     // ── Parser: every channel survives, as a path ─────────────────────────
     tinygltf::Model model = buildModel();
@@ -292,10 +264,5 @@ int main()
         }
     }
 
-    if (failures == 0) {
-        std::cout << "glb-animation-binding: all checks passed\n";
-        return 0;
-    }
-    std::cerr << failures << " check(s) failed\n";
-    return 1;
+    return finish("glb-animation-binding");
 }

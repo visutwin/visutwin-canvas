@@ -16,85 +16,43 @@
 //
 // CPU only: the stub device creates no GPU objects; the textures record their format.
 
-#include <tiny_gltf.h>
-
-#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <memory>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "framework/assets/asset.h"
 #include "framework/handlers/resourceLoader.h"
 #include "framework/parsers/glbContainerResource.h"
-#include "framework/parsers/glbParser.h"
 #include "framework/parsers/texture/ktx2Transcoder.h"
-#include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/texture.h"
-#include "platform/graphics/vertexBuffer.h"
 #include "scene/materials/material.h"
+#include "support/check.h"
+#include "support/gltfModel.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    class CpuVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        void unlock() override {}
-    };
-
-    class CpuIndexBuffer final : public IndexBuffer
-    {
-    public:
-        using IndexBuffer::IndexBuffer;
-        bool setData(const std::vector<uint8_t>&) override { return true; }
-    };
-
     /// Supports exactly the compressed formats it is given, and every uncompressed one.
-    class FormatDevice final : public GraphicsDevice
+    class FormatDevice final : public StubGraphicsDevice
     {
     public:
-        explicit FormatDevice(std::set<PixelFormat> compressed) : _compressed(std::move(compressed)) {}
+        explicit FormatDevice(std::set<PixelFormat> compressed)
+            : StubGraphicsDevice(Options{.cpuBuffers = true}), _compressed(std::move(compressed))
+        {
+        }
+
         bool supportsCompressedFormat(const PixelFormat format) const override
         {
             return !isCompressedPixelFormat(format) || _compressed.count(format) != 0;
         }
-
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
-            const int numVertices, const VertexBufferOptions& options) override
-        {
-            return std::make_shared<CpuVertexBuffer>(this, format, numVertices, options);
-        }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(const IndexFormat format, const int numIndices,
-            const std::vector<uint8_t>& data) override
-        {
-            auto buffer = std::make_shared<CpuIndexBuffer>(this, format, numIndices);
-            buffer->setData(data);
-            return buffer;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
 
     private:
         std::set<PixelFormat> _compressed;
@@ -120,29 +78,7 @@ namespace
         return static_cast<size_t>((w + 3) / 4) * ((h + 3) / 4) * 16;
     }
 
-    int addAccessor(tinygltf::Model& model, std::vector<unsigned char>& bytes, const std::vector<float>& values,
-        const int count, const int type)
-    {
-        const size_t at = bytes.size();
-        bytes.resize(at + values.size() * sizeof(float));
-        std::memcpy(bytes.data() + at, values.data(), values.size() * sizeof(float));
-        tinygltf::BufferView view;
-        view.buffer = 0;
-        view.byteOffset = at;
-        view.byteLength = values.size() * sizeof(float);
-        model.bufferViews.push_back(view);
-        tinygltf::Accessor accessor;
-        accessor.bufferView = static_cast<int>(model.bufferViews.size()) - 1;
-        accessor.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-        accessor.count = static_cast<size_t>(count);
-        accessor.type = type;
-        if (type == TINYGLTF_TYPE_VEC3) {
-            accessor.minValues = {0.0, 0.0, 0.0};
-            accessor.maxValues = {1.0, 1.0, 1.0};
-        }
-        model.accessors.push_back(accessor);
-        return static_cast<int>(model.accessors.size()) - 1;
-    }
+    const Vec3Bounds kVec3Bounds{{0.0, 0.0, 0.0}, {1.0, 1.0, 1.0}};
 
     /// One textured triangle whose base colour image is the KTX2 file, as
     /// KHR_texture_basisu stores it: the raw bytes, never decoded by tinygltf.
@@ -155,9 +91,9 @@ namespace
         primitive.mode = TINYGLTF_MODE_TRIANGLES;
         primitive.material = 0;
         primitive.attributes["POSITION"] = addAccessor(model, buffer.data,
-            {0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f}, 3, TINYGLTF_TYPE_VEC3);
+            {0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f}, 3, TINYGLTF_TYPE_VEC3, kVec3Bounds);
         primitive.attributes["NORMAL"] = addAccessor(model, buffer.data,
-            {0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC3);
+            {0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC3, kVec3Bounds);
         primitive.attributes["TEXCOORD_0"] = addAccessor(model, buffer.data,
             {0.0f, 0.0f,  1.0f, 0.0f,  0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC2);
         model.buffers.push_back(buffer);
@@ -281,24 +217,17 @@ int main()
         }
 
         // 3. and 4. KHR_texture_basisu, through the synchronous and the prepared glTF paths.
-        {
-            tinygltf::Model model = basisuModel(ktx2);
-            const auto container = GlbParser::createFromModel(model, device, "ktx2TargetTests");
-            bool found = false;
-            const PixelFormat format = containerBaseColourFormat(container.get(), found);
-            check(found && format == target, "a KHR_texture_basisu image (createFromModel) is " + label);
-        }
-        {
-            tinygltf::Model model = basisuModel(ktx2);
-            auto prepared = GlbParser::prepareFromModel(model, device->preferredCompressedRgbaFormat(), "ktx2");
-            const auto container = GlbParser::createFromPrepared(model, std::move(prepared), device, "ktx2");
-            bool found = false;
-            const PixelFormat format = containerBaseColourFormat(container.get(), found);
-            check(found && format == target, "and through prepareFromModel + createFromPrepared");
-        }
+        forEachLoadPath([&ktx2] { return basisuModel(ktx2); }, device, "ktx2TargetTests",
+            [&](const GlbContainerResource* container, const LoadPath path) {
+                bool found = false;
+                const PixelFormat format = containerBaseColourFormat(container, found);
+                check(found && format == target, path == LoadPath::CreateFromModel
+                        ? "a KHR_texture_basisu image (createFromModel) is " + label
+                        : std::string("and through prepareFromModel + createFromPrepared"));
+            },
+            device->preferredCompressedRgbaFormat());
         Asset::setDefaultGraphicsDevice(nullptr);
     }
 
-    std::cout << (failures == 0 ? "\nAll KTX2 target tests passed\n" : "\nKTX2 target tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("KTX2 target");
 }

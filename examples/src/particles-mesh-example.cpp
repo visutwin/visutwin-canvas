@@ -53,13 +53,11 @@ protected:
         _helipad = std::make_unique<Asset>("helipad-env-atlas", AssetType::TEXTURE,
             assetPath("cubemaps/helipad-env-atlas.png"),
             AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false});
-        if (const auto resource = _helipad->resource(); resource && std::holds_alternative<Texture*>(*resource)) {
-            scene()->setEnvAtlas(std::get<Texture*>(*resource));
+        if (Texture* helipadTexture = _helipad->resourceAs<Texture>()) {
+            scene()->setEnvAtlas(helipadTexture);
         }
         _clouds = std::make_unique<Asset>("color", AssetType::TEXTURE, assetPath("textures/clouds.jpg"));
-        if (const auto resource = _clouds->resource(); resource && std::holds_alternative<Texture*>(*resource)) {
-            _cloudsTexture = std::get<Texture*>(*resource);
-        }
+        _cloudsTexture = _clouds->resourceAs<Texture>();
 
         // Camera orbiting (0, 5, 0) from (0, 4, 20).
         auto* camera = createCamera(Vector3(0.0f, 4.0f, 20.0f));

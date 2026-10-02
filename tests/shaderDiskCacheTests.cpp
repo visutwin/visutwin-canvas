@@ -19,21 +19,13 @@
 #include <vector>
 
 #include "platform/graphics/shaderDiskCache.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     std::vector<std::filesystem::path> filesIn(const std::filesystem::path& directory)
     {
         std::vector<std::filesystem::path> files;
@@ -171,6 +163,5 @@ int main()
     }
 
     std::filesystem::remove_all(directory);
-    std::cout << (failures == 0 ? "\nAll shader disk cache tests passed\n" : "\nShader disk cache tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("shader disk cache");
 }

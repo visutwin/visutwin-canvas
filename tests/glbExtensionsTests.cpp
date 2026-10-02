@@ -17,8 +17,6 @@
 //  - KHR_gaussian_splatting: splat primitives become a GSplatComponent, with the
 //    activated values packed as the PLY loader packs its own.
 
-#include <tiny_gltf.h>
-
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -30,86 +28,18 @@
 #include "framework/components/render/renderComponent.h"
 #include "framework/entity.h"
 #include "framework/parsers/glbContainerResource.h"
-#include "framework/parsers/glbParser.h"
-#include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/indexBuffer.h"
-#include "platform/graphics/vertexBuffer.h"
 #include "scene/gsplat/gsplatResource.h"
 #include "scene/materials/standardMaterial.h"
+#include "support/check.h"
+#include "support/gltfModel.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
-    bool near(const float a, const float b, const float eps = 1e-4f) { return std::fabs(a - b) < eps; }
-
-    class CpuVertexBuffer final : public VertexBuffer
-    {
-    public:
-        using VertexBuffer::VertexBuffer;
-        void unlock() override {}
-    };
-
-    class CpuIndexBuffer final : public IndexBuffer
-    {
-    public:
-        using IndexBuffer::IndexBuffer;
-        bool setData(const std::vector<uint8_t>&) override { return true; }
-    };
-
-    class StubDevice final : public GraphicsDevice
-    {
-    public:
-        void draw(const Primitive&, const std::shared_ptr<IndexBuffer>&, int, int, bool, bool) override {}
-        void startRenderPass(RenderPass*) override {}
-        void endRenderPass(RenderPass*) override {}
-        std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture*) override { return nullptr; }
-        std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
-            const int numVertices, const VertexBufferOptions& options) override
-        {
-            return std::make_shared<CpuVertexBuffer>(this, format, numVertices, options);
-        }
-        std::shared_ptr<IndexBuffer> createIndexBuffer(const IndexFormat format, const int numIndices,
-            const std::vector<uint8_t>& data) override
-        {
-            auto buffer = std::make_shared<CpuIndexBuffer>(this, format, numIndices);
-            buffer->setData(data);
-            return buffer;
-        }
-        void setResolution(int, int) override {}
-        std::pair<int, int> size() const override { return {0, 0}; }
-        std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions&) override { return nullptr; }
-    };
-
-    int addAccessor(tinygltf::Model& model, std::vector<unsigned char>& bytes, const std::vector<float>& values,
-        const int count, const int type)
-    {
-        const size_t at = bytes.size();
-        bytes.resize(at + values.size() * sizeof(float));
-        std::memcpy(bytes.data() + at, values.data(), values.size() * sizeof(float));
-        tinygltf::BufferView view;
-        view.buffer = 0;
-        view.byteOffset = at;
-        view.byteLength = values.size() * sizeof(float);
-        model.bufferViews.push_back(view);
-        tinygltf::Accessor accessor;
-        accessor.bufferView = static_cast<int>(model.bufferViews.size()) - 1;
-        accessor.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-        accessor.count = static_cast<size_t>(count);
-        accessor.type = type;
-        model.accessors.push_back(accessor);
-        return static_cast<int>(model.accessors.size()) - 1;
-    }
+    constexpr float kTolerance = 1e-4f;
 
     using Value = tinygltf::Value;
 
@@ -241,20 +171,27 @@ namespace
         check(material != nullptr, "a StandardMaterial");
         if (material) {
             const Color& sheen = material->sheenColor();
-            check(near(sheen.r, std::pow(0.5f, 1.0f / 2.2f)) && near(sheen.b, 1.0f) &&
-                  near(material->sheenRoughness(), 0.3f), "sheen: colour stored gamma-encoded, roughness");
-            check(material->useMetalnessSpecularColor() && near(material->specularityFactor(), 0.5f),
+            check(nearStrict(sheen.r, std::pow(0.5f, 1.0f / 2.2f), kTolerance) &&
+                  nearStrict(sheen.b, 1.0f, kTolerance) &&
+                  nearStrict(material->sheenRoughness(), 0.3f, kTolerance),
+                "sheen: colour stored gamma-encoded, roughness");
+            check(material->useMetalnessSpecularColor() && nearStrict(material->specularityFactor(), 0.5f, kTolerance),
                 "specular: metalness specular colour on, factor");
-            check(near(material->iridescenceIntensity(), 0.8f) && near(material->iridescenceIOR(), 1.4f) &&
-                  near(material->iridescenceThicknessMax(), 500.0f), "iridescence: factor, IOR, maximum thickness");
-            check(near(material->anisotropy(), 0.6f) && near(material->anisotropyRotation(), 30.0f),
+            check(nearStrict(material->iridescenceIntensity(), 0.8f, kTolerance) &&
+                  nearStrict(material->iridescenceIOR(), 1.4f, kTolerance) &&
+                  nearStrict(material->iridescenceThicknessMax(), 500.0f, kTolerance),
+                "iridescence: factor, IOR, maximum thickness");
+            check(nearStrict(material->anisotropy(), 0.6f, kTolerance) &&
+                  nearStrict(material->anisotropyRotation(), 30.0f, kTolerance),
                 "anisotropy: strength, rotation in degrees");
             const auto& u = material->packedUniforms();
             // f0(1.5) = 0.04, x colour 0.5 (linear, round-tripped through gamma), x factor 0.5.
-            check(near(u.metalnessSpecular[0], 0.04f * 0.5f * 0.5f, 1e-5f) &&
-                  near(u.metalnessSpecular[1], 0.04f * 0.5f, 1e-5f) && near(u.metalnessSpecular[3], 0.5f),
+            check(nearStrict(u.metalnessSpecular[0], 0.04f * 0.5f * 0.5f, 1e-5f) &&
+                  nearStrict(u.metalnessSpecular[1], 0.04f * 0.5f, 1e-5f) &&
+                  nearStrict(u.metalnessSpecular[3], 0.5f, kTolerance),
                 "the non-metal F0 packs f0(IOR) x specular colour x factor");
-            check(near(u.anisotropyParams[0], std::cos(kPi / 6.0f)) && near(u.anisotropyParams[1], std::sin(kPi / 6.0f)),
+            check(nearStrict(u.anisotropyParams[0], std::cos(kPi / 6.0f), kTolerance) &&
+                  nearStrict(u.anisotropyParams[1], std::sin(kPi / 6.0f), kTolerance),
                 "the anisotropy direction packs (cos, sin) of the rotation");
         }
 
@@ -264,19 +201,20 @@ namespace
         if (instancing.vertexBuffer && instancing.vertexBuffer->storage().size() >= 128) {
             float m[32];
             std::memcpy(m, instancing.vertexBuffer->storage().data(), sizeof(m));
-            check(near(m[0], 1.0f) && near(m[13], 0.0f) && near(m[16], 2.0f) && near(m[16 + 13], 5.0f),
+            check(nearStrict(m[0], 1.0f, kTolerance) && nearStrict(m[13], 0.0f, kTolerance) &&
+                  nearStrict(m[16], 2.0f, kTolerance) && nearStrict(m[16 + 13], 5.0f, kTolerance),
                 "the matrices are the instances' TRS, column-major");
         }
         // Triangle bounds (0..1, 0..1); instances add the scaled copy at y 5..7, so
         // the local union is x 0..2, y 0..7 — carried to world through the node.
         BoundingBox box = mi->aabb();
-        check(near(box.center().getX() - box.halfExtents().getX(), 10.0f) &&
-              near(box.center().getX() + box.halfExtents().getX(), 12.0f) &&
-              near(box.center().getY() + box.halfExtents().getY(), 7.0f),
+        check(nearStrict(box.center().getX() - box.halfExtents().getX(), 10.0f, kTolerance) &&
+              nearStrict(box.center().getX() + box.halfExtents().getX(), 12.0f, kTolerance) &&
+              nearStrict(box.center().getY() + box.halfExtents().getY(), 7.0f, kTolerance),
             "the instanced bounds are the instances' union in the node's space");
         inst->setLocalPosition(20.0f, 0.0f, 0.0f);
         box = mi->aabb();
-        check(near(box.center().getX() - box.halfExtents().getX(), 20.0f),
+        check(nearStrict(box.center().getX() - box.halfExtents().getX(), 20.0f, kTolerance),
             "and follow the node when it moves (instances live in its space)");
 
         // ── KHR_materials_variants ──
@@ -300,13 +238,16 @@ namespace
             check(data && data->numSplats() == 2 && data->shBands() == 1, "two splats, one SH band");
             if (data && data->numSplats() == 2) {
                 const auto& s = data->splats()[0];
-                check(near(s.covA[0], 4.0f) && near(s.covB[0], 1.0f) && near(s.covB[2], 9.0f),
+                check(nearStrict(s.covA[0], 4.0f, kTolerance) && nearStrict(s.covB[0], 1.0f, kTolerance) &&
+                      nearStrict(s.covB[2], 9.0f, kTolerance),
                     "linear scale and xyzw rotation: covariance diagonal (4, 1, 9)");
                 check((s.color >> 24) == 128u && (s.color & 0xFFu) == 128u,
                     "post-sigmoid opacity 0.5 and a zero DC coefficient pack to 128");
                 const auto& sh = data->shCoeffs();
-                check(sh.size() == 90 && near(sh[0], 1.0f) && near(sh[1], 10.0f) && near(sh[2], 100.0f) &&
-                      near(sh[3], 2.0f) && near(sh[45], -1.0f), "SH coefficient-major, padded to 15 per splat");
+                check(sh.size() == 90 && nearStrict(sh[0], 1.0f, kTolerance) &&
+                      nearStrict(sh[1], 10.0f, kTolerance) && nearStrict(sh[2], 100.0f, kTolerance) &&
+                      nearStrict(sh[3], 2.0f, kTolerance) &&
+                      nearStrict(sh[45], -1.0f, kTolerance), "SH coefficient-major, padded to 15 per splat");
             }
         }
         check(firstMeshInstance(splatNode) == nullptr ||
@@ -318,7 +259,7 @@ namespace
 int main()
 {
     std::cout << std::unitbuf;
-    const auto device = std::make_shared<StubDevice>();
+    const auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true});
 
     {
         StandardMaterial defaults;
@@ -333,26 +274,20 @@ int main()
             "a negative strength is rotation 90 (the bitangent), exactly, as the old sign test picked");
     }
 
-    {
-        tinygltf::Model model = buildModel();
-        auto container = GlbParser::createFromModel(model, device, "glbExtensionsTests");
-        if (!container) {
-            std::cout << "  FAIL createFromModel\n";
-            return 1;
-        }
-        checkContainer(*container, "\ncreateFromModel");
-    }
-    {
-        tinygltf::Model model = buildModel();
-        auto prepared = GlbParser::prepareFromModel(model, PixelFormat::PIXELFORMAT_RGBA8, "glbExtensionsTests");
-        auto container = GlbParser::createFromPrepared(model, std::move(prepared), device, "glbExtensionsTests");
-        if (!container) {
-            std::cout << "  FAIL createFromPrepared\n";
-            return 1;
-        }
-        checkContainer(*container, "\nprepareFromModel + createFromPrepared (the async path)");
+    const bool loaded = forEachLoadPath([] { return buildModel(); }, device, "glbExtensionsTests",
+        [](GlbContainerResource* container, const LoadPath path) {
+            const bool created = path == LoadPath::CreateFromModel;
+            if (!container) {
+                std::cout << (created ? "  FAIL createFromModel\n" : "  FAIL createFromPrepared\n");
+                return false;
+            }
+            checkContainer(*container,
+                created ? "\ncreateFromModel" : "\nprepareFromModel + createFromPrepared (the async path)");
+            return true;
+        });
+    if (!loaded) {
+        return 1;
     }
 
-    std::cout << (failures == 0 ? "\nAll glTF extension tests passed\n" : "\nglTF extension tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("glTF extensions");
 }

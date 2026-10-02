@@ -24,21 +24,13 @@
 
 #include "framework/parsers/glbParser.h"
 #include "platform/graphics/constants.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     void appendToVector(void* context, void* data, const int size)
     {
         auto* out = static_cast<std::vector<uint8_t>*>(context);
@@ -202,6 +194,5 @@ int main()
             "already-decoded pixels are widened to RGBA and otherwise left as they are");
     }
 
-    std::cout << (failures == 0 ? "\nAll glTF image decode tests passed\n" : "\nglTF image decode tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("glTF image decode");
 }

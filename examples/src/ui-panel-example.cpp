@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../uiElements.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
 #include "framework/assets/asset.h"
@@ -48,34 +49,6 @@ namespace
     const Color MUTED(0.6f, 0.64f, 0.72f, 1.0f);
     const Color SLATE(0.26f, 0.29f, 0.36f, 1.0f);
 
-    FontResource* fontOf(Asset& asset)
-    {
-        const auto res = asset.resource();
-        return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
-    }
-
-    /// The element properties this example sets; centred on the parent unless
-    /// they say otherwise.
-    struct ElementProps
-    {
-        ElementType type = ElementType::Image;
-        std::shared_ptr<Sprite> sprite;
-        Color color = LIGHT;
-        Vector4 anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-        Vector2 pivot = Vector2(0.5f, 0.5f);
-        std::optional<float> width;
-        std::optional<float> height;
-        bool useInput = false;
-        FontResource* font = nullptr;
-        std::string text;
-        int fontSize = 32;
-        std::optional<float> lineHeight;
-        bool autoWidth = true;
-        bool wrapLines = false;
-        std::optional<ElementHorizontalAlign> alignX;
-        std::optional<float> alignY;
-    };
-
     struct Quest
     {
         const char* name;
@@ -97,11 +70,7 @@ public:
 protected:
     void configure(AppOptions& options) override
     {
-        options.registerComponentSystem<ScreenComponentSystem>();
-        options.registerComponentSystem<ElementComponentSystem>();
-        options.registerComponentSystem<ButtonComponentSystem>();
-        _elementInput = std::make_shared<ElementInput>();
-        options.elementInput = _elementInput;
+        registerUi(options, {.button = true});
     }
 
     bool create() override
@@ -110,12 +79,9 @@ protected:
         _boldAsset = std::make_unique<Asset>("bold", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),
             AssetData{.mipmaps = true});
-        _font = fontOf(*_fontAsset);
-        _bold = fontOf(*_boldAsset);
-        Texture* atlasTexture = nullptr;
-        if (const auto res = _uiAtlasTexture->resource(); res && std::holds_alternative<Texture*>(*res)) {
-            atlasTexture = std::get<Texture*>(*res);
-        }
+        _font = _fontAsset->resourceAs<FontResource>();
+        _bold = _boldAsset->resourceAs<FontResource>();
+        Texture* atlasTexture = _uiAtlasTexture->resourceAs<Texture>();
         if (!_font || !_bold || !atlasTexture) {
             spdlog::error("Failed to load the Roboto fonts or ui/ui-atlas.png");
             return false;
@@ -124,14 +90,8 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.1f, 0.11f, 0.13f, 1.0f));
 
-        auto* screenEntity = new Entity();
-        screenEntity->setEngine(engine());
-        _screen = static_cast<ScreenComponent*>(screenEntity->addComponent<ScreenComponent>());
-        _screen->setScreenSpace(true);
-        _screen->setReferenceResolution(Vector2(1280.0f, 720.0f));
-        _screen->setScaleMode(ScreenScaleMode::Blend);
-        _screen->setScaleBlend(0.5f);
-        root()->addChild(screenEntity);
+        _screen = createScreen();
+        Entity* screenEntity = _screen->entity();
 
         // Sprites from the UI kit's texture atlas (ui-atlas.mjs). Its panel frame is 128 x 128
         // pixels with 32 pixel borders, so at 2 pixels per unit the corners stay 16 units wide,
@@ -163,7 +123,7 @@ protected:
         // Its title and description, anchored to the top-left corner of the dialog
         ElementProps topLeft{.type = ElementType::Text, .anchor = Vector4(0.0f, 1.0f, 0.0f, 1.0f),
                              .pivot = Vector2(0.0f, 1.0f), .width = 352.0f, .autoWidth = false,
-                             .alignX = ElementHorizontalAlign::Left, .alignY = 1.0f};
+                             .horizontalAlign = ElementHorizontalAlign::Left, .verticalAlign = 1.0f};
         ElementProps titleProps = topLeft;
         titleProps.font = _bold;
         titleProps.fontSize = 28;
@@ -228,38 +188,12 @@ protected:
     }
 
 private:
+    /// An element with this example's defaults for what a call leaves unset.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
-        auto* entity = new Entity();
-        entity->setEngine(engine());
-        auto* element = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
-        ElementDesc desc{.type = props.type, .anchor = props.anchor, .pivot = props.pivot, .useInput = props.useInput};
-        desc.width = props.width;
-        desc.height = props.height;
-        element->setup(desc);
-        if (props.sprite) {
-            element->setSprite(props.sprite);
-        }
-        element->setColor(props.color);
-        if (props.type == ElementType::Text) {
-            // Every property is applied before the text is laid out
-            element->setAutoWidth(props.autoWidth);
-            element->setWrapLines(props.wrapLines);
-            if (props.alignX) {
-                element->setHorizontalAlign(*props.alignX);
-            }
-            if (props.alignY) {
-                element->setVerticalAlign(*props.alignY);
-            }
-            if (props.lineHeight) {
-                element->setLineHeight(*props.lineHeight);
-            }
-            element->setFontResource(props.font ? props.font : _font);
-            element->setFontSize(props.fontSize);
-            element->setText(props.text);
-        }
-        parent->addChild(entity);
-        return element;
+        return visutwin::canvas::createElement(engine(), parent, props, {.type = ElementType::Image,
+            .color = LIGHT, .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f), .pivot = Vector2(0.5f, 0.5f),
+            .font = _font});
     }
 
     /// One of the dialog's buttons, a sliced sprite as well.
@@ -324,7 +258,6 @@ private:
         _log->entity()->setLocalPosition(portrait ? 0.0f : 230.0f, portrait ? 30.0f : 120.0f, 0.0f);
     }
 
-    std::shared_ptr<ElementInput> _elementInput;
     std::unique_ptr<Asset> _fontAsset;
     std::unique_ptr<Asset> _boldAsset;
     std::unique_ptr<Asset> _uiAtlasTexture;

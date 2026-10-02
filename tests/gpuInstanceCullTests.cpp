@@ -36,21 +36,13 @@
 #include "platform/graphics/instanceCuller.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const std::string& what)
-    {
-        std::cout << (condition ? "  ok   " : "  FAIL ") << what << '\n';
-        if (!condition) {
-            ++failures;
-        }
-    }
-
     struct Instance
     {
         float matrix[16];
@@ -189,6 +181,5 @@ int main()
     }
     SDL_DestroyWindow(window);
     SDL_Quit();
-    std::cout << (failures == 0 ? "\nAll GPU instance cull tests passed\n" : "\nGPU instance cull tests FAILED\n");
-    return failures == 0 ? 0 : 1;
+    return finish("gpu instance cull");
 }

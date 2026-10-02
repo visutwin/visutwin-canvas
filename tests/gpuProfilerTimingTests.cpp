@@ -20,21 +20,13 @@
 #include <vector>
 
 #include "platform/graphics/gpuProfiler.h"
+#include "support/check.h"
 
 using namespace visutwin::canvas;
+using namespace visutwin::canvas::test;
 
 namespace
 {
-    int failures = 0;
-
-    void check(const bool condition, const char* what)
-    {
-        if (!condition) {
-            std::printf("FAIL: %s\n", what);
-            ++failures;
-        }
-    }
-
     bool near(const double a, const double b)
     {
         return std::fabs(a - b) < 1e-9;
@@ -61,6 +53,7 @@ namespace
 
 int main()
 {
+    quietPasses();
     // Each case gets its own probe: the resolver now carries an anchor from one
     // published frame to the next, so sharing one would couple the cases.
     Probe probe;
@@ -139,10 +132,5 @@ int main()
     check(near(probe.passTimings()[0].milliseconds, 1.0), "ticks convert through the factor");
     check(near(probe.passTimings()[1].milliseconds, 0.0), "an end before the previous end costs nothing");
 
-    if (failures == 0) {
-        std::printf("gpu-profiler-timing: all checks passed\n");
-        return 0;
-    }
-    std::printf("gpu-profiler-timing: %d check(s) failed\n", failures);
-    return 1;
+    return finish("gpu-profiler-timing");
 }

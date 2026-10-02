@@ -59,8 +59,8 @@ protected:
                 .mipmaps = false
             }
         );
-        if (const auto envResource = _envAtlasAsset->resource()) {
-            scene()->setEnvAtlas(std::get<Texture*>(*envResource));
+        if (Texture* envTexture = _envAtlasAsset->resourceAs<Texture>()) {
+            scene()->setEnvAtlas(envTexture);
         } else {
             spdlog::error("Failed to load the table-mountain environment atlas");
         }
@@ -70,10 +70,7 @@ protected:
         _diffuseAsset = std::make_unique<Asset>(
             "color", AssetType::TEXTURE, assetPath("textures/playcanvas.png"));
 
-        Texture* diffuseTexture = nullptr;
-        if (const auto diffuseResource = _diffuseAsset->resource()) {
-            diffuseTexture = std::get<Texture*>(*diffuseResource);
-        }
+        Texture* diffuseTexture = _diffuseAsset->resourceAs<Texture>();
 
         // Ground plane.
         _groundMaterial = std::make_shared<StandardMaterial>();
@@ -84,12 +81,11 @@ protected:
 
         _tableAsset = std::make_unique<Asset>(
             "table", AssetType::CONTAINER, assetPath("models/glass-table.glb"));
-        const auto tableResource = _tableAsset->resource();
-        if (!tableResource) {
+        ContainerResource* tableContainer = _tableAsset->resourceAs<ContainerResource>();
+        if (!tableContainer) {
             spdlog::error("Failed to load models/glass-table.glb");
             return false;
         }
-        auto* tableContainer = std::get<ContainerResource*>(*tableResource);
 
         // LEFT — alphaDither stays unset, so opacity drives both blend strength and dither
         // density, exactly like the legacy behaviour.
