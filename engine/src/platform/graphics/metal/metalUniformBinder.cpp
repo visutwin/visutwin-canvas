@@ -357,6 +357,7 @@ namespace visutwin::canvas
     void MetalUniformBinder::submitPerDrawUniforms(MTL::RenderCommandEncoder* encoder,
         MetalUniformRingBuffer* uniformRing,
         const void* materialKey,
+        const uint64_t materialVersion,
         const void* uniformData,
         const size_t uniformSize,
         const bool hdrPass)
@@ -373,7 +374,8 @@ namespace visutwin::canvas
         // one quad, but a pass drawing a rect list (the environment bakes) would have every
         // draw after the first read the first one's block.
         size_t materialOffset;
-        if (materialKey != nullptr && _materialBoundThisPass && materialKey == _lastMaterialKey) {
+        if (materialKey != nullptr && _materialBoundThisPass && materialKey == _lastMaterialKey
+            && materialVersion == _lastMaterialVersion) {
             materialOffset = _lastMaterialOffset;
         } else if (materialKey == sharedDefaultBlockKey() && _defaultBlockBoundThisPass) {
             materialOffset = _defaultBlockOffset;
@@ -385,6 +387,7 @@ namespace visutwin::canvas
             }
         }
         _lastMaterialKey = materialKey;
+        _lastMaterialVersion = materialVersion;
         _lastMaterialOffset = materialOffset;
         _materialBoundThisPass = true;
         // Nothing else moves slot 3's offset within a pass, so an unchanged offset is
@@ -434,6 +437,15 @@ namespace visutwin::canvas
     // -----------------------------------------------------------------------
     // Pass lifecycle
     // -----------------------------------------------------------------------
+
+    bool MetalUniformBinder::isMaterialChanged(const Material* mat) const
+    {
+        // Same key AND version as the block submitPerDrawUniforms last uploaded: a material
+        // edited between two draws of one pass (markUniformsDirty moves the version) is
+        // packed, uploaded and its textures bound again.
+        return !_materialBoundThisPass || static_cast<const void*>(mat) != _lastMaterialKey
+            || (mat && mat->uniformsVersion() != _lastMaterialVersion);
+    }
 
     void MetalUniformBinder::resetPassState()
     {

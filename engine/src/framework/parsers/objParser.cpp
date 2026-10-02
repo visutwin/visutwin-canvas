@@ -19,6 +19,7 @@
 //
 #include "objParser.h"
 #include "framework/parsers/packedVertex.h"
+#include "framework/parsers/phongMaterial.h"
 
 #include <tiny_obj_loader.h>
 
@@ -270,13 +271,7 @@ namespace visutwin::canvas
             return texture;
         }
 
-        // ── Phong-to-PBR material conversion ────────────────────────────
-
-        float roughnessFromShininess(float ns)
-        {
-            ns = std::clamp(ns, 0.0f, 1000.0f);
-            return 1.0f - std::sqrt(ns / 1000.0f);
-        }
+        // ── Phong-to-PBR material conversion (roughness: phongMaterial.h) ──
 
         bool hasPbrData(const tinyobj::material_t& mat)
         {

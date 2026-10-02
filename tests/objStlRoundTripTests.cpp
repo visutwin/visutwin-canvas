@@ -30,6 +30,7 @@
 #include "framework/parsers/glbContainerResource.h"
 #include "framework/parsers/objParser.h"
 #include "framework/parsers/packedVertex.h"
+#include "framework/parsers/phongMaterial.h"
 #include "framework/parsers/stlParser.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/indexBuffer.h"
@@ -278,6 +279,20 @@ int main()
     auto device = std::make_shared<StubDevice>();
     dir = std::filesystem::temp_directory_path() / "visutwin-obj-stl-tests";
     std::filesystem::create_directories(dir);
+
+    std::cout << "Phong shininess to roughness (shared by the OBJ and Assimp parsers)\n";
+    {
+        // alpha = sqrt(2 / (n + 2)) and roughness = sqrt(alpha): n = 0 fully rough, n = 30 at
+        // alpha 0.25 (roughness 0.5), and higher exponents always smoother.
+        check(roughnessFromShininess(0.0f) == 1.0f, "an exponent of 0 is fully rough");
+        check(std::abs(roughnessFromShininess(30.0f) - 0.5f) < 1e-6f, "an exponent of 30 is roughness 0.5");
+        bool decreasing = true;
+        for (float n = 1.0f; n < 5000.0f; n *= 2.0f) {
+            decreasing = decreasing && roughnessFromShininess(2.0f * n) < roughnessFromShininess(n);
+        }
+        check(decreasing, "a higher exponent is always smoother");
+        check(roughnessFromShininess(-5.0f) == 1.0f, "a negative exponent clamps to fully rough");
+    }
 
     std::cout << "OBJ: a textured quad with normals\n";
     {

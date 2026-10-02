@@ -674,12 +674,16 @@ namespace visutwin::canvas
             const int vertCount = vb->numVertices();
             const auto* srcVerts = reinterpret_cast<const PackedVertex*>(vb->storage().data());
 
-            // Copy vertices in local space (no world transform) + set bone index.
+            // Copy vertices in local space (no world transform) + set bone index. The bone
+            // is this instance's slot in boneNodes, not its position in meshInstances: an
+            // instance skipped above has no bone, and counting it would point every later
+            // instance at its neighbour's node.
+            const auto boneIndex = static_cast<float>(boneNodes.size());
             for (int i = 0; i < vertCount; i++) {
                 const PackedVertex& sv = srcVerts[i];
                 DynamicBatchVertex dv;
                 std::memcpy(&dv, &sv, sizeof(PackedVertex));
-                dv.boneIndex = static_cast<float>(instIdx);
+                dv.boneIndex = boneIndex;
                 mergedVertices.push_back(dv);
             }
 
@@ -784,6 +788,7 @@ namespace visutwin::canvas
         batch->meshInstance->setReceiveShadow(meshInstances[0]->receiveShadow());
 
         // Create SkinBatchInstance with node pointers.
+        const size_t boneCount = boneNodes.size();
         batch->skinBatchInstance = std::make_unique<SkinBatchInstance>(std::move(boneNodes));
         batch->meshInstance->setSkinBatchInstance(batch->skinBatchInstance.get());
 
@@ -798,7 +803,7 @@ namespace visutwin::canvas
         }
 
         spdlog::trace("[BatchManager] Dynamic batch: {} instances, {} verts, {} indices, {} bones",
-            meshInstances.size(), mergedVertCount, mergedIdxCount, boneNodes.size());
+            meshInstances.size(), mergedVertCount, mergedIdxCount, boneCount);
 
         return batch;
     }

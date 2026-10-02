@@ -475,7 +475,7 @@ namespace visutwin::canvas
             std::shared_ptr<VertexBuffer> splatBuffer;
             std::shared_ptr<VertexBuffer> splatOrderBuffer;
             std::shared_ptr<VertexBuffer> splatShBuffer;
-            std::array<uint8_t, 256> splatParams{};
+            std::array<uint8_t, kGSplatParamsCapacity> splatParams{};
             size_t splatParamsSize = 0;
         };
         DrawResources takePendingDrawResources();
@@ -718,7 +718,7 @@ namespace visutwin::canvas
         std::shared_ptr<VertexBuffer> _pendingGSplatBuffer;
         std::shared_ptr<VertexBuffer> _pendingGSplatOrderBuffer;
         std::shared_ptr<VertexBuffer> _pendingGSplatShBuffer;
-        std::array<uint8_t, 256> _pendingGSplatParams{};
+        std::array<uint8_t, kGSplatParamsCapacity> _pendingGSplatParams{};
         size_t _pendingGSplatParamsSize = 0;
 
         // ── Shaders kept between runs ────────────────────────────────────

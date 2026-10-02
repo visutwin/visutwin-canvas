@@ -147,10 +147,14 @@ namespace visutwin::canvas
          * Material, sharedDefaultBlockKey() for a draw with no material (every such draw
          * carries the same default block, so one upload serves the pass), or nullptr for a
          * block nothing else may share — a quad's own uniforms, which differ per draw.
+         * `materialVersion` is the material's uniformsVersion() (0 otherwise): a block is
+         * reused only while key AND version match, so a material edited between two draws
+         * of one pass is uploaded again, as on Vulkan.
          */
         void submitPerDrawUniforms(MTL::RenderCommandEncoder* encoder,
             MetalUniformRingBuffer* uniformRing,
             const void* materialKey,
+            uint64_t materialVersion,
             const void* uniformData,
             size_t uniformSize,
             bool hdrPass);
@@ -164,10 +168,7 @@ namespace visutwin::canvas
 
         void resetPassState() override;
 
-        [[nodiscard]] bool isMaterialChanged(const Material* mat) const override
-        {
-            return !_materialBoundThisPass || static_cast<const void*>(mat) != _lastMaterialKey;
-        }
+        [[nodiscard]] bool isMaterialChanged(const Material* mat) const override;
 
         [[nodiscard]] Texture* envAtlasTexture() const override { return _envAtlasTexture; }
         [[nodiscard]] Texture* skyboxCubeMapTexture() const override { return _skyboxCubeMapTexture; }
@@ -235,6 +236,7 @@ namespace visutwin::canvas
         // Material-slot dedup: key comparison (see submitPerDrawUniforms).
         bool _materialBoundThisPass = false;
         const void* _lastMaterialKey = nullptr;
+        uint64_t _lastMaterialVersion = 0;
         size_t _lastMaterialOffset = 0;
         // The default block shared by every material-less draw of the pass.
         bool _defaultBlockBoundThisPass = false;

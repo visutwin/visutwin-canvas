@@ -164,6 +164,10 @@ namespace visutwin::canvas
     };
     static_assert(sizeof(GpuParticleRenderParams) == 944);
 
+    /// Bytes each backend stages for one draw's splat parameter block (setGSplatState);
+    /// a larger block is refused. One constant so the backends cannot accept different sizes.
+    inline constexpr size_t kGSplatParamsCapacity = 256;
+
     struct GpuLightData
     {
         GpuLightType type = GpuLightType::Directional;

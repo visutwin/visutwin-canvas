@@ -20,7 +20,9 @@ vec3 faceDirection(int face, vec2 st) {
     return normalize(vec3(-q.x, -q.y, -1.0));
 }
 vec2 directionUv(vec3 d) {
-    return vec2(atan(d.x, d.z) / (2.0 * PI) + 0.5,
+    // atan(0, 0) is undefined: pick azimuth 0 at the poles, as common-utils does.
+    const float azimuth = (d.x == 0.0 && d.z == 0.0) ? 0.0 : atan(d.x, d.z);
+    return vec2(azimuth / (2.0 * PI) + 0.5,
         0.5 - asin(clamp(d.y, -1.0, 1.0)) / PI);
 }
 // Octahedral unwrap: the sphere folded onto a square, +Y centre, -Y at the corners.

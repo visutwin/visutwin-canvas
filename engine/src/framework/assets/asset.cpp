@@ -33,6 +33,18 @@ namespace visutwin::canvas
 {
     namespace
     {
+        // The encoding a loaded texture is sampled with. RGBP and RGBM pack HDR values into
+        // 8-bit channels, so they apply to an 8-bit or block-compressed image and never to
+        // float data. One rule for the sync and async paths and for cubemaps, which used to
+        // disagree: the sync path forced Default on every KTX2 texture.
+        TextureEncoding textureEncodingFor(const std::string& type, const bool floatData)
+        {
+            if (floatData) return TextureEncoding::Default;
+            if (type == TextureType::TEXTURETYPE_RGBP) return TextureEncoding::RGBP;
+            if (type == TextureType::TEXTURETYPE_RGBM) return TextureEncoding::RGBM;
+            return TextureEncoding::Default;
+        }
+
         // Which parser a container file goes to, by its extension compared CASE-
         // INSENSITIVELY — one routine for the sync and async paths, which used to
         // spell the list out twice and matched only all-lower or all-upper (".Obj",
@@ -154,13 +166,7 @@ namespace visutwin::canvas
             options.minFilter = data.mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR : FilterMode::FILTER_LINEAR;
             options.magFilter = FilterMode::FILTER_LINEAR;
             auto cubemap = std::make_unique<Texture>(device, options);
-            if (!hdr && data.type == TextureType::TEXTURETYPE_RGBP) {
-                cubemap->setEncoding(TextureEncoding::RGBP);
-            } else if (!hdr && data.type == TextureType::TEXTURETYPE_RGBM) {
-                cubemap->setEncoding(TextureEncoding::RGBM);
-            } else {
-                cubemap->setEncoding(TextureEncoding::Default);
-            }
+            cubemap->setEncoding(textureEncodingFor(data.type, hdr));
             for (uint32_t face = 0; face < 6; ++face) {
                 cubemap->setLevelData(0, pixels[face].data(), pixels[face].size(), face);
             }
@@ -253,7 +259,7 @@ namespace visutwin::canvas
                     options.name = _name;
 
                     auto texture = std::make_unique<Texture>(graphicsDevice.get(), options);
-                    texture->setEncoding(TextureEncoding::Default);
+                    texture->setEncoding(textureEncodingFor(_data.type, false));
                     for (size_t level = 0; level < transcoded.levels.size(); ++level) {
                         texture->setLevelData(static_cast<uint32_t>(level),
                             transcoded.levels[level].data(), transcoded.levels[level].size());
@@ -295,7 +301,7 @@ namespace visutwin::canvas
                     options.name = _name;
 
                     auto texture = std::make_unique<Texture>(graphicsDevice.get(), options);
-                    texture->setEncoding(TextureEncoding::Default);
+                    texture->setEncoding(textureEncodingFor(_data.type, true));
                     const auto dataSize = pixelCount * 4 * sizeof(float);
                     texture->setLevelData(0, reinterpret_cast<const uint8_t*>(rgbaData.data()), dataSize);
                     texture->upload();
@@ -323,13 +329,7 @@ namespace visutwin::canvas
                     options.name = _name;
 
                     auto texture = std::make_unique<Texture>(graphicsDevice.get(), options);
-                    if (_data.type == TextureType::TEXTURETYPE_RGBP) {
-                        texture->setEncoding(TextureEncoding::RGBP);
-                    } else if (_data.type == TextureType::TEXTURETYPE_RGBM) {
-                        texture->setEncoding(TextureEncoding::RGBM);
-                    } else {
-                        texture->setEncoding(TextureEncoding::Default);
-                    }
+                    texture->setEncoding(textureEncodingFor(_data.type, false));
                     const auto dataSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
                     texture->setLevelData(0, reinterpret_cast<const uint8_t*>(pixels), dataSize);
                     texture->upload();
@@ -468,13 +468,7 @@ namespace visutwin::canvas
                     options.name     = name;
 
                     auto texture = std::make_unique<Texture>(device.get(), options);
-                    if (data.type == TextureType::TEXTURETYPE_RGBP) {
-                        texture->setEncoding(TextureEncoding::RGBP);
-                    } else if (data.type == TextureType::TEXTURETYPE_RGBM) {
-                        texture->setEncoding(TextureEncoding::RGBM);
-                    } else {
-                        texture->setEncoding(TextureEncoding::Default);
-                    }
+                    texture->setEncoding(textureEncodingFor(data.type, !pd.isCompressed && pd.isHdr));
 
                     if (pd.isCompressed) {
                         for (size_t level = 0; level < pd.compressedLevels.size(); ++level) {

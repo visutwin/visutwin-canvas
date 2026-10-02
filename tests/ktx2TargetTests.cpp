@@ -258,6 +258,18 @@ int main()
                 ? std::get<Texture*>(*resource) : nullptr;
             check(texture && texture->format() == target, "the texture asset is created as " + label);
         }
+        {
+            // An RGBP texture type is honoured for block-compressed data, as the async path
+            // always did: the synchronous path once forced every KTX2 texture to Default.
+            AssetData data;
+            data.type = TextureType::TEXTURETYPE_RGBP;
+            Asset asset("checkboard-rgbp", AssetType::TEXTURE, path, data);
+            const auto resource = asset.resource();
+            Texture* texture = resource && std::holds_alternative<Texture*>(*resource)
+                ? std::get<Texture*>(*resource) : nullptr;
+            check(texture && texture->encoding() == TextureEncoding::RGBP,
+                "a texture asset typed RGBP is sampled as RGBP");
+        }
 
         // 2. The async texture handler, built as Engine builds it.
         {

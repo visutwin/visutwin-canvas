@@ -241,8 +241,8 @@ protected:
         auto decalDepth = std::make_shared<DepthState>();
         decalDepth->setDepthTest(true);
         decalDepth->setDepthWrite(false);  // host plane already wrote depth; don't double-up
-        // Polygon offset to keep decals visually on top of the plane. Negative bias pulls
-        // fragments toward the camera in reverse-Z.
+        // Polygon offset to keep decals visually on top of the plane. With standard [0,1]
+        // depth and a LESS_EQUAL test, a negative bias pulls fragments toward the camera.
         decalDepth->setDepthBias(-0.1f);
         decalDepth->setSlopeDepthBias(-0.1f);
         _decalMaterial->setDepthState(decalDepth);

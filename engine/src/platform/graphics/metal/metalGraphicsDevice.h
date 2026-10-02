@@ -399,14 +399,14 @@ namespace visutwin::canvas
         MTL::Buffer* _pendingGSplatShBuffer = nullptr;
         MTL::Buffer* _pendingGSplatBuffer = nullptr;
         MTL::Buffer* _pendingGSplatOrderBuffer = nullptr;
-        std::array<uint8_t, 256> _pendingGSplatParams{};
+        std::array<uint8_t, kGSplatParamsCapacity> _pendingGSplatParams{};
         size_t _pendingGSplatParamsSize = 0;
 
         // GPU particle emitters: sim compute pipeline (lazy) + per-draw binding.
         MTL::Buffer* _pendingParticleBuffer = nullptr;
         MTL::Buffer* _pendingParticleOrderBuffer = nullptr;
         MTL::Buffer* _pendingParticleMeshBuffer = nullptr;
-        std::array<uint8_t, 1024> _pendingParticleParams{};
+        std::array<uint8_t, sizeof(GpuParticleRenderParams)> _pendingParticleParams{};
         size_t _pendingParticleParamsSize = 0;
         MTL::SamplerState* _defaultSampler = nullptr;
         // Clamp-to-edge sampler for screen-space post passes (no mips/aniso) —

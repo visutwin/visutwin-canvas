@@ -81,7 +81,8 @@ static float3 faceUvToDir(uint face, float2 uv)
 
 static float2 dirToUvEquirect(float3 dir)
 {
-    const float phi   = atan2(dir.x, dir.z);
+    // atan2(0, 0) is undefined: pick azimuth 0 at the poles, as common-utils does.
+    const float phi   = (dir.x == 0.0 && dir.z == 0.0) ? 0.0 : atan2(dir.x, dir.z);
     const float theta = asin(clamp(dir.y, -1.0, 1.0));
     return float2(phi / (2.0 * PI) + 0.5, 1.0 - (theta / PI + 0.5));
 }
@@ -141,7 +142,8 @@ vec3 faceUvToDir(uint face, vec2 uv) {
 }
 
 vec2 dirToUvEquirect(vec3 dir) {
-    float phi   = atan(dir.x, dir.z);
+    // atan(0, 0) is undefined: pick azimuth 0 at the poles, as common-utils does.
+    float phi   = (dir.x == 0.0 && dir.z == 0.0) ? 0.0 : atan(dir.x, dir.z);
     float theta = asin(clamp(dir.y, -1.0, 1.0));
     return vec2(phi / (2.0 * PI) + 0.5, 1.0 - (theta / PI + 0.5));
 }
@@ -220,7 +222,8 @@ static float3 uvToDirEquirect(float2 uv)
 
 static float2 dirToUvEquirect(float3 dir)
 {
-    const float phi   = atan2(dir.x, dir.z);
+    // atan2(0, 0) is undefined: pick azimuth 0 at the poles, as common-utils does.
+    const float phi   = (dir.x == 0.0 && dir.z == 0.0) ? 0.0 : atan2(dir.x, dir.z);
     const float theta = asin(clamp(dir.y, -1.0, 1.0));
     return float2(phi / (2.0 * PI) + 0.5, 1.0 - (theta / PI + 0.5));
 }
@@ -324,7 +327,8 @@ vec3 uvToDirEquirect(vec2 uv) {
 }
 
 vec2 dirToUvEquirect(vec3 dir) {
-    float phi   = atan(dir.x, dir.z);
+    // atan(0, 0) is undefined: pick azimuth 0 at the poles, as common-utils does.
+    float phi   = (dir.x == 0.0 && dir.z == 0.0) ? 0.0 : atan(dir.x, dir.z);
     float theta = asin(clamp(dir.y, -1.0, 1.0));
     return vec2(phi / (2.0 * PI) + 0.5, 1.0 - (theta / PI + 0.5));
 }
@@ -438,7 +442,8 @@ static float3 uvToDirEquirect(float2 uv)
 
 static float2 dirToUvEquirect(float3 dir)
 {
-    const float phi   = atan2(dir.x, dir.z);
+    // atan2(0, 0) is undefined: pick azimuth 0 at the poles, as common-utils does.
+    const float phi   = (dir.x == 0.0 && dir.z == 0.0) ? 0.0 : atan2(dir.x, dir.z);
     const float theta = asin(clamp(dir.y, -1.0, 1.0));
     return float2(phi / (2.0 * PI) + 0.5, 1.0 - (theta / PI + 0.5));
 }
@@ -542,7 +547,8 @@ vec3 uvToDirEquirect(vec2 uv) {
 }
 
 vec2 dirToUvEquirect(vec3 dir) {
-    float phi   = atan(dir.x, dir.z);
+    // atan(0, 0) is undefined: pick azimuth 0 at the poles, as common-utils does.
+    float phi   = (dir.x == 0.0 && dir.z == 0.0) ? 0.0 : atan(dir.x, dir.z);
     float theta = asin(clamp(dir.y, -1.0, 1.0));
     return vec2(phi / (2.0 * PI) + 0.5, 1.0 - (theta / PI + 0.5));
 }

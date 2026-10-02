@@ -1463,8 +1463,9 @@ namespace visutwin::canvas
             uniformKey = boundMaterial ? static_cast<const void*>(boundMaterial)
                 : MetalUniformBinder::sharedDefaultBlockKey();
         }
+        const uint64_t uniformVersion = boundMaterial ? boundMaterial->uniformsVersion() : 0;
         _uniformBinder.submitPerDrawUniforms(passEncoder, _uniformRing.get(),
-            uniformKey, uniforms.data, uniforms.size, hdrPass());
+            uniformKey, uniformVersion, uniforms.data, uniforms.size, hdrPass());
 
         // Bind atmosphere uniforms at fragment slot 9 for skybox draws when atmosphere is enabled.
         if (atmosphereEnabled() && boundMaterial && boundMaterial->isSkybox()) {

@@ -9,9 +9,12 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <array>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <unordered_map>
+#include <vector>
 #include <vulkan/vulkan.h>
 
 #include "platform/graphics/renderPipeline.h"
@@ -90,7 +93,29 @@ namespace visutwin::canvas
         VkDescriptorSetLayout _clusterSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout _gpuDrivenSetLayout = VK_NULL_HANDLE;
 
-        std::unordered_map<uint64_t, VkPipeline> _cache;
+        // The full pipeline-state key, compared exactly on a hash hit: a 64-bit hash alone
+        // would hand a colliding state the wrong pipeline. Fixed size, so a lookup does not
+        // allocate (16 scalar words plus up to kMaxKeyColorFormats colour formats).
+        static constexpr size_t kMaxKeyColorFormats = 8;
+        struct PipelineKey
+        {
+            std::array<uint64_t, 16 + kMaxKeyColorFormats> words{};
+            uint32_t count = 0;
+            bool operator==(const PipelineKey& other) const
+            {
+                if (count != other.count) return false;
+                for (uint32_t i = 0; i < count; ++i) {
+                    if (words[i] != other.words[i]) return false;
+                }
+                return true;
+            }
+        };
+        struct CacheEntry
+        {
+            PipelineKey key;
+            VkPipeline pipeline = VK_NULL_HANDLE;
+        };
+        std::unordered_map<uint64_t, std::vector<CacheEntry>> _cache;
     };
 }
 

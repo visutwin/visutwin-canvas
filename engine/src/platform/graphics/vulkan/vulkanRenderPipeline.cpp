@@ -269,8 +269,10 @@ namespace visutwin::canvas
     void VulkanRenderPipeline::destroy() noexcept
     {
         VkDevice vk = _device->device();
-        for (auto& [key, pipeline] : _cache) {
-            vkDestroyPipeline(vk, pipeline, nullptr);
+        for (auto& [hash, entries] : _cache) {
+            for (const CacheEntry& entry : entries) {
+                vkDestroyPipeline(vk, entry.pipeline, nullptr);
+            }
         }
         _cache.clear();
         if (_pipelineLayout != VK_NULL_HANDLE) {
@@ -496,9 +498,19 @@ namespace visutwin::canvas
         VkSampleCountFlagBits samples,
         bool isSkybox)
     {
-        // FNV-1a hash of pipeline state
+        // The state as key words, FNV-1a hashed as they are added.
+        PipelineKey key;
         uint64_t hash = 14695981039346656037ULL;
-        auto mix = [&](uint64_t v) { hash ^= v; hash *= 1099511628211ULL; };
+        auto mix = [&](uint64_t v) {
+            key.words[key.count++] = v;
+            hash ^= v;
+            hash *= 1099511628211ULL;
+        };
+        if (colorFormats.size() > kMaxKeyColorFormats) {
+            spdlog::error("VulkanRenderPipeline: {} colour attachments, at most {} supported",
+                colorFormats.size(), kMaxKeyColorFormats);
+            return VK_NULL_HANDLE;
+        }
         mix(static_cast<uint64_t>(primitive.type));
         mix(vertexFormat ? vertexFormat->renderingHash() : 0);
         mix(shader ? static_cast<uint64_t>(shader->id()) : 0);
@@ -517,14 +529,17 @@ namespace visutwin::canvas
         mix(instanceFormat ? instanceFormat->renderingHash() : 0);
         mix(isSkybox ? 1ull : 0ull);
 
-        auto it = _cache.find(hash);
-        if (it != _cache.end()) return it->second;
+        if (const auto it = _cache.find(hash); it != _cache.end()) {
+            for (const CacheEntry& entry : it->second) {
+                if (entry.key == key) return entry.pipeline;
+            }
+        }
 
         VkPipeline pipeline = create(primitive, vertexFormat, instanceFormat, shader,
             blendState, depthState, cullMode, stencilEnabled, stencilFront, stencilBack,
             colorFormats, depthFormat, samples, isSkybox);
         if (pipeline != VK_NULL_HANDLE) {
-            _cache[hash] = pipeline;
+            _cache[hash].push_back({key, pipeline});
         }
         return pipeline;
     }

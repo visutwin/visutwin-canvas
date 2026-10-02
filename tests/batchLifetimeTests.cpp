@@ -16,12 +16,16 @@
 // group from what remains.
 
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "framework/appOptions.h"
+#include "framework/batching/batch.h"
 #include "framework/batching/batchGroup.h"
+#include "framework/batching/skinBatchInstance.h"
 #include "framework/batching/batchManager.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
@@ -31,6 +35,8 @@
 #include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/mesh.h"
+#include "scene/meshInstance.h"
 
 using namespace visutwin::canvas;
 
@@ -51,6 +57,10 @@ namespace
     {
     public:
         using VertexBuffer::VertexBuffer;
+        // The zero-copy constructor, public here: an empty buffer for an empty mesh.
+        CpuVertexBuffer(GraphicsDevice* device, std::shared_ptr<VertexFormat> format, const int numVertices,
+            const int numBytes)
+            : VertexBuffer(device, std::move(format), numVertices, numBytes) {}
         void unlock() override {}
     };
 
@@ -186,6 +196,62 @@ int main()
         batcher.updateAll();
         check(contains(sourcesInGroup(batcher, kGroup), changed) && sourcesInGroup(batcher, kGroup).size() == 2,
             "given the old material back, it is merged with box 1 again");
+    }
+
+    std::cout << "\na dynamic batch whose first source has no vertex data\n";
+    {
+        // The merge skips a source whose vertex buffer holds no bytes (an empty mesh: zero
+        // vertices passes the layout check), so that source has no bone. Every merged
+        // vertex must still name a bone of the batch: indexing bones by position in the
+        // source list pointed every instance after the skipped one at its neighbour's node.
+        constexpr int kBoneGroup = 4;
+        batcher.addGroup(BatchGroup(kBoneGroup, "bones", /*dynamic*/ true));
+
+        // Through the zero-copy constructor, which takes an empty buffer; the allocating
+        // one asserts on zero vertices.
+        const auto boxFormat = meshes[1]->mesh()->getVertexBuffer()->format();
+        auto emptyMesh = std::make_shared<Mesh>();
+        emptyMesh->setVertexBuffer(std::make_shared<CpuVertexBuffer>(device.get(), boxFormat, 0, 0));
+
+        std::vector<Entity*> sources;
+        for (int i = 0; i < 3; ++i) {
+            auto owned = std::make_unique<Entity>();
+            Entity* entity = owned.get();
+            entity->setEngine(engine.get());
+            engine->root()->addChild(std::move(owned));
+            entity->setLocalPosition(0.0f, static_cast<float>(i) * 3.0f, 0.0f);
+            auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
+            if (i == 0) {
+                render->addMeshInstance(std::make_unique<MeshInstance>(emptyMesh.get(), material.get(), entity));
+            } else {
+                render->setMaterial(material.get());
+                render->setType("box");
+            }
+            render->setBatchGroupId(kBoneGroup);
+            sources.push_back(entity);
+        }
+        batcher.updateAll();
+
+        const Batch* bonesBatch = nullptr;
+        for (const auto& batch : batcher.batches()) {
+            if (batch && batch->batchGroupId == kBoneGroup) bonesBatch = batch.get();
+        }
+        check(bonesBatch && bonesBatch->skinBatchInstance, "the group builds a dynamic batch");
+        if (bonesBatch && bonesBatch->skinBatchInstance) {
+            const int bones = bonesBatch->skinBatchInstance->boneCount();
+            const auto& bytes = bonesBatch->meshInstance->mesh()->getVertexBuffer()->storage();
+            constexpr size_t kStride = 15 * sizeof(float);   // packed vertex + bone index
+            float minBone = 1e9f, maxBone = -1.0f;
+            for (size_t offset = 0; offset + kStride <= bytes.size(); offset += kStride) {
+                float bone;
+                std::memcpy(&bone, bytes.data() + offset + 14 * sizeof(float), sizeof(float));
+                minBone = std::min(minBone, bone);
+                maxBone = std::max(maxBone, bone);
+            }
+            check(bones == 2, "only the two sources with vertices become bones");
+            check(minBone == 0.0f && maxBone == static_cast<float>(bones - 1),
+                "every merged vertex names a bone of the batch, starting at bone 0");
+        }
     }
 
     std::cout << (failures == 0 ? "\nAll batch lifetime tests passed\n" : "\nBatch lifetime tests FAILED\n");

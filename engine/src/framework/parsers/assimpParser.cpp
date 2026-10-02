@@ -21,6 +21,7 @@
 //
 #include "assimpParser.h"
 #include "framework/parsers/packedVertex.h"
+#include "framework/parsers/phongMaterial.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -284,12 +285,10 @@ namespace visutwin::canvas
             aiGetMaterialColor(aiMat, AI_MATKEY_COLOR_SPECULAR, &specular);
             material.setSpecular(Color(specular.r, specular.g, specular.b, 1.0f));
 
-            // Shininess -> Roughness (physically-motivated formula)
+            // Shininess -> roughness, the same conversion as the OBJ parser.
             float shininess = 0.0f;
             aiGetMaterialFloat(aiMat, AI_MATKEY_SHININESS, &shininess);
-            float roughness = (shininess > 0.0f)
-                ? std::sqrt(2.0f / (shininess + 2.0f))
-                : 1.0f;
+            const float roughness = roughnessFromShininess(shininess);
             material.setGloss(1.0f - roughness);
             material.setRoughnessFactor(roughness);
 
