@@ -16,6 +16,10 @@ namespace visutwin::canvas
         bool shadowsEnabled = true;
 
         bool cookiesEnabled = false;
+        /// Upstream `lighting.areaLightsEnabled`: under clustered lighting a light with
+        /// a non-punctual shape shades as an LTC area light only while this is set (off
+        /// by default, as upstream; outside clustered lighting shapes always apply).
+        bool areaLightsEnabled = false;
 
         /// The cluster grid: space is subdivided into this many cells and each holds
         /// up to `maxLightsPerCell` lights. More cells means fewer lights per cell to

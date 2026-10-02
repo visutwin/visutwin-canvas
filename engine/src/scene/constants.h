@@ -78,18 +78,21 @@ namespace visutwin::canvas
         LIGHTTYPE_DIRECTIONAL, // Directional (global) light source
         LIGHTTYPE_OMNI,        // Omni-directional (local) light source
         LIGHTTYPE_POINT,       // Point (local) light source
-        LIGHTTYPE_SPOT,        // Spot (local) light source
-        LIGHTTYPE_AREA_RECT    // Rectangular area light (local)
+        LIGHTTYPE_SPOT         // Spot (local) light source
     };
 
-    // Area light shape (upstream LIGHTSHAPE_*). Applies to LIGHTTYPE_AREA_RECT
-    // lights; disk is inscribed in the width/height quad, sphere uses
-    // max(halfWidth, halfHeight) as radius.
-    enum class AreaLightShape
+    // The shape of a light's source (upstream LIGHTSHAPE_*), for any light type. A
+    // non-punctual light is an LTC area light the size of its entity: the world X axis
+    // is the width and the Z axis the height (upstream's (-0.5, 0, 0) and (0, 0, 0.5)
+    // half axes through the world matrix); a disk is inscribed in that quad and a
+    // sphere takes the longer half axis as its radius. It keeps its type's cone,
+    // cookie and shadow, with only the range window as distance falloff.
+    enum class LightShape
     {
-        LIGHTSHAPE_RECT = 0,
-        LIGHTSHAPE_DISK = 1,
-        LIGHTSHAPE_SPHERE = 2
+        LIGHTSHAPE_PUNCTUAL = 0,
+        LIGHTSHAPE_RECT = 1,
+        LIGHTSHAPE_DISK = 2,
+        LIGHTSHAPE_SPHERE = 3
     };
 
     // Light cookie channel (upstream Light.cookieChannel, which is a swizzle

@@ -98,8 +98,7 @@ namespace visutwin::canvas
     {
         Directional = 0u,
         Point = 1u,
-        Spot = 2u,
-        AreaRect = 3u
+        Spot = 2u
     };
 
     /** @brief Per-light GPU data uploaded to the lighting uniform buffer.
@@ -128,9 +127,10 @@ namespace visutwin::canvas
         float timeParams[4];        // dt, time, emission period (numParticles * rate), particle count
         float lifeRot[4];           // lifetime min/max, rotSpeed min/max (radians/s)
         float angleParams[4];       // startAngle min/max (radians), hash step counter, on-stop flag
-        float graphParams[4];       // x = velocity graphs on, y = rotation speed graph on
+        float graphParams[4];       // x velocity graphs on, y rotation speed graph on, z radial speed graph on, w rate2 - rate
         // Over normalized life, 16 samples each: xyz = local velocity (graph and graph2),
-        // w = rotation speed in radians/s (graph and graph2); then the world velocity pair.
+        // w = rotation speed in radians/s (graph and graph2); then the world velocity pair,
+        // whose w is the radial speed (graph and graph2).
         float localVelocityLut[16][4];
         float localVelocityLut2[16][4];
         float velocityLut[16][4];
@@ -143,14 +143,26 @@ namespace visutwin::canvas
     {
         Matrix4 modelView;
         Matrix4 projection;          // GL-style clip; z remapped in-shader
+        Matrix4 view;                // the camera's view (world offsets of mesh / custom-face particles)
         float animParams[4];         // tilesX, tilesY, numFrames, animSpeed
         float miscParams[4];         // intensity, particle count, hasColorMap, animIndex
         float motionParams[4];       // alignToMotion, stretch, screenSpace, viewport height / width
-        float outputParams[4];       // exposure, tone mapping mode, linear HDR target, unused
+        float outputParams[4];       // exposure, tone mapping mode, linear HDR target, sorted draw order
+        // Upstream orientation: xyz the face tangent / binormal of a WORLD or EMITTER oriented
+        // quad; faceTangent.w = 1 for such a quad, faceBinorm.w = 1 for mesh particles.
+        float faceTangent[4];
+        float faceBinorm[4];
+        float wrapParams[4];         // xyz wrap bounds, w = 1 when wrapping
+        float emitterPosition[4];    // xyz the emitter's world position (the wrap origin), w = localSpace
+        float softParams[4];         // x softening, y camera near, z camera far, w = 1 when soft
+        // Upstream's light cube (scene ambient + directional lights, six directions), for
+        // lit particles; [0].w = 1 when lit, [1].w = 1 for half Lambert, [2].w = 1 with a normal map.
+        float lightCube[6][4];
         float colorLut[16][4];       // rgb + alpha over normalized life
-        float scaleLut[16][4];       // x = size (quad half-extent, as upstream), yzw = pad
+        // x = size (quad half-extent, as upstream), y = scale graph2, z = alpha graph2
+        float scaleLut[16][4];
     };
-    static_assert(sizeof(GpuParticleRenderParams) == 704);
+    static_assert(sizeof(GpuParticleRenderParams) == 944);
 
     struct GpuLightData
     {
@@ -185,12 +197,12 @@ namespace visutwin::canvas
         // already folded into cookieMatrix (upstream adds it before its clip test).
         float cookieTransform[4] = {1.0f, 0.0f, 0.0f, 1.0f};
 
-        // Area light: half-extents, local right axis (world space) and shape
-        // (0=rect, 1=disk, 2=sphere — mirrors AreaLightShape).
-        float areaHalfWidth = 0.0f;
-        float areaHalfHeight = 0.0f;
-        Vector3 areaRight = Vector3(1.0f, 0.0f, 0.0f);
-        uint32_t areaShape = 0u;
+        // The source's shape (LightShape: 0 punctual, 1 rect, 2 disk, 3 sphere) and, for
+        // an area light, its world-space half axes (upstream light_halfWidth and
+        // light_halfHeight: the world matrix applied to (-0.5, 0, 0) and (0, 0, 0.5)).
+        uint32_t shape = 0u;
+        Vector3 areaHalfWidth = Vector3(0.0f);
+        Vector3 areaHalfHeight = Vector3(0.0f);
     };
 
     /// Fog falloff curve, upstream's FOG_* constants. The value is uploaded as a
@@ -275,6 +287,10 @@ namespace visutwin::canvas
             float normalBias = 0.0f;
             float intensity = 1.0f;
             bool isOmni = false;    // true = cubemap shadow (omni), false = 2D shadow (spot)
+            // A spot light's VSM_16F map: EVSM moments of distance / range (upstream's
+            // spot VSM). `bias` is then subtracted from that ratio and `normalBias` is the
+            // Chebyshev variance bias, upstream's vsmBias / (range / 7).
+            bool vsm = false;
             // PCSS (SHADOW_PCSS_32F on the light): blocker-search area in
             // shadow-map UV units (0 = PCSS off) + shadow camera clip range.
             float pcssSearchArea = 0.0f;
@@ -568,10 +584,22 @@ namespace visutwin::canvas
         // need a kind tag and read worse than three named ones.
 
         /// Bind particle emitter state for the next draw call (consumed by one draw).
-        /// particles: GpuParticle pool (vertex slot 7); params: GpuParticleRenderParams
-        /// (vertex slot 11). Slots are shared with gsplat — a draw is one or the other.
+        /// particles: GpuParticle pool (vertex slot 7 / set 6 binding 0); order: a sorted
+        /// emitter's draw order, uint32 particle indices (slot 8 / binding 1); meshVertices: a
+        /// mesh emitter's vertices read by index as storage (slot 9 / binding 2); params:
+        /// GpuParticleRenderParams (slot 11, vertex AND fragment / binding 3). Slots are shared
+        /// with gsplat — a draw is one or the other.
         virtual void setParticleState(const std::shared_ptr<VertexBuffer>& particles,
-            const void* params, size_t paramsSize) { (void)particles; (void)params; (void)paramsSize; }
+            const std::shared_ptr<VertexBuffer>& order, const std::shared_ptr<VertexBuffer>& meshVertices,
+            const void* params, size_t paramsSize)
+        {
+            (void)particles; (void)order; (void)meshVertices; (void)params; (void)paramsSize;
+        }
+        void setParticleState(const std::shared_ptr<VertexBuffer>& particles, const void* params,
+            const size_t paramsSize)
+        {
+            setParticleState(particles, nullptr, nullptr, params, paramsSize);
+        }
 
         /// Bind an app-owned storage buffer + parameter block for the next draw call
         /// (consumed by one draw). This is the generic form of the particle/gsplat

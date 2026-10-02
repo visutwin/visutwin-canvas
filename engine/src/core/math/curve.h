@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
 #pragma once
 
 #include <algorithm>
@@ -14,8 +15,6 @@ namespace visutwin::canvas
 {
     class CurveEvaluator;
 
-    // Upstream's numbers, so curve data authored against upstream reads the same here.
-    // 2 and 3 were upstream's CATMULL and CARDINAL, since removed; they stay unused.
     enum CurveType : uint8_t
     {
         CURVE_LINEAR = 0,

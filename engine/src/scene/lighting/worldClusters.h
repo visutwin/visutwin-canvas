@@ -33,7 +33,7 @@ namespace visutwin::canvas
     };
 
     /**
-     * GPU-side packed light struct (144 bytes, 16-byte aligned).
+     * GPU-side packed light struct (176 bytes, 16-byte aligned).
      * Maps 1:1 to the Metal ClusteredLight struct in common-structs.metal.
      */
     struct alignas(16) GpuClusteredLight
@@ -54,7 +54,12 @@ namespace visutwin::canvas
         float shadowMatrix[16] = {};
         float shadowData[4] = {};        // x=castShadows(0/1), y=normalOffsetBias,
                                          // z=intensity, w=1 spot / 2 omni
+        // An area light (upstream ClusterLightAreaData): the world half axes, and the
+        // LightShape in areaHalfWidth.w (0 = punctual, which shades as before).
+        float areaHalfWidth[4] = {};
+        float areaHalfHeight[4] = {};
     };
+    static_assert(sizeof(GpuClusteredLight) == 176);
 
     /**
      * Lightweight data struct for passing light properties to WorldClusters.
@@ -93,6 +98,11 @@ namespace visutwin::canvas
         bool hasCookie = false;
         float cookieIntensity = 1.0f;
         uint32_t cookieChannel = 0;   // CookieChannel: 0 rgb, 1 r, 2 g, 3 b, 4 a
+
+        // An area light's shape (LightShape) and world half axes; 0 = punctual.
+        uint32_t shape = 0;
+        Vector3 areaHalfWidth = Vector3(0.0f);
+        Vector3 areaHalfHeight = Vector3(0.0f);
     };
 
     /**

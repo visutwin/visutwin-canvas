@@ -39,7 +39,7 @@ namespace visutwin::canvas
         int priority() const { return _priority; }
         const std::vector<AnimCondition>& conditions() const { return _conditions; }
 
-        /** Normalized exit time; negative = none (upstream uses null). */
+        /** Normalized exit time; negative = none. */
         float exitTime() const { return _exitTime; }
         bool hasExitTime() const { return _exitTime > 0.0f; }
 

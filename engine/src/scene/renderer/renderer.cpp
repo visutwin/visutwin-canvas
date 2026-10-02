@@ -991,7 +991,7 @@ namespace visutwin::canvas
             bool areaLights = false;
         };
 
-        LightFeatureUse scanLightFeatureUse()
+        LightFeatureUse scanLightFeatureUse(const bool clustered, const bool clusteredAreaLights)
         {
             LightFeatureUse use;
             for (const auto* lc : LightComponent::instances()) {
@@ -1034,7 +1034,12 @@ namespace visutwin::canvas
                     use.pcf5Shadows |= sceneLight->shadowType() == SHADOW_PCF5_32F;
                 }
 
-                use.areaLights |= type == LightType::LIGHTTYPE_AREA_RECT;
+                // A shaped light needs the LTC path: always outside clustered lighting
+                // (a main-array light) and for a directional light, and under clustered
+                // lighting only while the scene enables clustered area lights.
+                if (lc->shape() != LightShape::LIGHTSHAPE_PUNCTUAL) {
+                    use.areaLights |= !clustered || clusteredAreaLights || type == LightType::LIGHTTYPE_DIRECTIONAL;
+                }
             }
             return use;
         }
@@ -1167,25 +1172,6 @@ namespace visutwin::canvas
                 case LightType::LIGHTTYPE_SPOT:
                     lightData.type = GpuLightType::Spot;
                     break;
-                case LightType::LIGHTTYPE_AREA_RECT:
-                    lightData.type = GpuLightType::AreaRect;
-                    lightData.areaHalfWidth = lightComponent.areaWidth() * 0.5f;
-                    lightData.areaHalfHeight = lightComponent.areaHeight() * 0.5f;
-                    lightData.areaShape = static_cast<uint32_t>(lightComponent.areaShape());
-                    {
-                        // Right vector: the light's world X AXIS, which is column 0 — the same
-                        // column upstream's LTC width axis comes from (it transforms (-0.5, 0, 0)
-                        // by the world matrix; the sign is immaterial here because the shader
-                        // derives up as cross(direction, right) and the quad is symmetric).
-                        // (Row 0 would be the X component of all three axes: right only for an
-                        // unrotated light, a vector outside the light's own plane otherwise.)
-                        const auto& wt = lightComponent.entity()->worldTransform();
-                        Vector3 right(wt.getColumn(0));
-                        if (right.lengthSquared() > 1e-8f) {
-                            lightData.areaRight = right.normalized();
-                        }
-                    }
-                    break;
                 case LightType::LIGHTTYPE_OMNI:
                 case LightType::LIGHTTYPE_POINT:
                 default:
@@ -1215,6 +1201,16 @@ namespace visutwin::canvas
             }
             lightData.falloffModeLinear = lightComponent.falloffMode() == LightFalloff::LIGHTFALLOFF_LINEAR;
             lightData.castShadows = lightComponent.castShadows();
+
+            // An area source (upstream _setLtcPositional): the world matrix's X and Z
+            // axes, halved — its COLUMNS (row 0 would be the X component of all three
+            // axes, a vector outside the light's own plane once it is rotated).
+            lightData.shape = static_cast<uint32_t>(lightComponent.shape());
+            if (lightData.shape != 0u && lightComponent.entity()) {
+                const auto& wt = lightComponent.entity()->worldTransform();
+                lightData.areaHalfWidth = Vector3(wt.getColumn(0)) * -0.5f;
+                lightData.areaHalfHeight = Vector3(wt.getColumn(2)) * 0.5f;
+            }
             return lightData;
         }
 
@@ -1353,6 +1349,13 @@ namespace visutwin::canvas
             ls.bias = isOmni ? -sceneLight->shadowBias()
                              : -sceneLight->shadowBias() * 20.0f;
             ls.normalBias = sceneLight->normalBias();
+            // A VSM spot (upstream _getUniformBiasValues): a fixed 0.0002 off the
+            // distance ratio and the variance bias in place of the normal offset.
+            ls.vsm = !isOmni && sceneLight->shadowType() == SHADOW_VSM_16F;
+            if (ls.vsm) {
+                ls.bias = 0.00001f * 20.0f;
+                ls.normalBias = sceneLight->vsmBias() / (std::max(sceneLight->range(), 0.1f) / 7.0f);
+            }
             ls.intensity = sceneLight->shadowIntensity();
             ls.nearClip = 0.01f;
             ls.farClip = std::max(sceneLight->range(), 0.1f);
@@ -1390,7 +1393,7 @@ namespace visutwin::canvas
         {
             Light* sceneLight = lightComponent.light();
             if (!sceneLight || !sceneLight->cookie() ||
-                lightData.type == GpuLightType::Directional || lightData.type == GpuLightType::AreaRect) {
+                lightData.type == GpuLightType::Directional) {
                 return;
             }
 
@@ -1566,7 +1569,7 @@ namespace visutwin::canvas
         /// set, order-independent: the dispatch list is sorted by apparent size, which
         /// differs per camera, and two layers seeing the same lights must still hash alike.
         void buildClusterLightInput(const std::vector<LightDispatchEntry>& localLights,
-            const bool clusteredCookiesEnabled,
+            const bool clusteredCookiesEnabled, const bool clusteredAreaLights,
             std::vector<ClusterLightData>& lights, std::vector<const void*>& members)
         {
             lights.clear();
@@ -1575,11 +1578,17 @@ namespace visutwin::canvas
 
             for (const auto& dispatchEntry : localLights) {
                 const auto& ld = dispatchEntry.light;
-                // Area rect lights are not clustered — they go through the main 8-light array.
                 // Every spot and omni light is in the grid, shadowed from the atlas
                 // when it holds a slot for it and unshadowed otherwise, as upstream.
-                if (ld.type == GpuLightType::AreaRect) continue;
                 ClusterLightData lcd;
+                // A shaped light is an area light in the grid only with clustered area
+                // lights enabled; otherwise it shades as punctual (upstream's
+                // CLUSTER_AREALIGHTS).
+                if (clusteredAreaLights && ld.shape != 0u) {
+                    lcd.shape = ld.shape;
+                    lcd.areaHalfWidth = ld.areaHalfWidth;
+                    lcd.areaHalfHeight = ld.areaHalfHeight;
+                }
                 lcd.position = ld.position;
                 lcd.direction = ld.direction;
                 lcd.color = ld.color;
@@ -1635,11 +1644,11 @@ namespace visutwin::canvas
             }
         }
 
-        // The main light array for one light mask: directional lights first, then
-        // area lights, then — outside clustered lighting only — the other local
-        // lights, up to kMaxMainLights in all. Under clustered lighting every spot and
-        // omni light is in the cluster grid, shadowed from the atlas, so none of them
-        // enters the main array; it holds only the directional and area lights then.
+        // The main light array for one light mask: directional lights first, then —
+        // outside clustered lighting only — the local lights, up to kMaxMainLights in
+        // all. Under clustered lighting every spot and omni light, shaped or not, is in
+        // the cluster grid, shadowed from the atlas, so none of them enters the main
+        // array; it holds only the directional lights then.
         void filterLightsForMask(const ForwardLights& lights, const uint32_t mask, const bool clusteredEnabled,
             std::vector<GpuLightData>& out)
         {
@@ -1649,19 +1658,12 @@ namespace visutwin::canvas
                 out.push_back(dispatchEntry.light);
                 if (out.size() >= kMaxMainLights) break;
             }
-            for (const auto& dispatchEntry : lights.local) {
-                if (out.size() >= kMaxMainLights) break;
-                if (dispatchEntry.light.type != GpuLightType::AreaRect) continue;
-                if ((dispatchEntry.mask & mask) == 0u) continue;
-                out.push_back(dispatchEntry.light);
-            }
             if (clusteredEnabled) {
                 return;
             }
             for (const auto& dispatchEntry : lights.local) {
                 if (out.size() >= kMaxMainLights) break;
                 if ((dispatchEntry.mask & mask) == 0u) continue;
-                if (dispatchEntry.light.type == GpuLightType::AreaRect) continue;  // already added above
                 out.push_back(dispatchEntry.light);
             }
         }
@@ -1878,11 +1880,39 @@ namespace visutwin::canvas
                 // Upstream particle_end: tone map and gamma-encode on a gamma target, leave
                 // both to compose on a camera frame's linear HDR scene.
                 particles->setOutput(ctx.scene ? ctx.scene->exposureFor(view.camera) : 1.0f, view.toneMapping, device.hdrPass());
+                if (particles->options().lighting) {
+                    // Upstream's LightCube: the scene ambient in every direction, plus each
+                    // directional light weighted by how far the direction faces along it —
+                    // both as AUTHORED colours (upstream reads ambientLight and light._color).
+                    static constexpr float kCubeDirections[6][3] = {
+                        {-1, 0, 0}, {1, 0, 0}, {0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
+                    float cube[6][3];
+                    const Color ambient = ctx.scene ? ctx.scene->ambientLight() : Color(0.0f, 0.0f, 0.0f, 1.0f);
+                    for (auto& face : cube) {
+                        face[0] = ambient.r;
+                        face[1] = ambient.g;
+                        face[2] = ambient.b;
+                    }
+                    for (const auto& entry : ctx.lights.directional) {
+                        const GpuLightData& light = entry.light;
+                        for (int c = 0; c < 6; ++c) {
+                            const float weight = std::max(kCubeDirections[c][0] * light.direction.getX() +
+                                kCubeDirections[c][1] * light.direction.getY() +
+                                kCubeDirections[c][2] * light.direction.getZ(), 0.0f) * light.intensity;
+                            cube[c][0] += light.color.r * weight;
+                            cube[c][1] += light.color.g * weight;
+                            cube[c][2] += light.color.b * weight;
+                        }
+                    }
+                    particles->setLightCube(cube);
+                }
+                particles->setSoftening(view.camera ? view.camera->nearClip() : 0.1f,
+                    view.camera ? view.camera->farClip() : 1000.0f, device.sceneDepthGrabMap() != nullptr);
                 if (particles->particleBuffer()) {
                     particles->particleBuffer()->markStorageUse();   // counts as vram.sb
                 }
-                device.setParticleState(particles->particleBuffer(),
-                    &particles->renderParams(), sizeof(GpuParticleRenderParams));
+                device.setParticleState(particles->particleBuffer(), particles->orderBuffer(),
+                    particles->meshVertexBuffer(), &particles->renderParams(), sizeof(GpuParticleRenderParams));
                 device.setTransformUniforms(view.viewProjection, modelMatrix);
                 device.draw(entry.primitive, entry.indexBuffer,
                     static_cast<int>(particles->numParticles()), -1, true, true);
@@ -2068,7 +2098,8 @@ namespace visutwin::canvas
 
         // Light-dependent variants are enabled only when a light actually needs
         // them: an unbound shadow map or cookie parameter would be nil at draw time.
-        const LightFeatureUse lightFeatures = scanLightFeatureUse();
+        const LightFeatureUse lightFeatures = scanLightFeatureUse(
+            _scene && _scene->clusteredLightingEnabled(), _scene && _scene->lighting().areaLightsEnabled);
         programLibrary.setLocalShadowsEnabled(lightFeatures.localShadows);
         programLibrary.setOmniShadowsEnabled(lightFeatures.omniShadows);
         programLibrary.setCookie2DEnabled(lightFeatures.cookie2D);
@@ -2282,7 +2313,9 @@ namespace visutwin::canvas
             static thread_local std::vector<const void*> lightSetMembers;
             const bool clusteredCookies = _scene && _scene->lighting().cookiesEnabled &&
                 _lightTextureAtlas && _lightTextureAtlas->cookieAtlasTexture();
-            buildClusterLightInput(lights.local, clusteredCookies, clusterLights, lightSetMembers);
+            const bool clusteredAreaLights = _scene && _scene->lighting().areaLightsEnabled;
+            buildClusterLightInput(lights.local, clusteredCookies, clusteredAreaLights, clusterLights,
+                lightSetMembers);
             bindLayerClusterLights(clusterLights, lightSetMembers);
         }
 

@@ -314,6 +314,14 @@ target_link_libraries(visutwin-lightmapper-bvh-tests PRIVATE visutwin-canvas)
 
 add_test(NAME lightmapper-bvh COMMAND visutwin-lightmapper-bvh-tests)
 
+add_executable(visutwin-lightmap-filters-tests
+    lightmapFiltersTests.cpp
+)
+
+target_link_libraries(visutwin-lightmap-filters-tests PRIVATE visutwin-canvas)
+
+add_test(NAME lightmap-filters COMMAND visutwin-lightmap-filters-tests)
+
 add_executable(visutwin-standard-material-workflow-tests
     standardMaterialWorkflowTests.cpp
 )
@@ -666,3 +674,11 @@ target_link_libraries(visutwin-i18n-tests PRIVATE visutwin-canvas)
 target_compile_definitions(visutwin-i18n-tests PRIVATE VISUTWIN_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
 
 add_test(NAME i18n COMMAND visutwin-i18n-tests)
+
+add_executable(visutwin-gizmo-tests
+    gizmoTests.cpp
+)
+
+target_link_libraries(visutwin-gizmo-tests PRIVATE visutwin-canvas)
+
+add_test(NAME gizmo COMMAND visutwin-gizmo-tests)

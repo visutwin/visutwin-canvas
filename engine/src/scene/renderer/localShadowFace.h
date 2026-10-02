@@ -20,16 +20,19 @@ namespace visutwin::canvas
      * The state every local shadow pass binds before drawing: the depth-only
      * shadow shader, plain blend and depth state, and the light's hardware polygon
      * offset (skipped for an omni light, whose relative bias is applied in the
-     * forward shader, and for PCSS, which biases in the shader too). Returns false
-     * — and says why, once — when no shadow shader exists for the device.
+     * forward shader, and for PCSS and VSM, which bias in the shader too). With
+     * `vsm` the programs write EVSM moments of the distance to the light (a VSM spot
+     * light's own map; the clustered atlas is depth-only). Returns false — and says
+     * why, once — when no shadow shader exists for the device.
      */
     bool bindLocalShadowState(GraphicsDevice* device, ProgramLibrary* programLibrary,
-        const Light* light, DepthOnlyShaders& shaders);
+        const Light* light, DepthOnlyShaders& shaders, bool vsm = false);
 
     /// Creates what a local shadow pass draws with before it draws: the depth-only
     /// programs bindLocalShadowState binds and, for the atlas pass, the program
     /// clearDepthRect clears a rect with. For the passes' prepareShaders().
-    void prepareLocalShadowShaders(const std::shared_ptr<GraphicsDevice>& device, bool clearsRects);
+    void prepareLocalShadowShaders(const std::shared_ptr<GraphicsDevice>& device, bool clearsRects,
+        bool vsm = false);
 
     /**
      * Draws face `face` of `light`'s shadow into whatever target and viewport are
@@ -51,4 +54,18 @@ namespace visutwin::canvas
      * own depth state and shader afterwards.
      */
     void clearDepthRect(GraphicsDevice* device, const Vector4& rect);
+
+    /**
+     * Clears the depth of the bound target, within the current viewport, to 1.0 INSIDE a
+     * render pass that also has colour attachments, leaving the colour untouched: the same
+     * depth-1 triangle under ALWAYS, with every colour write masked off. Upstream clears a
+     * render action that is not the first of its pass in the middle of the pass
+     * (RenderPassForward `options.clearDepth` -> `renderer.clear`), which is how a layer
+     * with `clearDepthBuffer` (a gizmo layer, the layers example's front layer) draws over
+     * everything before it; a load action can only clear at the start of a pass.
+     */
+    void clearDepthInPass(GraphicsDevice* device);
+
+    /// Creates the shader clearDepthInPass draws with, for a pass's prepareShaders().
+    void prepareClearDepthShader(GraphicsDevice* device);
 }

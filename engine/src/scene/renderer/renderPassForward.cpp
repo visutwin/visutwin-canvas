@@ -10,6 +10,7 @@
 #include <cassert>
 #include <unordered_map>
 
+#include "localShadowFace.h"
 #include "renderer.h"
 #include "spdlog/spdlog.h"
 #include "scene/composition/layerComposition.h"
@@ -108,6 +109,12 @@ namespace visutwin::canvas
         if (!_renderer) {
             return;
         }
+        for (size_t i = 0; i < _renderActions.size(); ++i) {
+            if (i > 0 && _renderActions[i] && _renderActions[i]->clearDepth && _renderActions[i]->layer &&
+                _renderActions[i]->layer->clearDepthBuffer()) {
+                prepareClearDepthShader(device().get());
+            }
+        }
         for (const auto* renderAction : _renderActions) {
             if (renderAction && renderAction->camera) {
                 _renderer->prepareForwardShaders(renderAction->camera->camera(), renderAction->layer,
@@ -118,7 +125,6 @@ namespace visutwin::canvas
 
     void RenderPassForward::renderRenderAction(RenderAction* renderAction, const bool firstRenderAction)
     {
-        (void)firstRenderAction;
         if (!_beforeCalled) {
             spdlog::error("RenderPassForward parity violation: renderRenderAction() called before before()");
             assert(_beforeCalled && "Render action executed outside pass lifecycle");
@@ -133,6 +139,16 @@ namespace visutwin::canvas
 
         if (_scene) {
             _scene->fire("prerender:layer", renderAction->camera, layer, renderAction->transparent);
+        }
+
+        // Upstream: a render action that is not the first of its pass executes its clears
+        // here, in the middle of the pass (the pass itself cleared only for the first).
+        // DEVIATION: only a LAYER's depth clear is performed mid-pass (a gizmo layer, the
+        // layers example's front layer). A colour or stencil clear, and a camera's own clear
+        // on its first action in a pass shared with another camera, are not: the latter would
+        // need that camera's viewport, which renderForwardLayer has not set yet.
+        if (!firstRenderAction && renderAction->clearDepth && layer && layer->clearDepthBuffer()) {
+            clearDepthInPass(device().get());
         }
 
         _renderer->renderForwardLayer(camera, target, layer, renderAction->transparent);

@@ -21,8 +21,8 @@ the [README](README.md).
 - **PCF**, **EVSM_16F** (Exponential Variance Shadow Maps: separable Gaussian blur, Chebyshev sampling, caster-AABB depth tightening), and **PCSS** contact-hardening soft shadows for directional lights
 - **Spot/point** 2D depth maps and **omnidirectional cubemap** shadows, with PCSS also supported on spot/omni local lights
 - **Clustered lighting** for many-light scenes with a packed **shadow atlas** whose resolution can change at runtime, plus a **shadow catcher** material for compositing
-- **Lightmap baking**, two bakers: a **CPU** baker that ray-traces ambient occlusion and soft shadows (LDR, single bounce) and a **GPU** baker that rasterises each mesh in UV space lit by the scene's own shadow maps in one frame
-- **Volumetric fog**: shadow-sampled directional ray march (Henyey-Greenstein phase, height falloff, Beer-Lambert extinction) at reduced resolution with a depth-aware upsample
+- **Lightmap baking**, two bakers: a **CPU** baker that ray-traces ambient occlusion and soft shadows (LDR, single bounce) and a **GPU** baker that rasterises each mesh in UV space lit by the scene's own shadow maps over a few frames: soft directional shadows and ambient occlusion from virtual lights, then the bilateral denoise and dilate
+- **Volumetric fog**: shadow-sampled directional ray march (Henyey-Greenstein phase, height falloff, Beer-Lambert extinction) at reduced resolution with a depth-aware upsample; clustered spot and omni lights scatter in it through their own volumes, with atlas shadows and cookies (`localOmniLights` / `localSpotLights`, per-light `volumetricScattering`)
 
 ## Animation & geometry
 - **GPU skinning** (4-bone weighted blend) and **morph targets**, with skinned-mesh bone-AABB frustum culling
@@ -77,7 +77,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Framework / ECS | Engine, Entity, component-system registry, scripts, hierarchy, lifecycle/event integration |
 | Framework / Components | 18 types: Camera, Render, Light, Script, Animation, Anim (state graph), Screen, Element, Button, LayoutGroup, LayoutChild, Scrollbar, ScrollView, Collision, RigidBody, Joint, GSplat, ParticleSystem |
 | Framework / Animation | GPU skinning, morph targets/weights, clips/evaluator/binder with path resolution, state graphs, transitions, blend trees, weighted layer composition |
-| Framework / Gizmo | Interactive translate/rotate/scale handles with axis picking and snapping |
+| Framework / Gizmo | Upstream's transform gizmos: translate (arrows, plane handles, centre), rotate (half/full arc rings, view ring, orbit sphere, angle guides), scale (box-lines, planes, uniform centre); triangle picking, hover themes, snapping, drag modes, span guide lines, constant screen size |
 | Framework / Assets | Async container/texture/font loading; GLB/glTF (+Draco, quantised attributes, texture transform, node identity for unnamed nodes), OBJ/STL/Assimp; KTX2/Basis transcoding to ASTC or BC |
 | Framework / Lightmapper | CPU ray-traced baker and GPU UV-space baker |
 | Viz / Overlay | Metal-only ImGui/ImPlot HUD integration, input capture, digital-twin theme, 3D-anchored labels/panels |
@@ -89,6 +89,6 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 - Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported
 - Reflection probes support runtime scene-capture baking (dynamic cubemap) as well as supplied cubemaps; per-level GGX cube prefilter is deferred (roughness uses hardware trilinear cube mips)
 - Texture streaming is partial (no progressive mip-level budgeting)
-- Lightmap baking: the CPU baker is LDR and single-bounce with no colour+direction output or automatic UV unwrap; the GPU baker has no bounce passes, no ambient-occlusion virtual lights and no dilate/denoise
+- Lightmap baking: the CPU baker is LDR and single-bounce with no colour+direction output or automatic UV unwrap; the GPU baker has no colour+direction (BAKE_COLORDIR) output
 - Screen-space reflections have no HiZ acceleration and no temporal accumulation; the roughness cone reads the colour grab's mips rather than tracing a cone, and geometry thinner than one march step can be skipped
 - Animation: no animation events

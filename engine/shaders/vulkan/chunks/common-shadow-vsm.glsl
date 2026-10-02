@@ -151,16 +151,31 @@ float sampleDirectionalShadow(int slot, vec3 worldPos, float viewDepth, vec3 N, 
     return shadowFactor;
 }
 
+// EVSM visibility from a VSM spot light's moments (upstream getShadowSpotVSM16): the
+// receiver is its distance over the range, the map's own sampler filters linearly.
+float sampleSpotShadowVSM16(sampler2D moments, vec2 uv, float receiverZ, float vsmBias) {
+    const float VSM_EXPONENT = 5.54;
+    vec3 m = textureLod(moments, uv, 0.0).xyz;
+    float warped = exp(VSM_EXPONENT * (2.0 * receiverZ - 1.0));
+    vec2 stored = m.xy + vec2(warped, warped * warped) * (1.0 - m.z);
+    float depthScale = vsmBias * VSM_EXPONENT * warped;
+    return chebyshevUpperBound(stored, warped, depthScale * depthScale);
+}
+
 // Spot-light 2D shadow visibility (1 = lit, 0 = shadowed).  Mirrors the
 // directional path but with a single per-light matrix, bias, and intensity.
-float sampleSpotShadow(int slot, vec3 worldPos, vec3 N, vec3 L) {
+// `lightDistance` is the receiver's distance to the light, which a VSM slot compares.
+float sampleSpotShadow(int slot, vec3 worldPos, vec3 N, vec3 L, float lightDistance) {
     mat4 m  = (slot == 0) ? lighting.localShadowMatrix0 : lighting.localShadowMatrix1;
     vec4 sp = (slot == 0) ? lighting.localShadowParams0 : lighting.localShadowParams1;
+    vec4 pc = (slot == 0) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
+    // A VSM spot (pcss.w): no normal offset, as upstream's VSM path takes none.
+    bool vsm = pc.w > 0.5;
 
     // World-space normal bias, scaled by grazing angle (matches Metal).
     float ndl = clamp(dot(N, L), 0.0, 1.0);
     float sinAngle = sqrt(max(1.0 - ndl * ndl, 0.0));
-    vec3 biased = worldPos + N * (sp.y * sinAngle);
+    vec3 biased = vsm ? worldPos : worldPos + N * (sp.y * sinAngle);
 
     vec4 sc = m * vec4(biased, 1.0);
     if (sc.w <= 0.0) {
@@ -177,9 +192,13 @@ float sampleSpotShadow(int slot, vec3 worldPos, vec3 N, vec3 L) {
     float receiver = coord.z - sp.x;
     // PCSS is a runtime branch here (no extra specialization): a non-zero
     // search area means this slot's light uses SHADOW_PCSS_32F.
-    vec4 pc = (slot == 0) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
     float visible;
-    if (pc.x > 0.0) {
+    if (vsm) {
+        float receiverRatio = lightDistance / pc.z - sp.x;
+        visible = (slot == 0)
+            ? sampleSpotShadowVSM16(localShadowMap0, coord.xy, receiverRatio, sp.y)
+            : sampleSpotShadowVSM16(localShadowMap1, coord.xy, receiverRatio, sp.y);
+    } else if (pc.x > 0.0) {
         visible = (slot == 0)
             ? getShadowPCSSSpot(localShadowMap0, coord.xy, receiver, pc.x, pc.y, pc.z)
             : getShadowPCSSSpot(localShadowMap1, coord.xy, receiver, pc.x, pc.y, pc.z);

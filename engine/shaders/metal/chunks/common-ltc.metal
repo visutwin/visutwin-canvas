@@ -240,3 +240,77 @@ static inline float ltcEvaluateDisk(float3 N, float3 V, float3 P, float3x3 mInv,
     // zero them before they spread through bloom/DOF blurs.
     return isnan(result) ? 0.0 : result;
 }
+
+// ---------------------------------------------------------------------------
+// A light with a non-punctual shape (LightShape 1 rect, 2 disk, 3 sphere), as both
+// the main light loop and the cluster loop evaluate it — upstream's
+// calc{Rect,Disk,Sphere}LightValues, get*LightDiffuse and get*LightSpecular.
+// ---------------------------------------------------------------------------
+struct LtcAreaLight {
+    float3 p0;
+    float3 p1;
+    float3 p2;
+    float3 p3;
+    float sphereRadius;
+};
+
+// The quad's corners, ccw (upstream getLTCLightCoords). A sphere is billboarded to the
+// reflection vector so the disk integral can take it (upstream calcSphereLightValues).
+static inline LtcAreaLight ltcAreaLight(uint shape, float3 lightPos, float3 halfWidth, float3 halfHeight,
+                                        float3 N, float3 cameraPosition)
+{
+    LtcAreaLight a;
+    a.sphereRadius = max(length(halfWidth), length(halfHeight));
+    if (shape == 3u) {
+        const float3 f = reflect(normalize(lightPos - cameraPosition), N);
+        const float3 w = normalize(cross(f, halfHeight));
+        const float3 h = normalize(cross(f, w));
+        halfWidth = w * a.sphereRadius;
+        halfHeight = h * a.sphereRadius;
+    }
+    a.p0 = lightPos + halfWidth - halfHeight;
+    a.p1 = lightPos - halfWidth - halfHeight;
+    a.p2 = lightPos - halfWidth + halfHeight;
+    a.p3 = lightPos + halfWidth + halfHeight;
+    return a;
+}
+
+// Diffuse form factor of a LOCAL area light, with the 16 that getFalloffInvSquared
+// carries, so area and punctual lights of equal intensity are comparable.
+static inline float ltcAreaDiffuse(uint shape, LtcAreaLight a, float3 lightPos, float3 N, float3 V,
+                                   float3 P, texture2d<float> lut2)
+{
+    const float3x3 identity = float3x3(float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, 0.0, 1.0));
+    if (shape == 2u) {
+        return ltcEvaluateDisk(N, V, P, identity, a.p0, a.p1, a.p2, lut2) * 16.0;
+    }
+    if (shape == 3u) {
+        // Punctual Lambert with a radius-based falloff (upstream getSphereLightDiffuse).
+        const float3 toLight = lightPos - P;
+        const float falloff = a.sphereRadius / (dot(toLight, toLight) + a.sphereRadius);
+        return max(dot(N, normalize(toLight)), 0.0) * falloff * 16.0;
+    }
+    return ltcEvaluateRect(N, V, P, identity, a.p0, a.p1, a.p2, a.p3) * 16.0;
+}
+
+// Upstream dLTCSpecFres: the Fresnel magnitude and geometric attenuation from LUT2.
+static inline float3 ltcSpecularFresnel(float3 N, float3 V, float gloss, float3 F0, texture2d<float> lut2)
+{
+    const float4 t2 = lut2.sample(ltcLutSampler, ltcUv(N, V, gloss), level(0));
+    return F0 * t2.x + (float3(1.0) - F0) * t2.y;
+}
+
+// Specular LTC integral, with the inverse transform from LUT1 (a sphere integrates its
+// billboarded quad as a disk).
+static inline float ltcAreaSpecular(uint shape, LtcAreaLight a, float3 N, float3 V, float3 P, float gloss,
+                                    texture2d<float> lut1, texture2d<float> lut2)
+{
+    const float4 t1 = lut1.sample(ltcLutSampler, ltcUv(N, V, gloss), level(0));
+    const float3x3 mInv = float3x3(
+        float3(t1.x, 0.0, t1.y),
+        float3(0.0, 1.0, 0.0),
+        float3(t1.z, 0.0, t1.w));
+    return (shape != 1u)
+        ? ltcEvaluateDisk(N, V, P, mInv, a.p0, a.p1, a.p2, lut2)
+        : ltcEvaluateRect(N, V, P, mInv, a.p0, a.p1, a.p2, a.p3);
+}

@@ -50,6 +50,15 @@ namespace visutwin::canvas
         LineWidthUnits widthUnits() const { return _widthUnits; }
         void setWidthUnits(const LineWidthUnits value) { _widthUnits = value; _dirty = true; }
 
+        /// The layers the batch draws on (default: World).
+        void setLayers(const std::vector<int>& layers);
+
+        /// Alpha-blend the lines by each line's opacity (default off: opaque).
+        void setBlend(bool enabled);
+
+        /// Test (and write) depth (default on).
+        void setDepthTest(bool enabled);
+
         /// The render target size in pixels, needed to expand a screen-space width.
         void setScreenSize(float width, float height);
 
@@ -73,6 +82,7 @@ namespace visutwin::canvas
         struct LineParams { float screenSize[4] = {1.0f, 1.0f, 1.0f, 1.0f}; };
         LineParams _params;
 
+        std::vector<int> _layers;
         LineWidthUnits _widthUnits = LineWidthUnits::Pixels;
         bool _dirty = true;
     };

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 #include <Metal/Metal.hpp>
 #include <Foundation/NSAutoreleasePool.hpp>
 #include "QuartzCore/CAMetalDrawable.hpp"
@@ -221,7 +222,9 @@ namespace visutwin::canvas
 
         /// Bind Gaussian splat buffers (vertex slots 7/8) + params (vertex slot 11)
         /// for the next draw call.
+        using GraphicsDevice::setParticleState;
         void setParticleState(const std::shared_ptr<VertexBuffer>& particles,
+            const std::shared_ptr<VertexBuffer>& order, const std::shared_ptr<VertexBuffer>& meshVertices,
             const void* params, size_t paramsSize) override;
         void setGSplatState(const std::shared_ptr<VertexBuffer>& splats,
             const std::shared_ptr<VertexBuffer>& order, const std::shared_ptr<VertexBuffer>& sh,
@@ -401,6 +404,8 @@ namespace visutwin::canvas
 
         // GPU particle emitters: sim compute pipeline (lazy) + per-draw binding.
         MTL::Buffer* _pendingParticleBuffer = nullptr;
+        MTL::Buffer* _pendingParticleOrderBuffer = nullptr;
+        MTL::Buffer* _pendingParticleMeshBuffer = nullptr;
         std::array<uint8_t, 1024> _pendingParticleParams{};
         size_t _pendingParticleParamsSize = 0;
         MTL::SamplerState* _defaultSampler = nullptr;
@@ -466,11 +471,26 @@ namespace visutwin::canvas
         int _passWidth = 0;
         int _passHeight = 0;
 
+        // A cluster grid's light and cell buffers are CPU-written and GPU-read, so each
+        // grid a frame binds gets its own pair, and the pairs of one frame are not
+        // written again until that frame's ring region comes round (see
+        // setClusterBuffers). The two pointers are the pair bound now, owned by the sets.
+        struct ClusterBufferSet
+        {
+            MTL::Buffer* light = nullptr;
+            MTL::Buffer* cell = nullptr;
+            size_t lightCapacity = 0;
+            size_t cellCapacity = 0;
+        };
+        std::array<std::vector<ClusterBufferSet>, MetalUniformRingBuffer::kMaxInflightFrames> _clusterBufferSets;
+        size_t _clusterFrameSlot = 0;
+        size_t _clusterSetsUsed = 0;
+        const void* _clusterLastLightData = nullptr;
+        const void* _clusterLastCellData = nullptr;
         MTL::Buffer* _clusterLightBuffer = nullptr;
         MTL::Buffer* _clusterCellBuffer = nullptr;
-        size_t _clusterLightBufferCapacity = 0;
-        size_t _clusterCellBufferCapacity = 0;
         bool _clusterBuffersSet = false;
+        size_t clusterBufferVram() const;
 
         // Per-frame autorelease pool.  Metal-cpp methods like commandBuffer()
         // return autoreleased objects that accumulate until a pool drains.

@@ -5,6 +5,7 @@
 //
 #include "particleEmitter.h"
 #include "particleSimShaders.h"
+#include "particleSortShaders.h"
 #include "platform/graphics/compute.h"
 
 #include <algorithm>
@@ -101,6 +102,8 @@ namespace visutwin::canvas
         _loop = _options.loop;
         if (poolChanged) {
             createParticleBuffer();
+            _simCompute.reset();
+            _orderBuffer.reset();
             reset();
         }
         createMaterial();
@@ -158,9 +161,17 @@ namespace visutwin::canvas
         // texture path.
         _material->setBaseColorTexture(_options.colorMap);
         _material->setHasBaseColorTexture(_options.colorMap != nullptr);
+        // A lit particle's normal map, at the material's normal slot (upstream binds it only
+        // with lighting on).
+        Texture* normalMap = _options.lighting ? _options.normalMap : nullptr;
+        _material->setNormalTexture(normalMap);
+        _material->setHasNormalTexture(normalMap != nullptr);
 
+        // An opaque emitter (BLEND_NONE) draws in the opaque sublayer with no blending.
+        const bool opaque = _options.blendType == ParticleBlendType::BLEND_NONE;
+        _material->setTransparent(!opaque);
         auto blendState = std::make_shared<BlendState>();
-        blendState->setEnabled(true);
+        blendState->setEnabled(!opaque);
         blendState->setColorOp(BLENDEQUATION_ADD);
         blendState->setAlphaOp(BLENDEQUATION_ADD);
         switch (_options.blendType) {
@@ -175,6 +186,12 @@ namespace visutwin::canvas
                 blendState->setColorDstFactor(BLENDMODE_ONE_MINUS_SRC_ALPHA);
                 blendState->setAlphaSrcFactor(BLENDMODE_ONE);
                 blendState->setAlphaDstFactor(BLENDMODE_ONE_MINUS_SRC_ALPHA);
+                break;
+            case ParticleBlendType::BLEND_NONE:
+                blendState->setColorSrcFactor(BLENDMODE_ONE);
+                blendState->setColorDstFactor(BLENDMODE_ZERO);
+                blendState->setAlphaSrcFactor(BLENDMODE_ONE);
+                blendState->setAlphaDstFactor(BLENDMODE_ZERO);
                 break;
             case ParticleBlendType::BLEND_NORMAL:
             default:
@@ -199,6 +216,9 @@ namespace visutwin::canvas
         auto scale = _options.scaleGraph.quantize(kCurveSamples);
         auto alpha = _options.alphaGraph.quantize(kCurveSamples);
         auto color = _options.colorGraph.quantize(kCurveSamples);
+        // graph2: an unset one is the graph itself (upstream's default).
+        auto scale2 = _options.scaleGraph2.length() > 0 ? _options.scaleGraph2.quantize(kCurveSamples) : scale;
+        auto alpha2 = _options.alphaGraph2.length() > 0 ? _options.alphaGraph2.quantize(kCurveSamples) : alpha;
         const size_t colorChannels = _options.colorGraph.curves.size();
         for (int i = 0; i < kCurveSamples; ++i) {
             float r = 1.0f, g = 1.0f, b = 1.0f;
@@ -212,6 +232,8 @@ namespace visutwin::canvas
             _renderParams.colorLut[i][2] = std::max(b, 0.0f);
             _renderParams.colorLut[i][3] = std::clamp(alpha[i], 0.0f, 1.0f);
             _renderParams.scaleLut[i][0] = std::max(scale[i], 0.0f);
+            _renderParams.scaleLut[i][1] = std::max(scale2[i], 0.0f);
+            _renderParams.scaleLut[i][2] = std::clamp(alpha2[i], 0.0f, 1.0f);
         }
 
         // The velocity and rotation-speed graphs go to the simulation. A missing graph2 is
@@ -268,6 +290,27 @@ namespace visutwin::canvas
         }
         _simParams.graphParams[0] = velocityGraphs ? 1.0f : 0.0f;
         _simParams.graphParams[1] = rotationGraph || _options.rotationSpeedGraph2.length() > 0 ? 1.0f : 0.0f;
+
+        // The radial speed pair rides in the world velocity tables' w (units/s).
+        const auto quantizeRadial = [](Curve& graph, float (*lut)[4]) {
+            if (graph.length() == 0) {
+                return false;
+            }
+            const auto samples = graph.quantize(kCurveSamples);
+            for (int i = 0; i < kCurveSamples; ++i) {
+                lut[i][3] = samples[i];
+            }
+            return true;
+        };
+        bool radialGraph = quantizeRadial(_options.radialSpeedGraph, _simParams.velocityLut);
+        if (!quantizeRadial(_options.radialSpeedGraph2, _simParams.velocityLut2)) {
+            for (int i = 0; i < kCurveSamples; ++i) {
+                _simParams.velocityLut2[i][3] = _simParams.velocityLut[i][3];
+            }
+        } else {
+            radialGraph = true;
+        }
+        _simParams.graphParams[2] = radialGraph ? 1.0f : 0.0f;
     }
 
     void ParticleEmitter::reset()
@@ -343,6 +386,7 @@ namespace visutwin::canvas
         params.timeParams[0] = std::min(dt, 0.1f);   // clamp huge hitches
         params.timeParams[1] = _time;
         params.timeParams[2] = static_cast<float>(_options.numParticles) * std::max(_options.rate, 0.0f);
+        params.graphParams[3] = std::max(_options.rate2.value_or(_options.rate), 0.0f) - std::max(_options.rate, 0.0f);
         params.timeParams[3] = static_cast<float>(_options.numParticles);
         constexpr float degToRad = std::numbers::pi_v<float> / 180.0f;
         params.lifeRot[0] = std::max(_options.lifetime, 1e-4f);
@@ -426,6 +470,139 @@ namespace visutwin::canvas
         // Upstream #9570: a screen-space quad's x is scaled by height / width to stay square.
         _renderParams.motionParams[3] = viewportWidth > 0.0f && viewportHeight > 0.0f
             ? viewportHeight / viewportWidth : 1.0f;
+        _renderParams.view = view;
+        _renderParams.outputParams[3] = orderBuffer() ? 1.0f : 0.0f;
+
+        // Upstream _compParticleFaceParams: a WORLD or EMITTER oriented quad lies in the
+        // plane of particleNormal (turned by the emitter for EMITTER).
+        const bool useMesh = meshVertexBuffer() != nullptr;
+        if (_options.orientation != ParticleOrientation::SCREEN && !_options.screenSpace) {
+            Vector3 n = _options.orientation == ParticleOrientation::WORLD
+                ? _options.particleNormal
+                : Vector3(model * Vector4(_options.particleNormal.getX(), _options.particleNormal.getY(),
+                      _options.particleNormal.getZ(), 0.0f));
+            n = n.lengthSquared() > 1e-12f ? n.normalized() : Vector3(0.0f, 1.0f, 0.0f);
+            Vector3 t(1.0f, 0.0f, 0.0f);
+            if (std::abs(t.dot(n)) == 1.0f) {
+                t = Vector3(0.0f, 0.0f, 1.0f);
+            }
+            const Vector3 b = n.cross(t).normalized();
+            t = b.cross(n).normalized();
+            t.store(_renderParams.faceTangent);
+            b.store(_renderParams.faceBinorm);
+            _renderParams.faceTangent[3] = 1.0f;
+        } else {
+            _renderParams.faceTangent[3] = 0.0f;
+        }
+        _renderParams.faceBinorm[3] = useMesh ? 1.0f : 0.0f;
+
+        // Upstream wrap: GPU, world-space particles only, around the emitter's position.
+        const bool wrap = _options.wrap && !_options.localSpace && !_options.screenSpace &&
+            _options.wrapBounds.getX() > 0.0f && _options.wrapBounds.getY() > 0.0f && _options.wrapBounds.getZ() > 0.0f;
+        _options.wrapBounds.store(_renderParams.wrapParams);
+        _renderParams.wrapParams[3] = wrap ? 1.0f : 0.0f;
+        Vector3(model.getColumn(3)).store(_renderParams.emitterPosition);
+        _renderParams.emitterPosition[3] = _options.localSpace ? 1.0f : 0.0f;
+
+        _renderParams.lightCube[0][3] = _options.lighting && !_options.screenSpace ? 1.0f : 0.0f;
+        _renderParams.lightCube[1][3] = _options.halfLambert ? 1.0f : 0.0f;
+        _renderParams.lightCube[2][3] = _options.lighting && _options.normalMap ? 1.0f : 0.0f;
+    }
+
+    void ParticleEmitter::setLightCube(const float (&colors)[6][3])
+    {
+        for (int i = 0; i < 6; ++i) {
+            for (int c = 0; c < 3; ++c) {
+                _renderParams.lightCube[i][c] = colors[i][c];
+            }
+        }
+    }
+
+    void ParticleEmitter::setSoftening(const float cameraNear, const float cameraFar, const bool sceneDepthAvailable)
+    {
+        // Upstream remaps the softening "to more perceptually linear": 1 / (s^2 * 100).
+        const float s = _options.depthSoftening;
+        _renderParams.softParams[0] = s > 0.0f ? 1.0f / (s * s * 100.0f) : 0.0f;
+        _renderParams.softParams[1] = cameraNear;
+        _renderParams.softParams[2] = cameraFar;
+        _renderParams.softParams[3] = s > 0.0f && !_options.screenSpace && sceneDepthAvailable ? 1.0f : 0.0f;
+    }
+
+    std::shared_ptr<VertexBuffer> ParticleEmitter::meshVertexBuffer() const
+    {
+        if (!_options.mesh) {
+            return nullptr;
+        }
+        auto vertexBuffer = _options.mesh->getVertexBuffer();
+        // The shader reads the engine's packed vertex: position, normal, uv0 in the first
+        // eight of 14 floats.
+        if (!vertexBuffer || !vertexBuffer->format() ||
+            vertexBuffer->format()->size() != 14 * static_cast<int>(sizeof(float))) {
+            return nullptr;
+        }
+        return vertexBuffer;
+    }
+
+    void ParticleEmitter::createSortBuffers()
+    {
+        uint32_t size = 1u;
+        while (size < _options.numParticles) {
+            size <<= 1u;
+        }
+        auto keyFormat = std::make_shared<VertexFormat>(static_cast<int>(2 * sizeof(float)), true, false);
+        VertexBufferOptions keyOptions;
+        keyOptions.data.assign(size * 2 * sizeof(float), 0);
+        _sortKeys = _device->createVertexBuffer(keyFormat, static_cast<int>(size), keyOptions);
+
+        auto orderFormat = std::make_shared<VertexFormat>(static_cast<int>(sizeof(uint32_t)), true, false);
+        VertexBufferOptions orderOptions;
+        orderOptions.data.assign(_options.numParticles * sizeof(uint32_t), 0);
+        _orderBuffer = _device->createVertexBuffer(orderFormat, static_cast<int>(_options.numParticles), orderOptions);
+        _sortCompute.reset();
+        _sorted = false;
+    }
+
+    void ParticleEmitter::sort(const Vector3& cameraPosition, const Matrix4& emitterTransform)
+    {
+        if (_options.sort == ParticleSort::NONE || !_particleBuffer || !_device || !_device->supportsCompute()) {
+            return;
+        }
+        if (!_orderBuffer || _orderBuffer->numVertices() != static_cast<int>(_options.numParticles)) {
+            createSortBuffers();
+        }
+        if (!_sortShader) {
+            ShaderDefinition definition;
+            definition.name = "particle-sort";
+            definition.cshader = "particleSortKernel";
+            _sortShader = createShader(_device.get(), definition,
+                _device->shaderLanguage() == ShaderLanguage::Glsl
+                    ? particle_sort_shaders::PARTICLE_SORT_GLSL
+                    : particle_sort_shaders::PARTICLE_SORT_MSL);
+            if (!_sortShader) {
+                return;
+            }
+        }
+        if (!_sortCompute) {
+            _sortCompute = std::make_unique<Compute>(_device.get(), _sortShader, "ParticleSort");
+            _sortCompute->setParameter("order", _orderBuffer);
+            _sortCompute->setParameter("particles", _particleBuffer);
+            _sortCompute->setParameter("sortKeys", _sortKeys);
+            _sortCompute->setThreadgroupSize(particle_sort_shaders::kSortThreads, 1u, 1u);
+            _sortCompute->setupDispatch(1u, 1u, 1u);
+        }
+
+        // A local-space pool is in the emitter's space, and so is the camera then.
+        const Vector3 camera = _options.localSpace
+            ? emitterTransform.inverse().transformPoint(cameraPosition) : cameraPosition;
+        particle_sort_shaders::SortUniforms uniforms{};
+        camera.store(uniforms.cameraPosition);
+        uniforms.cameraPosition[3] = static_cast<float>(_options.sort);
+        uniforms.counts[0] = static_cast<float>(_options.numParticles);
+        uniforms.counts[1] = static_cast<float>(_sortKeys->numVertices());
+        _sortCompute->setUniformBlock(&uniforms, sizeof(uniforms));
+        Compute* dispatch = _sortCompute.get();
+        _device->computeDispatch({dispatch}, "particle-sort");
+        _sorted = true;
     }
 
     void ParticleEmitter::setOutput(const float exposure, const int toneMapping, const bool linearTarget)
@@ -437,7 +614,13 @@ namespace visutwin::canvas
 
     std::unique_ptr<MeshInstance> ParticleEmitter::createMeshInstance(GraphNode* node)
     {
-        auto meshInstance = std::make_unique<MeshInstance>(_quadMesh, _material, node);
+        // A mesh emitter draws its mesh once per particle (upstream useMesh); its vertices are
+        // also read as storage, by index.
+        const bool useMesh = meshVertexBuffer() != nullptr;
+        if (_options.mesh && !useMesh) {
+            spdlog::warn("ParticleEmitter: the particle mesh is not the packed 14-float vertex layout; drawing quads");
+        }
+        auto meshInstance = std::make_unique<MeshInstance>(useMesh ? _options.mesh : _quadMesh, _material, node);
         meshInstance->setCastShadow(false);
         meshInstance->setReceiveShadow(false);
         // Particles move freely (world-space mode ignores the node transform

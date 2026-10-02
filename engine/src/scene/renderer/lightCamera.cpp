@@ -93,7 +93,6 @@ namespace visutwin::canvas
             break;
 
         case LightType::LIGHTTYPE_SPOT:
-        case LightType::LIGHTTYPE_AREA_RECT:
             camera->setProjection(ProjectionType::Perspective);
             break;
 

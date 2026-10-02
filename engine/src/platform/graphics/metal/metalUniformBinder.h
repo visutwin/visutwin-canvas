@@ -174,6 +174,8 @@ namespace visutwin::canvas
         [[nodiscard]] Texture* shadowTexture1() const { return _shadowTexture1; }
         [[nodiscard]] Texture* localShadowTexture0() const override { return _localShadowTexture0; }
         [[nodiscard]] Texture* localShadowTexture1() const override { return _localShadowTexture1; }
+        [[nodiscard]] Texture* localVsmTexture0() const { return _localVsmTexture0; }
+        [[nodiscard]] Texture* localVsmTexture1() const { return _localVsmTexture1; }
         [[nodiscard]] Texture* cookieTexture2D0() const override { return _cookieTexture2D0; }
         [[nodiscard]] Texture* cookieTexture2D1() const override { return _cookieTexture2D1; }
         [[nodiscard]] Texture* cookieTextureCube0() const override { return _cookieTextureCube0; }
@@ -191,6 +193,8 @@ namespace visutwin::canvas
         Texture* _shadowTexture1 = nullptr;
         Texture* _localShadowTexture0 = nullptr;
         Texture* _localShadowTexture1 = nullptr;
+        Texture* _localVsmTexture0 = nullptr;
+        Texture* _localVsmTexture1 = nullptr;
         Texture* _cookieTexture2D0 = nullptr;
         Texture* _cookieTexture2D1 = nullptr;
         Texture* _cookieTextureCube0 = nullptr;

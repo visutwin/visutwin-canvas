@@ -137,7 +137,9 @@ namespace visutwin::canvas
         }
         void setMorphState(const std::shared_ptr<VertexBuffer>& deltaBuffer,
             const void* params, size_t paramsSize) override;
+        using GraphicsDevice::setParticleState;
         void setParticleState(const std::shared_ptr<VertexBuffer>& particles,
+            const std::shared_ptr<VertexBuffer>& order, const std::shared_ptr<VertexBuffer>& meshVertices,
             const void* params, size_t paramsSize) override;
         void setGSplatState(const std::shared_ptr<VertexBuffer>& splats,
             const std::shared_ptr<VertexBuffer>& order,
@@ -464,6 +466,8 @@ namespace visutwin::canvas
             std::optional<uint32_t> morphParamsOffset;
             VkDeviceSize morphParamsSize = 0;
             std::shared_ptr<VertexBuffer> particleBuffer;
+            std::shared_ptr<VertexBuffer> particleOrderBuffer;
+            std::shared_ptr<VertexBuffer> particleMeshBuffer;
             std::array<uint8_t, sizeof(GpuParticleRenderParams)> particleParams{};
             size_t particleParamsSize = 0;
             std::shared_ptr<VertexBuffer> splatBuffer;
@@ -705,6 +709,8 @@ namespace visutwin::canvas
             VmaAllocation& allocation);
 
         std::shared_ptr<VertexBuffer> _pendingParticleBuffer;
+        std::shared_ptr<VertexBuffer> _pendingParticleOrderBuffer;
+        std::shared_ptr<VertexBuffer> _pendingParticleMeshBuffer;
         std::array<uint8_t, sizeof(GpuParticleRenderParams)> _pendingParticleParams{};
         size_t _pendingParticleParamsSize = 0;
         std::shared_ptr<VertexBuffer> _pendingGSplatBuffer;
@@ -948,6 +954,8 @@ namespace visutwin::canvas
         // per-light ShadowMap in the renderer.
         Texture* _localShadowTexture0 = nullptr;
         Texture* _localShadowTexture1 = nullptr;
+        bool _localShadowVsm0 = false;   // the slot holds a VSM spot's moments
+        bool _localShadowVsm1 = false;
         Texture* _omniShadowCube0 = nullptr;
         Texture* _omniShadowCube1 = nullptr;
 

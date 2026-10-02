@@ -26,6 +26,7 @@
 namespace visutwin::canvas
 {
     class Camera;
+    class LightTextureAtlas;
     class GraphNode;
     class MeshInstance;
     class RenderTarget;
@@ -41,6 +42,11 @@ namespace visutwin::canvas
         Renderer(const std::shared_ptr<GraphicsDevice>& device, const std::shared_ptr<Scene>& scene);
 
         void renderForwardLayer(Camera* camera, RenderTarget* renderTarget, Layer* layer, bool transparent);
+
+        /// The clustered lighting's shadow and cookie atlases (null outside clustered
+        /// lighting), for passes that sample them outside the forward pass (the
+        /// volumetric fog's local lights).
+        LightTextureAtlas* lightTextureAtlas() const { return _lightTextureAtlas.get(); }
 
         /// Creates the forward shaders a (camera, layer) sublayer will draw with, ahead
         /// of the frame's first pass (RenderPass::prepareShaders for the forward pass):

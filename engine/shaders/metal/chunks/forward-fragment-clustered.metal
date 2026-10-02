@@ -29,9 +29,15 @@
                 const ClusteredLight cl = clusterLights[lightIdx];
 
                 // 5. Compute attenuation (reuse existing falloff functions from common.metal).
+                // A shaped light (areaHalfWidth.w, the LightShape; 0 punctual — the CPU
+                // leaves it 0 unless clustered area lights are enabled) takes only the
+                // range window, as upstream's clusteredLight with CLUSTER_AREALIGHTS.
+                const uint clShape = uint(cl.areaHalfWidth.w + 0.5);
                 const float3 lightDirW = cl.positionRange.xyz - rd.worldPos;
                 float attenuation;
-                if (cl.params.z > 0.5) {
+                if (clShape != 0u) {
+                    attenuation = getFalloffWindow(cl.positionRange.w, lightDirW);
+                } else if (cl.params.z > 0.5) {
                     attenuation = getFalloffLinear(cl.positionRange.w, lightDirW);
                 } else {
                     attenuation = getFalloffInvSquared(cl.positionRange.w, lightDirW);
@@ -129,6 +135,28 @@
                     cookieMask = mix(float3(1.0), channelValue, cookieIntensity);
                 }
 
+#if VT_FEATURE_AREA_LIGHTS
+                // An area light: LTC, as the main loop (common-ltc's helpers).
+                if (clShape != 0u) {
+                    const LtcAreaLight area = ltcAreaLight(clShape, cl.positionRange.xyz,
+                        cl.areaHalfWidth.xyz, cl.areaHalfHeight.xyz, N, cameraPosition);
+                    const float3 areaRadiance = max(cl.colorIntensity.xyz, float3(0.0))
+                                              * max(cl.colorIntensity.w, 0.0) * attenuation * cookieMask;
+                    const float3 ltcSpecFres = ltcSpecularFresnel(N, V, gloss, F0, areaLightsLutTex2);
+                    directDiffuse += areaRadiance * (float3(1.0) - ltcSpecFres) *
+                        ltcAreaDiffuse(clShape, area, cl.positionRange.xyz, N, V, rd.worldPos, areaLightsLutTex2);
+                    directSpecular += areaRadiance * ltcSpecFres *
+                        ltcAreaSpecular(clShape, area, N, V, rd.worldPos, gloss, areaLightsLutTex1, areaLightsLutTex2);
+#if VT_FEATURE_CLEARCOAT
+                    ccSpecularLight += areaRadiance *
+                        ltcSpecularFresnel(ccNormalW, V, ccGlossiness, float3(0.04), areaLightsLutTex2) *
+                        ltcAreaSpecular(clShape, area, ccNormalW, V, rd.worldPos, ccGlossiness,
+                            areaLightsLutTex1, areaLightsLutTex2);
+#endif
+                    continue;
+                }
+#endif
+
                 // 6. PBR lighting (same GGX terms as the main light loop).
                 const float3 clL = normalize(lightDirW);
                 const float clNdotL = max(dot(N, clL), 0.0);
@@ -156,17 +184,24 @@
                 clF = mix(clF, iridFresnel, iridIntensity);
 #endif
 
-                #if VT_FEATURE_OREN_NAYAR
+                // Upstream: with area lights in the variant, a punctual light's diffuse
+                // is scaled by (1 - specularity).
+#if VT_FEATURE_AREA_LIGHTS && !VT_FEATURE_NO_SPECULAR
+                const float3 clDiffuseScale = float3(1.0) - F0;
+#else
+                const float3 clDiffuseScale = float3(1.0);
+#endif
+#if VT_FEATURE_OREN_NAYAR
                 {
                     const float sigma2 = roughness * roughness;
                     const float onA = 1.0 - 0.5 * sigma2 / (sigma2 + 0.33);
                     const float onB = 0.45 * sigma2 / (sigma2 + 0.09);
                     const float sTerm = dot(clL, V) - clNdotL * clNdotV;
                     const float tTerm = sTerm <= 0.0 ? 1.0 : max(max(clNdotL, clNdotV), 1e-4);
-                    directDiffuse += clRadiance * clNdotL * (onA + onB * sTerm / tTerm);
+                    directDiffuse += clRadiance * clDiffuseScale * clNdotL * (onA + onB * sTerm / tTerm);
                 }
 #else
-                directDiffuse += clRadiance * clNdotL;
+                directDiffuse += clRadiance * clDiffuseScale * clNdotL;
 #endif
                 directSpecular += clRadiance * clD * clG * clF * clNdotL;
 

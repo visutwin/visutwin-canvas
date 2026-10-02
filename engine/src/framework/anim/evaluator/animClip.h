@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
 #pragma once
 
 #include <memory>
@@ -14,9 +15,8 @@ namespace visutwin::canvas
 
     /**
      * The running state of one animation track: the play cursor, looping, and the
-     * track's events. An event is fired on `eventHandler` (the AnimComponent, as
-     * upstream) when the cursor passes its time, in the direction of play, including
-     * the events of every lap a large step loops through (upstream anim-clip.js).
+     * track's events. An event is fired on `eventHandler` (the AnimComponent) when the cursor passes its time,
+     * in the direction of play, including the events of every lap a large step loops through.
      */
     class AnimClip
     {
@@ -31,7 +31,7 @@ namespace visutwin::canvas
         void stop();
         void update(float dt);
 
-        /** Normalized progress the clip reaches at `time` (upstream progressForTime). */
+        /** Normalized progress the clip reaches at `time`. */
         float progressForTime(float time) const;
 
         /// The track at the clip's time; see AnimTrack::eval.
@@ -61,7 +61,7 @@ namespace visutwin::canvas
         void setEventHandler(EventHandler* value) { _eventHandler = value; }
 
     private:
-        // Upstream's event cursor: the index of the next event in the direction of play.
+        // The index of the next event in the direction of play.
         bool isReverse() const { return _speed < 0.0f; }
         const AnimEvent* nextEvent() const;
         int eventCursorEnd() const;

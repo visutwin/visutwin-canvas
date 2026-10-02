@@ -42,6 +42,10 @@ namespace visutwin::canvas
             // Light cookie: [0]=hasCookie, [1]=cookieIndex (within the 2D or cube
             // pool selected by the light type), [2]=CookieChannel, [3]=cookieFalloff
             PackedVector4u cookieFlags = {0u, 0u, 0u, 1u};
+            // An area source: xyz the world half-width axis, w the LightShape (0 punctual,
+            // 1 rect, 2 disk, 3 sphere); xyz the world half-height axis.
+            PackedVector4f areaHalfWidth = {0.0f, 0.0f, 0.0f, 0.0f};
+            PackedVector4f areaHalfHeight = {0.0f, 0.0f, 0.0f, 0.0f};
         };
 
         struct alignas(16) LightingUniforms
@@ -212,7 +216,7 @@ namespace visutwin::canvas
     // `LightingData`/`AtmosphereData` layout exactly. Lock size/alignment and a
     // few sentinel offsets so a mis-sized field (which would shift everything
     // after it and silently corrupt the shader read) fails at compile time.
-    static_assert(sizeof(UniformBinder::GpuLightUniform) == 96);
+    static_assert(sizeof(UniformBinder::GpuLightUniform) == 128);
     static_assert(std::is_trivially_copyable_v<UniformBinder::LightingUniforms>);
     static_assert(alignof(UniformBinder::LightingUniforms) == 16);
     static_assert(sizeof(UniformBinder::LightingUniforms) % 16 == 0);

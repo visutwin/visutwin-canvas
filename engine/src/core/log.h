@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 18.07.2025.
+// Created by Arnis Lektauers on 18.07.2025
 //
-
 #pragma once
 
 #include <spdlog/spdlog.h>

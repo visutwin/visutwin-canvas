@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.10.2025.
-//
-//
+// Created by Arnis Lektauers on 13.10.2025
 //
 #pragma once
 
@@ -67,8 +65,7 @@ namespace visutwin::canvas
          *
          * A scene with several batch groups had no way to change one without paying
          * for all of them: prepare() destroys every batch, re-merges every group's
-         * geometry and re-uploads it. Upstream regenerates per group for the same
-         * reason.
+         * geometry and re-uploads it.
          */
         void generate(Scene* scene, const std::vector<int>& groupIds);
 
@@ -86,9 +83,7 @@ namespace visutwin::canvas
          * replacing its mesh instances. A batch keeps raw pointers to its sources (and
          * a dynamic batch to their nodes, read every frame), so the group's batches are
          * destroyed NOW, while those pointers are still good, and the group is marked
-         * dirty for updateAll() to rebuild from what remains. Upstream only marks the
-         * group dirty (its remove()); garbage collection keeps its sources alive until
-         * the rebuild, which C++ does not.
+         * dirty for updateAll() to rebuild from what remains.
          */
         void sourcesLeaving(int groupId);
 

@@ -3,8 +3,6 @@
 //
 // SkinBatchInstance implementation.
 //
-//
-//
 #include "skinBatchInstance.h"
 
 #include "core/math/matrix4.h"
@@ -23,8 +21,7 @@ namespace visutwin::canvas
     {
         // 
         //
-        // upstream packs 4x3 matrices (12 floats per bone) to save texture
-        // space.  We use float4x4 (16 floats per bone) for simpler Metal
+        // We use float4x4 (16 floats per bone) for simpler Metal
         // shader code — the buffer approach has no texture dimension constraints.
         //
         // DEVIATION: upstream stores transposed rows; we store column-major

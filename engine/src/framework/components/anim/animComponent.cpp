@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers 11.07.2026
 //
 #include "animComponent.h"
 #include "framework/entity.h"
@@ -65,7 +65,7 @@ namespace visutwin::canvas
         if (!src) {
             return;
         }
-        // Upstream's cloneComponent: the settings, the same state graph, every layer's
+        // The settings, the same state graph, every layer's
         // weight, blend type and mask, the animations assigned to each state, the
         // parameter values and the playing flag. The binder is built on THIS entity,
         // so the clone animates its own subtree by the same node paths.

@@ -332,14 +332,19 @@ namespace visutwin::canvas
             _backBufferDepthTexture = nullptr;
         }
 
-        if (_clusterLightBuffer) {
-            _clusterLightBuffer->release();
-            _clusterLightBuffer = nullptr;
+        for (auto& slot : _clusterBufferSets) {
+            for (auto& set : slot) {
+                if (set.light) {
+                    set.light->release();
+                }
+                if (set.cell) {
+                    set.cell->release();
+                }
+            }
+            slot.clear();
         }
-        if (_clusterCellBuffer) {
-            _clusterCellBuffer->release();
-            _clusterCellBuffer = nullptr;
-        }
+        _clusterLightBuffer = nullptr;
+        _clusterCellBuffer = nullptr;
 
 
         // Whatever was encoded and never reached a frame end still runs.
@@ -423,9 +428,16 @@ namespace visutwin::canvas
         _uniformRing->beginFrame();
         _paletteRing->beginFrame();
         _pendingPaletteOffset = SIZE_MAX;
+        // The cluster buffer sets advance with the rings: the slot this frame writes was
+        // last used kMaxInflightFrames frames ago, which the rings' beginFrame has just
+        // waited out.
+        _clusterFrameSlot = (_clusterFrameSlot + 1) % _clusterBufferSets.size();
+        _clusterSetsUsed = 0;
+        _clusterLastLightData = nullptr;
+        _clusterLastCellData = nullptr;
         // After beginFrame, which is where a ring that overflowed last frame grows.
         setBackendBufferVram(_transformRing->totalSize() + _uniformRing->totalSize() + _paletteRing->totalSize(),
-            _clusterLightBufferCapacity + _clusterCellBufferCapacity);
+            clusterBufferVram());
 
         // GPU profiler: rotate frame slot + resolve the slot from 2 frames ago.
         if (_metalGpuProfiler) {
@@ -917,6 +929,7 @@ namespace visutwin::canvas
     }
 
     void MetalGraphicsDevice::setParticleState(const std::shared_ptr<VertexBuffer>& particles,
+        const std::shared_ptr<VertexBuffer>& order, const std::shared_ptr<VertexBuffer>& meshVertices,
         const void* params, const size_t paramsSize)
     {
         if (!particles || !params || paramsSize == 0 || paramsSize > _pendingParticleParams.size()) {
@@ -925,6 +938,8 @@ namespace visutwin::canvas
             return;
         }
         _pendingParticleBuffer = static_cast<MTL::Buffer*>(particles->nativeBuffer());
+        _pendingParticleOrderBuffer = order ? static_cast<MTL::Buffer*>(order->nativeBuffer()) : nullptr;
+        _pendingParticleMeshBuffer = meshVertices ? static_cast<MTL::Buffer*>(meshVertices->nativeBuffer()) : nullptr;
         std::memcpy(_pendingParticleParams.data(), params, paramsSize);
         _pendingParticleParamsSize = paramsSize;
     }
@@ -960,6 +975,17 @@ namespace visutwin::canvas
         _pendingMorphParamsSize = paramsSize;
     }
 
+    size_t MetalGraphicsDevice::clusterBufferVram() const
+    {
+        size_t total = 0;
+        for (const auto& slot : _clusterBufferSets) {
+            for (const auto& set : slot) {
+                total += set.lightCapacity + set.cellCapacity;
+            }
+        }
+        return total;
+    }
+
     void MetalGraphicsDevice::setClusterBuffers(const void* lightData, const size_t lightSize,
         const void* cellData, const size_t cellSize)
     {
@@ -968,31 +994,49 @@ namespace visutwin::canvas
             return;
         }
 
-        // Grow light buffer if needed.
-        if (!_clusterLightBuffer || _clusterLightBufferCapacity < lightSize) {
-            if (_clusterLightBuffer) {
-                _clusterLightBuffer->release();
+        // The renderer binds a grid per layer, and two layers of a frame may see different
+        // grids. A shared-storage buffer is read by the GPU when the frame executes, not
+        // when it is encoded, so ONE buffer rewritten per layer would light every layer of
+        // the frame with the last grid written — and, with frames in flight, with a LATER
+        // frame's grid. Each grid a frame binds therefore gets its own pair from this
+        // frame's slot. The same grid bound again in the frame (the renderer pools them,
+        // and two layers seeing the same lights share one) reuses its pair.
+        if (lightData != _clusterLastLightData || cellData != _clusterLastCellData) {
+            auto& slot = _clusterBufferSets[_clusterFrameSlot];
+            if (_clusterSetsUsed >= slot.size()) {
+                slot.emplace_back();
             }
-            _clusterLightBufferCapacity = lightSize * 2; // over-allocate to reduce reallocations
-            _clusterLightBuffer = _device->newBuffer(_clusterLightBufferCapacity,
-                MTL::ResourceStorageModeShared);
-        }
-
-        // Grow cell buffer if needed.
-        if (!_clusterCellBuffer || _clusterCellBufferCapacity < cellSize) {
-            if (_clusterCellBuffer) {
-                _clusterCellBuffer->release();
+            ClusterBufferSet& set = slot[_clusterSetsUsed++];
+            if (!set.light || set.lightCapacity < lightSize) {
+                if (set.light) {
+                    set.light->release();   // a command buffer still using it retains it
+                }
+                set.lightCapacity = lightSize * 2;   // over-allocate to reduce reallocations
+                set.light = _device->newBuffer(set.lightCapacity, MTL::ResourceStorageModeShared);
             }
-            _clusterCellBufferCapacity = cellSize * 2;
-            _clusterCellBuffer = _device->newBuffer(_clusterCellBufferCapacity,
-                MTL::ResourceStorageModeShared);
+            if (!set.cell || set.cellCapacity < cellSize) {
+                if (set.cell) {
+                    set.cell->release();
+                }
+                set.cellCapacity = cellSize * 2;
+                set.cell = _device->newBuffer(set.cellCapacity, MTL::ResourceStorageModeShared);
+            }
+            std::memcpy(set.light->contents(), lightData, lightSize);
+            std::memcpy(set.cell->contents(), cellData, cellSize);
+            _clusterLightBuffer = set.light;
+            _clusterCellBuffer = set.cell;
+            _clusterLastLightData = lightData;
+            _clusterLastCellData = cellData;
         }
-
-        // Copy data.
-        std::memcpy(_clusterLightBuffer->contents(), lightData, lightSize);
-        std::memcpy(_clusterCellBuffer->contents(), cellData, cellSize);
-
         _clusterBuffersSet = true;
+
+        // A layer binds its grid after its render pass has begun, and startRenderPass binds
+        // only what was set before it: bound only there, the first layer to use a new pair
+        // would draw with no cluster buffers at all.
+        if (_renderPassEncoder) {
+            _renderPassEncoder->setFragmentBuffer(_clusterLightBuffer, 0, 7);
+            _renderPassEncoder->setFragmentBuffer(_clusterCellBuffer, 0, 8);
+        }
     }
 
     void MetalGraphicsDevice::setClusterGridParams(const float* boundsMin, const float* boundsRange,
@@ -1371,6 +1415,9 @@ namespace visutwin::canvas
         _textureBinder.bindCached(passEncoder, 35, _uniformBinder.shadowTexture1());
         _textureBinder.bindLocalShadowTextures(passEncoder,
             _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
+        // VSM spot maps (EVSM moments, a colour format) beside the depth slots.
+        _textureBinder.bindCached(passEncoder, 37, _uniformBinder.localVsmTexture0());
+        _textureBinder.bindCached(passEncoder, 38, _uniformBinder.localVsmTexture1());
         _textureBinder.bindOmniShadowTextures(passEncoder,
             _uniformBinder.omniShadowCube0(), _uniformBinder.omniShadowCube1());
         _textureBinder.bindCookieTextures(passEncoder,
@@ -1490,11 +1537,21 @@ namespace visutwin::canvas
             _pendingMorphParamsSize = 0;
         }
 
-        // Particle emitter (slots 7/11).
+        // Particle emitter (slots 7/8/9/11). The order and mesh slots always carry a buffer
+        // (the pool when the emitter has none): the shader declares them, and reads them
+        // only when its params say so. The params reach the fragment stage too (lighting,
+        // softening).
         if (_pendingParticleBuffer) {
             passEncoder->setVertexBuffer(_pendingParticleBuffer, 0, 7);
+            passEncoder->setVertexBuffer(_pendingParticleOrderBuffer ? _pendingParticleOrderBuffer
+                                                                     : _pendingParticleBuffer, 0, 8);
+            passEncoder->setVertexBuffer(_pendingParticleMeshBuffer ? _pendingParticleMeshBuffer
+                                                                    : _pendingParticleBuffer, 0, 9);
             passEncoder->setVertexBytes(_pendingParticleParams.data(), _pendingParticleParamsSize, 11);
+            passEncoder->setFragmentBytes(_pendingParticleParams.data(), _pendingParticleParamsSize, 11);
             _pendingParticleBuffer = nullptr;
+            _pendingParticleOrderBuffer = nullptr;
+            _pendingParticleMeshBuffer = nullptr;
             _pendingParticleParamsSize = 0;
         }
 

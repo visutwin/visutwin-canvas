@@ -25,7 +25,10 @@
 // Velocity is our integrated initial velocity with gravity and damping (a DEVIATION)
 // PLUS upstream's velocity graphs: the local graph turned
 // by the emitter, and the world graph, each a random point between graph and graph2 per
-// particle life. The graph speed of rotation is integrated into the angle.
+// particle life, and the radial speed graph (velocityLut.w / velocityLut2.w), along the
+// direction from the emitter's centre. The graph speed of rotation is integrated into the
+// angle. A wrap takes the emission period of a random rate between rate and rate2
+// (graphParams.w is (rate2 - rate)), as upstream's particleUpdaterRespawn.
 //
 // The uniform block IS `GpuParticleSimParams` — two mat4s, eight vec4s and four
 // 16-sample lookup tables, 1280 bytes, which its own static_assert pins. Both kernels declare that member list; changing
@@ -58,7 +61,7 @@ struct ParticleSimParams {
     float4 timeParams;       // dt, time, emission period, particle count
     float4 lifeRot;          // lifetime min/max, rotSpeed min/max (rad/s)
     float4 angleParams;      // startAngle min/max (rad), step counter, on-stop flag
-    float4 graphParams;      // velocity graphs on, rotation speed graph on
+    float4 graphParams;      // velocity graphs on, rotation speed graph on, radial graph on, rate2 - rate
     float4 localVelocityLut[16];
     float4 localVelocityLut2[16];
     float4 velocityLut[16];
@@ -98,7 +101,9 @@ kernel void particleSimKernel(device Particle* particles [[buffer(0)]],
     bool hidden = p.rotSeedSize.w > 0.5;
     bool respawn = inLife <= 0.0;
     if (!respawn && life >= max(p.velLifetime.w, 1e-4)) {
-        life -= max(max(p.velLifetime.w, 1e-4), params.timeParams.z);
+        const float period = params.timeParams.z +
+            params.timeParams.w * params.graphParams.w * rnd(pcgHash(gid ^ uint(params.angleParams.z)) + 17u);
+        life -= max(max(p.velLifetime.w, 1e-4), period);
         hidden = !loop;
         respawn = true;
     }
@@ -158,6 +163,13 @@ kernel void particleSimKernel(device Particle* particles [[buffer(0)]],
         p.rotSeedSize.x += mix(sampleLut(params.localVelocityLut, nlife).w,
                                sampleLut(params.localVelocityLut2, nlife).w, rnd(uint(p.motion.w) + 13u)) * dt;
     }
+    if (params.graphParams.z > 0.5) {
+        // Radial speed, away from the emitter's centre (its origin in local space).
+        const float radialSpeed = mix(sampleLut(params.velocityLut, nlife).w,
+                                      sampleLut(params.velocityLut2, nlife).w, rnd(uint(p.motion.w) + 16u));
+        const float3 radial = p.posAge.xyz - params.emitterTransform[3].xyz;
+        vel += dot(radial, radial) > 1e-8 ? radialSpeed * normalize(radial) : float3(0.0);
+    }
     p.posAge.xyz += vel * dt;
     p.posAge.w = life;
     p.rotSeedSize.w = hidden ? 1.0 : 0.0;
@@ -213,7 +225,9 @@ void main() {
     bool hidden = p.rotSeedSize.w > 0.5;
     bool respawn = inLife <= 0.0;
     if (!respawn && life >= max(p.velLifetime.w, 1e-4)) {
-        life -= max(max(p.velLifetime.w, 1e-4), params.timeParams.z);
+        float period = params.timeParams.z +
+            params.timeParams.w * params.graphParams.w * rnd(pcgHash(id ^ uint(params.angleParams.z)) + 17u);
+        life -= max(max(p.velLifetime.w, 1e-4), period);
         hidden = !loop;
         respawn = true;
     }
@@ -256,6 +270,12 @@ void main() {
     if (params.graphParams.y > 0.5)
         p.rotSeedSize.x += mix(SAMPLE_LUT(params.localVelocityLut, nlife).w,
                                SAMPLE_LUT(params.localVelocityLut2, nlife).w, rnd(uint(p.motion.w) + 13u)) * dt;
+    if (params.graphParams.z > 0.5) {
+        float radialSpeed = mix(SAMPLE_LUT(params.velocityLut, nlife).w,
+                                SAMPLE_LUT(params.velocityLut2, nlife).w, rnd(uint(p.motion.w) + 16u));
+        vec3 radial = p.posAge.xyz - params.emitterTransform[3].xyz;
+        velocity += dot(radial, radial) > 1e-8 ? radialSpeed * normalize(radial) : vec3(0.0);
+    }
     p.posAge.xyz += velocity * dt;
     p.posAge.w = life;
     p.rotSeedSize.w = hidden ? 1.0 : 0.0;

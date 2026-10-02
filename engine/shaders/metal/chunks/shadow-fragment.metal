@@ -4,6 +4,9 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   constant MaterialData &material [[buffer(3)]],
                                   texture2d<float> baseColorTexture [[texture(0)]],
                                   texture2d<float> opacityTexture [[texture(34)]],
+#if VT_FEATURE_VSM_SHADOWS
+                                  constant SceneData &scene [[buffer(1)]],
+#endif
                                   sampler defaultSampler [[sampler(0)]])
 {
 #if VT_FEATURE_ALPHA_TEST || VT_FEATURE_SHADOW_DITHER
@@ -70,7 +73,13 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     // directly. The .z = 1 marks the pixel as "rendered" for the
     // (1 - moments.z) fallback in calculateEVSM(); cleared pixels are (0,0,0,0)
     // and synthesize "fully lit" at sample time.
-    const float ndcZ = rd.position.z;            // Metal: depth ∈ [0, 1]
+    // Metal: depth ∈ [0, 1]. A spot light (a perspective pass) stores distance / range
+    // instead, as upstream's spot VSM does (shadowDistanceRatio).
+    float ndcZ = rd.position.z;
+    float distanceRatio = 0.0;
+    if (shadowDistanceRatio(scene.projViewMatrix, rd.worldPos, distanceRatio)) {
+        ndcZ = distanceRatio;
+    }
 
     // Rasterization of degenerate triangles, which animated (skinned/morphed) meshes can
     // generate, can supply depth outside of the [0, 1] range or even NaN.  The exponential

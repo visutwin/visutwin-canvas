@@ -1,5 +1,5 @@
 //
-// Created by Arnis Lektauers on 25.07.2025.
+// Created by Arnis Lektauers on 25.07.2025
 //
 #pragma once
 

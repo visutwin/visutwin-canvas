@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Splitting a bucket of mesh instances into the lists that each become ONE batch
-// (upstream's BatchManager.prepare).
+// Splitting a bucket of mesh instances into the lists that each become ONE batch.
 //
 // A batch is one draw with one vertex buffer, one material and one set of flags,
 // so mesh instances that disagree about any of those cannot share it. Merging
@@ -48,14 +47,14 @@ namespace visutwin::canvas
     /** Stride of the packed vertex both merge paths read (position, normal, uv0, tangent, uv1). */
     inline constexpr int kPackedVertexStride = 56;
 
-    /** Upstream's cap on the instances one dynamic batch's matrix palette may hold. */
+    /** Cap on the instances one dynamic batch's matrix palette may hold. */
     inline constexpr size_t kMaxDynamicBatchInstances = 1024;
 
     /**
      * Splits `candidates` into lists, each of which is valid to merge into one batch.
      * Returns indices into `candidates`, in the order the lists were formed.
      *
-     * Mirrors upstream: take the first candidate left, sweep the rest, and push
+     * Take the first candidate left, sweep the rest, and push
      * everything incompatible into the leftovers that seed the next list — so
      * compatible instances still meet even when the input interleaves them.
      *
@@ -72,8 +71,8 @@ namespace visutwin::canvas
 
     /**
      * Whether a render component's mesh instances may be batched at all, given
-     * whether each is skinned or morphed. Upstream's `_filterBatchableInstances`:
-     * if ANY instance on the entity deforms, the WHOLE entity is excluded.
+     * whether each is skinned or morphed.
+     * If ANY instance on the entity deforms, the WHOLE entity is excluded.
      *
      * Merging bakes each source's world transform into the shared vertex buffer, so
      * a deforming mesh loses exactly the thing that makes it deform. A skinned one
@@ -82,8 +81,8 @@ namespace visutwin::canvas
      * deltas in a separate buffer, so nothing about its format says it must not be
      * merged. It would batch cleanly and then sit still.
      *
-     * Whole-entity rather than per-instance because that is upstream's rule: an
-     * entity's instances are authored as one thing, and batching half of it leaves
+     * Whole-entity rather than per-instance:
+     * an entity's instances are authored as one thing, and batching half of it leaves
      * the deforming half drawn separately with no indication why.
      */
     bool entityIsBatchable(const std::vector<bool>& instanceDeforms);

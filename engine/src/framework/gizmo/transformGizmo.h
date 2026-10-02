@@ -1,128 +1,145 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Upstream extras/gizmo/transform-gizmo.js: what the translate, rotate and scale gizmos
+// share — coloured X, Y and Z handles with plane and centre shapes, hover colouring by
+// theme, a drag that fires `transform:start` (Vector3 point, float x, float y),
+// `transform:move` (the same) and `transform:end`, snapping, the drag mode, and the
+// span guide lines drawn through the gizmo along the active axes.
+//
+// The subclasses decide what a drag does to the attached nodes.
+//
 #pragma once
 
-#include <algorithm>
 #include <array>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
-#include <SDL3/SDL_events.h>
-
-#include "core/math/color.h"
-#include "core/math/quaternion.h"
-#include "framework/components/camera/cameraComponent.h"
-#include "framework/entity.h"
+#include "core/shape/plane.h"
+#include "core/shape/ray.h"
+#include "framework/gizmo/gizmo.h"
+#include "framework/gizmo/shape/shape.h"
+#include "scene/graphics/wideLine.h"
 
 namespace visutwin::canvas
 {
-    class Engine;
-    class RenderComponent;
-    class StandardMaterial;
+    class WideLineRenderer;
 
-    class TransformGizmo
+    class TransformGizmo : public Gizmo
     {
     public:
-        enum class Mode
+        static constexpr const char* EVENT_TRANSFORMSTART = "transform:start";
+        static constexpr const char* EVENT_TRANSFORMMOVE = "transform:move";
+        static constexpr const char* EVENT_TRANSFORMEND = "transform:end";
+
+        TransformGizmo(CameraComponent* camera, std::shared_ptr<Layer> layer,
+                       const std::string& name = "gizmo:transform");
+        ~TransformGizmo() override;
+
+        /// Whether snapping is enabled.
+        bool snap = false;
+        /// The snapping increment (world units, degrees for rotation).
+        float snapIncrement = 1.0f;
+        /// How the shapes show while dragging.
+        GizmoDragMode dragMode = GizmoDragMode::Selected;
+
+        const GizmoTheme& theme() const { return _theme; }
+        void setTheme(const GizmoThemePartial& partial);
+
+        /// Upstream `enableShape(axis, enabled)`, keyed as the shapes are ('x', 'yz', 'xyz',
+        /// 'f' ...).
+        void enableShape(GizmoAxis shapeAxis, bool enabled);
+        bool isShapeEnabled(GizmoAxis shapeAxis) const;
+
+        /// The shape under a key, or null.
+        Shape* shape(GizmoAxis key) const;
+
+        GizmoAxis hoverAxis() const { return _hoverAxis; }
+        GizmoAxis selectedAxis() const { return _selectedAxis; }
+        bool selectedIsPlane() const { return _selectedIsPlane; }
+        bool dragging() const { return _hoverAxis == GizmoAxis::None && _selectedAxis != GizmoAxis::None; }
+
+        /// The guide lines drawn this frame, as world-space (from, to) pairs before the
+        /// near-plane clip; for tests and debugging.
+        const std::vector<std::pair<Vector3, Vector3>>& guideLines() const { return _frameGuideLines; }
+
+        void prerender() override;
+        void destroy() override;
+
+    protected:
+        /// Upstream `_screenToPoint`: where the pointer ray meets the drag plane.
+        virtual Vector3 screenToPoint(float x, float y);
+
+        Ray createRay(const Vector3& mouseWPos) const;
+        Plane createPlane(GizmoAxis axis, bool isFacing, bool isLine) const;
+        Vector3 dirFromAxis(GizmoAxis axis) const;
+        static Vector3 projectToAxis(const Vector3& point, GizmoAxis axis);
+
+        virtual void drawGuideLines(const Vector3& pos, const Quaternion& rot, GizmoAxis activeAxis,
+                                    bool activeIsPlane);
+        void drawSpanLine(const Vector3& pos, const Quaternion& rot, GizmoAxis axis);
+
+        /// Upstream `_createTransform`: parents every shape under the root and makes it
+        /// pickable. Shapes are added in their key order, which is their draw order.
+        void createTransform();
+
+        template <typename T, typename... Args>
+        T* addShape(GizmoAxis key, Args&&... args)
         {
-            Translate,
-            Rotate,
-            Scale
-        };
+            auto shape = std::make_unique<T>(std::forward<Args>(args)...);
+            T* raw = shape.get();
+            _shapes.emplace_back(key, std::move(shape));
+            return raw;
+        }
 
-        enum class Axis
-        {
-            None,
-            X,
-            Y,
-            Z,
-            XYZ
-        };
+        /// Shape arguments for an axis, coloured from the theme.
+        ShapeArgs shapeArgs(GizmoAxis axis, const Vector3& rotation = Vector3(0.0f)) const;
 
-        TransformGizmo(Engine* engine, CameraComponent* camera);
-        ~TransformGizmo();
+        GizmoTheme _theme;
+        Vector3 _rootStartPos = Vector3(0.0f);
+        Quaternion _rootStartRot;
+        std::vector<std::pair<GizmoAxis, std::unique_ptr<Shape>>> _shapes;
 
-        void attach(Entity* target);
+        GizmoAxis _hoverAxis = GizmoAxis::None;
+        bool _hoverIsPlane = false;
+        GizmoAxis _selectedAxis = GizmoAxis::None;
+        bool _selectedIsPlane = false;
+        Vector3 _selectionStartPoint = Vector3(0.0f);
 
-        void setMode(Mode mode);
-        Mode mode() const { return _mode; }
-
-        void setSnap(bool enabled) { _snap = enabled; }
-        bool snap() const { return _snap; }
-
-        void setTranslateSnapIncrement(float value) { _translateSnapIncrement = std::max(0.001f, value); }
-        void setRotateSnapIncrement(float value) { _rotateSnapIncrement = std::max(0.1f, value); }
-        void setScaleSnapIncrement(float value) { _scaleSnapIncrement = std::max(0.001f, value); }
-
-        bool handleEvent(const SDL_Event& event, int windowWidth, int windowHeight);
-        void update();
+        /// Upstream's module-level `point`: a plane the ray misses leaves the previous value.
+        Vector3 _point = Vector3(0.0f);
 
     private:
-        struct Handle
+        Shape* shapeOf(const MeshInstance* meshInstance) const;
+        GizmoAxis axisOf(const MeshInstance* meshInstance) const;
+        bool isPlaneOf(const MeshInstance* meshInstance) const;
+        void hover(const MeshInstance* meshInstance);
+        void flushGuideLines();
+        void releaseGuideLines();
+
+        std::vector<GizmoAxis> _hovering;
+
+        // Span guide lines. DEVIATION: upstream draws them with app.drawLine (one-pixel
+        // immediate lines) — the base colour depth-tested on the Immediate layer and the
+        // occluded colour untested on the gizmo layer. Here two WideLineRenderers draw the
+        // same two passes as one-pixel wide lines, clipped to the camera's near plane on
+        // the CPU (a wide line expands in screen space and has no near clip of its own).
+        struct GuideLine
         {
-            Axis axis = Axis::None;
-            Entity* entity = nullptr;
-            RenderComponent* render = nullptr;
-            StandardMaterial* material = nullptr;
-            Color baseColor = Color(1.0f, 1.0f, 1.0f, 1.0f);
-            Vector3 worldPosition = Vector3(0.0f, 0.0f, 0.0f);
+            Vector3 from;
+            Vector3 to;
+            Color color;
         };
-
-        Entity* createHandleEntity(const char* primitiveType, const Color& color);
-        void updateHandleTransforms();
-        void updateHandleColors();
-
-        Axis pickAxis(float mouseX, float mouseY) const;
-        bool worldToScreen(const Vector3& world, float& outX, float& outY) const;
-        Vector3 axisDirection(Axis axis) const;
-        Vector3 cameraRight() const;
-        Vector3 cameraUp() const;
-        Vector3 cameraForward() const;
-
-        void beginDrag(Axis axis, float mouseX, float mouseY);
-        void applyDrag(float mouseX, float mouseY);
-        void endDrag();
-
-        float unitsPerPixelAtTarget() const;
-
-        Engine* _engine = nullptr;
-        CameraComponent* _camera = nullptr;
-        Entity* _target = nullptr;
-        // The target's `destroy` event lets the gizmo drop it before it is freed, so the
-        // next update or drag never reads a destroyed entity.
-        EventHandlePtr _targetDestroyed;
-
-        Entity* _root = nullptr;
-        Handle _handleX;
-        Handle _handleY;
-        Handle _handleZ;
-        Handle _handleCenter;
-        Handle _shaftX;
-        Handle _shaftY;
-        Handle _shaftZ;
-
-        std::vector<std::shared_ptr<StandardMaterial>> _materials;
-
-        Mode _mode = Mode::Translate;
-        Axis _hoveredAxis = Axis::None;
-        Axis _activeAxis = Axis::None;
-        bool _dragging = false;
-
-        float _windowWidth = 1.0f;
-        float _windowHeight = 1.0f;
-
-        float _dragStartMouseX = 0.0f;
-        float _dragStartMouseY = 0.0f;
-
-        Vector3 _targetStartPosition = Vector3(0.0f, 0.0f, 0.0f);
-        Quaternion _targetStartRotation;
-        Vector3 _targetStartScale = Vector3(1.0f, 1.0f, 1.0f);
-
-        float _gizmoSize = 1.8f;
-
-        bool _snap = false;
-        float _translateSnapIncrement = 0.5f;
-        float _rotateSnapIncrement = 15.0f;
-        float _scaleSnapIncrement = 0.1f;
+        std::vector<GuideLine> _baseLines;
+        std::vector<GuideLine> _occludedLines;
+        std::vector<std::pair<Vector3, Vector3>> _frameGuideLines;
+        std::unique_ptr<WideLineRenderer> _baseRenderer;
+        std::unique_ptr<WideLineRenderer> _occludedRenderer;
+        std::array<WideLine, 3> _baseWideLines;
+        std::array<WideLine, 3> _occludedWideLines;
+        size_t _baseShown = 0;
+        size_t _occludedShown = 0;
     };
 }

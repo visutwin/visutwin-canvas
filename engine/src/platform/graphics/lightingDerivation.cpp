@@ -50,7 +50,6 @@ namespace visutwin::canvas
             dst.linearColor[0] = linear.r;
             dst.linearColor[1] = linear.g;
             dst.linearColor[2] = linear.b;
-            dst.areaUp = src.direction.cross(src.areaRight).normalized();
         }
 
         Color fogLinear;
@@ -74,6 +73,7 @@ namespace visutwin::canvas
             DerivedLocalShadow& dst = out.localShadows[i];
             dst.active = true;
             dst.isOmni = ls.isOmni;
+            dst.vsm = ls.vsm && !ls.isOmni;
             if (ls.isOmni) {
                 dst.omniMap = ls.shadowMap;
                 dst.omniNear = DerivedLighting::kOmniShadowNear;
@@ -90,6 +90,7 @@ namespace visutwin::canvas
             dst.pcss[0] = ls.pcssSearchArea;
             dst.pcss[1] = ls.nearClip;
             dst.pcss[2] = ls.farClip;
+            dst.pcss[3] = ls.vsm ? 1.0f : 0.0f;
         }
 
         for (uint32_t i = 0; i < out.lightCount; ++i) {

@@ -109,6 +109,16 @@ namespace visutwin::canvas
 
         // 0 = ignore shadows, 1 = fully shadowed fog (light shafts).
         float shadowIntensity = 1.0f;
+
+        // Upstream localOmniLights / localSpotLights: the clustered omni and spot lights
+        // scatter in the fog too, each through its own volume (needs clustered lighting;
+        // a light opts out with LightComponent::setVolumetricScattering(0)).
+        bool localOmniLights = false;
+        bool localSpotLights = false;
+        // Brightness of the local lights' in-scattering, and the samples per pixel the
+        // march of each light's volume takes (2..64).
+        float localIntensity = 1.0f;
+        int localSteps = 12;
     };
 
     // Rendering settings matching upstream CameraFrame.rendering

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers 11.07.2026
 //
 #include "animComponentLayer.h"
 
@@ -21,8 +21,7 @@ namespace visutwin::canvas
           _blendType(blendType), _mask(std::move(mask))
     {
         // Ensure the control states exist — the controller starts in START and the
-        // ANY/END pseudo-states participate in transition lookup (upstream state-graph
-        // data always includes them).
+        // ANY/END pseudo-states participate in transition lookup.
         auto allStates = states;
         for (const auto& controlState : {ANIM_STATE_START, ANIM_STATE_ANY, ANIM_STATE_END}) {
             const bool present = std::any_of(allStates.begin(), allStates.end(),

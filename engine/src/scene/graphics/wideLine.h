@@ -61,6 +61,10 @@ namespace visutwin::canvas
         bool closed() const { return _closed; }
         void setClosed(const bool value) { _closed = value; _dirty = true; }
 
+        /// Opacity of the whole line, blended only by a renderer with `setBlend(true)`.
+        float opacity() const { return _opacity; }
+        void setOpacity(const float value) { _opacity = value; _dirty = true; }
+
         /// Dash and gap lengths in the same units as the line's own distance along
         /// itself (world units). Both zero draws a solid line.
         void setDash(float dashLength, float gapLength, float offset = 0.0f);
@@ -82,6 +86,7 @@ namespace visutwin::canvas
         LineCap _cap = LineCap::Butt;
         LineJoin _join = LineJoin::Miter;
         bool _closed = false;
+        float _opacity = 1.0f;
         float _dashLength = 0.0f;
         float _gapLength = 0.0f;
         float _dashOffset = 0.0f;

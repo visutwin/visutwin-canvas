@@ -135,10 +135,14 @@ struct GpuLight {
     // Light cookie: x=hasCookie, y=slot in the 2D or cube pool (the light type
     // picks which), z=CookieChannel, w=cookieFalloff (spot).
     uint4 cookieFlags;
+    // An area source: xyz the world half-width axis, w the LightShape (0 punctual,
+    // 1 rect, 2 disk, 3 sphere); xyz the world half-height axis.
+    float4 areaHalfWidth;
+    float4 areaHalfHeight;
 };
 
 // Clustered lighting: per-light data packed into a Metal buffer (slot 7).
-// 144 bytes per light, 16-byte aligned. Maps 1:1 to CPU GpuClusteredLight.
+// 176 bytes per light, 16-byte aligned. Maps 1:1 to CPU GpuClusteredLight.
 struct ClusteredLight {
     float4 positionRange;     // xyz=position, w=range
     float4 directionSpot;     // xyz=direction, w=outerConeCos
@@ -146,6 +150,8 @@ struct ClusteredLight {
     float4 params;            // x=innerConeCos, y=isSpot, z=falloffLinear, w=unused
     float4x4 shadowMatrix;    // spot: world→atlas-rect shadow VP; omni: [0]=rect(x,y,size,edge), [1]=(near,far,bias,-)
     float4 shadowData;        // x=castShadows, y=normal bias, z=intensity, w=1 spot / 2 omni
+    float4 areaHalfWidth;     // an area light: xyz world half-width axis, w LightShape (0 punctual)
+    float4 areaHalfHeight;    // xyz world half-height axis
 };
 
 // Opacity dither matrices. Must match scene/constants.h :: DitherMode. The active mode arrives

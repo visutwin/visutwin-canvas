@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// LTC area-light demo (parity with upstream graphics/area-lights): three animated
-// area lights — a white rect, a yellow sphere and a large blue "sky" disk — illuminate
-// the statue.glb hero standing on a seaside-rocks textured floor, lit by the helipad
-// environment atlas. Each light carries an emissive primitive matching its shape.
+// Port of upstream graphics/area-lights: three animated lights with an area SHAPE — a
+// white rect on a shadowed spot, a yellow sphere on an omni and a blue "sky" disk on a
+// shadowed directional light, held 5000 units from the camera along its direction —
+// illuminate the statue.glb hero standing on a seaside-rocks textured floor, lit by the
+// helipad environment atlas. Each light carries an emissive primitive matching its
+// shape, and the spot a black back face. Clustered area lights are enabled, as upstream.
 //
-// DEVIATION: upstream builds these as spot/omni/directional lights with an area SHAPE
-// (cone clipping, shadows, no distance falloff on the directional). This engine has a
-// single positional LIGHTTYPE_AREA_RECT type (two-sided, range-windowed, no shadows),
-// so all three are area lights; the directional disk is emulated by placing a large
-// disk far away along the animated direction (same angular size as upstream's).
+// DEVIATION: upstream loads the LTC LUTs from a JSON asset; this engine has them built in.
 //
 #include <cmath>
 #include <memory>
+#include <vector>
 
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
@@ -22,11 +21,8 @@
 
 using namespace visutwin::canvas;
 
-// Emulated-directional disk: upstream places a disk of angular diameter
-// scale/range = 0.2 rad at distance far=5000; we reproduce the same angular
-// size at a nearer distance the positional area light can handle.
-constexpr float kDiskDistance = 100.0f;
-constexpr float kDiskSize = 0.2f * kDiskDistance;
+// Upstream `far`: the directional disk light is held this far from the camera.
+constexpr float kFar = 5000.0f;
 
 class AreaLightExample final: public ExampleApp
 {
@@ -117,16 +113,16 @@ protected:
             cameraComp->camera()->setFarClip(100000.0f);
         }
 
+        // Area lights are disabled by default for clustered lighting.
+        scene()->lighting().areaLightsEnabled = true;
+
         // Three lights matching upstream: white rect, yellow sphere, blue "sky" disk.
-        _light1 = createAreaLight(
-            AreaLightShape::LIGHTSHAPE_RECT, Vector3(-3.0f, 4.0f, 0.0f), 4.0f,
-            Color(1.0f, 1.0f, 1.0f, 1.0f), 2.0f, 10.0f, _rectMaterial);
-        _light2 = createAreaLight(
-            AreaLightShape::LIGHTSHAPE_SPHERE, Vector3(5.0f, 2.0f, -2.0f), 2.0f,
-            Color(1.0f, 1.0f, 0.0f, 1.0f), 2.0f, 10.0f, _sphereMaterial);
-        _light3 = createAreaLight(
-            AreaLightShape::LIGHTSHAPE_DISK, Vector3(0.0f, 0.0f, 0.0f), kDiskSize,
-            Color(0.7f, 0.7f, 1.0f, 1.0f), 10.0f, 1000.0f, _diskMaterial);
+        _light1 = createAreaLight(LightType::LIGHTTYPE_SPOT, LightShape::LIGHTSHAPE_RECT,
+            Vector3(-3.0f, 4.0f, 0.0f), 4.0f, Color(1.0f, 1.0f, 1.0f, 1.0f), 2.0f, true, 10.0f);
+        _light2 = createAreaLight(LightType::LIGHTTYPE_OMNI, LightShape::LIGHTSHAPE_SPHERE,
+            Vector3(5.0f, 2.0f, -2.0f), 2.0f, Color(1.0f, 1.0f, 0.0f, 1.0f), 2.0f, false, 10.0f);
+        _light3 = createAreaLight(LightType::LIGHTTYPE_DIRECTIONAL, LightShape::LIGHTSHAPE_DISK,
+            Vector3(0.0f, 0.0f, 0.0f), 0.2f, Color(0.7f, 0.7f, 1.0f, 1.0f), 10.0f, true, kFar);
 
         spdlog::info("Area lights: white rect + yellow sphere + blue sky disk over statue");
         spdlog::info("Keys: Space = pause/resume animation, Esc = quit");
@@ -169,11 +165,12 @@ private:
         return a + (b - a) * t;
     }
 
-    // Mirrors upstream createAreaLight: a parent entity carrying the area light
-    // plus an emissive primitive matching the light-source shape.
-    Entity* createAreaLight(const AreaLightShape shape, const Vector3& position,
-        const float size, const Color& color, const float intensity, const float range,
-        std::shared_ptr<StandardMaterial>& outMaterial) const
+    // Upstream createAreaLight: a parent entity carrying the light, scaled to the source's
+    // size, plus an emissive primitive matching the shape (and for a spot, a black
+    // primitive facing the other way).
+    Entity* createAreaLight(const LightType type, const LightShape shape, const Vector3& position,
+        const float scale, const Color& color, const float intensity, const bool shadows,
+        const float range)
     {
         auto* lightParent = new Entity();
         lightParent->setEngine(engine());
@@ -183,42 +180,65 @@ private:
         auto* lightEntity = new Entity();
         lightEntity->setEngine(engine());
         if (auto* light = static_cast<LightComponent*>(lightEntity->addComponent<LightComponent>())) {
-            light->setType(LightType::LIGHTTYPE_AREA_RECT);
-            light->setAreaShape(shape);
+            light->setType(type);
+            light->setShape(shape);
             light->setColor(color);
             light->setIntensity(intensity);
+            light->setFalloffMode(LightFalloff::LIGHTFALLOFF_INVERSESQUARED);
             light->setRange(range);
-            light->setAreaWidth(size);
-            light->setAreaHeight(size);
+            light->setCastShadows(shadows);
+            light->setInnerConeAngle(80.0f);
+            light->setOuterConeAngle(85.0f);
+            light->setShadowBias(0.1f);
+            light->setShadowNormalBias(0.1f);
+            light->setShadowResolution(2048);
         }
+        lightEntity->setLocalScale(scale, scale, scale);
         lightParent->addChild(lightEntity);
 
-        // Emissive primitive that is the light source color (upstream: emissive
-        // material with lighting off; plane for rect, sphere, flattened cone for disk).
+        const bool directional = type == LightType::LIGHTTYPE_DIRECTIONAL;
+        const char* primitive = shape == LightShape::LIGHTSHAPE_SPHERE ? "sphere"
+            : shape == LightShape::LIGHTSHAPE_DISK ? "cone" : "plane";
+        const CullMode cull = shape == LightShape::LIGHTSHAPE_RECT ? CullMode::CULLFACE_NONE
+                                                                   : CullMode::CULLFACE_BACK;
+
+        // Emissive material that is the light source colour.
         auto brightMaterial = std::make_shared<StandardMaterial>();
-        // The unlit path outputs base color (not emissive), so the source color
-        // rides in diffuse.
-        brightMaterial->setDiffuse(color);
+        brightMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
         brightMaterial->setEmissive(color);
         brightMaterial->setUseLighting(false);
-        brightMaterial->setCullMode(
-            shape == AreaLightShape::LIGHTSHAPE_RECT ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK
-        );
-        outMaterial = brightMaterial;
+        brightMaterial->setCullMode(cull);
+        _materials.push_back(brightMaterial);
 
         auto* brightShape = new Entity();
         brightShape->setEngine(engine());
         if (auto* render = static_cast<RenderComponent*>(brightShape->addComponent<RenderComponent>())) {
             render->setMaterial(brightMaterial.get());
-            render->setType(
-                shape == AreaLightShape::LIGHTSHAPE_SPHERE ? "sphere" :
-                shape == AreaLightShape::LIGHTSHAPE_DISK ? "cone" : "plane"
-            );
+            render->setType(primitive);
+            render->setCastShadows(!directional);
         }
-        brightShape->setLocalScale(
-            size, shape == AreaLightShape::LIGHTSHAPE_DISK ? 0.001f : size, size
-        );
+        const float extent = directional ? scale * range : scale;
+        brightShape->setLocalScale(extent, shape == LightShape::LIGHTSHAPE_DISK ? 0.001f : extent, extent);
         lightParent->addChild(brightShape);
+
+        // A black primitive on the back of a spot's source.
+        if (type == LightType::LIGHTTYPE_SPOT) {
+            auto blackMaterial = std::make_shared<StandardMaterial>();
+            blackMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
+            blackMaterial->setUseLighting(false);
+            blackMaterial->setCullMode(cull);
+            _materials.push_back(blackMaterial);
+
+            auto* blackShape = new Entity();
+            blackShape->setEngine(engine());
+            if (auto* render = static_cast<RenderComponent*>(blackShape->addComponent<RenderComponent>())) {
+                render->setMaterial(blackMaterial.get());
+                render->setType(primitive);
+            }
+            blackShape->setLocalPosition(0.0f, 0.01f / scale, 0.0f);
+            blackShape->setLocalEulerAngles(-180.0f, 0.0f, 0.0f);
+            brightShape->addChild(blackShape);
+        }
 
         return lightParent;
     }
@@ -239,15 +259,9 @@ private:
             lerp(230.0f, 310.0f, factor2), lerp(-30.0f, 0.0f, factor3), 90.0f
         );
         // Upstream: position = camera + lightY * far (the disk hangs in the sky
-        // along its emission axis). Matrix4::getElement takes (col, row); Y axis = col 1.
-        const auto& wt = _light3->worldTransform();
-        const Vector3 dir(wt.getElement(1, 0), wt.getElement(1, 1), wt.getElement(1, 2));
-        const Vector3 camPos = _camera->position();
-        _light3->setLocalPosition(
-            camPos.getX() + dir.getX() * kDiskDistance,
-            camPos.getY() + dir.getY() * kDiskDistance,
-            camPos.getZ() + dir.getZ() * kDiskDistance
-        );
+        // along its emission axis).
+        const Vector3 dir(_light3->worldTransform().getColumn(1));
+        _light3->setPosition(_camera->position() + dir * kFar);
     }
 
     std::unique_ptr<Asset> _helipad;
@@ -257,9 +271,7 @@ private:
     std::unique_ptr<Asset> _floorGlossTex;
 
     std::shared_ptr<StandardMaterial> _floorMaterial;
-    std::shared_ptr<StandardMaterial> _rectMaterial;
-    std::shared_ptr<StandardMaterial> _sphereMaterial;
-    std::shared_ptr<StandardMaterial> _diskMaterial;
+    std::vector<std::shared_ptr<StandardMaterial>> _materials;
 
     Entity* _camera = nullptr;
     Entity* _light1 = nullptr;

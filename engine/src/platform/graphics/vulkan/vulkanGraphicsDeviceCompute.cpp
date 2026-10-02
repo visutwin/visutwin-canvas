@@ -54,15 +54,20 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::setParticleState(
         const std::shared_ptr<VertexBuffer>& particles,
+        const std::shared_ptr<VertexBuffer>& order, const std::shared_ptr<VertexBuffer>& meshVertices,
         const void* params, size_t paramsSize)
     {
         if (!particles || !params || paramsSize == 0 ||
             paramsSize > _pendingParticleParams.size()) {
             _pendingParticleBuffer.reset();
+            _pendingParticleOrderBuffer.reset();
+            _pendingParticleMeshBuffer.reset();
             _pendingParticleParamsSize = 0;
             return;
         }
         _pendingParticleBuffer = particles;
+        _pendingParticleOrderBuffer = order;
+        _pendingParticleMeshBuffer = meshVertices;
         std::memcpy(_pendingParticleParams.data(), params, paramsSize);
         _pendingParticleParamsSize = paramsSize;
     }

@@ -11,6 +11,10 @@
             continue;
         }
 
+        // The source's shape (LightShape; 0 punctual): an area light keeps its type's
+        // cone, cookie and shadow, takes only the range window as distance falloff, and
+        // is shaded with LTC below (upstream lightFunctionLight, LIGHT{i}SHAPE).
+        const uint lightShape = uint(light.areaHalfWidth.w + 0.5);
         float3 L = float3(0.0, 1.0, 0.0);
         float attenuation = 1.0;
         float3 lightDirW = float3(0.0);
@@ -29,110 +33,6 @@
             }
             L = -normalize(lightDir);
         }
-#if VT_FEATURE_AREA_LIGHTS
-        else if (lightType == 3u) {
-            // Area light — LTC (linearly transformed cosines), port of upstream
-            // ltc.js. Shape (0=rect, 1=disk, 2=sphere) rides in typeCastShadows.y
-            // (area lights never cast shadows, so the slot is free). Diffuse and
-            // specular are both LTC integrals; the shared punctual GGX below is
-            // skipped entirely.
-            const uint areaShape = light.typeCastShadows.y;
-            const float3 lightPos = light.positionRange.xyz;
-            const float halfW = light.directionCone.w;
-            const float halfH = light.coneAngles.x;
-            const float3 lightNrm = normalize(light.directionCone.xyz);
-            float3 right = normalize(float3(light.coneAngles.y, light.coneAngles.z, light.coneAngles.w));
-            float3 up = normalize(cross(lightNrm, right));
-            float3 halfWidthVec = right * halfW;
-            float3 halfHeightVec = up * halfH;
-            const float sphereRadius = max(halfW, halfH);
-            if (areaShape == 2u) {
-                // Sphere: billboard the quad to the reflection vector so the disk
-                // math can integrate it (upstream getSphereLightCoords). The light
-                // cannot be non-uniformly scaled.
-                const float3 f = reflect(normalize(lightPos - cameraPosition), N);
-                right = normalize(cross(f, halfHeightVec));
-                up = normalize(cross(f, right));
-                halfWidthVec = right * sphereRadius;
-                halfHeightVec = up * sphereRadius;
-            }
-
-            // Corners, ccw (upstream getLTCLightCoords).
-            const float3 p0 = lightPos + halfWidthVec - halfHeightVec;
-            const float3 p1 = lightPos - halfWidthVec - halfHeightVec;
-            const float3 p2 = lightPos - halfWidthVec + halfHeightVec;
-            const float3 p3 = lightPos + halfWidthVec + halfHeightVec;
-
-            // Non-punctual lights only get the range window here — the physical
-            // distance falloff comes from the LTC form factor itself.
-            lightDirW = lightPos - rd.worldPos;
-            const float areaAtten = getFalloffWindow(light.positionRange.w, lightDirW);
-            if (areaAtten < 0.00001) {
-                continue;
-            }
-            const float3 areaRadiance = lightColor * lightIntensity * areaAtten;
-
-            // LUT2: Fresnel magnitude (x) + geometric attenuation (y) for
-            // specular energy conservation.
-            const float2 ltcLutUv = ltcUv(N, V, gloss);
-            const float4 ltcT2 = areaLightsLutTex2.sample(ltcLutSampler, ltcLutUv, level(0));
-            const float3 ltcSpecFres = F0 * ltcT2.x + (float3(1.0) - F0) * ltcT2.y;
-
-            // Diffuse: LTC with identity transform (plain cosine integral).
-            // 16.0 mirrors the constant baked into getFalloffInvSquared so area and
-            // punctual lights of equal intensity have comparable brightness.
-            const float3x3 ltcIdentity =
-                float3x3(float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, 0.0, 1.0));
-            float ltcDiffuse;
-            if (areaShape == 1u) {
-                ltcDiffuse = ltcEvaluateDisk(N, V, rd.worldPos, ltcIdentity,
-                    p0, p1, p2, areaLightsLutTex2);
-            } else if (areaShape == 2u) {
-                // Sphere diffuse: wrap-style punctual Lambert with radius-based
-                // falloff (upstream getSphereLightDiffuse).
-                const float distSq = dot(lightDirW, lightDirW);
-                const float falloff = sphereRadius / (distSq + sphereRadius);
-                ltcDiffuse = max(dot(N, normalize(lightDirW)), 0.0) * falloff;
-            } else {
-                ltcDiffuse = ltcEvaluateRect(N, V, rd.worldPos, ltcIdentity, p0, p1, p2, p3);
-            }
-            directDiffuse += areaRadiance * ltcDiffuse * 16.0 * (float3(1.0) - ltcSpecFres);
-
-            // Specular: LTC with the inverse transform fetched from LUT1
-            // (sphere uses the disk evaluator on the billboarded quad).
-            const float4 ltcT1 = areaLightsLutTex1.sample(ltcLutSampler, ltcLutUv, level(0));
-            const float3x3 ltcMInv = float3x3(
-                float3(ltcT1.x, 0.0, ltcT1.y),
-                float3(0.0, 1.0, 0.0),
-                float3(ltcT1.z, 0.0, ltcT1.w));
-            const float ltcSpec = (areaShape != 0u)
-                ? ltcEvaluateDisk(N, V, rd.worldPos, ltcMInv, p0, p1, p2, areaLightsLutTex2)
-                : ltcEvaluateRect(N, V, rd.worldPos, ltcMInv, p0, p1, p2, p3);
-            directSpecular += areaRadiance * ltcSpec * ltcSpecFres;
-
-#if VT_FEATURE_CLEARCOAT
-            // Clearcoat LTC specular with the clearcoat normal/gloss and fixed F0=0.04.
-            {
-                const float2 ccLtcUv = ltcUv(ccNormalW, V, ccGlossiness);
-                const float4 ccT2 = areaLightsLutTex2.sample(ltcLutSampler, ccLtcUv, level(0));
-                const float3 ccSpecFres = float3(0.04) * ccT2.x + float3(0.96) * ccT2.y;
-                const float4 ccT1 = areaLightsLutTex1.sample(ltcLutSampler, ccLtcUv, level(0));
-                const float3x3 ccMInv = float3x3(
-                    float3(ccT1.x, 0.0, ccT1.y),
-                    float3(0.0, 1.0, 0.0),
-                    float3(ccT1.z, 0.0, ccT1.w));
-                const float ccLtc = (areaShape != 0u)
-                    ? ltcEvaluateDisk(ccNormalW, V, rd.worldPos, ccMInv, p0, p1, p2, areaLightsLutTex2)
-                    : ltcEvaluateRect(ccNormalW, V, rd.worldPos, ccMInv, p0, p1, p2, p3);
-                ccSpecularLight += areaRadiance * ccLtc * ccSpecFres;
-            }
-#endif
-
-            // Area light fully accumulated — skip the shared punctual shadow/GGX path.
-            // DEVIATION: area lights do not cast/receive local shadows in this port.
-            continue;
-        }
-#endif
         else {
             lightDirW = light.positionRange.xyz - rd.worldPos;
             const float lightDirLenSq = dot(lightDirW, lightDirW);
@@ -183,7 +83,11 @@
 #endif
 
 #if VT_FEATURE_POINT_SPOT_ATTENUATION
-            if (falloffModeLinear) {
+            if (lightShape != 0u) {
+                // Non-punctual lights only get the range window here — the distance
+                // falloff comes from the LTC form factor itself.
+                attenuation = getFalloffWindow(light.positionRange.w, lightDirW);
+            } else if (falloffModeLinear) {
                 attenuation = getFalloffLinear(light.positionRange.w, lightDirW);
             } else {
                 attenuation = getFalloffInvSquared(light.positionRange.w, lightDirW);
@@ -215,12 +119,16 @@
             const uint shadowIdx = light.typeCastShadows.w;
             const float4x4 shadowMatrix = (shadowIdx == 0u) ? lighting.localShadowMatrix0 : lighting.localShadowMatrix1;
             const float4 shadowParamsLocal = (shadowIdx == 0u) ? lighting.localShadowParams0 : lighting.localShadowParams1;
+            const float4 pcssLocal = (shadowIdx == 0u) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
+            // A VSM spot (pcss.w): no normal offset, as upstream's VSM path takes none.
+            const bool localVsm = pcssLocal.w > 0.5;
 
             // Apply normal bias in world space, scaled by sin(angle) between
             // normal and light direction so grazing surfaces get more offset.
             const float localNdotL = saturate(dot(N, L));
             const float localSinAngle = sqrt(1.0 - localNdotL * localNdotL);
-            const float3 biasedPos = rd.worldPos + N * (shadowParamsLocal.y * localSinAngle);
+            const float3 biasedPos = localVsm ? rd.worldPos
+                : rd.worldPos + N * (shadowParamsLocal.y * localSinAngle);
             const float4 shadowClip = shadowMatrix * float4(biasedPos, 1.0);
             const float shadowW = max(shadowClip.w, 1e-6);
             const float3 shadowCoord = shadowClip.xyz / shadowW;
@@ -232,9 +140,16 @@
                 const float receiverDepth = shadowCoord.z - shadowParamsLocal.x;
                 // PCSS (SHADOW_PCSS_32F on the light): contact-hardening soft
                 // shadows — runtime uniform branch, no extra shader variant.
-                const float4 pcssLocal = (shadowIdx == 0u) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
                 float visible = 1.0;
-                if (shadowIdx == 0u) {
+                if (localVsm) {
+                    // Upstream getShadowSpotVSM16: the receiver is its distance over the
+                    // range (pcss.z, the shadow camera's far), less the 0.0002 bias, and
+                    // params.y is the Chebyshev variance bias.
+                    const float receiverRatio = length(lightDirW) / pcssLocal.z - shadowParamsLocal.x;
+                    visible = (shadowIdx == 0u)
+                        ? getShadowVSM16(localVsmTexture0, shadowCoord.xy, receiverRatio, shadowParamsLocal.y)
+                        : getShadowVSM16(localVsmTexture1, shadowCoord.xy, receiverRatio, shadowParamsLocal.y);
+                } else if (shadowIdx == 0u) {
                     const float res0 = float(localShadowTexture0.get_width());
                     if (res0 > 0.0) {
                         visible = (pcssLocal.x > 0.0)
@@ -364,6 +279,36 @@
         }
 #endif
 
+#if VT_FEATURE_AREA_LIGHTS
+        if (lightShape != 0u) {
+            // Area light — LTC (linearly transformed cosines), upstream ltc.js and
+            // lightFunctionLight's non-punctual path. The world half axes are the
+            // light's scaled X and Z (upstream light_halfWidth / light_halfHeight).
+            const float3 lightPos = light.positionRange.xyz;
+            const LtcAreaLight area = ltcAreaLight(lightShape, lightPos, light.areaHalfWidth.xyz,
+                light.areaHalfHeight.xyz, N, cameraPosition);
+            const float3 areaRadiance = lightColor * cookieMask * lightIntensity * attenuation * shadowFactor;
+            const float3 ltcSpecFres = ltcSpecularFresnel(N, V, gloss, F0, areaLightsLutTex2);
+
+            // A directional source keeps plain Lambert (upstream: "a better approximation
+            // perhaps using wrap lighting could be implemented here"); a local one
+            // integrates its shape. LTC lights do not mix diffuse into the specular.
+            const float ltcDiffuse = (lightType == 0u)
+                ? max(dot(N, L), 0.0)
+                : ltcAreaDiffuse(lightShape, area, lightPos, N, V, rd.worldPos, areaLightsLutTex2);
+            directDiffuse += areaRadiance * ltcDiffuse * (float3(1.0) - ltcSpecFres);
+            directSpecular += areaRadiance * ltcSpecFres *
+                ltcAreaSpecular(lightShape, area, N, V, rd.worldPos, gloss, areaLightsLutTex1, areaLightsLutTex2);
+
+#if VT_FEATURE_CLEARCOAT
+            // Clearcoat LTC specular with the clearcoat normal / gloss and F0 = 0.04.
+            ccSpecularLight += areaRadiance * ltcSpecularFresnel(ccNormalW, V, ccGlossiness, float3(0.04), areaLightsLutTex2) *
+                ltcAreaSpecular(lightShape, area, ccNormalW, V, rd.worldPos, ccGlossiness, areaLightsLutTex1, areaLightsLutTex2);
+#endif
+            continue;
+        }
+#endif
+
         const float3 H = normalize(L + V);
         const float nDotL = max(dot(N, L), 0.0);
         if (nDotL <= 0.0) {
@@ -392,6 +337,14 @@
         // Thin-film iridescence: blend base Fresnel toward iridescence Fresnel.
         F = mix(F, iridFresnel, iridIntensity);
 #endif
+        // With area lights in the variant, a punctual light's diffuse is scaled by
+        // (1 - specularity), as upstream does under AREA_LIGHTS (the LTC lights take
+        // (1 - their Fresnel) the same way).
+#if VT_FEATURE_AREA_LIGHTS && !VT_FEATURE_NO_SPECULAR
+        const float3 punctualDiffuseScale = float3(1.0) - F0;
+#else
+        const float3 punctualDiffuseScale = float3(1.0);
+#endif
 #if VT_FEATURE_OREN_NAYAR
         // Oren-Nayar rough diffuse (fast qualitative form): retro-reflection for
         // rough surfaces instead of plain Lambert.
@@ -401,10 +354,10 @@
             const float onB = 0.45 * sigma2 / (sigma2 + 0.09);
             const float sTerm = dot(L, V) - nDotL * nDotV;
             const float tTerm = sTerm <= 0.0 ? 1.0 : max(max(nDotL, nDotV), 1e-4);
-            directDiffuse += radiance * nDotL * (onA + onB * sTerm / tTerm);
+            directDiffuse += radiance * punctualDiffuseScale * nDotL * (onA + onB * sTerm / tTerm);
         }
 #else
-        directDiffuse += radiance * nDotL;
+        directDiffuse += radiance * punctualDiffuseScale * nDotL;
 #endif
         directSpecular += radiance * D * G * F * nDotL;
 

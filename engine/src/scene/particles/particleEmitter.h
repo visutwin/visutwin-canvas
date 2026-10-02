@@ -9,15 +9,17 @@
 // camera-facing quad per particle through a self-contained shader
 // (gsplat-style renderer branch).
 //
-// DEVIATIONS from upstream: GPU path only (no CPU sim), no particle sorting,
-// unlit only, camera-facing billboards only (no mesh particles or custom face),
-// an initial velocity + spread with gravity/damping beside upstream's velocity
-// graphs (no radial speed graph), no scale/alpha/color graph2, no wrap, no depth
-// softening, one rate (no rate2).
+// DEVIATIONS from upstream: GPU path only (no CPU sim) — sorting, which upstream
+// does on the CPU and which forces its CPU path, is a compute bitonic sort here
+// (ParticleSortShaders.h), keyed on the first active camera rather than the one
+// rendering the emitter; an initial velocity + spread with gravity/damping beside
+// upstream's velocity graphs. colorGraph2 is kept but, as on upstream's GPU path,
+// not sampled.
 //
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "core/math/curve.h"
@@ -44,11 +46,29 @@ namespace visutwin::canvas
         EMITTERSHAPE_SPHERE = 1  // uniform spawn inside a sphere (radius)
     };
 
+    /// Upstream PARTICLEORIENTATION_*: how a quad faces.
+    enum class ParticleOrientation : uint32_t
+    {
+        SCREEN = 0,    // faces the camera
+        WORLD = 1,     // faces particleNormal, in world space
+        EMITTER = 2    // faces particleNormal turned by the emitter
+    };
+
+    /// Upstream PARTICLESORT_*: the draw order of the particles.
+    enum class ParticleSort : uint32_t
+    {
+        NONE = 0,
+        DISTANCE = 1,      // farthest from the camera first
+        NEWER_FIRST = 2,   // the youngest drawn first, the oldest on top
+        OLDER_FIRST = 3
+    };
+
     enum class ParticleBlendType : uint32_t
     {
         BLEND_ADDITIVE = 0,
         BLEND_NORMAL = 1,
-        BLEND_PREMULTIPLIED = 2
+        BLEND_PREMULTIPLIED = 2,
+        BLEND_NONE = 3           // opaque (upstream BLEND_NONE), drawn with the opaque meshes
     };
 
     /// Authoring options (upstream particle-system component property subset).
@@ -62,6 +82,9 @@ namespace visutwin::canvas
         // the whole pool at once (a burst), and a looping particle comes back after
         // max(lifetime, numParticles * rate).
         float rate = 1.0f;
+        // Upstream rate2: each wrap of a particle takes a random rate between rate and
+        // rate2 for its emission period. Unset means rate.
+        std::optional<float> rate2;
         bool loop = true;                 // one-shot when false
         bool preWarm = false;             // start as if a looping emitter had run one lifetime
         bool autoPlay = true;             // play when built; false leaves it paused and hidden
@@ -91,6 +114,10 @@ namespace visutwin::canvas
         // Rotation speed over normalized life (degrees/s), added to rotationSpeed.
         Curve rotationSpeedGraph;
         Curve rotationSpeedGraph2;
+        // Speed away from the emitter's centre over normalized life (units/s), a random
+        // point between graph and graph2 per particle life (upstream radialSpeedGraph).
+        Curve radialSpeedGraph;
+        Curve radialSpeedGraph2;
 
         bool alignToMotion = false;       // turn each particle to face its direction of motion
         float stretch = 0.0f;             // pull the trailing vertices back by velocity * stretch
@@ -104,7 +131,36 @@ namespace visutwin::canvas
         Curve scaleGraph;                 // quad half-extent over normalized life, as upstream
         CurveSet colorGraph;              // rgb over normalized life
         Curve alphaGraph;                 // alpha over normalized life
+        // A random point between each graph and its graph2 per particle (empty: the
+        // graph). colorGraph2 is kept for authoring, but upstream's GPU path never samples
+        // it, and neither does this one.
+        Curve scaleGraph2;
+        Curve alphaGraph2;
+        CurveSet colorGraph2;
         float intensity = 1.0f;           // color multiplier (HDR glow)
+
+        // Upstream wrap: world-space particles wrap around the emitter's position within
+        // a box of wrapBounds, so a field of them (rain, snow) follows a moving emitter.
+        bool wrap = false;
+        Vector3 wrapBounds = Vector3(0.0f);
+
+        // Upstream depthSoftening: fade a particle where it nears the scene behind it.
+        // Needs the camera's scene depth (CameraComponent::requestSceneDepthMap).
+        float depthSoftening = 0.0f;
+
+        // Upstream lighting: shade with the light cube (scene ambient and directional
+        // lights), from a normal map when one is set, else the quad's own normal.
+        bool lighting = false;
+        bool halfLambert = false;
+        Texture* normalMap = nullptr;
+
+        // Upstream mesh: draw this mesh for each particle instead of a quad (its vertex
+        // buffer must be the engine's packed 14-float layout: position, normal, uv0 ...).
+        std::shared_ptr<Mesh> mesh;
+        ParticleOrientation orientation = ParticleOrientation::SCREEN;
+        Vector3 particleNormal = Vector3(0.0f, 1.0f, 0.0f);
+
+        ParticleSort sort = ParticleSort::NONE;
 
         Texture* colorMap = nullptr;      // optional sprite texture (white quad if null)
         int animTilesX = 1;               // sprite-sheet tiles
@@ -154,6 +210,19 @@ namespace visutwin::canvas
         void prepareRender(const Matrix4& view, const Matrix4& projection,
             const Matrix4& model, float viewportWidth, float viewportHeight);
 
+        /// Sort the pool for the camera at `cameraPosition` (world), when the options sort.
+        /// Runs a compute pass, so it belongs outside a render pass (the component calls it
+        /// after the simulation step).
+        void sort(const Vector3& cameraPosition, const Matrix4& emitterTransform);
+
+        /// Light the particles with upstream's light cube: six colours for -X, +X, -Y, +Y,
+        /// -Z, +Z (the scene ambient plus each directional light). Filled per draw.
+        void setLightCube(const float (&colors)[6][3]);
+
+        /// Upstream depth softening's inputs: the camera's clip planes, and whether the scene
+        /// depth grab it reads exists (without one the particles stay hard). Filled per draw.
+        void setSoftening(float cameraNear, float cameraFar, bool sceneDepthAvailable);
+
         /// The output stage the fragment applies (upstream particle_end): the scene's exposure
         /// and tone mapping, and whether the target is a camera frame's linear HDR scene
         /// (tone mapping and gamma left to compose). Called by the renderer per draw.
@@ -162,6 +231,13 @@ namespace visutwin::canvas
         [[nodiscard]] std::unique_ptr<MeshInstance> createMeshInstance(GraphNode* node);
 
         [[nodiscard]] const std::shared_ptr<VertexBuffer>& particleBuffer() const { return _particleBuffer; }
+        /// The sorted draw order, when the options sort; null otherwise.
+        [[nodiscard]] std::shared_ptr<VertexBuffer> orderBuffer() const
+        {
+            return _options.sort != ParticleSort::NONE && _sorted ? _orderBuffer : nullptr;
+        }
+        /// A mesh emitter's vertices, bound as storage; null for quads.
+        [[nodiscard]] std::shared_ptr<VertexBuffer> meshVertexBuffer() const;
         [[nodiscard]] const GpuParticleRenderParams& renderParams() const { return _renderParams; }
         [[nodiscard]] const ParticleEmitterOptions& options() const { return _options; }
         [[nodiscard]] uint32_t numParticles() const { return _options.numParticles; }
@@ -172,6 +248,7 @@ namespace visutwin::canvas
 
     private:
         void createParticleBuffer();
+        void createSortBuffers();
         void createQuadMesh();
         void createMaterial();
         void quantizeCurves();
@@ -191,6 +268,14 @@ namespace visutwin::canvas
 
         std::shared_ptr<Shader> _simShader;
         std::unique_ptr<Compute> _simCompute;
+
+        // Sorting: key/index pairs over the pool rounded up to a power of two, and the
+        // resulting draw order.
+        std::shared_ptr<VertexBuffer> _sortKeys;
+        std::shared_ptr<VertexBuffer> _orderBuffer;
+        std::shared_ptr<Shader> _sortShader;
+        std::unique_ptr<Compute> _sortCompute;
+        bool _sorted = false;
         bool _simUnavailable = false;
         std::shared_ptr<Mesh> _quadMesh;
         std::shared_ptr<Material> _material;

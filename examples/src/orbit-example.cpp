@@ -10,12 +10,9 @@
 //
 // LMB / RMB orbit, Shift / MMB pan, Wheel / Pinch zoom, F focus, L look, R reset.
 //
-// DEVIATION: upstream's focus, look and reset glide to the new pose through the
-// controller's damping; here they take effect on the next frame.
-//
 // DEVIATION: upstream's controls panel (rotate/move/zoom speeds, damping, pitch,
 // yaw and zoom ranges, zoom scale min) has no counterpart; the camera runs with
-// the port's CameraControls defaults, which have no damping attributes at all.
+// CameraControls' defaults, which are upstream's.
 //
 #include <memory>
 
@@ -88,9 +85,6 @@ protected:
         _controls->setMoveFastSpeed(4.0f * sceneSize);
         _controls->setMoveSlowSpeed(sceneSize);
 
-        // Upstream's focus(point, resetZoom = true) returns to this distance.
-        _startZoomDist = _start.distance(_focusPoint);
-
         return true;
     }
 
@@ -103,16 +97,15 @@ protected:
         switch (event.key.key) {
         case SDLK_F:
             // Keep the view direction, re-centre on the statue at the start distance.
-            _controls->focus(_focusPoint, _startZoomDist);
+            _controls->focus(_focusPoint, true);
             return true;
         case SDLK_L:
             // Keep the camera where it is and turn it towards the statue.
-            _controls->setFocusPoint(_focusPoint);
+            _controls->look(_focusPoint);
             return true;
         case SDLK_R:
             // Back to the start position, looking at the statue.
-            _camera->setPosition(_start);
-            _controls->setFocusPoint(_focusPoint);
+            _controls->reset(_focusPoint, _start);
             return true;
         default:
             return false;
@@ -127,7 +120,6 @@ private:
     CameraControls* _controls = nullptr;
     const Vector3 _start{0.0f, 20.0f, 30.0f};
     Vector3 _focusPoint;
-    float _startZoomDist = 0.0f;
 };
 
 VISUTWIN_EXAMPLE_MAIN(OrbitExample)

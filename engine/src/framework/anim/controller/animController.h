@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers 11.07.2026
 //
 #pragma once
 
@@ -46,7 +46,7 @@ namespace visutwin::canvas
      * and parameters. Its update method determines the active state from the current time,
      * parameters and available states/transitions, and keeps the AnimEvaluator supplied with the
      * correct clips and blend weights. Each clip it creates fires its track's events on
-     * `eventHandler` (upstream passes the AnimComponent).
+     * `eventHandler`.
      */
     class AnimController
     {
@@ -87,7 +87,7 @@ namespace visutwin::canvas
         /**
          * Assign an animation track to a state (or blend-tree leaf). `path` is the state name,
          * optionally followed by blend-tree node names separated by '.'.
-         * A missing simple state is created on the fly (matching upstream).
+         * A missing simple state is created on the fly.
          */
         void assignAnimation(const std::string& path, const std::shared_ptr<AnimTrack>& track,
                              std::optional<float> speed = std::nullopt,
@@ -96,8 +96,8 @@ namespace visutwin::canvas
         bool removeNodeAnimations(const std::string& nodeName);
 
         void play(const std::string& stateName = {});
-        /// Blend from the active state to `to` over `time` seconds through an ad-hoc transition
-        /// (upstream AnimComponentLayer.transition); a negative offset is none.
+        /// Blend from the active state to `to` over `time` seconds through an ad-hoc transition;
+        /// a negative offset is none.
         void transition(const std::string& to, float time, float transitionOffset = -1.0f);
         void pause();
         void reset();

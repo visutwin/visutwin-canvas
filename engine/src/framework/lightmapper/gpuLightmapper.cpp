@@ -5,21 +5,30 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
+#include <string>
 
 #include <spdlog/spdlog.h>
 
+#include "lightmapFilters.h"
+#include "lightmapFilterShaders.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/components/componentSystem.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/light/lightComponent.h"
+#include "platform/graphics/blendState.h"
+#include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/renderPass.h"
 #include "platform/graphics/renderTarget.h"
+#include "platform/graphics/shader.h"
 #include "platform/graphics/texture.h"
 #include "scene/camera.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
 #include "scene/graphNode.h"
+#include "scene/graphics/quadRender.h"
 #include "scene/layer.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/mesh.h"
@@ -41,17 +50,6 @@ namespace visutwin::canvas
             y = r * std::sin(theta);
         }
 
-        /// Upstream random.spherePointDeterministic, covering the top `end` part of the sphere.
-        Vector3 spherePointDeterministic(const int index, const int numPoints, const float end)
-        {
-            const float finish = 1.0f - 2.0f * end;
-            const float t = static_cast<float>(index) / static_cast<float>(std::max(numPoints, 1));
-            const float y = 1.0f + (finish - 1.0f) * t;
-            const float radius = std::sqrt(std::max(0.0f, 1.0f - y * y));
-            const float theta = GOLDEN_ANGLE * static_cast<float>(index);
-            return Vector3(std::cos(theta) * radius, y, std::sin(theta) * radius);
-        }
-
         int nextPowerOfTwo(int value)
         {
             int result = 1;
@@ -68,17 +66,126 @@ namespace visutwin::canvas
         int lightmapSizeFor(MeshInstance* meshInstance, const GpuLightmapper::Options& options,
             const int maxSize)
         {
-            if (options.sizeMultiplier <= 0.0f || !meshInstance) {
+            if (options.lightmapSizeMultiplier <= 0.0f || !meshInstance) {
                 return std::clamp(options.lightmapSize, 8, maxSize);
             }
             const BoundingBox aabb = meshInstance->aabb();
             const Vector3 half = aabb.halfExtents();
             const float totalArea = std::sqrt(
                 half.getY() * half.getZ() + half.getX() * half.getZ() + half.getX() * half.getY());
-            return std::clamp(nextPowerOfTwo(static_cast<int>(totalArea * options.sizeMultiplier)),
-                8, std::clamp(options.maxResolution, 8, maxSize));
+            return std::clamp(nextPowerOfTwo(static_cast<int>(totalArea * options.lightmapSizeMultiplier)),
+                8, std::clamp(options.lightmapMaxResolution, 8, maxSize));
+        }
+
+        // HDR: the bake stores LINEAR light, and the sun alone exceeds 1.0 before
+        // exposure — an 8-bit target would clamp it to white and flatten the scene.
+        // The accumulating virtual-light passes need the headroom too.
+        std::shared_ptr<Texture> createLightmapTexture(GraphicsDevice* device, const int size,
+            const char* name)
+        {
+            TextureOptions texOptions;
+            texOptions.width = static_cast<uint32_t>(size);
+            texOptions.height = static_cast<uint32_t>(size);
+            texOptions.format = PixelFormat::PIXELFORMAT_RGBA16F;
+            texOptions.mipmaps = false;
+            texOptions.name = name;
+            texOptions.profilerHint = TexHint::TEXHINT_LIGHTMAP;
+            return std::make_shared<Texture>(device, texOptions);
+        }
+
+        std::shared_ptr<RenderTarget> createLightmapTarget(GraphicsDevice& device, Texture* texture,
+            const bool depth)
+        {
+            RenderTargetOptions rtOptions;
+            rtOptions.graphicsDevice = &device;
+            rtOptions.colorBuffer = texture;
+            rtOptions.depth = depth;
+            rtOptions.samples = 1;
+            rtOptions.name = "gpuLightmapTarget";
+            return device.createRenderTarget(rtOptions);
+        }
+
+        // A quad pass over one lightmap-sized target, outside the frame graph. The device
+        // handle is non-owning for the same reason as the environment bakes' pass: it lives
+        // for one draw inside an offline scope the device outlives.
+        struct LightmapFilterPass final : RenderPass
+        {
+            LightmapFilterPass(GraphicsDevice* device, const char* name)
+                : RenderPass(std::shared_ptr<GraphicsDevice>(device, [](GraphicsDevice*) {}))
+            {
+                _name = name;
+            }
+        };
+
+        enum class FilterKind { Dilate, Denoise, AmbientOcclusion, Copy };
+
+        std::shared_ptr<Shader> filterShader(GraphicsDevice* device, const FilterKind kind)
+        {
+            const char* cacheKey = "lightmap-copy";
+            const char* define = "#define LM_COPY 1\n";
+            switch (kind) {
+            case FilterKind::Dilate:
+                cacheKey = "lightmap-dilate";
+                define = "#define LM_DILATE 1\n";
+                break;
+            case FilterKind::Denoise:
+                cacheKey = "lightmap-denoise";
+                define = "#define LM_DENOISE 1\n";
+                break;
+            case FilterKind::AmbientOcclusion:
+                cacheKey = "lightmap-ambient-ao";
+                define = "#define LM_AMBIENT_AO 1\n";
+                break;
+            case FilterKind::Copy:
+                break;
+            }
+            if (auto cached = device->getCachedShader(cacheKey)) {
+                return cached;
+            }
+            // GLSL needs its #version line first, so the pass switch follows it.
+            const bool glsl = device->shaderLanguage() == ShaderLanguage::Glsl;
+            const std::string source = glsl
+                ? std::string("#version 450\n") + define + lightmap_filter_shaders::LIGHTMAP_FILTER_GLSL
+                : std::string(define) + lightmap_filter_shaders::LIGHTMAP_FILTER_MSL;
+            ShaderDefinition definition;
+            definition.name = cacheKey;
+            definition.vshader = "lightmapFilterVertex";
+            definition.fshader = "lightmapFilterFragment";
+            auto shader = createShader(device, definition, source);
+            if (shader) {
+                device->setCachedShader(cacheKey, shader);
+            }
+            return shader;
+        }
+
+        /// One full-target quad: `sources` on slots 0.., writing `target`. A pass draws
+        /// outside the frame graph, so it sets every piece of state the pipeline reads.
+        void drawFilter(GraphicsDevice* device, const std::shared_ptr<Shader>& shader,
+            const std::shared_ptr<RenderTarget>& target, std::initializer_list<Texture*> sources,
+            const lightmap_filters::LightmapFilterUniforms& uniforms, const char* name)
+        {
+            if (!shader || !target) {
+                return;
+            }
+            QuadRender quad(shader);
+            size_t slot = 0;
+            for (auto* source : sources) {
+                quad.setTexture(slot++, source);
+            }
+            quad.setUniforms(uniforms);
+
+            LightmapFilterPass pass(device, name);
+            pass.init(target);
+            device->startRenderPass(&pass);
+            device->setBlendState(BlendState::noBlend());
+            device->setDepthState(DepthState::noDepth());
+            device->setCullMode(CullMode::CULLFACE_NONE);
+            device->setStencilState();
+            quad.render();
+            device->endRenderPass(&pass);
         }
     }
+
 
     GpuLightmapper::GpuLightmapper(Engine* engine) : _engine(engine)
     {
@@ -89,34 +196,6 @@ namespace visutwin::canvas
         destroyBakeNodes();
     }
 
-    namespace
-    {
-        // HDR: the bake stores LINEAR light, and the sun alone exceeds 1.0 before
-        // exposure — an 8-bit target would clamp it to white and flatten the scene.
-        // The accumulating virtual-light passes need the headroom too.
-        std::shared_ptr<Texture> createLightmapTexture(GraphicsDevice* device, const int size)
-        {
-            TextureOptions texOptions;
-            texOptions.width = static_cast<uint32_t>(size);
-            texOptions.height = static_cast<uint32_t>(size);
-            texOptions.format = PixelFormat::PIXELFORMAT_RGBA16F;
-            texOptions.mipmaps = false;
-            texOptions.name = "gpuLightmap";
-            texOptions.profilerHint = TexHint::TEXHINT_LIGHTMAP;
-            return std::make_shared<Texture>(device, texOptions);
-        }
-
-        std::shared_ptr<RenderTarget> createLightmapTarget(GraphicsDevice& device, Texture* texture)
-        {
-            RenderTargetOptions rtOptions;
-            rtOptions.graphicsDevice = &device;
-            rtOptions.colorBuffer = texture;
-            rtOptions.depth = true;
-            rtOptions.name = "gpuLightmapTarget";
-            return device.createRenderTarget(rtOptions);
-        }
-    }
-
     void GpuLightmapper::bake(const std::vector<MeshInstance*>& targets, const Options& options)
     {
         if (!_engine || targets.empty()) {
@@ -125,6 +204,10 @@ namespace visutwin::canvas
         destroyBakeNodes();
 
         _options = options;
+        // Upstream's scene setters clamp these.
+        _options.ambientBakeNumSamples = std::clamp(_options.ambientBakeNumSamples, 1, 255);
+        _options.ambientBakeSpherePart = std::clamp(_options.ambientBakeSpherePart, 0.001f, 1.0f);
+        _options.lightmapFilterRange = std::max(_options.lightmapFilterRange, 0.001f);
         _targets = targets;
         _lightmaps.clear();
         _originalMasks.clear();
@@ -134,19 +217,15 @@ namespace visutwin::canvas
         }
         widenLightsForBake();
         prepareDirectionalSamples();
-
-        // Ambient occlusion: the scene's own ambient is suppressed for the bake and
-        // re-introduced as virtual lights, so the ambient term carries visibility
-        // instead of being flat. Sample -1 is the direct-light pass.
-        _ambientSample = -1;
-        _ambientNormalization = 0.0f;
-        if (_options.ambientBake && _options.ambientBakeNumSamples > 0) {
-            _savedAmbient = _engine->scene()->ambientLight();
+        if (_options.ambientBake) {
             setupAmbientLight();
         }
 
+        // Upstream bakes the ambient light first, from a black lightmap, so its occlusion
+        // curve shapes the ambient alone; the scene lights add on top afterwards.
+        startPhase(_options.ambientBake ? Phase::AmbientLight : Phase::Direct, 0);
+
         _pending = true;
-        _framesWaited = 0;
         spdlog::info("GpuLightmapper: baking {} mesh(es) in UV space", _targets.size());
     }
 
@@ -160,8 +239,16 @@ namespace visutwin::canvas
 
         const auto& device = _engine->graphicsDevice();
         const int size = lightmapSizeFor(meshInstance, _options, device->maxTextureSize());
-        auto texture = createLightmapTexture(device.get(), size);
-        auto renderTarget = createLightmapTarget(*device, texture.get());
+        auto texture = createLightmapTexture(device.get(), size, "gpuLightmap");
+        auto renderTarget = createLightmapTarget(*device, texture.get(), true);
+
+        // The ambient bake's visibility accumulates apart from the lightmap, so its curve
+        // and the multiply by the ambient light can be applied to it alone.
+        if (_options.ambientBake) {
+            auto occlusion = createLightmapTexture(device.get(), size, "gpuLightmapOcclusion");
+            _occlusionRT.push_back(createLightmapTarget(*device, occlusion.get(), true));
+            _occlusionTextures.push_back(std::move(occlusion));
+        }
 
         // A private layer per target: the bake camera renders exactly one mesh, so
         // its unwrap owns the whole target.
@@ -201,7 +288,9 @@ namespace visutwin::canvas
         Camera* camera = cameraComponent->camera();
         camera->setRenderTarget(renderTarget);
         camera->setLightmapBakePass(true);
-        camera->setClearColor(Color(0.0f, 0.0f, 0.0f, 1.0f));
+        // Alpha 0: a texel the unwrap never covers stays at alpha 0, and the dilate and
+        // denoise read alpha as "baked" (lightmapFilterShaders.h).
+        camera->setClearColor(Color(0.0f, 0.0f, 0.0f, 0.0f));
         // The UV-space vertex stage ignores this transform; it exists only so the
         // directional shadow cascades are fitted to the scene rather than to a
         // degenerate frustum. Place it back from the scene and look at its centre.
@@ -239,6 +328,7 @@ namespace visutwin::canvas
                 continue;
             }
             _lightLayerBackup.emplace_back(lightComponent, lightComponent->layers());
+            _lightEnabledBackup.emplace_back(lightComponent, lightComponent->enabled());
             std::vector<int> layerIds = lightComponent->layers();
             layerIds.insert(layerIds.end(), bakeLayers.begin(), bakeLayers.end());
             lightComponent->setLayers(layerIds);
@@ -260,7 +350,6 @@ namespace visutwin::canvas
         // Directional lights bake as N virtual copies when soft shadows are asked for, so
         // they sit out the direct-light frame and contribute one accumulated pass each.
         _directionalLights.clear();
-        _dirSample = -1;
         _dirSampleCount = 0;
         if (!(_options.directionalBakeNumSamples > 1 && _options.directionalBakeArea > 0.0f)) {
             return;
@@ -274,10 +363,113 @@ namespace visutwin::canvas
             _directionalLights.emplace_back(lightComponent,
                 node ? node->localRotation() : Quaternion(),
                 lightComponent->intensity(), lightComponent->luminance());
-            lightComponent->setEnabled(false);
         }
         if (!_directionalLights.empty()) {
             _dirSampleCount = _options.directionalBakeNumSamples;
+        }
+    }
+
+    void GpuLightmapper::setupAmbientLight()
+    {
+        // Upstream BakeLightAmbient's light: a white directional caster with PCF3 shadows
+        // at 2048. DEVIATION: shadow bias 0.05 rather than upstream's 0.2 — the authoring
+        // value here feeds a polygon offset, and 0.2 pushes small casters out of their own
+        // shadows (the same conversion the lightmap examples make for their lights).
+        _ambientLightEntity = new Entity();
+        _ambientLightEntity->setName("AmbientLight");
+        _ambientLightEntity->setEngine(_engine);
+        _engine->root()->addChild(_ambientLightEntity);
+
+        _ambientLight = static_cast<LightComponent*>(
+            _ambientLightEntity->addComponent<LightComponent>());
+        _ambientLight->setType(LightType::LIGHTTYPE_DIRECTIONAL);
+        _ambientLight->setColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
+        _ambientLight->setCastShadows(true);
+        _ambientLight->setShadowType(ShadowType::SHADOW_PCF3_32F);
+        _ambientLight->setShadowResolution(2048);
+        _ambientLight->setShadowBias(0.05f);
+        _ambientLight->setShadowNormalBias(0.05f);
+        _ambientLight->setNumCascades(1);
+        _ambientLight->setShadowDistance(_options.bakeCameraDistance * 4.0f);
+        _ambientLight->setMask(MASK_AFFECT_LIGHTMAPPED);
+        _ambientLight->setLayers(bakeLayerIds());
+        _ambientLight->setEnabled(false);   // enabled for the occlusion frames only
+    }
+
+    template <typename Predicate>
+    void GpuLightmapper::enableSceneLights(Predicate keep)
+    {
+        for (auto& [lightComponent, enabled] : _lightEnabledBackup) {
+            if (lightComponent) {
+                lightComponent->setEnabled(enabled && keep(*lightComponent));
+            }
+        }
+    }
+
+    void GpuLightmapper::configureCameras(const bool occlusionTargets, const bool clear,
+        const bool accumulate)
+    {
+        for (size_t i = 0; i < _cameras.size(); ++i) {
+            auto* cameraEntity = _cameras[i];
+            auto* cameraComponent = cameraEntity ? cameraEntity->findComponent<CameraComponent>() : nullptr;
+            Camera* camera = cameraComponent ? cameraComponent->camera() : nullptr;
+            if (!camera) {
+                continue;
+            }
+            const auto& target = (occlusionTargets && i < _occlusionRT.size()) ? _occlusionRT[i] : _targetsRT[i];
+            camera->setRenderTarget(target);
+            camera->setClearColorBuffer(clear);
+            // An accumulating frame adds its own light to the target with additive
+            // blending (VT_FEATURE_LIGHTMAP_BAKE_ACCUM drops the ambient from it).
+            camera->setLightmapBakeAccumulate(accumulate);
+        }
+        // The composition caches its render actions with the clear flags and the target;
+        // both are in its fingerprint, but say so anyway — this is a one-off per frame.
+        if (const auto& layers = _engine->scene()->layers()) {
+            layers->markDirty();
+        }
+    }
+
+    void GpuLightmapper::startPhase(const Phase phase, const int sample)
+    {
+        _phase = phase;
+        _sample = sample;
+        if (_ambientLight) {
+            _ambientLight->setEnabled(phase == Phase::AmbientOcclusion);
+        }
+        const bool softDirectional = _dirSampleCount > 0;
+
+        switch (phase) {
+        case Phase::AmbientLight:
+            // No light at all: what the frame writes is the ambient irradiance per texel —
+            // the env atlas or the flat ambient, whichever the scene has — which is
+            // upstream's dAmbientLight, the term its occlusion multiplies.
+            enableSceneLights([](const LightComponent&) { return false; });
+            configureCameras(false, true, false);
+            break;
+        case Phase::AmbientOcclusion:
+            enableSceneLights([](const LightComponent&) { return false; });
+            prepareAmbientSample(sample);
+            configureCameras(true, sample == 0, true);
+            break;
+        case Phase::Direct:
+            // The soft directional lights come in their own frames.
+            enableSceneLights([softDirectional](const LightComponent& light) {
+                return !(softDirectional && light.type() == LightType::LIGHTTYPE_DIRECTIONAL);
+            });
+            // Without the ambient bake this is the first frame and writes the unoccluded
+            // ambient with the lights; with it, it adds the lights to the ambient.
+            configureCameras(false, !_options.ambientBake, _options.ambientBake);
+            break;
+        case Phase::DirectionalSample:
+            enableSceneLights([](const LightComponent& light) {
+                return light.type() == LightType::LIGHTTYPE_DIRECTIONAL;
+            });
+            prepareDirectionalSample(sample);
+            configureCameras(false, false, true);
+            break;
+        case Phase::Done:
+            break;
         }
     }
 
@@ -286,29 +478,38 @@ namespace visutwin::canvas
         if (!_pending) {
             return false;
         }
-        // One rendered frame is enough — the bake cameras drew their targets during it.
-        if (++_framesWaited < 1) {
+
+        // The frame just rendered did the current phase's work; set up the next one.
+        switch (_phase) {
+        case Phase::AmbientLight:
+            startPhase(Phase::AmbientOcclusion, 0);
             return false;
-        }
-
-        // Soft directional shadows: one accumulated frame per virtual copy of the sun.
-        if (_dirSample + 1 < _dirSampleCount) {
-            ++_dirSample;
-            prepareDirectionalSample(_dirSample);
-            beginAccumulation();
+        case Phase::AmbientOcclusion:
+            if (_sample + 1 < _options.ambientBakeNumSamples) {
+                startPhase(Phase::AmbientOcclusion, _sample + 1);
+                return false;
+            }
+            applyAmbientOcclusion();
+            startPhase(Phase::Direct, 0);
             return false;
+        case Phase::Direct:
+            if (_dirSampleCount > 0) {
+                startPhase(Phase::DirectionalSample, 0);
+                return false;
+            }
+            break;
+        case Phase::DirectionalSample:
+            if (_sample + 1 < _dirSampleCount) {
+                startPhase(Phase::DirectionalSample, _sample + 1);
+                return false;
+            }
+            break;
+        case Phase::Done:
+            break;
         }
+        _phase = Phase::Done;
 
-        // Ambient occlusion: after the direct-light frame, run one more frame per virtual
-        // light, each blended additively into the same lightmaps.
-        if (_options.ambientBake && _ambientLight &&
-            _ambientSample + 1 < _options.ambientBakeNumSamples) {
-            ++_ambientSample;
-            prepareAmbientSample(_ambientSample);
-
-            beginAccumulation();
-            return false;   // more frames to go
-        }
+        postprocessLightmaps();
 
         for (size_t i = 0; i < _targets.size(); ++i) {
             auto* meshInstance = _targets[i];
@@ -322,8 +523,6 @@ namespace visutwin::canvas
             // whichever target was baked last.
             meshInstance->setLightMap(_lightmaps[i]);
         }
-
-
 
         // The bake is one-shot: drop the cameras and layers so the scene renders normally.
         destroyBakeNodes();
@@ -341,70 +540,12 @@ namespace visutwin::canvas
         }
     }
 
-    void GpuLightmapper::setupAmbientLight()
-    {
-        _ambientLightEntity = new Entity();
-        _ambientLightEntity->setName("LightmapAmbientBakeLight");
-        _ambientLightEntity->setEngine(_engine);
-        _engine->root()->addChild(_ambientLightEntity);
-
-        _ambientLight = static_cast<LightComponent*>(
-            _ambientLightEntity->addComponent<LightComponent>());
-        _ambientLight->setType(LightType::LIGHTTYPE_DIRECTIONAL);
-        _ambientLight->setCastShadows(true);
-        _ambientLight->setShadowBias(0.2f);
-        _ambientLight->setShadowDistance(_options.bakeCameraDistance * 4.0f);
-        _ambientLight->setMask(MASK_AFFECT_LIGHTMAPPED);
-        _ambientLight->setEnabled(false);   // enabled once the direct pass is done
-
-        _ambientLight->setLayers(bakeLayerIds());
-    }
-
-    void GpuLightmapper::beginAccumulation()
-    {
-        if (_accumulating) {
-            return;
-        }
-        _accumulating = true;
-
-        // Ambient is dropped by the shader for these passes (VT_FEATURE_LIGHTMAP_BAKE_ACCUM)
-        // rather than by touching the scene — nulling Scene::envAtlas mid-bake stalls the
-        // renderer, and the shader gate is both cheaper and reversible.
-        // From here on the bake cameras add to the lightmap instead of clearing it. The
-        // composition caches its render actions (and the resolved clear flags with them),
-        // and camera clear state is not part of its dirty fingerprint — so this has to
-        // mark it dirty or every pass would simply replace the last.
-        for (auto* cameraEntity : _cameras) {
-            if (!cameraEntity) {
-                continue;
-            }
-            if (auto* cameraComponent = cameraEntity->findComponent<CameraComponent>()) {
-                if (Camera* camera = cameraComponent->camera()) {
-                    camera->setClearColorBuffer(false);
-                    camera->setLightmapBakeAccumulate(true);
-                }
-            }
-        }
-        if (const auto& layers = _engine->scene()->layers()) {
-            layers->markDirty();
-        }
-    }
-
     void GpuLightmapper::prepareDirectionalSample(const int index)
     {
-        // Only the directional lights contribute to these passes — the local lights were
-        // already baked in the direct frame.
-        for (auto& [lightComponent, mask] : _lightMaskBackup) {
-            if (lightComponent && lightComponent->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
-                lightComponent->setEnabled(false);
-            }
-        }
-
         for (auto& [lightComponent, rotation, intensity, luminance] : _directionalLights) {
             if (!lightComponent) {
                 continue;
             }
-            lightComponent->setEnabled(true);
             auto* node = lightComponent->entity();
             if (!node) {
                 continue;
@@ -432,41 +573,118 @@ namespace visutwin::canvas
         if (!_ambientLight || !_ambientLightEntity) {
             return;
         }
-        // Silence the scene's own lights for the ambient passes — their contribution is
-        // already in the lightmap from the direct-light frame.
-        for (auto& [lightComponent, mask] : _lightMaskBackup) {
-            if (lightComponent && lightComponent != _ambientLight) {
-                lightComponent->setEnabled(false);
-            }
-        }
-        _ambientLight->setEnabled(true);
-
-        // Upstream BakeLightAmbient: a point on the sphere part, the light aimed back
-        // along it (lookAt(-point) then rotateLocal(90,0,0), since a light emits along
-        // its node's -Y while lookAt aims -Z).
-        const Vector3 point = spherePointDeterministic(index,
-            _options.ambientBakeNumSamples, std::clamp(_options.ambientBakeSpherePart, 0.01f, 1.0f));
+        // Upstream BakeLightAmbient.prepareVirtualLight: a point on the sphere part, the
+        // light aimed back along it (lookAt(-point) then rotateLocal(90,0,0), since a light
+        // emits along its node's -Y while lookAt aims -Z), at the intensity upstream's
+        // Light ends up shading with.
+        const int numSamples = _options.ambientBakeNumSamples;
+        const Vector3 point = lightmap_filters::spherePointDeterministic(index, numSamples,
+            _options.ambientBakeSpherePart);
         _ambientLightEntity->setLocalPosition(0.0f, 0.0f, 0.0f);
         _ambientLightEntity->lookAt(point * -1.0f);
         _ambientLightEntity->rotateLocal(90.0f, 0.0f, 0.0f);
+        _ambientLight->setIntensity(lightmap_filters::ambientVirtualLightIntensity(numSamples,
+            _options.ambientBakeSpherePart));
+    }
 
-        // Intensity normalization. Upstream can divide by the sample count because its
-        // bake accumulates VISIBILITY and multiplies by the ambient colour at the end
-        // (bakeLmEnd); here each virtual light contributes radiance directly, so the set
-        // has to be normalized such that a fully open, upward-facing surface receives
-        // exactly the ambient colour it replaces: sum of N·L over the sample directions
-        // for N = +Y, inverted.
-        if (_ambientNormalization <= 0.0f) {
-            float sum = 0.0f;
-            for (int i = 0; i < _options.ambientBakeNumSamples; ++i) {
-                const Vector3 dir = spherePointDeterministic(i, _options.ambientBakeNumSamples,
-                    std::clamp(_options.ambientBakeSpherePart, 0.01f, 1.0f));
-                sum += std::max(dir.getY(), 0.0f);
-            }
-            _ambientNormalization = (sum > 1e-4f) ? (1.0f / sum) : 1.0f;
+    const std::shared_ptr<RenderTarget>& GpuLightmapper::tempTarget(const int size)
+    {
+        auto& entry = _tempTargets[size];
+        if (!entry.second) {
+            GraphicsDevice* device = _engine->graphicsDevice().get();
+            entry.first = createLightmapTexture(device, size, "gpuLightmapTemp");
+            entry.first->upload();
+            entry.second = createLightmapTarget(*device, entry.first.get(), false);
         }
-        _ambientLight->setIntensity(_ambientNormalization);
-        _ambientLight->setColor(_savedAmbient);
+        return entry.second;
+    }
+
+    void GpuLightmapper::applyAmbientOcclusion()
+    {
+        GraphicsDevice* device = _engine->graphicsDevice().get();
+        const auto aoShader = filterShader(device, FilterKind::AmbientOcclusion);
+        const auto copyShader = filterShader(device, FilterKind::Copy);
+        if (!aoShader || !copyShader) {
+            spdlog::error("GpuLightmapper: no ambient-occlusion shader for this device");
+            return;
+        }
+
+        lightmap_filters::LightmapFilterUniforms uniforms;
+        uniforms.occlusionContrast = _options.ambientBakeOcclusionContrast;
+        uniforms.occlusionBrightness = _options.ambientBakeOcclusionBrightness;
+
+        // Targets first: building one inside the offline scope would queue its image's
+        // transition behind the work that uses it.
+        for (const auto& rt : _targetsRT) {
+            if (rt && rt->colorBuffer()) {
+                tempTarget(static_cast<int>(rt->colorBuffer()->width()));
+            }
+        }
+
+        device->beginOfflineWork();
+        for (size_t i = 0; i < _targetsRT.size() && i < _occlusionTextures.size(); ++i) {
+            const auto& lightmapRT = _targetsRT[i];
+            Texture* lightmap = lightmapRT ? lightmapRT->colorBuffer() : nullptr;
+            if (!lightmap || !_occlusionTextures[i]) {
+                continue;
+            }
+            const auto& temp = tempTarget(static_cast<int>(lightmap->width()));
+            // Upstream's last ambient pass (bakeLmEnd under LIT_LIGHTMAP_BAKING_ADD_AMBIENT).
+            drawFilter(device, aoShader, temp, {_occlusionTextures[i].get(), lightmap},
+                uniforms, "LightmapAmbientOcclusion");
+            drawFilter(device, copyShader, lightmapRT, {temp->colorBuffer()}, uniforms,
+                "LightmapAmbientCopy");
+        }
+        device->endOfflineWork();
+
+        // The occlusion targets are done with. A texture still referenced by work in
+        // flight is kept by the backend (Metal's command buffer retains it, Vulkan defers
+        // the destruction), so they can go now.
+        _occlusionRT.clear();
+        _occlusionTextures.clear();
+    }
+
+    void GpuLightmapper::postprocessLightmaps()
+    {
+        GraphicsDevice* device = _engine->graphicsDevice().get();
+        const auto dilateShader = filterShader(device, FilterKind::Dilate);
+        const bool filter = _options.lightmapFilterEnabled;
+        const auto denoiseShader = filter ? filterShader(device, FilterKind::Denoise) : nullptr;
+        if (!dilateShader || (filter && !denoiseShader)) {
+            spdlog::error("GpuLightmapper: no lightmap filter shaders for this device");
+            return;
+        }
+
+        lightmap_filters::LightmapFilterUniforms uniforms;
+        if (filter) {
+            lightmap_filters::prepareDenoise(uniforms, _options.lightmapFilterRange,
+                _options.lightmapFilterSmoothness);
+        }
+
+        for (const auto& rt : _targetsRT) {
+            if (rt && rt->colorBuffer()) {
+                tempTarget(static_cast<int>(rt->colorBuffer()->width()));
+            }
+        }
+
+        // Upstream postprocessTextures, one colour pass (BAKE_COLOR): the first of the two
+        // draws is the denoise when the filter is on and a dilate otherwise, the second a
+        // dilate back into the lightmap — so the lightmap is dilated once or twice.
+        device->beginOfflineWork();
+        for (const auto& lightmapRT : _targetsRT) {
+            Texture* lightmap = lightmapRT ? lightmapRT->colorBuffer() : nullptr;
+            if (!lightmap) {
+                continue;
+            }
+            const auto& temp = tempTarget(static_cast<int>(lightmap->width()));
+            lightmap_filters::prepare(uniforms, static_cast<int>(lightmap->width()),
+                static_cast<int>(lightmap->height()));
+            drawFilter(device, filter ? denoiseShader : dilateShader, temp, {lightmap}, uniforms,
+                filter ? "LightmapDenoise" : "LightmapDilate");
+            drawFilter(device, dilateShader, lightmapRT, {temp->colorBuffer()}, uniforms,
+                "LightmapDilate");
+        }
+        device->endOfflineWork();
     }
 
     void GpuLightmapper::destroyBakeNodes()
@@ -483,14 +701,12 @@ namespace visutwin::canvas
             }
         }
         _directionalLights.clear();
-        _accumulating = false;
+        _dirSampleCount = 0;
 
-        // Re-enable any scene lights the ambient passes silenced.
-        for (auto& [lightComponent, mask] : _lightMaskBackup) {
-            if (lightComponent && lightComponent != _ambientLight) {
-                lightComponent->setEnabled(true);
-            }
-        }
+        // Every scene light back to the enabled state it had before the bake.
+        enableSceneLights([](const LightComponent&) { return true; });
+        _lightEnabledBackup.clear();
+
         delete _ambientLightEntity;
         _ambientLightEntity = nullptr;
         _ambientLight = nullptr;
@@ -526,5 +742,9 @@ namespace visutwin::canvas
         }
         _layers.clear();
         _targetsRT.clear();
+        _occlusionRT.clear();
+        _occlusionTextures.clear();
+        _tempTargets.clear();
+        _phase = Phase::Done;
     }
 }

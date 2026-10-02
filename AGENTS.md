@@ -282,9 +282,10 @@ builds resolve in full on every memo hit and assert the two agree;
 ### Adding a texture slot
 
 Bump `MetalTextureBinder::kMaxTextureSlots` AND add the slot to the
-`materialSlots` clear list in `bindMaterialTextures`. Slots 0-35 are taken today
+`materialSlots` clear list in `bindMaterialTextures`. Slots 0-38 are taken today
 (31-33 the gloss, thickness and refraction maps, 34 the opacity map; 35 is the
-second directional shadow map, a scene slot, not a material one).
+second directional shadow map, 36 the clustered cookie atlas and 37-38 the VSM spot
+moments, scene slots, not material ones).
 On Vulkan, MoltenVK inherits a 16-SAMPLER-per-stage limit across all sets and the
 fragment stage is at it, so a new material texture is a SEPARATE image
 (`texture2D`) read through the shared sampler at set-1 binding 24, the treatment
@@ -311,9 +312,11 @@ scene binding's KIND, not just its number. The bundle validator's table in
 
 ### Metal buffer slots
 
-0=vertex, 1=index, 2=model, 3=material, 4=lighting, 5=scene, 6=palette (dynamic
-batch + skinning, **mutually exclusive**), 7-8=clustered (fragment) / gsplat data
-and order (vertex), 9=morph deltas, 10=morph params, 11=gsplat params.
+0=vertex, 1=index (the scene block, vertex AND fragment), 2=model, 3=material,
+4=lighting, 5=scene, 6=palette (dynamic batch + skinning, **mutually exclusive**),
+7-8=clustered (fragment) / gsplat data and order, particle pool and sort order (vertex),
+9=morph deltas / a mesh emitter's vertices, 10=morph params, 11=gsplat / particle params
+(particle params reach the fragment stage too).
 
 Vulkan does NOT mirror these numerically — it binds through descriptor sets
 (`vulkanUniformLayouts.h`). Keep the two mappings in sync conceptually, not by
@@ -658,6 +661,12 @@ present, but the rule below never depends on reading it.
   generator's own list.
   Note the bundle is one header included by many engine sources, and Ninja
   rebuilds by mtime, so a comment-only chunk edit still recompiles those files.
+- **A fullscreen quad's v runs DOWN the screen** (row 0 at the top, as every texture
+  here), so a pass that rebuilds a view ray from its uv takes NDC y = 1 - 2v, not
+  2v - 1. Upstream writes `uv * 2 - 1` because WebGL's uv0 runs up; copied as is, the
+  volumetric fog marched every ray mirrored top to bottom, burying the top of the frame
+  in the dense low fog and hiding a mountain peak behind it, with nothing else wrong to
+  see. `volumetric-fog-local-lights` shows the peak.
 - **Depth of field is the MULTI-PASS pipeline, and a Vulkan quad slot is an INDEX
   into the material binding list.** `RenderPassCameraFrame::setupDofPass` builds
   upstream's FramePassDof — a CoC pass from the scene depth, a far pass that box-
@@ -1451,6 +1460,15 @@ present, but the rule below never depends on reading it.
   directions on purpose: opaque wants the fewest state changes, transparent has to
   composite back to front. SORTMODE_CUSTOM with a null callback leaves the order
   ALONE rather than falling back to a mode nobody asked for.
+- **A layer's depth clear happens INSIDE the forward pass when the layer is not the
+  pass's first action.** Render actions of one camera and target share a
+  `RenderPassForward`, whose load action clears only for its first action; a later layer
+  with `clearDepthBuffer` (the gizmo layer, `layers`' front layer) is cleared mid-pass by
+  `clearDepthInPass` (a depth-1 triangle under ALWAYS, colour writes off, current
+  viewport), as upstream's in-pass `renderer.clear`. Without it such a layer is silently
+  depth-tested against the scene — the transform gizmos' centre handles vanish inside the
+  box. Only the LAYER's depth clear is done mid-pass (not colour, stencil or a second
+  camera's clears).
 - **Reordering opaque draws moves pixels, and that is the scene, not a bug.** Where
   two surfaces are coplanar, `LESS_EQUAL` lets whichever draws last win, so any
   change to the order flips those pixels. `depth-of-field` has about 0.5% of them:
@@ -1707,6 +1725,14 @@ present, but the rule below never depends on reading it.
   several cameras in one frame would otherwise walk several slots and lap the
   frames still in flight. The symptom is torn splat ordering for one frame under
   continuous camera movement, which is exactly when nobody is looking closely.
+  The CLUSTER light and cell buffers are the other one: every grid a frame binds
+  takes its own pair from a per-frame slot (`MetalGraphicsDevice::setClusterBuffers`),
+  a grid bound again reuses its pair, and the pair is bound on the open encoder at
+  once — `startRenderPass` binds only what was set before the pass, and a layer
+  binds its grid after its pass began. One shared buffer rewritten per layer lit a
+  pass whose grid was the first ever written with NO buffer at all (a whole mesh of
+  a lightmap bake missed its omni light on Metal alone), and lit every layer of a
+  frame with the last grid written.
 - **Mesh instances are culled ONCE per (camera, layer) per frame, into a cache both
   sublayers read.** `ForwardRenderer::buildFrameGraph` registers the pairs it will
   render (`Renderer::requestMeshInstanceCull`) and culls them in one batch
@@ -2379,14 +2405,19 @@ present, but the rule below never depends on reading it.
   shadow edges (Metal's bilinear hardware-compare PCF against the atlas's nine uniform
   taps). When a pipeline ignores a state the engine set,
   the bug is invisible until something depends on the non-default value.
-- **VSM is DIRECTIONAL-ONLY; a spot or omni light asking for it gets PCF3.**
-  `Light::resolveShadowType` falls back with a one-time warning, and `Light::setType`
-  re-resolves the kept request (`requestedShadowType`), as upstream's type setter
-  does. Upstream falls back for omni too; for a spot it is a DEVIATION, since upstream
-  shadows spots with VSM. A local light kept on VSM gets an RGBA16F moments map no
-  pass writes and no forward path samples, and casts NO shadow. Porting local VSM means
-  moments in the local
-  shadow passes, the blur, and a sampling path in both forward chunks.
+- **A VSM SPOT stores distance / range, not depth, and an omni light asking for VSM
+  gets PCF3** (upstream both). `Light::resolveShadowType` falls back with a one-time
+  warning and `Light::setType` re-resolves the kept request. A spot's VSM pass (its own
+  map, non-clustered only; the clustered atlas is depth-only) writes EVSM moments of
+  `distance(light, p) / range`, which the shadow fragment recovers from the pass's own
+  VIEW-PROJECTION (`shadowDistanceRatio`: the light is where clip x, y and w vanish, the
+  far plane comes from row 2) — perspective depth at near 0.01 is crushed against 1 and
+  the exponential warp has no precision left there. So Metal binds the scene block to
+  the FRAGMENT stage too (buffer 1) and Vulkan's push constants are visible to it. The
+  receiver compares its own distance / range less 0.0002 with the variance bias
+  `vsmBias / (range / 7)` and NO normal offset (`localShadowPcss.w` flags the slot). On
+  Metal the moments map cannot sit in a `depth2d` slot: it binds at 37 / 38 and 11 / 12
+  stay empty; Vulkan reads it through bindings 2 / 3 with the linear sampler.
 - **A shadow pass must not take its variant from a scene-wide switch set by the
   FORWARD pass.** `renderForwardLayer` sets ProgramLibrary's feature switches (VSM,
   PCSS, cookies, local shadows ...) when the forward pass executes, which is AFTER
@@ -2512,7 +2543,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     example sets one; t=0 must reproduce the unset frame exactly.
 12. `VISUTWIN_SHADOW_TYPE=n` sets `ShadowType` n on every shadow-casting directional
     light (0 PCF3, 2 VSM, 4 PCF5, 5 PCF1, 6 PCSS). `shadow-cascades` otherwise reaches VSM and
-    PCSS only through a key press.
+    PCSS only through a key press. `VISUTWIN_LOCAL_SHADOW_TYPE=n` does the same for every
+    shadowed spot and omni light (`pcss-local` with 2 drives the spot VSM path, which no
+    upstream example uses).
 13. `VISUTWIN_DEBUG_PASS=n` renders every camera with `DebugShaderPass` n (1 ALBEDO,
     2 WORLDNORMAL, 9 LIGHTING). Step 1 above without editing an example: frames that
     match in ALBEDO and WORLDNORMAL but not in LIGHTING put the divergence in lighting.
@@ -2670,8 +2703,8 @@ What stays HERE is only what bites during UNRELATED work.
   `clearcoat`: the light's contribution matches between backends to 0.00 counts on
   average. Sheen, iridescence and Oren-Nayar
   under a local light are ported line for line from the main loop but no example drives
-  them. When a term lands in one light loop, add it to the other three (main, area,
-  cluster) on both backends.
+  them. When a term lands in one light loop, add it to the other (main, cluster) on both
+  backends. An area light's LTC terms are helpers in `common-ltc`, which both loops call.
 - **Clearcoat composes as upstream's energy-conserving
   `lit * (1 - Fc * cc) + (ccDirect + ccReflection) * cc`, with a clearcoat IBL
   reflection, on both backends**, and the three clearcoat maps are on both. A SEPARATE

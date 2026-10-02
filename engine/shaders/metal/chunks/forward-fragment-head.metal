@@ -39,6 +39,10 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #if VT_FEATURE_LOCAL_SHADOWS
                                   depth2d<float> localShadowTexture0 [[texture(11)]],
                                   depth2d<float> localShadowTexture1 [[texture(12)]],
+                                  // A VSM spot's EVSM moments (a colour texture), in place
+                                  // of the depth map at 11 / 12.
+                                  texture2d<float> localVsmTexture0 [[texture(37)]],
+                                  texture2d<float> localVsmTexture1 [[texture(38)]],
 #endif
 #if VT_FEATURE_CLEARCOAT
                                   texture2d<float> clearCoatTexture [[texture(7)]],

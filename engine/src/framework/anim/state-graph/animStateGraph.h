@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers 11.07.2026
 //
 #pragma once
 
@@ -16,7 +16,7 @@
 namespace visutwin::canvas
 {
     /**
-     * How a layer's pose combines with the layers beneath it (upstream ANIM_LAYER_*).
+     * How a layer's pose combines with the layers beneath it.
      * OVERWRITE blends the accumulated value toward this layer's by the layer weight;
      * ADDITIVE adds this layer's offset from the node's rest pose, scaled by the weight.
      */

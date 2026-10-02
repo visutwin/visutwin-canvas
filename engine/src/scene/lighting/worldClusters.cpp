@@ -237,6 +237,11 @@ namespace visutwin::canvas
             gpu.shadowData[1] = ld.shadowNormalBias;
             gpu.shadowData[2] = ld.shadowIntensity;
             gpu.shadowData[3] = ld.isSpot ? 1.0f : 2.0f;
+
+            ld.areaHalfWidth.store(gpu.areaHalfWidth);
+            gpu.areaHalfWidth[3] = static_cast<float>(ld.shape);
+            ld.areaHalfHeight.store(gpu.areaHalfHeight);
+            gpu.areaHalfHeight[3] = 0.0f;
             const bool hasAtlasRect = hasShadow || ld.hasCookie;
             if (hasAtlasRect && !ld.isSpot) {
                 // Omni: no matrix — the rect and the depth range, in the same 64

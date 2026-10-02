@@ -9,9 +9,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Would merging `candidate` into `current` push any dimension of the batch
-        // past the limit? Upstream compares HALF extents against half the limit,
-        // which is the same test written on the other side of the factor of two.
+        // Would merging `candidate` into `current` push any dimension of the batch past the limit?
         bool fitsAabb(const BoundingBox& current, const BoundingBox& candidate,
             const float maxAabbSize, BoundingBox& merged)
         {
@@ -51,7 +49,7 @@ namespace visutwin::canvas
                 const BatchCandidate& candidate = candidates[index];
 
                 // A full dynamic batch takes no more instances; everything after it
-                // goes to the next list untested, as upstream does.
+                // goes to the next list untested.
                 if (dynamic && list.size() >= kMaxDynamicBatchInstances) {
                     leftovers.insert(leftovers.end(), remaining.begin() + static_cast<long>(i),
                         remaining.end());

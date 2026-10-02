@@ -16,7 +16,6 @@
 // - the control panel is built from engine UI elements (sliders from scrollbars, as in
 //   common-widgets), where upstream's is a PCUI panel; each colour picker is a swatch with an
 //   R, G and B slider.
-// - CameraControls has no `sceneSize`, which scales upstream's fly and pan speeds.
 //
 #include <array>
 #include <cmath>

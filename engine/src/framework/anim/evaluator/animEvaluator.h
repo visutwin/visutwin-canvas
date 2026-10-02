@@ -43,7 +43,7 @@ namespace visutwin::canvas
          * transform (and morph weights) straight through its binder. With a sink set
          * it hands the per-node result to the sink instead and touches nothing: this is
          * how an AnimComponent collects every layer's pose and composes them by layer
-         * weight before a single write (upstream AnimTargetValue). The sink receives one
+         * weight before a single write. The sink receives one
          * call per animated node per update, with the curve's node path and the node's
          * SLOT: a small integer this evaluator gives each node path it has seen, stable
          * for the evaluator's lifetime, so the sink can index rather than hash.

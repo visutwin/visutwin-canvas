@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.10.2025.
-//
-//
+// Created by Arnis Lektauers on 13.10.2025
 //
 #include "batchManager.h"
 #include "framework/parsers/packedVertex.h"
@@ -258,7 +256,7 @@ namespace visutwin::canvas
             if (_groups.find(groupId) == _groups.end()) continue;  // Unknown group.
             if (!inScope(groupId)) continue;               // Another group's turn.
 
-            // Upstream's whole-entity rule: an entity with any skinned or morphed
+            // Whole-entity rule: an entity with any skinned or morphed
             // mesh instance contributes none of them. Merging bakes each source's
             // world transform into a shared buffer, so a deforming mesh loses the
             // thing that makes it deform. A SKINNED one is rejected anyway further
@@ -273,7 +271,7 @@ namespace visutwin::canvas
             if (!entityIsBatchable(deforms)) {
                 spdlog::warn("[BatchManager] Skipping a render component in batch group {}: "
                              "a skinned or morphed mesh instance cannot be merged, and "
-                             "upstream excludes the whole entity when any of its "
+                             "excludes the whole entity when any of its "
                              "instances deforms", groupId);
                 continue;
             }

@@ -97,7 +97,7 @@ namespace visutwin::canvas
             return;
         }
 
-        // N-clip sequential blend compositing (mirrors upstream anim-evaluator.js):
+        // N-clip sequential blend compositing:
         // per node/property, the first contributing clip SETS the value regardless of
         // its weight; each subsequent clip lerps the accumulated value toward its own
         // by its blendWeight. Clips added later (the transition's destination state)

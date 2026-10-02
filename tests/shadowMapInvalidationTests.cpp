@@ -186,9 +186,9 @@ namespace
         return true;
     }
 
-    // VSM is directional-only in this port: a spot or omni light asking for it gets
-    // PCF3 (kept as VSM it would come out unshadowed), and the resolution follows
-    // the light TYPE, so changing the type re-resolves the kept request.
+    // VSM renders for directional and spot lights; an omni light asking for it gets
+    // PCF3, as upstream's. The resolution follows the light TYPE, so changing the type
+    // re-resolves the kept request.
     bool checkLocalVsmFallsBack()
     {
         Light light(nullptr);
@@ -199,8 +199,8 @@ namespace
         }
         giveShadowMap(light);
         light.setType(LightType::LIGHTTYPE_SPOT);
-        if (light.shadowType() != SHADOW_PCF3_32F || light.requestedShadowType() != SHADOW_VSM_16F) {
-            std::cerr << "a spot light asking for VSM did not fall back to PCF3 (or lost the request)\n";
+        if (light.shadowType() != SHADOW_VSM_16F || light.requestedShadowType() != SHADOW_VSM_16F) {
+            std::cerr << "a spot light asking for VSM did not keep it\n";
             return false;
         }
         if (!expectDropped("setType(SPOT)", light)) {
@@ -212,21 +212,21 @@ namespace
             return false;
         }
         light.setType(LightType::LIGHTTYPE_OMNI);
-        if (light.shadowType() != SHADOW_PCF3_32F) {
-            std::cerr << "an omni light asking for VSM did not fall back to PCF3\n";
+        if (light.shadowType() != SHADOW_PCF3_32F || light.requestedShadowType() != SHADOW_VSM_16F) {
+            std::cerr << "an omni light asking for VSM did not fall back to PCF3 (or lost the request)\n";
             return false;
         }
-        light.setType(LightType::LIGHTTYPE_DIRECTIONAL);
+        light.setType(LightType::LIGHTTYPE_SPOT);
         if (light.shadowType() != SHADOW_VSM_16F) {
-            std::cerr << "back to directional, the kept VSM request was not honoured again\n";
+            std::cerr << "back to spot, the kept VSM request was not honoured again\n";
             return false;
         }
-        // Setting VSM on a light that is ALREADY a spot resolves at once too.
-        Light spot(nullptr);
-        spot.setType(LightType::LIGHTTYPE_SPOT);
-        spot.setShadowType(SHADOW_VSM_16F);
-        if (spot.shadowType() != SHADOW_PCF3_32F) {
-            std::cerr << "VSM requested on an existing spot light was not resolved to PCF3\n";
+        // Setting VSM on a light that is ALREADY an omni resolves at once too.
+        Light omni(nullptr);
+        omni.setType(LightType::LIGHTTYPE_OMNI);
+        omni.setShadowType(SHADOW_VSM_16F);
+        if (omni.shadowType() != SHADOW_PCF3_32F) {
+            std::cerr << "VSM requested on an existing omni light was not resolved to PCF3\n";
             return false;
         }
         return true;

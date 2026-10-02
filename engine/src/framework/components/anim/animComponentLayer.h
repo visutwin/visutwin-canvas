@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers 11.07.2026
 //
 #pragma once
 
@@ -25,7 +25,7 @@ namespace visutwin::canvas
      * A layer of an AnimComponent: an independent state machine (AnimController) with its
      * own AnimEvaluator. The layer does not write the hierarchy itself: its evaluator
      * hands the layer's pose to the component, which composes every layer's value for
-     * a node by layer weight and blend type (upstream AnimTargetValue) and writes once.
+     * a node by layer weight and blend type and writes once.
      * A weight of 0.25 is therefore a quarter contribution, not an on/off switch, and
      * a mask limits the layer to the listed node paths.
      */
@@ -62,7 +62,7 @@ namespace visutwin::canvas
 
         /**
          * Blend from the active state to the named one over `time` seconds, whatever the graph's
-         * transitions say (upstream `transition(to, time, transitionOffset)`); a negative offset
+         * transitions say; a negative offset
          * is none, starting the new state from its beginning.
          */
         void transition(const std::string& to, const float time = 0.0f, const float transitionOffset = -1.0f)

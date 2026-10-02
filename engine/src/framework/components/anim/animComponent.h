@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers 11.07.2026
 //
 #pragma once
 
@@ -24,7 +24,7 @@ namespace visutwin::canvas
     class GraphNode;
     class MorphInstance;
     /**
-     * The modern animation component (upstream `anim`): drives the entity hierarchy through a
+     * The modern animation component: drives the entity hierarchy through a
      * state graph of layers, states, transitions with conditions, and blend trees, controlled
      * by named parameters. Complements the legacy AnimationComponent (single-clip cross-fade).
      */
@@ -80,13 +80,11 @@ namespace visutwin::canvas
         void setSpeed(const float value) { _speed = value; }
 
         /**
-         * Normalise layer weights by their sum per animated node (upstream
-         * normalizeWeights). Off, upstream's default, a layer's weight is its plain
+         * Normalise layer weights by their sum per animated node. Off by default, a layer's weight is its plain
          * contribution: OVERWRITE blends toward the layer by that weight, ADDITIVE adds the
          * layer's offset from the rest pose scaled by it. On, the weights of the layers
          * driving a node are divided by their total and blended sequentially from
-         * identity, and layers beneath the topmost OVERWRITE layer drop out, as upstream
-         * masks them.
+         * identity, and layers beneath the topmost OVERWRITE layer drop out.
          */
         bool normalizeWeights() const { return _normalizeWeights; }
         void setNormalizeWeights(const bool value) { _normalizeWeights = value; }
@@ -115,8 +113,7 @@ namespace visutwin::canvas
         bool _normalizeWeights = false;
 
         // Per animated node: what each layer produced this update, and the node's
-        // rest value per property, captured the first time a layer drives it — the
-        // baseValue upstream reads at bind. Kept across frames, INDEXED: a layer's
+        // rest value per property, captured the first time a layer drives it. Kept across frames, INDEXED: a layer's
         // evaluator reports a node by its slot, which maps to a target once
         // (_layerSlotTargets). The binder's answers and each layer's mask test are cached
         // per target, so no node path is hashed per frame.

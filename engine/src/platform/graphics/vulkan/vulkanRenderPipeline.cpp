@@ -444,8 +444,9 @@ namespace visutwin::canvas
             gpuBindings[i] = {i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                 VK_SHADER_STAGE_VERTEX_BIT, nullptr};
         }
+        // The parameter block reaches the fragment stage too (lit and soft particles).
         gpuBindings[3] = {3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
-            VK_SHADER_STAGE_VERTEX_BIT, nullptr};
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
         VkDescriptorSetLayoutCreateInfo gpuLayoutInfo{
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         gpuLayoutInfo.bindingCount = static_cast<uint32_t>(gpuBindings.size());

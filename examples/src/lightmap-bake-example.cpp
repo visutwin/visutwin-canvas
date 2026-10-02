@@ -3,13 +3,20 @@
 //
 // Port of upstream's graphics/lights-baked-a-o: the house.glb scene
 // — which ships with a generated UV1 channel unwrapped for lightmapping and
-// stripped textures — is lit by a directional sun and baked (on the CPU) into
-// per-mesh lightmaps with hard shadows + ambient occlusion. The whole house
-// geometry is registered as ray occluders so submeshes shadow each other and
-// AO forms in the crevices. The helipad env atlas provides the skybox / ambient.
-// Each house mesh is masked out of realtime lighting (MASK_AFFECT_LIGHTMAPPED),
-// so its whole look comes from the bake. L toggles the lightmaps ON/OFF to show the
-// baked shadows + AO appear/disappear. Esc quits.
+// stripped textures — is lit by a directional sun, a yellow omni and a red spot and
+// baked on the GPU (GpuLightmapper, upstream's UV-space technique) into per-mesh
+// lightmaps: soft directional shadows from 15 virtual copies of the sun, ambient
+// occlusion from 20 virtual sky lights shaped by upstream's occlusion contrast and
+// brightness, then the bilateral denoise and dilate. The helipad env atlas provides
+// the skybox and the ambient that the occlusion darkens. Each house mesh is masked
+// out of realtime lighting (MASK_AFFECT_LIGHTMAPPED), so its whole look comes from
+// the bake. Upstream's HUD becomes keys, each re-baking as the HUD does; L toggles the
+// lightmaps ON/OFF. C runs the CPU ray-traced baker instead (a reference, not
+// upstream's). Esc quits.
+//
+// DEVIATIONS: upstream's orbit-camera script becomes CameraControls; the HUD's
+// numeric fields (sample counts, contrast, brightness, filter range and smoothness)
+// keep their default values, only its toggles are keys.
 //
 #include <algorithm>
 #include <chrono>
@@ -131,6 +138,7 @@ protected:
         // LightComponents, since the bake evaluates the ordinary lit pipeline; the CPU baker
         // instead takes its own light descriptions below.
         _gpuLightmapper = std::make_unique<GpuLightmapper>(engine());
+        _helipadTexture = std::get<Texture*>(*helipadResource);
 
         _sun.type = LightType::LIGHTTYPE_DIRECTIONAL;
         _sun.direction = eulerToDirection(-55.0f, 0.0f, -30.0f);
@@ -179,7 +187,7 @@ protected:
         gpuRebake();
 
         // JS: camera clearColor (0.4, 0.45, 0.5), farClip 100, nearClip 1, position (40, 20, 40),
-        //     orbiting the house. DEVIATION: upstream's orbit-camera script becomes lookAt here.
+        //     orbiting the house.
         auto* camera = createCamera(Vector3(40.0f, 20.0f, 40.0f));
         if (auto* cameraComponent = camera->findComponent<CameraComponent>();
             cameraComponent && cameraComponent->camera()) {
@@ -196,8 +204,8 @@ protected:
         }
 
         // Upstream's HUD panels become keys; each one re-bakes like the HUD does.
-        spdlog::info("Keys: 1 directional  2 other lights (GPU re-bake)  |  "
-                     "3 ambient bake  4 hemisphere  5 lightmap filter (CPU re-bake)  |  "
+        spdlog::info("Keys (each re-bakes): 1 directional  2 other lights  3 ambient bake  "
+                     "4 hemisphere  5 lightmap filter  6 cubemap  |  "
                      "G GPU bake  C CPU ray-traced bake  L show/hide  |  ESC quits");
 
         return true;
@@ -231,6 +239,13 @@ protected:
             _filterEnabled = !_filterEnabled;
             spdlog::info("Lightmap filter: {}", _filterEnabled ? "on" : "off");
             break;
+        case SDLK_6:
+            // data.ambient.cubemap: the env atlas on or off; off, the constant ambient
+            // colour is what the ambient bake occludes.
+            _cubemapEnabled = !_cubemapEnabled;
+            scene()->setEnvAtlas(_cubemapEnabled ? _helipadTexture : nullptr);
+            spdlog::info("Cubemap: {}", _cubemapEnabled ? "on" : "off");
+            break;
         case SDLK_G:
             gpuRebake();
             return true;
@@ -252,15 +267,8 @@ protected:
         }
 
         if (bakeSettingChanged) {
-            // Lights affect both bakers; the CPU-only quality knobs (3/4/5) still
-            // need the ray-traced path, so those re-bake on the CPU.
-            if (event.key.key == SDLK_1 || event.key.key == SDLK_2 ||
-                event.key.key == SDLK_3 || event.key.key == SDLK_4) {
-                gpuRebake();
-            } else {
-                rebake();
-                _lightmapOn = true;
-            }
+            // Upstream: "Bake when settings are changed only".
+            gpuRebake();
             return true;
         }
         return false;
@@ -376,17 +384,23 @@ private:
         _spotLight->setEnabled(_otherLightsEnabled);
 
         GpuLightmapper::Options gpuOptions;
-        gpuOptions.sizeMultiplier = 512.0f;    // JS: app.scene.lightmapSizeMultiplier
-        gpuOptions.maxResolution = 1024;       // JS: app.scene.lightmapMaxResolution
-        // JS: ambientBake with ambientBakeNumSamples 20 over spherePart 0.4 — here those
-        // become virtual directional lights accumulated into the lightmap.
+        gpuOptions.lightmapSizeMultiplier = 512.0f;   // JS: app.scene.lightmapSizeMultiplier
+        gpuOptions.lightmapMaxResolution = 1024;      // JS: app.scene.lightmapMaxResolution
         // JS: the directional light bakes with bakeNumSamples 15 over a bakeArea of 10
         // degrees — soft-edged shadows rather than one hard shadow map.
         gpuOptions.directionalBakeNumSamples = 15;
         gpuOptions.directionalBakeArea = 10.0f;
+        // JS: data.ambient — ambientBake with 20 virtual sky lights over spherePart 0.4
+        // (1 with the hemisphere off), occlusion contrast -0.6 and brightness -0.5.
         gpuOptions.ambientBake = _ambientBakeEnabled;
         gpuOptions.ambientBakeNumSamples = 20;
         gpuOptions.ambientBakeSpherePart = _hemisphereEnabled ? 0.4f : 1.0f;
+        gpuOptions.ambientBakeOcclusionContrast = -0.6f;
+        gpuOptions.ambientBakeOcclusionBrightness = -0.5f;
+        // JS: data.settings — lightmapFilterEnabled, range 10, smoothness 0.2.
+        gpuOptions.lightmapFilterEnabled = _filterEnabled;
+        gpuOptions.lightmapFilterRange = 10.0f;
+        gpuOptions.lightmapFilterSmoothness = 0.2f;
         gpuOptions.bakeCameraTarget = _houseBounds.center();
         gpuOptions.bakeCameraDistance = std::max(_houseBounds.halfExtents().length() * 2.0f, 50.0f);
         _gpuBakeStart = std::chrono::steady_clock::now();
@@ -415,17 +429,14 @@ private:
     std::vector<std::shared_ptr<Texture>> _bakedLightmaps;
 
     std::chrono::steady_clock::time_point _gpuBakeStart;
+    Texture* _helipadTexture = nullptr;   // owned by _helipad
 
     // Upstream's HUD toggles; changing one re-bakes, exactly as upstream does
     // ("Bake when settings are changed only").
     bool _directionalEnabled = true;   // data.directional.enabled
     bool _otherLightsEnabled = true;   // data.other.enabled
-    // DEVIATION: with ambient baking on, the GPU path's virtual lights carry the scene's
-    // flat ambient colour rather than the env atlas radiance per direction (upstream's HUD
-    // "cubemap" mode), so it tints the scene toward that colour. Off by default therefore —
-    // key 3 turns it on to show the occlusion it adds. The CPU baker samples ambient the
-    // same way but modulates it by ray-traced AO.
-    bool _ambientBakeEnabled = false;  // data.ambient.ambientBake
+    bool _ambientBakeEnabled = true;   // data.ambient.ambientBake
+    bool _cubemapEnabled = true;       // data.ambient.cubemap
     bool _hemisphereEnabled = true;    // data.ambient.hemisphere -> spherePart 0.4 vs 1
     bool _filterEnabled = true;        // data.settings.lightmapFilterEnabled
     bool _lightmapOn = true;

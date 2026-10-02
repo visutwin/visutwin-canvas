@@ -214,13 +214,18 @@ namespace visutwin::canvas
         const std::optional<Vector2>& cookieOffset() const { return _cookieOffset; }
         void setCookieOffset(const std::optional<Vector2>& value) { _cookieOffset = value; }
 
-        // --- Area Light ---
-        float areaWidth() const { return _areaWidth; }
-        void setAreaWidth(const float value) { _areaWidth = value; }
-        float areaHeight() const { return _areaHeight; }
-        void setAreaHeight(const float value) { _areaHeight = value; }
-        AreaLightShape areaShape() const { return _areaShape; }
-        void setAreaShape(const AreaLightShape value) { _areaShape = value; }
+        /// Upstream `shape`: punctual, or an LTC area source (rect, disk, sphere) the
+        /// size of the entity's scale. Under clustered lighting a shaped spot or omni
+        /// light is an area light only while the scene's lighting has
+        /// `areaLightsEnabled`, as upstream; otherwise it shades as punctual.
+        LightShape shape() const { return _shape; }
+        void setShape(const LightShape value) { _shape = value; }
+
+        /// Upstream `volumetricScattering`: how strongly a clustered spot or omni light
+        /// scatters in the camera's volumetric fog (VolumetricFogSettings::localOmniLights /
+        /// localSpotLights); 0 keeps it out of the fog. Default 1.
+        float volumetricScattering() const { return _volumetricScattering; }
+        void setVolumetricScattering(const float value) { _volumetricScattering = std::max(value, 0.0f); }
 
         // Directional lights use the node's -Y axis as emission direction.
         Vector3 direction() const;
@@ -286,9 +291,8 @@ namespace visutwin::canvas
         float _cookieAngle = 0.0f;
         std::optional<Vector2> _cookieScale;
         std::optional<Vector2> _cookieOffset;
-        float _areaWidth = 1.0f;
-        float _areaHeight = 1.0f;
-        AreaLightShape _areaShape = AreaLightShape::LIGHTSHAPE_RECT;
+        LightShape _shape = LightShape::LIGHTSHAPE_PUNCTUAL;
+        float _volumetricScattering = 1.0f;
         std::vector<int> _layers = {LAYERID_WORLD};
     };
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 18.10.2025.
+// Created by Arnis Lektauers on 18.10.2025
 //
 #include "asset.h"
 
@@ -209,7 +209,7 @@ namespace visutwin::canvas
                 int width = 0;
                 int height = 0;
                 int channels = 0;
-                // upstream texture loading keeps source orientation; env-atlas UV layout depends on this.
+                // Texture loading keeps source orientation; env-atlas UV layout depends on this.
                 // Through StbVerticalFlipScope (see its header): stb's thread-local flag overrides the
                 // global one once set, and clearing only the global here once left every texture loaded
                 // after a GLB on the same thread flipped — the environment atlas upside down.

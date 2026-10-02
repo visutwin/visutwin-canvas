@@ -29,14 +29,14 @@ namespace visutwin::canvas
     {
         const GpuLightData* source = nullptr;   // the renderer's light, for fields copied as they are
         float linearColor[3] = {0.0f, 0.0f, 0.0f};   // the authored sRGB colour, decoded
-        Vector3 areaUp = Vector3(0.0f, 1.0f, 0.0f);  // area light: normalize(direction x areaRight)
     };
 
     struct DerivedLocalShadow
     {
         bool active = false;
         bool isOmni = false;
-        Texture* spotMap = nullptr;     // a spot light's 2D depth map
+        Texture* spotMap = nullptr;     // a spot light's 2D depth map (EVSM moments when vsm)
+        bool vsm = false;               // spot VSM_16F: distance-ratio moments, not depth
         Texture* omniMap = nullptr;     // an omni light's depth cube
         float matrix[16] = {};          // spot: world -> shadow clip, column-major; else zeros
         // bias, normal bias, intensity, 1 for omni; an unused slot holds {0.0001, 0, 1, 0}.
@@ -48,7 +48,7 @@ namespace visutwin::canvas
         float omniNear = 0.0f;
         float omniFar = 0.0f;
         float omniBias = 0.0f;
-        float pcss[4] = {0.0f, 0.0f, 0.0f, 0.0f};   // search area (0 = off), near, far
+        float pcss[4] = {0.0f, 0.0f, 0.0f, 0.0f};   // search area (0 = off), near, far, 1 = VSM
     };
 
     struct DerivedCookieSlot

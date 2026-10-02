@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 18.10.2025.
+// Created by Arnis Lektauers on 18.10.2025
 //
 #pragma once
 
@@ -57,7 +57,7 @@ namespace visutwin::canvas
     {
         std::string type = TextureType::TEXTURETYPE_DEFAULT;
         bool mipmaps = false;
-        /// AssetType::CUBEMAP (upstream's 'cubemap' asset with six face textures): the
+        /// AssetType::CUBEMAP (asset with six face textures): the
         /// face image files in the engine's cube order +X, -X, +Y, -Y, +Z, -Z. The
         /// asset's own `file` is not read. DEVIATION: upstream names six texture ASSETS
         /// and also accepts a prefiltered .dds; here the faces are files, decoded as the

@@ -4,32 +4,30 @@
 // Port of upstream gizmos/transform-rotate.
 //
 // A default white box at the origin, lit by a default directional light at euler
-// (0, 0, -60) with ambient 0.2, over a 4x4 grid. A rotate gizmo is attached to the
-// box; the orbit camera (focused on the origin, zoom 2..10, pitch +/-89.999) stops
-// responding while the gizmo holds the pointer.
+// (0, 0, -60) with ambient 0.2, over a 4x4 grid. A rotate gizmo, drawn in its own
+// depth-cleared layer from Gizmo::createLayer, is attached to the box; its size is
+// 1024 / the canvas height, kept up to date as the window resizes, and the orbit camera
+// (focused on the origin, zoom 2..10, pitch +/-89.999) stops responding while the gizmo
+// holds the pointer (upstream's 'gizmo:pointer' app event).
 //
 // DEVIATIONS:
-// - The engine's TransformGizmo is a simplified gizmo (axis cylinders and a centre
-//   sphere, no rings, fixed world size of 1.8). Upstream's gizmo size of
-//   1024 / viewport dimension, its theme, snap, coordinate-space, drag-mode,
-//   rotation-mode and per-shape render settings have no counterpart, so the controls
-//   panel is absent
-//   and upstream's initial values (snap off, world space) apply.
+// - No controls panel: upstream's initial values apply (snap off, world space, rotation
+//   mode 'absolute', the default theme, drag mode 'selected', perspective at 45
+//   degrees).
 // - Upstream's Grid script is a pristine-grid shader on a blended plane. It is drawn
 //   here with a WideLineRenderer: opaque 1-pixel lines every unit over the scaled
 //   (4, 1, 4) extent in upstream's 0.7 grey, with the axis lines in its colorX and
 //   colorZ. The anti-aliased coverage alpha and the 0.1-unit HIGH resolution level
 //   are not reproduced, so the lines read brighter than upstream's.
-// - CameraControls has no sceneSize or damping settings (upstream: 5 and 0.95);
-//   the camera moves undamped.
-// - No camera projection / FOV panel; upstream's initial perspective, 45 degrees.
+// - The example harness re-enables the camera controls at the top of every frame (for
+//   its HUD), so the gizmo's pointer hold is re-applied in update().
 //
 #include <memory>
 #include <vector>
 
 #include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
-#include "framework/gizmo/transformGizmo.h"
+#include "framework/gizmo/rotateGizmo.h"
 #include "scene/graphics/wideLine.h"
 #include "scene/graphics/wideLineRenderer.h"
 #include "scene/materials/standardMaterial.h"
@@ -65,6 +63,9 @@ protected:
         // Camera controls
         _controls = addOrbitControls(_cameraEntity, Vector3(0.0f, 0.0f, 0.0f));
         if (_controls) {
+            _controls->setRotateDamping(0.95f);
+            _controls->setMoveDamping(0.95f);
+            _controls->setZoomDamping(0.95f);
             _controls->setPitchRange(Vector2(-89.999f, 89.999f));
             _controls->setZoomRange(Vector2(2.0f, 10.0f));
             _controls->setEnableFly(false);
@@ -78,43 +79,36 @@ protected:
         root()->addChild(light);
         light->setLocalEulerAngles(0.0f, 0.0f, -60.0f);
 
+        // Upstream: 'gizmo:pointer' disables the camera controls while the gizmo holds
+        // the pointer.
+        engine()->on("gizmo:pointer", [this](const bool hasPointer) {
+            _gizmoHasPointer = hasPointer;
+            if (_controls) {
+                _controls->setInputBlocked(hasPointer);
+            }
+        });
+
         // Gizmo
-        _gizmo = std::make_unique<TransformGizmo>(engine(), camera);
-        _gizmo->setMode(TransformGizmo::Mode::Rotate);
+        _gizmoLayer = Gizmo::createLayer(engine());
+        _gizmo = std::make_unique<RotateGizmo>(camera, _gizmoLayer);
+        _gizmo->on(Gizmo::EVENT_POINTERDOWN, [this](float, float, MeshInstance* meshInstance) {
+            engine()->fire("gizmo:pointer", meshInstance != nullptr);
+        });
+        _gizmo->on(Gizmo::EVENT_POINTERUP, [this]() {
+            engine()->fire("gizmo:pointer", false);
+        });
         _gizmo->attach(box);
+        resize();
 
         createGrid(4.0f, 4.0f);
         return true;
     }
 
-    bool onEvent(const SDL_Event& event) override
-    {
-        if (!_gizmo) {
-            return false;
-        }
-
-        int width = 0;
-        int height = 0;
-        SDL_GetWindowSize(window(), &width, &height);
-        const bool consumed = _gizmo->handleEvent(event, width, height);
-
-        // Upstream: gizmo 'pointer:down' on a handle disables the camera controls,
-        // 'pointer:up' re-enables them.
-        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && consumed) {
-            _gizmoHasPointer = true;
-        } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-            _gizmoHasPointer = false;
-        }
-        if (_controls) {
-            _controls->setInputBlocked(_gizmoHasPointer);
-        }
-        return consumed;
-    }
-
     void update(float) override
     {
-        if (_gizmo) {
-            _gizmo->update();
+        resize();
+        if (_controls && _gizmoHasPointer) {
+            _controls->setInputBlocked(true);
         }
         if (_gridRenderer) {
             _gridRenderer->update();
@@ -123,12 +117,25 @@ protected:
 
     void destroy() override
     {
-        // Both own entities in the engine's hierarchy.
+        // Both own entities in the engine's hierarchy; the gizmo also leaves its layer.
         _gizmo.reset();
         _gridRenderer.reset();
     }
 
 private:
+    // Upstream: keep the gizmo size consistent to the canvas size (1024 / its height, or
+    // its width under a horizontal fov).
+    void resize()
+    {
+        const auto [width, height] = engine()->canvasSize();
+        const auto* camera = _cameraEntity ? _cameraEntity->findComponent<CameraComponent>() : nullptr;
+        const int dim = camera && camera->camera() && camera->camera()->horizontalFov() ? width : height;
+        if (_gizmo && dim > 0 && dim != _gizmoSizeDim) {
+            _gizmoSizeDim = dim;
+            _gizmo->setSize(1024.0f / static_cast<float>(dim));
+        }
+    }
+
     // Upstream Grid script on an entity scaled (sx, 1, sz): half extents sx/2, sz/2,
     // unit lines in 0.7 grey, the x = 0 line in colorZ and the z = 0 line in colorX.
     void createGrid(const float scaleX, const float scaleZ)
@@ -158,7 +165,9 @@ private:
     }
 
     std::shared_ptr<StandardMaterial> _boxMaterial;
-    std::unique_ptr<TransformGizmo> _gizmo;
+    std::shared_ptr<Layer> _gizmoLayer;
+    std::unique_ptr<RotateGizmo> _gizmo;
+    int _gizmoSizeDim = 0;
     std::unique_ptr<WideLineRenderer> _gridRenderer;
     std::vector<std::unique_ptr<WideLine>> _gridLines;
     Entity* _cameraEntity = nullptr;

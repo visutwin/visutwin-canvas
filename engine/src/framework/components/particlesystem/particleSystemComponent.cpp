@@ -12,6 +12,7 @@
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/components/componentSystem.h"
+#include "framework/components/camera/cameraComponent.h"
 #include "framework/components/render/renderComponent.h"
 #include "scene/meshInstance.h"
 
@@ -39,6 +40,19 @@ namespace visutwin::canvas
             return;
         }
 
+        if (_emitter && _emitter->options().mesh != _options.mesh) {
+            // A mesh emitter draws its mesh, a quad emitter the quad: a new mesh needs a new
+            // mesh instance, which the render component can only drop with the rest.
+            auto* render = _entity->findComponent<RenderComponent>();
+            if (render && render->meshInstances().size() == 1 && render->meshInstances()[0] == _meshInstance) {
+                render->clearMeshInstances();
+                _meshInstance = nullptr;
+                _emitter.reset();
+            } else {
+                spdlog::warn("ParticleSystemComponent::apply: the mesh changed, but the render component "
+                    "holds other mesh instances; keeping the previous particle mesh");
+            }
+        }
         if (_emitter) {
             _emitter->rebuild(_options);
             if (auto* render = _entity->findComponent<RenderComponent>(); render && !_options.layers.empty()) {
@@ -130,7 +144,24 @@ namespace visutwin::canvas
         }
         // The emitter runs a pending pre-warm even while paused, as upstream's reset does.
         const bool playing = _emitter->playing();
-        _emitter->update(dt, _entity->worldTransform());
+        const Matrix4& transform = _entity->worldTransform();
+        _emitter->update(dt, transform);
+
+        // Sorting, for the camera upstream would hand the emitter.
+        // DEVIATION: upstream sorts for the camera that renders the emitter; this sorts once
+        // a step, for the active camera that renders first (the lowest priority).
+        if (_options.sort != ParticleSort::NONE) {
+            const CameraComponent* camera = nullptr;
+            for (const auto* candidate : CameraComponent::instances()) {
+                if (candidate && candidate->active() && candidate->entity() &&
+                    (!camera || candidate->priority() < camera->priority())) {
+                    camera = candidate;
+                }
+            }
+            if (camera) {
+                _emitter->sort(camera->entity()->position(), transform);
+            }
+        }
         return playing;
     }
 

@@ -14,7 +14,9 @@
 namespace visutwin::canvas
 {
     class Light;
+    class QuadRender;
     class Scene;
+    class Shader;
 
     /**
      * Ray-marched volumetric fog (upstream FramePassVolumetricFog). Marches from the camera to the
@@ -24,8 +26,12 @@ namespace visutwin::canvas
      * The companion RenderPassVolumetricFogCombine upsamples that texture and blends it over the
      * scene. Both are driven from CameraComponent::VolumetricFogSettings.
      *
-     * DEVIATION: upstream additionally renders per-light volumes for clustered omni/spot lights
-     * (its volumetricFogLocal pass). Only the directional-light march is ported here.
+     * The clustered omni and spot lights (VolumetricFogSettings::localOmniLights /
+     * localSpotLights, upstream RenderPassVolumetricFogLocal) are added into the same texture
+     * by this pass, after the march: a fullscreen triangle per light, scissored to the
+     * screen bounds of its volume, additive in colour and keeping the march's
+     * transmittance. DEVIATION: upstream gives them a pass of their own drawing a quad over
+     * those bounds; one target and a scissor give the same pixels.
      */
     class RenderPassVolumetricFog : public RenderPassShaderQuad
     {
@@ -49,9 +55,14 @@ namespace visutwin::canvas
         float scale() const { return _scale; }
 
     private:
+        void renderLocalLights(Texture* depthTexture, const Matrix4& cameraWorld, float projScaleX,
+            float projScaleY, float exposure, float noiseOffset);
+
         Texture* _sourceTexture = nullptr;
         CameraComponent* _cameraComponent = nullptr;
         Scene* _scene = nullptr;
+        std::shared_ptr<Shader> _localShader;
+        std::shared_ptr<QuadRender> _localQuad;
 
         VolumetricFogSettings _settings;
         float _scale = 0.5f;

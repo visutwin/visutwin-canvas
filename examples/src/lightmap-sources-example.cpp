@@ -20,8 +20,7 @@
 //
 // DEVIATIONS:
 // - The bake is the GpuLightmapper (upstream's own UV-space technique); its options
-//   carry upstream's scene.lightmap* and ambientBake* values where they exist. It has
-//   no lightmap filter, and no occlusion brightness/contrast for the ambient bake.
+//   carry upstream's scene.lightmap* and ambientBake* values.
 // - Upstream's shadowBias 0.2 is in its own units; the authoring value here is 0.05,
 //   as in lightmap-bake (0.2 pushes casters away far enough to lose small shadows).
 // - Labels are text elements scaled into world units (ElementComponent::setFontSize
@@ -123,13 +122,18 @@ protected:
 
         // Bake once the scene is complete.
         GpuLightmapper::Options options;
-        options.sizeMultiplier = 256.0f;            // scene.lightmapSizeMultiplier
-        options.maxResolution = 2048;               // scene.lightmapMaxResolution
+        options.lightmapSizeMultiplier = 256.0f;    // scene.lightmapSizeMultiplier
+        options.lightmapMaxResolution = 2048;       // scene.lightmapMaxResolution
+        options.lightmapFilterEnabled = true;       // scene.lightmapFilter*
+        options.lightmapFilterRange = 5.0f;
+        options.lightmapFilterSmoothness = 0.1f;
         options.directionalBakeNumSamples = 24;     // light.bakeNumSamples
         options.directionalBakeArea = 25.0f;        // light.bakeArea
         options.ambientBake = true;                 // scene.ambientBake
         options.ambientBakeNumSamples = 20;
         options.ambientBakeSpherePart = 0.4f;
+        options.ambientBakeOcclusionBrightness = -0.3f;
+        options.ambientBakeOcclusionContrast = -0.4f;
         options.bakeCameraTarget = Vector3(0.0f, 0.7f, 0.0f);
         options.bakeCameraDistance = 20.0f;
         _baker = std::make_unique<GpuLightmapper>(engine());

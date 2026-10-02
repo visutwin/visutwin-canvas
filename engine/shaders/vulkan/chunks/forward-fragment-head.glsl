@@ -180,6 +180,8 @@ struct ClusterLight {
     vec4 params;
     mat4 shadowMatrix;
     vec4 shadowData;
+    vec4 areaHalfWidth;     // an area light: xyz world half-width axis, w LightShape (0 punctual)
+    vec4 areaHalfHeight;    // xyz world half-height axis
 };
 layout(std430, set = 5, binding = 0) readonly buffer ClusterLights {
     ClusterLight values[];

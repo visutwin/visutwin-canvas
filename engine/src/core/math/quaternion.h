@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 24.07.2025.
+// Created by Arnis Lektauers on 24.07.2025
 //
 #pragma once
 
@@ -125,8 +125,7 @@ namespace visutwin::canvas
         static Quaternion slerp(const Quaternion& a, const Quaternion& b, float t);
 
         /**
-         * Normalised linear interpolation along the shorter arc — upstream's
-         * AnimBlend.blendQuat, which its layer and clip blends use in place of slerp.
+         * Normalised linear interpolation along the shorter arc.
          * Cheaper than slerp, and exact at t = 0.5 for unit inputs.
          */
         static Quaternion nlerp(const Quaternion& a, const Quaternion& b, float t);

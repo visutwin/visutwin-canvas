@@ -75,3 +75,34 @@ static inline float getShadowVSM16(texture2d<float> momentsTex, float2 shadowUv,
     const float3 moments = momentsTex.sample(vsmSampler, shadowUv, level(0)).xyz;
     return calculateEVSM(moments, receiverDepth, vsmBias, VSM_EXPONENT);
 }
+
+// A VSM spot light's shadow pass stores distance / range, as upstream does for a spot
+// VSM (litShadowMain without PERSPECTIVE_DEPTH: min(distance(view_position, vPositionW)
+// / light_radius, 0.99999)): perspective depth with a near plane of 0.01 is crushed
+// against 1, where the exponential warp leaves no precision at all. The pass's own
+// view-projection carries both inputs, so no light uniform is needed: the light is
+// the projection centre, where clip x, y and w vanish (rows 0, 1 and 3), and the far
+// plane follows from row 2 (clip z = A z_view + B, far = B / (A + 1) for the GL-style
+// projection this engine builds). Returns false for an orthographic projection
+// (a directional light), whose depth is stored as is.
+static inline bool shadowDistanceRatio(float4x4 vp, float3 worldPos, thread float& ratio)
+{
+    const float4 r0 = float4(vp[0][0], vp[1][0], vp[2][0], vp[3][0]);
+    const float4 r1 = float4(vp[0][1], vp[1][1], vp[2][1], vp[3][1]);
+    const float4 r2 = float4(vp[0][2], vp[1][2], vp[2][2], vp[3][2]);
+    const float4 r3 = float4(vp[0][3], vp[1][3], vp[2][3], vp[3][3]);
+    if (dot(r3.xyz, r3.xyz) < 1e-12) {
+        return false;
+    }
+    const float3 c01 = cross(r0.xyz, r1.xyz);
+    const float3 c13 = cross(r1.xyz, r3.xyz);
+    const float3 c30 = cross(r3.xyz, r0.xyz);
+    const float det = dot(r0.xyz, c13);
+    const float3 lightPos = -(r0.w * c13 + r1.w * c30 + r3.w * c01) / det;
+    const float3 forward = normalize(r3.xyz);
+    const float a = -dot(r2.xyz, forward);
+    const float b = dot(r2.xyz, lightPos) + r2.w;
+    const float farClip = b / (a + 1.0);
+    ratio = min(distance(worldPos, lightPos) / farClip, 0.99999);
+    return true;
+}

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <numbers>
 
 #include "core/math/color.h"
@@ -17,6 +18,12 @@
 #include "scene/renderer/shadowMap.h"
 #include "scene/scene.h"
 #include "scene/graphics/volumetricFogShaders.h"
+#include "scene/graphics/quadRender.h"
+#include "scene/lighting/lightTextureAtlas.h"
+#include "scene/renderer/forwardRenderer.h"
+#include "scene/renderer/lightCamera.h"
+#include "framework/engine.h"
+#include "framework/entity.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/texture.h"
@@ -339,6 +346,191 @@ namespace visutwin::canvas
         setQuadTextureBinding(1, params.shadowTexture ? params.shadowTexture : depthTexture);
         setQuadUniforms(uniforms);
         RenderPassShaderQuad::execute();
+
+        if (_settings.localOmniLights || _settings.localSpotLights) {
+            renderLocalLights(depthTexture, cameraWorld, params.projScaleX, params.projScaleY, exposure,
+                params.noiseOffset);
+        }
+    }
+
+    void RenderPassVolumetricFog::renderLocalLights(Texture* depthTexture, const Matrix4& cameraWorld,
+        const float projScaleX, const float projScaleY, const float exposure, const float noiseOffset)
+    {
+        // Local lights live in the clustered lighting, whose atlases hold their shadows and
+        // cookies; upstream ignores them without it.
+        const auto gd = device();
+        Engine* engine = _cameraComponent->entity() ? _cameraComponent->entity()->engine() : nullptr;
+        if (!_scene || !_scene->clusteredLightingEnabled() || !engine || !engine->renderer()) {
+            return;
+        }
+        LightTextureAtlas* atlas = engine->renderer()->lightTextureAtlas();
+        Texture* shadowAtlas = atlas ? atlas->shadowAtlasTexture() : nullptr;
+        Texture* cookieAtlas = atlas ? atlas->cookieAtlasTexture() : nullptr;
+
+        if (!_localShader) {
+            _localShader = fogShader(gd.get(), "volumetric-fog-local", "fogLocalVertex", "fogLocalFragment",
+                volumetric_fog::LOCAL_MSL, volumetric_fog::LOCAL_GLSL);
+            if (!_localShader) {
+                return;
+            }
+            _localQuad = std::make_shared<QuadRender>(_localShader);
+        }
+
+        // In-scattered light adds to the fog texture; the transmittance the march stored in
+        // alpha is kept (upstream's ONE/ONE colour, ZERO/ONE alpha).
+        static const auto additive = [] {
+            auto blend = std::make_shared<BlendState>();
+            blend->setEnabled(true);
+            blend->setColorOp(BLENDEQUATION_ADD);
+            blend->setColorSrcFactor(BLENDMODE_ONE);
+            blend->setColorDstFactor(BLENDMODE_ONE);
+            blend->setAlphaOp(BLENDEQUATION_ADD);
+            blend->setAlphaSrcFactor(BLENDMODE_ZERO);
+            blend->setAlphaDstFactor(BLENDMODE_ONE);
+            return blend;
+        }();
+        gd->setBlendState(additive);
+
+        auto* camera = _cameraComponent->camera();
+        const Matrix4 view = cameraWorld.inverse();
+        const Matrix4& projection = camera->projectionMatrix();
+        const float width = static_cast<float>(_fogTexture->width());
+        const float height = static_cast<float>(_fogTexture->height());
+        const Vector4 fullViewport(0.0f, 0.0f, width, height);
+        const bool physicalUnits = _scene->physicalUnits();
+        const bool shadowsEnabled = _scene->lighting().shadowsEnabled && shadowAtlas;
+        const bool cookiesEnabled = _scene->lighting().cookiesEnabled && cookieAtlas;
+
+        volumetric_fog::FogLocalUniforms u{};
+        cameraWorld.store(u.invView);
+        Vector3(cameraWorld.getColumn(3)).store(u.cameraPosition);
+        (Vector3(cameraWorld.getColumn(2)) * -1.0f).normalized().store(u.cameraForward);
+        u.projScale[0] = projScaleX;
+        u.projScale[1] = projScaleY;
+        u.projScale[2] = camera->nearClip();
+        u.projScale[3] = camera->farClip();
+        for (int i = 0; i < 3; ++i) {
+            u.tint[i] = _settings.tint[i];
+        }
+        u.fogParams[0] = std::max(_settings.density, 0.0f);
+        u.fogParams[1] = _settings.heightBase;
+        u.fogParams[2] = std::max(_settings.heightFalloff, 0.0f);
+        u.fogParams[3] = std::max(_settings.maxDistance, 1e-3f);
+        u.marchParams[0] = std::clamp(_settings.anisotropy, 0.0f, 0.95f);
+        u.marchParams[1] = static_cast<float>(std::clamp(_settings.localSteps, 2, 64));
+        u.marchParams[2] = noiseOffset;
+        u.marchParams[3] = std::max(_settings.extinction, 0.0f);
+
+        for (auto* component : LightComponent::instances()) {
+            if (!component || !component->active() || component->volumetricScattering() <= 0.0f) {
+                continue;
+            }
+            const bool isSpot = component->type() == LightType::LIGHTTYPE_SPOT;
+            const bool isOmni = component->type() == LightType::LIGHTTYPE_OMNI;
+            if (!(isSpot ? _settings.localSpotLights : isOmni && _settings.localOmniLights)) {
+                continue;
+            }
+            Light* light = component->light();
+            if (!light || !light->visibleThisFrame()) {
+                continue;
+            }
+
+            // The screen bounds of the light's volume (upstream _evalLightRect): the view
+            // space box of its bounding sphere, projected. A volume crossing the near plane
+            // takes the whole screen.
+            const BoundingSphere sphere = light->boundingSphere();
+            const Vector3 centreView = view.transformPoint(sphere.center());
+            const float radius = sphere.radius();
+            float minX = -1.0f, minY = -1.0f, maxX = 1.0f, maxY = 1.0f;
+            if (-centreView.getZ() - radius > camera->nearClip()) {
+                minX = minY = std::numeric_limits<float>::infinity();
+                maxX = maxY = -std::numeric_limits<float>::infinity();
+                for (int i = 0; i < 8; ++i) {
+                    const Vector4 corner(centreView.getX() + ((i & 1) ? radius : -radius),
+                        centreView.getY() + ((i & 2) ? radius : -radius),
+                        centreView.getZ() + ((i & 4) ? radius : -radius), 1.0f);
+                    const Vector4 projected = projection * corner;
+                    const float x = projected.getX() / projected.getW();
+                    const float y = projected.getY() / projected.getW();
+                    minX = std::min(minX, x);
+                    minY = std::min(minY, y);
+                    maxX = std::max(maxX, x);
+                    maxY = std::max(maxY, y);
+                }
+                minX = std::max(minX, -1.0f);
+                minY = std::max(minY, -1.0f);
+                maxX = std::min(maxX, 1.0f);
+                maxY = std::min(maxY, 1.0f);
+                if (!(minX < maxX && minY < maxY)) {
+                    continue;
+                }
+            }
+            // NDC (+y up) to a pixel scissor in the top-down target.
+            const float x0 = std::floor((minX * 0.5f + 0.5f) * width);
+            const float x1 = std::ceil((maxX * 0.5f + 0.5f) * width);
+            const float y0 = std::floor((0.5f - maxY * 0.5f) * height);
+            const float y1 = std::ceil((0.5f - minY * 0.5f) * height);
+            const Vector4 scissor(x0, y0, std::max(x1 - x0, 1.0f), std::max(y1 - y0, 1.0f));
+
+            sphere.center().store(u.lightSphere);
+            u.lightSphere[3] = radius;
+            const Vector3 position = component->position();
+            position.store(u.lightPosRange);
+            u.lightPosRange[3] = std::max(component->range(), 1e-4f);
+
+            // The light's colour, linear, at the surfaces' intensity and the scene exposure.
+            Color linear;
+            linear.linear(&component->color());
+            const float scale = _settings.localIntensity * exposure * component->volumetricScattering() *
+                component->renderIntensity(physicalUnits);
+            u.lightColor[0] = linear.r * scale;
+            u.lightColor[1] = linear.g * scale;
+            u.lightColor[2] = linear.b * scale;
+
+            const Vector3 axis = isSpot ? component->direction().normalized() : Vector3(0.0f);
+            axis.store(u.lightDir);
+            u.lightDir[3] = isSpot ? 1.0f : 0.0f;
+            u.lightAtten[0] = component->falloffMode() == LightFalloff::LIGHTFALLOFF_LINEAR ? 1.0f : 0.0f;
+
+            // The atlases, sampled only by a light the atlas gave a slot this frame — the
+            // condition the cluster loop uses too.
+            const bool hasSlot = light->atlasViewportAllocated();
+            const bool useShadow = shadowsEnabled && hasSlot && component->castShadows() &&
+                light->shadowIntensity() > 0.0f;
+            const bool useCookie = cookiesEnabled && hasSlot && light->cookie() &&
+                light->cookie()->isCubemap() == isOmni && light->cookieIntensity() > 0.0f;
+            const float outerCos = std::cos(std::max(component->outerConeAngle(), 0.0f) * DEG_TO_RAD);
+            u.lightSpot[0] = std::max(std::cos(std::max(component->innerConeAngle(), 0.0f) * DEG_TO_RAD), outerCos);
+            u.lightSpot[1] = outerCos;
+            u.lightSpot[2] = useShadow ? light->shadowIntensity() : 0.0f;
+            u.lightSpot[3] = useCookie ? light->cookieIntensity() : 0.0f;
+            u.lightAtten[1] = static_cast<float>(light->cookieChannel());
+            u.lightAtten[2] = shadowAtlas ? static_cast<float>(shadowAtlas->width()) : 1.0f;
+
+            Matrix4 projectionMatrix = Matrix4::identity();
+            if (isSpot && useShadow) {
+                projectionMatrix = light->shadowViewProjection();
+            } else if (isSpot && useCookie) {
+                const LightRenderData* rd = light->getRenderData(nullptr, 0);
+                projectionMatrix = LightCamera::evalSpotCookieMatrix(*light,
+                    rd ? rd->shadowViewport : light->atlasViewport());
+            }
+            projectionMatrix.store(u.lightProjMatrix);
+            const Vector4& viewport = light->atlasViewport();
+            u.lightAtlas[0] = viewport.getX();
+            u.lightAtlas[1] = viewport.getY();
+            u.lightAtlas[2] = viewport.getZ();
+            u.lightAtlas[3] = static_cast<float>(LightTextureAtlas::kShadowEdgePixels);
+            u.omniDepth[0] = 0.01f;
+            u.omniDepth[1] = std::max(light->range(), 0.1f);
+            u.omniDepth[2] = -light->shadowBias();
+
+            _localQuad->setTexture(0, depthTexture);
+            _localQuad->setTexture(1, shadowAtlas ? shadowAtlas : depthTexture);
+            _localQuad->setTexture(2, cookieAtlas ? cookieAtlas : _fogTexture.get());
+            _localQuad->setUniforms(u);
+            _localQuad->render(&fullViewport, &scissor);
+        }
     }
 
     // -----------------------------------------------------------------------------------------

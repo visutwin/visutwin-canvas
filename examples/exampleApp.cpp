@@ -209,6 +209,26 @@ namespace visutwin::canvas
             }
         }
 
+        // VISUTWIN_LOCAL_SHADOW_TYPE=n does the same for every shadow-casting SPOT and
+        // OMNI light. No upstream example shadows a spot with VSM; this is how that path
+        // is driven (an omni light asking for VSM falls back to PCF3).
+        if (const char* type = std::getenv("VISUTWIN_LOCAL_SHADOW_TYPE"); type && *type) {
+            int value = -1;
+            if (std::sscanf(type, "%d", &value) == 1 && value >= 0) {
+                int lights = 0;
+                for (auto* light : LightComponent::instances()) {
+                    if (light && light->castShadows() && (light->type() == LightType::LIGHTTYPE_SPOT ||
+                        light->type() == LightType::LIGHTTYPE_OMNI)) {
+                        light->setShadowType(static_cast<ShadowType>(value));
+                        ++lights;
+                    }
+                }
+                spdlog::info("Shadow type {} on {} local light(s) from VISUTWIN_LOCAL_SHADOW_TYPE", value, lights);
+            } else {
+                spdlog::warn("VISUTWIN_LOCAL_SHADOW_TYPE='{}' is not a ShadowType value; ignored", type);
+            }
+        }
+
         // VISUTWIN_FILL_LIGHT=pitch,yaw,intensity[,shadows] adds a second, white
         // directional light aimed by those Euler angles (degrees). Aim it like the key
         // light and the difference from a run without it is the fill alone:
@@ -565,18 +585,6 @@ namespace visutwin::canvas
                 // F1 rather than a letter: every letter worth having is already an
                 // example's own binding somewhere in the set.
                 _miniStats->setEnabled(!_miniStats->enabled());
-            }
-            break;
-
-        case SDL_EVENT_MOUSE_WHEEL:
-            if (_cameraControls) {
-                _cameraControls->addZoomInput(event.wheel.y);
-            }
-            break;
-
-        case SDL_EVENT_PINCH_UPDATE:
-            if (_cameraControls) {
-                _cameraControls->addZoomInput((event.pinch.scale - 1.0f) * 10.0f);
             }
             break;
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers 11.07.2026
 //
 #pragma once
 
@@ -10,7 +10,7 @@
 
 namespace visutwin::canvas
 {
-    // Control state names shared by every layer's state graph (upstream ANIM_STATE_*).
+    // Control state names shared by every layer's state graph.
     inline const std::string ANIM_STATE_START = "START";
     inline const std::string ANIM_STATE_END = "END";
     inline const std::string ANIM_STATE_ANY = "ANY";

@@ -89,25 +89,26 @@ void main() {}
         }
     }
 
-    void prepareLocalShadowShaders(const std::shared_ptr<GraphicsDevice>& device, const bool clearsRects)
+    void prepareLocalShadowShaders(const std::shared_ptr<GraphicsDevice>& device, const bool clearsRects,
+        const bool vsm)
     {
         if (!device) {
             return;
         }
-        prepareDepthOnlyShaders(device);
+        prepareDepthOnlyShaders(device, vsm);
         if (clearsRects) {
             (void)clearDepthShader(device.get());
         }
     }
 
     bool bindLocalShadowState(GraphicsDevice* device, ProgramLibrary* programLibrary,
-        const Light* light, DepthOnlyShaders& shaders)
+        const Light* light, DepthOnlyShaders& shaders, const bool vsm)
     {
         if (!device || !programLibrary || !light) {
             return false;
         }
-        auto shadowShader = programLibrary->getShadowShader(nullptr, false);
-        auto shadowShaderDynBatch = programLibrary->getShadowShader(nullptr, true);
+        auto shadowShader = programLibrary->getShadowShader(nullptr, false, false, false, false, false, vsm);
+        auto shadowShaderDynBatch = programLibrary->getShadowShader(nullptr, true, false, false, false, false, vsm);
         if (!shadowShader) {
             // Returning here draws NOTHING into the shadow map, which then reads as
             // its cleared 1.0 and lights every fragment: a total, silent loss of
@@ -125,6 +126,7 @@ void main() {}
         // The remaining variants are fetched lazily on first use by drawDepthOnly.
         shaders.plain = shadowShader;
         shaders.dynamicBatch = shadowShaderDynBatch;
+        shaders.vsm = vsm;
 
         // This pass bypasses materials. Clear any binding left by the previous
         // forward pass (commonly the skybox at the end of the preceding frame)
@@ -144,9 +146,10 @@ void main() {}
         // renderPassShadowDirectional: the internal bias is negative, so this is a
         // positive (acne-removing) polygon offset. Upstream skips the hardware offset
         // for omni lights (they store distance, not depth; this port stores
-        // perspective depth and applies a RELATIVE bias in the forward shader) and
-        // for PCSS, which biases in the shader.
-        const bool skipHardwareBias = light->shadowType() == SHADOW_PCSS_32F ||
+        // perspective depth and applies a RELATIVE bias in the forward shader), for
+        // PCSS, which biases in the shader, and for VSM, whose moments carry no
+        // depth-buffer bias (upstream offsets only PCF depth).
+        const bool skipHardwareBias = light->shadowType() == SHADOW_PCSS_32F || vsm ||
             light->type() == LightType::LIGHTTYPE_OMNI;
         const float bias = skipHardwareBias ? 0.0f : light->shadowBias() * -1000.0f;
         device->setDepthBias(bias, bias, 0.0f);
@@ -228,6 +231,47 @@ void main() {}
         device->setCullMode(CullMode::CULLFACE_NONE);
         QuadRender quad(shader);
         quad.render(&rect, &rect);
+        device->setCullMode(previousCull);
+    }
+
+    void prepareClearDepthShader(GraphicsDevice* device)
+    {
+        if (device) {
+            (void)clearDepthShader(device);
+        }
+    }
+
+    void clearDepthInPass(GraphicsDevice* device)
+    {
+        if (!device) {
+            return;
+        }
+        const auto shader = clearDepthShader(device);
+        if (!shader) {
+            return;
+        }
+        static auto clearDepthState = [] {
+            auto state = std::make_shared<DepthState>();
+            state->setFunc(CompareFunction::Always);
+            return state;
+        }();
+        // the colour attachments keep what the earlier layers drew
+        static auto noColorWrites = [] {
+            auto state = std::make_shared<BlendState>();
+            state->setRedWrite(false);
+            state->setGreenWrite(false);
+            state->setBlueWrite(false);
+            state->setAlphaWrite(false);
+            return state;
+        }();
+        device->setMaterial(nullptr);
+        device->setBlendState(noColorWrites);
+        device->setDepthState(clearDepthState);
+        device->setDepthBias(0.0f, 0.0f, 0.0f);
+        const CullMode previousCull = device->cullMode();
+        device->setCullMode(CullMode::CULLFACE_NONE);
+        QuadRender quad(shader);
+        quad.render();
         device->setCullMode(previousCull);
     }
 }

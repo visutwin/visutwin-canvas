@@ -3,6 +3,7 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include "scene/lighting/worldClusters.h"
 #include "vulkanGraphicsDevice.h"
 
 #include "platform/graphics/lightingDerivation.h"
@@ -550,6 +551,8 @@ namespace visutwin::canvas
         _pendingMorphParamsOffset.reset();
         _pendingMorphParamsSize = 0;
         resources.particleBuffer = std::move(_pendingParticleBuffer);
+        resources.particleOrderBuffer = std::move(_pendingParticleOrderBuffer);
+        resources.particleMeshBuffer = std::move(_pendingParticleMeshBuffer);
         resources.particleParams = _pendingParticleParams;
         resources.particleParamsSize = _pendingParticleParamsSize;
         _pendingParticleParamsSize = 0;
@@ -1016,10 +1019,12 @@ namespace visutwin::canvas
             ? _whiteImageView : sceneTextureView(_shadowMapTexture);
         sceneInfos[22].imageView = hideShadowMaps
             ? _whiteImageView : sceneTextureView(_shadowMapTexture1);
-        sceneInfos[2].sampler = _shadowSampler;
+        // A VSM spot's moments are filtered (the linear clamp sampler binding 12 also
+        // carries); a depth map is read nearest.
+        sceneInfos[2].sampler = _localShadowVsm0 ? _envSampler : _shadowSampler;
         sceneInfos[2].imageView = _depthOnlyPass
             ? _whiteImageView : sceneTextureView(_localShadowTexture0);
-        sceneInfos[3].sampler = _shadowSampler;
+        sceneInfos[3].sampler = _localShadowVsm1 ? _envSampler : _shadowSampler;
         sceneInfos[3].imageView = _depthOnlyPass
             ? _whiteImageView : sceneTextureView(_localShadowTexture1);
         sceneInfos[4].sampler = _shadowSampler;
@@ -1167,7 +1172,7 @@ namespace visutwin::canvas
         // forward draw. Non-clustered draws bind tiny zero sentinels.
         if (_clusterSentinelFrame != _frameSerial) {
             // Once a frame, not once per draw: the zero blocks never change.
-            std::array<uint8_t, 144> emptyLight{};
+            std::array<uint8_t, sizeof(GpuClusteredLight)> emptyLight{};
             const uint32_t emptyCell = 0;
             _clusterSentinelLightOffset = allocateUniform(emptyLight.data(), emptyLight.size());
             _clusterSentinelCellOffset = allocateUniform(&emptyCell, sizeof(emptyCell));
@@ -1176,7 +1181,7 @@ namespace visutwin::canvas
         const auto lightOffset = _clusterLightOffset ? _clusterLightOffset : _clusterSentinelLightOffset;
         const auto cellOffset = _clusterCellOffset ? _clusterCellOffset : _clusterSentinelCellOffset;
         if (!lightOffset || !cellOffset) return false;
-        const VkDeviceSize lightSize = _clusterLightOffset ? _clusterLightSize : 144;
+        const VkDeviceSize lightSize = _clusterLightOffset ? _clusterLightSize : sizeof(GpuClusteredLight);
         const VkDeviceSize cellSize = _clusterCellOffset ? _clusterCellSize : sizeof(uint32_t);
         // One set per distinct cluster binding per frame: the layer's cluster
         // buffers stay put for all its draws.
@@ -1223,10 +1228,15 @@ namespace visutwin::canvas
         auto paramsOffset = allocateUniform(paramsData, paramsSize);
         auto primary = std::dynamic_pointer_cast<VulkanVertexBuffer>(
             particleDraw ? resources.particleBuffer : resources.splatBuffer);
-        auto order = std::dynamic_pointer_cast<VulkanVertexBuffer>(resources.splatOrderBuffer);
-        auto sh = std::dynamic_pointer_cast<VulkanVertexBuffer>(resources.splatShBuffer);
-        if (!paramsOffset || !primary || !primary->buffer() ||
-            (!particleDraw && (!order || !order->buffer()))) {
+        // A particle draw writes bindings 1 and 2 as well — its draw order and its mesh's
+        // vertices, or the pool when the emitter has neither — since the shader declares them.
+        auto order = std::dynamic_pointer_cast<VulkanVertexBuffer>(particleDraw
+            ? (resources.particleOrderBuffer ? resources.particleOrderBuffer : resources.particleBuffer)
+            : resources.splatOrderBuffer);
+        auto sh = std::dynamic_pointer_cast<VulkanVertexBuffer>(particleDraw
+            ? (resources.particleMeshBuffer ? resources.particleMeshBuffer : resources.particleBuffer)
+            : resources.splatShBuffer);
+        if (!paramsOffset || !primary || !primary->buffer() || !order || !order->buffer()) {
             return false;
         }
         const VkDescriptorSet gpuSet = allocateFrameDescriptorSet(
@@ -1249,13 +1259,11 @@ namespace visutwin::canvas
             write.pBufferInfo = &infos[binding];
         };
         addWrite(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        if (!particleDraw) {
-            addWrite(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-            // Current Vulkan splat variant evaluates SH0 color. Keep the
-            // SH buffer in state so higher-band evaluation can be enabled
-            // without changing the public binding contract.
-            if (sh) addWrite(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        }
+        addWrite(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // Current Vulkan splat variant evaluates SH0 color. Keep the
+        // SH buffer in state so higher-band evaluation can be enabled
+        // without changing the public binding contract.
+        if (sh) addWrite(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         addWrite(3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
         vkUpdateDescriptorSets(_device, writeCount, writes.data(), 0, nullptr);
         bindSetIfChanged(cmd, 6, gpuSet);
@@ -1611,6 +1619,8 @@ namespace visutwin::canvas
             ubo.omniShadowParams1, ubo.localShadowPcss1);
         _localShadowTexture0 = derived.localShadows[0].spotMap;
         _localShadowTexture1 = derived.localShadows[1].spotMap;
+        _localShadowVsm0 = derived.localShadows[0].vsm;
+        _localShadowVsm1 = derived.localShadows[1].vsm;
         _omniShadowCube0 = derived.localShadows[0].omniMap;
         _omniShadowCube1 = derived.localShadows[1].omniMap;
 
@@ -1639,14 +1649,13 @@ namespace visutwin::canvas
             dst.coneParams[0] = src.innerConeCos;
             dst.coneParams[1] = src.outerConeCos;
             dst.coneParams[2] = src.falloffModeLinear ? 1.0f : 0.0f;
-            // Shadow slot: -1 = no shadow, else the local (or directional) slot. Area lights
-            // never cast shadows, so the lane carries the LTC shape (0=rect, 1=disk, 2=sphere).
-            dst.coneParams[3] = src.type == GpuLightType::AreaRect ? static_cast<float>(src.areaShape)
-                : src.castShadows ? static_cast<float>(src.shadowMapIndex) : -1.0f;
-            src.areaRight.store(dst.areaRightHalfWidth);
-            dst.areaRightHalfWidth[3] = src.areaHalfWidth;
-            light.areaUp.store(dst.areaUpHalfHeight);
-            dst.areaUpHalfHeight[3] = src.areaHalfHeight;
+            // Shadow slot: -1 = no shadow, else the local (or directional) slot.
+            dst.coneParams[3] = src.castShadows ? static_cast<float>(src.shadowMapIndex) : -1.0f;
+            // An area source: the world half axes, and the LightShape in the width's w.
+            src.areaHalfWidth.store(dst.areaRightHalfWidth);
+            dst.areaRightHalfWidth[3] = static_cast<float>(src.shape);
+            src.areaHalfHeight.store(dst.areaUpHalfHeight);
+            dst.areaUpHalfHeight[3] = 0.0f;
             dst.cookieFlags[0] = (src.cookieIndex >= 0 && src.cookie) ? 1.0f : 0.0f;
             dst.cookieFlags[1] = (src.cookieIndex >= 0) ? static_cast<float>(src.cookieIndex) : 0.0f;
             dst.cookieFlags[2] = static_cast<float>(src.cookieChannel);

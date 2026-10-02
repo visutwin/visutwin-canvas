@@ -3,8 +3,6 @@
 //
 // SkinBatchInstance — matrix palette manager for dynamic batching.
 //
-//
-//
 // Holds references to the GraphNode of each original mesh instance in a
 // dynamic batch.  Each frame, updateMatrices() packs their world transforms
 // into a flat float4x4 array (the "palette").  The renderer binds this

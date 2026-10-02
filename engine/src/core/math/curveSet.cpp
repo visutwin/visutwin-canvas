@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
 #include "curveSet.h"
 
 #include <algorithm>

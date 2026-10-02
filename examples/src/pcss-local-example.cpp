@@ -19,12 +19,6 @@
 //   1/2/3 = toggle the area / point / directional light while not cycling
 //   P     = switch all three lights between PCSS_32F and PCF5_32F
 //
-// DEVIATION: upstream's area light is a SPOT with LIGHTSHAPE_RECT, so it casts a
-// PCSS shadow while lighting with an LTC rectangle. Here LIGHTTYPE_AREA_RECT is a
-// separate positional type that casts no shadow, and a spot cannot take an area
-// shape. Contact-hardening shadows are the point of this test, so the light stays
-// a spot with the same cone, range, falloff and shadow settings and lights as a
-// point source. The emissive plane still shows the rectangle.
 // DEVIATION: under PCF5_32F the spot and omni filter with the 3x3 kernel; the
 // engine's local shadow paths have one kernel. The directional takes the 5x5.
 // DEVIATION: the area spot's shadowBias is 0, where upstream leaves the default
@@ -139,11 +133,12 @@ protected:
         _occluder->setLocalScale(3.0f, 3.0f, 3.0f);
         root()->addChild(_occluder);
 
-        // ------ Area light (spot, see DEVIATION) ------
+        // ------ Area light: a spot with a rectangular source, 3 x 3 (the entity scale) ------
         _areaLight = new Entity();
         _areaLight->setEngine(engine());
         _area = static_cast<LightComponent*>(_areaLight->addComponent<LightComponent>());
         _area->setType(LightType::LIGHTTYPE_SPOT);
+        _area->setShape(LightShape::LIGHTSHAPE_RECT);
         _area->setColor(Color(0.25f, 1.0f, 0.25f, 1.0f));
         _area->setCastShadows(true);
         _area->setRange(150.0f);

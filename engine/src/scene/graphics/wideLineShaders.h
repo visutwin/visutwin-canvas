@@ -30,8 +30,8 @@ struct Segment {
     float4 startWidth;     // start.xyz, endWidth
     float4 endDistance;    // end.xyz,   startDistance
     float4 nextDistance;   // next.xyz,  endDistance
-    float4 startColor;     // rgb, unused
-    float4 endColor;       // rgb, unused
+    float4 startColor;     // rgb, opacity
+    float4 endColor;       // rgb, opacity
     float4 style;          // join, cap, dashLength, gapLength
     float4 dashFlags;      // dashOffset, flags, worldSpaceWidth, unused
 };
@@ -41,7 +41,7 @@ struct LineParams { float4 screenSize; };   // width, height, 1/width, 1/height
 
 struct Varyings {
     float4 position [[position]];
-    float3 color;
+    float4 color;
     float4 dash;
     float3 lineData;
     float distance;
@@ -196,7 +196,7 @@ vertex Varyings wideLineVS(uint vid [[vertex_id]],
             clipPosition = offsetClip(endClip, offset, screenSize);
         }
 
-        out.color = mix(seg.startColor.rgb, seg.endColor.rgb, along);
+        out.color = mix(seg.startColor, seg.endColor, along);
         out.distance = mix(seg.endDistance.w, seg.nextDistance.w, along);
         out.lineData = float3(side, mix(startHalfWidth, endHalfWidth, along), 1.0);
     } else if (kind < 1.5) {
@@ -204,14 +204,14 @@ vertex Varyings wideLineVS(uint vid [[vertex_id]],
         const float scale = visible ? startHalfWidth : 0.0;
         const float2 offset = (currentDirection * tmpl.x + currentNormal * tmpl.y) * scale;
         clipPosition = offsetClip(startClip, offset, screenSize);
-        out.color = seg.startColor.rgb;
+        out.color = seg.startColor;
         out.distance = seg.endDistance.w;
     } else if (kind < 2.5) {
         const bool visible = !endConnected && capStyle > 1.5;
         const float scale = visible ? endHalfWidth : 0.0;
         const float2 offset = (currentDirection * tmpl.x + currentNormal * tmpl.y) * scale;
         clipPosition = offsetClip(endClip, offset, screenSize);
-        out.color = seg.endColor.rgb;
+        out.color = seg.endColor;
         out.distance = seg.nextDistance.w;
     } else {
         const bool visible = startConnected && joinStyle > 0.5 && joinStyle < 1.5;
@@ -223,7 +223,7 @@ vertex Varyings wideLineVS(uint vid [[vertex_id]],
             offset = currentNormal * tmpl.y * scale;
         }
         clipPosition = offsetClip(startClip, offset, screenSize);
-        out.color = seg.startColor.rgb;
+        out.color = seg.startColor;
         out.distance = seg.endDistance.w;
     }
 
@@ -244,7 +244,7 @@ fragment float4 wideLineFS(Varyings in [[stage_in]])
             discard_fragment();
         }
     }
-    return float4(in.color, 1.0);
+    return in.color;
 }
 )";
 
@@ -259,7 +259,7 @@ struct Segment {
 layout(set = 6, binding = 0, std430) readonly buffer Segments { Segment values[]; } segments;
 layout(set = 6, binding = 3, std140) uniform LineParams { vec4 screenSize; } params;
 
-layout(location = 0) out vec3 vColor;
+layout(location = 0) out vec4 vColor;
 layout(location = 1) out vec4 vDash;
 layout(location = 2) out vec3 vLineData;
 layout(location = 3) out float vDistance;
@@ -385,7 +385,7 @@ void main() {
             }
             clipPosition = offsetClip(endClip, offset, screenSize);
         }
-        vColor = mix(seg.startColor.rgb, seg.endColor.rgb, along);
+        vColor = mix(seg.startColor, seg.endColor, along);
         vDistance = mix(seg.endDistance.w, seg.nextDistance.w, along);
         vLineData = vec3(side, mix(startHalfWidth, endHalfWidth, along), 1.0);
     } else if (kind < 1.5) {
@@ -393,14 +393,14 @@ void main() {
         float scale = visible ? startHalfWidth : 0.0;
         vec2 offset = (currentDirection * tmpl.x + currentNormal * tmpl.y) * scale;
         clipPosition = offsetClip(startClip, offset, screenSize);
-        vColor = seg.startColor.rgb;
+        vColor = seg.startColor;
         vDistance = seg.endDistance.w;
     } else if (kind < 2.5) {
         bool visible = !endConnected && capStyle > 1.5;
         float scale = visible ? endHalfWidth : 0.0;
         vec2 offset = (currentDirection * tmpl.x + currentNormal * tmpl.y) * scale;
         clipPosition = offsetClip(endClip, offset, screenSize);
-        vColor = seg.endColor.rgb;
+        vColor = seg.endColor;
         vDistance = seg.nextDistance.w;
     } else {
         bool visible = startConnected && joinStyle > 0.5 && joinStyle < 1.5;
@@ -412,7 +412,7 @@ void main() {
             offset = currentNormal * tmpl.y * scale;
         }
         clipPosition = offsetClip(startClip, offset, screenSize);
-        vColor = seg.startColor.rgb;
+        vColor = seg.startColor;
         vDistance = seg.endDistance.w;
     }
 
@@ -425,7 +425,7 @@ void main() {
 #endif
 
 #ifdef VT_FRAGMENT_SHADER
-layout(location = 0) in vec3 vColor;
+layout(location = 0) in vec4 vColor;
 layout(location = 1) in vec4 vDash;
 layout(location = 2) in vec3 vLineData;
 layout(location = 3) in float vDistance;
@@ -438,7 +438,7 @@ void main() {
         if (phase < 0.0) { phase += period; }
         if (phase > vDash.x) { discard; }
     }
-    outColor = vec4(vColor, 1.0);
+    outColor = vColor;
 }
 #endif
 )";

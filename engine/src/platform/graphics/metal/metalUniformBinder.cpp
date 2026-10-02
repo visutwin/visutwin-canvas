@@ -59,6 +59,9 @@ namespace visutwin::canvas
         if (!_sceneDataBoundThisPass ||
             std::memcmp(&sceneData.projViewMatrix, &_cachedSceneVP, sizeof(simd::float4x4)) != 0) {
             encoder->setVertexBytes(&sceneData, sizeof(SceneData), 1);
+            // The fragment stage reads it too: a VSM spot shadow pass recovers the
+            // light's position and range from it (shadowDistanceRatio).
+            encoder->setFragmentBytes(&sceneData, sizeof(SceneData), 1);
             _cachedSceneVP = sceneData.projViewMatrix;
             _sceneDataBoundThisPass = true;
         }
@@ -124,25 +127,18 @@ namespace visutwin::canvas
             dst.colorIntensity[1] = light.linearColor[1];
             dst.colorIntensity[2] = light.linearColor[2];
             dst.colorIntensity[3] = src.intensity;
-            if (src.type == GpuLightType::AreaRect) {
-                // Area rect: the cone slots carry the half-extents and the right axis.
-                // directionCone[3] = areaHalfWidth, coneAngles[0] = areaHalfHeight,
-                // coneAngles[1..3] = areaRight.
-                dst.directionCone[3] = src.areaHalfWidth;
-                dst.coneAngles[0] = src.areaHalfHeight;
-                src.areaRight.store(&dst.coneAngles[1]);
-            } else {
-                dst.directionCone[3] = src.outerConeCos;
-                dst.coneAngles[0] = src.innerConeCos;
-                dst.coneAngles[1] = src.outerConeCos;
-                dst.coneAngles[2] = 0.0f;
-                dst.coneAngles[3] = 0.0f;
-            }
+            dst.directionCone[3] = src.outerConeCos;
+            dst.coneAngles[0] = src.innerConeCos;
+            dst.coneAngles[1] = src.outerConeCos;
+            dst.coneAngles[2] = 0.0f;
+            dst.coneAngles[3] = 0.0f;
+            // An area source: the world half axes, and the LightShape in the width's w.
+            src.areaHalfWidth.store(&dst.areaHalfWidth.x);
+            dst.areaHalfWidth[3] = static_cast<float>(src.shape);
+            src.areaHalfHeight.store(&dst.areaHalfHeight.x);
+            dst.areaHalfHeight[3] = 0.0f;
             dst.typeCastShadows[0] = static_cast<uint32_t>(src.type);
-            // Area lights never cast shadows in this port — their castShadows
-            // slot carries the shape instead (0=rect, 1=disk, 2=sphere).
-            dst.typeCastShadows[1] = (src.type == GpuLightType::AreaRect)
-                ? src.areaShape : (src.castShadows ? 1u : 0u);
+            dst.typeCastShadows[1] = src.castShadows ? 1u : 0u;
             dst.typeCastShadows[2] = src.falloffModeLinear ? 1u : 0u;
             // The light's shadow slot: a local slot (0/1), or for a directional light its
             // directional slot. Encoded as uint.
@@ -203,8 +199,12 @@ namespace visutwin::canvas
         // normal bias, with the intensity in the Extra lane.
         const DerivedLocalShadow& local0 = derived.localShadows[0];
         const DerivedLocalShadow& local1 = derived.localShadows[1];
-        _localShadowTexture0 = local0.spotMap;
-        _localShadowTexture1 = local1.spotMap;
+        // A VSM spot's map is a colour (moments) texture, which a depth2d argument
+        // cannot take: it goes to its own slot (37 / 38) and the depth slot stays empty.
+        _localShadowTexture0 = local0.vsm ? nullptr : local0.spotMap;
+        _localShadowTexture1 = local1.vsm ? nullptr : local1.spotMap;
+        _localVsmTexture0 = local0.vsm ? local0.spotMap : nullptr;
+        _localVsmTexture1 = local1.vsm ? local1.spotMap : nullptr;
         _omniShadowCube0 = local0.omniMap;
         _omniShadowCube1 = local1.omniMap;
         const auto packLocal = [](const DerivedLocalShadow& ls, float* matrix, PackedVector4f& params,

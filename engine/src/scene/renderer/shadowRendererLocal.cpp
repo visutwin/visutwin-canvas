@@ -7,12 +7,14 @@
 
 #include "omniShadowCasterClassification.h"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
 #include "core/scopedTimer.h"
 #include "lightCamera.h"
 #include "renderPassShadowLocalNonClustered.h"
+#include "renderPassVsmBlur.h"
 #include "shadowCasterFiltering.h"
 #include "scene/frustumUtils.h"
 #include "scene/meshInstance.h"
@@ -82,6 +84,20 @@ namespace visutwin::canvas
                 for (int face = 0; face < faceCount; face++) {
                     auto renderPass = std::make_shared<RenderPassShadowLocalNonClustered>(_device, _shadowRenderer, light, face, applyVsm);
                     frameGraph->addRenderPass(renderPass);
+                }
+
+                // A VSM spot light's moments are blurred as a directional light's are
+                // (upstream ShadowRenderer.render: `light._isVsm && light._vsmBlurSize > 1`).
+                if (applyVsm && light->shadowType() == SHADOW_VSM_16F && light->vsmBlurSize() > 1) {
+                    ShadowMap* sm = light->shadowMap();
+                    if (sm && sm->blurTempTexture() && sm->blurTempRenderTarget() && !sm->renderTargets().empty()) {
+                        const int resolution = light->shadowResolution();
+                        const int filterSize = std::max(1, (light->vsmBlurSize() - 1) / 2);
+                        frameGraph->addRenderPass(std::make_shared<RenderPassVsmBlur>(_device,
+                            sm->shadowTexture(), sm->blurTempRenderTarget(), resolution, true, filterSize));
+                        frameGraph->addRenderPass(std::make_shared<RenderPassVsmBlur>(_device,
+                            sm->blurTempTexture(), sm->renderTargets()[0], resolution, false, filterSize));
+                    }
                 }
             }
         }

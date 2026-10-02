@@ -74,9 +74,8 @@ namespace visutwin::canvas
     };
 
     /**
-     * One animation event (upstream AnimEvents entry): fired on the AnimComponent under
-     * `name` when playback passes `time` (seconds). Upstream events carry any extra
-     * properties; here they are strings in `properties`.
+     * One animation event: fired on the AnimComponent under
+     * `name` when playback passes `time` (seconds).
      */
     struct AnimEvent
     {

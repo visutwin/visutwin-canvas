@@ -1,9 +1,9 @@
-//
-#include <algorithm>
-#include <cmath>
-// Created by Arnis Lektauers on 18.08.2025.
+// Created by Arnis Lektauers on 18.08.2025
 //
 #pragma once
+
+#include <algorithm>
+#include <cmath>
 
 #include "matrix4.h"
 

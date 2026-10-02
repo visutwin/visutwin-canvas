@@ -19,6 +19,7 @@
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
 #include <scene/graphNode.h>
+#include "scene/light.h"
 #include "scene/morph.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "depthOnlyDraw.h"
@@ -53,7 +54,7 @@ namespace visutwin::canvas
 
     void RenderPassShadowLocalNonClustered::prepareShaders()
     {
-        prepareLocalShadowShaders(_graphicsDevice, false);
+        prepareLocalShadowShaders(_graphicsDevice, false, _applyVsm && _light->shadowType() == SHADOW_VSM_16F);
     }
 
     void RenderPassShadowLocalNonClustered::execute()
@@ -69,12 +70,14 @@ namespace visutwin::canvas
         // This target is the light's own map, cleared by the pass's load action;
         // the face draws into all of it.
         DepthOnlyShaders shaders;
-        if (!bindLocalShadowState(_graphicsDevice.get(), programLibrary.get(), _light, shaders)) {
+        // A VSM spot light's map holds EVSM moments of the distance to the light
+        // (upstream's spot VSM, which stores distance / range rather than depth).
+        const bool vsm = _applyVsm && _light->shadowType() == SHADOW_VSM_16F;
+        if (!bindLocalShadowState(_graphicsDevice.get(), programLibrary.get(), _light, shaders, vsm)) {
             return;
         }
         drawLocalShadowFace(_graphicsDevice.get(), programLibrary.get(), shaders,
             _light, _face, _shadowCamera);
         (void)_shadowRenderer;
-        (void)_applyVsm;
     }
 }

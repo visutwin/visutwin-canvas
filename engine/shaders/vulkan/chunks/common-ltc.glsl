@@ -240,3 +240,61 @@ float ltcEvaluateDisk(vec3 N, vec3 V, vec3 P, mat3 mInv,
     return isnan(result) ? 0.0 : result;
 }
 
+
+// ── A light with a non-punctual shape (LightShape 1 rect, 2 disk, 3 sphere), as both
+// the main light loop and the cluster loop evaluate it. Twin of the helpers at the end
+// of common-ltc.metal (upstream calc{Rect,Disk,Sphere}LightValues, get*LightDiffuse and
+// get*LightSpecular). The corners come back through p0..p3.
+float ltcAreaLight(uint shape, vec3 lightPos, vec3 halfWidth, vec3 halfHeight, vec3 N,
+                   vec3 cameraPosition, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 p3) {
+    float sphereRadius = max(length(halfWidth), length(halfHeight));
+    if (shape == 3u) {
+        // Billboard to the reflection vector so the disk integral can take it.
+        vec3 f = reflect(normalize(lightPos - cameraPosition), N);
+        vec3 w = normalize(cross(f, halfHeight));
+        vec3 h = normalize(cross(f, w));
+        halfWidth = w * sphereRadius;
+        halfHeight = h * sphereRadius;
+    }
+    p0 = lightPos + halfWidth - halfHeight;
+    p1 = lightPos - halfWidth - halfHeight;
+    p2 = lightPos - halfWidth + halfHeight;
+    p3 = lightPos + halfWidth + halfHeight;
+    return sphereRadius;
+}
+
+// Diffuse form factor of a LOCAL area light, with the 16 that the punctual
+// inverse-square falloff carries.
+float ltcAreaDiffuse(uint shape, float sphereRadius, vec3 lightPos, vec3 N, vec3 V, vec3 P,
+                     vec3 p0, vec3 p1, vec3 p2, vec3 p3) {
+    if (shape == 2u) {
+        return ltcEvaluateDisk(N, V, P, mat3(1.0), p0, p1, p2) * 16.0;
+    }
+    if (shape == 3u) {
+        // Punctual Lambert with a radius-based falloff (upstream getSphereLightDiffuse).
+        vec3 toLight = lightPos - P;
+        float falloff = sphereRadius / (dot(toLight, toLight) + sphereRadius);
+        return max(dot(N, normalize(toLight)), 0.0) * falloff * 16.0;
+    }
+    return ltcEvaluateRect(N, V, P, mat3(1.0), p0, p1, p2, p3) * 16.0;
+}
+
+// Upstream dLTCSpecFres: Fresnel magnitude and geometric attenuation from LUT2.
+vec3 ltcSpecularFresnel(vec3 N, vec3 V, float perceptualRoughness, vec3 F0) {
+    vec4 t2 = textureLod(areaLightLut2, ltcUv(N, V, perceptualRoughness), 0.0);
+    return F0 * t2.x + (vec3(1.0) - F0) * t2.y;
+}
+
+// Specular LTC integral with the inverse transform from LUT1 (a sphere integrates
+// its billboarded quad as a disk).
+float ltcAreaSpecular(uint shape, vec3 N, vec3 V, vec3 P, float perceptualRoughness,
+                      vec3 p0, vec3 p1, vec3 p2, vec3 p3) {
+    vec4 t1 = textureLod(areaLightLut1, ltcUv(N, V, perceptualRoughness), 0.0);
+    mat3 mInv = mat3(
+        vec3(t1.x, 0.0, t1.y),
+        vec3(0.0, 1.0, 0.0),
+        vec3(t1.z, 0.0, t1.w));
+    return (shape != 1u)
+        ? ltcEvaluateDisk(N, V, P, mInv, p0, p1, p2)
+        : ltcEvaluateRect(N, V, P, mInv, p0, p1, p2, p3);
+}

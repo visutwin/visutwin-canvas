@@ -3,6 +3,11 @@
         Light light = lighting.lights[i];
         uint type = uint(light.directionType.w + 0.5);
 
+        // The source's shape (LightShape; 0 punctual): an area light keeps its type's
+        // cone, cookie and shadow, takes only the range window as distance falloff, and
+        // is shaded with LTC below (upstream lightFunctionLight, LIGHT{i}SHAPE).
+        uint lightShape = vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT)
+            ? uint(light.areaRightHalfWidth.w + 0.5) : 0u;
         vec3 L;
         float atten = 1.0;
         // Light cookie: the projected texture masking this light's color. Folded
@@ -36,130 +41,16 @@
             if (vtFeatureEnabled(VT_FEATURE_SHADOW_CATCHER_BIT)) {
                 dShadowCatcher *= atten;
             }
-        } else if (type == 3u && vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT)) {
-            // LTC area light (upstream ltc.js): diffuse and specular are both
-            // LTC integrals, so this accumulates in full and skips the shared
-            // punctual GGX below. Shape (0=rect, 1=disk, 2=sphere) rides in
-            // coneParams.w — area lights never cast shadows, so that slot is
-            // free, mirroring how the Metal path reuses its shadow slot.
-            uint areaShape = uint(max(light.coneParams.w, 0.0) + 0.5);
-            vec3 lightPos = light.positionRange.xyz;
-            float halfW = light.areaRightHalfWidth.w;
-            float halfH = light.areaUpHalfHeight.w;
-            vec3 right = normalize(light.areaRightHalfWidth.xyz);
-            vec3 up = normalize(light.areaUpHalfHeight.xyz);
-            vec3 halfWidthVec = right * halfW;
-            vec3 halfHeightVec = up * halfH;
-            float sphereRadius = max(halfW, halfH);
-            if (areaShape == 2u) {
-                // Sphere: billboard the quad toward the reflection vector so the
-                // disk math can integrate it (upstream getSphereLightCoords).
-                vec3 f = reflect(
-                    normalize(lightPos - lighting.cameraPosExposure.xyz), N);
-                right = normalize(cross(f, halfHeightVec));
-                up = normalize(cross(f, right));
-                halfWidthVec = right * sphereRadius;
-                halfHeightVec = up * sphereRadius;
-            }
-
-            // Corners, ccw (upstream getLTCLightCoords).
-            vec3 p0 = lightPos + halfWidthVec - halfHeightVec;
-            vec3 p1 = lightPos - halfWidthVec - halfHeightVec;
-            vec3 p2 = lightPos - halfWidthVec + halfHeightVec;
-            vec3 p3 = lightPos + halfWidthVec + halfHeightVec;
-
-            vec3 toLight = lightPos - fragWorldPos;
-            float areaAtten = ltcFalloffWindow(light.positionRange.w, toLight);
-            if (areaAtten < 0.00001) {
-                continue;
-            }
-            vec3 areaRadiance =
-                light.colorIntensity.rgb * light.colorIntensity.w * areaAtten;
-
-            // LUT2: Fresnel magnitude (x) + geometric attenuation (y), for
-            // specular energy conservation.
-            vec2 lutUv = ltcUv(N, V, roughness);
-            vec4 t2 = textureLod(areaLightLut2, lutUv, 0.0);
-            vec3 specFres = F0 * t2.x + (vec3(1.0) - F0) * t2.y;
-
-            // Diffuse: LTC with the identity transform (plain cosine integral).
-            // 16.0 mirrors the constant baked into the punctual inverse-square
-            // falloff, so area and punctual lights of equal intensity are
-            // comparably bright.
-            mat3 ltcIdentity = mat3(1.0);
-            float ltcDiffuse;
-            if (areaShape == 1u) {
-                ltcDiffuse = ltcEvaluateDisk(N, V, fragWorldPos, ltcIdentity,
-                    p0, p1, p2);
-            } else if (areaShape == 2u) {
-                // Sphere diffuse: wrap-style Lambert with a radius-based
-                // falloff (upstream getSphereLightDiffuse).
-                float distSq = dot(toLight, toLight);
-                float falloff = sphereRadius / (distSq + sphereRadius);
-                ltcDiffuse = max(dot(N, normalize(toLight)), 0.0) * falloff;
-            } else {
-                ltcDiffuse = ltcEvaluateRect(N, V, fragWorldPos, ltcIdentity,
-                    p0, p1, p2, p3);
-            }
-            vec3 areaDiffuse = diffuseAlbedo * areaRadiance * ltcDiffuse * 16.0 *
-                (vec3(1.0) - specFres);
-            color += areaDiffuse;
-            directDiffuse += areaDiffuse;
-
-            // Specular: LTC with the inverse transform from LUT1 (the sphere
-            // uses the disk evaluator on its billboarded quad).
-            vec4 t1 = textureLod(areaLightLut1, lutUv, 0.0);
-            mat3 ltcMInv = mat3(
-                vec3(t1.x, 0.0, t1.y),
-                vec3(0.0, 1.0, 0.0),
-                vec3(t1.z, 0.0, t1.w));
-            float ltcSpec = (areaShape != 0u)
-                ? ltcEvaluateDisk(N, V, fragWorldPos, ltcMInv, p0, p1, p2)
-                : ltcEvaluateRect(N, V, fragWorldPos, ltcMInv, p0, p1, p2, p3);
-            color += areaRadiance * ltcSpec * specFres * specularOn;
-            directSpecular += areaRadiance * ltcSpec * specFres * specularOn;
-
-            if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
-                // Clearcoat LTC specular with a fixed F0 of 0.04, at the coat's own
-                // normal and gloss (Metal passes the gloss; this ltcUv takes 1 - gloss).
-                vec2 ccUv = ltcUv(ccNormalW, V, 1.0 - ccGlossiness);
-                vec4 ccT2 = textureLod(areaLightLut2, ccUv, 0.0);
-                vec3 ccFres = vec3(0.04) * ccT2.x + vec3(0.96) * ccT2.y;
-                vec4 ccT1 = textureLod(areaLightLut1, ccUv, 0.0);
-                mat3 ccMInv = mat3(
-                    vec3(ccT1.x, 0.0, ccT1.y),
-                    vec3(0.0, 1.0, 0.0),
-                    vec3(ccT1.z, 0.0, ccT1.w));
-                float ccLtc = (areaShape != 0u)
-                    ? ltcEvaluateDisk(ccNormalW, V, fragWorldPos, ccMInv, p0, p1, p2)
-                    : ltcEvaluateRect(ccNormalW, V, fragWorldPos, ccMInv, p0, p1, p2, p3);
-                // Accumulated; the tail applies ccSpecularity and dims the base (as Metal).
-                ccSpecularLight += areaRadiance * ccLtc * ccFres;
-            }
-
-            // Fully accumulated — skip the shared punctual path.
-            // DEVIATION: area lights neither cast nor receive shadows.
-            continue;
         } else {
             vec3 lightPosition = light.positionRange.xyz;
-            if (type == 3u) {
-                // Area light without the LTC feature: approximate it as a
-                // punctual light at the closest point on the rect, so it still
-                // renders plausibly rather than disappearing.
-                vec3 relative = fragWorldPos - lightPosition;
-                float rightOffset = clamp(dot(relative,
-                    light.areaRightHalfWidth.xyz),
-                    -light.areaRightHalfWidth.w, light.areaRightHalfWidth.w);
-                float upOffset = clamp(dot(relative,
-                    light.areaUpHalfHeight.xyz),
-                    -light.areaUpHalfHeight.w, light.areaUpHalfHeight.w);
-                lightPosition += light.areaRightHalfWidth.xyz * rightOffset +
-                    light.areaUpHalfHeight.xyz * upOffset;
-            }
             vec3 toLight = lightPosition - fragWorldPos;
             float dist = length(toLight);
             L = (dist > 1e-4) ? toLight / dist : vec3(0.0, 1.0, 0.0);
-            atten = distanceAttenuation(dist, light.positionRange.w, light.coneParams.z);
+            // Non-punctual lights only get the range window here — the distance
+            // falloff comes from the LTC form factor itself.
+            atten = (lightShape != 0u)
+                ? ltcFalloffWindow(light.positionRange.w, toLight)
+                : distanceAttenuation(dist, light.positionRange.w, light.coneParams.z);
 
             // A cookie with cookieFalloff disabled replaces the cone falloff
             // entirely — the projection's own clip bounds the beam instead.
@@ -192,9 +83,46 @@
                 if (type == 1u) {
                     atten *= sampleOmniShadow(slot, fragWorldPos, light.positionRange.xyz);
                 } else if (type == 2u) {
-                    atten *= sampleSpotShadow(slot, fragWorldPos, N, L);
+                    atten *= sampleSpotShadow(slot, fragWorldPos, N, L,
+                        distance(light.positionRange.xyz, fragWorldPos));
                 }
             }
+        }
+
+        if (lightShape != 0u) {
+            // Area light — LTC, twin of the Metal chunk (common-ltc's helpers). The
+            // world half axes are the light's scaled X and Z.
+            if (atten <= 0.00001) {
+                continue;
+            }
+            vec3 lightPos = light.positionRange.xyz;
+            vec3 p0, p1, p2, p3;
+            float sphereRadius = ltcAreaLight(lightShape, lightPos, light.areaRightHalfWidth.xyz,
+                light.areaUpHalfHeight.xyz, N, lighting.cameraPosExposure.xyz, p0, p1, p2, p3);
+            vec3 areaRadiance = light.colorIntensity.rgb * cookieMask * light.colorIntensity.w * atten;
+            vec3 specFres = ltcSpecularFresnel(N, V, roughness, F0);
+
+            // A directional source keeps plain Lambert; a local one integrates its shape.
+            float ltcDiffuse = (type == 0u)
+                ? max(dot(N, L), 0.0)
+                : ltcAreaDiffuse(lightShape, sphereRadius, lightPos, N, V, fragWorldPos, p0, p1, p2, p3);
+            vec3 areaDiffuse = diffuseAlbedo * areaRadiance * ltcDiffuse * (vec3(1.0) - specFres);
+            color += areaDiffuse;
+            directDiffuse += areaDiffuse;
+
+            vec3 areaSpecular = areaRadiance * specFres * specularOn *
+                ltcAreaSpecular(lightShape, N, V, fragWorldPos, roughness, p0, p1, p2, p3);
+            color += areaSpecular;
+            directSpecular += areaSpecular;
+
+            if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+                // Clearcoat LTC specular with F0 = 0.04, at the coat's own normal and
+                // gloss; accumulated, the tail applies ccSpecularity (as Metal).
+                ccSpecularLight += areaRadiance *
+                    ltcSpecularFresnel(ccNormalW, V, 1.0 - ccGlossiness, vec3(0.04)) *
+                    ltcAreaSpecular(lightShape, ccNormalW, V, fragWorldPos, 1.0 - ccGlossiness, p0, p1, p2, p3);
+            }
+            continue;
         }
 
         float NdotL = max(dot(N, L), 0.0);
@@ -244,8 +172,12 @@
         // it. Dividing by PI and multiplying by kD = (1 - F)(1 - metallic) would make
         // every direct light about a third of Metal's, and kD would apply
         // (1 - metallic) a second time, since diffuseAlbedo carries it.
-        color += (diffuseAlbedo * diffuseTerm + specular * specularOn) * radiance * NdotL;
-        directDiffuse += diffuseAlbedo * diffuseTerm * radiance * NdotL;
+        // Upstream: with area lights in the variant, a punctual light's diffuse is
+        // scaled by (1 - specularity) (the LTC lights take (1 - their Fresnel)).
+        vec3 punctualDiffuseScale = (vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT) && specularOn > 0.0)
+            ? vec3(1.0) - F0 : vec3(1.0);
+        color += (diffuseAlbedo * diffuseTerm * punctualDiffuseScale + specular * specularOn) * radiance * NdotL;
+        directDiffuse += diffuseAlbedo * diffuseTerm * punctualDiffuseScale * radiance * NdotL;
         bakeDiffuseLight += diffuseTerm * radiance * NdotL;
         bakeDirectLight += diffuseTerm * radiance * NdotL;
         directSpecular += specular * specularOn * radiance * NdotL;

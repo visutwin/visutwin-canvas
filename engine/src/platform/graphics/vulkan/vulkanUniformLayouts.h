@@ -69,8 +69,10 @@ namespace visutwin::canvas
         float colorIntensity[4] = {1.0f, 1.0f, 1.0f, 0.0f};   // rgb color, w intensity
         // innerCos, outerCos, falloffLinear, localShadowIndex (-1 = none, 0/1 = local slot)
         float coneParams[4]     = {1.0f, 1.0f, 1.0f, -1.0f};
-        float areaRightHalfWidth[4] = {1.0f, 0.0f, 0.0f, 0.0f};
-        float areaUpHalfHeight[4] = {0.0f, 0.0f, 1.0f, 0.0f};
+        // An area source: xyz the world half-width axis, w the LightShape (0 punctual,
+        // 1 rect, 2 disk, 3 sphere); xyz the world half-height axis.
+        float areaRightHalfWidth[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        float areaUpHalfHeight[4] = {0.0f, 0.0f, 0.0f, 0.0f};
         // Light cookie: x=hasCookie, y=slot in the 2D or cube pool (the light type
         // picks which), z=CookieChannel, w=cookieFalloff (spot only).
         float cookieFlags[4] = {0.0f, 0.0f, 0.0f, 1.0f};

@@ -143,15 +143,28 @@ def validate(module: str, reflection: dict) -> None:
         return
         return
     if module == "ParticleVert":
+        # The pool, its draw order, a mesh emitter's vertices, and GpuParticleRenderParams
+        # (graphicsDevice.h).
         expected = [
             (6, 0, "StorageBuffer", 0),
-            (6, 3, "UniformBuffer", 704),
+            (6, 1, "StorageBuffer", 0),
+            (6, 2, "StorageBuffer", 0),
+            (6, 3, "UniformBuffer", 944),
         ]
         if bindings != expected or push_constant_size(reflection):
             raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
         return
     if module == "ParticleFrag":
-        if bindings != [(1, 0, "CombinedImageSampler", 0)]:
+        # The colour and normal maps, the scene depth grab through the nearest sampler
+        # (softening) and the parameter block (lighting).
+        expected = [
+            (1, 0, "CombinedImageSampler", 0),
+            (1, 1, "CombinedImageSampler", 0),
+            (3, 11, "SampledImage", 0),
+            (3, 13, "Sampler", 0),
+            (6, 3, "UniformBuffer", 944),
+        ]
+        if bindings != expected:
             raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
         return
     if module == "GSplatVert":
@@ -243,10 +256,15 @@ def validate(module: str, reflection: dict) -> None:
             (1, 24, "Sampler", 0),
             (1, 34, "SampledImage", 0),
         ]
-        if bindings != expected or push_constant_size(reflection):
+        # The VSM moments stage also reads the draw's view-projection from the push
+        # constants (a spot light's distance ratio, shadowDistanceRatio); the
+        # depth-only one reads nothing else.
+        push = push_constant_size(reflection)
+        push_ok = push in (0, 64, 128) if module == "ShadowVsmFrag" else push == 0
+        if bindings != expected or not push_ok:
             raise RuntimeError(
                 f"{module}: reflected layout mismatch: bindings={bindings}, "
-                f"expected={expected}"
+                f"expected={expected}, push={push}"
             )
         return
 

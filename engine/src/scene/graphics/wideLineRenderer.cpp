@@ -10,6 +10,8 @@
 #include "framework/engine.h"
 #include "framework/components/componentSystem.h"
 #include "framework/entity.h"
+#include "platform/graphics/blendState.h"
+#include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
@@ -50,7 +52,7 @@ namespace visutwin::canvas
             out[0] = c[base + 0];
             out[1] = c[base + 1];
             out[2] = c[base + 2];
-            out[3] = 1.0f;
+            out[3] = line.opacity();
         }
 
         float readWidth(const WideLine& line, const size_t index)
@@ -122,6 +124,35 @@ namespace visutwin::canvas
             _lines.erase(it);
             _dirty = true;
         }
+    }
+
+    void WideLineRenderer::setLayers(const std::vector<int>& layers)
+    {
+        _layers = layers;
+        if (auto* render = _entity ? _entity->findComponent<RenderComponent>() : nullptr) {
+            render->setLayers(_layers);
+        }
+    }
+
+    void WideLineRenderer::setBlend(const bool enabled)
+    {
+        if (!_material) {
+            return;
+        }
+        if (enabled) {
+            _material->setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
+        } else {
+            _material->setBlendState(std::make_shared<BlendState>());
+        }
+        _material->setTransparent(enabled);
+    }
+
+    void WideLineRenderer::setDepthTest(const bool enabled)
+    {
+        if (!_material) {
+            return;
+        }
+        _material->setDepthState(enabled ? std::make_shared<DepthState>() : DepthState::noDepth());
     }
 
     void WideLineRenderer::setScreenSize(const float width, const float height)
@@ -240,6 +271,9 @@ namespace visutwin::canvas
 
         if (render == nullptr) {
             render = static_cast<RenderComponent*>(_entity->addComponent<RenderComponent>());
+            if (render != nullptr && !_layers.empty()) {
+                render->setLayers(_layers);
+            }
         }
         if (render == nullptr) {
             spdlog::error("WideLineRenderer: the host entity refused a render component");

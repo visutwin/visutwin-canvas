@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream's blue noise (core/math/blue-noise.js): the 32x32 RGBA8 tile LDR_RGBA_53 from
-// https://momentsingraphics.de/BlueNoise.html, byte for byte, each channel a separate blue
-// noise stream. BlueNoise walks it as upstream does; the forward shaders carry the G
-// channel as a constant table (the dither's blueNoiseTex32 lookup, nearest and repeating).
+// The 32x32 RGBA8 tile LDR_RGBA_53, each channel a separate blue noise stream.
+// The forward shaders carry the G channel as a constant table
+// (the dither's blueNoiseTex32 lookup, nearest and repeating).
 //
 #pragma once
 
@@ -275,7 +274,7 @@ namespace visutwin::canvas
         2, 199, 207, 244, 129, 80, 168, 206, 74, 215, 83, 186, 177, 170, 7, 36,
     };
 
-    /// Upstream BlueNoise: a seeded walk over the tile, one RGBA texel per call.
+    /// BlueNoise: a seeded walk over the tile, one RGBA texel per call.
     class BlueNoise
     {
     public:

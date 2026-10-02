@@ -194,9 +194,8 @@ namespace visutwin::canvas
         _cookieAngle = src->_cookieAngle;
         _cookieScale = src->_cookieScale;
         _cookieOffset = src->_cookieOffset;
-        _areaWidth = src->_areaWidth;
-        _areaHeight = src->_areaHeight;
-        _areaShape = src->_areaShape;
+        _shape = src->_shape;
+        _volumetricScattering = src->_volumetricScattering;
         _penumbraSize = src->_penumbraSize;
         _penumbraFalloff = src->_penumbraFalloff;
         _layers = src->_layers;

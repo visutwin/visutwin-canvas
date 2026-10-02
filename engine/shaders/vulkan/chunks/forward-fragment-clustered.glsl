@@ -15,8 +15,14 @@
                 vec3 delta = cl.positionRange.xyz - fragWorldPos;
                 float distance = length(delta);
                 vec3 L = delta / max(distance, 1e-5);
-                float atten = distanceAttenuation(distance,
-                    cl.positionRange.w, cl.params.z);
+                // A shaped light (areaHalfWidth.w, the LightShape; 0 punctual — the CPU
+                // leaves it 0 unless clustered area lights are enabled) takes only the
+                // range window, as upstream's clusteredLight with CLUSTER_AREALIGHTS.
+                uint clShape = vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT)
+                    ? uint(cl.areaHalfWidth.w + 0.5) : 0u;
+                float atten = (clShape != 0u)
+                    ? ltcFalloffWindow(cl.positionRange.w, delta)
+                    : distanceAttenuation(distance, cl.positionRange.w, cl.params.z);
                 if (cl.params.y > 0.5) {
                     float cone = dot(normalize(-cl.directionSpot.xyz), L);
                     atten *= getSpotEffect(cl.params.x, cl.directionSpot.w, cone);
@@ -83,6 +89,30 @@
                     cookieMask = mix(vec3(1.0), channelValue, cookieIntensity);
                 }
 
+                if (clShape != 0u) {
+                    // An area light: LTC, as the main loop (common-ltc's helpers).
+                    vec3 p0, p1, p2, p3;
+                    float sphereRadius = ltcAreaLight(clShape, cl.positionRange.xyz, cl.areaHalfWidth.xyz,
+                        cl.areaHalfHeight.xyz, N, lighting.cameraPosExposure.xyz, p0, p1, p2, p3);
+                    vec3 areaRadiance = cl.colorIntensity.rgb * cl.colorIntensity.w * atten * cookieMask;
+                    vec3 specFres = ltcSpecularFresnel(N, V, roughness, F0);
+                    vec3 areaDiffuse = diffuseAlbedo * areaRadiance * (vec3(1.0) - specFres) *
+                        ltcAreaDiffuse(clShape, sphereRadius, cl.positionRange.xyz, N, V, fragWorldPos,
+                            p0, p1, p2, p3);
+                    vec3 areaSpecular = areaRadiance * specFres * specularOn *
+                        ltcAreaSpecular(clShape, N, V, fragWorldPos, roughness, p0, p1, p2, p3);
+                    color += areaDiffuse + areaSpecular;
+                    directDiffuse += areaDiffuse;
+                    directSpecular += areaSpecular;
+                    if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+                        ccSpecularLight += areaRadiance *
+                            ltcSpecularFresnel(ccNormalW, V, 1.0 - ccGlossiness, vec3(0.04)) *
+                            ltcAreaSpecular(clShape, ccNormalW, V, fragWorldPos, 1.0 - ccGlossiness,
+                                p0, p1, p2, p3);
+                    }
+                    continue;
+                }
+
                 float nl = max(dot(N, L), 0.0);
                 vec3 H = normalize(L + V);
                 float nh = max(dot(N, H), 0.0);
@@ -120,9 +150,13 @@
                 // Same convention as the punctual path: no 1/PI, no kD, and no
                 // explicit 1/(4 NdotL NdotV) because the visibility term carries it.
                 vec3 clusteredSpecular = D * Vis * F * specularOn;
-                color += (diffuseAlbedo * diffuseTerm + clusteredSpecular) * radiance * nl;
+                // Upstream: with area lights in the variant, a punctual light's diffuse
+                // is scaled by (1 - specularity).
+                vec3 clDiffuseScale = (vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT) && specularOn > 0.0)
+                    ? vec3(1.0) - F0 : vec3(1.0);
+                color += (diffuseAlbedo * diffuseTerm * clDiffuseScale + clusteredSpecular) * radiance * nl;
                 directSpecular += clusteredSpecular * radiance * nl;
-                directDiffuse += diffuseAlbedo * diffuseTerm * radiance * nl;
+                directDiffuse += diffuseAlbedo * diffuseTerm * clDiffuseScale * radiance * nl;
                 bakeDiffuseLight += diffuseTerm * radiance * nl;
                 bakeDirectLight += diffuseTerm * radiance * nl;
                 if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
