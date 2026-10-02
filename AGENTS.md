@@ -34,7 +34,7 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (328 .h + 235 .cpp + 1 .mm = 564 files)
+  engine/          # Core 3D engine (345 .h + 251 .cpp + 1 .mm = 597 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
