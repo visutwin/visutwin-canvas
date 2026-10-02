@@ -81,6 +81,11 @@ namespace visutwin::canvas
             _clusterShadowAtlas = atlas;
         }
 
+        void setClusterCookieAtlas(Texture* atlas) override
+        {
+            _clusterCookieAtlas = atlas;
+        }
+
         void copyRenderTarget(RenderTarget* source, Texture* colorDestination,
             Texture* depthDestination) override;
         void generateMipmaps(Texture* texture) override;
@@ -450,7 +455,8 @@ namespace visutwin::canvas
         // LTC area-light lookup textures (slots 20/21), owned by the renderer.
         Texture* _areaLightLut1 = nullptr;
         Texture* _areaLightLut2 = nullptr;
-        Texture* _clusterShadowAtlas = nullptr;  // clustered spot-shadow depth array (slot 26)
+        Texture* _clusterShadowAtlas = nullptr;
+        Texture* _clusterCookieAtlas = nullptr;   // clustered cookie atlas (slot 36)  // clustered spot-shadow depth array (slot 26)
 
         // Scene color grab target (dynamic refraction): full-mip copy of the scene
         // color made by the depth-layer grab pass, wrapped for slot-22 binding.

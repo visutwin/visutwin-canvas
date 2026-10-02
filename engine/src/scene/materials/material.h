@@ -264,6 +264,18 @@ namespace visutwin::canvas
 
         float alphaCutoff() const { return _alphaCutoff; }
         void setAlphaCutoff(const float value) { _alphaCutoff = value; markUniformsDirty(); }
+        /// The picker's id pass (upstream SHADER_PICK): the material draws `pickColor` as
+        /// exact 8-bit rgb in place of its shading, after its alpha test. Set on the
+        /// Picker's private clones only.
+        bool pickPass() const { return _pickPass; }
+        const Color& pickColor() const { return _pickColor; }
+        void setPick(const bool enabled, const Color& color = Color(0.0f, 0.0f, 0.0f, 1.0f))
+        {
+            _pickPass = enabled;
+            _pickColor = color;
+            markUniformsDirty();
+        }
+
         bool isSkybox() const { return _isSkybox; }
         void setIsSkybox(const bool value) { _isSkybox = value; markUniformsDirty(); }
         void setParameter(const std::string& name, const ParameterValue& value);
@@ -300,6 +312,9 @@ namespace visutwin::canvas
          * Base implementation reads from typed properties and custom parameter overrides.
          */
         virtual void updateUniforms(MaterialUniforms& uniforms) const;
+
+        /// updateUniforms plus what every material owes the block after it: the pick id.
+        void packAll(MaterialUniforms& uniforms) const;
 
         /// A per-map UV transform as the two rows the shaders read (upstream
         /// texture_*MapTransform0/1). A subclass packs its own transforms with it rather
@@ -421,6 +436,8 @@ namespace visutwin::canvas
         AlphaMode _alphaMode = AlphaMode::OPAQUE;
         float _alphaCutoff = 0.5f;
         bool _isSkybox = false;
+        bool _pickPass = false;
+        Color _pickColor = Color(0.0f, 0.0f, 0.0f, 1.0f);
 
         // per-texture UV transforms.
         TextureTransform _baseColorTransform;

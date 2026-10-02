@@ -14,8 +14,8 @@
 // those faces comes out inside out. Every face front-facing avoids that.
 //
 // DEVIATIONS from upstream: the roughness map is dropped for a constant gloss,
-// because this port's gloss map is a Metal-only scalar map with no tiling of its own
-// and the two backends have to render the same scene; the sphere is a primitive
+// because this port's gloss map has no tiling of its own, so it could not repeat with
+// the other maps; the sphere is a primitive
 // rather than a 128-band generated mesh, so its silhouette is coarser; and upstream
 // exposes the sample count and the parallax mode as controls, where this march
 // adapts its step count to the view angle instead.

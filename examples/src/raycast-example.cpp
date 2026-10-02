@@ -17,9 +17,6 @@
 // upstream's go through Ammo — not the CPU fallback over collision bounds.
 //
 // DEVIATIONS:
-// - The physics seam has no cone shape, so the cone's collision volume is a
-//   cylinder of the same radius (0.5) and height (1). The ray therefore hits the
-//   cone slightly wider near its tip than upstream's btConeShape would.
 // - Upstream draws the rays and normals with app.drawLine (1-pixel hardware lines).
 //   This port has no immediate line drawing, so they are WideLines one pixel wide
 //   in a WideLineRenderer. To match drawLine's one-frame lifetime, the normal lines
@@ -183,8 +180,7 @@ private:
         }
 
         if (auto* collision = static_cast<CollisionComponent*>(entity->addComponent<CollisionComponent>())) {
-            // DEVIATION: no cone collision shape; a cylinder stands in (see header).
-            collision->setType(type == "cone" ? "cylinder" : type);
+            collision->setType(type);
             collision->setHeight(type == "capsule" ? 2.0f : 1.0f);
         }
     }

@@ -15,10 +15,14 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace visutwin::canvas
 {
+    class GraphicsDevice;
+    class Mesh;
+
     struct PrimitiveGeometry
     {
         std::vector<float> positions;   // xyz per vertex
@@ -41,8 +45,18 @@ namespace visutwin::canvas
     PrimitiveGeometry createConeGeometry();
     PrimitiveGeometry createCapsuleGeometry();
     PrimitiveGeometry createPlaneGeometry();
+    /// Upstream TorusGeometry; the no-argument form is the 'torus' primitive's (tube 0.2,
+    /// ring 0.3, 30 segments, 20 sides).
+    PrimitiveGeometry createTorusGeometry();
+    PrimitiveGeometry createTorusGeometry(float tubeRadius, float ringRadius, float sectorAngleDegrees,
+                                          int segments, int sides);
     /// Upstream ConeBaseGeometry: the cylinder, cone and capsule all come from it. A zero
     /// radius at either end is a tip; `roundedCaps` makes hemispheres of radius `peakRadius`.
     PrimitiveGeometry createConeBaseGeometry(float baseRadius, float peakRadius, float height, int heightSegments,
                                              int capSegments, bool roundedCaps);
+
+    /// Upstream Mesh.fromGeometry: a mesh in the engine's packed vertex layout, with the
+    /// CPU copies a mesh collider or a bake reads. Null for empty geometry.
+    std::shared_ptr<Mesh> createMeshFromGeometry(const std::shared_ptr<GraphicsDevice>& device,
+                                                 const PrimitiveGeometry& geometry);
 }

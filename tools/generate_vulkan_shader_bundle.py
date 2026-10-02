@@ -233,12 +233,15 @@ def validate(module: str, reflection: dict) -> None:
         return
     if module in ("ShadowVsmFrag", "ShadowFrag"):
         # Both shadow fragment stages run the opacity frontend, so both read the
-        # material block and the base-colour texture — and NOTHING else. A shadow
-        # stage that reaches for a third resource is reaching for something the
-        # shadow passes do not bind.
+        # material block, the base-colour texture and the opacity map (a separate
+        # image through the shared sampler) — and NOTHING else. A shadow stage that
+        # reaches for another resource is reaching for something the shadow passes
+        # do not bind.
         expected = [
             (0, 0, "UniformBuffer", MATERIAL_BLOCK_SIZE),
             (1, 0, "CombinedImageSampler", 0),
+            (1, 24, "Sampler", 0),
+            (1, 34, "SampledImage", 0),
         ]
         if bindings != expected or push_constant_size(reflection):
             raise RuntimeError(
@@ -264,6 +267,11 @@ def validate(module: str, reflection: dict) -> None:
         (1, 17, "SampledImage"),
         (1, 23, "SampledImage"),
         (1, 24, "Sampler"),
+        # 31-34 = gloss, thickness, refraction and opacity maps, separate images.
+        (1, 31, "SampledImage"),
+        (1, 32, "SampledImage"),
+        (1, 33, "SampledImage"),
+        (1, 34, "SampledImage"),
         # 1 = directional shadow slot 0 and 22 = slot 1: separate images through
         # the shared samplers at 12/13.
         *( (3, binding, "CombinedImageSampler") for binding in (0, 2, 3, 4, 5) ),
@@ -281,8 +289,9 @@ def validate(module: str, reflection: dict) -> None:
         (3, 18, "SampledImage"),
         (3, 19, "SampledImage"),
         (3, 20, "SampledImage"),
-        # 21 = lighting-mode SSAO.
+        # 21 = lighting-mode SSAO, 23 = clustered cookie atlas.
         (3, 21, "SampledImage"),
+        (3, 23, "SampledImage"),
         (5, 0, "StorageBuffer"),
         (5, 1, "StorageBuffer"),
     }

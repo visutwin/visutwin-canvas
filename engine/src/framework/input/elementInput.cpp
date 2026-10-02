@@ -330,11 +330,8 @@ namespace visutwin::canvas
     namespace
     {
         /// Upstream's element materials are EMISSIVE-only: black diffuse, the element
-        /// colour as the emissive (times an image's texture), alpha from the texture or,
-        /// for MSDF text, from the distance field. DEVIATION: a bitmap font's or an
-        /// image's alpha comes through the diffuse map, where upstream reads an opacity
-        /// map, which is Metal-only here; setting the same texture as the opacity map as
-        /// well would multiply it in twice on Metal.
+        /// colour as the emissive (times an image's texture), alpha from the texture's
+        /// alpha through the opacity map or, for MSDF text, from the distance field.
         std::shared_ptr<StandardMaterial> makeBaseElementMaterial(const bool worldSpace)
         {
             auto material = std::make_shared<StandardMaterial>();
@@ -470,12 +467,12 @@ namespace visutwin::canvas
                 material->setMsdfFont(key.pxRange, key.intensity);
                 break;
             case Kind::BitmapText:
-                material->setDiffuseMap(key.texture);   // coverage in alpha
+                material->setOpacityMap(key.texture);   // coverage in alpha
                 break;
             case Kind::Image:
             case Kind::ImageMask:
                 // An image multiplies its texture into the colour and takes its alpha.
-                material->setDiffuseMap(key.texture);
+                material->setOpacityMap(key.texture);
                 material->setEmissiveMap(key.texture);
                 break;
             }

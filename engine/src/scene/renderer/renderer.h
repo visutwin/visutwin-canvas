@@ -140,6 +140,14 @@ namespace visutwin::canvas
          */
         const CulledInstances& culledInstances(Camera* camera, GraphNode* cameraNode, Layer* layer);
 
+        /// Forget the cached cull of (camera, layer), so the next draw of that pair culls
+        /// again. For a layer whose CONTENT changed under an unchanged frustum (the
+        /// picker's private layer): the cache is keyed on the frustum alone.
+        void invalidateCulledInstances(Camera* camera, Layer* layer)
+        {
+            _culledInstances.erase(std::make_pair(camera, layer));
+        }
+
         // App-injected render passes appended to the END of every frame graph —
         // they run after all scene render actions but before frame end (while the
         // frame's drawable is still valid). Used by extras like OutlineRenderer;

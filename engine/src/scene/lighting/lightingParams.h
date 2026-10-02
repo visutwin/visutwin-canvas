@@ -36,5 +36,9 @@ namespace visutwin::canvas
         /// split cell (i, j) again — upstream's scheme, for scenes that want a few
         /// large slots and many small ones.
         std::vector<int> atlasSplit;
+        /// Resolution of the clustered cookie atlas (upstream default 2048), laid out
+        /// like the shadow atlas; created only once a clustered light has a cookie and
+        /// `cookiesEnabled` is set.
+        int cookieAtlasResolution = 2048;
     };
 }

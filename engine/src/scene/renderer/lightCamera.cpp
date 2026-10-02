@@ -20,6 +20,11 @@ namespace visutwin::canvas
 
     Matrix4 LightCamera::evalSpotCookieMatrix(const Light& light)
     {
+        return evalSpotCookieMatrix(light, Vector4(0.0f, 0.0f, 1.0f, 1.0f));
+    }
+
+    Matrix4 LightCamera::evalSpotCookieMatrix(const Light& light, const Vector4& viewport)
+    {
         // position()/rotation() lazily resolve the world transform and so are
         // non-const on GraphNode.
         GraphNode* node = light.node();
@@ -46,7 +51,7 @@ namespace visutwin::canvas
 
         const Matrix4 viewProj = cookieCamera->projectionMatrix()
             * cookieCamera->node()->worldTransform().inverse();
-        return spotProjectionBias() * viewProj;
+        return viewportProjectionBias(viewport) * viewProj;
     }
 
     Matrix4 LightCamera::spotProjectionBias()

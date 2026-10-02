@@ -226,7 +226,9 @@ namespace visutwin::canvas
             gpu.params[0] = entry.innerConeCos;
             gpu.params[1] = ld.isSpot ? 1.0f : 0.0f;
             gpu.params[2] = ld.falloffModeLinear ? 1.0f : 0.0f;
-            gpu.params[3] = 0.0f;
+            gpu.params[3] = ld.hasCookie
+                ? (static_cast<float>(ld.cookieChannel) + 1.0f) * 2.0f + std::clamp(ld.cookieIntensity, 0.0f, 1.0f)
+                : 0.0f;
 
             // Clustered shadow data (via LightTextureAtlas). The renderer sets
             // castShadows only for a light the atlas gave a slot this frame.
@@ -235,7 +237,8 @@ namespace visutwin::canvas
             gpu.shadowData[1] = ld.shadowNormalBias;
             gpu.shadowData[2] = ld.shadowIntensity;
             gpu.shadowData[3] = ld.isSpot ? 1.0f : 2.0f;
-            if (hasShadow && !ld.isSpot) {
+            const bool hasAtlasRect = hasShadow || ld.hasCookie;
+            if (hasAtlasRect && !ld.isSpot) {
                 // Omni: no matrix — the rect and the depth range, in the same 64
                 // bytes (see GpuClusteredLight). The shader derives the face and its
                 // UV from the direction, as a cubemap lookup would.
@@ -248,7 +251,7 @@ namespace visutwin::canvas
                 gpu.shadowMatrix[5] = ld.shadowFar;
                 gpu.shadowMatrix[6] = ld.shadowRelativeBias;
                 gpu.shadowMatrix[7] = 0.0f;
-            } else if (hasShadow) {
+            } else if (hasAtlasRect) {
                 // Column-major float4x4 for the GPU (dest[col*4+row] = M(row,col)),
                 // which is exactly Matrix4's own storage order. An element loop here
                 // once uploaded the transpose, which put every receiver's shadow

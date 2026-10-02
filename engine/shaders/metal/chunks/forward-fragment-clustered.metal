@@ -97,6 +97,38 @@
                     }
                 }
 
+                // Clustered cookie (upstream clusteredLightCookies): the light's cookie,
+                // copied into its rect of the cookie atlas. params.w is 0 for none, else
+                // (CookieChannel + 1) * 2 + intensity. A spot reads it through the same
+                // projection its shadow uses (no clip, the atlas clamps); an omni picks the
+                // face from the direction, as its shadow does.
+                float3 cookieMask = float3(1.0);
+                if (cl.params.w > 0.0) {
+                    constexpr sampler clusterCookieSampler(coord::normalized, filter::linear,
+                                                           address::clamp_to_edge);
+                    const float channelCode = floor(cl.params.w * 0.5);
+                    const uint cookieChannel = uint(channelCode - 1.0);
+                    const float cookieIntensity = cl.params.w - channelCode * 2.0;
+                    float2 cookieUv;
+                    if (cl.shadowData.w > 1.5) {
+                        cookieUv = getCubemapAtlasCoordinates(cl.shadowMatrix[0],
+                            float(clusterShadowAtlas.get_width()), rd.worldPos - cl.positionRange.xyz);
+                    } else {
+                        const float4 projected = cl.shadowMatrix * float4(rd.worldPos, 1.0);
+                        cookieUv = projected.xy / max(projected.w, 1e-6);
+                    }
+                    const float4 texel = clusterCookieAtlas.sample(clusterCookieSampler, cookieUv, level(0));
+                    float3 channelValue = texel.rgb;
+                    switch (cookieChannel) {
+                        case 1u: channelValue = float3(texel.r); break;
+                        case 2u: channelValue = float3(texel.g); break;
+                        case 3u: channelValue = float3(texel.b); break;
+                        case 4u: channelValue = float3(texel.a); break;
+                        default: break;
+                    }
+                    cookieMask = mix(float3(1.0), channelValue, cookieIntensity);
+                }
+
                 // 6. PBR lighting (same GGX terms as the main light loop).
                 const float3 clL = normalize(lightDirW);
                 const float clNdotL = max(dot(N, clL), 0.0);
@@ -104,7 +136,7 @@
 
                 const float3 clH = normalize(clL + V);
                 const float3 clRadiance = max(cl.colorIntensity.xyz, float3(0.0))
-                                        * max(cl.colorIntensity.w, 0.0) * attenuation;
+                                        * max(cl.colorIntensity.w, 0.0) * attenuation * cookieMask;
                 const float clNdotV = max(dot(N, V), 0.0);
                 const float clNoH = max(dot(N, clH), 0.0);
 #if VT_FEATURE_ANISOTROPY

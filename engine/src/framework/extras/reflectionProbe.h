@@ -37,11 +37,11 @@ namespace visutwin::canvas
      *
      * The captured faces hold tonemapped/gamma-encoded LDR (the normal forward
      * output), which the probe shader sRGB-decodes — matching the existing
-     * static-cubemap path. DEVIATIONS: roughness uses hardware trilinear cube
-     * mips (no GGX per-level prefilter — same approximation the probe shader
-     * already relies on); a single probe; directional-shadow cascades are fit
-     * only for the presentation camera, so probe faces may miss directional
-     * shadows.
+     * static-cubemap path. DEVIATIONS: roughness picks a box-filtered cube mip
+     * (upstream's reflectionCube samples the cube unfiltered and ignores gloss;
+     * the env ATLAS is where upstream GGX-prefilters); a single probe;
+     * directional-shadow cascades are fit only for the presentation camera, so
+     * probe faces may miss directional shadows.
      *
      * Usage per frame:
      *   // (construct probe, then the main camera)

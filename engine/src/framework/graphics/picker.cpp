@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// See picker.h: an id buffer rendered with the pick variant and read back, and a bounds
+// fallback for a device that cannot.
 //
 #include "picker.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <unordered_set>
 
+#include <spdlog/spdlog.h>
+
+#include "core/math/color.h"
 #include "core/math/matrix4.h"
 #include "core/math/vector4.h"
 #include "core/shape/ray.h"
@@ -17,15 +23,47 @@
 #include "framework/components/render/renderComponent.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/renderPass.h"
+#include "platform/graphics/renderTarget.h"
+#include "platform/graphics/texture.h"
+#include "scene/camera.h"
+#include "scene/layer.h"
+#include "scene/materials/material.h"
+#include "scene/materials/standardMaterial.h"
 #include "scene/meshInstance.h"
+#include "scene/morphInstance.h"
+#include "scene/renderer/forwardRenderer.h"
 
 namespace visutwin::canvas
 {
-    // `app` mirrors upstream's constructor; this CPU picker needs nothing from it.
-    Picker::Picker(Engine* /*app*/, const int width, const int height, const bool depth)
-        : _depth(depth)
+    namespace
+    {
+        // The private layer the id pass draws. No component names it, so the cull sweep
+        // finds only the clones the picker put on it.
+        constexpr int kPickLayerId = 0x7FFF0001;
+
+        // 24 bits of id in rgb, 0 = nothing: exact through an RGBA8 target, since a
+        // value k / 255 stores back as k.
+        Color idColor(const uint32_t id)
+        {
+            return Color(static_cast<float>(id & 0xFFu) / 255.0f,
+                static_cast<float>((id >> 8) & 0xFFu) / 255.0f,
+                static_cast<float>((id >> 16) & 0xFFu) / 255.0f, 1.0f);
+        }
+    }
+
+    Picker::Picker(Engine* app, const int width, const int height, const bool depth)
+        : _app(app), _depth(depth)
     {
         resize(width, height);
+    }
+
+    Picker::~Picker()
+    {
+        if (_app && _app->renderer() && _pickLayer && _camera && _camera->camera()) {
+            _app->renderer()->invalidateCulledInstances(_camera->camera(), _pickLayer.get());
+        }
     }
 
     void Picker::resize(const int width, const int height)
@@ -41,15 +79,22 @@ namespace visutwin::canvas
         _layers = layers.empty() ? (_camera ? _camera->layers() : std::vector<int>{}) : layers;
         _candidates.clear();
         _candidateIndex.clear();
+        _idBufferValid = false;
 
         if (!_camera || !_camera->camera() || !_camera->entity()) {
             return;
         }
 
+        collectCandidates();
+        _idBufferValid = renderIdBuffer();
+    }
+
+    void Picker::collectCandidates()
+    {
         const Vector3 cameraPos = _camera->entity()->position();
 
         for (auto* renderComponent : RenderComponent::instances()) {
-            if (!renderComponent || !renderComponent->enabled()) {
+            if (!renderComponent || !renderComponent->active()) {
                 continue;
             }
 
@@ -116,14 +161,230 @@ namespace visutwin::canvas
         }
     }
 
-    std::vector<MeshInstance*> Picker::getSelection(const int x, const int y, const int width, const int height) const
+    void Picker::ensureTargets()
     {
-        std::vector<MeshInstance*> selection;
-        if (!_camera) {
-            return selection;
+        auto device = _app ? _app->graphicsDevice() : nullptr;
+        if (!device) {
+            return;
+        }
+        if (_colorBuffer && static_cast<int>(_colorBuffer->width()) == _width &&
+            static_cast<int>(_colorBuffer->height()) == _height) {
+            return;
         }
 
+        TextureOptions colorOptions;
+        colorOptions.name = "PickerColor";
+        colorOptions.width = static_cast<uint32_t>(_width);
+        colorOptions.height = static_cast<uint32_t>(_height);
+        colorOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+        colorOptions.mipmaps = false;
+        colorOptions.minFilter = FilterMode::FILTER_NEAREST;
+        colorOptions.magFilter = FilterMode::FILTER_NEAREST;
+        _colorBuffer = std::make_shared<Texture>(device.get(), colorOptions);
+
+        TextureOptions depthOptions = colorOptions;
+        depthOptions.name = "PickerDepth";
+        depthOptions.format = PixelFormat::PIXELFORMAT_DEPTH;
+        _depthBuffer = std::make_shared<Texture>(device.get(), depthOptions);
+
+        RenderTargetOptions targetOptions;
+        targetOptions.graphicsDevice = device.get();
+        targetOptions.colorBuffer = _colorBuffer.get();
+        targetOptions.depthBuffer = _depthBuffer.get();
+        targetOptions.depth = true;
+        targetOptions.samples = 1;
+        targetOptions.name = "PickerTarget";
+        _renderTarget = device->createRenderTarget(targetOptions);
+    }
+
+    Picker::PickDraw& Picker::pickDrawFor(MeshInstance* source, const uint32_t id)
+    {
+        PickDraw& draw = _pickDraws[source];
+        Material* sourceMaterial = source->material();
+        const uint64_t sourceVersion = sourceMaterial ? sourceMaterial->uniformsVersion() : 0;
+        const bool stale = !draw.clone || draw.mesh != source->mesh() || draw.node != source->node() ||
+            draw.sourceMaterial != sourceMaterial || draw.sourceVersion != sourceVersion;
+        if (stale) {
+            // The source's material, cloned, so its alpha test, dither, cull mode and
+            // textures carry over; drawn opaque, as upstream's pick pass draws with no
+            // blending, so a transparent surface picks like an opaque one.
+            draw.material = sourceMaterial ? sourceMaterial->clone() : std::make_shared<StandardMaterial>();
+            if (draw.material->alphaMode() == AlphaMode::BLEND) {
+                draw.material->setAlphaMode(AlphaMode::OPAQUE);
+            }
+            draw.clone = source->cloneFor(source->node());
+            draw.clone->setMaterial(draw.material);
+            draw.mesh = source->mesh();
+            draw.node = source->node();
+            draw.sourceMaterial = sourceMaterial;
+            draw.sourceVersion = sourceVersion;
+            draw.id = 0;
+        }
+        if (draw.id != id) {
+            draw.material->setPick(true, idColor(id));
+            draw.id = id;
+        }
+        // A morph's weights are per-instance state the clone copied once; keep them current.
+        if (const MorphInstance* morph = source->morphInstance()) {
+            if (MorphInstance* cloneMorph = draw.clone->morphInstance()) {
+                for (int i = 0; i < morph->weightCount() && i < cloneMorph->weightCount(); ++i) {
+                    cloneMorph->setWeight(i, morph->weight(i));
+                }
+            }
+        }
+        draw.used = true;
+        return draw;
+    }
+
+    bool Picker::renderIdBuffer()
+    {
+        auto device = _app ? _app->graphicsDevice() : nullptr;
+        auto renderer = _app ? _app->renderer() : nullptr;
+        if (!device || !renderer) {
+            return false;
+        }
+        ensureTargets();
+        if (!_renderTarget) {
+            return false;
+        }
+
+        // One id per candidate, a stand-in drawn for each.
+        for (auto& [source, draw] : _pickDraws) {
+            draw.used = false;
+        }
+        _idToMeshInstance.clear();
+        std::vector<MeshInstance*> clones;
+        clones.reserve(_candidates.size());
+        for (const auto& candidate : _candidates) {
+            const auto id = static_cast<uint32_t>(_idToMeshInstance.size() + 1);
+            if (id > 0xFFFFFFu) {
+                break;
+            }
+            clones.push_back(pickDrawFor(candidate.meshInstance, id).clone.get());
+            _idToMeshInstance.push_back(candidate.meshInstance);
+        }
+        for (auto it = _pickDraws.begin(); it != _pickDraws.end();) {
+            it = it->second.used ? std::next(it) : _pickDraws.erase(it);
+        }
+
+        Camera* camera = _camera->camera();
+        if (!_pickLayer) {
+            _pickLayer = std::make_unique<Layer>("Picker", kPickLayerId);
+        }
+        _pickLayer->removeMeshInstances(_pickLayer->meshInstances());
+        _pickLayer->addMeshInstances(clones);
+        renderer->invalidateCulledInstances(camera, _pickLayer.get());
+
+        RenderPass pass(device);
+        pass.init(_renderTarget);
+        const Color clearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        const float clearDepth = 1.0f;
+        pass.setClearColor(&clearColor);
+        pass.setClearDepth(&clearDepth);
+        for (const auto& ops : pass.colorArrayOps()) {
+            ops->store = true;
+        }
+        if (pass.depthStencilOps()) {
+            pass.depthStencilOps()->storeDepth = true;
+        }
+
+        device->beginOfflineWork();
+        device->startRenderPass(&pass);
+        renderer->renderForwardLayer(camera, _renderTarget.get(), _pickLayer.get(), false);
+        device->endRenderPass(&pass);
+        device->endOfflineWork();
+
+        std::vector<uint8_t> pixels;
+        const size_t pixelCount = static_cast<size_t>(_width) * static_cast<size_t>(_height);
+        if (!_colorBuffer->read(pixels) || pixels.size() < pixelCount * 4) {
+            return false;
+        }
+        _idPixels = std::move(pixels);
+
+        _depthPixels.clear();
+        if (_depth) {
+            std::vector<uint8_t> depthBytes;
+            if (_depthBuffer->read(depthBytes) && depthBytes.size() >= pixelCount * sizeof(float)) {
+                _depthPixels.resize(pixelCount);
+                std::memcpy(_depthPixels.data(), depthBytes.data(), pixelCount * sizeof(float));
+            } else {
+                spdlog::warn("Picker: the depth buffer could not be read back; getWorldPoint has no answer");
+            }
+        }
+
+        const Matrix4 view = _camera->entity()->worldTransform().inverse();
+        _inverseViewProjection = (camera->projectionMatrix() * view).inverse();
+        return true;
+    }
+
+    std::vector<MeshInstance*> Picker::getSelection(const int x, const int y, const int width, const int height) const
+    {
+        if (!_camera) {
+            return {};
+        }
         const Rect rect = sanitizeRect(x, y, width, height);
+        if (!_idBufferValid) {
+            return boundsSelection(rect);
+        }
+
+        // Every id under the rect, in the order the rows meet them (upstream's order).
+        std::vector<MeshInstance*> selection;
+        std::unordered_set<uint32_t> seen;
+        for (int py = rect.y; py < rect.y + rect.height; ++py) {
+            for (int px = rect.x; px < rect.x + rect.width; ++px) {
+                const size_t i = (static_cast<size_t>(py) * static_cast<size_t>(_width) + static_cast<size_t>(px)) * 4;
+                const uint32_t id = static_cast<uint32_t>(_idPixels[i]) |
+                    (static_cast<uint32_t>(_idPixels[i + 1]) << 8) | (static_cast<uint32_t>(_idPixels[i + 2]) << 16);
+                if (id == 0 || id > _idToMeshInstance.size() || !seen.insert(id).second) {
+                    continue;
+                }
+                selection.push_back(_idToMeshInstance[id - 1]);
+            }
+        }
+        return selection;
+    }
+
+    MeshInstance* Picker::getSelectionSingle(const int x, const int y) const
+    {
+        const auto selection = getSelection(x, y, 1, 1);
+        return selection.empty() ? nullptr : selection.front();
+    }
+
+    std::optional<Vector3> Picker::getWorldPoint(const int x, const int y) const
+    {
+        if (!_depth || !_camera) {
+            return std::nullopt;
+        }
+        if (!_idBufferValid) {
+            return boundsWorldPoint(x, y);
+        }
+        if (_depthPixels.empty()) {
+            return std::nullopt;
+        }
+
+        // Upstream: the depth under the pixel, unprojected through its CENTRE. A pixel
+        // at the far plane shows nothing.
+        const Rect rect = sanitizeRect(x, y, 1, 1);
+        const float depth = _depthPixels[static_cast<size_t>(rect.y) * static_cast<size_t>(_width) +
+            static_cast<size_t>(rect.x)];
+        if (!(depth < 1.0f)) {
+            return std::nullopt;
+        }
+        const float ndcX = (static_cast<float>(rect.x) + 0.5f) / static_cast<float>(_width) * 2.0f - 1.0f;
+        const float ndcY = 1.0f - (static_cast<float>(rect.y) + 0.5f) / static_cast<float>(_height) * 2.0f;
+        // Window depth is the GL-style NDC z remapped to [0, 1] on both backends.
+        const Vector4 world = _inverseViewProjection * Vector4(ndcX, ndcY, depth * 2.0f - 1.0f, 1.0f);
+        if (std::abs(world.getW()) < 1e-12f) {
+            return std::nullopt;
+        }
+        return world.perspectiveDivide();
+    }
+
+    // The bounds fallback: every candidate whose projected bounding box overlaps the
+    // rect, nearest first.
+    std::vector<MeshInstance*> Picker::boundsSelection(const Rect& rect) const
+    {
+        std::vector<MeshInstance*> selection;
         const float rectMaxX = static_cast<float>(rect.x + rect.width);
         const float rectMaxY = static_cast<float>(rect.y + rect.height);
 
@@ -155,29 +416,17 @@ namespace visutwin::canvas
         return selection;
     }
 
-    MeshInstance* Picker::getSelectionSingle(const int x, const int y) const
+    // The bounds fallback (DEVIATION, see picker.h): the pixel's ray against each
+    // candidate's bounding SPHERE, so the point is on that sphere, not on the mesh.
+    std::optional<Vector3> Picker::boundsWorldPoint(const int x, const int y) const
     {
-        const auto selection = getSelection(x, y, 1, 1);
-        return selection.empty() ? nullptr : selection.front();
-    }
-
-    // DEVIATION: upstream reads the pick buffer's DEPTH and unprojects it, so its point
-    // is on the rendered surface. This picker has no GPU readback; it intersects the
-    // pixel's ray with each candidate's bounding SPHERE (around its world AABB), so the
-    // point is on that sphere's camera-facing side, not on the mesh.
-    std::optional<Vector3> Picker::getWorldPoint(const int x, const int y) const
-    {
-        if (!_depth || !_camera) {
-            return std::nullopt;
-        }
-
         Vector3 rayOrigin;
         Vector3 rayDirection;
         if (!buildRay(x, y, rayOrigin, rayDirection)) {
             return std::nullopt;
         }
 
-        const auto selected = getSelection(x, y, 1, 1);
+        const auto selected = boundsSelection(sanitizeRect(x, y, 1, 1));
         if (selected.empty()) {
             return std::nullopt;
         }

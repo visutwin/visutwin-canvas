@@ -202,7 +202,7 @@ bundled by `tools/generate_vulkan_shader_bundle.py`. Feature flags arrive as
 
 **Metal-only today:** volumetric fog on the compute path, texture streaming, the
 ImGui/ImPlot overlay (`viz/overlay/`, uses `imgui_impl_metal`), marching cubes,
-LIC, and the gloss/thickness/refraction scalar maps.
+LIC, and the spec-gloss map.
 
 **Planned next backend: WebGPU** — targets browser and native (Dawn/wgpu). WGSL
 maps onto the same shared feature contract; the specialization-constant approach
@@ -283,13 +283,14 @@ builds resolve in full on every memo hit and assert the two agree;
 
 Bump `MetalTextureBinder::kMaxTextureSlots` AND add the slot to the
 `materialSlots` clear list in `bindMaterialTextures`. Slots 0-35 are taken today
-(34 is the opacity map, Metal only; 35 is the second directional shadow map, a
-scene slot, not a material one).
+(31-33 the gloss, thickness and refraction maps, 34 the opacity map; 35 is the
+second directional shadow map, a scene slot, not a material one).
 On Vulkan, MoltenVK inherits a 16-SAMPLER-per-stage limit across all sets and the
 fragment stage is at it, so a new material texture is a SEPARATE image
 (`texture2D`) read through the shared sampler at set-1 binding 24, the treatment
-the parallax height map, the detail normal, the displacement map and the three
-clearcoat maps (7/13/14) already get; the light cookies do the same on set 3.
+the parallax height map, the detail normal, the displacement map, the three
+clearcoat maps (7/13/14) and the gloss/thickness/refraction/opacity maps (31-34)
+already get; the light cookies do the same on set 3.
 
 The set-1 slot list lives in exactly one place, `kMaterialTextureBindings` in
 `vulkanUniformLayouts.h`, and `vulkanMaterialBindingIsSeparateImage` beside it is
@@ -856,8 +857,14 @@ present, but the rule below never depends on reading it.
   LightTextureAtlas; the main-array allocation clears `castShadows` when its two
   slots run out, so a clustered light routed through the array would lose its shadow
   past `ShadowParams::kMaxLocalShadows`. Clustered lighting is ON by default, as upstream,
-  so a scene that needs the non-clustered path (PCSS local shadows, cookies) has to
-  say `setClusteredLightingEnabled(false)`.
+  so a scene that needs the non-clustered path (PCSS local shadows) has to say
+  `setClusteredLightingEnabled(false)`. Clustered COOKIES come from a cookie atlas laid
+  out like the shadow atlas (same slot rects, `RenderPassCookieRenderer` copies each
+  cookie in when its light gets a slot), and only while `LightingParams::cookiesEnabled`
+  is set (off by default, as upstream). A cookie light takes an atlas slot whether or
+  not it casts a shadow; a cookie-only spot gets its projection from
+  `LightCamera::evalSpotCookieMatrix(light, viewport)`. As upstream, a clustered omni
+  cookie ignores the light's rotation (the faces are world-aligned).
 - **The clustered shadow atlas follows `LightingParams::shadowAtlasResolution` LIVE.**
   `LightTextureAtlas::configure` only records the values and runs every frame, right
   before `update()` in `ForwardRenderer::buildFrameGraph`; a changed resolution
@@ -1007,12 +1014,12 @@ present, but the rule below never depends on reading it.
   is the only free bit. Bit 18 is stored inverted
   so a zero flags word keeps the scene environment, and it drops only the env atlas
   (SH probes and the flat ambient remain), as upstream's `useSceneEnv` does. The
-  opacity map is METAL ONLY (slot 34, multiplied into the forward and shadow alpha
-  with the base-colour UV); Vulkan logs one warning per process. It multiplies ON TOP
-  of the base-colour map's alpha, so a material that sets ONE texture as both gets
-  alpha squared on Metal only, which thins every anti-aliased edge while Vulkan stays
-  unchanged. Set the opacity map only when it is a different texture. The spec-gloss
-  map is Metal only too; the clearcoat intensity/gloss/normal maps are on BOTH
+  opacity map (slot / set-1 binding 34, multiplied into the forward and shadow alpha
+  with the base-colour UV) is on both backends. It multiplies ON TOP of the
+  base-colour map's alpha, so a material that sets ONE texture as both gets alpha
+  squared, which thins every anti-aliased edge: set the opacity map only when it is a
+  different texture, or leave the base colour without one (upstream's decal does).
+  The spec-gloss map is Metal only; the clearcoat intensity/gloss/normal maps are on BOTH
   backends (Vulkan reads them as separate images through the shared material
   sampler, gated on flag bits 14/15/16 as Metal is). DEVIATIONS kept on purpose,
   marked at the code: `refractionIndex` and `iridescenceIOR` are IORs where upstream
@@ -1249,13 +1256,18 @@ present, but the rule below never depends on reading it.
   (its sky at the bottom).
   `tests/primitiveGeometryTests.cpp` pins the orientation; test anything new here
   with an ASYMMETRIC image, never a checker.
-- **The CPU picker's ray goes through the pixel CENTRE, from the NEAR plane out.**
-  `Picker::getWorldPoint` adds 0.5 to the pixel coordinate (upstream 5cc6269d5) and
-  unprojects NDC z -1 as near and +1 as far — the GL-style projection this engine
-  uses. A ray built from the far plane back toward the camera makes the nearest hit
-  the FAR side of the object.
-  DEVIATION kept: it intersects bounding spheres, not a depth readback.
-  `tests/pickerTests.cpp` holds both halves.
+- **The picker renders an id buffer, as upstream, and unprojects through the pixel
+  CENTRE.** `Picker::prepare` draws private clones of the candidates (their material
+  cloned with `Material::setPick`, `VT_FEATURE_PICK`: after the alpha test the fragment
+  writes a 24-bit id into rgb) into an RGBA8 + depth target inside an offline scope, and
+  reads both back with `Texture::read`; a selection is what is VISIBLE, and
+  `getWorldPoint` unprojects the depth at the pixel centre (upstream 5cc6269d5), NDC z
+  `depth * 2 - 1` on the GL-style projection. The pick layer's content changes under an
+  unchanged frustum, so the picker calls `Renderer::invalidateCulledInstances` before
+  drawing; the cull cache would otherwise hand back last prepare's clones. A device
+  that cannot read back (a test stub) falls back to bounds: projected boxes, and a ray
+  from the NEAR plane out against bounding spheres (a ray from the far plane back makes
+  the nearest hit the FAR side). `tests/pickerTests.cpp` holds the fallback.
 - **Primitive tangents are DERIVED from the UVs, never written by hand, and the
   bitangent `cross(n, t) * w` points toward DECREASING v** — the image's top row,
   where a normal map's green channel points. `calculateTangents`
@@ -2283,10 +2295,11 @@ present, but the rule below never depends on reading it.
   Compare refraction brightness against upstream only when it is pinned to the same
   pose; an unpinned capture or a differently-posed thumbnail reads as "dimmer than
   upstream" when it is not (pinned, `post-processing`'s amber matches, ours a touch
-  brighter). Still open: upstream scales the refraction offset by the model's world
-  scale (x60 here) and the fragment stage has no model matrix, so a hard-coded x60 is
-  not adopted blindly; and the amber projects LARGER here than upstream at identical
-  camera parameters. Numbers in `ENGINEERING-LOG.md`.
+  brighter). The refraction offset is scaled by the model's
+  per-axis world scale, as upstream's refractionDynamic (x60 on the amber): Metal passes
+  it from the vertex stage as a flat `modelScale` varying, Vulkan's fragment stage reads
+  the model matrix from the push constants it now shares with the vertex stage. Still
+  open: the amber projects LARGER here than upstream at identical camera parameters. Numbers in `ENGINEERING-LOG.md`.
 - **Vulkan's clip space is NOT Y-down for this engine.** The backend rasterises
   through a negated-height viewport so Metal projection matrices work unchanged,
   which puts NDC +Y at the TOP row of every target, back buffer and offscreen
@@ -2549,7 +2562,7 @@ that turns it on, its deviations from upstream, and — under its own "Live gotc
 — the traps that bite while working ON that subsystem: MSAA and render targets,
 the shadow pass's opacity frontend, shadow-map invalidation and the bias
 convention, the SSAO/prepass pairing, camera priority, PCSS, lightmaps and probes,
-wide lines, parallax, opacity dither, the Metal-only scalar maps, normal-map
+wide lines, parallax, opacity dither, the scalar maps, normal-map
 scaling and the Nishita atmosphere. Read that file before touching any of them.
 
 What stays HERE is only what bites during UNRELATED work.

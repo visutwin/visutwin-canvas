@@ -20,6 +20,7 @@ namespace visutwin::canvas
 #else
 
 #include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <mutex>
 #include <thread>
@@ -40,6 +41,8 @@ namespace visutwin::canvas
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Constraints/ConeConstraint.h>
@@ -448,6 +451,55 @@ namespace visutwin::canvas
                 // thin box is the usual stand-in and behaves identically for contacts
                 // that stay inside it.
                 const JPH::BoxShapeSettings settings(JPH::Vec3(1000.0f, 0.5f, 1000.0f));
+                shapeResult = settings.Create();
+                break;
+            }
+            case PhysicsShapeType::Cone: {
+                // Jolt has no cone primitive: the hull of a 32-sided base circle and the
+                // apex, centred on half the height as Bullet's btConeShape is.
+                const float radius = std::max(desc.radius, 1e-3f);
+                const float halfHeight = std::max(desc.height * 0.5f, 1e-3f);
+                JPH::Array<JPH::Vec3> points;
+                constexpr int kSegments = 32;
+                for (int i = 0; i < kSegments; ++i) {
+                    const float angle = static_cast<float>(i) * (2.0f * JPH::JPH_PI / kSegments);
+                    points.push_back(JPH::Vec3(radius * std::cos(angle), -halfHeight, radius * std::sin(angle)));
+                }
+                points.push_back(JPH::Vec3(0.0f, halfHeight, 0.0f));
+                // The convex radius rounds the hull's edges inward; keep it small next to
+                // the cone so a narrow one keeps its shape.
+                const JPH::ConvexHullShapeSettings settings(points,
+                    std::min(JPH::cDefaultConvexRadius, 0.1f * std::min(radius, halfHeight)));
+                shapeResult = settings.Create();
+                break;
+            }
+            case PhysicsShapeType::ConvexHull: {
+                JPH::Array<JPH::Vec3> points;
+                points.reserve(desc.points.size());
+                for (const Vector3& p : desc.points) {
+                    points.push_back(toJolt(p));
+                }
+                const JPH::ConvexHullShapeSettings settings(points);
+                shapeResult = settings.Create();
+                break;
+            }
+            case PhysicsShapeType::Mesh: {
+                if (desc.motion == PhysicsMotionType::Dynamic) {
+                    spdlog::error("JoltPhysicsWorld: a triangle mesh cannot be a dynamic body; "
+                        "use a convex hull");
+                    return nullptr;
+                }
+                JPH::VertexList vertices;
+                vertices.reserve(desc.points.size());
+                for (const Vector3& p : desc.points) {
+                    vertices.push_back(JPH::Float3(p.getX(), p.getY(), p.getZ()));
+                }
+                JPH::IndexedTriangleList triangles;
+                triangles.reserve(desc.indices.size() / 3);
+                for (size_t i = 0; i + 2 < desc.indices.size(); i += 3) {
+                    triangles.push_back(JPH::IndexedTriangle(desc.indices[i], desc.indices[i + 1], desc.indices[i + 2]));
+                }
+                const JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
                 shapeResult = settings.Create();
                 break;
             }

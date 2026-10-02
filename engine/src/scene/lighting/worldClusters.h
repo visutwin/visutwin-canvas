@@ -41,7 +41,11 @@ namespace visutwin::canvas
         float positionRange[4] = {};     // xyz=position, w=range
         float directionSpot[4] = {};     // xyz=direction, w=outerConeCos
         float colorIntensity[4] = {};    // xyz=color(linear), w=intensity
-        float params[4] = {};            // x=innerConeCos, y=isSpot(0/1), z=falloffLinear(0/1), w=reserved
+        // x=innerConeCos, y=isSpot(0/1), z=falloffLinear(0/1), w=cookie: 0 for none,
+        // else (CookieChannel + 1) * 2 + intensity (intensity in [0, 1]), the shader's
+        // decodeClusterCookie. A cookie reads the same shadowMatrix as the shadow does
+        // (a spot's projection into its rect, an omni's rect), shadowed or not.
+        float params[4] = {};
         // Clustered shadows (LightTextureAtlas). A SPOT: world→atlas-rect shadow VP,
         // column-major float4x4. An OMNI light has no single matrix: the same 64
         // bytes carry its atlas rect (x, y, size, edge pixels) in the first column
@@ -82,6 +86,13 @@ namespace visutwin::canvas
         // polygon offset). What it DOES apply is a normal offset on the receiver.
         float shadowNormalBias = 0.0f;
         float shadowIntensity = 1.0f;
+
+        // Clustered cookie (upstream cookieAtlas): the light's cookie, copied into the
+        // same rect of the cookie atlas. A spot without a shadow still fills
+        // `shadowMatrix` with its projection into that rect, and an omni `atlasViewport`.
+        bool hasCookie = false;
+        float cookieIntensity = 1.0f;
+        uint32_t cookieChannel = 0;   // CookieChannel: 0 rgb, 1 r, 2 g, 3 b, 4 a
     };
 
     /**

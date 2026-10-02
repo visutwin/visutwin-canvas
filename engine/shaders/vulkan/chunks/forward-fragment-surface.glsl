@@ -139,6 +139,14 @@ void main() {
     vec4 albedo = vec4(baseLinear * vertexTint.rgb,
         material.baseColor.a * baseSample.a * vertexTint.a);
 
+    // Opacity map (upstream opacityMap, alpha channel), flags bit 19, with the base
+    // colour's UV, as the Metal chunk and the shadow frontend read it.
+    if ((material.flags & (1u << 19)) != 0u) {
+        vec2 uvOpacity = ((material.flags & (1u << 4)) != 0u) ? fragUV1 : fragUV0;
+        uvOpacity = applyUvTransform(uvOpacity, material.baseColorTransform0, material.baseColorTransform1);
+        albedo.a *= texture(opacityMap, uvOpacity).a;
+    }
+
     // DEBUGPASS_LIGHTING (upstream debug-process-frontend.js): neutralize albedo
     // before it feeds diffuseAlbedo/F0 so the lit result shows the lighting
     // alone rather than the texture. Unlike every other debug mode this one does
@@ -179,6 +187,13 @@ void main() {
         if (!hasAlphaDither) {
             albedo.a = 1.0;
         }
+    }
+
+    // Picker id pass (upstream SHADER_PICK): after the alpha test and dither, write
+    // the mesh instance's id, packed by the picker into the base colour's rgb.
+    if (vtFeatureEnabled(VT_FEATURE_PICK_BIT)) {
+        outColor = vec4(material.baseColor.rgb, 1.0);
+        return;
     }
 
     // Point-cloud (unlit) path: the point vertex variant writes a zero world
@@ -253,6 +268,13 @@ void main() {
         roughness = 1.0 - material.specGlossParams.w;
     }
     roughness = clamp(roughness, 0.04, 1.0);
+    // Gloss map (upstream getGlossiness): one channel scales the gloss FACTOR, and the
+    // result replaces the roughness above, as the Metal chunk does.
+    if (material.mapChannelParams.y >= 0.0) {
+        vec4 glossSample = texture(glossMap, fragUV0);
+        float glossValue = material.mapChannelParams.x * glossSample[int(material.mapChannelParams.y)];
+        roughness = clamp(1.0 - glossValue, 0.04, 1.0);
+    }
     // Anisotropic GGX frame (upstream anisotropy.js + lightSpecularAnisoGGX.js),
     // mirrored from forward-fragment-surface.metal; the math is in common-brdf. The
     // direction is upstream's material_anisotropyRotation: (cos, sin) turning the

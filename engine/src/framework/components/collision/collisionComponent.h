@@ -3,6 +3,8 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -13,6 +15,7 @@
 
 namespace visutwin::canvas
 {
+    class Mesh;
     class RenderComponent;
 
     class CollisionComponent : public Component
@@ -40,6 +43,24 @@ namespace visutwin::canvas
 
         BoundingSphere worldBounds() const;
 
+        /// 'mesh' (upstream `render`): the meshes the collision volume is made of, in the
+        /// entity's space. Left empty, the entity's own RenderComponent supplies them, each
+        /// mesh through its node's transform relative to the entity.
+        const std::vector<std::shared_ptr<Mesh>>& render() const { return _render; }
+        void setRender(const std::vector<std::shared_ptr<Mesh>>& meshes) { _render = meshes; }
+
+        /// 'mesh' (upstream `convexHull`): collide with the convex hull of the vertices
+        /// instead of the triangles. A DYNAMIC body always takes the hull, as Jolt simulates
+        /// triangle meshes only on static and kinematic bodies (DEVIATION: upstream's
+        /// Ammo gives a dynamic body the triangle mesh).
+        bool convexHull() const { return _convexHull; }
+        void setConvexHull(const bool value) { _convexHull = value; }
+
+        /// The 'mesh' geometry in the entity's space, scaled by its world scale (upstream
+        /// scales a mesh collider by it): `points`, and `indices` as triangles. Positions
+        /// are read from the meshes' CPU copies; a mesh without one contributes nothing.
+        void collectMeshGeometry(std::vector<Vector3>& points, std::vector<uint32_t>& indices) const;
+
     private:
         inline static ComponentInstanceList<CollisionComponent> _instanceList;
 
@@ -47,5 +68,7 @@ namespace visutwin::canvas
         Vector3 _halfExtents = Vector3(0.5f, 0.5f, 0.5f);
         float _radius = 0.5f;
         float _height = 1.0f;
+        std::vector<std::shared_ptr<Mesh>> _render;
+        bool _convexHull = false;
     };
 }

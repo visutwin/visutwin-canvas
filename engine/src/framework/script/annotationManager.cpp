@@ -353,10 +353,7 @@ namespace visutwin::canvas
         material->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
         material->setEmissive(_hotspotColor);
         material->setEmissiveMap(texture);
-        // DEVIATION: the texture's alpha comes through the diffuse map, as the UI
-        // elements' does, where upstream sets it as the opacity map, which is Metal-only
-        // here. The diffuse is black, so the map adds no colour.
-        material->setDiffuseMap(texture);
+        material->setOpacityMap(texture);
         material->setOpacity(opacity);
 
         BlendState blend;
@@ -469,7 +466,7 @@ namespace visutwin::canvas
         auto texture = createHotspotTexture(annotation->label());
         for (const auto& material : resources->materials) {
             material->setEmissiveMap(texture.get());
-            material->setDiffuseMap(texture.get());
+            material->setOpacityMap(texture.get());
         }
         resources->texture = std::move(texture);
     }

@@ -5,6 +5,8 @@
 #ifdef VISUTWIN_HAS_VULKAN
 
 #include "vulkanRenderPipeline.h"
+
+#include <algorithm>
 #include "vulkanGraphicsDevice.h"
 #include "vulkanShader.h"
 #include "vulkanUtils.h"
@@ -68,8 +70,12 @@ namespace visutwin::canvas
                 const bool validLighting =
                     reflected.set == 2 && reflected.binding == 0 && uniform &&
                     reflected.blockSize == sizeof(VulkanLightingUBO);
+                // Set 1 is exactly kMaterialTextureBindings: a binding outside the list
+                // has no descriptor in the layout.
                 const bool validMaterialTexture =
-                    reflected.set == 1 && reflected.binding < 26 &&
+                    reflected.set == 1 &&
+                    std::find(kMaterialTextureBindings.begin(), kMaterialTextureBindings.end(),
+                        reflected.binding) != kMaterialTextureBindings.end() &&
                     (sampler || separateImage || separateSampler);
                 // A scene binding must be declared with the type the layout gives
                 // it: a shader declaring binding 1 as a combined sampler against a
@@ -447,9 +453,10 @@ namespace visutwin::canvas
         createSetLayout(
             gpuLayoutInfo, _gpuDrivenSetLayout, "GPU-driven");
 
-        // Push constants: 2 × mat4 = 128 bytes
+        // Push constants: 2 × mat4 = 128 bytes. The fragment stage reads the model
+        // matrix too (dynamic refraction's per-axis model scale).
         VkPushConstantRange pushRange{};
-        pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         pushRange.offset = 0;
         pushRange.size = 128;
 

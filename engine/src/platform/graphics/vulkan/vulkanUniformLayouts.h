@@ -41,13 +41,13 @@ namespace visutwin::canvas
      * vulkanMaterialBindingIsSeparateImage is the one predicate those three
      * sites share for the image-versus-combined split.
      */
-    inline constexpr std::array<uint32_t, 14> kMaterialTextureBindings =
-        {0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25, 7, 13, 14};
+    inline constexpr std::array<uint32_t, 18> kMaterialTextureBindings =
+        {0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25, 7, 13, 14, 31, 32, 33, 34};
 
     /// Set 3 (per-pass scene textures) binding count. The layout, the descriptor
     /// writes and the reflection check all size from this; the descriptor type of
     /// each binding is vulkanSceneDescriptorType.
-    inline constexpr uint32_t kSceneTextureBindingCount = 23;
+    inline constexpr uint32_t kSceneTextureBindingCount = 24;
 
     /// The shared sampler every separate material image reads through.
     inline constexpr uint32_t kMaterialExtraSamplerBinding = 24;
@@ -57,7 +57,8 @@ namespace visutwin::canvas
     constexpr bool vulkanMaterialBindingIsSeparateImage(const uint32_t binding)
     {
         return binding == 7 || binding == 13 || binding == 14 ||
-               binding == 17 || binding == 23 || binding == 25;
+               binding == 17 || binding == 23 || binding == 25 ||
+               (binding >= 31 && binding <= 34);
     }
 
     // One light, matching the GLSL `Light` struct (set 2).  64 bytes.

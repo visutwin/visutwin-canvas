@@ -28,6 +28,9 @@ namespace visutwin::canvas
          * which never get a shadow camera.
          */
         static Matrix4 evalSpotCookieMatrix(const Light& light);
+        /// The same projection into `viewport` of a texture (a clustered light's rect of
+        /// the cookie atlas) instead of the whole of it.
+        static Matrix4 evalSpotCookieMatrix(const Light& light, const Vector4& viewport);
 
         /** NDC → texture-UV bias matrix shared by spot shadow and cookie projections. */
         static Matrix4 spotProjectionBias();

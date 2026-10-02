@@ -162,6 +162,7 @@ int main()
         {"cylinder", createCylinderGeometry()},
         {"cone", createConeGeometry()},
         {"capsule", createCapsuleGeometry()},
+        {"torus", createTorusGeometry()},
     };
     for (const auto& [name, g] : primitives) {
         size_t tested = 0;

@@ -302,6 +302,7 @@ namespace visutwin::canvas
         options.screenSpace = screenSpace;
         options.skybox = material && material->isSkybox();
         options.alphaTest = material && material->alphaMode() == AlphaMode::MASK;
+        options.pick = material && material->pickPass();
 
         const uint64_t variantBits = material ? material->shaderVariantKey() : 0ull;
         if (const auto* stdMat = dynamic_cast<const StandardMaterial*>(material)) {
@@ -362,13 +363,6 @@ namespace visutwin::canvas
         // here it's a material property that triggers a shader variant.
         options.planarReflection = stdMat.reflectionMap() != nullptr;
 
-        // The opacity map has a Metal slot (34) and none on Vulkan, whose fragment stage
-        // is already at MoltenVK's 16-sampler limit.
-        if (stdMat.opacityMap() && _chunks.language() == ShaderLanguage::Glsl &&
-            _warnedFeatureFlags.insert("opacityMap").second) {
-            spdlog::warn("StandardMaterial::opacityMap is not supported on the Vulkan backend "
-                "(material '{}'); opacity comes from the base colour alpha only", stdMat.name());
-        }
     }
 
     void ProgramLibrary::applyGenericMaterialOptions(ShaderVariantOptions& options, const Material* material,
@@ -560,6 +554,7 @@ namespace visutwin::canvas
         set(ShaderFeature::DynamicBatch, options.dynamicBatch);
         set(ShaderFeature::PointSize, options.pointSize);
         set(ShaderFeature::Unlit, options.unlit);
+        set(ShaderFeature::Pick, options.pick);
         set(ShaderFeature::AreaLights, options.areaLights);
         set(ShaderFeature::VsmShadows, options.vsmShadows);
         set(ShaderFeature::Lightmap, options.lightmap);

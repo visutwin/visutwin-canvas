@@ -152,6 +152,63 @@ int main()
         }
     }
 
+    // Cone, triangle mesh and convex hull bodies (the shapes upstream's 'cone' and
+    // 'mesh' collision types build). A cone stands on its base and a ray down onto it
+    // hits the APEX, half its height above the centre; a ball dropped onto a static
+    // triangle-mesh floor comes to rest on it; a dynamic hull falls.
+    {
+        PhysicsBodyDesc cone;
+        cone.shape = PhysicsShapeType::Cone;
+        cone.motion = PhysicsMotionType::Static;
+        cone.radius = 0.5f;
+        cone.height = 2.0f;
+        cone.position = Vector3(20.0f, 1.0f, 0.0f);
+        PhysicsBody* coneBody = world->createBody(cone);
+        check(coneBody != nullptr, "the world creates a cone");
+        const auto apexHit = world->raycastFirst(Vector3(20.0f, 5.0f, 0.0f), Vector3(20.0f, -5.0f, 0.0f));
+        check(apexHit.has_value() && std::abs(apexHit->point.getY() - 2.0f) < 0.06f,
+            "a ray down the cone's axis hits its apex, half the height above the centre");
+        const auto besideApex = world->raycastFirst(Vector3(20.45f, 5.0f, 0.0f), Vector3(20.45f, -5.0f, 0.0f));
+        check(besideApex.has_value() && besideApex->point.getY() < 0.3f,
+            "near the rim the cone's surface is near its base, not a cylinder's top");
+
+        PhysicsBodyDesc floor;
+        floor.shape = PhysicsShapeType::Mesh;
+        floor.motion = PhysicsMotionType::Static;
+        floor.position = Vector3(40.0f, 0.0f, 0.0f);
+        floor.points = {Vector3(-5.0f, 0.0f, -5.0f), Vector3(5.0f, 0.0f, -5.0f),
+                        Vector3(5.0f, 0.0f, 5.0f), Vector3(-5.0f, 0.0f, 5.0f)};
+        floor.indices = {0, 2, 1, 0, 3, 2};
+        PhysicsBody* floorBody = world->createBody(floor);
+        check(floorBody != nullptr, "the world creates a static triangle mesh");
+        PhysicsBodyDesc ball;
+        ball.shape = PhysicsShapeType::Sphere;
+        ball.motion = PhysicsMotionType::Dynamic;
+        ball.radius = 0.5f;
+        ball.position = Vector3(40.0f, 3.0f, 0.0f);
+        PhysicsBody* ballBody = world->createBody(ball);
+        PhysicsBodyDesc hull;
+        hull.shape = PhysicsShapeType::ConvexHull;
+        hull.motion = PhysicsMotionType::Dynamic;
+        hull.position = Vector3(43.0f, 3.0f, 0.0f);
+        hull.points = {Vector3(-0.5f, -0.5f, -0.5f), Vector3(0.5f, -0.5f, -0.5f), Vector3(0.0f, -0.5f, 0.5f),
+                       Vector3(0.0f, 0.5f, 0.0f)};
+        PhysicsBody* hullBody = world->createBody(hull);
+        check(hullBody != nullptr, "the world creates a dynamic convex hull");
+        stepSeconds(*world, 2.0f);
+        check(ballBody != nullptr && std::abs(ballBody->position().getY() - 0.5f) < 0.05f,
+            "a ball comes to rest ON the triangle mesh floor");
+        check(hullBody != nullptr && hullBody->position().getY() < 1.0f, "the hull falls onto the floor");
+
+        PhysicsBodyDesc dynamicMesh = floor;
+        dynamicMesh.motion = PhysicsMotionType::Dynamic;
+        check(world->createBody(dynamicMesh) == nullptr,
+            "a DYNAMIC triangle mesh is refused (the component asks for a hull instead)");
+        for (PhysicsBody* body : {coneBody, floorBody, ballBody, hullBody}) {
+            if (body) world->destroyBody(body);
+        }
+    }
+
     // A ray into empty space reports nothing.
     {
         const auto miss = world->raycastFirst(Vector3(100.0f, 100.0f, 100.0f),

@@ -226,7 +226,7 @@ namespace visutwin::canvas
     const MaterialUniforms& Material::packedUniforms() const
     {
         if (_uniformsDirty) {
-            updateUniforms(_cachedUniforms);
+            packAll(_cachedUniforms);
             // Cleared after packing, so a pack that somehow dirtied the material would
             // leave it dirty. Packers must not write to their material: StandardMaterial's
             // UV transforms go straight into the block.
@@ -239,7 +239,7 @@ namespace visutwin::canvas
         // surface that ignores an edit. The CACHED value is still what gets returned,
         // so debug and release behave identically and a test can catch the staleness.
         MaterialUniforms fresh{};
-        updateUniforms(fresh);
+        packAll(fresh);
         _uniformsDirty = false;
         if (std::memcmp(&fresh, &_cachedUniforms, sizeof(MaterialUniforms)) != 0) {
             spdlog::error("Material '{}': packed uniform cache is stale — a mutator is "
@@ -247,6 +247,16 @@ namespace visutwin::canvas
         }
 #endif
         return _cachedUniforms;
+    }
+
+    void Material::packAll(MaterialUniforms& uniforms) const
+    {
+        updateUniforms(uniforms);
+        if (_pickPass) {
+            uniforms.baseColor[0] = _pickColor.r;
+            uniforms.baseColor[1] = _pickColor.g;
+            uniforms.baseColor[2] = _pickColor.b;
+        }
     }
 
     void Material::applyParameterOverrides(MaterialUniforms& uniforms) const

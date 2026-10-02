@@ -31,7 +31,10 @@ namespace visutwin::canvas
         Sphere,
         Capsule,
         Cylinder,
-        Plane
+        Plane,
+        Cone,        ///< radius and height, apex up +Y (upstream 'cone', axis 1)
+        Mesh,        ///< `points` + `indices` as triangles; static or kinematic bodies only
+        ConvexHull   ///< the convex hull of `points`
     };
 
     enum class PhysicsMotionType
@@ -53,6 +56,12 @@ namespace visutwin::canvas
         Vector3 halfExtents = Vector3(0.5f, 0.5f, 0.5f);
         float radius = 0.5f;
         float height = 1.0f;
+
+        /// Mesh and ConvexHull: the geometry in the body's own space, the entity's world
+        /// scale already applied (upstream scales a mesh collider by it). Mesh reads
+        /// `indices` as triangles.
+        std::vector<Vector3> points;
+        std::vector<uint32_t> indices;
 
         Vector3 position = Vector3(0.0f, 0.0f, 0.0f);
         Quaternion rotation = Quaternion();

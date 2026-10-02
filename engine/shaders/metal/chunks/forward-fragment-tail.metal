@@ -106,11 +106,10 @@
 
             // Refraction vector scaled by volume thickness (total internal
             // reflection falls back to the unshifted surface point).
-            // DEVIATION: upstream multiplies by per-axis model scale extracted from
-            // the model matrix; the fragment stage here has no model matrix, so
-            // material thickness is interpreted in world units.
+            // Scaled by the model's per-axis scale too, as upstream's refractionDynamic
+            // (the vertex stage passes it, the fragment stage has no model matrix).
             const float3 refractionVector = (length_squared(refrDir) > 0.0)
-                ? normalize(refrDir) * thickness : float3(0.0);
+                ? normalize(refrDir) * thickness * rd.modelScale : float3(0.0);
 
             // Project the refracted exit point to grab-texture UV.
             const float4 projected = lighting.viewProjection * float4(rd.worldPos + refractionVector, 1.0);

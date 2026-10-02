@@ -44,6 +44,10 @@ namespace visutwin::canvas
         /// ones that own their maps; returns the lights the clustered atlas shadows.
         std::vector<Light*> addLocalShadowPasses(FrameGraph* frameGraph);
         void addClusteredLightingPass(FrameGraph* frameGraph, const std::vector<Light*>& atlasLights);
+
+        // This frame's lights holding a clustered atlas slot (shadow casters and cookie
+        // lights), from addLocalShadowPasses for the cookie pass.
+        std::vector<Light*> _atlasSlotLights;
         /// Fits the directional cascades for the frame's designated camera and
         /// dispatches GPU instance culling.
         void cullDirectionalShadowsAndInstances(LayerComposition& layerComposition);

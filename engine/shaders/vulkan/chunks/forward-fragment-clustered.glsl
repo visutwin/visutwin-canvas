@@ -58,6 +58,31 @@
                     }
                 }
 
+                // Clustered cookie (see the Metal twin): params.w is 0 for none, else
+                // (CookieChannel + 1) * 2 + intensity; read through the shadow's own
+                // projection (spot) or face pick (omni), in the cookie atlas.
+                vec3 cookieMask = vec3(1.0);
+                if (cl.params.w > 0.0) {
+                    float channelCode = floor(cl.params.w * 0.5);
+                    uint cookieChannel = uint(channelCode - 1.0);
+                    float cookieIntensity = cl.params.w - channelCode * 2.0;
+                    vec2 cookieUv;
+                    if (cl.shadowData.w > 1.5) {
+                        cookieUv = getCubemapAtlasCoordinates(cl.shadowMatrix[0],
+                            fragWorldPos - cl.positionRange.xyz);
+                    } else {
+                        vec4 projected = cl.shadowMatrix * vec4(fragWorldPos, 1.0);
+                        cookieUv = projected.xy / max(projected.w, 1e-6);
+                    }
+                    vec4 texel = textureLod(clusterCookieAtlas, cookieUv, 0.0);
+                    vec3 channelValue = texel.rgb;
+                    if (cookieChannel == 1u) channelValue = vec3(texel.r);
+                    else if (cookieChannel == 2u) channelValue = vec3(texel.g);
+                    else if (cookieChannel == 3u) channelValue = vec3(texel.b);
+                    else if (cookieChannel == 4u) channelValue = vec3(texel.a);
+                    cookieMask = mix(vec3(1.0), channelValue, cookieIntensity);
+                }
+
                 float nl = max(dot(N, L), 0.0);
                 vec3 H = normalize(L + V);
                 float nh = max(dot(N, H), 0.0);
@@ -77,7 +102,7 @@
                     F = mix(F, iridFresnel, iridIntensity);
                 }
                 vec3 radiance = cl.colorIntensity.rgb *
-                    cl.colorIntensity.w * atten;
+                    cl.colorIntensity.w * atten * cookieMask;
                 // Oren-Nayar, iridescence, clearcoat and sheen below are the main
                 // loop's terms (forward-fragment-lights.glsl), and the Metal twin has
                 // all four. With clustered lighting the default, this is the loop

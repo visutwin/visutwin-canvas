@@ -34,6 +34,10 @@ layout(location = 6) in vec4 fragColor;
 // material only for a caster that needs this frontend; for anything else the
 // binding is the 1x1 white fallback, whose alpha of 1 passes every test.
 layout(set = 1, binding = 0) uniform sampler2D shadowBaseColorMap;
+// The opacity map (flags bit 19), a separate image read through the shared material
+// sampler, as the forward stage reads it; white when the material has none.
+layout(set = 1, binding = 34) uniform texture2D shadowOpacityImage;
+layout(set = 1, binding = 24) uniform sampler shadowMaterialSampler;
 
 // Discards the fragment when the caster's material says the surface is not there.
 void applyShadowOpacity() {
@@ -43,6 +47,13 @@ void applyShadowOpacity() {
         uvBase = applyUvTransform(uvBase, material.baseColorTransform0,
             material.baseColorTransform1);
         alpha *= texture(shadowBaseColorMap, uvBase).a;
+    }
+    // Opacity map, the same product the forward pass tests.
+    if ((material.flags & (1u << 19)) != 0u) {
+        vec2 uvOpacity = (material.flags & FLAG_BASE_UV1) != 0u ? fragUV1 : fragUV0;
+        uvOpacity = applyUvTransform(uvOpacity, material.baseColorTransform0,
+            material.baseColorTransform1);
+        alpha *= texture(sampler2D(shadowOpacityImage, shadowMaterialSampler), uvOpacity).a;
     }
 
     if ((material.flags & FLAG_ALPHA_TEST) != 0u && alpha < material.alphaCutoff) {

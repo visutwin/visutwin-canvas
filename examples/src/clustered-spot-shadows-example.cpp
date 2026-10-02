@@ -10,9 +10,10 @@
 // the slice the light says it owns. This is the only example that exercises that
 // atlas.
 //
-// DEVIATIONS from upstream: the cookie channel is not varied per light, and
-// upstream's controls panel, static-light mode and atlas debug overlay are left
-// out. The atlas itself is upstream's: one packed 2D texture split into a slot
+// DEVIATIONS from upstream: every light takes the heart cookie through its alpha
+// (upstream gives half the lights its channels.png test texture instead, on a random
+// channel; that texture is not in this repo), and upstream's controls panel,
+// static-light mode and atlas debug overlay are left out. The atlas itself is upstream's: one packed 2D texture split into a slot
 // per light, at the 1024 resolution its panel opens on.
 //
 #include <cmath>
@@ -73,6 +74,7 @@ protected:
         lighting.shadowsEnabled = true;
         lighting.cookiesEnabled = true;
         lighting.shadowAtlasResolution = 1024;
+        lighting.cookieAtlasResolution = 1500;
 
         auto groundMaterial = std::make_shared<StandardMaterial>();
         groundMaterial->setGloss(0.55f);
@@ -183,6 +185,7 @@ private:
             light->setShadowResolution(512);
             light->setCookie(textureOf(_cookie));
             light->setCookieIntensity(0.5f);
+            light->setCookieChannel(CookieChannel::COOKIE_CHANNEL_A);
         }
 
         // A small emissive cone marks where each light is.

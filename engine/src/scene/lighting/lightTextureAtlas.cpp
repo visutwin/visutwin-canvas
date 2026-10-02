@@ -171,6 +171,41 @@ namespace visutwin::canvas
         ++_version;
     }
 
+    void LightTextureAtlas::configureCookies(const int resolution, const bool anyCookieLight)
+    {
+        if (!anyCookieLight && !_cookieTexture) {
+            return;
+        }
+        const int size = std::max(resolution, 4);
+        if (_cookieTexture) {
+            if (static_cast<int>(_cookieTexture->width()) != size) {
+                _cookieRenderTarget->resize(size, size);
+                ++_cookieVersion;
+            }
+            return;
+        }
+
+        TextureOptions options;
+        options.name = "ClusterCookieAtlas";
+        options.width = static_cast<uint32_t>(size);
+        options.height = static_cast<uint32_t>(size);
+        options.format = PixelFormat::PIXELFORMAT_RGBA8;
+        options.mipmaps = false;
+        options.minFilter = FilterMode::FILTER_LINEAR;
+        options.magFilter = FilterMode::FILTER_LINEAR;
+        _cookieTexture = std::make_shared<Texture>(_device.get(), options);
+        _cookieTexture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+        _cookieTexture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+
+        RenderTargetOptions rt;
+        rt.graphicsDevice = _device.get();
+        rt.name = "ClusterCookieAtlasRT";
+        rt.colorBuffer = _cookieTexture.get();
+        rt.depth = false;
+        _cookieRenderTarget = _device->createRenderTarget(rt);
+        ++_cookieVersion;
+    }
+
     void LightTextureAtlas::assignSlot(Light* light, const int slotIndex, const bool reassigned)
     {
         Slot& slot = _slots[static_cast<size_t>(slotIndex)];

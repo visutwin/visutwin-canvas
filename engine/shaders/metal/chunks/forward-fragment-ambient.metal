@@ -180,8 +180,8 @@
 
         // Engine cube convention flips X (matches the skybox cube sampling).
         const float3 cubeDir = float3(-sampleDir.x, sampleDir.y, sampleDir.z);
-        // Roughness → mip LOD (DEVIATION: hardware trilinear mips approximate the
-        // GGX prefilter upstream bakes per level).
+        // Roughness → mip LOD. DEVIATION: upstream's reflectionCube samples the cube
+        // unfiltered whatever the gloss; a rough surface here reads a coarser mip.
         const float probeLod = saturate(1.0 - gloss) * lighting.reflectionProbeParams.z;
         float3 probeSpec = reflectionProbeCube.sample(reflectionProbeSampler, cubeDir, level(probeLod)).rgb;
         probeSpec = pow(max(probeSpec, float3(0.0)), float3(2.2)) * lighting.reflectionProbeParams.y;

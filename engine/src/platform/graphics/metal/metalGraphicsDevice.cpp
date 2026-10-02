@@ -1380,6 +1380,11 @@ namespace visutwin::canvas
         if (_clusterShadowAtlas) {
             _textureBinder.bindCached(passEncoder, 26, _clusterShadowAtlas);
         }
+        // Clustered cookie atlas at slot 36. Bound for the cookie pass too, which draws
+        // into it; its blit shader declares no slot 36, so nothing reads it there.
+        if (_clusterCookieAtlas) {
+            _textureBinder.bindCached(passEncoder, 36, _clusterCookieAtlas);
+        }
     }
 
     void MetalGraphicsDevice::updateReflectionUniforms()

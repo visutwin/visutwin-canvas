@@ -59,6 +59,11 @@ struct RasterizerData {
 #if VT_FEATURE_POINT_SIZE
     float pointSize [[point_size]];
 #endif
+#if VT_FEATURE_DYNAMIC_REFRACTION
+    // The model matrix's per-axis scale (upstream refractionDynamic's modelScale): the
+    // fragment stage has no model matrix of its own.
+    float3 modelScale [[flat]];
+#endif
 };
 
 struct ModelData {

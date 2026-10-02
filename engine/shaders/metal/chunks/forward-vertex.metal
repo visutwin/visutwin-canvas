@@ -45,6 +45,10 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     rd.pointSize = 3.0;
 #endif
 
+#if VT_FEATURE_DYNAMIC_REFRACTION
+    rd.modelScale = float3(length(model.modelMatrix[0].xyz), length(model.modelMatrix[1].xyz),
+                           length(model.modelMatrix[2].xyz));
+#endif
     return rd;
 }
 
@@ -86,6 +90,10 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     rd.pointSize = 3.0;
 #endif
 
+#if VT_FEATURE_DYNAMIC_REFRACTION
+    rd.modelScale = float3(length(model.modelMatrix[0].xyz), length(model.modelMatrix[1].xyz),
+                           length(model.modelMatrix[2].xyz));
+#endif
     return rd;
 }
 
@@ -145,6 +153,10 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     rd.pointSize = 3.0;
 #endif
 
+#if VT_FEATURE_DYNAMIC_REFRACTION
+    rd.modelScale = float3(length(model.modelMatrix[0].xyz), length(model.modelMatrix[1].xyz),
+                           length(model.modelMatrix[2].xyz));
+#endif
     return rd;
 }
 
@@ -238,6 +250,10 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     rd.pointSize = 3.0;
 #endif
 
+#if VT_FEATURE_DYNAMIC_REFRACTION
+    rd.modelScale = float3(length(model.modelMatrix[0].xyz), length(model.modelMatrix[1].xyz),
+                           length(model.modelMatrix[2].xyz));
+#endif
     return rd;
 }
 

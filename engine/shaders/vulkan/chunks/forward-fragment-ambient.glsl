@@ -376,13 +376,23 @@
         }
     }
     if (vtFeatureEnabled(VT_FEATURE_TRANSMISSION_BIT)) {
+        // The scalar maps modulate their factors per pixel (upstream thicknessMap /
+        // refractionMap), sampled once for both refraction paths, as on Metal.
+        float refractionFactor = material.transmissionFactor;
+        float refractionThickness = material.thickness;
+        if (material.mapChannelParams.w >= 0.0) {
+            refractionFactor *= texture(refractionMap, fragUV0)[int(material.mapChannelParams.w)];
+        }
+        if (material.mapChannelParams.z >= 0.0) {
+            refractionThickness *= texture(thicknessMap, fragUV0)[int(material.mapChannelParams.z)];
+        }
         if (vtFeatureEnabled(VT_FEATURE_DYNAMIC_REFRACTION_BIT) &&
-            lighting.cameraNearFar.z > 0.5 && material.transmissionFactor > 0.0) {
+            lighting.cameraNearFar.z > 0.5 && refractionFactor > 0.0) {
             // Dynamic grab-pass refraction (upstream refractionDynamic.js):
             // sample the mid-frame scene colour grab at the screen position of
             // the refracted exit point instead of the environment atlas.
             float ior = max(material.refractionIndex, 1.001);
-            float thickness = max(material.thickness, 0.0);
+            float thickness = max(refractionThickness, 0.0);
 
             // Dispersion (KHR_materials_dispersion): spread the refraction eta
             // per channel and sample R/G/B separately.
@@ -403,12 +413,13 @@
                     ? eta : (eta + halfSpread * float(ch - 1));
                 vec3 refrDir = refract(-V, N, etaCh);
 
-                // Refraction vector scaled by volume thickness; total internal
+                // Refraction vector scaled by volume thickness and the model's
+                // per-axis scale (upstream refractionDynamic); total internal
                 // reflection falls back to the unshifted surface point.
-                // DEVIATION: upstream scales by the model matrix' per-axis
-                // scale, unavailable here, so thickness is in world units.
+                vec3 modelScale = vec3(length(vtDraw.model[0].xyz), length(vtDraw.model[1].xyz),
+                                       length(vtDraw.model[2].xyz));
                 vec3 refractionVector = (dot(refrDir, refrDir) > 0.0)
-                    ? normalize(refrDir) * thickness : vec3(0.0);
+                    ? normalize(refrDir) * thickness * modelScale : vec3(0.0);
 
                 vec4 projected = lighting.viewProjection *
                     vec4(fragWorldPos + refractionVector, 1.0);
@@ -451,7 +462,7 @@
             // Fresnel: grazing angles reflect more, normal incidence transmits.
             float F0ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
             float fresnel = F0ior + (1.0 - F0ior) * pow(1.0 - NdotV, 5.0);
-            float transmission = material.transmissionFactor * (1.0 - fresnel);
+            float transmission = refractionFactor * (1.0 - fresnel);
 
             // Replace surface diffuse with the refracted scene, keep specular.
             // Emissive is added after this block, so it survives on its own.
@@ -459,7 +470,7 @@
             color = mix(color, refrColor + specPart, clamp(transmission, 0.0, 1.0));
         } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
             lighting.envParams.y > 0.5 && (material.flags & (1u << 18)) == 0u &&
-            material.transmissionFactor > 0.0) {
+            refractionFactor > 0.0) {
             // Env-atlas refraction (upstream refractionCube.js): the reflection lookup
             // along the REFRACTED direction — not a mix toward this fragment's own
             // ambient (indirectDiffuse + indirectSpecular), which is not a refraction
@@ -472,7 +483,7 @@
             if (material.attenuationParams.w > 0.0) {
                 // Same Beer's law as the dynamic path: a^(t/d) == exp(-(-ln a/d)*t).
                 refrColor *= pow(max(material.attenuationParams.rgb, vec3(1e-4)),
-                    vec3(max(material.thickness, 0.0) / material.attenuationParams.w));
+                    vec3(max(refractionThickness, 0.0) / material.attenuationParams.w));
             }
             // The albedo TWICE, as upstream: refractionCube mixes refraction * albedo
             // into dDiffuseLight and combineColor multiplies that by the albedo again.
@@ -481,7 +492,7 @@
             refrColor *= diffuseAlbedo * diffuseAlbedo;
             vec3 specPart = directSpecular + indirectSpecular;
             color = mix(color, refrColor + specPart,
-                clamp(material.transmissionFactor, 0.0, 1.0));
+                clamp(refractionFactor, 0.0, 1.0));
         }
     }
 

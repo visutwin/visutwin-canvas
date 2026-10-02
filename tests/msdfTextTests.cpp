@@ -232,8 +232,8 @@ int main()
     check(bitmapInstances.size() == 2, "a bitmap font splits by page too");
     if (!bitmapInstances.empty()) {
         auto* material = dynamic_cast<StandardMaterial*>(bitmapInstances[0]->material());
-        check(material && !material->msdfMap() && material->diffuseMap() == bitmap->pages[0],
-              "a bitmap font's page is a diffuse map (coverage in alpha), not MSDF");
+        check(material && !material->msdfMap() && material->opacityMap() == bitmap->pages[0],
+              "a bitmap font's page is the opacity map (coverage in alpha), not MSDF, as upstream");
     }
 
     // Styling changes only the uniforms: the mesh instances survive.

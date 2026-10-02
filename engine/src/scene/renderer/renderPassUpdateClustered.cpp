@@ -13,8 +13,7 @@ namespace visutwin::canvas
         RenderPass(device)
     {
         (void)renderer;
-        (void)lightTextureAtlas;
-        _cookiesRenderPass = std::make_shared<RenderPassCookieRenderer>(device);
+        _cookiesRenderPass = std::make_shared<RenderPassCookieRenderer>(device, lightTextureAtlas);
         _shadowRenderPass = std::make_shared<RenderPassShadowLocalClustered>(device, shadowRenderer, shadowRendererLocal);
     }
 
@@ -27,7 +26,8 @@ namespace visutwin::canvas
         }
         if (cookiesEnabled && _cookiesRenderPass) {
             _cookiesRenderPass->update(lights);
-            if (_frameGraph) {
+            // Until a clustered light has a cookie there is no atlas to render into.
+            if (_frameGraph && _cookiesRenderPass->renderTarget()) {
                 _frameGraph->addRenderPass(_cookiesRenderPass);
             }
         }

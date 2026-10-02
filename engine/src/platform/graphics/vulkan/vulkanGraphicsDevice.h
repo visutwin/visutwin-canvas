@@ -83,6 +83,10 @@ namespace visutwin::canvas
         {
             _clusterShadowAtlas = atlas;
         }
+        void setClusterCookieAtlas(Texture* atlas) override
+        {
+            _clusterCookieAtlas = atlas;
+        }
 
         /// Nishita atmosphere parameters (96-byte AtmosphereUniforms block).
         void setAtmosphereUniforms(const void* data, size_t size) override;
@@ -918,6 +922,7 @@ namespace visutwin::canvas
 
         // Clustered spot-shadow depth array (set 3 binding 14).
         Texture* _clusterShadowAtlas = nullptr;
+        Texture* _clusterCookieAtlas = nullptr;
 
         // Typed handle for the profiler the base class exposes as _gpuProfiler;
         // null when the device/queue has no timestamp support.

@@ -65,6 +65,17 @@ namespace visutwin::canvas
         /// re-render of the one-shot shadows (upstream's allocateShadowAtlas).
         void configure(int resolution, const std::vector<int>& atlasSplit);
 
+        /// The cookie atlas (upstream `cookieAtlas`): an RGBA8 texture laid out like the
+        /// shadow atlas — the same normalized slot rects, at its own resolution — that
+        /// RenderPassCookieRenderer copies clustered lights' cookies into and the cluster
+        /// loop samples. Created by the first update that holds a cookie light; a changed
+        /// resolution resizes it (and bumps cookieAtlasVersion, so every cookie is
+        /// copied again).
+        void configureCookies(int resolution, bool anyCookieLight);
+        Texture* cookieAtlasTexture() const { return _cookieTexture.get(); }
+        const std::shared_ptr<RenderTarget>& cookieRenderTarget() const { return _cookieRenderTarget; }
+        int cookieAtlasVersion() const { return _cookieVersion; }
+
         /// Assigns slots to `lights` for this frame — every shadow-casting spot or
         /// omni light the frame will render — and writes each light's atlas viewport,
         /// per-face render viewports and scissors, and its shadow-map wrapper. Lights
@@ -127,5 +138,9 @@ namespace visutwin::canvas
         std::vector<int> _split;
         std::vector<Slot> _slots;
         int _version = 0;
+
+        std::shared_ptr<Texture> _cookieTexture;
+        std::shared_ptr<RenderTarget> _cookieRenderTarget;
+        int _cookieVersion = 0;
     };
 }

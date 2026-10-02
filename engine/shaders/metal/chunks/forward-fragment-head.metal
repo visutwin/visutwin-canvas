@@ -82,6 +82,8 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   // Clustered shadow atlas (LightTextureAtlas): one packed depth
                                   // texture, a rect per shadow-casting spot or omni light.
                                   depth2d<float> clusterShadowAtlas [[texture(26)]],
+                                  // Clustered cookie atlas: the same rects, each light's cookie.
+                                  texture2d<float> clusterCookieAtlas [[texture(36)]],
 #endif
 #if VT_FEATURE_COOKIE_2D
                                   // Spot light cookies: two slots, matching the local shadow pool.

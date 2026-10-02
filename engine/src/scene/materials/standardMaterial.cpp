@@ -383,7 +383,7 @@ namespace visutwin::canvas
         // environment, which is upstream's default. Upstream's useSceneEnv drops the
         // environment atlas for this material; SH probes and the flat ambient remain.
         if (!_useSkybox)    flags |= (1u << 18);
-        // bit 19: hasOpacityMap (slot 34, METAL ONLY — see ProgramLibrary's warning).
+        // bit 19: hasOpacityMap (slot 34; a separate image at set-1 binding 34 on Vulkan).
         // Bit 20 is the only free flag bit.
         if (_opacityMap)    flags |= (1u << 19);
         if (_specGlossMap)  flags |= (1u << 21);      // bit 21: hasSpecGlossMap

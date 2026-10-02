@@ -60,6 +60,7 @@
     X(DynamicBatch,              "VT_FEATURE_DYNAMIC_BATCH") \
     X(PointSize,                 "VT_FEATURE_POINT_SIZE") \
     X(Unlit,                     "VT_FEATURE_UNLIT") \
+    X(Pick,                      "VT_FEATURE_PICK") \
     X(AreaLights,                "VT_FEATURE_AREA_LIGHTS") \
     X(VsmShadows,                "VT_FEATURE_VSM_SHADOWS") \
     X(Lightmap,                  "VT_FEATURE_LIGHTMAP") \

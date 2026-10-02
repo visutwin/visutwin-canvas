@@ -688,7 +688,8 @@ namespace visutwin::canvas
     {
         if (_pushConstantsDirty) {
             vkCmdPushConstants(cmd, _renderPipeline->pipelineLayout(),
-                VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &_pushConstants);
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants),
+                &_pushConstants);
             _pushConstantsDirty = false;
         }
     }
@@ -1072,6 +1073,11 @@ namespace visutwin::canvas
         // under VT_FEATURE_SSAO, which the renderer enables from this same
         // texture being non-null.
         sceneInfos[21].imageView = sceneTextureView(ssaoForwardTexture());
+        // Binding 23: the clustered cookie atlas, a separate image through the
+        // linear sampler at 12; white (an identity cookie) while it is the colour
+        // attachment of the cookie pass or there is none.
+        sceneInfos[23].imageView = isActiveColorAttachment(_clusterCookieAtlas)
+            ? _whiteImageView : sceneTextureView(_clusterCookieAtlas);
         for (auto& sceneInfo : sceneInfos) {
             sceneInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }

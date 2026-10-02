@@ -37,6 +37,17 @@ layout(set = 1, binding = 14) uniform texture2D clearCoatNormalImage; // 14 norm
 #define clearCoatMap    sampler2D(clearCoatImage, materialExtraSampler)
 #define clearCoatGloss  sampler2D(clearCoatGlossImage, materialExtraSampler)
 #define clearCoatNormal sampler2D(clearCoatNormalImage, materialExtraSampler)
+// The scalar maps (upstream glossMap / thicknessMap / refractionMap, one channel each,
+// chosen by material.mapChannelParams) and the opacity map (flags bit 19), on the
+// Metal chunks' slots 31-34: separate images through the same shared sampler.
+layout(set = 1, binding = 31) uniform texture2D glossMapImage;
+layout(set = 1, binding = 32) uniform texture2D thicknessMapImage;
+layout(set = 1, binding = 33) uniform texture2D refractionMapImage;
+layout(set = 1, binding = 34) uniform texture2D opacityMapImage;
+#define glossMap        sampler2D(glossMapImage, materialExtraSampler)
+#define thicknessMap    sampler2D(thicknessMapImage, materialExtraSampler)
+#define refractionMap   sampler2D(refractionMapImage, materialExtraSampler)
+#define opacityMap      sampler2D(opacityMapImage, materialExtraSampler)
 
 // Set 2 (dynamic UBO): per-pass lighting. Matches VulkanLightingUBO.
 struct Light {
@@ -130,6 +141,13 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 ditherJitter;
 } lighting;
 
+// The vertex stage's push constants, read here for the model matrix (dynamic
+// refraction scales its offset by the model's per-axis scale, as upstream).
+layout(push_constant) uniform PushConstants {
+    mat4 viewProjection;
+    mat4 model;
+} vtDraw;
+
 // Upstream cubeMapRotate: the direction an environment sample (sky, env atlas, SH)
 // reads along under Scene::skyboxRotation. Column 0's w flags a rotation at all.
 vec3 cubeMapRotate(vec3 dir) {
@@ -206,6 +224,7 @@ layout(set = 3, binding = 13) uniform sampler nearestClampSampler;
 // the two sampler descriptors keep their existing bindings; a separate image
 // again costs no per-stage sampler slot.
 layout(set = 3, binding = 14) uniform texture2D clusterShadowAtlasImage;   // clustered shadow atlas: one packed depth texture
+layout(set = 3, binding = 23) uniform texture2D clusterCookieAtlasImage;   // clustered cookie atlas: the same rects
 // Blurred planar reflection: the mirrored scene colour rendered by the
 // reflection camera, and the distance-from-plane map from the depth camera.
 layout(set = 3, binding = 15) uniform texture2D planarReflectionImage;
@@ -237,6 +256,7 @@ layout(set = 3, binding = 22) uniform texture2D shadowMapImage1;
 // Point-sampled for the same reason as every other shadow map here: manual
 // depth comparison per tap, so filtering must not blend across occluders.
 #define clusterShadowAtlas sampler2D(clusterShadowAtlasImage, nearestClampSampler)
+#define clusterCookieAtlas sampler2D(clusterCookieAtlasImage, linearClampSampler)
 #define cookie2D0         sampler2D(cookieImage2D0, linearClampSampler)
 #define cookie2D1         sampler2D(cookieImage2D1, linearClampSampler)
 #define cookieCube0       samplerCube(cookieImageCube0, linearClampSampler)

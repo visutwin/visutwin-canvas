@@ -1566,6 +1566,7 @@ namespace visutwin::canvas
         /// set, order-independent: the dispatch list is sorted by apparent size, which
         /// differs per camera, and two layers seeing the same lights must still hash alike.
         void buildClusterLightInput(const std::vector<LightDispatchEntry>& localLights,
+            const bool clusteredCookiesEnabled,
             std::vector<ClusterLightData>& lights, std::vector<const void*>& members)
         {
             lights.clear();
@@ -1613,6 +1614,21 @@ namespace visutwin::canvas
                     // receiver along its normal in the shader instead.
                     lcd.shadowNormalBias = atlasLight->normalBias();
                     lcd.shadowIntensity = atlasLight->shadowIntensity();
+                }
+                // Clustered cookie: the same rect of the cookie atlas. A spot that casts
+                // no shadow has no shadow camera, so its projection is evaluated here.
+                if (Light* cookieLight = dispatchEntry.sceneLight;
+                    cookieLight && cookieLight->cookie() && cookieLight->atlasViewportAllocated() &&
+                    cookieLight->cookie()->isCubemap() == !lcd.isSpot && clusteredCookiesEnabled) {
+                    lcd.hasCookie = true;
+                    lcd.cookieIntensity = cookieLight->cookieIntensity();
+                    lcd.cookieChannel = static_cast<uint32_t>(cookieLight->cookieChannel());
+                    lcd.atlasViewport = cookieLight->atlasViewport();
+                    if (lcd.isSpot && !lcd.castShadows) {
+                        const LightRenderData* rd = cookieLight->getRenderData(nullptr, 0);
+                        lcd.shadowMatrix = LightCamera::evalSpotCookieMatrix(*cookieLight,
+                            rd ? rd->shadowViewport : cookieLight->atlasViewport());
+                    }
                 }
                 lights.push_back(lcd);
                 members.push_back(dispatchEntry.sceneLight);
@@ -2139,6 +2155,7 @@ namespace visutwin::canvas
         // Bind the clustered shadow atlas for this frame.
         if (_lightTextureAtlas) {
             _device->setClusterShadowAtlas(_lightTextureAtlas->shadowAtlasTexture());
+            _device->setClusterCookieAtlas(_lightTextureAtlas->cookieAtlasTexture());
         }
 
         bindLayerClusters(clusters);
@@ -2263,7 +2280,9 @@ namespace visutwin::canvas
         if (clusteredEnabled) {
             static thread_local std::vector<ClusterLightData> clusterLights;
             static thread_local std::vector<const void*> lightSetMembers;
-            buildClusterLightInput(lights.local, clusterLights, lightSetMembers);
+            const bool clusteredCookies = _scene && _scene->lighting().cookiesEnabled &&
+                _lightTextureAtlas && _lightTextureAtlas->cookieAtlasTexture();
+            buildClusterLightInput(lights.local, clusteredCookies, clusterLights, lightSetMembers);
             bindLayerClusterLights(clusterLights, lightSetMembers);
         }
 

@@ -5,15 +5,16 @@
 //
 // A grey floor with restitution 0.5, and forty dynamic shapes dropped onto it one
 // every 0.2 seconds from ten metres up, each a random pick from box, sphere,
-// capsule and cylinder.
+// capsule, cylinder and a torus with a `mesh` collision volume.
 //
 // The two lines that matter are in configure(): the engine owns no simulation, so
 // an application supplies a PhysicsWorld through AppOptions, the same way it
 // supplies component systems.
 //
-// DEVIATION: upstream's fifth shape is a torus rendered from a glTF container with
-// a `mesh` collision volume built from the render asset. This port has no mesh
-// collision shape, so the rotation is over the four primitives it does have.
+// DEVIATION: upstream's torus comes from torus.glb, whose licence upstream does not
+// state, so it is generated here with upstream's TorusGeometry at the glb's size
+// (ring radius 1, tube radius 0.25). Its `mesh` collision volume is a dynamic body,
+// which Jolt simulates as the convex hull of the mesh (see CollisionComponent).
 //
 #include <memory>
 #include <random>
@@ -24,6 +25,8 @@
 #include "../exampleApp.h"
 #include "framework/components/collision/collisionComponent.h"
 #include "framework/components/collision/collisionComponentSystem.h"
+#include "framework/components/render/primitiveGeometry.h"
+#include "framework/components/render/renderComponent.h"
 #include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/components/rigidbody/rigidBodyComponentSystem.h"
 #include "framework/physics/jolt/joltPhysicsWorld.h"
@@ -118,8 +121,45 @@ private:
     void spawn()
     {
         std::uniform_real_distribution<float> offset(-1.0f, 1.0f);
-        std::uniform_int_distribution<int> pick(0, 3);
+        std::uniform_int_distribution<int> pick(0, 4);
         const Vector3 position(offset(_rng), 10.0f, offset(_rng));
+
+        if (const int which = pick(_rng); which == 4) {
+            spawnTorus(position);
+            return;
+        }
+        spawnPrimitive(position);
+    }
+
+    // A torus mesh with a `mesh` collision volume built from its render meshes.
+    void spawnTorus(const Vector3& position)
+    {
+        if (!_torusMesh) {
+            _torusMesh = createMeshFromGeometry(device(), createTorusGeometry(0.25f, 1.0f, 360.0f, 30, 20));
+        }
+        auto* entity = new Entity();
+        entity->setEngine(engine());
+        entity->setLocalPosition(position);
+        auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
+        auto meshInstance = std::make_unique<MeshInstance>(_torusMesh, _red, entity);
+        meshInstance->setCastShadow(true);
+        render->setCastShadows(true);
+        render->addMeshInstance(std::move(meshInstance));
+        root()->addChild(entity);
+
+        auto* collision = static_cast<CollisionComponent*>(entity->addComponent<CollisionComponent>());
+        collision->setType("mesh");
+        collision->setRender({_torusMesh});
+
+        auto* body = static_cast<RigidBodyComponent*>(entity->addComponent<RigidBodyComponent>());
+        body->setType(RigidBodyType::Dynamic);
+        body->setMass(50.0f);
+        body->setRestitution(0.5f);
+    }
+
+    void spawnPrimitive(const Vector3& position)
+    {
+        std::uniform_int_distribution<int> pick(0, 3);
 
         const char* shapes[] = {"box", "sphere", "capsule", "cylinder"};
         const int which = pick(_rng);
@@ -149,6 +189,7 @@ private:
 
     std::vector<std::shared_ptr<StandardMaterial>> _materials;
     std::shared_ptr<StandardMaterial> _red, _gray;
+    std::shared_ptr<Mesh> _torusMesh;
     std::mt19937 _rng{20260905};
     float _timer = 0.0f;
     int _remaining = 40;

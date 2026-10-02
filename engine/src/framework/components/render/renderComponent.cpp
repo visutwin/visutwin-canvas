@@ -166,6 +166,12 @@ namespace visutwin::canvas
     // Declared in primitiveGeometry.h. See there for the texture-origin convention
     // every primitive follows.
 
+    std::shared_ptr<Mesh> createMeshFromGeometry(const std::shared_ptr<GraphicsDevice>& device,
+        const PrimitiveGeometry& geometry)
+    {
+        return createMesh(device, geometry);
+    }
+
         PrimitiveGeometry createBoxGeometry()
         {
             PrimitiveGeometry geometry;
@@ -535,6 +541,47 @@ namespace visutwin::canvas
             return withTangents(std::move(geometry));
         }
 
+        PrimitiveGeometry createTorusGeometry(const float tubeRadius, const float ringRadius,
+            const float sectorAngleDegrees, const int segments, const int sides)
+        {
+            // Upstream TorusGeometry, value for value: `segments` cross-sections around the
+            // ring, `sides` divisions around the tube, lying in the XZ plane. Its UVs are
+            // (i / sides, j / segments) after upstream's `1 - v`, and UV1 is UV0.
+            PrimitiveGeometry geometry;
+            const float sectorAngle = sectorAngleDegrees * PI_F / 180.0f;
+            for (int i = 0; i <= sides; ++i) {
+                const float tube = 2.0f * PI_F * static_cast<float>(i) / static_cast<float>(sides);
+                for (int j = 0; j <= segments; ++j) {
+                    const float ring = sectorAngle * static_cast<float>(j) / static_cast<float>(segments);
+                    const float x = std::cos(ring) * (ringRadius + tubeRadius * std::cos(tube));
+                    const float y = std::sin(tube) * tubeRadius;
+                    const float z = std::sin(ring) * (ringRadius + tubeRadius * std::cos(tube));
+                    const float nx = std::cos(ring) * std::cos(tube);
+                    const float ny = std::sin(tube);
+                    const float nz = std::sin(ring) * std::cos(tube);
+                    pushVertex(geometry, x, y, z, nx, ny, nz,
+                        static_cast<float>(i) / static_cast<float>(sides),
+                        static_cast<float>(j) / static_cast<float>(segments));
+
+                    if (i < sides && j < segments) {
+                        const auto first = static_cast<uint32_t>(i * (segments + 1) + j);
+                        const auto second = static_cast<uint32_t>((i + 1) * (segments + 1) + j);
+                        const auto third = static_cast<uint32_t>(i * (segments + 1) + j + 1);
+                        const auto fourth = static_cast<uint32_t>((i + 1) * (segments + 1) + j + 1);
+                        geometry.indices.insert(geometry.indices.end(), {first, second, third});
+                        geometry.indices.insert(geometry.indices.end(), {second, fourth, third});
+                    }
+                }
+            }
+            return withTangents(std::move(geometry));
+        }
+
+        PrimitiveGeometry createTorusGeometry()
+        {
+            // Upstream's primitive defaults: tube 0.2, ring 0.3, a full ring, 30 x 20.
+            return createTorusGeometry(0.2f, 0.3f, 360.0f, 30, 20);
+        }
+
     namespace
     {
         /**
@@ -578,8 +625,9 @@ namespace visutwin::canvas
                 geometry = createCapsuleGeometry();
             } else if (type == "plane") {
                 geometry = createPlaneGeometry();
+            } else if (type == "torus") {
+                geometry = createTorusGeometry();
             } else {
-                // DEVIATION: Current C++ RenderComponent primitive port implements box/sphere/cylinder/cone/capsule/plane only.
                 spdlog::warn("Unsupported render primitive type '{}'", type);
                 return nullptr;
             }

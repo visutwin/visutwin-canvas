@@ -149,6 +149,13 @@
     }
 #endif
 
+#if VT_FEATURE_PICK
+    // Picker id pass (upstream SHADER_PICK): after the alpha test and dither have
+    // discarded what is not there, write the mesh instance's id, packed by the picker
+    // into the base colour's rgb as exact 8-bit values. Nothing below runs.
+    return float4(material.baseColor.rgb, 1.0);
+#endif
+
 #if VT_FEATURE_UNLIT
     // KHR_materials_unlit: output base color directly, skip all PBR lighting.
     {

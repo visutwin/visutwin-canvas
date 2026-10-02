@@ -222,10 +222,12 @@ undefined — and an undefined mip LOD reads a fully averaged mip, turning a
 heart-shaped cookie into a flat wash of its own average. Both backends sample with
 an explicit LOD 0 (`level(0)` / `textureLod`). DEVIATION: upstream mipmaps cookies.
 
-Other DEVIATIONS: no `cookieTransform`/`cookieOffset` (upstream's `getCookie2DXform`
-pair); the clustered cookie atlas (`RenderPassCookieRenderer`, still filter-only)
-is NOT ported — cookies work on the non-clustered forward path, which is what
-upstream's own example exercises. Example: `lights-example.cpp`.
+A spot cookie takes upstream's `cookieAngle` / `cookieScale` / `cookieOffset`
+(`getCookie2DXform`): the offset is folded into the cookie matrix on the CPU, the 2x2
+applied after the clip test. Under clustered lighting (with `cookiesEnabled`) cookies
+come from the clustered cookie atlas (`RenderPassCookieRenderer` copies each light's
+cookie into its slot; the cluster loop samples it through the light's shadow
+projection or omni face pick). Example: `lights-example.cpp`, clustered as upstream.
 
 **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
 and its shadow/cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
@@ -367,11 +369,10 @@ from it (see "Adding a `MaterialUniforms` field" in AGENTS.md). The generator's
 check fails the build with a `RuntimeError`, not a compiler `error:`, so a grep for
 "error:" misses it.
 
-DEVIATION: the three maps are **Metal only**. Vulkan's fragment stage already declares
-15 combined image samplers and MoltenVK inherits a 16-per-stage limit, so three more
-would need the separate-image + shared-sampler treatment the light cookies use. The
-uniform field is plumbed on both backends, so Vulkan renders the scene correctly minus
-the maps.
+Both backends. On Vulkan the three maps (and the opacity map, 34) are set-1 bindings
+31-34, SEPARATE images read through the shared material sampler at 24, since the
+fragment stage is at MoltenVK's 16-sampler limit. They sample UV0 with no transform of
+their own (the gloss map has no tiling).
 
 Example: `refraction-example.cpp` (port of upstream `materials/material-refraction`).
 

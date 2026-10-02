@@ -44,11 +44,8 @@ protected:
     {
         spdlog::info("*** Lights Example Started ***");
 
-        // DEVIATION: upstream runs this scene clustered, with the cookies drawn from
-        // the clustered cookie atlas. This port's clustered path does not sample
-        // cookies yet (see ForwardRenderer::buildFrameGraph), so the scene stays on
-        // the non-clustered forward path, where both cookies project.
-        scene()->setClusteredLightingEnabled(false);
+        // Enable cookies which are disabled by default for clustered lighting
+        scene()->lighting().cookiesEnabled = true;
 
         scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 

@@ -454,6 +454,10 @@ namespace visutwin::canvas
             VT_DEVICE_FEATURE_UNSUPPORTED("setClusterShadowAtlas");
         }
 
+        /// The clustered cookie atlas (LightTextureAtlas::cookieAtlasTexture), sampled by
+        /// the cluster loop for every clustered light with a cookie. Null when none.
+        virtual void setClusterCookieAtlas(Texture* atlas) { (void)atlas; }
+
         /// Set atmosphere uniforms for Nishita sky scattering.
         /// data must point to an AtmosphereUniforms-compatible struct (96 bytes).
         virtual void setAtmosphereUniforms(const void* data, size_t size)

@@ -221,14 +221,11 @@ protected:
         // ── Decal material ──────────────────────────────────────────────────
         // Black diffuse plus a bright emissive heart, tinted per vertex — the decals
         // are pure emission, which is what makes them glow against the dark ground.
-        // DEVIATION: upstream takes the cutout from a separate `opacityMap`; this port
-        // has no opacity-map binding, so the same texture rides the base-color slot for
-        // its alpha alone (its RGB is multiplied by the black diffuse and contributes
-        // nothing).
+        // The cutout is the heart's alpha, through the opacity map, as upstream.
         _decalMaterial = std::make_shared<StandardMaterial>();
         _decalMaterial->setUseLighting(false);                  // → VT_FEATURE_UNLIT
         _decalMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
-        _decalMaterial->setDiffuseMap(heartTexture);            // alpha channel = cutout
+        _decalMaterial->setOpacityMap(heartTexture);            // alpha channel = cutout
         _decalMaterial->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
         _decalMaterial->setEmissiveMap(heartTexture);
         _decalMaterial->setEmissiveIntensity(10.0f);            // bright enough to bloom on HDR displays

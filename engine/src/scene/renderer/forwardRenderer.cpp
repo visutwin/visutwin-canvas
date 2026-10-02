@@ -5,6 +5,7 @@
 //
 #include "forwardRenderer.h"
 
+#include <algorithm>
 #include <unordered_set>
 
 #include "framework/components/light/lightComponent.h"
@@ -189,6 +190,7 @@ namespace visutwin::canvas
 
     std::vector<Light*> ForwardRenderer::addLocalShadowPasses(FrameGraph* frameGraph)
     {
+        _atlasSlotLights.clear();
         // Cull + render local-light shadow maps for shadow-casting spot/point lights.
         // Runs in BOTH clustered and non-clustered modes. Routing under clustering:
         // every shadow-casting spot AND omni light renders into the shared
@@ -232,11 +234,40 @@ namespace visutwin::canvas
             // next frame (configure only records; update resizes). Configured
             // anywhere later in the frame, the first frame allocated the 2048
             // default and resized it a frame later.
+            //
+            // A light with a cookie needs a slot too, shadowed or not (upstream's
+            // collectLights): its cookie is copied into the same rect of the cookie
+            // atlas. Only the shadow casters are culled and rendered below.
+            std::vector<Light*>& slotLights = _atlasSlotLights;
+            slotLights = atlasLights;
+            bool anyCookieLight = false;
+            if (_scene && _scene->lighting().cookiesEnabled) {
+                for (auto* lightComponent : LightComponent::instances()) {
+                    if (!lightComponent || !lightComponent->active() || !lightComponent->cookie() ||
+                        lightComponent->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
+                        continue;
+                    }
+                    Light* sceneLight = lightComponent->light();
+                    if (!sceneLight || !sceneLight->visibleThisFrame()) {
+                        continue;
+                    }
+                    // The cookie's shape has to match the light, as on the main path.
+                    const bool omni = lightComponent->type() != LightType::LIGHTTYPE_SPOT;
+                    if (omni != lightComponent->cookie()->isCubemap()) {
+                        continue;
+                    }
+                    anyCookieLight = true;
+                    if (std::find(slotLights.begin(), slotLights.end(), sceneLight) == slotLights.end()) {
+                        slotLights.push_back(sceneLight);
+                    }
+                }
+            }
             if (_scene) {
                 const auto& lightingParams = _scene->lighting();
                 _lightTextureAtlas->configure(lightingParams.shadowAtlasResolution, lightingParams.atlasSplit);
+                _lightTextureAtlas->configureCookies(lightingParams.cookieAtlasResolution, anyCookieLight);
             }
-            _lightTextureAtlas->update(atlasLights);
+            _lightTextureAtlas->update(slotLights);
         }
         const auto& cullList = clusteredMode ? atlasLights : localShadowLights;
         if (!cullList.empty()) {
@@ -254,16 +285,11 @@ namespace visutwin::canvas
         // The clustered atlas pass renders every atlased light's faces into the
         // atlas in ONE pass (RenderPassShadowLocalClustered), fed the atlas
         // lights; it takes only those with a slot and a pending render.
-        // NOTE the cookie list is EMPTY, and deliberately so for now. It feeds the
-        // clustered cookie ATLAS pass, which renders each clustered spot's cookie
-        // into the light texture atlas — and nothing samples that atlas: `grep
-        // cookie` over forward-fragment-clustered.{metal,glsl} returns nothing on
-        // either backend. Filling the list would render cookies into a texture no
-        // shader reads, which is worse than leaving it visibly unwired. The pass
-        // itself is a faithful port and stays for when the clustered shader gains
-        // cookie sampling; the list is what to fill then.
+        // The cookie pass copies the cookies of the scene's lights that hold an atlas
+        // slot into the cookie atlas (see RenderPassCookieRenderer); the cluster loop
+        // samples it.
         _renderPassUpdateClustered->update(frameGraph, lighting.shadowsEnabled, lighting.cookiesEnabled,
-            _lights, atlasLights);
+            _atlasSlotLights, atlasLights);
         frameGraph->addRenderPass(_renderPassUpdateClustered);
     }
 
