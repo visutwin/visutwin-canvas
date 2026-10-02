@@ -35,7 +35,9 @@ namespace visutwin::canvas
     class RenderPassDof;
     class RenderPassCompose;
 
-    struct CameraFrameOptions
+    // The colour settings (ComposeColorSettings) are copied from the camera's
+    // RenderingSettings as one block and handed to the compose pass as one block.
+    struct CameraFrameOptions : ComposeColorSettings
     {
         std::vector<PixelFormat> formats;
         bool stencil = false;
@@ -70,38 +72,6 @@ namespace visutwin::canvas
         // depth consumer for the prepass rule, and its combine pass reloads the
         // scene target, so that target cannot be transient.
         bool fogEnabled = false;
-
-        // Vignette
-        bool vignetteEnabled = false;
-        float vignetteInner = 0.5f;
-        float vignetteOuter = 1.0f;
-        float vignetteCurvature = 0.5f;
-        float vignetteIntensity = 0.3f;
-        float vignetteColor[3] = {0.0f, 0.0f, 0.0f};
-
-        // Fringing (chromatic aberration): user units 0..~100, 0 = disabled
-        float fringingIntensity = 0.0f;
-
-        // Color grading (HDR, pre-tonemap); 1.0 = no change
-        bool gradingEnabled = false;
-        float gradingBrightness = 1.0f;
-        float gradingContrast = 1.0f;
-        float gradingSaturation = 1.0f;
-        float gradingTint[3] = {1.0f, 1.0f, 1.0f};
-
-        // Color enhance (pre-tonemap); 0 = no change
-        float colorEnhanceShadows = 0.0f;
-        float colorEnhanceHighlights = 0.0f;
-        float colorEnhanceVibrance = 0.0f;
-        float colorEnhanceDehaze = 0.0f;
-        float colorEnhanceMidtones = 0.0f;
-
-        // 3D color LUT (post-tonemap): 256x16 Unreal-format strip textures
-        Texture* colorLUT = nullptr;
-        Texture* colorLUT2 = nullptr;
-        float colorLUTIntensity = 1.0f;
-        float colorLUTIntensity2 = 1.0f;
-        float colorLUTBlend = 0.0f;
     };
 
     class RenderPassCameraFrame : public RenderPass

@@ -6,6 +6,7 @@
 //
 #include "renderPassDepthAwareBlur.h"
 
+#include "scene/graphics/quadShaderSource.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/shader.h"
@@ -25,36 +26,13 @@ namespace visutwin::canvas
         // Bilateral blur that respects depth discontinuities, so AO does not halo
         // across silhouettes. Direction is a uniform rather than two compiled
         // variants (the Metal pass carried a HORIZONTAL/VERTICAL source pair).
-        constexpr const char* BLUR_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct BlurVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+        constexpr const char* BLUR_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct BlurUniforms {
     float4 invResAndDir;
     float4 params;
 };
-
-vertex BlurVarying blurVertex(ComposeVertexIn in [[stage_in]])
-{
-    BlurVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(blurVertex) R"(
 static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
 {
     return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
@@ -74,7 +52,7 @@ static inline float bilateralWeight(float depth, float sampleDepth)
 }
 
 fragment float4 blurFragment(
-    BlurVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     texture2d<float> sourceTexture [[texture(0)]],
     depth2d<float> depthTexture [[texture(1)]],
     sampler linearSampler [[sampler(0)]],
@@ -120,16 +98,7 @@ fragment float4 blurFragment(
         constexpr const char* BLUR_GLSL = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform BlurUniforms {
     vec4 invResAndDir;

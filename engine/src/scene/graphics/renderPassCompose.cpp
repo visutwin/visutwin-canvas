@@ -66,40 +66,42 @@ namespace visutwin::canvas
         uniforms.dofCameraNear = _dofCameraNear;
         uniforms.dofCameraFar = _dofCameraFar;
 
-        uniforms.vignetteEnabled = _vignetteEnabled ? 1u : 0u;
-        uniforms.vignetteInner = _vignetteInner;
-        uniforms.vignetteOuter = _vignetteOuter;
-        uniforms.vignetteCurvature = _vignetteCurvature;
-        uniforms.vignetteIntensity = _vignetteIntensity;
-        uniforms.vignetteColorR = _vignetteColor[0];
-        uniforms.vignetteColorG = _vignetteColor[1];
-        uniforms.vignetteColorB = _vignetteColor[2];
+        const ComposeColorSettings& c = _color;
+        uniforms.vignetteEnabled = c.vignetteEnabled ? 1u : 0u;
+        uniforms.vignetteInner = c.vignetteInner;
+        uniforms.vignetteOuter = c.vignetteOuter;
+        uniforms.vignetteCurvature = c.vignetteCurvature;
+        uniforms.vignetteIntensity = c.vignetteIntensity;
+        uniforms.vignetteColorR = c.vignetteColor[0];
+        uniforms.vignetteColorG = c.vignetteColor[1];
+        uniforms.vignetteColorB = c.vignetteColor[2];
 
-        uniforms.fringingIntensity = _fringingIntensity;
+        // The user value scaled to shader units.
+        uniforms.fringingIntensity = c.fringingIntensity / 1024.0f;
 
-        uniforms.gradingEnabled = _gradingEnabled ? 1u : 0u;
-        uniforms.gradingBrightness = _gradingBrightness;
-        uniforms.gradingContrast = _gradingContrast;
-        uniforms.gradingSaturation = _gradingSaturation;
-        uniforms.gradingTintR = _gradingTint[0];
-        uniforms.gradingTintG = _gradingTint[1];
-        uniforms.gradingTintB = _gradingTint[2];
+        uniforms.gradingEnabled = c.gradingEnabled ? 1u : 0u;
+        uniforms.gradingBrightness = c.gradingBrightness;
+        uniforms.gradingContrast = c.gradingContrast;
+        uniforms.gradingSaturation = c.gradingSaturation;
+        uniforms.gradingTintR = c.gradingTint[0];
+        uniforms.gradingTintG = c.gradingTint[1];
+        uniforms.gradingTintB = c.gradingTint[2];
 
         uniforms.colorEnhanceEnabled =
-            (_colorEnhanceShadows != 0.0f || _colorEnhanceHighlights != 0.0f ||
-             _colorEnhanceVibrance != 0.0f || _colorEnhanceDehaze != 0.0f ||
-             _colorEnhanceMidtones != 0.0f) ? 1u : 0u;
-        uniforms.ceShadows = _colorEnhanceShadows;
-        uniforms.ceHighlights = _colorEnhanceHighlights;
-        uniforms.ceVibrance = _colorEnhanceVibrance;
-        uniforms.ceDehaze = _colorEnhanceDehaze;
-        uniforms.ceMidtones = _colorEnhanceMidtones;
+            (c.colorEnhanceShadows != 0.0f || c.colorEnhanceHighlights != 0.0f ||
+             c.colorEnhanceVibrance != 0.0f || c.colorEnhanceDehaze != 0.0f ||
+             c.colorEnhanceMidtones != 0.0f) ? 1u : 0u;
+        uniforms.ceShadows = c.colorEnhanceShadows;
+        uniforms.ceHighlights = c.colorEnhanceHighlights;
+        uniforms.ceVibrance = c.colorEnhanceVibrance;
+        uniforms.ceDehaze = c.colorEnhanceDehaze;
+        uniforms.ceMidtones = c.colorEnhanceMidtones;
 
-        uniforms.lutEnabled = _colorLUT ? 1u : 0u;
-        uniforms.lut2Enabled = _colorLUT2 ? 1u : 0u;
-        uniforms.lutIntensity1 = _colorLUTIntensity;
-        uniforms.lutIntensity2 = _colorLUTIntensity2;
-        uniforms.lutBlend = _colorLUTBlend;
+        uniforms.lutEnabled = c.colorLUT ? 1u : 0u;
+        uniforms.lut2Enabled = c.colorLUT2 ? 1u : 0u;
+        uniforms.lutIntensity1 = c.colorLUTIntensity;
+        uniforms.lutIntensity2 = c.colorLUTIntensity2;
+        uniforms.lutBlend = c.colorLUTBlend;
 
         // Slots match the shader declarations in composeShaders.h. 6 and 7 carry the
         // multi-pass DOF's CoC and blur; when both are bound the shader reads them
@@ -114,8 +116,8 @@ namespace visutwin::canvas
         setQuadTextureBinding(1, _bloomTexture);
         setQuadTextureBinding(2, _ssaoTexture);
         setQuadTextureBinding(3, _depthTexture);
-        setQuadTextureBinding(4, _colorLUT);
-        setQuadTextureBinding(5, _colorLUT2);
+        setQuadTextureBinding(4, _color.colorLUT);
+        setQuadTextureBinding(5, _color.colorLUT2);
         setQuadTextureBinding(6, _cocTexture);
         setQuadTextureBinding(7, _blurTexture);
         setQuadUniforms(uniforms);

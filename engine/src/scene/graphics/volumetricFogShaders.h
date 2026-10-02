@@ -12,6 +12,8 @@
 
 #include <cstdint>
 
+#include "scene/graphics/quadShaderSource.h"
+
 namespace visutwin::canvas::volumetric_fog
 {
     /**
@@ -46,22 +48,7 @@ namespace visutwin::canvas::volumetric_fog
     };
     static_assert(sizeof(FogCombineUniforms) == 32);
 
-    constexpr const char* MARCH_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct FogVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+    constexpr const char* MARCH_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct FogUniforms {
     float4x4 invView;
@@ -79,15 +66,7 @@ struct FogUniforms {
     float4 shadowParams;
     float4 cameraParams;
 };
-
-vertex FogVarying fogVertex(ComposeVertexIn in [[stage_in]])
-{
-    FogVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(fogVertex) R"(
 static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
 {
     // Standard depth [0,1]: near=0, far=1. Returns positive linear view-space distance.
@@ -143,7 +122,7 @@ constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
                                     mip_filter::none, address::clamp_to_edge);
 
 fragment float4 fogFragment(
-    FogVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     depth2d<float> depthTexture [[texture(0)]],
     depth2d<float> shadowTexture [[texture(1)]],
     sampler linearSampler [[sampler(0)]],
@@ -225,16 +204,7 @@ fragment float4 fogFragment(
     constexpr const char* MARCH_GLSL = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform FogUniforms {
     mat4 invView;
@@ -348,36 +318,13 @@ void main() {
 #endif
 )";
 
-    constexpr const char* COMBINE_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct FogCombineVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+    constexpr const char* COMBINE_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct FogCombineUniforms {
     float4 textureSize;   // xy = fog resolution, zw = 1/resolution
     float4 cameraParams;  // x = near, y = far
 };
-
-vertex FogCombineVarying fogCombineVertex(ComposeVertexIn in [[stage_in]])
-{
-    FogCombineVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(fogCombineVertex) R"(
 static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
 {
     return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
@@ -391,7 +338,7 @@ constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
                                     mip_filter::none, address::clamp_to_edge);
 
 fragment float4 fogCombineFragment(
-    FogCombineVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     depth2d<float> depthTexture [[texture(0)]],
     texture2d<float> fogTexture [[texture(1)]],
     sampler linearSampler [[sampler(0)]],
@@ -441,16 +388,7 @@ fragment float4 fogCombineFragment(
     constexpr const char* COMBINE_GLSL = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform FogCombineUniforms {
     vec4 textureSize;
@@ -538,22 +476,7 @@ void main() {
     // loop's (common-shadow-pcf: a spot projects into its rect with no shader bias, an
     // omni face stores perspective depth with a RELATIVE bias), one tap a step offset on
     // a spiral.
-    constexpr const char* LOCAL_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct FogVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+    constexpr const char* LOCAL_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct FogLocalUniforms {
     float4x4 invView;
@@ -573,15 +496,7 @@ struct FogLocalUniforms {
     float4 lightAtlas;
     float4 omniDepth;
 };
-
-vertex FogVarying fogLocalVertex(ComposeVertexIn in [[stage_in]])
-{
-    FogVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(fogLocalVertex) R"(
 constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
                                     mip_filter::none, address::clamp_to_edge);
 constexpr sampler atlasCompareSampler(coord::normalized, filter::linear,
@@ -713,7 +628,7 @@ static inline float2 volClipCone(float2 span, float root, float gradient, float 
 }
 
 fragment float4 fogLocalFragment(
-    FogVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     depth2d<float> depthTexture [[texture(0)]],
     depth2d<float> shadowAtlas [[texture(1)]],
     texture2d<float> cookieAtlas [[texture(2)]],
@@ -820,16 +735,7 @@ fragment float4 fogLocalFragment(
     constexpr const char* LOCAL_GLSL = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform FogLocalUniforms {
     mat4 invView;

@@ -7,6 +7,7 @@
 #include "renderPassShaderQuad.h"
 
 #include "quadRender.h"
+#include "quadShader.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/shader.h"
 
@@ -31,19 +32,7 @@ namespace visutwin::canvas
         if (!gd) {
             return;
         }
-        auto cached = gd->getCachedShader(cacheKey);
-        if (!cached) {
-            ShaderDefinition definition;
-            definition.name = cacheKey;
-            definition.vshader = vertexEntry;
-            definition.fshader = fragmentEntry;
-            cached = createShader(gd.get(), definition,
-                gd->shaderLanguage() == ShaderLanguage::Glsl ? glsl : msl);
-            if (cached) {
-                gd->setCachedShader(cacheKey, cached);
-            }
-        }
-        setShader(cached);
+        setShader(getOrCreateQuadShader(gd.get(), cacheKey, vertexEntry, fragmentEntry, msl, glsl));
     }
 
     void RenderPassShaderQuad::execute()

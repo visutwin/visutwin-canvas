@@ -31,24 +31,11 @@
 //
 #pragma once
 
+#include "scene/graphics/quadShaderSource.h"
+
 namespace visutwin::canvas::lightmap_filter_shaders
 {
-    constexpr const char* LIGHTMAP_FILTER_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal   [[attribute(1)]];
-    float2 uv0      [[attribute(2)]];
-    float4 tangent  [[attribute(3)]];
-    float2 uv1      [[attribute(4)]];
-};
-
-struct LightmapFilterVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+    constexpr const char* LIGHTMAP_FILTER_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct LightmapFilterUniforms {
     float2 pixelOffset;
@@ -59,15 +46,7 @@ struct LightmapFilterUniforms {
     float pad0;
     float4 kernelWeights[4];  // `kernel` is an MSL keyword
 };
-
-vertex LightmapFilterVarying lightmapFilterVertex(QuadVertexIn in [[stage_in]])
-{
-    LightmapFilterVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(lightmapFilterVertex) R"(
 constexpr sampler lightmapFilterSampler(coord::normalized, filter::nearest, address::clamp_to_edge);
 
 static inline bool isUsed(float4 pixel)
@@ -93,7 +72,7 @@ static inline float kernelAt(constant LightmapFilterUniforms& u, int index)
 #endif
 
 fragment float4 lightmapFilterFragment(
-    LightmapFilterVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     constant LightmapFilterUniforms& u [[buffer(3)]],
     texture2d<float> source [[texture(0)]]
 #ifdef LM_AMBIENT_AO
@@ -154,16 +133,7 @@ fragment float4 lightmapFilterFragment(
 )";
 
     constexpr const char* LIGHTMAP_FILTER_GLSL = R"(
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform LightmapFilterUniforms {
     vec2 pixelOffset;

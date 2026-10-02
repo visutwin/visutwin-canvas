@@ -16,6 +16,8 @@
 
 #include <cstdint>
 
+#include "scene/graphics/quadShaderSource.h"
+
 namespace visutwin::canvas::env_shaders
 {
     /// Uniforms for the equirect-to-cubemap face pass. Scalars only, so MSL and
@@ -31,24 +33,9 @@ namespace visutwin::canvas::env_shaders
 
     // The face mapping is the one the convolve pass's X flip expects; keep the
     // two in step.
-    constexpr const char* EQUIRECT_TO_CUBE_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
+    constexpr const char* EQUIRECT_TO_CUBE_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 constant float PI = 3.141592653589793;
-
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal   [[attribute(1)]];
-    float2 uv0      [[attribute(2)]];
-    float4 tangent  [[attribute(3)]];
-    float2 uv1      [[attribute(4)]];
-};
-
-struct FaceVarying {
-    float4 position [[position]];
-    float2 uv;
-};
 
 struct FaceUniforms {
     uint face;
@@ -56,15 +43,7 @@ struct FaceUniforms {
     uint pad0;
     uint pad1;
 };
-
-vertex FaceVarying equirectToCubeVertex(QuadVertexIn in [[stage_in]])
-{
-    FaceVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(equirectToCubeVertex) R"(
 static float3 faceUvToDir(uint face, float2 uv)
 {
     const float sc = uv.x * 2.0 - 1.0;
@@ -88,7 +67,7 @@ static float2 dirToUvEquirect(float3 dir)
 }
 
 fragment float4 equirectToCubeFragment(
-    FaceVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     texture2d<float> sourceEquirect [[texture(0)]],
     sampler          linearSampler  [[sampler(0)]],
     constant FaceUniforms& u        [[buffer(3)]])
@@ -107,16 +86,7 @@ fragment float4 equirectToCubeFragment(
 
 const float PI = 3.141592653589793;
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform FaceUniforms {
     uint face;
@@ -176,25 +146,10 @@ void main() {
     // line differs, so each language carries one body and a SRC_CUBE switch. A
     // cube source needs its own variant because a descriptor holding a cube view
     // cannot serve a shader that declares sampler2D.
-    constexpr const char* REPROJECT_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
+    constexpr const char* REPROJECT_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 constant float PI = 3.141592653589793;
 constant uint PROJ_OCTAHEDRAL = 3u;
-
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal   [[attribute(1)]];
-    float2 uv0      [[attribute(2)]];
-    float4 tangent  [[attribute(3)]];
-    float2 uv1      [[attribute(4)]];
-};
-
-struct ReprojectVarying {
-    float4 position [[position]];
-    float2 uv;
-};
 
 struct ReprojectUniforms {
     float4 uvMod;
@@ -203,15 +158,7 @@ struct ReprojectUniforms {
     uint decodeSrgb;
     uint targetProjection;
 };
-
-vertex ReprojectVarying reprojectVertex(QuadVertexIn in [[stage_in]])
-{
-    ReprojectVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(reprojectVertex) R"(
 static float3 uvToDirEquirect(float2 uv)
 {
     const float phi   = (uv.x * 2.0 - 1.0) * PI;
@@ -261,7 +208,7 @@ static float4 packRgbp(float3 color)
 }
 
 fragment float4 reprojectFragment(
-    ReprojectVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
 #ifdef SRC_CUBE
     texturecube<float> sourceTexture [[texture(0)]],
 #else
@@ -293,16 +240,7 @@ fragment float4 reprojectFragment(
 const float PI = 3.141592653589793;
 const uint PROJ_OCTAHEDRAL = 3u;
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform ReprojectUniforms {
     vec4 uvMod;
@@ -397,24 +335,9 @@ void main() {
     // as an RGBA32F data TEXTURE on slot 1 rather than a buffer: up to 1024 float4s
     // is far past the 512-byte per-draw uniform block, and a texture rides the seam
     // QuadRender already has instead of inventing a buffer binding.
-    constexpr const char* CONVOLVE_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
+    constexpr const char* CONVOLVE_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 constant float PI = 3.141592653589793;
-
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal   [[attribute(1)]];
-    float2 uv0      [[attribute(2)]];
-    float4 tangent  [[attribute(3)]];
-    float2 uv1      [[attribute(4)]];
-};
-
-struct ConvolveVarying {
-    float4 position [[position]];
-    float2 uv;
-};
 
 struct ConvolveUniforms {
     float4 uvMod;
@@ -423,15 +346,7 @@ struct ConvolveUniforms {
     uint numSamples;
     uint weightByNoL;
 };
-
-vertex ConvolveVarying convolveVertex(QuadVertexIn in [[stage_in]])
-{
-    ConvolveVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(convolveVertex) R"(
 static float3 uvToDirEquirect(float2 uv)
 {
     const float phi   = (uv.x * 2.0 - 1.0) * PI;
@@ -459,7 +374,7 @@ static float4 packRgbp(float3 color)
 }
 
 fragment float4 convolveFragment(
-    ConvolveVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
 #ifdef SRC_CUBE
     texturecube<float> sourceTexture [[texture(0)]],
 #else
@@ -512,16 +427,7 @@ fragment float4 convolveFragment(
     constexpr const char* CONVOLVE_GLSL = R"(
 const float PI = 3.141592653589793;
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform ConvolveUniforms {
     vec4 uvMod;

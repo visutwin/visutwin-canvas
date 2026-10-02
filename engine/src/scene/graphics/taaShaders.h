@@ -12,6 +12,8 @@
 
 #include <cstdint>
 
+#include "scene/graphics/quadShaderSource.h"
+
 namespace visutwin::canvas::taa_shaders
 {
     /**
@@ -30,22 +32,7 @@ namespace visutwin::canvas::taa_shaders
     };
     static_assert(sizeof(TaaUniforms) == 176);
 
-    constexpr const char* TAA_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct TaaVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+    constexpr const char* TAA_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct TaaUniforms {
     float4x4 viewProjectionPrevious;
@@ -54,15 +41,7 @@ struct TaaUniforms {
     float4 texSizeFlags;   // xy = texture size, z = highQuality, w = historyValid
     float4 cameraParams;
 };
-
-vertex TaaVarying taaVertex(ComposeVertexIn in [[stage_in]])
-{
-    TaaVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(taaVertex) R"(
 static inline float linearizeDepth(float z, float4 cameraParams)
 {
     if (cameraParams.w == 0.0) {
@@ -161,7 +140,7 @@ constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
                                     mip_filter::none, address::clamp_to_edge);
 
 fragment float4 taaFragment(
-    TaaVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     texture2d<float> sourceTexture [[texture(0)]],
     texture2d<float> historyTexture [[texture(1)]],
     depth2d<float> depthTexture [[texture(2)]],
@@ -222,13 +201,7 @@ fragment float4 taaFragment(
 
     constexpr const char* TAA_GLSL = R"(#version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() { vUv = vertexUv0; gl_Position = vec4(vertexPosition, 1.0); }
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(location = 0) in vec2 vUv;
 

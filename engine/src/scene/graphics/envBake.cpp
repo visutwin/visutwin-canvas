@@ -11,6 +11,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "scene/graphics/quadShader.h"
 #include "core/math/color.h"
 #include "envShaders.h"
 #include "quadRender.h"
@@ -55,22 +56,10 @@ namespace visutwin::canvas
         {
             const char* cacheKey = cubeSource ? "env-reproject-cube-quad"
                                               : "env-reproject-2d-quad";
-            if (auto cached = device->getCachedShader(cacheKey)) {
-                return cached;
-            }
-            ShaderDefinition definition;
-            definition.name = cacheKey;
-            definition.vshader = "reprojectVertex";
-            definition.fshader = "reprojectFragment";
-            auto shader = createShader(device, definition,
-                composeSource(device,
-                    device->shaderLanguage() == ShaderLanguage::Glsl
-                        ? env_shaders::REPROJECT_GLSL : env_shaders::REPROJECT_MSL,
-                    cubeSource));
-            if (shader) {
-                device->setCachedShader(cacheKey, shader);
-            }
-            return shader;
+            return getOrCreateQuadShader(device, cacheKey, "reprojectVertex", "reprojectFragment",
+                [&](const bool glsl) {
+                    return composeSource(device, glsl ? env_shaders::REPROJECT_GLSL : env_shaders::REPROJECT_MSL, cubeSource);
+                });
         }
 
 
@@ -105,22 +94,10 @@ namespace visutwin::canvas
         {
             const char* cacheKey = cubeSource ? "env-convolve-cube-quad"
                                               : "env-convolve-2d-quad";
-            if (auto cached = device->getCachedShader(cacheKey)) {
-                return cached;
-            }
-            ShaderDefinition definition;
-            definition.name = cacheKey;
-            definition.vshader = "convolveVertex";
-            definition.fshader = "convolveFragment";
-            auto shader = createShader(device, definition,
-                composeSource(device,
-                    device->shaderLanguage() == ShaderLanguage::Glsl
-                        ? env_shaders::CONVOLVE_GLSL : env_shaders::CONVOLVE_MSL,
-                    cubeSource));
-            if (shader) {
-                device->setCachedShader(cacheKey, shader);
-            }
-            return shader;
+            return getOrCreateQuadShader(device, cacheKey, "convolveVertex", "convolveFragment",
+                [&](const bool glsl) {
+                    return composeSource(device, glsl ? env_shaders::CONVOLVE_GLSL : env_shaders::CONVOLVE_MSL, cubeSource);
+                });
         }
 
         // The sample table as a 1-row RGBA32F texture. Built and uploaded BEFORE the
@@ -183,22 +160,8 @@ namespace visutwin::canvas
         // One shader per device, cached like every other quad effect's.
         std::shared_ptr<Shader> equirectToCubeShader(GraphicsDevice* device)
         {
-            constexpr const char* cacheKey = "env-equirect-to-cube-quad";
-            if (auto cached = device->getCachedShader(cacheKey)) {
-                return cached;
-            }
-            ShaderDefinition definition;
-            definition.name = cacheKey;
-            definition.vshader = "equirectToCubeVertex";
-            definition.fshader = "equirectToCubeFragment";
-            auto shader = createShader(device, definition,
-                device->shaderLanguage() == ShaderLanguage::Glsl
-                    ? env_shaders::EQUIRECT_TO_CUBE_GLSL
-                    : env_shaders::EQUIRECT_TO_CUBE_MSL);
-            if (shader) {
-                device->setCachedShader(cacheKey, shader);
-            }
-            return shader;
+            return getOrCreateQuadShader(device, "env-equirect-to-cube-quad", "equirectToCubeVertex",
+                "equirectToCubeFragment", env_shaders::EQUIRECT_TO_CUBE_MSL, env_shaders::EQUIRECT_TO_CUBE_GLSL);
         }
     }
 

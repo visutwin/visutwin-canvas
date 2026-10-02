@@ -7,6 +7,8 @@
 
 #include <algorithm>
 
+#include "scene/graphics/quadShaderSource.h"
+#include "scene/graphics/quadShader.h"
 #include "framework/engine.h"
 #include "scene/renderer/forwardRenderer.h"
 #include "framework/entity.h"
@@ -36,31 +38,7 @@ namespace visutwin::canvas
         // silhouette with a 5-tap max and marks color discontinuities in alpha. The offset
         // direction and source-alpha multiplier are baked per variant (H then V) since quad
         // passes carry no uniform data; the half-texel step comes from the texture size.
-        constexpr const char* OUTLINE_EXTEND_TEMPLATE = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct QuadVarying {
-    float4 position [[position]];
-    float2 uv;
-};
-
-vertex QuadVarying outlineExtendVertex(QuadVertexIn in [[stage_in]])
-{
-    QuadVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+        constexpr const char* OUTLINE_EXTEND_TEMPLATE = VT_QUAD_MSL_PRELUDE VT_QUAD_MSL_VERTEX(outlineExtendVertex) R"(
 fragment float4 outlineExtendFragment(
     QuadVarying in [[stage_in]],
     texture2d<float> source [[texture(0)]],
@@ -95,31 +73,7 @@ fragment float4 outlineExtendFragment(
 )";
 
         // Blend the processed outline texture over the back buffer with standard alpha.
-        constexpr const char* OUTLINE_BLEND_SOURCE = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct QuadVarying {
-    float4 position [[position]];
-    float2 uv;
-};
-
-vertex QuadVarying outlineBlendVertex(QuadVertexIn in [[stage_in]])
-{
-    QuadVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+        constexpr const char* OUTLINE_BLEND_SOURCE = VT_QUAD_MSL_PRELUDE VT_QUAD_MSL_VERTEX(outlineBlendVertex) R"(
 fragment float4 outlineBlendFragment(
     QuadVarying in [[stage_in]],
     texture2d<float> source [[texture(0)]],
@@ -136,16 +90,7 @@ fragment float4 outlineBlendFragment(
         constexpr const char* OUTLINE_EXTEND_GLSL_TEMPLATE = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
 layout(location = 0) in vec2 vUv;
@@ -183,16 +128,7 @@ void main() {
         constexpr const char* OUTLINE_BLEND_GLSL_SOURCE = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
 layout(location = 0) in vec2 vUv;
@@ -206,30 +142,19 @@ void main() {
         std::shared_ptr<Shader> buildExtendShader(GraphicsDevice* device,
             const char* cacheKey, const char* dirX, const char* dirY, const char* srcMult)
         {
-            auto cached = device->getCachedShader(cacheKey);
-            if (cached) {
-                return cached;
-            }
-            std::string source =
-                device->shaderLanguage() == ShaderLanguage::Glsl
-                    ? OUTLINE_EXTEND_GLSL_TEMPLATE
-                    : OUTLINE_EXTEND_TEMPLATE;
-            const auto replaceAll = [&source](const std::string& token, const std::string& value) {
-                for (size_t pos = source.find(token); pos != std::string::npos; pos = source.find(token)) {
-                    source.replace(pos, token.size(), value);
-                }
-            };
-            replaceAll("%DIR_X%", dirX);
-            replaceAll("%DIR_Y%", dirY);
-            replaceAll("%SRC_MULT%", srcMult);
-
-            ShaderDefinition definition;
-            definition.name = cacheKey;
-            definition.vshader = "outlineExtendVertex";
-            definition.fshader = "outlineExtendFragment";
-            cached = createShader(device, definition, source.c_str());
-            device->setCachedShader(cacheKey, cached);
-            return cached;
+            return getOrCreateQuadShader(device, cacheKey, "outlineExtendVertex", "outlineExtendFragment",
+                [&](const bool glsl) {
+                    std::string source = glsl ? OUTLINE_EXTEND_GLSL_TEMPLATE : OUTLINE_EXTEND_TEMPLATE;
+                    const auto replaceAll = [&source](const std::string& token, const std::string& value) {
+                        for (size_t pos = source.find(token); pos != std::string::npos; pos = source.find(token)) {
+                            source.replace(pos, token.size(), value);
+                        }
+                    };
+                    replaceAll("%DIR_X%", dirX);
+                    replaceAll("%DIR_Y%", dirY);
+                    replaceAll("%SRC_MULT%", srcMult);
+                    return source;
+                });
         }
     }
 
@@ -272,21 +197,8 @@ void main() {
         _extendVerticalPass->setRequiresCubemaps(false);
 
         _blendPass = std::make_shared<RenderPassShaderQuad>(device);
-        {
-            auto cached = device->getCachedShader("OutlineBlend");
-            if (!cached) {
-                ShaderDefinition definition;
-                definition.name = "OutlineBlend";
-                definition.vshader = "outlineBlendVertex";
-                definition.fshader = "outlineBlendFragment";
-                cached = createShader(device.get(), definition,
-                    device->shaderLanguage() == ShaderLanguage::Glsl
-                        ? OUTLINE_BLEND_GLSL_SOURCE
-                        : OUTLINE_BLEND_SOURCE);
-                device->setCachedShader("OutlineBlend", cached);
-            }
-            _blendPass->setShader(cached);
-        }
+        _blendPass->setShader(getOrCreateQuadShader(device.get(), "OutlineBlend", "outlineBlendVertex",
+            "outlineBlendFragment", OUTLINE_BLEND_SOURCE, OUTLINE_BLEND_GLSL_SOURCE));
         _blendPass->init(nullptr);
         _blendPass->setRequiresCubemaps(false);
         _blendPass->setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));

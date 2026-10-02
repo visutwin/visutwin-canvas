@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "scene/graphics/quadShaderSource.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
@@ -39,33 +40,14 @@ namespace visutwin::canvas
         // CoC-premultiplied far texture, weighted by the CoC at each tap, normalised
         // by the CoC sum and then divided by this pixel's own CoC to undo the
         // premultiply. Texture order far=0, coc=1, near=2 on both backends.
-        constexpr const char* DOF_BLUR_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-struct DofBlurVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+        constexpr const char* DOF_BLUR_MSL = VT_QUAD_MSL_PRELUDE R"(
 struct DofBlurUniforms {
     float4 radii;
     float4 rings;
 };
-vertex DofBlurVarying dofBlurVertex(ComposeVertexIn in [[stage_in]])
-{
-    DofBlurVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
+)" VT_QUAD_MSL_VERTEX(dofBlurVertex) R"(
 fragment float4 dofBlurFragment(
-    DofBlurVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     texture2d<float> farTexture [[texture(0)]],
     texture2d<float> cocTexture [[texture(1)]],
     texture2d<float> nearTexture [[texture(2)]],
@@ -127,16 +109,7 @@ fragment float4 dofBlurFragment(
 )";
         constexpr const char* DOF_BLUR_GLSL = R"(
 #version 450
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-#ifdef VT_FRAGMENT_SHADER
+)" VT_QUAD_GLSL_VERTEX R"(#ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform DofBlurUniforms {
     vec4 radii;
     vec4 rings;

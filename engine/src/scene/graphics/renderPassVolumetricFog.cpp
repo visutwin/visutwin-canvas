@@ -11,6 +11,7 @@
 #include <limits>
 #include <numbers>
 
+#include "scene/graphics/quadShader.h"
 #include "core/math/color.h"
 #include "framework/components/light/lightComponent.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -90,19 +91,7 @@ namespace visutwin::canvas
             const char* vertexEntry, const char* fragmentEntry,
             const char* msl, const char* glsl)
         {
-            if (auto cached = device->getCachedShader(cacheKey)) {
-                return cached;
-            }
-            ShaderDefinition definition;
-            definition.name = cacheKey;
-            definition.vshader = vertexEntry;
-            definition.fshader = fragmentEntry;
-            auto shader = createShader(device,
-                definition, device->shaderLanguage() == ShaderLanguage::Glsl ? glsl : msl);
-            if (shader) {
-                device->setCachedShader(cacheKey, shader);
-            }
-            return shader;
+            return getOrCreateQuadShader(device, cacheKey, vertexEntry, fragmentEntry, msl, glsl);
         }
 
         // The directional light the fog scatters: the first enabled, casting

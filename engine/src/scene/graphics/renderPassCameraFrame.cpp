@@ -174,33 +174,7 @@ namespace visutwin::canvas
         options.bloomBlurLevel = std::max(rendering.bloomBlurLevel, 1);
         options.bloomThreshold = std::max(rendering.bloomThreshold, 0.0f);
         options.sharpness = rendering.sharpness;
-        options.vignetteEnabled = rendering.vignetteEnabled;
-        options.vignetteInner = rendering.vignetteInner;
-        options.vignetteOuter = rendering.vignetteOuter;
-        options.vignetteCurvature = rendering.vignetteCurvature;
-        options.vignetteIntensity = rendering.vignetteIntensity;
-        options.vignetteColor[0] = rendering.vignetteColor[0];
-        options.vignetteColor[1] = rendering.vignetteColor[1];
-        options.vignetteColor[2] = rendering.vignetteColor[2];
-
-        options.fringingIntensity = rendering.fringingIntensity;
-        options.gradingEnabled = rendering.gradingEnabled;
-        options.gradingBrightness = rendering.gradingBrightness;
-        options.gradingContrast = rendering.gradingContrast;
-        options.gradingSaturation = rendering.gradingSaturation;
-        options.gradingTint[0] = rendering.gradingTint[0];
-        options.gradingTint[1] = rendering.gradingTint[1];
-        options.gradingTint[2] = rendering.gradingTint[2];
-        options.colorEnhanceShadows = rendering.colorEnhanceShadows;
-        options.colorEnhanceHighlights = rendering.colorEnhanceHighlights;
-        options.colorEnhanceVibrance = rendering.colorEnhanceVibrance;
-        options.colorEnhanceDehaze = rendering.colorEnhanceDehaze;
-        options.colorEnhanceMidtones = rendering.colorEnhanceMidtones;
-        options.colorLUT = rendering.colorLUT;
-        options.colorLUT2 = rendering.colorLUT2;
-        options.colorLUTIntensity = rendering.colorLUTIntensity;
-        options.colorLUTIntensity2 = rendering.colorLUTIntensity2;
-        options.colorLUTBlend = rendering.colorLUTBlend;
+        static_cast<ComposeColorSettings&>(options) = rendering;
     }
 
     bool RenderPassCameraFrame::needsReset(const CameraFrameOptions& options) const
@@ -966,30 +940,8 @@ namespace visutwin::canvas
             }
         }
 
-        // Vignette
-        _composePass->setVignetteEnabled(options.vignetteEnabled);
-        _composePass->setVignetteInner(options.vignetteInner);
-        _composePass->setVignetteOuter(options.vignetteOuter);
-        _composePass->setVignetteCurvature(options.vignetteCurvature);
-        _composePass->setVignetteIntensity(options.vignetteIntensity);
-        _composePass->setVignetteColor(options.vignetteColor[0],
-            options.vignetteColor[1], options.vignetteColor[2]);
-
-        // Fringing: user value scaled to shader units (intensity / 1024).
-        _composePass->setFringingIntensity(options.fringingIntensity / 1024.0f);
-
-        // Color grading + enhance (HDR, pre-tonemap).
-        _composePass->setGradingEnabled(options.gradingEnabled);
-        _composePass->setGradingBrightness(options.gradingBrightness);
-        _composePass->setGradingContrast(options.gradingContrast);
-        _composePass->setGradingSaturation(options.gradingSaturation);
-        _composePass->setGradingTint(options.gradingTint[0], options.gradingTint[1], options.gradingTint[2]);
-        _composePass->setColorEnhance(options.colorEnhanceShadows, options.colorEnhanceHighlights,
-            options.colorEnhanceVibrance, options.colorEnhanceDehaze, options.colorEnhanceMidtones);
-
-        // 3D color LUT (post-tonemap).
-        _composePass->setColorLUT(options.colorLUT, options.colorLUTIntensity);
-        _composePass->setColorLUT2(options.colorLUT2, options.colorLUTIntensity2, options.colorLUTBlend);
+        // Vignette, fringing, grading, colour enhance and the LUTs.
+        _composePass->setColorSettings(options);
 
         _composePass->init(_targetRenderTarget);
     }

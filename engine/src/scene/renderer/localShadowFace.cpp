@@ -12,6 +12,7 @@
 
 #include "depthOnlyDraw.h"
 #include "shadowCasterFiltering.h"
+#include "scene/graphics/quadShader.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -74,20 +75,8 @@ void main() {}
 
         std::shared_ptr<Shader> clearDepthShader(GraphicsDevice* device)
         {
-            constexpr const char* cacheKey = "clear-depth-quad";
-            auto cached = device->getCachedShader(cacheKey);
-            if (!cached) {
-                ShaderDefinition definition;
-                definition.name = cacheKey;
-                definition.vshader = "clearDepthVertex";
-                definition.fshader = "clearDepthFragment";
-                cached = createShader(device, definition,
-                    device->shaderLanguage() == ShaderLanguage::Glsl ? kClearDepthGlsl : kClearDepthMsl);
-                if (cached) {
-                    device->setCachedShader(cacheKey, cached);
-                }
-            }
-            return cached;
+            return getOrCreateQuadShader(device, "clear-depth-quad", "clearDepthVertex", "clearDepthFragment",
+                kClearDepthMsl, kClearDepthGlsl);
         }
     }
 

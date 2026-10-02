@@ -13,6 +13,8 @@
 //
 #include "renderPassVsmBlur.h"
 
+#include "scene/graphics/quadShaderSource.h"
+#include "scene/graphics/quadShader.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
@@ -31,40 +33,17 @@ namespace visutwin::canvas
             float params[4];                     // x = filterSize, y = cascade tile size
         };
 
-        constexpr const char* VSM_BLUR_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
+        constexpr const char* VSM_BLUR_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 #define MAX_TAPS 25
-
-struct VsmVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct VsmVarying {
-    float4 position [[position]];
-    float2 uv;
-};
 
 struct VsmBlurUniforms {
     float4 invResolutionAndDirection;
     float4 params;
 };
-
-vertex VsmVarying vsmBlurVertex(VsmVertexIn in [[stage_in]])
-{
-    VsmVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(vsmBlurVertex) R"(
 fragment float4 vsmBlurFragment(
-    VsmVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     texture2d<float> sourceTexture [[texture(0)]],
     sampler linearSampler [[sampler(0)]],
     constant VsmBlurUniforms& uniforms [[buffer(3)]])
@@ -103,16 +82,7 @@ fragment float4 vsmBlurFragment(
 
 #define MAX_TAPS 25
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform VsmBlurUniforms {
     vec4 invResolutionAndDirection;
@@ -151,21 +121,8 @@ void main() {
 
         std::shared_ptr<Shader> vsmBlurShader(GraphicsDevice* device)
         {
-            constexpr const char* cacheKey = "vsm-blur-quad";
-            if (auto cached = device->getCachedShader(cacheKey)) {
-                return cached;
-            }
-            ShaderDefinition definition;
-            definition.name = cacheKey;
-            definition.vshader = "vsmBlurVertex";
-            definition.fshader = "vsmBlurFragment";
-            const char* source = device->shaderLanguage() == ShaderLanguage::Glsl
-                ? VSM_BLUR_GLSL : VSM_BLUR_MSL;
-            auto shader = createShader(device, definition, source);
-            if (shader) {
-                device->setCachedShader(cacheKey, shader);
-            }
-            return shader;
+            return getOrCreateQuadShader(device, "vsm-blur-quad", "vsmBlurVertex", "vsmBlurFragment",
+                VSM_BLUR_MSL, VSM_BLUR_GLSL);
         }
     }
 

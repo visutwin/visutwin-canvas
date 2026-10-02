@@ -8,6 +8,8 @@
 
 #include <string>
 
+#include "scene/graphics/quadShaderSource.h"
+#include "scene/graphics/quadShader.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/shader.h"
 
@@ -21,31 +23,7 @@ namespace visutwin::canvas
         //  - KARIS (options.boxFilter=false, default): 13-tap partial-average filter from the
         //    Call of Duty "Next Generation Post Processing" talk. Used for the bloom mip chain —
         //    its firefly-damping weights and wider support are what produce a smooth HDR halo.
-        constexpr const char* DOWNSAMPLE_SOURCE_SIMPLE = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct QuadVarying {
-    float4 position [[position]];
-    float2 uv;
-};
-
-vertex QuadVarying downsampleVertex(QuadVertexIn in [[stage_in]])
-{
-    QuadVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+        constexpr const char* DOWNSAMPLE_SOURCE_SIMPLE = VT_QUAD_MSL_PRELUDE VT_QUAD_MSL_VERTEX(downsampleVertex) R"(
 fragment float4 downsampleFragment(
     QuadVarying in [[stage_in]],
     texture2d<float> sourceTexture [[texture(0)]],
@@ -66,31 +44,7 @@ fragment float4 downsampleFragment(
         // far pass uses it to weight the scene by the far circle of confusion before
         // blurring, so in-focus pixels do not bleed into the blur. `{CH}` is the
         // channel letter, substituted when the variant is built.
-        constexpr const char* DOWNSAMPLE_SOURCE_SIMPLE_PREMULTIPLY = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct QuadVarying {
-    float4 position [[position]];
-    float2 uv;
-};
-
-vertex QuadVarying downsampleVertex(QuadVertexIn in [[stage_in]])
-{
-    QuadVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+        constexpr const char* DOWNSAMPLE_SOURCE_SIMPLE_PREMULTIPLY = VT_QUAD_MSL_PRELUDE VT_QUAD_MSL_VERTEX(downsampleVertex) R"(
 fragment float4 downsampleFragment(
     QuadVarying in [[stage_in]],
     texture2d<float> sourceTexture [[texture(0)]],
@@ -104,31 +58,10 @@ fragment float4 downsampleFragment(
 }
 )";
 
-        constexpr const char* DOWNSAMPLE_SOURCE_KARIS = R"(
-#include <metal_stdlib>
-using namespace metal;
+        constexpr const char* DOWNSAMPLE_SOURCE_KARIS = VT_QUAD_MSL_PRELUDE R"(
 
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-{PREFILTER_DECL}struct QuadVarying {
-    float4 position [[position]];
-    float2 uv;
-};
-
-vertex QuadVarying downsampleVertex(QuadVertexIn in [[stage_in]])
-{
-    QuadVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+{PREFILTER_DECL}
+)" VT_QUAD_MSL_VERTEX(downsampleVertex) R"(
 fragment float4 downsampleFragment(
     QuadVarying in [[stage_in]],
     texture2d<float> sourceTexture [[texture(0)]],
@@ -184,16 +117,7 @@ fragment float4 downsampleFragment(
         constexpr const char* DOWNSAMPLE_GLSL_SIMPLE = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
 layout(location = 0) in vec2 vUv;
@@ -211,16 +135,7 @@ void main() {
         constexpr const char* DOWNSAMPLE_GLSL_SIMPLE_PREMULTIPLY = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
 layout(set = 1, binding = 1) uniform sampler2D premultiplyTexture;
@@ -239,16 +154,7 @@ void main() {
         constexpr const char* DOWNSAMPLE_GLSL_KARIS = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 {PREFILTER_DECL}layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
 layout(location = 0) in vec2 vUv;
@@ -358,7 +264,6 @@ void main() {
         // a separate MTL::Library with the same source.  This avoids hitting
         // the AGX compiled-variants footprint limit. Two cache entries because the two
         // filter variants (simple vs Karis) share symbol names but different bodies.
-        const bool glsl = device->shaderLanguage() == ShaderLanguage::Glsl;
         // The premultiplied box variant is only meaningful with a box filter, and is keyed on the channel it reads.
         const bool premultiply = options.boxFilter && options.premultiplyTexture != nullptr;
         const std::string channel(1, premultiply ? options.premultiplySrcChannel : 'x');
@@ -366,37 +271,29 @@ void main() {
             ? ("DownsampleQuad:BoxPremultiply:" + channel)
             : std::string(options.boxFilter ? "DownsampleQuad:Box"
                 : _prefilter ? "DownsampleQuad:KarisPrefilter" : "DownsampleQuad:Karis");
-        const char* cacheKey = cacheKeyStorage.c_str();
-        std::string sourceStorage;
-        const char* sourceText = nullptr;
-        if (premultiply) {
-            sourceStorage = glsl ? DOWNSAMPLE_GLSL_SIMPLE_PREMULTIPLY : DOWNSAMPLE_SOURCE_SIMPLE_PREMULTIPLY;
-            const std::string marker = "{CH}";
-            for (size_t at = sourceStorage.find(marker); at != std::string::npos; at = sourceStorage.find(marker, at)) {
-                sourceStorage.replace(at, marker.size(), channel);
-            }
-            sourceText = sourceStorage.c_str();
-        } else if (options.boxFilter) {
-            sourceText = glsl ? DOWNSAMPLE_GLSL_SIMPLE : DOWNSAMPLE_SOURCE_SIMPLE;
-        } else {
-            sourceStorage = glsl ? DOWNSAMPLE_GLSL_KARIS : DOWNSAMPLE_SOURCE_KARIS;
-            replaceAll(sourceStorage, "{PREFILTER_DECL}",
-                _prefilter ? (glsl ? PREFILTER_GLSL_DECL : PREFILTER_MSL_DECL) : "");
-            replaceAll(sourceStorage, "{PREFILTER_ARG}", _prefilter && !glsl ? PREFILTER_MSL_ARG : "");
-            replaceAll(sourceStorage, "{PREFILTER_APPLY}",
-                _prefilter ? (glsl ? PREFILTER_GLSL_APPLY : PREFILTER_MSL_APPLY) : "");
-            sourceText = sourceStorage.c_str();
-        }
-        auto cached = device->getCachedShader(cacheKey);
-        if (!cached) {
-            ShaderDefinition shaderDefinition;
-            shaderDefinition.name = cacheKey;
-            shaderDefinition.vshader = "downsampleVertex";
-            shaderDefinition.fshader = "downsampleFragment";
-            cached = createShader(device.get(), shaderDefinition, sourceText);
-            device->setCachedShader(cacheKey, cached);
-        }
-        setShader(cached);
+        const bool boxFilter = options.boxFilter;
+        const bool prefilter = _prefilter;
+        setShader(getOrCreateQuadShader(device.get(), cacheKeyStorage.c_str(), "downsampleVertex", "downsampleFragment",
+            [&](const bool glsl) {
+                std::string source;
+                if (premultiply) {
+                    source = glsl ? DOWNSAMPLE_GLSL_SIMPLE_PREMULTIPLY : DOWNSAMPLE_SOURCE_SIMPLE_PREMULTIPLY;
+                    const std::string marker = "{CH}";
+                    for (size_t at = source.find(marker); at != std::string::npos; at = source.find(marker, at)) {
+                        source.replace(at, marker.size(), channel);
+                    }
+                } else if (boxFilter) {
+                    source = glsl ? DOWNSAMPLE_GLSL_SIMPLE : DOWNSAMPLE_SOURCE_SIMPLE;
+                } else {
+                    source = glsl ? DOWNSAMPLE_GLSL_KARIS : DOWNSAMPLE_SOURCE_KARIS;
+                    replaceAll(source, "{PREFILTER_DECL}",
+                        prefilter ? (glsl ? PREFILTER_GLSL_DECL : PREFILTER_MSL_DECL) : "");
+                    replaceAll(source, "{PREFILTER_ARG}", prefilter && !glsl ? PREFILTER_MSL_ARG : "");
+                    replaceAll(source, "{PREFILTER_APPLY}",
+                        prefilter ? (glsl ? PREFILTER_GLSL_APPLY : PREFILTER_MSL_APPLY) : "");
+                }
+                return source;
+            }));
     }
 
     void RenderPassDownsample::setSourceTexture(Texture* value)

@@ -17,6 +17,8 @@
 
 #include <cstdint>
 
+#include "scene/graphics/quadShaderSource.h"
+
 namespace visutwin::canvas::cookie_shaders
 {
     struct alignas(16) CookieBlitUniforms
@@ -25,39 +27,16 @@ namespace visutwin::canvas::cookie_shaders
     };
     static_assert(sizeof(CookieBlitUniforms) == 64);
 
-    constexpr const char* COOKIE_BLIT_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct QuadVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal   [[attribute(1)]];
-    float2 uv0      [[attribute(2)]];
-    float4 tangent  [[attribute(3)]];
-    float2 uv1      [[attribute(4)]];
-};
-
-struct CookieVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+    constexpr const char* COOKIE_BLIT_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct CookieUniforms {
     float4x4 invViewProj;
 };
-
-vertex CookieVarying cookieBlitVertex(QuadVertexIn in [[stage_in]])
-{
-    CookieVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(cookieBlitVertex) R"(
 constexpr sampler cookieBlitSampler(coord::normalized, filter::linear, address::clamp_to_edge);
 
 fragment float4 cookieBlitFragment(
-    CookieVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     constant CookieUniforms& u [[buffer(3)]],
 #ifdef SRC_CUBE
     texturecube<float> blitTexture [[texture(0)]])
@@ -75,16 +54,7 @@ fragment float4 cookieBlitFragment(
 )";
 
     constexpr const char* COOKIE_BLIT_GLSL = R"(
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform CookieUniforms {
     mat4 invViewProj;

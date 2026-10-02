@@ -34,7 +34,7 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (343 .h + 248 .cpp + 1 .mm = 592 files)
+  engine/          # Core 3D engine (346 .h + 249 .cpp + 1 .mm = 596 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
@@ -447,7 +447,10 @@ Forward PBR renderer with frame graph:
 **fringing** → bloom → **color enhance** → **color grading** → tonemap → **3D
 color LUT** → vignette → gamma. Configured via
 `CameraComponent::RenderingSettings` → CameraFrameOptions → RenderPassCompose →
-ComposePassParams.
+ComposePassParams. The colour settings (vignette, fringing, grading, enhance, LUTs) are
+ONE struct, `ComposeColorSettings` (`scene/graphics/composeColorSettings.h`), which both
+settings structs derive from and the compose pass takes whole: a new one is a field
+there plus its line in `RenderPassCompose::execute`, not a copy at every hop.
 
 - DOF runs BEFORE SSAO. Occlusion multiplies the already-defocused colour and is
   not itself blurred, so it keeps full strength out of focus; the other way round
@@ -580,8 +583,11 @@ them, so the build-time bundle and the runtime composition share one source.
   `common-tonemap`, so a minimal tonemap override does not drop them.
 
 **Fullscreen effects use `QuadRender`** (`scene/graphics/quadRender.h`), not
-device virtuals: a shader, up to 8 input textures on fragment slots 0-7, and one
-uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
+device virtuals, and get their shader from `getOrCreateQuadShader` (`quadShader.h`: the
+device cache, the source built only on a miss) with the vertex stage, vertex input and
+`QuadVarying` from `quadShaderSource.h` (`VT_QUAD_MSL_PRELUDE`, `VT_QUAD_MSL_VERTEX(name)`,
+`VT_QUAD_GLSL_VERTEX`) rather than a copy of them. A quad pass is otherwise a shader,
+up to 8 input textures on fragment slots 0-7, and one uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
 (640; `MaterialUniforms` itself is 544 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size

@@ -19,6 +19,8 @@
 
 #include <cstdint>
 
+#include "scene/graphics/quadShaderSource.h"
+
 namespace visutwin::canvas::compose_shaders
 {
     struct alignas(16) ComposeUniforms
@@ -88,22 +90,7 @@ namespace visutwin::canvas::compose_shaders
     // std140, so both shaders declare this same field list.
     static_assert(sizeof(ComposeUniforms) <= 512, "must fit kPerDrawUniformCapacity");
 
-    constexpr const char* COMPOSE_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct ComposeVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+    constexpr const char* COMPOSE_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct ComposeUniforms {
     uint dofEnabled;
@@ -264,15 +251,7 @@ float3 applyCas(float3 color, float2 uv, float sharpness,
     float3 res = (w * (a + b + d + e) + c) / (4.0 * w + 1.0);
     return toHDR(max(res, float3(0.0)));
 }
-
-vertex ComposeVarying composeVertex(ComposeVertexIn in [[stage_in]])
-{
-    ComposeVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(composeVertex) R"(
 // Fringing (chromatic aberration): shift red/blue by distance-squared from center.
 float3 applyFringing(float3 color, float2 uv, float intensity,
                      texture2d<float> sceneTexture, sampler s) {
@@ -515,7 +494,7 @@ float3 sampleSceneReduced(texture2d<float> sceneTexture, sampler s, float2 uv,
 // Compose pass order:
 // CAS -> DOF -> SSAO -> Fringing -> Bloom -> ColorEnhance -> Grading -> ToneMap -> ColorLUT -> Vignette
 fragment float4 composeFragment(
-    ComposeVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     texture2d<float> sceneTexture [[texture(0)]],
     texture2d<float> bloomTexture [[texture(1)]],
     texture2d<float> ssaoTexture [[texture(2)]],
@@ -637,13 +616,7 @@ fragment float4 composeFragment(
 
     constexpr const char* COMPOSE_GLSL = R"(#version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() { vUv = vertexUv0; gl_Position = vec4(vertexPosition, 1.0); }
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(location = 0) in vec2 vUv;
 

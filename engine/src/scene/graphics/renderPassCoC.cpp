@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "scene/graphics/quadShaderSource.h"
 #include "scene/camera.h"
 #include "scene/graphics/quadRender.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -36,36 +37,13 @@ namespace visutwin::canvas
         };
         static_assert(sizeof(CoCUniforms) == 32);
 
-        constexpr const char* COC_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct CoCVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+        constexpr const char* COC_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct CoCUniforms {
     float4 focus;
     float4 flags;
 };
-
-vertex CoCVarying cocVertex(ComposeVertexIn in [[stage_in]])
-{
-    CoCVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(cocVertex) R"(
 static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
 {
     return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
@@ -79,7 +57,7 @@ constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
                                     mip_filter::none, address::clamp_to_edge);
 
 fragment float4 cocFragment(
-    CoCVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     depth2d<float> depthTexture [[texture(0)]],
     sampler linearSampler [[sampler(0)]],
     constant CoCUniforms& u [[buffer(3)]])
@@ -107,16 +85,7 @@ fragment float4 cocFragment(
         constexpr const char* COC_GLSL = R"(
 #version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() {
-    vUv = vertexUv0;
-    gl_Position = vec4(vertexPosition, 1.0);
-}
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(set = 0, binding = 0) uniform CoCUniforms {
     vec4 focus;

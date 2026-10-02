@@ -14,6 +14,7 @@
 #include "platform/graphics/texture.h"
 #include "scene/camera.h"
 #include "scene/constants.h"
+#include "scene/graphics/composeColorSettings.h"
 #include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
@@ -121,8 +122,9 @@ namespace visutwin::canvas
         int localSteps = 12;
     };
 
-    // Rendering settings
-    struct RenderingSettings
+    // Rendering settings. The compose pass's colour settings (vignette, fringing, grading,
+    // colour enhance, LUTs) come from ComposeColorSettings.
+    struct RenderingSettings : ComposeColorSettings
     {
         float renderTargetScale = 1.0f;
         float sharpness = 0.0f;
@@ -142,40 +144,6 @@ namespace visutwin::canvas
         // units the scene is rendered in, before exposure and tone mapping, so a scene
         // whose exposure is far from 1 needs it scaled to match. 0 = no threshold.
         float bloomThreshold = 0.0f;
-
-        // Vignette
-        bool vignetteEnabled = false;
-        float vignetteInner = 0.5f;
-        float vignetteOuter = 1.0f;
-        float vignetteCurvature = 0.5f;
-        float vignetteIntensity = 0.3f;
-        // Darkening colour. Black is the usual choice; it exists for a tinted
-        // vignette.
-        float vignetteColor[3] = {0.0f, 0.0f, 0.0f};
-
-        // Fringing (chromatic aberration): user units 0..~100, 0 = disabled
-        float fringingIntensity = 0.0f;
-
-        // Color grading (HDR, pre-tonemap); 1.0 = no change
-        bool gradingEnabled = false;
-        float gradingBrightness = 1.0f;
-        float gradingContrast = 1.0f;
-        float gradingSaturation = 1.0f;
-        float gradingTint[3] = {1.0f, 1.0f, 1.0f};
-
-        // Color enhance (pre-tonemap); 0 = no change
-        float colorEnhanceShadows = 0.0f;
-        float colorEnhanceHighlights = 0.0f;
-        float colorEnhanceVibrance = 0.0f;
-        float colorEnhanceDehaze = 0.0f;
-        float colorEnhanceMidtones = 0.0f;
-
-        // 3D color LUT (post-tonemap): 256x16 Unreal-format strip textures
-        Texture* colorLUT = nullptr;
-        Texture* colorLUT2 = nullptr;
-        float colorLUTIntensity = 1.0f;
-        float colorLUTIntensity2 = 1.0f;
-        float colorLUTBlend = 0.0f;
     };
 
     /*

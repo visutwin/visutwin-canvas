@@ -14,6 +14,7 @@
 
 #include "lightmapFilters.h"
 #include "lightmapFilterShaders.h"
+#include "scene/graphics/quadShader.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/components/componentSystem.h"
@@ -141,23 +142,13 @@ namespace visutwin::canvas
             case FilterKind::Copy:
                 break;
             }
-            if (auto cached = device->getCachedShader(cacheKey)) {
-                return cached;
-            }
             // GLSL needs its #version line first, so the pass switch follows it.
-            const bool glsl = device->shaderLanguage() == ShaderLanguage::Glsl;
-            const std::string source = glsl
-                ? std::string("#version 450\n") + define + lightmap_filter_shaders::LIGHTMAP_FILTER_GLSL
-                : std::string(define) + lightmap_filter_shaders::LIGHTMAP_FILTER_MSL;
-            ShaderDefinition definition;
-            definition.name = cacheKey;
-            definition.vshader = "lightmapFilterVertex";
-            definition.fshader = "lightmapFilterFragment";
-            auto shader = createShader(device, definition, source);
-            if (shader) {
-                device->setCachedShader(cacheKey, shader);
-            }
-            return shader;
+            return getOrCreateQuadShader(device, cacheKey, "lightmapFilterVertex", "lightmapFilterFragment",
+                [define](const bool glsl) {
+                    return glsl
+                        ? std::string("#version 450\n") + define + lightmap_filter_shaders::LIGHTMAP_FILTER_GLSL
+                        : std::string(define) + lightmap_filter_shaders::LIGHTMAP_FILTER_MSL;
+                });
         }
 
         /// One full-target quad: `sources` on slots 0.., writing `target`. A pass draws

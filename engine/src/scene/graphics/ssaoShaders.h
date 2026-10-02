@@ -11,6 +11,8 @@
 
 #include <cstdint>
 
+#include "scene/graphics/quadShaderSource.h"
+
 namespace visutwin::canvas::ssao_shaders
 {
     /**
@@ -41,22 +43,7 @@ namespace visutwin::canvas::ssao_shaders
     };
     static_assert(sizeof(SsaoUniforms) == 96);
 
-    constexpr const char* SSAO_MSL = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct SsaoVarying {
-    float4 position [[position]];
-    float2 uv;
-};
+    constexpr const char* SSAO_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 struct SsaoUniforms {
     float aspect;
@@ -76,15 +63,7 @@ struct SsaoUniforms {
     float cameraNear;
     float cameraFar;
 };
-
-vertex SsaoVarying ssaoVertex(ComposeVertexIn in [[stage_in]])
-{
-    SsaoVarying out;
-    out.position = float4(in.position, 1.0);
-    out.uv = in.uv0;
-    return out;
-}
-
+)" VT_QUAD_MSL_VERTEX(ssaoVertex) R"(
 static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
 {
     // Standard depth [0,1]: near=0, far=1 (vertex shader maps via clip.z = 0.5*(clip.z + clip.w)).
@@ -224,7 +203,7 @@ static inline float scalableAmbientObscurance(
 }
 
 fragment float4 ssaoFragment(
-    SsaoVarying in [[stage_in]],
+    QuadVarying in [[stage_in]],
     depth2d<float> depthTexture [[texture(0)]],
     sampler linearSampler [[sampler(0)]],
     constant SsaoUniforms& uniforms [[buffer(3)]])
@@ -260,13 +239,7 @@ fragment float4 ssaoFragment(
 
     constexpr const char* SSAO_GLSL = R"(#version 450
 
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-layout(location = 2) in vec2 vertexUv0;
-layout(location = 0) out vec2 vUv;
-void main() { vUv = vertexUv0; gl_Position = vec4(vertexPosition, 1.0); }
-#endif
-
+)" VT_QUAD_GLSL_VERTEX R"(
 #ifdef VT_FRAGMENT_SHADER
 layout(location = 0) in vec2 vUv;
 
