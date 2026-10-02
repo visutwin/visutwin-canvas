@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use VisuTwin Canvas in your research, please cite it as below."
+type: software
+title: "VisuTwin Canvas: a GPU-native visualization runtime for digital twins and scientific computing"
+abstract: >-
+  A C++23 real-time rendering engine for digital twins, geospatial scenes and
+  scientific visualization, running natively on Apple Metal and Vulkan 1.3.
+authors:
+  - family-names: Lektauers
+    given-names: Arnis
+    affiliation: Riga Technical University
+version: 0.1.0
+license: Apache-2.0
+repository-code: "https://github.com/visutwin/visutwin-canvas"
+url: "https://canvas.visutwin.com"
+keywords:
+  - digital twin
+  - real-time rendering
+  - scientific visualization
+  - physically based rendering
+  - Metal
+  - Vulkan
+  - C++
